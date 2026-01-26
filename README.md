@@ -4,10 +4,12 @@
   <img src="https://rejourney.co/rejourneyIcon-removebg-preview.png" alt="Rejourney Logo" width="120" />
 </div>
 
-<div align="center">
   <strong>Lightweight session replay and observability for React Native</strong>
   <br />
   Mobile-first focus with pixel-perfect video capture and real-time incident detection.
+  <br />
+  <br />
+  <a href="https://rejourney.co"><strong>Explore the Website »</strong></a>
 </div>
 
 <br />
