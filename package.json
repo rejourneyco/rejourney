@@ -1,0 +1,50 @@
+{
+  "name": "rejourney-monorepo",
+  "version": "1.1.12",
+  "private": true,
+  "description": "Rejourney Monorepo - Session Recording Platform",
+  "workspaces": [
+    "packages/*",
+    "backend",
+    "dashboard/web-ui"
+  ],
+  "scripts": {
+    "dev": "./dev.sh",
+    "build": "npm run build:sdk",
+    "build:sdk": "cd packages/react-native && npm run prepack",
+    "build:clean": "npm run clean && npm run build:sdk",
+    "test": "jest",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint \"**/*.{js,ts,tsx}\"",
+    "clean": "rm -rf packages/react-native/lib",
+    "db:seed": "./seed.sh",
+    "example:boilerplate": "cd examples/react-native-boilerplate && npm start",
+    "example:brew": "cd examples/brew-coffee-labs && npm start",
+    "example:bare": "cd examples/react-native-bare && npm start",
+    "example:boilerplate:ios": "cd examples/react-native-boilerplate && npm run ios",
+    "example:boilerplate:android": "cd examples/react-native-boilerplate && npm run android",
+    "example:brew:ios": "cd examples/brew-coffee-labs && npm run ios",
+    "example:brew:android": "cd examples/brew-coffee-labs && npm run android",
+    "example:bare:ios": "cd examples/react-native-bare && npm run ios",
+    "example:bare:android": "cd examples/react-native-bare && npm run android",
+    "postinstall": "npm run build:sdk"
+  },
+  "repository": "https://github.com/rejourneyco/rejourney",
+  "author": "Rejourney",
+  "license": "SEE LICENSE IN LICENSE",
+  "devDependencies": {
+    "@babel/core": "^7.20.0",
+    "@babel/preset-env": "^7.20.0",
+    "@types/jest": "^29.5.0",
+    "eslint": "^8.36.0",
+    "jest": "^29.5.0",
+    "typescript": "^5.9.3"
+  },
+  "overrides": {
+    "react": "18.3.1",
+    "react-dom": "18.3.1"
+  },
+  "engines": {
+    "node": ">=24.0.0"
+  }
+}

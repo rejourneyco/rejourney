@@ -1,0 +1,64 @@
+name: Preview Channel CI
+
+on:
+  pull_request:
+    branches: ['*']
+  push:
+    branches: ['dev', 'staging', 'main', 'release/**']
+
+jobs:
+  update:
+    name: Publish Preview Channel on Push / Pull-Request
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node-version: [22.x]
+    steps:
+      # Check for EXPO_TOKEN
+      - name: Check for EXPO_TOKEN
+        run: |
+          if [ -z "${{ secrets.EXPO_TOKEN }}" ]; then
+            echo "You must provide an EXPO_TOKEN secret linked to this project's Expo account in this repo's secrets."
+            exit 1
+          fi
+
+      # checkout the repository
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # setup node
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+
+      # setup expo
+      - name: Setup Expo
+        uses: expo/expo-github-action@v8
+        with:
+          expo-version: latest
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+
+      # install dependencies
+      - name: Install dependencies
+        run: npm ci
+
+      # install platform-specific lightningcss binary for Linux
+      - name: Install lightningcss Linux binary
+        run: npm install lightningcss-linux-x64-gnu --save-optional
+
+      # get branch name
+      - name: Get branch name
+        id: branch-name
+        uses: tj-actions/branch-names@v8
+
+      # eas update (PR)
+      - name: EAS update
+        if: github.event_name == 'pull_request'
+        run: eas update --branch ${{ steps.branch-name.outputs.current_branch }} --message "${{ github.event.pull_request.title }}"
+
+      # eas update (PUSH)
+      - name: EAS update
+        if: github.event_name == 'push'
+        run: eas update --branch ${{ steps.branch-name.outputs.current_branch }} --message "${{ github.event.head_commit.message }}"

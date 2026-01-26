@@ -1,0 +1,227 @@
+# Local Development Docker Compose
+# 
+# This file is for LOCAL DEVELOPMENT only.
+# 
+# IMPORTANT: Always use --env-file .env.local when running docker compose commands
+# Example: docker compose --env-file .env.local up
+# 
+# Or use the provided scripts:
+#   - ./scripts/local/rebuild.sh    (rebuilds with .env.local)
+#   - ./scripts/local/stop.sh       (stops with .env.local)
+#
+# The docker-compose.yml file itself does NOT specify an env-file, so you must
+# explicitly pass --env-file .env.local to ensure it uses the correct config.
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    environment:
+      DOCKER_ENV: "true"
+      NODE_ENV: ${NODE_ENV:-development}
+      PORT: ${PORT:-3000}
+      DATABASE_URL: ${DATABASE_URL}
+      REDIS_URL: ${REDIS_URL}
+      S3_ENDPOINT: ${S3_ENDPOINT}
+      S3_PUBLIC_ENDPOINT: ${S3_PUBLIC_ENDPOINT:-}
+      S3_REGION: ${S3_REGION}
+      S3_BUCKET: ${S3_BUCKET}
+      S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID}
+      S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY}
+      INGEST_HMAC_SECRET: ${INGEST_HMAC_SECRET}
+      JWT_SECRET: ${JWT_SECRET}
+      SELF_HOSTED_MODE: ${SELF_HOSTED_MODE:-true}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASS: ${SMTP_PASS:-}
+      SMTP_FROM: ${SMTP_FROM:-}
+      SMTP_SECURE: ${SMTP_SECURE:-}
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
+      PUBLIC_DASHBOARD_URL: ${PUBLIC_DASHBOARD_URL:-http://localhost:8080}
+      PUBLIC_API_URL: ${PUBLIC_API_URL:-http://localhost:3000}
+      PUBLIC_INGEST_URL: ${PUBLIC_INGEST_URL:-http://localhost:3000}
+      DASHBOARD_ORIGIN: ${DASHBOARD_ORIGIN:-http://localhost:8080}
+      STORAGE_ENCRYPTION_KEY: ${STORAGE_ENCRYPTION_KEY:-}
+    depends_on:
+      - postgres
+      - redis
+      - minio-setup
+    ports:
+      - "3000:3000"
+    restart: unless-stopped
+
+  web:
+    build:
+      context: .
+      dockerfile: ./dashboard/web-ui/Dockerfile
+      args:
+        - VITE_STRIPE_PUBLISHABLE_KEY=${VITE_STRIPE_PUBLISHABLE_KEY:-}
+        - VITE_DASHBOARD_URL=${PUBLIC_DASHBOARD_URL:-}
+        - VITE_API_URL=${PUBLIC_API_URL:-}
+    environment:
+      - NODE_ENV=${NODE_ENV:-development}
+    depends_on:
+      - api
+    ports:
+      - "8080:8080"
+    restart: unless-stopped
+
+  ingest-worker:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    environment:
+      DOCKER_ENV: "true"
+      NODE_ENV: ${NODE_ENV:-development}
+      DATABASE_URL: ${DATABASE_URL}
+      REDIS_URL: ${REDIS_URL}
+      S3_ENDPOINT: ${S3_ENDPOINT}
+      S3_REGION: ${S3_REGION}
+      S3_BUCKET: ${S3_BUCKET}
+      S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID}
+      S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY}
+      INGEST_HMAC_SECRET: ${INGEST_HMAC_SECRET}
+      JWT_SECRET: ${JWT_SECRET}
+      SELF_HOSTED_MODE: ${SELF_HOSTED_MODE:-true}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASS: ${SMTP_PASS:-}
+      SMTP_FROM: ${SMTP_FROM:-}
+      SMTP_SECURE: ${SMTP_SECURE:-}
+      PUBLIC_DASHBOARD_URL: ${PUBLIC_DASHBOARD_URL:-http://localhost:8080}
+      STORAGE_ENCRYPTION_KEY: ${STORAGE_ENCRYPTION_KEY:-}
+    depends_on:
+      - postgres
+      - redis
+      - minio-setup
+    command: ["node", "dist/worker/ingestWorker.js"]
+    restart: unless-stopped
+
+  retention-worker:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    environment:
+      DOCKER_ENV: "true"
+      NODE_ENV: ${NODE_ENV:-development}
+      DATABASE_URL: ${DATABASE_URL}
+      S3_ENDPOINT: ${S3_ENDPOINT}
+      S3_REGION: ${S3_REGION}
+      S3_BUCKET: ${S3_BUCKET}
+      S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID}
+      S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY}
+      INGEST_HMAC_SECRET: ${INGEST_HMAC_SECRET}
+      JWT_SECRET: ${JWT_SECRET}
+      SELF_HOSTED_MODE: ${SELF_HOSTED_MODE:-true}
+    depends_on:
+      - postgres
+      - minio-setup
+    command: ["node", "dist/worker/retentionWorker.js"]
+    restart: unless-stopped
+
+
+  # billing-worker removed - billing now handled by Stripe webhooks
+
+
+  alert-worker:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    environment:
+      DOCKER_ENV: "true"
+      NODE_ENV: ${NODE_ENV:-development}
+      DATABASE_URL: ${DATABASE_URL}
+      REDIS_URL: ${REDIS_URL}
+      INGEST_HMAC_SECRET: ${INGEST_HMAC_SECRET}
+      JWT_SECRET: ${JWT_SECRET}
+      SELF_HOSTED_MODE: ${SELF_HOSTED_MODE:-true}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASS: ${SMTP_PASS:-}
+      SMTP_FROM: ${SMTP_FROM:-}
+      SMTP_SECURE: ${SMTP_SECURE:-}
+      PUBLIC_DASHBOARD_URL: ${PUBLIC_DASHBOARD_URL:-http://localhost:8080}
+    depends_on:
+      - postgres
+      - redis
+    command: ["node", "dist/worker/alertWorker.js"]
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: rejourney
+      POSTGRES_USER: rejourney
+      POSTGRES_PASSWORD: rejourney
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    restart: unless-stopped
+
+  redis:
+    image: redis:8.4-alpine
+    command: ["redis-server", "--save", "900", "1", "--loglevel", "notice"]
+    volumes:
+      - redisdata:/data
+    restart: unless-stopped
+
+  redis-commander:
+    image: rediscommander/redis-commander:latest
+    environment:
+      - REDIS_HOSTS=local:redis:6379
+      - HTTP_USER=admin
+      - HTTP_PASSWORD=admin
+    ports:
+      - "8082:8081"
+    depends_on:
+      - redis
+    restart: unless-stopped
+
+  drizzle-studio:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile.studio
+    environment:
+      DATABASE_URL: postgresql://rejourney:rejourney@postgres:5432/rejourney
+    ports:
+      - "4983:4983"
+    depends_on:
+      - postgres
+    restart: unless-stopped
+
+  minio-setup:
+    image: minio/mc:latest
+    depends_on:
+      - minio
+    entrypoint: >
+      /bin/sh -c "
+      mc alias set local http://minio:9000 minioadmin minioadmin &&
+      mc mb -p local/rejourney || true
+      "
+    restart: on-failure:5
+
+  minio:
+    image: minio/minio:RELEASE.2024-09-22T00-33-43Z
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - miniodata:/data
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  redisdata:
+  miniodata:
+

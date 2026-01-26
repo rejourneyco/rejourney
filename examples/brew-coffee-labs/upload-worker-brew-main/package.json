@@ -1,0 +1,19 @@
+{
+	"name": "upload-worker",
+	"version": "0.0.0",
+	"private": true,
+	"scripts": {
+		"deploy": "wrangler deploy",
+		"dev": "wrangler dev",
+		"start": "wrangler dev",
+		"test": "vitest"
+	},
+	"devDependencies": {
+		"@cloudflare/vitest-pool-workers": "^0.7.5",
+		"vitest": "~3.0.7",
+		"wrangler": "^4.1.0"
+	},
+	"dependencies": {
+		"@supabase/supabase-js": "^2.49.1"
+	}
+}

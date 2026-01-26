@@ -1,0 +1,87 @@
+# Web (Dashboard) Deployment for Rejourney
+# React Router v7 SSR app served by Node.js
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: web
+  namespace: rejourney
+  labels:
+    app: web
+    app.kubernetes.io/part-of: rejourney
+spec:
+  type: ClusterIP
+  ports:
+    - port: 80
+      targetPort: 8080
+  selector:
+    app: web
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web
+  namespace: rejourney
+  labels:
+    app.kubernetes.io/part-of: rejourney
+spec:
+  replicas: 1  # Adjusted for single-node server
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app: web
+  template:
+    metadata:
+      labels:
+        app: web
+    spec:
+      imagePullSecrets:
+        - name: ghcr-secret
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000  # node user
+        fsGroup: 1000
+      containers:
+        - name: web
+          image: ghcr.io/rejourneyco/rejourney/web:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8080
+          env:
+            - name: NODE_ENV
+              value: "production"
+            - name: PORT
+              value: "8080"
+            - name: API_URL
+              value: "http://api:3000"
+            - name: VITE_STRIPE_PUBLISHABLE_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: stripe-secret
+                  key: VITE_STRIPE_PUBLISHABLE_KEY
+                  optional: true
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10

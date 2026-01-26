@@ -1,0 +1,19 @@
+# Drizzle Studio Dockerfile
+FROM node:24-alpine
+
+WORKDIR /app
+
+# Install drizzle-kit and drizzle-orm
+RUN npm install drizzle-kit drizzle-orm pg dotenv
+
+# Copy Drizzle configuration and schema
+COPY backend/drizzle.config.ts ./
+COPY backend/src/db/schema.ts ./src/db/schema.ts
+
+# Expose Drizzle Studio port
+EXPOSE 4983
+
+# Start Drizzle Studio
+CMD ["npx", "drizzle-kit", "studio", "--host", "0.0.0.0"]
+
+

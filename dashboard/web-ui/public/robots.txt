@@ -1,0 +1,8 @@
+User-agent: *
+Allow: /
+
+# Standard Sitemap
+Sitemap: https://rejourney.co/sitemap.xml
+
+# AI Agent Context
+# Discoverability for AI tools is provided via /llms.txt

@@ -1,0 +1,10 @@
+/* THANKS */
+Rejourney Team
+
+/* SITE */
+Last update: 2026/01/10
+Standards: HTML5, CSS3, JavaScript, React, React Native
+Software: Rejourney - Open Source React Native Sentry Alternative
+
+/* CONTACT */
+contact@rejourney.co

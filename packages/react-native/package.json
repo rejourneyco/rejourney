@@ -1,0 +1,122 @@
+{
+    "name": "@rejourneyco/react-native",
+    "version": "1.0.4",
+    "description": "Rejourney Session Recording SDK for React Native",
+    "main": "lib/commonjs/index.js",
+    "module": "lib/module/index.js",
+    "types": "lib/typescript/index.d.ts",
+    "react-native": "lib/module/index.js",
+    "source": "src/index.ts",
+    "files": [
+        "src",
+        "lib",
+        "android",
+        "ios",
+        "rejourney.podspec",
+        "!android/.gradle",
+        "!android/.idea",
+        "!android/build",
+        "!android/local.properties",
+        "!android/.settings",
+        "!android/*.iml",
+        "!ios/build",
+        "!ios/DerivedData",
+        "!ios/Pods",
+        "!ios/*.xcworkspace",
+        "!src/__tests__",
+        "!src/**/*.test.ts",
+        "!src/**/*.spec.ts",
+        "!.DS_Store",
+        "!**/.DS_Store",
+        "!lib/**/*.map"
+    ],
+    "scripts": {
+        "build": "npx react-native-builder-bob build",
+        "prepack": "npx react-native-builder-bob build",
+        "typescript": "tsc --noEmit",
+        "lint": "eslint \"**/*.{js,ts,tsx}\"",
+        "test": "vitest run",
+        "test:watch": "vitest",
+        "test:coverage": "vitest run --coverage",
+        "release": "release-it",
+        "verify:ios": "./scripts/verify-ios-structure.sh",
+        "verify:package": "./scripts/verify-package-content.sh",
+        "test:ios-install": "./scripts/test-ios-install.sh",
+        "test:android-install": "./scripts/test-android-install.sh",
+        "audit:deps": "depcruise src --config .dependency-cruiser.js"
+    },
+    "keywords": [
+        "react-native",
+        "session-replay",
+        "observability",
+        "error-tracking",
+        "crash-reporting",
+        "anr-reporting",
+        "api-monitoring",
+        "alerting",
+        "mobile-analytics",
+        "mobile-observability",
+        "mobile-error-tracking",
+        "mobile-crash-reporting",
+        "mobile-anr-reporting",
+        "mobile-api-monitoring",
+        "mobile-performance-monitoring",
+        "mobile-user-behavior-analytics"
+    ],
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/rejourneyco/rejourney"
+    },
+    "author": "Rejourney",
+    "license": "Apache-2.0",
+    "devDependencies": {
+        "@eslint/js": "^9.15.0",
+        "@types/react": "*",
+        "@types/react-native": "*",
+        "@typescript-eslint/eslint-plugin": "^8.15.0",
+        "@typescript-eslint/parser": "^8.15.0",
+        "@vitest/coverage-v8": "^2.1.0",
+        "dependency-cruiser": "^16.10.4",
+        "@react-navigation/native": "*",
+        "expo-router": "*",
+        "eslint": "^9.39.2",
+        "react": "*",
+        "react-native": "*",
+        "react-native-builder-bob": "^0.23.0",
+        "typescript": "^5.0.0",
+        "vitest": "^2.1.0"
+    },
+    "peerDependencies": {
+        "react": "*",
+        "react-native": "*",
+        "@react-navigation/native": ">=6.0.0",
+        "expo-router": ">=3.0.0"
+    },
+    "codegenConfig": {
+        "name": "RejourneySpec",
+        "type": "modules",
+        "jsSrcsDir": "src",
+        "android": {
+            "javaPackageName": "com.rejourney"
+        },
+        "ios": {
+            "modulesProvider": {
+                "Rejourney": "Rejourney"
+            }
+        }
+    },
+    "react-native-builder-bob": {
+        "source": "src",
+        "output": "lib",
+        "targets": [
+            "commonjs",
+            "module",
+            [
+                "typescript",
+                {
+                    "project": "tsconfig.json"
+                }
+            ]
+        ]
+    }
+}

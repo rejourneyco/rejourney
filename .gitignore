@@ -1,0 +1,51 @@
+# Environment files
+.env
+docs/local/.env
+docker/.env
+
+# Dependencies
+**/node_modules/
+
+# Build outputs
+packages/**/lib/
+
+# iOS
+*.xcworkspace
+!*.xcworkspace/contents.xcworkspacedata
+**/ios/Pods/
+**/ios/build/
+**/ios/*.xcworkspace/xcuserdata/
+*.pbxuser
+*.mode1v3
+*.mode2v3
+*.perspectivev3
+*.xcuserstate
+project.xcworkspace/
+xcuserdata/
+
+# Android
+**/android/build/
+**/android/.gradle/
+**/android/app/build/
+local.properties
+*.keystore
+
+# Metro
+.metro-health-check*
+
+# macOS
+.DS_Store
+*.pem
+
+# Temporary files
+*.log
+*.tmp
+
+# Editor
+.idea/
+.vscode/
+*.swp
+*.swo
+.env.local
+api_logs.txt
+temp_env.txt

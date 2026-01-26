@@ -1,0 +1,82 @@
+# Rejourney Kubernetes Namespace & Secrets
+# Apply first: kubectl apply -f namespace.yaml
+
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: rejourney
+  labels:
+    app.kubernetes.io/name: rejourney
+    app.kubernetes.io/part-of: rejourney
+
+---
+# Create secrets via kubectl commands (don't commit real values):
+# 
+# 1. Database secrets:
+# kubectl create secret generic postgres-secret \
+#   --namespace rejourney \
+#   --from-literal=POSTGRES_USER=rejourney \
+#   --from-literal=POSTGRES_PASSWORD=<SECURE_PASSWORD> \
+#   --from-literal=POSTGRES_DB=rejourney \
+#   --from-literal=DATABASE_URL=postgresql://rejourney:<SECURE_PASSWORD>@postgres:5432/rejourney
+#
+# 2. Redis secrets:
+# kubectl create secret generic redis-secret \
+#   --namespace rejourney \
+#   --from-literal=REDIS_URL=redis://redis:6379/0
+#
+# 3. S3/Object Storage secrets:
+# kubectl create secret generic s3-secret \
+#   --namespace rejourney \
+#   --from-literal=S3_ENDPOINT=<YOUR_HETZNER_S3_ENDPOINT> \
+#   --from-literal=S3_PUBLIC_ENDPOINT=<YOUR_HETZNER_S3_ENDPOINT> \
+#   --from-literal=S3_BUCKET=<YOUR_BUCKET_NAME> \
+#   --from-literal=S3_REGION=eu-central \
+#   --from-literal=S3_ACCESS_KEY_ID=<YOUR_ACCESS_KEY> \
+#   --from-literal=S3_SECRET_ACCESS_KEY=<YOUR_SECRET_KEY>
+#
+# 4. Application secrets (auth, encryption):
+# kubectl create secret generic app-secret \
+#   --namespace rejourney \
+#   --from-literal=JWT_SECRET=<openssl rand -hex 32> \
+#   --from-literal=JWT_SIGNING_KEY=<openssl rand -hex 32> \
+#   --from-literal=INGEST_HMAC_SECRET=<openssl rand -hex 32> \
+#   --from-literal=STORAGE_ENCRYPTION_KEY=<openssl rand -hex 32>
+#
+# 5. OAuth secrets:
+# kubectl create secret generic oauth-secret \
+#   --namespace rejourney \
+#   --from-literal=GITHUB_CLIENT_ID=<YOUR_GITHUB_CLIENT_ID> \
+#   --from-literal=GITHUB_CLIENT_SECRET=<YOUR_GITHUB_CLIENT_SECRET> \
+#   --from-literal=OAUTH_REDIRECT_BASE=https://api.rejourney.co
+#
+# 6. Stripe secrets (optional):
+# kubectl create secret generic stripe-secret \
+#   --namespace rejourney \
+#   --from-literal=STRIPE_SECRET_KEY=<YOUR_STRIPE_KEY> \
+#   --from-literal=STRIPE_WEBHOOK_SECRET=<YOUR_WEBHOOK_SECRET>
+#
+# 7. Turnstile secrets (optional):
+# kubectl create secret generic turnstile-secret \
+#   --namespace rejourney \
+#   --from-literal=TURNSTILE_SITE_KEY=<YOUR_SITE_KEY> \
+#   --from-literal=TURNSTILE_SECRET_KEY=<YOUR_SECRET_KEY>
+#
+# 8. SMTP secrets (optional):
+# kubectl create secret generic smtp-secret \
+#   --namespace rejourney \
+#   --from-literal=SMTP_HOST=smtp.zeptomail.com \
+#   --from-literal=SMTP_PORT=587 \
+#   --from-literal=SMTP_USER=emailapikey \
+#   --from-literal=SMTP_PASS=<YOUR_SMTP_PASSWORD> \
+#   --from-literal=SMTP_FROM="Rejourney <noreply@rejourney.co>" \
+#   --from-literal=SMTP_SECURE=false
+#
+# 9. R2 Backup secrets (for PostgreSQL backups to Cloudflare R2):
+# kubectl create secret generic r2-backup-secret \
+#   --namespace rejourney \
+#   --from-literal=R2_ENDPOINT=https://<ACCOUNT_ID>.r2.cloudflarestorage.com \
+#   --from-literal=R2_BUCKET=<YOUR_BACKUP_BUCKET> \
+#   --from-literal=R2_ACCESS_KEY_ID=<YOUR_R2_ACCESS_KEY> \
+#   --from-literal=R2_SECRET_ACCESS_KEY=<YOUR_R2_SECRET_KEY>

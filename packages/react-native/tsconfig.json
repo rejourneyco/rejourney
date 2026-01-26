@@ -1,0 +1,37 @@
+{
+    "compilerOptions": {
+        "target": "esnext",
+        "module": "commonjs",
+        "lib": [
+            "esnext"
+        ],
+        "jsx": "react-native",
+        "declaration": true,
+        "declarationMap": true,
+        "strict": true,
+        "noImplicitAny": true,
+        "strictNullChecks": true,
+        "noImplicitThis": true,
+        "noUnusedLocals": true,
+        "noUnusedParameters": true,
+        "noImplicitReturns": true,
+        "noFallthroughCasesInSwitch": true,
+        "moduleResolution": "node",
+        "allowSyntheticDefaultImports": true,
+        "esModuleInterop": true,
+        "skipLibCheck": true,
+        "resolveJsonModule": true,
+        "outDir": "lib/typescript",
+        "rootDir": "src"
+    },
+    "include": [
+        "src/**/*"
+    ],
+    "exclude": [
+        "node_modules",
+        "lib",
+        "src/__tests__",
+        "**/*.test.ts",
+        "**/*.spec.ts"
+    ]
+}

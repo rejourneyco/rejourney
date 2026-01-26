@@ -1,0 +1,165 @@
+name: Rejourney SDK CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  # ------------------------------------------------------------------
+  # SDK JOBS
+  # ------------------------------------------------------------------
+  sdk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+
+      - name: TypeScript check
+        working-directory: ./packages/react-native
+        run: npm run typescript
+
+      - name: Lint
+        working-directory: ./packages/react-native
+        run: npm run lint --if-present
+
+      - name: Dependency Audit
+        working-directory: ./packages/react-native
+        run: npm run audit:deps
+
+      - name: Run unit tests
+        working-directory: ./packages/react-native
+        run: npm test
+
+      - name: Build SDK
+        working-directory: ./packages/react-native
+        run: npm run prepack
+
+      - name: Verify package content
+        working-directory: ./packages/react-native
+        run: npm run verify:package
+
+      - name: Verify package structure
+        working-directory: ./packages/react-native
+        run: |
+           if [ ! -f "src/index.ts" ]; then echo "❌ Src missing"; exit 1; fi
+           if [ ! -d "lib/commonjs" ]; then echo "❌ Build output missing"; exit 1; fi
+           echo "✅ Package structure valid"
+
+  # ------------------------------------------------------------------
+  # MOBILE INTEGRATION CHECKS
+  # ------------------------------------------------------------------
+  mobile-integration:
+    needs: [sdk]
+    strategy:
+      matrix:
+        platform: [ios, android]
+    runs-on: ${{ matrix.platform == 'ios' && 'macos-latest' || 'ubuntu-latest' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      
+      - name: Setup Ruby (iOS)
+        if: matrix.platform == 'ios'
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.2'
+          bundler-cache: false
+      
+      - name: Install CocoaPods (iOS)
+        if: matrix.platform == 'ios'
+        run: sudo gem install cocoapods xcpretty
+
+      - name: Setup Java (Android)
+        if: matrix.platform == 'android'
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+
+      - name: Build & Pack SDK
+        run: |
+          npm ci --ignore-scripts
+          cd packages/react-native && npm run prepack
+          PACK_FILE=$(npm pack 2>&1 | tail -1 | sed 's/.*\///')
+          echo "PACK_FILE=$PACK_FILE" >> $GITHUB_ENV
+
+      - name: Create Test App
+        run: |
+          cd /tmp
+          npx --yes @react-native-community/cli init ValidationApp --skip-install
+      
+      - name: Install SDK in Test App
+        run: |
+          cd /tmp/ValidationApp
+          npm install
+          npm install "$GITHUB_WORKSPACE/packages/react-native/$PACK_FILE"
+
+      - name: Build iOS
+        if: matrix.platform == 'ios'
+        working-directory: /tmp/ValidationApp/ios
+        run: |
+          pod install
+          xcodebuild -workspace ValidationApp.xcworkspace -scheme ValidationApp -configuration Debug -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' clean build CODE_SIGNING_ALLOWED=NO | xcpretty
+
+      - name: Build Android
+        if: matrix.platform == 'android'
+        working-directory: /tmp/ValidationApp/android
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleDebug --no-daemon
+
+  # ------------------------------------------------------------------
+  # PUBLISH SDK TO NPM
+  # ------------------------------------------------------------------
+  publish-sdk:
+    needs: [mobile-integration]
+    if: success() && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Build SDK
+        working-directory: ./packages/react-native
+        run: npm run prepack
+
+      - name: Check version and publish
+        working-directory: ./packages/react-native
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          PACKAGE_NAME=$(jq -r .name package.json)
+          CURRENT_VERSION=$(jq -r .version package.json)
+          echo "Package: $PACKAGE_NAME"
+          echo "Local Version: $CURRENT_VERSION"
+          
+          # Use npm view to check the latest published version
+          # If it returns 404, we assume version 0.0.0
+          PUBLISHED_VERSION=$(npm view $PACKAGE_NAME version 2>/dev/null || echo "0.0.0")
+          echo "Published Version: $PUBLISHED_VERSION"
+          
+          if [ "$CURRENT_VERSION" != "$PUBLISHED_VERSION" ]; then
+             echo "🚀 Publishing version $CURRENT_VERSION to NPM..."
+             npm publish --access public
+          else
+             echo "✅ Version $CURRENT_VERSION is already published. Skipping."
+          fi

@@ -1,0 +1,497 @@
+import React, { useState, useEffect, useCallback } from 'react';
+import { Link } from 'react-router';
+import { useTeam } from '../../context/TeamContext';
+import { useAuth } from '../../context/AuthContext';
+import { usePathPrefix } from '../../hooks/usePathPrefix';
+import { NeoButton } from '../../components/ui/neo/NeoButton';
+import { NeoCard } from '../../components/ui/neo/NeoCard';
+import { NeoBadge } from '../../components/ui/neo/NeoBadge';
+import { SettingsLayout } from '../../components/layout/SettingsLayout';
+import { Input } from '../../components/ui/Input';
+import { Modal } from '../../components/ui/Modal';
+import {
+  Users,
+  Mail,
+  Trash2,
+  Edit2,
+  Check,
+  Plus,
+  Building,
+  Save,
+  Building2,
+  CreditCard,
+  ArrowRight,
+} from 'lucide-react';
+import {
+  addTeamMember,
+  removeTeamMember,
+  updateTeamMember,
+  updateTeam,
+  getTeamInvitations,
+  cancelInvitation,
+  resendInvitation,
+  ApiTeamInvitation,
+} from '../../services/api';
+
+export const TeamSettings: React.FC = () => {
+  const { user } = useAuth();
+  const { currentTeam, teamMembers, refreshMembers, refreshTeams, isLoading: teamsLoading } = useTeam();
+  const pathPrefix = usePathPrefix();
+
+  // Member management
+  const [showAddMember, setShowAddMember] = useState(false);
+  const [newMemberEmail, setNewMemberEmail] = useState('');
+  const [newMemberRole, setNewMemberRole] = useState<'member' | 'admin' | 'billing_admin'>('member');
+  const [isAddingMember, setIsAddingMember] = useState(false);
+  const [memberError, setMemberError] = useState<string | null>(null);
+  const [memberSuccess, setMemberSuccess] = useState<string | null>(null);
+
+  // Pending invitations
+  const [invitations, setInvitations] = useState<ApiTeamInvitation[]>([]);
+  const [isLoadingInvitations, setIsLoadingInvitations] = useState(false);
+
+  // Team Renaming
+  const [isEditingName, setIsEditingName] = useState(false);
+  const [isSavingName, setIsSavingName] = useState(false);
+  const [editNameValue, setEditNameValue] = useState('');
+
+  const isOwner = currentTeam?.ownerUserId === user?.id;
+  const currentMember = teamMembers.find(m => m.userId === user?.id);
+  const isAdmin = isOwner || currentMember?.role === 'admin';
+
+  // Sync edit name state
+  useEffect(() => {
+    if (currentTeam) {
+      setEditNameValue(currentTeam.name || '');
+    }
+  }, [currentTeam]);
+
+  // Load pending invitations
+  const loadInvitations = useCallback(async () => {
+    if (!currentTeam || !isAdmin) {
+      setInvitations([]);
+      return;
+    }
+    try {
+      setIsLoadingInvitations(true);
+      const invites = await getTeamInvitations(currentTeam.id);
+      setInvitations(invites);
+    } catch (err) {
+      console.error('Failed to load invitations:', err);
+    } finally {
+      setIsLoadingInvitations(false);
+    }
+  }, [currentTeam?.id, isAdmin]);
+
+  useEffect(() => {
+    loadInvitations();
+  }, [loadInvitations]);
+
+  const handleUpdateName = async () => {
+    if (!currentTeam || !editNameValue.trim()) return;
+    try {
+      setIsSavingName(true);
+      await updateTeam(currentTeam.id, { name: editNameValue.trim() });
+      await refreshTeams();
+      setIsEditingName(false);
+    } catch (err) {
+      console.error('Failed to update team name:', err);
+    } finally {
+      setIsSavingName(false);
+    }
+  };
+
+  const handleAddMember = async () => {
+    if (!currentTeam || !newMemberEmail) return;
+    try {
+      setIsAddingMember(true);
+      setMemberError(null);
+      setMemberSuccess(null);
+      const result = await addTeamMember(currentTeam.id, newMemberEmail, newMemberRole);
+      if (result.invitation) {
+        setMemberSuccess(result.message || 'Invitation sent! The user will receive an email.');
+        await loadInvitations();
+      } else if (result.member) {
+        await refreshMembers();
+        setMemberSuccess('Member added successfully!');
+      }
+      setShowAddMember(false);
+      setNewMemberEmail('');
+      setNewMemberRole('member');
+      setTimeout(() => setMemberSuccess(null), 5000);
+    } catch (err) {
+      setMemberError(err instanceof Error ? err.message : 'Failed to add member');
+    } finally {
+      setIsAddingMember(false);
+    }
+  };
+
+  const handleRemoveMember = async (userId: string) => {
+    if (!currentTeam) return;
+    if (!window.confirm('Are you sure you want to remove this member?')) return;
+    try {
+      await removeTeamMember(currentTeam.id, userId);
+      await refreshMembers();
+    } catch (err) {
+      setMemberError(err instanceof Error ? err.message : 'Failed to remove member');
+    }
+  };
+
+  const handleChangeRole = async (userId: string, newRole: string) => {
+    if (!currentTeam) return;
+    try {
+      await updateTeamMember(currentTeam.id, userId, newRole);
+      await refreshMembers();
+    } catch (err) {
+      setMemberError(err instanceof Error ? err.message : 'Failed to update role');
+    }
+  };
+
+  const handleCancelInvitation = async (invitationId: string) => {
+    if (!currentTeam) return;
+    if (!window.confirm('Are you sure you want to cancel this invitation?')) return;
+    try {
+      await cancelInvitation(currentTeam.id, invitationId);
+      await loadInvitations();
+    } catch (err) {
+      setMemberError(err instanceof Error ? err.message : 'Failed to cancel invitation');
+    }
+  };
+
+  const handleResendInvitation = async (invitationId: string) => {
+    if (!currentTeam) return;
+    try {
+      await resendInvitation(currentTeam.id, invitationId);
+      await loadInvitations();
+      setMemberSuccess('Invitation resent!');
+      setTimeout(() => setMemberSuccess(null), 3000);
+    } catch (err) {
+      setMemberError(err instanceof Error ? err.message : 'Failed to resend invitation');
+    }
+  };
+
+  if (teamsLoading) {
+    return (
+      <SettingsLayout title="Team" description="Loading...">
+        <div className="h-32 bg-slate-100 border-2 border-slate-200 animate-pulse"></div>
+      </SettingsLayout>
+    );
+  }
+
+  if (!currentTeam) {
+    return (
+      <SettingsLayout title="Team" description="Select a team to manage">
+        <div className="p-12 text-center border-2 border-dashed border-slate-300 bg-slate-50">
+          <Building className="w-12 h-12 text-slate-300 mx-auto mb-3" />
+          <h2 className="text-lg font-bold text-slate-900 mb-1">No Team Selected</h2>
+          <p className="text-sm text-slate-500">Please select or create a team from the sidebar.</p>
+        </div>
+      </SettingsLayout>
+    );
+  }
+
+  return (
+    <SettingsLayout
+      title="Team"
+      description={`Manage members for ${currentTeam.name}`}
+    >
+      {/* Team Information */}
+      <section className="space-y-4">
+        <h2 className="text-xl font-black uppercase tracking-tight flex items-center gap-2">
+          <Building2 className="w-5 h-5" /> Team Profile
+        </h2>
+        <NeoCard className="p-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div>
+              <label className="text-[10px] font-black uppercase text-slate-400 mb-2 block tracking-widest">Team Name</label>
+              {isEditingName ? (
+                <div className="flex gap-2">
+                  <Input
+                    value={editNameValue}
+                    onChange={(e) => setEditNameValue(e.target.value)}
+                    className="font-bold font-mono"
+                  />
+                  <NeoButton
+                    onClick={handleUpdateName}
+                    disabled={isSavingName}
+                    size="sm"
+                    variant="primary"
+                    leftIcon={<Save className="w-3 h-3" />}
+                  >
+                    Save
+                  </NeoButton>
+                  <NeoButton
+                    variant="secondary"
+                    onClick={() => { setIsEditingName(false); setEditNameValue(currentTeam.name || ''); }}
+                    size="sm"
+                  >
+                    Cancel
+                  </NeoButton>
+                </div>
+              ) : (
+                <div className="flex items-center gap-2 group">
+                  <div className="text-2xl font-black text-slate-900 uppercase tracking-tight">{currentTeam.name}</div>
+                  {isAdmin && (
+                    <button
+                      onClick={() => setIsEditingName(true)}
+                      className="opacity-0 group-hover:opacity-100 transition-all p-1.5 hover:bg-slate-100 rounded active:scale-95"
+                    >
+                      <Edit2 className="w-4 h-4 text-slate-400 hover:text-slate-900" />
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+            <div className="space-y-3">
+              <div className="flex justify-between border-b border-slate-100 pb-2">
+                <span className="text-xs font-bold uppercase text-slate-500 tracking-wide">Team ID</span>
+                <span className="text-sm font-mono font-bold text-slate-900 bg-slate-100 px-2 py-0.5 rounded">{currentTeam.id}</span>
+              </div>
+              <div className="flex justify-between border-b border-slate-100 pb-2">
+                <span className="text-xs font-bold uppercase text-slate-500 tracking-wide">Created On</span>
+                <span className="text-sm font-bold text-slate-900">{new Date(currentTeam.createdAt).toLocaleDateString()}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-xs font-bold uppercase text-slate-500 tracking-wide">Members</span>
+                <span className="text-sm font-bold text-slate-900">{teamMembers.length}</span>
+              </div>
+            </div>
+          </div>
+        </NeoCard>
+      </section>
+
+      {/* Billing Quick Link */}
+      <section>
+        <Link to={`${pathPrefix}/billing`}>
+          <NeoCard className="p-4 border-blue-600 bg-blue-50 hover:bg-blue-100 transition-colors cursor-pointer group">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-4">
+                <div className="w-10 h-10 bg-blue-600 flex items-center justify-center border-2 border-slate-900 shadow-[2px_2px_0_0_#000]">
+                  <CreditCard className="w-5 h-5 text-white" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-black uppercase tracking-tight">Billing & Plans</h3>
+                  <p className="text-xs font-bold text-blue-700">Manage your subscription, usage, and payment methods</p>
+                </div>
+              </div>
+              <ArrowRight className="w-5 h-5 text-blue-600 group-hover:translate-x-1 transition-transform" />
+            </div>
+          </NeoCard>
+        </Link>
+      </section>
+
+      {/* Pending Invitations */}
+      {isAdmin && invitations.length > 0 && (
+        <section className="space-y-4">
+          <h2 className="text-xl font-black uppercase tracking-tight flex items-center gap-2">
+            <Mail className="w-5 h-5" /> Pending Invitations
+          </h2>
+          <NeoCard className="p-0 overflow-hidden">
+            <div className="divide-y divide-slate-100">
+              {invitations.map((invite) => (
+                <div key={invite.id} className="p-4 flex items-center justify-between hover:bg-slate-50 transition-colors">
+                  <div className="flex items-center gap-4">
+                    <div className="w-10 h-10 bg-white border border-slate-200 flex items-center justify-center shadow-sm">
+                      <Mail className="w-5 h-5 text-slate-400" />
+                    </div>
+                    <div>
+                      <div className="text-sm font-bold text-slate-900">{invite.email}</div>
+                      <div className="text-[10px] font-bold text-slate-500 flex gap-2 uppercase tracking-wide">
+                        <span>Role: {invite.role}</span>
+                        <span>•</span>
+                        <span>Expires: {new Date(invite.expiresAt).toLocaleDateString()}</span>
+                        {invite.expired && <span className="text-red-500">EXPIRED</span>}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <NeoButton
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => handleResendInvitation(invite.id)}
+                    >
+                      Resend
+                    </NeoButton>
+                    <NeoButton
+                      variant="ghost"
+                      size="sm"
+                      className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                      onClick={() => handleCancelInvitation(invite.id)}
+                    >
+                      Cancel
+                    </NeoButton>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </NeoCard>
+        </section>
+      )}
+
+      {/* Team Members */}
+      <section className="space-y-4">
+        <div className="flex items-center justify-between">
+          <h2 className="text-xl font-black uppercase tracking-tight flex items-center gap-2">
+            <Users className="w-5 h-5" /> Team Members
+          </h2>
+          {isAdmin && (
+            <NeoButton
+              size="sm"
+              variant="primary"
+              onClick={() => setShowAddMember(true)}
+              leftIcon={<Plus className="w-4 h-4" />}
+            >
+              Add Member
+            </NeoButton>
+          )}
+        </div>
+        <NeoCard className="p-0 overflow-hidden">
+          {memberError && (
+            <div className="p-3 bg-red-50 border-b border-red-100 text-red-700 text-sm font-bold tracking-tight">
+              {memberError}
+            </div>
+          )}
+          {memberSuccess && (
+            <div className="p-3 bg-emerald-50 border-b border-emerald-100 text-emerald-700 text-sm flex items-center gap-2 font-bold tracking-tight">
+              <Check className="w-4 h-4" /> {memberSuccess}
+            </div>
+          )}
+
+          <div className="divide-y divide-slate-100">
+            {teamMembers.map((member) => (
+              <div key={member.id} className="p-4 flex items-center justify-between hover:bg-slate-50 transition-colors">
+                <div className="flex items-center gap-4">
+                  <div className="w-10 h-10 bg-slate-900 text-white flex items-center justify-center font-black border border-slate-900 shadow-sm">
+                    {member.email.charAt(0).toUpperCase()}
+                  </div>
+                  <div>
+                    <div className="text-sm font-bold text-slate-900">{member.email}</div>
+                    {member.displayName && <div className="text-[10px] font-bold text-slate-500 uppercase tracking-wide">{member.displayName}</div>}
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-3">
+                  {isAdmin && member.userId !== currentTeam.ownerUserId ? (
+                    <select
+                      className="border-2 border-slate-900 px-2 py-1 text-xs font-black uppercase tracking-wide bg-white cursor-pointer hover:bg-slate-50"
+                      value={member.role}
+                      onChange={(e) => handleChangeRole(member.userId, e.target.value)}
+                    >
+                      <option value="member">Member</option>
+                      <option value="admin">Admin</option>
+                      <option value="billing_admin">Billing Admin</option>
+                    </select>
+                  ) : (
+                    <NeoBadge variant={member.role === 'owner' ? 'success' : 'neutral'}>
+                      {member.role === 'owner' ? 'OWNER' : member.role.toUpperCase()}
+                    </NeoBadge>
+                  )}
+
+                  {isAdmin && member.userId !== currentTeam.ownerUserId && (
+                    <button
+                      className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 transition-all rounded"
+                      onClick={() => handleRemoveMember(member.userId)}
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </NeoCard>
+      </section>
+
+      {/* Role Explainer */}
+      <section>
+        <NeoCard className="p-6 bg-slate-50">
+          <h3 className="text-sm font-black uppercase tracking-tight mb-4">Role Permissions</h3>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
+            <div className="space-y-2">
+              <div className="font-black uppercase text-slate-900">Member</div>
+              <ul className="text-xs font-bold text-slate-600 space-y-1">
+                <li>• View sessions & analytics</li>
+                <li>• Access crash reports</li>
+                <li>• View project settings</li>
+              </ul>
+            </div>
+            <div className="space-y-2">
+              <div className="font-black uppercase text-slate-900">Admin</div>
+              <ul className="text-xs font-bold text-slate-600 space-y-1">
+                <li>• All member permissions</li>
+                <li>• Manage team members</li>
+                <li>• Edit project settings</li>
+              </ul>
+            </div>
+            <div className="space-y-2">
+              <div className="font-black uppercase text-slate-900">Billing Admin</div>
+              <ul className="text-xs font-bold text-slate-600 space-y-1">
+                <li>• All member permissions</li>
+                <li>• Manage billing & plans</li>
+                <li>• Add payment methods</li>
+              </ul>
+            </div>
+          </div>
+        </NeoCard>
+      </section>
+
+      {/* Add Member Modal */}
+      <Modal
+        isOpen={showAddMember}
+        onClose={() => { setShowAddMember(false); setNewMemberEmail(''); setMemberError(null); }}
+        title="Invite Team Member"
+        footer={
+          <div className="flex gap-2 justify-end w-full">
+            <NeoButton variant="secondary" onClick={() => setShowAddMember(false)}>Cancel</NeoButton>
+            <NeoButton
+              variant="primary"
+              onClick={handleAddMember}
+              disabled={isAddingMember || !newMemberEmail}
+            >
+              {isAddingMember ? 'Sending...' : 'Send Invite'}
+            </NeoButton>
+          </div>
+        }
+      >
+        <div className="space-y-6">
+          <Input
+            label="Email Address"
+            type="email"
+            value={newMemberEmail}
+            onChange={(e) => setNewMemberEmail(e.target.value)}
+            placeholder="colleague@company.com"
+            className="font-mono font-bold"
+          />
+          <div className="bg-slate-50 p-4 border border-slate-200 space-y-3">
+            <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Select Role</label>
+            <div className="grid grid-cols-1 gap-2">
+              <button
+                onClick={() => setNewMemberRole('member')}
+                className={`p-3 text-left border-2 transition-all ${newMemberRole === 'member' ? 'border-slate-900 bg-white shadow-[2px_2px_0_0_#000]' : 'border-transparent bg-slate-100 hover:bg-white'}`}
+              >
+                <div className="text-sm font-black uppercase">Member</div>
+                <div className="text-[10px] font-bold text-slate-500">Standard access to projects and sessions.</div>
+              </button>
+              <button
+                onClick={() => setNewMemberRole('admin')}
+                className={`p-3 text-left border-2 transition-all ${newMemberRole === 'admin' ? 'border-slate-900 bg-white shadow-[2px_2px_0_0_#000]' : 'border-transparent bg-slate-100 hover:bg-white'}`}
+              >
+                <div className="text-sm font-black uppercase">Admin</div>
+                <div className="text-[10px] font-bold text-slate-500">Full control over settings and members.</div>
+              </button>
+              <button
+                onClick={() => setNewMemberRole('billing_admin')}
+                className={`p-3 text-left border-2 transition-all ${newMemberRole === 'billing_admin' ? 'border-slate-900 bg-white shadow-[2px_2px_0_0_#000]' : 'border-transparent bg-slate-100 hover:bg-white'}`}
+              >
+                <div className="text-sm font-black uppercase">Billing Admin</div>
+                <div className="text-[10px] font-bold text-slate-500">Manage payment methods and subscriptions.</div>
+              </button>
+            </div>
+          </div>
+        </div>
+      </Modal>
+    </SettingsLayout>
+  );
+};
+
+export default TeamSettings;

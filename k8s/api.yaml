@@ -1,0 +1,346 @@
+# API Service Deployment for Rejourney
+# Main backend API handling auth, dashboard, and ingest endpoints
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: api
+  namespace: rejourney
+  labels:
+    app: api
+    app.kubernetes.io/part-of: rejourney
+spec:
+  type: ClusterIP
+  ports:
+    - port: 3000
+      targetPort: 3000
+  selector:
+    app: api
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api
+  namespace: rejourney
+  labels:
+    app.kubernetes.io/part-of: rejourney
+spec:
+  replicas: 1  # Standard for single-node small VPS to save RAM
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0  # Never take down existing pods first
+      maxSurge: 1        # Bring up new pod before taking down old
+  selector:
+    matchLabels:
+      app: api
+  template:
+    metadata:
+      labels:
+        app: api
+    spec:
+      imagePullSecrets:
+        - name: ghcr-secret
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+      containers:
+        - name: api
+          image: ghcr.io/rejourneyco/rejourney/api:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 3000
+          env:
+            - name: NODE_ENV
+              value: production
+            - name: PORT
+              value: "3000"
+            - name: SELF_HOSTED_MODE
+              valueFrom:
+                secretKeyRef:
+                  name: app-secret
+                  key: SELF_HOSTED_MODE
+            - name: LOG_LEVEL
+              value: "info"
+            - name: COOKIE_SECURE
+              value: "true"
+            # Database
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: DATABASE_URL
+            # Redis
+            - name: REDIS_URL
+              valueFrom:
+                secretKeyRef:
+                  name: redis-secret
+                  key: REDIS_URL
+            # S3
+            - name: S3_ENDPOINT
+              valueFrom:
+                secretKeyRef:
+                  name: s3-secret
+                  key: S3_ENDPOINT
+            - name: S3_PUBLIC_ENDPOINT
+              valueFrom:
+                secretKeyRef:
+                  name: s3-secret
+                  key: S3_PUBLIC_ENDPOINT
+            - name: S3_BUCKET
+              valueFrom:
+                secretKeyRef:
+                  name: s3-secret
+                  key: S3_BUCKET
+            - name: S3_REGION
+              valueFrom:
+                secretKeyRef:
+                  name: s3-secret
+                  key: S3_REGION
+            - name: S3_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: s3-secret
+                  key: S3_ACCESS_KEY_ID
+            - name: S3_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: s3-secret
+                  key: S3_SECRET_ACCESS_KEY
+            # Auth secrets
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: app-secret
+                  key: JWT_SECRET
+            - name: JWT_SIGNING_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: app-secret
+                  key: JWT_SIGNING_KEY
+            - name: INGEST_HMAC_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: app-secret
+                  key: INGEST_HMAC_SECRET
+            - name: STORAGE_ENCRYPTION_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: app-secret
+                  key: STORAGE_ENCRYPTION_KEY
+            # OAuth
+            - name: GITHUB_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: oauth-secret
+                  key: GITHUB_CLIENT_ID
+                  optional: true
+            - name: GITHUB_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: oauth-secret
+                  key: GITHUB_CLIENT_SECRET
+                  optional: true
+            - name: OAUTH_REDIRECT_BASE
+              valueFrom:
+                secretKeyRef:
+                  name: oauth-secret
+                  key: OAUTH_REDIRECT_BASE
+                  optional: true
+            # Stripe
+            - name: STRIPE_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: stripe-secret
+                  key: STRIPE_SECRET_KEY
+                  optional: true
+            - name: STRIPE_WEBHOOK_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: stripe-secret
+                  key: STRIPE_WEBHOOK_SECRET
+                  optional: true
+            # Turnstile
+            - name: TURNSTILE_SITE_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: turnstile-secret
+                  key: TURNSTILE_SITE_KEY
+                  optional: true
+            - name: TURNSTILE_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: turnstile-secret
+                  key: TURNSTILE_SECRET_KEY
+                  optional: true
+            # SMTP
+            - name: SMTP_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: smtp-secret
+                  key: SMTP_HOST
+                  optional: true
+            - name: SMTP_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: smtp-secret
+                  key: SMTP_PORT
+                  optional: true
+            - name: SMTP_USER
+              valueFrom:
+                secretKeyRef:
+                  name: smtp-secret
+                  key: SMTP_USER
+                  optional: true
+            - name: SMTP_PASS
+              valueFrom:
+                secretKeyRef:
+                  name: smtp-secret
+                  key: SMTP_PASS
+                  optional: true
+            - name: SMTP_FROM
+              valueFrom:
+                secretKeyRef:
+                  name: smtp-secret
+                  key: SMTP_FROM
+                  optional: true
+            - name: SMTP_SECURE
+              valueFrom:
+                secretKeyRef:
+                  name: smtp-secret
+                  key: SMTP_SECURE
+                  optional: true
+            # Public URLs (from app-secret - set by k8s-sync-secrets.sh)
+            - name: PUBLIC_DASHBOARD_URL
+              valueFrom:
+                secretKeyRef:
+                  name: app-secret
+                  key: PUBLIC_DASHBOARD_URL
+                  optional: true
+            - name: PUBLIC_API_URL
+              valueFrom:
+                secretKeyRef:
+                  name: app-secret
+                  key: PUBLIC_API_URL
+                  optional: true
+            - name: PUBLIC_INGEST_URL
+              valueFrom:
+                secretKeyRef:
+                  name: app-secret
+                  key: PUBLIC_INGEST_URL
+                  optional: true
+            - name: DASHBOARD_ORIGIN
+              valueFrom:
+                secretKeyRef:
+                  name: app-secret
+                  key: DASHBOARD_ORIGIN
+                  optional: true
+            # Monitoring
+            - name: UPTIME_KUMA_BASE_URL
+              value: "https://status.rejourney.co"
+            - name: UPTIME_KUMA_TOKENS
+              valueFrom:
+                secretKeyRef:
+                  name: monitoring-tokens
+                  key: tokens
+                  optional: true
+            - name: DEBUG_HEALTH_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: monitoring-tokens
+                  key: debug-token
+                  optional: true
+          resources:
+            requests:
+              cpu: 150m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 3000
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 3000
+            initialDelaySeconds: 5
+            periodSeconds: 5
+
+---
+# Database setup job - runs migrations then seeds config
+# We combine these to ensure seeding only happens after successful migration
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: db-setup
+  namespace: rejourney
+  labels:
+    app.kubernetes.io/part-of: rejourney
+spec:
+  ttlSecondsAfterFinished: 86400
+  template:
+    spec:
+      imagePullSecrets:
+        - name: ghcr-secret
+      restartPolicy: OnFailure
+      containers:
+        - name: setup
+          image: ghcr.io/rejourneyco/rejourney/migration:latest
+          # Run migrate first, then seed. checking for success (&&)
+          command: ["/bin/sh", "-c"]
+          args: ["./node_modules/.bin/drizzle-kit migrate && ./node_modules/.bin/tsx src/db/seed.ts"]
+          env:
+            - name: NODE_ENV
+              value: production
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: DATABASE_URL
+            - name: S3_ENDPOINT
+              valueFrom:
+                secretKeyRef:
+                  name: s3-secret
+                  key: S3_ENDPOINT
+            - name: S3_BUCKET
+              valueFrom:
+                secretKeyRef:
+                  name: s3-secret
+                  key: S3_BUCKET
+            - name: S3_REGION
+              valueFrom:
+                secretKeyRef:
+                  name: s3-secret
+                  key: S3_REGION
+            - name: S3_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: s3-secret
+                  key: S3_ACCESS_KEY_ID
+            - name: S3_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: s3-secret
+                  key: S3_SECRET_ACCESS_KEY
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: app-secret
+                  key: JWT_SECRET
+            - name: INGEST_HMAC_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: app-secret
+                  key: INGEST_HMAC_SECRET
+            - name: STORAGE_ENCRYPTION_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: app-secret
+                  key: STORAGE_ENCRYPTION_KEY

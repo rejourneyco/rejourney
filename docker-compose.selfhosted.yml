@@ -1,0 +1,331 @@
+# Rejourney Self-Hosted Production Docker Compose
+# 
+# This is a production-ready single-server deployment without Kubernetes.
+# Includes automatic HTTPS via Traefik and secure defaults.
+#
+# Usage:
+#   1. Copy .env.example to .env and configure
+#   2. Run: ./scripts/selfhosted/deploy.sh
+#   3. Access: https://your-domain.com
+#
+# Security features:
+#   - No internal ports exposed (Postgres, Redis, MinIO)
+#   - Auto-generated secrets
+#   - Automatic HTTPS with Let's Encrypt
+#   - Non-root containers
+
+services:
+  # ============================================
+  # REVERSE PROXY - Traefik with auto HTTPS
+  # ============================================
+  traefik:
+    image: traefik:v3.2
+    container_name: rejourney-traefik
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      - TRAEFIK_LOG_LEVEL=WARN
+    command:
+      # API Dashboard (disabled in production)
+      - "--api.dashboard=false"
+      # Docker provider
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--providers.docker.network=rejourney-network"
+      # Entrypoints
+      - "--entrypoints.web.address=:80"
+      - "--entrypoints.websecure.address=:443"
+      # Redirect HTTP to HTTPS
+      - "--entrypoints.web.http.redirections.entrypoint.to=websecure"
+      - "--entrypoints.web.http.redirections.entrypoint.scheme=https"
+      # Let's Encrypt
+      - "--certificatesresolvers.letsencrypt.acme.email=${LETSENCRYPT_EMAIL:-admin@example.com}"
+      - "--certificatesresolvers.letsencrypt.acme.storage=/letsencrypt/acme.json"
+      - "--certificatesresolvers.letsencrypt.acme.httpchallenge.entrypoint=web"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - traefik-certs:/letsencrypt
+    networks:
+      - rejourney-network
+
+  # ============================================
+  # APPLICATION SERVICES
+  # ============================================
+  api:
+    image: ghcr.io/rejourneyco/rejourney-api:${IMAGE_TAG:-latest}
+    container_name: rejourney-api
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio-setup:
+        condition: service_completed_successfully
+    environment:
+      NODE_ENV: production
+      PORT: "3000"
+      SELF_HOSTED_MODE: "true"
+      LOG_LEVEL: info
+      DATABASE_URL: ${DATABASE_URL}
+      REDIS_URL: ${REDIS_URL}
+      S3_ENDPOINT: ${S3_ENDPOINT}
+      S3_PUBLIC_ENDPOINT: ${S3_PUBLIC_ENDPOINT:-}
+      S3_REGION: ${S3_REGION}
+      S3_BUCKET: ${S3_BUCKET}
+      S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID}
+      S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY}
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_SIGNING_KEY: ${JWT_SIGNING_KEY}
+      INGEST_HMAC_SECRET: ${INGEST_HMAC_SECRET}
+      STORAGE_ENCRYPTION_KEY: ${STORAGE_ENCRYPTION_KEY}
+      COOKIE_SECURE: "true"
+      PUBLIC_DASHBOARD_URL: ${PUBLIC_DASHBOARD_URL}
+      PUBLIC_API_URL: ${PUBLIC_API_URL}
+      PUBLIC_INGEST_URL: ${PUBLIC_INGEST_URL}
+      DASHBOARD_ORIGIN: ${DASHBOARD_ORIGIN}
+      # Optional: Email
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASS: ${SMTP_PASS:-}
+      SMTP_FROM: ${SMTP_FROM:-}
+      SMTP_SECURE: ${SMTP_SECURE:-true}
+      # Optional: OAuth
+      GITHUB_CLIENT_ID: ${GITHUB_CLIENT_ID:-}
+      GITHUB_CLIENT_SECRET: ${GITHUB_CLIENT_SECRET:-}
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.api.rule=Host(`${API_DOMAIN}`)"
+      - "traefik.http.routers.api.entrypoints=websecure"
+      - "traefik.http.routers.api.tls.certresolver=letsencrypt"
+      - "traefik.http.services.api.loadbalancer.server.port=3000"
+      # Security headers
+      - "traefik.http.middlewares.api-headers.headers.stsSeconds=31536000"
+      - "traefik.http.middlewares.api-headers.headers.stsIncludeSubdomains=true"
+      - "traefik.http.routers.api.middlewares=api-headers"
+    networks:
+      - rejourney-network
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  web:
+    image: ghcr.io/rejourneyco/rejourney-web:${IMAGE_TAG:-latest}
+    container_name: rejourney-web
+    restart: unless-stopped
+    depends_on:
+      - api
+    environment:
+      NODE_ENV: production
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.web.rule=Host(`${DASHBOARD_DOMAIN}`)"
+      - "traefik.http.routers.web.entrypoints=websecure"
+      - "traefik.http.routers.web.tls.certresolver=letsencrypt"
+      - "traefik.http.services.web.loadbalancer.server.port=8080"
+      # Security headers
+      - "traefik.http.middlewares.web-headers.headers.stsSeconds=31536000"
+      - "traefik.http.middlewares.web-headers.headers.stsIncludeSubdomains=true"
+      - "traefik.http.middlewares.web-headers.headers.contentTypeNosniff=true"
+      - "traefik.http.middlewares.web-headers.headers.frameDeny=true"
+      - "traefik.http.routers.web.middlewares=web-headers"
+    networks:
+      - rejourney-network
+
+  # ============================================
+  # BACKGROUND WORKERS
+  # ============================================
+  ingest-worker:
+    image: ghcr.io/rejourneyco/rejourney-api:${IMAGE_TAG:-latest}
+    container_name: rejourney-ingest-worker
+    restart: unless-stopped
+    command: ["node", "dist/worker/ingestWorker.js"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio-setup:
+        condition: service_completed_successfully
+    environment:
+      NODE_ENV: production
+      SELF_HOSTED_MODE: "true"
+      DATABASE_URL: ${DATABASE_URL}
+      REDIS_URL: ${REDIS_URL}
+      S3_ENDPOINT: ${S3_ENDPOINT}
+      S3_REGION: ${S3_REGION}
+      S3_BUCKET: ${S3_BUCKET}
+      S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID}
+      S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY}
+      JWT_SECRET: ${JWT_SECRET}
+      INGEST_HMAC_SECRET: ${INGEST_HMAC_SECRET}
+      STORAGE_ENCRYPTION_KEY: ${STORAGE_ENCRYPTION_KEY}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASS: ${SMTP_PASS:-}
+      SMTP_FROM: ${SMTP_FROM:-}
+      PUBLIC_DASHBOARD_URL: ${PUBLIC_DASHBOARD_URL}
+    networks:
+      - rejourney-network
+
+  retention-worker:
+    image: ghcr.io/rejourneyco/rejourney-api:${IMAGE_TAG:-latest}
+    container_name: rejourney-retention-worker
+    restart: unless-stopped
+    command: ["node", "dist/worker/retentionWorker.js"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio-setup:
+        condition: service_completed_successfully
+    environment:
+      NODE_ENV: production
+      SELF_HOSTED_MODE: "true"
+      DATABASE_URL: ${DATABASE_URL}
+      S3_ENDPOINT: ${S3_ENDPOINT}
+      S3_REGION: ${S3_REGION}
+      S3_BUCKET: ${S3_BUCKET}
+      S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID}
+      S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY}
+      JWT_SECRET: ${JWT_SECRET}
+      INGEST_HMAC_SECRET: ${INGEST_HMAC_SECRET}
+      STORAGE_ENCRYPTION_KEY: ${STORAGE_ENCRYPTION_KEY}
+    networks:
+      - rejourney-network
+
+  alert-worker:
+    image: ghcr.io/rejourneyco/rejourney-api:${IMAGE_TAG:-latest}
+    container_name: rejourney-alert-worker
+    restart: unless-stopped
+    command: ["node", "dist/worker/alertWorker.js"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      SELF_HOSTED_MODE: "true"
+      DATABASE_URL: ${DATABASE_URL}
+      REDIS_URL: ${REDIS_URL}
+      JWT_SECRET: ${JWT_SECRET}
+      INGEST_HMAC_SECRET: ${INGEST_HMAC_SECRET}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASS: ${SMTP_PASS:-}
+      SMTP_FROM: ${SMTP_FROM:-}
+      SMTP_SECURE: ${SMTP_SECURE:-true}
+      PUBLIC_DASHBOARD_URL: ${PUBLIC_DASHBOARD_URL}
+    networks:
+      - rejourney-network
+
+  # ============================================
+  # DATABASES (Internal only - no exposed ports)
+  # ============================================
+  postgres:
+    image: postgres:16-alpine
+    container_name: rejourney-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-rejourney}
+      POSTGRES_USER: ${POSTGRES_USER:-rejourney}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    networks:
+      - rejourney-network
+    # Note: No ports exposed - only accessible within Docker network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-rejourney} -d ${POSTGRES_DB:-rejourney}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:8.4-alpine
+    container_name: rejourney-redis
+    restart: unless-stopped
+    command: >
+      redis-server
+      --save 900 1
+      --loglevel warning
+      --requirepass ${REDIS_PASSWORD}
+    volumes:
+      - redisdata:/data
+    networks:
+      - rejourney-network
+    # Note: No ports exposed - only accessible within Docker network
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ============================================
+  # OBJECT STORAGE (Internal MinIO or External S3)
+  # ============================================
+  # Only used if USE_MINIO=true. For production, use external S3.
+  minio:
+    image: minio/minio:RELEASE.2024-09-22T00-33-43Z
+    container_name: rejourney-minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    volumes:
+      - miniodata:/data
+    networks:
+      - rejourney-network
+    # Note: No ports exposed - only accessible within Docker network
+    profiles:
+      - minio
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  minio-setup:
+    image: minio/mc:latest
+    container_name: rejourney-minio-setup
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      mc alias set local http://minio:9000 ${MINIO_ROOT_USER} ${MINIO_ROOT_PASSWORD} &&
+      mc mb -p local/${S3_BUCKET} || true
+      "
+    networks:
+      - rejourney-network
+    profiles:
+      - minio
+
+  # Fallback for external S3 (no-op)
+  minio-setup-noop:
+    image: busybox:latest
+    container_name: rejourney-minio-setup-noop
+    command: ["echo", "Using external S3 storage"]
+    profiles:
+      - external-s3
+
+networks:
+  rejourney-network:
+    driver: bridge
+
+volumes:
+  pgdata:
+  redisdata:
+  miniodata:
+  traefik-certs:

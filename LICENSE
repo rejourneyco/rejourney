@@ -1,0 +1,32 @@
+Rejourney - Dual License
+
+This project uses a dual licensing model:
+
+1. SERVER SIDE PUBLIC LICENSE (SSPL) 1.0
+   - Applies to: Backend services, core infrastructure, and proprietary components
+   - See LICENSE-SSPL for full terms
+   - Summary: Free for internal use and individual distribution. Requires that if you 
+     provide the program as a service, you must make the service source code available.
+
+2. APACHE LICENSE 2.0
+   - Applies to: Client SDKs (React Native package), example code, and documentation
+   - See LICENSE-APACHE for full terms
+   - Summary: Permissive open source license allowing free use, modification, and distribution
+
+LICENSE BREAKDOWN BY COMPONENT:
+
+- Backend API (backend/): SSPL 1.0
+- Dashboard (dashboard/): SSPL 1.0
+- React Native SDK (packages/react-native/): Apache 2.0
+- Examples (examples/): Apache 2.0
+- Documentation: Apache 2.0
+
+For questions about licensing, please contact: contact@rejourney.co
+
+Copyright (c) 2026 Rejourney
+
+
+
+
+
+

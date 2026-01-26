@@ -1,0 +1,72 @@
+# Learn more https://docs.github.com/en/get-started/getting-started-with-git/ignoring-files
+
+# dependencies
+node_modules/
+
+# Expo
+.expo/
+dist/
+web-build/
+expo-env.d.ts
+
+# Native
+*.orig.*
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision
+
+# Metro
+.metro-health-check*
+
+# debug
+npm-debug.*
+yarn-debug.*
+yarn-error.*
+
+# macOS
+.DS_Store
+*.pem
+
+# local env files
+.env*.local
+
+# typescript
+*.tsbuildinfo
+
+app-example
+.env
+
+# Security - sensitive files that should never be committed
+*.p8
+*.pem
+*.key
+*.keystore
+*.jks
+android/app/debug.keystore
+android/app/release.keystore
+android/app/upload-keystore.jks
+ios/.xcode.env.local
+
+# Environment files
+.env
+.env.local
+.env.production
+.env.staging
+.env.development
+
+# API keys and secrets
+**/secrets.json
+**/config/keys.json
+**/*secret*
+**/*private*
+
+# Build artifacts that may contain sensitive info
+google-services.json
+GoogleService-Info.plist
+
+# IDE files
+.idea/
+.vscode/settings.json
+

@@ -1,0 +1,7 @@
+
+  
+   ID                                   | NAME                    | SLUG                    | STATUS | VERSION | UPDATED_AT (UTC)    
+  --------------------------------------|-------------------------|-------------------------|--------|---------|---------------------
+   1ec5241d-3ce4-4c3f-9ef7-3a6e3ebf011f | gemini-recipe-proxy     | gemini-recipe-proxy     | ACTIVE | 28      | 2025-04-02 15:46:01 
+   cc05cd7f-02df-4045-93f9-e4685e616dce | gemini-validation-proxy | gemini-validation-proxy | ACTIVE | 29      | 2025-04-02 15:46:11 
+

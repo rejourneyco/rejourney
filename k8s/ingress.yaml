@@ -1,0 +1,387 @@
+# Traefik Ingress for Rejourney
+# Routes traffic to API and Web services with TLS
+# Security headers, HTTPS redirect, and rate limiting configured
+
+---
+# Rate Limiting Middleware for API endpoints
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: rate-limit-api
+  namespace: rejourney
+  labels:
+    app.kubernetes.io/part-of: rejourney
+spec:
+  rateLimit:
+    average: 100
+    burst: 200
+    period: 1m
+    sourceCriterion:
+      ipStrategy:
+        excludedIPs:
+          - 173.245.48.0/20
+          - 103.21.244.0/22
+          - 103.22.200.0/22
+          - 103.31.4.0/22
+          - 141.101.64.0/18
+          - 108.162.192.0/18
+          - 190.93.240.0/20
+          - 188.114.96.0/20
+          - 197.234.240.0/22
+          - 198.41.128.0/17
+          - 162.158.0.0/15
+          - 104.16.0.0/13
+          - 104.24.0.0/14
+          - 172.64.0.0/13
+          - 131.0.72.0/22
+
+---
+# Security Headers Middleware
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: security-headers
+  namespace: rejourney
+  labels:
+    app.kubernetes.io/part-of: rejourney
+spec:
+  headers:
+    # HSTS - Force HTTPS for 1 year, include subdomains, preload-ready
+    stsSeconds: 31536000
+    stsIncludeSubdomains: true
+    stsPreload: true
+    forceSTSHeader: true
+    # Prevent clickjacking
+    frameDeny: false
+    customFrameOptionsValue: "SAMEORIGIN"
+    # Prevent MIME type sniffing
+    contentTypeNosniff: true
+    # XSS Protection
+    browserXssFilter: true
+    # Referrer Policy
+    referrerPolicy: "strict-origin-when-cross-origin"
+    # Content Security Policy - includes Cloudflare Turnstile, Stripe, and Analytics
+    contentSecurityPolicy: "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://challenges.cloudflare.com https://js.stripe.com https://m.stripe.network https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: https: blob:; font-src 'self' data: https://fonts.gstatic.com; connect-src 'self' https://api.rejourney.co wss://api.rejourney.co https://ingest.rejourney.co https://api.stripe.com https://m.stripe.network https://cloudflareinsights.com; media-src 'self' https://*.your-objectstorage.com blob:; frame-src 'self' https://challenges.cloudflare.com https://js.stripe.com https://hooks.stripe.com; frame-ancestors 'self'; base-uri 'self'; form-action 'self';"
+    # Permissions Policy
+    permissionsPolicy: "geolocation=(), microphone=(), camera=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()"
+    # Remove server info headers
+    customResponseHeaders:
+      X-Powered-By: ""
+      Server: ""
+      X-Content-Type-Options: "nosniff"
+      X-Frame-Options: "SAMEORIGIN"
+      X-XSS-Protection: "1; mode=block"
+
+
+---
+# HTTPS Redirect Middleware
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: https-redirect
+  namespace: rejourney
+  labels:
+    app.kubernetes.io/part-of: rejourney
+spec:
+  redirectScheme:
+    scheme: https
+    permanent: true
+
+---
+# WWW to non-WWW redirect middleware (301 permanent redirect)
+# This middleware redirects www.rejourney.co to rejourney.co
+# Used for HTTPS requests
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: www-redirect
+  namespace: rejourney
+  labels:
+    app.kubernetes.io/part-of: rejourney
+spec:
+  redirectRegex:
+    regex: "^https?://www\\.rejourney\\.co(.*)"
+    replacement: "https://rejourney.co${1}"
+    permanent: true
+
+---
+# Combined HTTP WWW to HTTPS non-WWW redirect middleware
+# This middleware redirects http://www.rejourney.co directly to https://rejourney.co
+# Used for HTTP requests to www subdomain
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: http-www-redirect
+  namespace: rejourney
+  labels:
+    app.kubernetes.io/part-of: rejourney
+spec:
+  redirectRegex:
+    regex: "^https?://www\\.rejourney\\.co(.*)"
+    replacement: "https://rejourney.co${1}"
+    permanent: true
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: rejourney-ingress
+  namespace: rejourney
+  labels:
+    app.kubernetes.io/part-of: rejourney
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    traefik.ingress.kubernetes.io/router.tls: "true"
+    traefik.ingress.kubernetes.io/router.middlewares: rejourney-security-headers@kubernetescrd
+spec:
+  ingressClassName: traefik
+  tls:
+    - hosts:
+        - rejourney.co
+        - www.rejourney.co
+      secretName: rejourney-web-tls
+  rules:
+    # Dashboard app
+    - host: rejourney.co
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: web
+                port:
+                  number: 80
+
+---
+# Separate Ingress for WWW redirect (301 redirect to non-www)
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: rejourney-www-redirect
+  namespace: rejourney
+  labels:
+    app.kubernetes.io/part-of: rejourney
+  annotations:
+    # Note: No cert-manager annotation here - cert is managed by rejourney-ingress
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    traefik.ingress.kubernetes.io/router.tls: "true"
+    traefik.ingress.kubernetes.io/router.middlewares: rejourney-www-redirect@kubernetescrd
+spec:
+  ingressClassName: traefik
+  tls:
+    - hosts:
+        - www.rejourney.co
+      secretName: rejourney-web-tls
+  rules:
+    # WWW redirect to non-WWW (301 permanent redirect)
+    - host: www.rejourney.co
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: web
+                port:
+                  number: 80
+
+---
+# Separate Ingress for API with rate limiting
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: rejourney-api-ingress
+  namespace: rejourney
+  labels:
+    app.kubernetes.io/part-of: rejourney
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    traefik.ingress.kubernetes.io/router.tls: "true"
+    traefik.ingress.kubernetes.io/router.middlewares: rejourney-security-headers@kubernetescrd,rejourney-rate-limit-api@kubernetescrd
+spec:
+  ingressClassName: traefik
+  tls:
+    - hosts:
+        - api.rejourney.co
+        - ingest.rejourney.co
+      secretName: rejourney-api-tls
+  rules:
+    # API endpoints
+    - host: api.rejourney.co
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: api
+                port:
+                  number: 3000
+
+    # Ingest endpoints (same API, different subdomain for CDN/firewall rules)
+    - host: ingest.rejourney.co
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: api
+                port:
+                  number: 3000
+
+---
+# HTTP to HTTPS Redirect Ingress
+# Handles HTTP requests and redirects to HTTPS
+# For www subdomain, redirects directly to HTTPS non-www (301 redirect)
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: rejourney-http-redirect
+  namespace: rejourney
+  labels:
+    app.kubernetes.io/part-of: rejourney
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: web
+    # For www, use combined redirect; for others, just HTTPS redirect
+    traefik.ingress.kubernetes.io/router.middlewares: rejourney-https-redirect@kubernetescrd
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: api.rejourney.co
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: api
+                port:
+                  number: 3000
+    - host: ingest.rejourney.co
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: api
+                port:
+                  number: 3000
+    - host: rejourney.co
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: web
+                port:
+                  number: 80
+
+---
+# Separate HTTP Ingress for WWW to handle combined redirect
+# This ensures http://www.rejourney.co redirects directly to https://rejourney.co
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: rejourney-http-www-redirect
+  namespace: rejourney
+  labels:
+    app.kubernetes.io/part-of: rejourney
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: web
+    traefik.ingress.kubernetes.io/router.middlewares: rejourney-http-www-redirect@kubernetescrd
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: www.rejourney.co
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: web
+                port:
+                  number: 80
+
+---
+# cert-manager ClusterIssuer for Let's Encrypt
+# Note: ClusterIssuer is cluster-scoped, no namespace needed
+# We don't add part-of label here since it's a cluster resource managed separately
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt-prod
+spec:
+  acme:
+    server: https://acme-v02.api.letsencrypt.org/directory
+    email: admin@rejourney.co
+    privateKeySecretRef:
+      name: letsencrypt-prod
+    solvers:
+      - http01:
+          ingress:
+            ingressClassName: traefik
+            ingressTemplate:
+              metadata:
+                annotations:
+                  traefik.ingress.kubernetes.io/router.entrypoints: web,websecure
+                  traefik.ingress.kubernetes.io/router.priority: "999999"
+                  traefik.ingress.kubernetes.io/router.priority: "999999"
+
+---
+# Service for Traefik Dashboard (exposing internal port 9000)
+# Note: This is in kube-system namespace, not pruned with rejourney resources
+apiVersion: v1
+kind: Service
+metadata:
+  name: traefik-dashboard
+  namespace: kube-system
+  labels:
+    app.kubernetes.io/instance: traefik-kube-system
+    app.kubernetes.io/name: traefik
+spec:
+  type: ClusterIP
+  ports:
+    - name: dashboard
+      port: 9000
+      targetPort: 8080
+      protocol: TCP
+  selector:
+    app.kubernetes.io/instance: traefik-kube-system
+    app.kubernetes.io/name: traefik
+
+---
+# Traefik Dashboard Ingress (dev team only with Cloudflare Access)
+# Note: This is in kube-system namespace, not pruned with rejourney resources
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: traefik-dashboard-ingress
+  namespace: kube-system
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    traefik.ingress.kubernetes.io/router.tls: "true"
+spec:
+  ingressClassName: traefik
+  tls:
+    - hosts:
+        - traefik.rejourney.co
+      secretName: traefik-dashboard-tls
+  rules:
+    - host: traefik.rejourney.co
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: traefik-dashboard
+                port:
+                  number: 9000

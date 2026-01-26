@@ -1,0 +1,94 @@
+# PostgreSQL Daily Backup CronJob
+# Backs up database to Cloudflare R2 every day at 3 AM UTC
+# Optimized for space and compute efficiency
+
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: postgres-backup
+  namespace: rejourney
+  labels:
+    app.kubernetes.io/part-of: rejourney
+spec:
+  schedule: "0 3 * * *"  # 3 AM UTC daily
+  concurrencyPolicy: Forbid  # Prevent overlapping backups
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      activeDeadlineSeconds: 1800  # 30 min timeout
+      backoffLimit: 2
+      template:
+        spec:
+          restartPolicy: OnFailure
+          containers:
+            - name: backup
+              image: postgres:16-alpine
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  set -e
+                  
+                  # Install aws-cli (lightweight S3 client)
+                  apk add --no-cache aws-cli gzip
+                  
+                  DATE=$(date +%Y-%m-%d_%H%M%S)
+                  BACKUP_PATH="backups/postgres/backup_${DATE}.sql.gz"
+                  
+                  echo "[$(date)] Starting backup..."
+                  
+                  # Stream pg_dump directly through gzip to R2
+                  # This avoids writing to disk entirely (space efficient)
+                  pg_dump --no-owner --no-acl "$DATABASE_URL" | gzip -9 | \
+                    aws --endpoint-url "$R2_ENDPOINT" s3 cp - \
+                      "s3://${R2_BUCKET}/${BACKUP_PATH}" \
+                      --content-encoding gzip
+                  
+                  echo "[$(date)] Backup uploaded: ${BACKUP_PATH}"
+                  
+                  # Cleanup: Keep only last 30 backups (30 days retention)
+                  echo "[$(date)] Cleaning old backups..."
+                  aws --endpoint-url "$R2_ENDPOINT" s3 ls "s3://${R2_BUCKET}/backups/postgres/" | \
+                    sort -r | tail -n +31 | awk '{print $4}' | while read -r FILE; do
+                      if [ -n "$FILE" ]; then
+                        echo "Deleting: $FILE"
+                        aws --endpoint-url "$R2_ENDPOINT" s3 rm "s3://${R2_BUCKET}/backups/postgres/$FILE"
+                      fi
+                    done
+                  
+                  echo "[$(date)] Backup complete!"
+              env:
+                - name: DATABASE_URL
+                  valueFrom:
+                    secretKeyRef:
+                      name: postgres-secret
+                      key: DATABASE_URL
+                - name: R2_ENDPOINT
+                  valueFrom:
+                    secretKeyRef:
+                      name: r2-backup-secret
+                      key: R2_ENDPOINT
+                - name: R2_BUCKET
+                  valueFrom:
+                    secretKeyRef:
+                      name: r2-backup-secret
+                      key: R2_BUCKET
+                - name: AWS_ACCESS_KEY_ID
+                  valueFrom:
+                    secretKeyRef:
+                      name: r2-backup-secret
+                      key: AWS_ACCESS_KEY_ID
+                - name: AWS_SECRET_ACCESS_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: r2-backup-secret
+                      key: AWS_SECRET_ACCESS_KEY
+              resources:
+                requests:
+                  cpu: 50m
+                  memory: 128Mi
+                limits:
+                  cpu: 200m
+                  memory: 256Mi

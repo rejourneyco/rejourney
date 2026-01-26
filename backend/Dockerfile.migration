@@ -1,0 +1,28 @@
+# Production-ready Migration Image
+FROM node:24-bookworm-slim
+
+WORKDIR /app
+
+# Install required system dependencies (if any)
+RUN apt-get update && apt-get install -y ca-certificates && rm -rf /var/lib/apt/lists/*
+
+# Install global tools
+RUN npm install -g drizzle-kit@1.0.0-beta.9-e89174b tsx
+
+# Copy source and config
+COPY backend/drizzle.config.ts .
+COPY backend/package.json .
+COPY backend/drizzle ./drizzle
+COPY backend/src ./src
+
+# Install ALL production dependencies locally (zod, drizzle-orm, pg, etc.)
+# This ensures seed scripts have everything they need
+RUN npm install --omit=dev --legacy-peer-deps
+
+# Set environment
+ENV NODE_ENV=production
+
+
+# Default command matches what we need
+# But we will override it in K8s to include seeding
+CMD ["drizzle-kit", "migrate"]

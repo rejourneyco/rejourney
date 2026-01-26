@@ -1,0 +1,249 @@
+# Uptime Kuma Monitoring for Rejourney
+# Deploys Uptime Kuma status page secured with Cloudflare Access for dev team
+
+---
+# Namespace already exists in namespace.yaml
+
+
+# Uptime Kuma Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: uptime-kuma
+  namespace: rejourney
+  labels:
+    app: uptime-kuma
+    app.kubernetes.io/part-of: rejourney
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: uptime-kuma
+  template:
+    metadata:
+      labels:
+        app: uptime-kuma
+    spec:
+      securityContext:
+        runAsNonRoot: false  # Uptime Kuma needs root for SQLite
+        fsGroup: 1000
+      containers:
+        - name: uptime-kuma
+          image: louislam/uptime-kuma:1
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 3001
+          env:
+            - name: UPTIME_KUMA_PORT
+              value: "3001"
+            # Disable public status page by default
+            - name: UPTIME_KUMA_DISABLE_FRAME_SAMEORIGIN
+              value: "0"
+          volumeMounts:
+            - name: data
+              mountPath: /app/data
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 3001
+            initialDelaySeconds: 30
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 3001
+            initialDelaySeconds: 10
+            periodSeconds: 10
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: uptime-kuma-data
+
+---
+# Uptime Kuma Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: uptime-kuma
+  namespace: rejourney
+  labels:
+    app: uptime-kuma
+    app.kubernetes.io/part-of: rejourney
+spec:
+  type: ClusterIP
+  ports:
+    - port: 3001
+      targetPort: 3001
+  selector:
+    app: uptime-kuma
+
+---
+# Uptime Kuma Ingress with Cloudflare Access (dev team only)
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: uptime-kuma-ingress
+  namespace: rejourney
+  labels:
+    app.kubernetes.io/part-of: rejourney
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    traefik.ingress.kubernetes.io/router.tls: "true"
+    traefik.ingress.kubernetes.io/router.middlewares: rejourney-security-headers@kubernetescrd
+spec:
+  ingressClassName: traefik
+  tls:
+    - hosts:
+        - status.rejourney.co
+      secretName: status-rejourney-tls
+  rules:
+    - host: status.rejourney.co
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: uptime-kuma
+                port:
+                  number: 3001
+
+---
+# ConfigMap with monitoring configuration documentation
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: monitoring-config
+  namespace: rejourney
+data:
+  README.md: |
+    # Rejourney Monitoring Configuration
+    
+    ## Uptime Kuma Setup
+    
+    After deployment, access https://status.rejourney.co and configure:
+    
+    ## ⚠️ CRITICAL MONITORS (Priority 1)
+    
+    ### Session Ingest Pipeline (MOST IMPORTANT)
+    These monitors ensure session data is being ingested. If ingest fails, no new sessions!
+    
+    | Monitor Name | Type | URL/Token | Interval | Retry | Priority |
+    |-------------|------|-----------|----------|-------|----------|
+    | Ingest Health | HTTP | https://ingest.rejourney.co/health/ingest | 120s | 3 | 🔴 CRITICAL |
+    | Ingest Worker | Push | ingestWorker | 120s | 3 | 🔴 CRITICAL |
+    | Ingest Queue | HTTP | https://api.rejourney.co/health/queue | 120s | 2 | 🔴 CRITICAL |
+    
+    ### API Pipeline
+    Main API serving dashboard and SDK endpoints.
+    
+    | Monitor Name | Type | URL | Interval | Retry | Priority |
+    |-------------|------|-----|----------|-------|----------|
+    | API Health | HTTP | https://api.rejourney.co/health/ready | 120s | 3 | 🔴 CRITICAL |
+    | API Latency | HTTP | https://api.rejourney.co/health/live | 120s | 3 | 🟡 HIGH |
+    
+    ## Important Monitors (Priority 2)
+    
+    ### Push Monitors (Workers)
+    Create push monitors for each worker with these settings:
+    
+    | Monitor Name | Push Token | Heartbeat Interval | Retry | Priority |
+    |-------------|------------|-------------------|-------|----------|
+    | Ingest Worker | ingestWorker | 60s | 3 | 🔴 CRITICAL |
+    | Billing Worker | billingWorker | 3600s | 2 | 🟡 HIGH |
+    | Alert Worker | alertWorker | 900s | 2 | 🟡 HIGH |
+    | Retention Worker | retentionWorker | 21600s | 2 | 🟢 MEDIUM |
+    | Stats Aggregator | statsAggregator | 600s | 2 | 🟢 MEDIUM |
+    
+    ### HTTP Monitors
+    | Monitor Name | URL | Interval | Retry | Priority |
+    |-------------|-----|----------|-------|----------|
+    | API Health | https://api.rejourney.co/health/ready | 120s | 3 | 🔴 CRITICAL |
+    | Ingest Health | https://ingest.rejourney.co/health/ingest | 120s | 3 | 🔴 CRITICAL |
+    | Dashboard | https://rejourney.co | 120s | 3 | 🟡 HIGH |
+    
+    ### Certificate Monitors
+    | Monitor Name | URL | Expiry Warning |
+    |-------------|-----|----------------|
+    | API Cert | https://api.rejourney.co | 14 days |
+    | Ingest Cert | https://ingest.rejourney.co | 14 days |
+    | Dashboard Cert | https://rejourney.co | 14 days |
+    
+    ## Monitor Groups (Recommended)
+    
+    Create these groups in Uptime Kuma:
+    1. **Session Ingest** (Critical) - Ingest Health, Ingest Worker, Ingest Queue
+    2. **API** (Critical) - API Health, API Latency  
+    3. **Workers** (High) - Billing Worker, Alert Worker
+    4. **Infrastructure** (Medium) - Dashboard, Retention Worker, Stats Aggregator
+    
+    ## Alert Configuration
+    
+    Configure notifications with appropriate urgency:
+    - 🔴 CRITICAL monitors → PagerDuty/SMS immediate alerts
+    - 🟡 HIGH monitors → Slack/Email with 5min delay
+    - 🟢 MEDIUM monitors → Email only, daily digest OK
+    
+    ## Environment Variables for Workers
+    
+    Set these in your worker deployments:
+    
+    ```yaml
+    - name: UPTIME_KUMA_BASE_URL
+      value: "https://status.rejourney.co"
+    - name: UPTIME_KUMA_TOKENS
+      valueFrom:
+        secretKeyRef:
+          name: monitoring-tokens
+          key: tokens
+    ```
+    
+     ## Cloudflare Access Setup
+     
+     1. Create Cloudflare Access application for https://status.rejourney.co
+     2. Configure policy to allow email domain = rejourney.co
+     3. Enable MFA requirement for security
+
+---
+# Secret for Uptime Kuma push tokens (to be configured after setup)
+apiVersion: v1
+kind: Secret
+metadata:
+  name: monitoring-tokens
+  namespace: rejourney
+type: Opaque
+stringData:
+  # JSON format: {"workerName": "pushToken"}
+  # Update after creating push monitors in Uptime Kuma
+  tokens: |
+    {
+      "ingestWorker": "REPLACE_WITH_PUSH_TOKEN",
+      "billingWorker": "REPLACE_WITH_PUSH_TOKEN",
+      "retentionWorker": "REPLACE_WITH_PUSH_TOKEN",
+      "statsAggregator": "REPLACE_WITH_PUSH_TOKEN",
+      "alertWorker": "REPLACE_WITH_PUSH_TOKEN"
+    }
+  # Token for accessing /health/debug endpoint
+  # Generate with: openssl rand -hex 32
+  debug-token: "REPLACE_WITH_SECURE_DEBUG_TOKEN"
+
+---
+# Update worker deployments to include monitoring env vars
+# Add this to each worker in workers.yaml:
+#
+# env:
+#   - name: UPTIME_KUMA_BASE_URL
+#     value: "https://status.rejourney.co"
+#   - name: UPTIME_KUMA_TOKENS
+#     valueFrom:
+#       secretKeyRef:
+#         name: monitoring-tokens
+#         key: tokens

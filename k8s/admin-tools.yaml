@@ -1,0 +1,163 @@
+# Database Admin Tools
+# pgWeb and Redis Commander for database management
+# Access via: db.rejourney.co, redis.rejourney.co (protected by Cloudflare Access)
+
+---
+---
+# PGWeb Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pgweb
+  namespace: rejourney
+  labels:
+    app.kubernetes.io/part-of: rejourney
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: pgweb
+  template:
+    metadata:
+      labels:
+        app: pgweb
+    spec:
+      containers:
+        - name: pgweb
+          image: sosedoff/pgweb:latest
+          ports:
+            - containerPort: 8081
+          env:
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: POSTGRES_USER
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: POSTGRES_PASSWORD
+            - name: POSTGRES_DB
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: POSTGRES_DB
+            - name: DATABASE_URL
+              value: "postgres://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@postgres:5432/$(POSTGRES_DB)?sslmode=disable"
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: pgweb
+  namespace: rejourney
+  labels:
+    app.kubernetes.io/part-of: rejourney
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8081
+      targetPort: 8081
+  selector:
+    app: pgweb
+
+---
+# Redis Commander Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis-commander
+  namespace: rejourney
+  labels:
+    app.kubernetes.io/part-of: rejourney
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: redis-commander
+  template:
+    metadata:
+      labels:
+        app: redis-commander
+    spec:
+      containers:
+        - name: redis-commander
+          image: rediscommander/redis-commander:latest
+          ports:
+            - containerPort: 8081
+          env:
+            - name: REDIS_HOSTS
+              value: "local:redis:6379"
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis-commander
+  namespace: rejourney
+  labels:
+    app.kubernetes.io/part-of: rejourney
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8081
+      targetPort: 8081
+  selector:
+    app: redis-commander
+
+# Ingress for admin tools (protected by Cloudflare Access)
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: admin-ingress
+  namespace: rejourney
+  labels:
+    app.kubernetes.io/part-of: rejourney
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    traefik.ingress.kubernetes.io/router.tls: "true"
+    traefik.ingress.kubernetes.io/router.middlewares: rejourney-security-headers@kubernetescrd
+spec:
+  ingressClassName: traefik
+  tls:
+    - hosts:
+        - db.rejourney.co
+        - redis.rejourney.co
+      secretName: admin-tls
+  rules:
+    - host: db.rejourney.co
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: pgweb
+                port:
+                  number: 8081
+    - host: redis.rejourney.co
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: redis-commander
+                port:
+                  number: 8081

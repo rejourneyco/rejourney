@@ -1,0 +1,1 @@
+ALTER TABLE "sessions" ADD COLUMN "replay_promotion_score" double precision;

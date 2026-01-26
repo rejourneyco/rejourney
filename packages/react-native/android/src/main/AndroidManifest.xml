@@ -1,0 +1,15 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    
+    <application>
+        <!-- Service to detect app termination when swiped away from recent apps -->
+        <!-- stopWithTask="false" is CRITICAL - allows onTaskRemoved() to fire when app is killed -->
+        <service
+            android:name="com.rejourney.lifecycle.SessionLifecycleService"
+            android:exported="false"
+            android:stopWithTask="false"
+            tools:node="merge" />
+    </application>
+</manifest>

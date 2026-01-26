@@ -1,0 +1,22 @@
+{
+  "cli": {
+    "version": ">= 15.0.12",
+    "appVersionSource": "remote",
+    "requireCommit": true
+  },
+  "build": {
+    "development": {
+      "developmentClient": true,
+      "distribution": "internal"
+    },
+    "preview": {
+      "distribution": "internal"
+    },
+    "production": {
+      "autoIncrement": true
+    }
+  },
+  "submit": {
+    "production": {}
+  }
+}

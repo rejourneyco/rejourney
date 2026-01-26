@@ -1,0 +1,158 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: netdata
+  namespace: rejourney
+  labels:
+    app: netdata
+
+---
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: netdata
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - "pods"
+      - "nodes"
+      - "services"
+      - "endpoints"
+      - "namespaces"
+    verbs:
+      - "get"
+      - "list"
+      - "watch"
+
+---
+kind: ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: netdata
+subjects:
+  - kind: ServiceAccount
+    name: netdata
+    namespace: rejourney
+roleRef:
+  kind: ClusterRole
+  name: netdata
+  apiGroup: rbac.authorization.k8s.io
+
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: netdata
+  namespace: rejourney
+  labels:
+    app: netdata
+spec:
+  selector:
+    matchLabels:
+      app: netdata
+  template:
+    metadata:
+      labels:
+        app: netdata
+    spec:
+      serviceAccountName: netdata
+      containers:
+        - name: netdata
+          image: netdata/netdata:stable
+          ports:
+            - name: http
+              containerPort: 19999
+          securityContext:
+            capabilities:
+              add:
+                - SYS_PTRACE
+                - SYS_ADMIN
+          env:
+            - name: NETDATA_CLAIM_TOKEN
+              value: "" 
+            - name: NETDATA_CLAIM_URL
+              value: "https://app.netdata.cloud"
+          volumeMounts:
+            - name: proc
+              mountPath: /host/proc
+              readOnly: true
+            - name: sys
+              mountPath: /host/sys
+              readOnly: true
+            - name: docker-socket
+              mountPath: /var/run/docker.sock
+            - name: group
+              mountPath: /host/etc/group
+              readOnly: true
+            - name: passwd
+              mountPath: /host/etc/passwd
+              readOnly: true
+            - name: os-release
+              mountPath: /host/etc/os-release
+              readOnly: true
+      volumes:
+        - name: proc
+          hostPath:
+            path: /proc
+        - name: sys
+          hostPath:
+            path: /sys
+        - name: docker-socket
+          hostPath:
+            path: /var/run/docker.sock
+        - name: group
+          hostPath:
+            path: /etc/group
+        - name: passwd
+          hostPath:
+            path: /etc/passwd
+        - name: os-release
+          hostPath:
+            path: /etc/os-release
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: netdata
+  namespace: rejourney
+  labels:
+    app: netdata
+spec:
+  ports:
+    - name: http
+      port: 19999
+      targetPort: 19999
+  selector:
+    app: netdata
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: netdata-ingress
+  namespace: rejourney
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    traefik.ingress.kubernetes.io/router.tls: "true"
+    # Keeping security headers middleware for consistency
+    traefik.ingress.kubernetes.io/router.middlewares: rejourney-security-headers@kubernetescrd
+spec:
+  ingressClassName: traefik
+  tls:
+    - hosts:
+        - k3s.rejourney.co
+      secretName: k3s-rejourney-tls
+  rules:
+    - host: k3s.rejourney.co
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: netdata
+                port:
+                  number: 19999

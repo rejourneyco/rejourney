@@ -1,0 +1,207 @@
+import { eq, sql } from 'drizzle-orm';
+import { db, sessions, sessionMetrics, deviceUsage } from '../db/client.js';
+import { logger } from '../logger.js';
+import geoip from 'geoip-lite';
+
+/**
+ * Update device usage metrics (atomic upsert for scalability)
+ * Tracks bytes uploaded, request count, sessions started, minutes recorded
+ */
+export async function updateDeviceUsage(
+    deviceId: string | null,
+    updates: {
+        bytesUploaded?: number;
+        requestCount?: number;
+        sessionsStarted?: number;
+        minutesRecorded?: number;
+    }
+): Promise<void> {
+    if (!deviceId) return;
+
+    const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+
+    try {
+        await db.insert(deviceUsage)
+            .values({
+                deviceId,
+                period: today,
+                bytesUploaded: BigInt(updates.bytesUploaded || 0),
+                requestCount: updates.requestCount || 0,
+                sessionsStarted: updates.sessionsStarted || 0,
+                minutesRecorded: updates.minutesRecorded || 0,
+            })
+            .onConflictDoUpdate({
+                target: [deviceUsage.deviceId, deviceUsage.period],
+                set: {
+                    bytesUploaded: updates.bytesUploaded
+                        ? sql`${deviceUsage.bytesUploaded} + ${updates.bytesUploaded}`
+                        : deviceUsage.bytesUploaded,
+                    requestCount: updates.requestCount
+                        ? sql`${deviceUsage.requestCount} + ${updates.requestCount}`
+                        : deviceUsage.requestCount,
+                    sessionsStarted: updates.sessionsStarted
+                        ? sql`${deviceUsage.sessionsStarted} + ${updates.sessionsStarted}`
+                        : deviceUsage.sessionsStarted,
+                    minutesRecorded: updates.minutesRecorded
+                        ? sql`${deviceUsage.minutesRecorded} + ${updates.minutesRecorded}`
+                        : deviceUsage.minutesRecorded,
+                },
+            });
+    } catch (err) {
+        // Non-blocking - usage tracking should not fail uploads
+        logger.warn({ err, deviceId }, 'Failed to update device usage');
+    }
+}
+
+/**
+ * GeoIP lookup using local geoip-lite database
+ * Fast, no rate limits, works offline
+ */
+export async function lookupGeoIp(sessionId: string, ip: string): Promise<void> {
+    logger.info({ sessionId, ip }, 'Starting GeoIP lookup');
+
+    if (!ip) return;
+
+    try {
+        const geo = geoip.lookup(ip);
+
+        if (!geo) {
+            logger.info({ sessionId, ip }, 'GeoIP lookup returned null (likely local/private IP)');
+            return;
+        }
+
+        // Normalize country codes for disputed/miscategorized regions
+        // West Bank users are often miscategorized
+        const countryCode = geo.country === 'IL' ? 'PS/IL' : geo.country;
+
+        await db.update(sessions)
+            .set({
+                geoCity: geo.city || null,
+                geoRegion: geo.region || null,
+                geoCountry: countryCode || null,
+                geoCountryCode: countryCode || null,
+                geoLatitude: geo.ll ? geo.ll[0] : null,
+                geoLongitude: geo.ll ? geo.ll[1] : null,
+                geoTimezone: geo.timezone || null,
+            })
+            .where(eq(sessions.id, sessionId));
+
+        logger.debug({ sessionId, ip, city: geo.city, country: countryCode }, 'GeoIP lookup succeeded');
+    } catch (error) {
+        logger.warn({ error, sessionId, ip }, 'GeoIP lookup failed');
+    }
+}
+
+
+
+/**
+ * Ensure a session exists (Lazy Create pattern)
+ * Now accepts optional metadata for richer session creation
+ */
+export async function ensureIngestSession(
+    projectId: string,
+    sessionId: string,
+    req?: any,
+    metadata?: {
+        userId?: string;
+        platform?: string;
+        deviceModel?: string;
+        appVersion?: string;
+        osVersion?: string;
+        networkType?: string;
+        deviceId?: string;  // Device ID from upload token for anonymous name generation
+    }
+): Promise<{ session: any | null; created: boolean }> {
+    let [session] = await db.select().from(sessions).where(eq(sessions.id, sessionId)).limit(1);
+    let created = false;
+
+    if (!session) {
+        logger.warn({ sessionId, projectId, metadata }, 'Lazy creating missing session');
+
+        // Extract timestamp from session ID if possible (format: session_TIMESTAMP_UUID)
+        // This ensures the session start time reflects the actual recording start, not the upload time
+        let startedAt = new Date();
+        const parts = sessionId.split('_');
+        if (parts.length >= 3 && parts[0] === 'session') {
+            const ts = parseInt(parts[1], 10);
+            if (!isNaN(ts) && ts > 0) {
+                startedAt = new Date(ts);
+            }
+        }
+
+        // Extract device info from User-Agent if available
+        let platform = metadata?.platform || 'unknown';
+        let deviceModel = metadata?.deviceModel;
+        let osVersion = metadata?.osVersion;
+        let appVersion = metadata?.appVersion;
+
+        if (req?.headers?.['user-agent'] && !deviceModel) {
+            const ua = req.headers['user-agent'];
+            // Parse iOS User-Agent: "YourApp/1.0 CFNetwork/1331.0.7 Darwin/21.1.0"
+            // Parse SDK User-Agent: "Rejourney-SDK/1.0.0 (iOS; iPhone12,1; 15.0)"
+            if (ua.includes('Darwin') || ua.includes('iPhone') || ua.includes('iPad')) {
+                platform = 'ios';
+            } else if (ua.includes('Android') || ua.includes('okhttp')) {
+                platform = 'android';
+            }
+
+            // Try to extract device model from SDK User-Agent
+            const sdkMatch = ua.match(/Rejourney-SDK\/[\d.]+ \((\w+); ([^;]+); ([\d.]+)\)/);
+            if (sdkMatch) {
+                platform = sdkMatch[1].toLowerCase();
+                deviceModel = sdkMatch[2];
+                osVersion = sdkMatch[3];
+            }
+        }
+
+        // Extract user/anonymous IDs from metadata
+        // If userId starts with "anon_", treat it as anonymousDisplayId, otherwise as userDisplayId
+        let userDisplayId: string | null = null;
+        let anonymousDisplayId: string | null = null;
+
+        if (metadata?.userId) {
+            if (metadata.userId.startsWith('anon_')) {
+                anonymousDisplayId = metadata.userId;
+            } else {
+                userDisplayId = metadata.userId;
+            }
+        }
+
+        [session] = await db.insert(sessions).values({
+            id: sessionId,
+            projectId,
+            status: 'processing',
+            platform,
+            deviceModel,
+            osVersion,
+            appVersion,
+            userDisplayId,
+            anonymousDisplayId,
+            deviceId: metadata?.deviceId || null,  // Set deviceId on session creation for funny anonymous names
+            startedAt,
+        }).returning();
+
+        // Initialize metrics
+        await db.insert(sessionMetrics).values({ sessionId: session.id });
+        created = true;
+    }
+
+    // Run GeoIP if provided (and if we grabbed/created a session)
+    if (session && req) {
+        // Simple IP extraction
+        const xForwardedFor = req.headers['x-forwarded-for'];
+        let clientIp = '';
+        if (xForwardedFor) {
+            const ips = xForwardedFor.split(',').map((ip: string) => ip.trim());
+            clientIp = ips[0];
+        } else {
+            clientIp = req.headers['x-real-ip'] || req.socket?.remoteAddress || req.ip || '';
+        }
+
+        if (clientIp) {
+            lookupGeoIp(session.id, clientIp).catch(() => { });
+        }
+    }
+
+    return { session, created };
+}

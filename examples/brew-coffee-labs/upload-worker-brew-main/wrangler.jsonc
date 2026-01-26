@@ -1,0 +1,22 @@
+  {
+	"name": "upload-worker",
+	"compatibility_date": "2025-03-17",
+	"main": "src/index.js",
+	"vars": {
+	  "SUPABASE_URL": "https://your-project-id.supabase.co",
+	  "SUPABASE_KEY": "your_supabase_anonymous_key_here"
+	},
+	"r2_buckets": [
+	  {
+		"binding": "R2_BUCKET",
+		"bucket_name": "general",
+		"preview_bucket_name": "general-dev"
+	  }
+	],
+	"env": {
+	  "production": {
+		// Production-specific overrides here if needed
+	  }
+	}
+  }
+

@@ -1,0 +1,362 @@
+# Ingest Worker Deployment for Rejourney
+# Background worker processing uploaded artifacts
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ingest-worker
+  namespace: rejourney
+  labels:
+    app.kubernetes.io/part-of: rejourney
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ingest-worker
+  template:
+    metadata:
+      labels:
+        app: ingest-worker
+    spec:
+      imagePullSecrets:
+        - name: ghcr-secret
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+      containers:
+        - name: worker
+          image: ghcr.io/rejourneyco/rejourney/api:latest
+          imagePullPolicy: Always
+          command: ["node", "dist/worker/ingestWorker.js"]
+          env:
+            - name: NODE_ENV
+              value: production
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: DATABASE_URL
+            - name: REDIS_URL
+              valueFrom:
+                secretKeyRef:
+                  name: redis-secret
+                  key: REDIS_URL
+            - name: S3_ENDPOINT
+              valueFrom:
+                secretKeyRef:
+                  name: s3-secret
+                  key: S3_ENDPOINT
+            - name: S3_BUCKET
+              valueFrom:
+                secretKeyRef:
+                  name: s3-secret
+                  key: S3_BUCKET
+            - name: S3_REGION
+              valueFrom:
+                secretKeyRef:
+                  name: s3-secret
+                  key: S3_REGION
+            - name: S3_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: s3-secret
+                  key: S3_ACCESS_KEY_ID
+            - name: S3_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: s3-secret
+                  key: S3_SECRET_ACCESS_KEY
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: app-secret
+                  key: JWT_SECRET
+            - name: INGEST_HMAC_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: app-secret
+                  key: INGEST_HMAC_SECRET
+            - name: STORAGE_ENCRYPTION_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: app-secret
+                  key: STORAGE_ENCRYPTION_KEY
+            # Monitoring
+            - name: UPTIME_KUMA_BASE_URL
+              value: "https://status.rejourney.co"
+            - name: UPTIME_KUMA_TOKENS
+              valueFrom:
+                secretKeyRef:
+                  name: monitoring-tokens
+                  key: tokens
+                  optional: true
+            # SMTP (for alert emails)
+            - name: SMTP_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: smtp-secret
+                  key: SMTP_HOST
+                  optional: true
+            - name: SMTP_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: smtp-secret
+                  key: SMTP_PORT
+                  optional: true
+            - name: SMTP_USER
+              valueFrom:
+                secretKeyRef:
+                  name: smtp-secret
+                  key: SMTP_USER
+                  optional: true
+            - name: SMTP_PASS
+              valueFrom:
+                secretKeyRef:
+                  name: smtp-secret
+                  key: SMTP_PASS
+                  optional: true
+            - name: SMTP_FROM
+              valueFrom:
+                secretKeyRef:
+                  name: smtp-secret
+                  key: SMTP_FROM
+                  optional: true
+            - name: SMTP_SECURE
+              valueFrom:
+                secretKeyRef:
+                  name: smtp-secret
+                  key: SMTP_SECURE
+                  optional: true
+            # Public URL for email links (from app-secret)
+            - name: PUBLIC_DASHBOARD_URL
+              valueFrom:
+                secretKeyRef:
+                  name: app-secret
+                  key: PUBLIC_DASHBOARD_URL
+                  optional: true
+          resources:
+            limits:
+              cpu: 200m
+              memory: 256Mi
+          # No standard HTTP port, but we can check if the process is alive via command or if it has a health server
+          # For now, let's assume it doesn't have a health server yet, but we can add one or use a dummy check
+          # Actually, workers usually have some internal state. Let's add a dummy check if none exists
+          # or wait for implementation. For production, a real check is better.
+          # The user's code mentioned monitoring.pingWorker, which could be used.
+
+---
+# Retention Worker Deployment
+# Cleans up expired recordings based on retention policies
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: retention-worker
+  namespace: rejourney
+  labels:
+    app.kubernetes.io/part-of: rejourney
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: retention-worker
+  template:
+    metadata:
+      labels:
+        app: retention-worker
+    spec:
+      imagePullSecrets:
+        - name: ghcr-secret
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+      containers:
+        - name: worker
+          image: ghcr.io/rejourneyco/rejourney/api:latest
+          imagePullPolicy: Always
+          command: ["node", "dist/worker/retentionWorker.js"]
+          env:
+            - name: NODE_ENV
+              value: production
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: DATABASE_URL
+            - name: S3_ENDPOINT
+              valueFrom:
+                secretKeyRef:
+                  name: s3-secret
+                  key: S3_ENDPOINT
+            - name: S3_BUCKET
+              valueFrom:
+                secretKeyRef:
+                  name: s3-secret
+                  key: S3_BUCKET
+            - name: S3_REGION
+              valueFrom:
+                secretKeyRef:
+                  name: s3-secret
+                  key: S3_REGION
+            - name: S3_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: s3-secret
+                  key: S3_ACCESS_KEY_ID
+            - name: S3_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: s3-secret
+                  key: S3_SECRET_ACCESS_KEY
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: app-secret
+                  key: JWT_SECRET
+            - name: INGEST_HMAC_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: app-secret
+                  key: INGEST_HMAC_SECRET
+            - name: STORAGE_ENCRYPTION_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: app-secret
+                  key: STORAGE_ENCRYPTION_KEY
+            # Monitoring
+            - name: UPTIME_KUMA_BASE_URL
+              value: "https://status.rejourney.co"
+            - name: UPTIME_KUMA_TOKENS
+              valueFrom:
+                secretKeyRef:
+                  name: monitoring-tokens
+                  key: tokens
+          resources:
+            requests:
+              cpu: 20m
+              memory: 64Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+
+
+---
+# Billing Worker REMOVED - billing now handled by Stripe webhooks via API server
+# All subscription management, invoicing, and renewals handled by Stripe
+
+---
+# Alert Worker Deployment
+# Processes and sends alert emails for crashes, ANRs, error spikes, etc.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: alert-worker
+  namespace: rejourney
+  labels:
+    app.kubernetes.io/part-of: rejourney
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: alert-worker
+  template:
+    metadata:
+      labels:
+        app: alert-worker
+    spec:
+      imagePullSecrets:
+        - name: ghcr-secret
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+      containers:
+        - name: worker
+          image: ghcr.io/rejourneyco/rejourney/api:latest
+          imagePullPolicy: Always
+          command: ["node", "dist/worker/alertWorker.js"]
+          env:
+            - name: NODE_ENV
+              value: production
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: DATABASE_URL
+            - name: REDIS_URL
+              valueFrom:
+                secretKeyRef:
+                  name: redis-secret
+                  key: REDIS_URL
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: app-secret
+                  key: JWT_SECRET
+            - name: INGEST_HMAC_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: app-secret
+                  key: INGEST_HMAC_SECRET
+            # SMTP for alert emails
+            - name: SMTP_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: smtp-secret
+                  key: SMTP_HOST
+                  optional: true
+            - name: SMTP_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: smtp-secret
+                  key: SMTP_PORT
+                  optional: true
+            - name: SMTP_USER
+              valueFrom:
+                secretKeyRef:
+                  name: smtp-secret
+                  key: SMTP_USER
+                  optional: true
+            - name: SMTP_PASS
+              valueFrom:
+                secretKeyRef:
+                  name: smtp-secret
+                  key: SMTP_PASS
+                  optional: true
+            - name: SMTP_FROM
+              valueFrom:
+                secretKeyRef:
+                  name: smtp-secret
+                  key: SMTP_FROM
+                  optional: true
+            - name: SMTP_SECURE
+              valueFrom:
+                secretKeyRef:
+                  name: smtp-secret
+                  key: SMTP_SECURE
+                  optional: true
+            # Public URL for email links (from app-secret)
+            - name: PUBLIC_DASHBOARD_URL
+              valueFrom:
+                secretKeyRef:
+                  name: app-secret
+                  key: PUBLIC_DASHBOARD_URL
+                  optional: true
+            # Monitoring
+            - name: UPTIME_KUMA_BASE_URL
+              value: "https://status.rejourney.co"
+            - name: UPTIME_KUMA_TOKENS
+              valueFrom:
+                secretKeyRef:
+                  name: monitoring-tokens
+                  key: tokens
+                  optional: true
+          resources:
+            requests:
+              cpu: 20m
+              memory: 64Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi

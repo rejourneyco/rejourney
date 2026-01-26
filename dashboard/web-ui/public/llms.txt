@@ -1,0 +1,26 @@
+# Rejourney Documentation
+
+> Rejourney is a lightweight, open-source Sentry alternative for React Native. It provides native crash monitoring, performant session replay (1 FPS, pixel-perfect), and heatmaps with a zero-dependency SDK.
+
+## Core Documentation
+
+- [Introduction](/docs): Quick overview of Rejourney and its features.
+- [React Native SDK Setup](/docs): 3-line integration guide for React Native apps.
+- [Self-Hosted Deployment](/docs/selfhosted): Guide to deploying Rejourney on your own infrastructure using Docker.
+- [Distributed vs Single-Node Cloud](/docs/architecture/distributed-vs-single-node): Comprehensive architecture breakdown of Kubernetes vs Docker Cloud models.
+- [CI/CD & Testing](/docs/architecture/ci-cd): Detailed explanation of our test suites (Backend, Web, SDK) and deployment pipelines.
+- [Contributing](/docs/contribute): Guidelines for setting up the local monorepo and contributing to the project.
+
+## Advanced Topics
+
+- [Backup & Recovery](/docs/selfhosted/backup-recovery): Ensuring data persistence in self-hosted environments.
+- [Troubleshooting](/docs/selfhosted/troubleshooting): Common issues and fixes for self-hosted instances.
+- [Engineering Blog](/engineering): Deep dives into our pixel-perfect capture engine, crash detection logic, and observability architecture.
+
+## Technical Details
+
+- **Capture Engine**: Uses `drawViewHierarchyInRect` (iOS) and `PixelCopy` (Android) for GPU-backed pixel-perfect fidelity.
+- **Privacy**: Automatic masking of text inputs and camera views; manual `Mask` component available.
+- **Encoding**: Hardware-accelerated H.264 encoding with emergency flush logic for crash recovery.
+- **Backend**: Node.js/TypeScript API with Postgres (Drizzle ORM) and S3-compatible storage.
+- **Cloud Infrastructure**: Kubernetes (K3s) with dynamic scaling and S3-compatible storage.

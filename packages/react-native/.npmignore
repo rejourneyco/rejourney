@@ -1,0 +1,28 @@
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+
+# Android
+android/.gradle/
+android/.idea/
+android/build/
+android/local.properties
+android/*.iml
+
+# iOS
+ios/build/
+ios/DerivedData/
+ios/*.xcworkspace
+ios/Pods/
+
+# Build artifacts
+lib/typescript/example
+node_modules/
+
+# Source
+src/
+tsconfig.json
+package-lock.json

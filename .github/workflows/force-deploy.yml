@@ -1,0 +1,79 @@
+name: Force Deploy VPS
+on: workflow_dispatch
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy to VPS
+        uses: appleboy/ssh-action@v1.0.3
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          IMAGE_TAG: ${{ github.sha }}
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: root
+          key: ${{ secrets.VPS_SSH_KEY }}
+          timeout: 60m
+          command_timeout: 60m
+          envs: GITHUB_TOKEN,IMAGE_TAG
+          script: |
+            # Update Repo
+            cd /opt/rejourney || exit 1
+
+            # Use token for origin to allow fetching
+            git remote set-url origin https://${GITHUB_TOKEN}@github.com/${{ github.repository }}.git
+            
+            # Reset permissions/state if needed
+            if [ -d ".git" ]; then
+                git fetch origin main
+                git reset --hard origin/main
+            else
+                rm -rf * .[^.]*
+                git clone https://${GITHUB_TOKEN}@github.com/${{ github.repository }}.git .
+            fi
+
+            # Update manifests with correct images (scoped to this repository)
+            sed -i "s|image: ghcr.io/${{ github.repository }}/api:.*|image: ghcr.io/${{ github.repository }}/api:${IMAGE_TAG}|g" k8s/*.yaml
+            sed -i "s|image: ghcr.io/${{ github.repository }}/web:.*|image: ghcr.io/${{ github.repository }}/web:${IMAGE_TAG}|g" k8s/*.yaml
+            sed -i "s|image: ghcr.io/${{ github.repository }}/migration:.*|image: ghcr.io/${{ github.repository }}/migration:${IMAGE_TAG}|g" k8s/*.yaml
+            
+            # Delete old migration/setup jobs
+            kubectl delete job db-migrate db-seed db-setup -n rejourney --ignore-not-found --wait=false
+
+            # Apply Manifests
+            kubectl apply -f k8s/namespace.yaml
+            
+             # Auto-install cert-manager if missing (Required for SSL)
+             if ! kubectl get namespace cert-manager &> /dev/null; then
+               echo "🔒 cert-manager not found. Installing..."
+               kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.16.2/cert-manager.yaml
+               
+               echo "⏳ Waiting for cert-manager to be ready..."
+               kubectl wait --for=condition=Available deployment/cert-manager-webhook -n cert-manager --timeout=300s
+             fi
+
+            kubectl apply -f k8s/ \
+              --prune \
+              -l app.kubernetes.io/part-of=rejourney \
+              --prune-allowlist=core/v1/ConfigMap \
+              --prune-allowlist=core/v1/Service \
+              --prune-allowlist=apps/v1/Deployment \
+              --prune-allowlist=apps/v1/StatefulSet \
+              --prune-allowlist=networking.k8s.io/v1/Ingress \
+              --prune-allowlist=traefik.io/v1alpha1/Middleware \
+              --prune-allowlist=batch/v1/CronJob \
+              --prune-allowlist=batch/v1/Job
+
+            kubectl delete challenges --all -A --wait=false
+            kubectl delete orders --all -A --wait=false
+
+            # Clean up old images to prevent bloat (keep last 24h)
+            echo "🧹 Cleaning up old Docker images..."
+            if command -v crictl &> /dev/null; then
+              crictl rmi --prune
+            elif command -v docker &> /dev/null; then
+              docker image prune -af --filter "until=24h"
+            else
+              echo "⚠️ Neither docker nor crictl found. Skipping image cleanup."
+            fi

@@ -1,0 +1,106 @@
+{
+  "expo": {
+    "name": "BREW",
+    "slug": "brew",
+    "version": "2.1.1",
+    "orientation": "portrait",
+    "icon": "./assets/images/icon.png",
+    "scheme": "brew",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.example.brew",
+      "infoPlist": {
+        "NSCameraUsageDescription": "This app uses the camera to scan coffee products and create personalized recipes."
+      },
+      "associatedDomains": [
+        "applinks:brew.onelink.me"
+      ]
+    },
+
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/images/icon.png",
+        "backgroundColor": "#f7f6f3"
+      },
+      "package": "com.example.brew",
+      "permissions": [
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE",
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE"
+      ]
+    },
+
+    "web": {
+      "bundler": "metro",
+      "output": "static",
+      "favicon": "./assets/images/favicon.png"
+    },
+
+    "plugins": [
+      "expo-router",
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/images/transparent.png",
+          "imageWidth": 200,
+          "resizeMode": "contain",
+          "backgroundColor": "#f7f6f3"
+        }
+      ],
+      [
+        "@react-native-google-signin/google-signin",
+        {
+          "iosUrlScheme": "com.googleusercontent.apps.176210667930-dpr87q1vmv7atom4fs67fcbehfls96og"
+        }
+      ],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Allow BREW to access your camera to scan ingredients"
+        }
+      ],
+      [
+        "expo-media-library",
+        {
+          "photosPermission": "Allow BREW to access your photos to upload drink images",
+          "savePhotosPermission": "Allow BREW to save photos"
+        }
+      ],
+      "react-native-vision-camera",
+      "react-native-appsflyer"
+    ],
+
+    "experiments": {
+      "typedRoutes": true
+    },
+
+    "extra": {
+      "router": {
+        "origin": false,
+        "linking": {
+          "prefixes": [
+            "brew://",                                   // your custom scheme
+            "https://brewcoffeelabs.onelink.me/BTiU"      // OneLink prefix incl. hash
+          ]
+        }
+      },
+      "eas": {
+        "projectId": "your-eas-project-id-here"
+      }
+    },
+
+    "runtimeVersion": "1.0.1",
+
+    "updates": {
+      "url": "https://u.expo.dev/your-eas-project-id-here"
+    }
+  }
+}
