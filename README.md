@@ -1,25 +1,20 @@
 # Rejourney
 
 <div align="center">
-  <img src="https://rejourney.co/rejourneyIcon-removebg-preview.png" alt="Rejourney Logo" width="120" />
+  <img src="https://rejourney.co/rejourneyIcon-removebg-preview.png" alt="Rejourney Logo" width="80" />
+  <p>
+    <strong>Lightweight session replay and observability for React Native</strong>
+    <br />
+    Mobile-first focus with pixel-perfect video capture and real-time incident detection.
+  </p>
+  <p>
+    <a href="https://rejourney.co"><strong>Explore the Website »</strong></a>
+  </p>
+  <p>
+    <a href="https://reactnative.dev"><img src="https://img.shields.io/badge/React%20Native-61DAFB?logo=react&logoColor=black" alt="React Native" /></a>
+    <a href="https://expo.dev"><img src="https://img.shields.io/badge/Expo-000020?logo=expo&logoColor=white" alt="Expo" /></a>
+  </p>
 </div>
-
-  <strong>Lightweight session replay and observability for React Native</strong>
-  <br />
-  Mobile-first focus with pixel-perfect video capture and real-time incident detection.
-  <br />
-  <br />
-  <a href="https://rejourney.co"><strong>Explore the Website »</strong></a>
-</div>
-
-<br />
-
-<div align="center">
-  <a href="https://reactnative.dev"><img src="https://img.shields.io/badge/React%20Native-61DAFB?logo=react&logoColor=black" alt="React Native" /></a>
-  <a href="https://expo.dev"><img src="https://img.shields.io/badge/Expo-000020?logo=expo&logoColor=white" alt="Expo" /></a>
-</div>
-
-<br />
 
 ## Features
 
@@ -55,7 +50,7 @@ Track user retention and loyalty segments. Understand how releases impact your p
 ![Team Alerts](https://rejourney.co/images/team-alerts.png)
 Smart email notifications for crashes, ANRs, and error spikes. Role-based access for engineering teams.
 
-## Our Documentation
+## Documentation
 
 Full integration guides and API reference: https://rejourney.co/docs/reactnative/overview
 
@@ -74,7 +69,7 @@ Rejourney is designed to be **invisible to the eye**. We capture frames only dur
 
 **Device:** iPhone 15 Pro (iOS 26)  
 **Environment:** Expo SDK 54, React Native New Architecture  
-**Test App:** [Merch App](https://merchcampus.com)
+**Test App:** [Merch App](https://merchcampus.com)  
 **Test App Conditions:** 46 posts (and post images) flat list, posting images via camera, Mapbox View, 124 API Calls, 10 pages, 31 subcomponets on home page, 31 interactions (pan, scroll, zoom, etc), and privacy masking for camera + text input for posting.
 
 | Metric | Avg (ms) | Max (ms) | Min (ms) |
