@@ -138,7 +138,7 @@ router.post(
                     )
                 )
                 .limit(1);
-            
+
             if (existingBundle) {
                 throw ApiError.badRequest(
                     `Bundle ID "${data.bundleId}" is already in use by project "${existingBundle.name}". Each bundle ID must be unique across all projects.`
@@ -158,7 +158,7 @@ router.post(
                     )
                 )
                 .limit(1);
-            
+
             if (existingPackage) {
                 throw ApiError.badRequest(
                     `Package name "${data.packageName}" is already in use by project "${existingPackage.name}". Each package name must be unique across all projects.`
@@ -180,6 +180,7 @@ router.post(
             rejourneyEnabled: data.rejourneyEnabled ?? true,
             recordingEnabled: data.recordingEnabled ?? true,
             sampleRate: data.sampleRate ?? 100,
+            healthyReplaysPromoted: data.healthyReplaysPromoted ?? 0.05,
             maxRecordingMinutes: data.maxRecordingMinutes ?? 10,
         }).returning();
 
@@ -273,7 +274,7 @@ router.put(
             if (currentProject.bundleId) {
                 throw ApiError.badRequest('Bundle ID cannot be changed once set');
             }
-            
+
             // Check for duplicate bundle IDs across all projects
             const [existingBundle] = await db
                 .select({ id: projects.id, name: projects.name })
@@ -286,13 +287,13 @@ router.put(
                     )
                 )
                 .limit(1);
-            
+
             if (existingBundle) {
                 throw ApiError.badRequest(
                     `Bundle ID "${data.bundleId}" is already in use by project "${existingBundle.name}". Each bundle ID must be unique across all projects.`
                 );
             }
-            
+
             bundleId = data.bundleId;
         }
 
@@ -300,7 +301,7 @@ router.put(
             if (currentProject.packageName) {
                 throw ApiError.badRequest('Package Name cannot be changed once set');
             }
-            
+
             // Check for duplicate package names across all projects
             const [existingPackage] = await db
                 .select({ id: projects.id, name: projects.name })
@@ -313,13 +314,13 @@ router.put(
                     )
                 )
                 .limit(1);
-            
+
             if (existingPackage) {
                 throw ApiError.badRequest(
                     `Package name "${data.packageName}" is already in use by project "${existingPackage.name}". Each package name must be unique across all projects.`
                 );
             }
-            
+
             packageName = data.packageName;
         }
 
@@ -337,6 +338,7 @@ router.put(
         if (data.rejourneyEnabled !== undefined) updateData.rejourneyEnabled = data.rejourneyEnabled;
         if (data.recordingEnabled !== undefined) updateData.recordingEnabled = data.recordingEnabled;
         if (data.sampleRate !== undefined) updateData.sampleRate = data.sampleRate;
+        if (data.healthyReplaysPromoted !== undefined) updateData.healthyReplaysPromoted = data.healthyReplaysPromoted;
         if (data.maxRecordingMinutes !== undefined) updateData.maxRecordingMinutes = data.maxRecordingMinutes;
 
         const [project] = await db.update(projects)
@@ -349,6 +351,7 @@ router.put(
             data.maxRecordingMinutes !== undefined ||
             data.recordingEnabled !== undefined ||
             data.rejourneyEnabled !== undefined ||
+            data.healthyReplaysPromoted !== undefined ||
             bundleId !== undefined ||
             packageName !== undefined;
 

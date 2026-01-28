@@ -60,14 +60,14 @@ export async function sessionAuth(
 
         // Try Redis cache first (faster, reduces DB load)
         let userData: { id: string; email: string; displayName?: string; roles: string[] } | null = null;
-        
+
         try {
             const { getRedis } = await import('../db/redis.js');
             const redisClient = getRedis();
             const cacheKey = `session:${token}`;
             const cached = await Promise.race([
                 redisClient.get(cacheKey),
-                new Promise<string | null>((_, reject) => 
+                new Promise<string | null>((_, reject) =>
                     setTimeout(() => reject(new Error('Redis timeout')), 100)
                 )
             ]) as string | null;
@@ -154,9 +154,9 @@ export async function sessionAuth(
                 // Database error - check if it's a timeout or connection issue
                 if (dbErr.message?.includes('timeout') || dbErr.code === 'ECONNREFUSED') {
                     logger.error({ err: dbErr }, 'Database connection error in sessionAuth');
-                    res.status(503).json({ 
-                        error: 'Service Unavailable', 
-                        message: 'Authentication service temporarily unavailable' 
+                    res.status(503).json({
+                        error: 'Service Unavailable',
+                        message: 'Authentication service temporarily unavailable'
                     });
                     return;
                 }
@@ -170,8 +170,8 @@ export async function sessionAuth(
     } catch (err) {
         logger.error({ err }, 'Session auth error');
         // Don't expose internal errors in production
-        const message = process.env.NODE_ENV === 'production' 
-            ? 'Authentication failed' 
+        const message = process.env.NODE_ENV === 'production'
+            ? 'Authentication failed'
             : err instanceof Error ? err.message : 'Internal server error';
         res.status(500).json({ error: 'Internal server error', message });
     }
@@ -188,25 +188,29 @@ export async function apiKeyAuth(
 ): Promise<void> {
     try {
         const apiKey = req.headers['x-api-key'] as string;
-        const ingestToken = req.headers['x-ingest-token'] as string;
         const uploadToken = req.headers['x-upload-token'] as string;
-        const deviceId = req.headers['x-device-id'] as string;
-        const publicKey = req.headers['x-rejourney-key'] as string;
+        // ingestToken, deviceId, and publicKey are no longer used in this middleware
 
         // Try new device auth upload token first (from RJDeviceAuthManager)
-        if (uploadToken && publicKey) {
+        if (uploadToken) {
             try {
-                // Token format: base64(JSON payload).signature
+                // Token format: base64(JSON payload).signature(random_bytes)
                 const [payloadB64] = uploadToken.split('.');
                 if (payloadB64) {
                     const payload = JSON.parse(Buffer.from(payloadB64, 'base64').toString());
 
                     // Validate token type and expiry
-                    if (payload.type === 'upload' && payload.projectId) {
-                        // Check expiry
-                        if (payload.exp && payload.exp < Math.floor(Date.now() / 1000)) {
-                            logger.warn({ exp: payload.exp }, 'Upload token expired');
-                            res.status(401).json({ error: 'Unauthorized', message: 'Upload token expired' });
+                    if (payload.type === 'upload' && payload.deviceId && payload.projectId) {
+                        // SECURITY: Validate against Redis (Stateful Auth)
+                        // This fixes the vulnerability where signatures were not verified.
+                        // We check if this specific token was issued to this device.
+                        const { getRedis } = await import('../db/redis.js');
+                        const redisClient = getRedis();
+                        const storedToken = await redisClient.get(`upload:token:${payload.deviceId}`);
+
+                        if (!storedToken || storedToken !== uploadToken) {
+                            logger.warn({ deviceId: payload.deviceId, projectId: payload.projectId }, 'Invalid or expired upload token');
+                            res.status(401).json({ error: 'Unauthorized', message: 'Invalid token' });
                             return;
                         }
 
@@ -222,26 +226,27 @@ export async function apiKeyAuth(
                             .limit(1);
 
                         if (projectResult && !projectResult.project.deletedAt) {
-                            // Verify public key matches
-                            if (projectResult.project.publicKey === publicKey) {
-                                req.project = {
-                                    id: projectResult.project.id,
-                                    teamId: projectResult.project.teamId,
-                                    name: projectResult.project.name,
-                                    recordingEnabled: projectResult.project.recordingEnabled,
-                                    rejourneyEnabled: (projectResult.project as any).rejourneyEnabled,
-                                };
-                                req.apiKey = {
-                                    id: 'device-auth',
-                                    projectId: projectResult.project.id,
-                                    scopes: ['ingest'],
-                                };
-                                logger.debug({ projectId: payload.projectId, deviceId: payload.deviceId }, 'Device auth upload token validated');
-                                next();
-                                return;
-                            } else {
-                                logger.warn({ tokenProjectId: payload.projectId, headerPublicKey: publicKey }, 'Public key mismatch');
-                            }
+                            req.project = {
+                                id: projectResult.project.id,
+                                teamId: projectResult.project.teamId,
+                                name: projectResult.project.name,
+                                recordingEnabled: projectResult.project.recordingEnabled,
+                                rejourneyEnabled: (projectResult.project as any).rejourneyEnabled,
+                            };
+                            req.apiKey = {
+                                id: 'device-auth',
+                                projectId: projectResult.project.id,
+                                scopes: ['ingest'],
+                            };
+                            // Update last seen for device asynchronously
+                            const { deviceRegistrations } = await import('../db/schema.js');
+                            db.update(deviceRegistrations)
+                                .set({ lastSeenAt: new Date() })
+                                .where(eq(deviceRegistrations.id, payload.deviceId))
+                                .catch(() => { });
+
+                            next();
+                            return;
                         } else {
                             logger.warn({ projectId: payload.projectId }, 'Project not found or deleted for upload token');
                         }
@@ -249,75 +254,6 @@ export async function apiKeyAuth(
                 }
             } catch (err) {
                 logger.warn({ err }, 'Upload token validation failed, falling back to other auth methods');
-            }
-        }
-
-        // Try attestation token second (legacy x-ingest-token for SDK usage)
-        if (ingestToken) {
-            try {
-                const { getRedis } = await import('../db/redis.js');
-                const redisClient = getRedis();
-                const tokenKey = `ingest:token:${ingestToken}`;
-                const tokenData = await redisClient.get(tokenKey);
-
-                if (tokenData) {
-                    const parsed = JSON.parse(tokenData);
-
-                    // SECURITY: Validate deviceId matches the token's deviceId
-                    if (deviceId && parsed.deviceId !== deviceId) {
-                        logger.warn(
-                            {
-                                tokenDeviceId: parsed.deviceId,
-                                requestDeviceId: deviceId,
-                                projectId: parsed.projectId
-                            },
-                            'Device ID mismatch in attestation token'
-                        );
-                        res.status(401).json({
-                            error: 'Unauthorized',
-                            message: 'Device ID mismatch'
-                        });
-                        return;
-                    }
-
-                    const [projectResult] = await db
-                        .select({
-                            project: projects,
-                            team: teams,
-                        })
-                        .from(projects)
-                        .innerJoin(teams, eq(projects.teamId, teams.id))
-                        .where(eq(projects.id, parsed.projectId))
-                        .limit(1);
-
-                    if (projectResult && !projectResult.project.deletedAt) {
-                        // Attach to request
-                        req.project = {
-                            id: projectResult.project.id,
-                            teamId: projectResult.project.teamId,
-                            name: projectResult.project.name,
-                            recordingEnabled: projectResult.project.recordingEnabled,
-                            rejourneyEnabled: (projectResult.project as any).rejourneyEnabled,
-                        };
-                        // Create a virtual API key for scope checking
-                        req.apiKey = {
-                            id: 'attestation',
-                            projectId: projectResult.project.id,
-                            scopes: ['ingest'],
-                        };
-                        next();
-                        return;
-                    } else {
-                        logger.warn(
-                            { projectId: parsed.projectId },
-                            'Project not found or deleted for attestation token'
-                        );
-                    }
-                } else {
-                    logger.warn({ tokenPrefix: ingestToken.slice(0, 8) }, 'Invalid or expired attestation token');
-                }
-            } catch (err) {
-                logger.warn({ err }, 'Attestation token validation failed, falling back to API key');
             }
         }
 
@@ -455,16 +391,16 @@ export async function requireTeamAccess(
     } catch (err: any) {
         // Isolated error handling - don't break other routes
         logger.error({ err, teamId, userId: req.user?.id }, 'Team access check error');
-        
+
         // Handle database connection errors gracefully
         if (err.message?.includes('timeout') || err.code === 'ECONNREFUSED') {
-            res.status(503).json({ 
-                error: 'Service Unavailable', 
-                message: 'Team access check temporarily unavailable' 
+            res.status(503).json({
+                error: 'Service Unavailable',
+                message: 'Team access check temporarily unavailable'
             });
             return;
         }
-        
+
         res.status(500).json({ error: 'Internal server error' });
     }
 }
@@ -669,16 +605,16 @@ export async function requireBillingAdmin(
     } catch (err: any) {
         // Isolated error handling - don't break other routes
         logger.error({ err, teamId, userId: req.user?.id }, 'Billing admin check error');
-        
+
         // Handle database connection errors gracefully
         if (err.message?.includes('timeout') || err.code === 'ECONNREFUSED') {
-            res.status(503).json({ 
-                error: 'Service Unavailable', 
-                message: 'Billing access check temporarily unavailable' 
+            res.status(503).json({
+                error: 'Service Unavailable',
+                message: 'Billing access check temporarily unavailable'
             });
             return;
         }
-        
+
         res.status(500).json({ error: 'Internal server error' });
     }
 }

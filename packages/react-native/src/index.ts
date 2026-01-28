@@ -765,13 +765,7 @@ const Rejourney: RejourneyAPI = {
     return { used: 0, max: 0 };
   },
 
-  /**
-  * Get ingest auth headers.
-  * Authentication now handled by device registration flow.
-  */
-  getIngestAuthHeaders(): { 'x-ingest-token': string; 'x-device-id': string } | null {
-    return null;
-  },
+
 
   /**
    * Mark a visual change that should be captured

@@ -25,7 +25,6 @@ import {
     users,
     teams,
     teamMembers,
-    quotas,
     projects,
     apiKeys,
     retentionPolicies,
@@ -182,12 +181,8 @@ async function main() {
                 role: 'owner',
             });
 
-            // Create default quota (free tier - session limit from plan)
-            await db.insert(quotas).values({
-                teamId: team.id,
-                plan: 'free',
-                sessionLimit: 5000, // Free tier session limit
-            });
+            // Note: Quota table removed. Session limits are handled by Stripe or defaults.
+
 
             // Create a test project
             const [project] = await db.insert(projects).values({

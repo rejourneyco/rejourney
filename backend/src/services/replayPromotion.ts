@@ -200,7 +200,7 @@ function getScreenStats(metrics: Partial<SessionMetrics>): { screenPath: string[
 export async function evaluateReplayPromotion(
     projectId: string,
     metrics: Partial<SessionMetrics>,
-    projectSampleRate: number = 0
+    healthyReplaysPromoted: number = 0.05
 ): Promise<PromotionResult> {
     const { HARD_PROMOTE_THRESHOLDS: T } = await import('./replayPromotion.js');
 
@@ -407,7 +407,7 @@ export async function evaluateReplayPromotion(
     // RANDOM SAMPLING: Baseline visibility
     // Default to a dynamic sample rate based on project scale
     // =========================================================================
-    const baseSampleRate = projectSampleRate > 0 ? projectSampleRate : 0.05;
+    const baseSampleRate = healthyReplaysPromoted;
     const effectiveSampleRate = baseSampleRate * adaptiveAdjustment;
 
     if (Math.random() < effectiveSampleRate) {
@@ -433,7 +433,7 @@ export async function evaluateReplayPromotion(
 export async function evaluateReplayPromotionWithQuota(
     projectId: string,
     metrics: Partial<SessionMetrics>,
-    projectSampleRate: number,
+    healthyReplaysPromoted: number,
     quota: QuotaConfig
 ): Promise<PromotionResult> {
     // Check if recording is enabled for this project
@@ -453,7 +453,7 @@ export async function evaluateReplayPromotionWithQuota(
     }
 
     // Delegate to main evaluation logic
-    return evaluateReplayPromotion(projectId, metrics, projectSampleRate);
+    return evaluateReplayPromotion(projectId, metrics, healthyReplaysPromoted);
 }
 
 
@@ -507,7 +507,7 @@ export async function evaluateAndPromoteSession(
     // 5. Get project config
     const [project] = await db
         .select({
-            replaySampleRate: projects.replaySampleRate,
+            healthyReplaysPromoted: projects.healthyReplaysPromoted,
             recordingEnabled: projects.recordingEnabled,
             maxRecordingMinutes: projects.maxRecordingMinutes,
         })
@@ -547,7 +547,7 @@ export async function evaluateAndPromoteSession(
     const result = await evaluateReplayPromotionWithQuota(
         projectId,
         evaluationMetrics,
-        project?.replaySampleRate ?? 0,
+        project?.healthyReplaysPromoted ?? 0.05,
         quotaConfig
     );
 

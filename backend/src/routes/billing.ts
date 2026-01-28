@@ -9,7 +9,7 @@
 
 import { Router } from 'express';
 import { eq, and, inArray, isNull, desc, sum } from 'drizzle-orm';
-import { db, quotas, projects, projectUsage, billingUsage, teams } from '../db/client.js';
+import { db, projects, projectUsage, billingUsage, teams } from '../db/client.js';
 import { isSelfHosted } from '../config.js';
 import { getTeamBillingPeriodDates } from '../utils/billing.js';
 import { sessionAuth, requireTeamAccess, asyncHandler } from '../middleware/index.js';
@@ -46,14 +46,6 @@ router.get(
         // Get session usage (uses team's billing period internally)
         const usage = await getTeamSessionUsage(teamId);
 
-        // Get quota
-        const [quota] = await db
-            .select()
-            .from(quotas)
-            .where(eq(quotas.teamId, teamId))
-            .orderBy(desc(quotas.effectiveAt))
-            .limit(1);
-
         res.json({
             period,
             billingCycleStart: billingPeriod.start.toISOString(),
@@ -69,14 +61,7 @@ router.get(
             plan: {
                 name: usage.planName,
             },
-            quota: quota
-                ? {
-                    teamId: quota.teamId,
-                    sessionLimit: quota.sessionLimit,
-                    storageCap: quota.storageCap ? Number(quota.storageCap) : null,
-                    requestCap: quota.requestCap,
-                }
-                : null,
+            quota: null,
         });
     })
 );
@@ -302,16 +287,11 @@ router.get(
         // Get billing period based on team's anchor
         const billingPeriod = getTeamBillingPeriodDates(team?.billingCycleAnchor ?? null);
 
-        // Get plan's session limit from quotas
-        const [quota] = await db
-            .select({ sessionLimit: quotas.sessionLimit })
-            .from(quotas)
-            .where(eq(quotas.teamId, teamId))
-            .orderBy(desc(quotas.effectiveAt))
-            .limit(1);
+        // Get current subscription to get session limit
+        const subscription = await getTeamSubscription(teamId);
 
         res.json({
-            sessionLimit: quota?.sessionLimit ?? null,
+            sessionLimit: subscription.sessionLimit,
             sessionWarningThresholdPercent: 80, // Default threshold
             sessionWarningEnabled: true,
             billingCycleEndDate: billingPeriod.end.toISOString(),

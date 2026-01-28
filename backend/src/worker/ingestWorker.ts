@@ -712,25 +712,25 @@ async function processEventsArtifact(job: any, _session: any, metrics: any, proj
                                     FROM (
                                         SELECT key, SUM(value::int) as value
                                         FROM (
-                                            SELECT * FROM jsonb_each_text(${screenTouchHeatmaps.touchBuckets})
+                                            SELECT * FROM jsonb_each_text(${screenTouchHeatmaps.touchBuckets}::jsonb)
                                             UNION ALL
-                                            SELECT * FROM jsonb_each_text(EXCLUDED.touch_buckets)
+                                            SELECT * FROM jsonb_each_text(EXCLUDED.touch_buckets::jsonb)
                                         ) AS combined
                                         GROUP BY key
                                     ) AS aggregated
                                 )`,
                                 rageTapBuckets: sql`(
-                                    SELECT jsonb_object_agg(key, value)
-                                    FROM (
-                                        SELECT key, SUM(value::int) as value
-                                        FROM (
-                                            SELECT * FROM jsonb_each_text(${screenTouchHeatmaps.rageTapBuckets})
+                            SELECT jsonb_object_agg(key, value)
+                                    FROM(
+                                SELECT key, SUM(value:: int) as value
+                                        FROM(
+                                    SELECT * FROM jsonb_each_text(${screenTouchHeatmaps.rageTapBuckets}:: jsonb)
                                             UNION ALL
-                                            SELECT * FROM jsonb_each_text(EXCLUDED.rage_tap_buckets)
-                                        ) AS combined
+                                            SELECT * FROM jsonb_each_text(EXCLUDED.rage_tap_buckets:: jsonb)
+                                ) AS combined
                                         GROUP BY key
-                                    ) AS aggregated
-                                )`,
+                            ) AS aggregated
+                        )`,
                                 totalTouches: sql`${screenTouchHeatmaps.totalTouches} + EXCLUDED.total_touches`,
                                 totalRageTaps: sql`${screenTouchHeatmaps.totalRageTaps} + EXCLUDED.total_rage_taps`,
                                 // Keep the earlier sample session if already present
@@ -751,7 +751,7 @@ async function processEventsArtifact(job: any, _session: any, metrics: any, proj
     if (errorEvents.length > 0 && deviceInfo) {
         for (const errorEvent of errorEvents) {
             // Create fingerprint for grouping similar errors
-            const fingerprintData = `${projectId}:${errorEvent.errorName}:${errorEvent.message}`;
+            const fingerprintData = `${projectId}:${errorEvent.errorName}:${errorEvent.message} `;
             const fingerprint = createHash('sha256').update(fingerprintData).digest('hex').slice(0, 64);
 
             await db.insert(errors).values({
@@ -862,7 +862,7 @@ async function processCrashesArtifact(job: any, _session: any, projectId: string
 
     // Update crash count in session metrics
     await db.update(sessionMetrics)
-        .set({ crashCount: sql`${sessionMetrics.crashCount} + ${crashList.length}` })
+        .set({ crashCount: sql`${sessionMetrics.crashCount} + ${crashList.length} ` })
         .where(eq(sessionMetrics.sessionId, crashSessionId));
 
 
@@ -874,7 +874,7 @@ async function processCrashesArtifact(job: any, _session: any, projectId: string
         totalCrashes: crashList.length
     }).onConflictDoUpdate({
         target: [appDailyStats.projectId, appDailyStats.date],
-        set: { totalCrashes: sql`${appDailyStats.totalCrashes} + ${crashList.length}` }
+        set: { totalCrashes: sql`${appDailyStats.totalCrashes} + ${crashList.length} ` }
     });
 
     log.debug({ crashCount: crashList.length }, 'Crashes artifact processed');
@@ -945,7 +945,7 @@ async function processAnrsArtifact(job: any, _session: any, projectId: string, s
 
     // Update ANR count in session metrics
     const updateResult = await db.update(sessionMetrics)
-        .set({ anrCount: sql`COALESCE(${sessionMetrics.anrCount}, 0) + ${anrList.length}` })
+        .set({ anrCount: sql`COALESCE(${sessionMetrics.anrCount}, 0) + ${anrList.length} ` })
         .where(eq(sessionMetrics.sessionId, anrSessionId));
 
     log.info({ anrSessionId, anrCount: anrList.length, updateResult }, 'Updated session_metrics anrCount');
@@ -959,7 +959,7 @@ async function processAnrsArtifact(job: any, _session: any, projectId: string, s
         totalAnrs: anrList.length
     }).onConflictDoUpdate({
         target: [appDailyStats.projectId, appDailyStats.date],
-        set: { totalAnrs: sql`COALESCE(${appDailyStats.totalAnrs}, 0) + ${anrList.length}` }
+        set: { totalAnrs: sql`COALESCE(${appDailyStats.totalAnrs}, 0) + ${anrList.length} ` }
     });
 
     log.info({ anrCount: anrList.length, anrSessionId, projectId }, 'ANRs artifact processed');
@@ -979,7 +979,7 @@ async function sendHeartbeat(): Promise<void> {
 
     try {
         const queueHealth = await checkQueueHealth();
-        const message = `pending=${queueHealth.pendingJobs},dlq=${queueHealth.dlqJobs}`;
+        const message = `pending = ${queueHealth.pendingJobs}, dlq = ${queueHealth.dlqJobs} `;
         await pingWorker('ingestWorker', 'up', message);
     } catch (err) {
         logger.debug({ err }, 'Failed to send heartbeat');
