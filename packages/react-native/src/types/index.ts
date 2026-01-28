@@ -581,8 +581,7 @@ export interface RejourneyAPI {
   isRecording(): Promise<boolean>;
   /** Get storage usage */
   getStorageUsage(): Promise<{ used: number; max: number }>;
-  /** Get ingest auth headers (x-ingest-token/x-device-id) if available */
-  getIngestAuthHeaders(): { 'x-ingest-token': string; 'x-device-id': string } | null;
+
   /** 
    * Get SDK telemetry metrics for observability
    * Returns metrics about SDK health including upload success rates,

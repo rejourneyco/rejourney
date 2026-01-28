@@ -14,6 +14,7 @@ export const createProjectSchema = z.object({
     rejourneyEnabled: z.boolean().optional().default(true),
     recordingEnabled: z.boolean().optional().default(true),
     sampleRate: z.number().int().min(0).max(100).optional().default(100),
+    healthyReplaysPromoted: z.number().min(0).max(1).optional().default(0.05),
     maxRecordingMinutes: z.number().int().min(1).max(10).optional().default(10),
 });
 
@@ -26,6 +27,7 @@ export const updateProjectSchema = z.object({
     rejourneyEnabled: z.boolean().optional(),
     recordingEnabled: z.boolean().optional(),
     sampleRate: z.number().int().min(0).max(100).optional(),
+    healthyReplaysPromoted: z.number().min(0).max(1).optional(),
     maxRecordingMinutes: z.number().int().min(1).max(10).optional(),
 });
 

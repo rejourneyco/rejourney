@@ -153,8 +153,8 @@ export const projects = pgTable(
         rejourneyEnabled: boolean('rejourney_enabled').default(true).notNull(),
         recordingEnabled: boolean('recording_enabled').default(true).notNull(),
         maxRecordingMinutes: integer('max_recording_minutes').default(10).notNull(),
-        // Replay promotion: remote sample rate (0.0 - 1.0)
-        replaySampleRate: doublePrecision('replay_sample_rate').default(0).notNull(),
+        // Replay promotion: healthy session promotion rate (0.0 - 1.0)
+        healthyReplaysPromoted: doublePrecision('healthy_replays_promoted').default(0.05).notNull(),
         deletedAt: timestamp('deleted_at'),
         createdAt: timestamp('created_at').defaultNow().notNull(),
         updatedAt: timestamp('updated_at').defaultNow().notNull(),
@@ -581,21 +581,7 @@ export const billingUsage = pgTable(
 // Custom enterprise pricing uses custom Stripe Prices.
 // Old tables (billing_plans, custom_billing_configs) have been removed.
 
-export const quotas = pgTable(
-    'quotas',
-    {
-        id: uuid('id').primaryKey().defaultRandom(),
-        teamId: uuid('team_id').notNull().references(() => teams.id),
-        plan: varchar('plan', { length: 50 }),
-        sessionLimit: integer('session_limit'),
-        storageCap: bigint('storage_cap', { mode: 'bigint' }),
-        requestCap: integer('request_cap'),
-        effectiveAt: timestamp('effective_at').defaultNow().notNull(),
-    },
-    (table) => [
-        index('quotas_team_id_idx').on(table.teamId),
-    ]
-);
+// Table removed: quotas
 
 export const retentionPolicies = pgTable('retention_policies', {
     id: uuid('id').primaryKey().defaultRandom(),
@@ -1165,7 +1151,6 @@ export const teamsRelations = relations(teams, ({ one, many }) => ({
     members: many(teamMembers),
     invitations: many(teamInvitations),
     projects: many(projects),
-    quotas: many(quotas),
     billingUsage: many(billingUsage),
 }));
 
@@ -1251,10 +1236,6 @@ export const projectUsageRelations = relations(projectUsage, ({ one }) => ({
 
 export const billingUsageRelations = relations(billingUsage, ({ one }) => ({
     team: one(teams, { fields: [billingUsage.teamId], references: [teams.id] }),
-}));
-
-export const quotasRelations = relations(quotas, ({ one }) => ({
-    team: one(teams, { fields: [quotas.teamId], references: [teams.id] }),
 }));
 
 
