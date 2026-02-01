@@ -63,6 +63,8 @@ static NSString *RJRedactedURLForLogFromString(NSString *urlString) {
   return RJRedactedURLForLogFromURL(url);
 }
 
+static const NSTimeInterval kRJMainThreadRequestTimeout = 2.0;
+
 #pragma mark - Private Interface
 
 @interface RJUploadManager ()
@@ -87,6 +89,8 @@ static NSString *RJRedactedURLForLogFromString(NSString *urlString) {
 @property(nonatomic, strong, nullable) NSURLSessionDataTask *activeTask;
 
 @property(nonatomic, strong) NSString *pendingRootPath;
+
+@property(nonatomic, assign) BOOL allowMainThreadBlockingRequests;
 
 #pragma mark - Retry & Resilience Properties
 
@@ -134,6 +138,7 @@ static NSString *RJRedactedURLForLogFromString(NSString *urlString) {
     _circuitOpenedTime = 0;
     _retryQueue = [NSMutableArray new];
     _isRetryScheduled = NO;
+    _allowMainThreadBlockingRequests = NO;
 
     NSArray<NSString *> *paths = NSSearchPathForDirectoriesInDomains(
         NSCachesDirectory, NSUserDomainMask, YES);
@@ -894,19 +899,40 @@ static NSString *RJRedactedURLForLogFromString(NSString *urlString) {
 
   BOOL uploadSuccess = YES;
 
+  BOOL restoreMainThreadOverride = NO;
+  BOOL previousAllow = self.allowMainThreadBlockingRequests;
+  if ([NSThread isMainThread]) {
+    self.allowMainThreadBlockingRequests = YES;
+    restoreMainThreadOverride = YES;
+  }
+
   if (safeEvents.count > 0) {
 
     if (self.isUploading) {
-      RJLogDebug(@"Waiting for in-progress upload to complete...");
+      BOOL isMainThread = [NSThread isMainThread];
+      NSTimeInterval maxWait = isMainThread
+                                  ? (self.allowMainThreadBlockingRequests ? 10.0
+                                                                         : 2.0)
+                                  : 10.0;
+      NSTimeInterval pollInterval = isMainThread ? 0.05 : 0.1;
+      RJLogDebug(
+          @"Waiting for in-progress upload to complete (max=%.1fs, "
+          @"mainThread=%@)...",
+          maxWait, isMainThread ? @"YES" : @"NO");
       NSTimeInterval waitStart = [[NSDate date] timeIntervalSince1970];
       while (self.isUploading) {
-        [[NSRunLoop currentRunLoop]
-               runMode:NSDefaultRunLoopMode
-            beforeDate:[NSDate dateWithTimeIntervalSinceNow:0.1]];
+        if (isMainThread) {
+          [[NSRunLoop currentRunLoop]
+                 runMode:NSDefaultRunLoopMode
+              beforeDate:[NSDate dateWithTimeIntervalSinceNow:pollInterval]];
+        } else {
+          [NSThread sleepForTimeInterval:pollInterval];
+        }
         NSTimeInterval elapsed =
             [[NSDate date] timeIntervalSince1970] - waitStart;
-        if (elapsed > 10.0) {
-          RJLogWarning(@"Upload wait timeout (10s), proceeding...");
+        if (elapsed > maxWait) {
+          RJLogWarning(@"Upload wait timeout (%.1fs), proceeding...",
+                       maxWait);
           break;
         }
       }
@@ -920,6 +946,9 @@ static NSString *RJRedactedURLForLogFromString(NSString *urlString) {
           @"Upload still in progress after wait, sending fast session-end...");
 
       [self endSessionSyncWithTimeout:2.0];
+      if (restoreMainThreadOverride) {
+        self.allowMainThreadBlockingRequests = previousAllow;
+      }
       return NO;
     }
 
@@ -940,6 +969,10 @@ static NSString *RJRedactedURLForLogFromString(NSString *urlString) {
     }
 
     self.isUploading = NO;
+  }
+
+  if (restoreMainThreadOverride) {
+    self.allowMainThreadBlockingRequests = previousAllow;
   }
 
   // NOTE: Don't call endSessionSync here - uploadEventsSync already calls it
@@ -1368,11 +1401,11 @@ static NSString *RJRedactedURLForLogFromString(NSString *urlString) {
 }
 
 - (BOOL)sendJSONRequestTo:(NSString *)urlString
-                   method:(NSString *)method
-                     body:(NSDictionary *)body
-               timeoutSec:(NSTimeInterval)timeout
-               retryCount:(NSInteger)retryCount
-             responseJSON:(NSDictionary *__autoreleasing *)responseJSON {
+                    method:(NSString *)method
+                      body:(NSDictionary *)body
+                timeoutSec:(NSTimeInterval)timeout
+                retryCount:(NSInteger)retryCount
+              responseJSON:(NSDictionary *__autoreleasing *)responseJSON {
 
   NSURL *url = [NSURL URLWithString:urlString];
   if (!url) {
@@ -1392,9 +1425,20 @@ static NSString *RJRedactedURLForLogFromString(NSString *urlString) {
     }
   }
 
+  BOOL isMainThread = [NSThread isMainThread];
+  NSTimeInterval effectiveTimeout = timeout;
+  if (isMainThread && !self.allowMainThreadBlockingRequests &&
+      timeout > kRJMainThreadRequestTimeout) {
+    effectiveTimeout = kRJMainThreadRequestTimeout;
+    RJLogWarning(
+        @"[RJ-HTTP] Main-thread request detected, clamping timeout from %.1fs "
+        @"to %.1fs",
+        timeout, effectiveTimeout);
+  }
+
   NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:url];
   request.HTTPMethod = method ?: @"POST";
-  request.timeoutInterval = timeout;
+  request.timeoutInterval = effectiveTimeout;
   if (bodyData) {
     request.HTTPBody = bodyData;
     [request setValue:@"application/json" forHTTPHeaderField:@"Content-Type"];
@@ -1402,7 +1446,7 @@ static NSString *RJRedactedURLForLogFromString(NSString *urlString) {
 
   RJLogDebug(@"HTTP %@ %@ (bodyBytes=%lu timeout=%.1fs retry=%ld)",
              request.HTTPMethod ?: @"<nil>", RJRedactedURLForLogFromURL(url),
-             (unsigned long)(bodyData ? bodyData.length : 0), timeout,
+             (unsigned long)(bodyData ? bodyData.length : 0), effectiveTimeout,
              (long)retryCount);
 
   NSDictionary *headers = [self authHeaders];
@@ -1418,8 +1462,8 @@ static NSString *RJRedactedURLForLogFromString(NSString *urlString) {
 
   NSURLSessionConfiguration *config =
       [NSURLSessionConfiguration defaultSessionConfiguration];
-  config.timeoutIntervalForRequest = timeout;
-  config.timeoutIntervalForResource = timeout;
+  config.timeoutIntervalForRequest = effectiveTimeout;
+  config.timeoutIntervalForResource = effectiveTimeout;
 
   NSURLSession *session = [NSURLSession sessionWithConfiguration:config];
 
@@ -1442,8 +1486,8 @@ static NSString *RJRedactedURLForLogFromString(NSString *urlString) {
         }];
 
   [task resume];
-  dispatch_time_t timeoutTime =
-      dispatch_time(DISPATCH_TIME_NOW, (int64_t)(timeout * NSEC_PER_SEC));
+  dispatch_time_t timeoutTime = dispatch_time(
+      DISPATCH_TIME_NOW, (int64_t)(effectiveTimeout * NSEC_PER_SEC));
   long waitResult = dispatch_semaphore_wait(semaphore, timeoutTime);
   [session finishTasksAndInvalidate];
 
@@ -1480,9 +1524,16 @@ static NSString *RJRedactedURLForLogFromString(NSString *urlString) {
           dispatch_semaphore_signal(refreshSem);
         }];
 
+    NSTimeInterval refreshWait = 15.0;
+    if (isMainThread && !self.allowMainThreadBlockingRequests) {
+      refreshWait = MIN(refreshWait, kRJMainThreadRequestTimeout);
+      RJLogWarning(
+          @"[RJ-HTTP] Main-thread token refresh wait clamped to %.1fs",
+          refreshWait);
+    }
     dispatch_semaphore_wait(
         refreshSem,
-        dispatch_time(DISPATCH_TIME_NOW, (int64_t)(15.0 * NSEC_PER_SEC)));
+        dispatch_time(DISPATCH_TIME_NOW, (int64_t)(refreshWait * NSEC_PER_SEC)));
 
     if (refreshSuccess) {
       RJLogDebug(@"Token refresh successful, retrying request...");

@@ -107,6 +107,9 @@ __attribute__((constructor)) static void rj_captureProcessStartTime(void) {
 
 @property(nonatomic, assign) NSTimeInterval lastKeyboardTypingEventTimeMs;
 
+@property(nonatomic, strong)
+    NSMutableArray<RJUploadManager *> *backgroundUploadManagers;
+
 // Auth resilience - retry mechanism
 @property(nonatomic, assign) NSInteger authRetryCount;
 @property(nonatomic, assign) NSTimeInterval nextAuthRetryTime;
@@ -117,6 +120,8 @@ __attribute__((constructor)) static void rj_captureProcessStartTime(void) {
 - (void)performStateSync:(dispatch_block_t)block;
 - (void)resetSamplingDecision;
 - (BOOL)updateRecordingEligibilityWithSampleRate:(NSInteger)sampleRate;
+- (void)trackBackgroundUploadManager:(RJUploadManager *)uploadManager;
+- (void)untrackBackgroundUploadManager:(RJUploadManager *)uploadManager;
 
 @end
 
@@ -204,6 +209,7 @@ RCT_EXPORT_MODULE()
   _backgroundTaskId = UIBackgroundTaskInvalid;
   _maxRecordingMinutes = 10;
   _lastKeyboardTypingEventTimeMs = 0;
+  _backgroundUploadManagers = [NSMutableArray new];
 
   _lifecycleManager = [[RJLifecycleManager alloc] init];
   _lifecycleManager.delegate = self;
@@ -219,6 +225,29 @@ RCT_EXPORT_MODULE()
   } else {
     dispatch_sync(self.stateQueue, block);
   }
+}
+
+- (void)trackBackgroundUploadManager:(RJUploadManager *)uploadManager {
+  if (!uploadManager) {
+    return;
+  }
+
+  [self performStateSync:^{
+    if (!self.backgroundUploadManagers) {
+      self.backgroundUploadManagers = [NSMutableArray new];
+    }
+    [self.backgroundUploadManagers addObject:uploadManager];
+  }];
+}
+
+- (void)untrackBackgroundUploadManager:(RJUploadManager *)uploadManager {
+  if (!uploadManager) {
+    return;
+  }
+
+  [self performStateSync:^{
+    [self.backgroundUploadManagers removeObject:uploadManager];
+  }];
 }
 
 - (void)resetSamplingDecision {
@@ -2227,6 +2256,15 @@ RCT_EXPORT_METHOD(getUserIdentity : (RCTPromiseResolveBlock)
   @try {
     NSString *oldSessionId = self.currentSessionId ?: @"none";
     BOOL wasRecording = self.isRecording;
+    NSTimeInterval oldSessionStartTime = self.sessionStartTime;
+    NSString *resolvedUserId = self.userId;
+    if (!resolvedUserId || resolvedUserId.length == 0) {
+      resolvedUserId = [[NSUserDefaults standardUserDefaults]
+          stringForKey:@"rj_user_identity"];
+    }
+    if (!resolvedUserId || resolvedUserId.length == 0) {
+      resolvedUserId = @"anonymous";
+    }
 
     RJLogInfo(@"[RJ-SESSION-TIMEOUT] === ENDING OLD SESSION: %@ ===",
               oldSessionId);
@@ -2237,6 +2275,10 @@ RCT_EXPORT_METHOD(getUserIdentity : (RCTPromiseResolveBlock)
       RJLogInfo(
           @"[RJ-SESSION-TIMEOUT] Total background time from lifecycle: %.0fms",
           totalBackgroundMs);
+    }
+
+    if (self.uploadManager) {
+      self.uploadManager.totalBackgroundTimeMs = totalBackgroundMs;
     }
 
     [self stopBatchUploadTimer];
@@ -2251,26 +2293,75 @@ RCT_EXPORT_METHOD(getUserIdentity : (RCTPromiseResolveBlock)
       }
     }
 
+    __block NSArray<NSDictionary *> *finalEvents = @[];
+    if (wasRecording) {
+      [self performStateSync:^{
+        finalEvents = [self.sessionEvents copy] ?: @[];
+      }];
+    }
+
     if (wasRecording && self.uploadManager && oldSessionId.length > 0 &&
         ![oldSessionId isEqualToString:@"none"]) {
-      self.uploadManager.totalBackgroundTimeMs = totalBackgroundMs;
-
-      __block NSArray<NSDictionary *> *finalEvents = nil;
-      [self performStateSync:^{
-        finalEvents = [self.sessionEvents copy];
-      }];
-
-      RJLogInfo(@"[RJ-SESSION-TIMEOUT] Ending old session with %lu events, "
-                @"bgTime=%.0fms",
+      RJLogInfo(@"[RJ-SESSION-TIMEOUT] Queuing old session upload with %lu "
+                @"events, bgTime=%.0fms",
                 (unsigned long)finalEvents.count, totalBackgroundMs);
 
-      if (finalEvents.count > 0) {
-        [self.uploadManager synchronousUploadWithEvents:finalEvents];
-      } else {
-        [self.uploadManager endSessionSync];
-      }
+      NSString *apiUrl = self.uploadManager.apiUrl ?: @"https://api.rejourney.co";
+      RJUploadManager *backgroundUploadManager =
+          [[RJUploadManager alloc] initWithApiUrl:apiUrl];
+      backgroundUploadManager.publicKey = self.uploadManager.publicKey;
+      backgroundUploadManager.deviceHash = self.uploadManager.deviceHash;
+      backgroundUploadManager.projectId = self.uploadManager.projectId;
+      backgroundUploadManager.userId = resolvedUserId ?: @"anonymous";
+      backgroundUploadManager.sessionId = oldSessionId;
+      backgroundUploadManager.sessionStartTime = oldSessionStartTime;
+      backgroundUploadManager.totalBackgroundTimeMs = totalBackgroundMs;
 
-      RJLogInfo(@"[RJ-SESSION-TIMEOUT] Old session %@ ended", oldSessionId);
+      [self trackBackgroundUploadManager:backgroundUploadManager];
+
+      __weak __typeof__(self) weakSelf = self;
+      if (finalEvents.count > 0) {
+        [backgroundUploadManager
+            uploadBatchWithEvents:finalEvents
+                          isFinal:YES
+                       completion:^(BOOL success) {
+                         __strong __typeof__(weakSelf) strongSelf = weakSelf;
+                         if (success) {
+                           RJLogInfo(@"[RJ-SESSION-TIMEOUT] Old session %@ "
+                                     @"upload completed",
+                                     oldSessionId);
+                         } else {
+                           RJLogWarning(@"[RJ-SESSION-TIMEOUT] Old session %@ "
+                                        @"upload failed - pending on disk",
+                                        oldSessionId);
+                         }
+                         if (strongSelf) {
+                           [strongSelf
+                               untrackBackgroundUploadManager:
+                                   backgroundUploadManager];
+                         }
+                       }];
+      } else {
+        dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_UTILITY,
+                                                 0), ^{
+          BOOL endOk = [backgroundUploadManager endSessionSync];
+          dispatch_async(dispatch_get_main_queue(), ^{
+            __strong __typeof__(weakSelf) strongSelf = weakSelf;
+            if (endOk) {
+              RJLogInfo(@"[RJ-SESSION-TIMEOUT] Old session %@ end signal sent",
+                        oldSessionId);
+            } else {
+              RJLogWarning(@"[RJ-SESSION-TIMEOUT] Old session %@ end signal "
+                           @"failed - pending on disk",
+                           oldSessionId);
+            }
+            if (strongSelf) {
+              [strongSelf
+                  untrackBackgroundUploadManager:backgroundUploadManager];
+            }
+          });
+        });
+      }
     }
 
     RJLogInfo(@"[RJ-SESSION-TIMEOUT] === STARTING NEW SESSION ===");

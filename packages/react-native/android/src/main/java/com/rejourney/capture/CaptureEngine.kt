@@ -371,7 +371,7 @@ class CaptureEngine(private val context: Context) : VideoEncoderDelegate {
         Logger.info("[CaptureEngine] Resuming video capture")
 
         isWarmingUp.set(true)
-        Logger.debug("[CaptureEngine] Warmup started (200ms)")
+        Logger.debug("[CaptureEngine] Warmup started (1000ms)")
         
         mainHandler.postDelayed({
             if (isShuttingDown.get()) return@postDelayed
@@ -381,7 +381,7 @@ class CaptureEngine(private val context: Context) : VideoEncoderDelegate {
             if (_isRecording) {
                  requestCapture(CaptureImportance.MEDIUM, "warmup_complete", forceCapture = false)
             }
-        }, 200)
+        }, 1000)
 
         captureHeuristics.reset()
         resetCachedFrames()

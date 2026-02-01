@@ -495,11 +495,11 @@ typedef struct {
   self.lastMaskScanResult = nil;
   self.lastSafeMaskScanResult = nil;
 
-  RJLogDebug(@"CaptureEngine: App became active - starting warmup (0.2s)");
+  RJLogDebug(@"CaptureEngine: App became active - starting warmup (1.0s)");
 
   __weak typeof(self) weakSelf = self;
   dispatch_after(
-      dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.2 * NSEC_PER_SEC)),
+      dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.0 * NSEC_PER_SEC)),
       dispatch_get_main_queue(), ^{
         __strong typeof(weakSelf) strongSelf = weakSelf;
         if (!strongSelf)
