@@ -20,9 +20,9 @@
 //
 
 #import "RJVideoEncoder.h"
-#import "../Core/RJConstants.h"
-#import "../Core/RJLogger.h"
-#import "../Utils/RJPerfTiming.h"
+#import "RJConstants.h"
+#import "RJLogger.h"
+#import "RJPerfTiming.h"
 #import <QuartzCore/CABase.h>
 #import <UIKit/UIKit.h>
 
@@ -73,8 +73,8 @@
 
     _encodingQueue = dispatch_queue_create("com.rejourney.videoencoder",
                                            DISPATCH_QUEUE_SERIAL);
-    dispatch_set_target_queue(
-        _encodingQueue, dispatch_get_global_queue(QOS_CLASS_UTILITY, 0));
+    dispatch_set_target_queue(_encodingQueue,
+                              dispatch_get_global_queue(QOS_CLASS_UTILITY, 0));
 
     // Pre-warm pixel buffer pool to eliminate first-frame encoding spike
     [self prewarmPixelBufferPool];
@@ -375,15 +375,17 @@
 - (void)finishSegmentWithContinuation:(BOOL)shouldContinue
                           synchronous:(BOOL)synchronous {
   if (!self.assetWriter) {
-    RJLogInfo(@"[RJ-ENCODER] finishSegment called but no assetWriter - nothing to "
-          @"finish");
+    RJLogInfo(
+        @"[RJ-ENCODER] finishSegment called but no assetWriter - nothing to "
+        @"finish");
     return;
   }
 
   if (self.assetWriter.status != AVAssetWriterStatusWriting) {
-    RJLogInfo(@"[RJ-ENCODER] finishSegment called but assetWriter status=%ld (not "
-          @"writing)",
-          (long)self.assetWriter.status);
+    RJLogInfo(
+        @"[RJ-ENCODER] finishSegment called but assetWriter status=%ld (not "
+        @"writing)",
+        (long)self.assetWriter.status);
     return;
   }
 
@@ -428,7 +430,8 @@
     // Completion handler runs on background queue - process immediately for
     // sync mode
     if (strongSelf.assetWriter.status == AVAssetWriterStatusFailed) {
-      RJLogInfo(@"[RJ-ENCODER] Segment FAILED: %@", strongSelf.assetWriter.error);
+      RJLogInfo(@"[RJ-ENCODER] Segment FAILED: %@",
+                strongSelf.assetWriter.error);
       if (!synchronous) {
         dispatch_async(dispatch_get_main_queue(), ^{
           [strongSelf notifyError:strongSelf.assetWriter.error];
@@ -441,12 +444,12 @@
       unsigned long long fileSize = [attrs fileSize];
 
       RJLogInfo(@"[RJ-ENCODER] Segment COMPLETE - %ld frames, %.1f KB, %.1fs, "
-            @"sessionId=%@, sync=%d",
-            (long)count, fileSize / 1024.0, (endTime - startTime) / 1000.0,
-            sessionId, synchronous);
+                @"sessionId=%@, sync=%d",
+                (long)count, fileSize / 1024.0, (endTime - startTime) / 1000.0,
+                sessionId, synchronous);
       RJLogInfo(@"[RJ-ENCODER] Calling delegate videoEncoderDidFinishSegment "
-            @"with url=%@",
-            url.path);
+                @"with url=%@",
+                url.path);
 
       // For synchronous mode, call delegate immediately on current thread
       // For async mode, dispatch to main queue
@@ -490,8 +493,9 @@
         dispatch_time(DISPATCH_TIME_NOW, 5.0 * NSEC_PER_SEC);
     long result = dispatch_semaphore_wait(semaphore, timeout);
     if (result != 0) {
-      RJLogInfo(@"[RJ-ENCODER] WARNING: Synchronous segment finish timed out after "
-            @"5s");
+      RJLogInfo(
+          @"[RJ-ENCODER] WARNING: Synchronous segment finish timed out after "
+          @"5s");
     } else {
       RJLogInfo(@"[RJ-ENCODER] Synchronous segment finish completed");
     }
@@ -933,8 +937,9 @@ static NSString *const kRJPendingSegmentMetadataFile =
   }
 
   if (self.assetWriter.status != AVAssetWriterStatusWriting) {
-    RJLogInfo(@"[RJ-VIDEO-ENCODER] Asset writer not in writing state (status=%ld)",
-          (long)self.assetWriter.status);
+    RJLogInfo(
+        @"[RJ-VIDEO-ENCODER] Asset writer not in writing state (status=%ld)",
+        (long)self.assetWriter.status);
     return NO;
   }
 
@@ -949,12 +954,13 @@ static NSString *const kRJPendingSegmentMetadataFile =
   NSString *sessionId = self.internalSessionId;
 
   if (frameCount == 0) {
-    RJLogInfo(@"[RJ-VIDEO-ENCODER] No frames in segment, skipping emergency flush");
+    RJLogInfo(
+        @"[RJ-VIDEO-ENCODER] No frames in segment, skipping emergency flush");
     return NO;
   }
 
   RJLogInfo(@"[RJ-VIDEO-ENCODER] Emergency flush: %ld frames, url=%@",
-        (long)frameCount, segmentURL.path);
+            (long)frameCount, segmentURL.path);
 
   @try {
     [self.videoInput markAsFinished];
@@ -995,7 +1001,7 @@ static NSString *const kRJPendingSegmentMetadataFile =
     NSString *metadataPath = [RJVideoEncoder pendingSegmentMetadataPath];
     [metadataData writeToFile:metadataPath atomically:YES];
     RJLogInfo(@"[RJ-VIDEO-ENCODER] Saved pending segment metadata to %@",
-          metadataPath);
+              metadataPath);
   }
 
   self.assetWriter = nil;
@@ -1003,7 +1009,7 @@ static NSString *const kRJPendingSegmentMetadataFile =
   self.adaptor = nil;
 
   RJLogInfo(@"[RJ-VIDEO-ENCODER] Emergency flush completed (success=%d)",
-        finishSuccess);
+            finishSuccess);
   return finishSuccess;
 }
 

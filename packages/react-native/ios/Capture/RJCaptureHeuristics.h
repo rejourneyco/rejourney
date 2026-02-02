@@ -10,7 +10,7 @@
 #import <Foundation/Foundation.h>
 #import <UIKit/UIKit.h>
 
-#import "../Core/RJTypes.h"
+#import "RJTypes.h"
 #import "RJViewHierarchyScanner.h"
 
 NS_ASSUME_NONNULL_BEGIN

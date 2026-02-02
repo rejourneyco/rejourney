@@ -38,12 +38,19 @@ typedef NS_ENUM(NSInteger, RJLogLevel) {
 @property(class, nonatomic, assign) BOOL includeTimestamps;
 @property(class, nonatomic, assign) BOOL debugMode;
 
-+ (void)debug:(NSString *)format, ... NS_FORMAT_FUNCTION(1, 2);
-+ (void)info:(NSString *)format, ... NS_FORMAT_FUNCTION(1, 2);
-+ (void)warning:(NSString *)format, ... NS_FORMAT_FUNCTION(1, 2);
-+ (void)error:(NSString *)format, ... NS_FORMAT_FUNCTION(1, 2);
++ (void)logDebug:(NSString *)format, ... NS_FORMAT_FUNCTION(1, 2);
++ (void)logInfo:(NSString *)format, ... NS_FORMAT_FUNCTION(1, 2);
++ (void)logWarning:(NSString *)format, ... NS_FORMAT_FUNCTION(1, 2);
++ (void)logError:(NSString *)format, ... NS_FORMAT_FUNCTION(1, 2);
 + (void)logWithLevel:(RJLogLevel)level
               format:(NSString *)format, ... NS_FORMAT_FUNCTION(2, 3);
++ (void)logDebugMessage:(NSString *)message;
++ (void)logInfoMessage:(NSString *)message;
++ (void)logWarningMessage:(NSString *)message;
++ (void)logErrorMessage:(NSString *)message;
+
++ (void)logLevel:(RJLogLevel)level message:(NSString *)message;
+
 + (void)logInitSuccess:(NSString *)version;
 + (void)logInitFailure:(NSString *)reason;
 + (void)logSessionStart:(NSString *)sessionId;
@@ -52,10 +59,10 @@ typedef NS_ENUM(NSInteger, RJLogLevel) {
 
 @end
 
-#define RJLogDebug(fmt, ...) [RJLogger debug:fmt, ##__VA_ARGS__]
-#define RJLogInfo(fmt, ...) [RJLogger info:fmt, ##__VA_ARGS__]
-#define RJLogWarning(fmt, ...) [RJLogger warning:fmt, ##__VA_ARGS__]
-#define RJLogError(fmt, ...) [RJLogger error:fmt, ##__VA_ARGS__]
-#define RJLogPerf(fmt, ...) [RJLogger info:fmt, ##__VA_ARGS__]
+#define RJLogDebug(fmt, ...) [RJLogger logDebug:fmt, ##__VA_ARGS__]
+#define RJLogInfo(fmt, ...) [RJLogger logInfo:fmt, ##__VA_ARGS__]
+#define RJLogWarning(fmt, ...) [RJLogger logWarning:fmt, ##__VA_ARGS__]
+#define RJLogError(fmt, ...) [RJLogger logError:fmt, ##__VA_ARGS__]
+#define RJLogPerf(fmt, ...) [RJLogger logInfo:fmt, ##__VA_ARGS__]
 
 NS_ASSUME_NONNULL_END

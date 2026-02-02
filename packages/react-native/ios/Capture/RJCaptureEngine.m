@@ -20,17 +20,19 @@
 //
 
 #import "RJCaptureEngine.h"
-#import "../Core/RJConstants.h"
-#import "../Core/RJLogger.h"
-#import "../Privacy/RJPrivacyMask.h"
-#import "../Utils/RJPerfTiming.h"
+#import "Core/RJTypes.h"
 #import "RJCaptureHeuristics.h"
-#import "RJPerformanceManager.h"
+#import "RJConstants.h"
+#import "RJLogger.h"
+#import "RJPerfTiming.h"
+
 #import "RJPixelBufferDownscaler.h"
-#import "RJSegmentUploader.h"
+#import "RJPrivacyMask.h"
 #import "RJVideoEncoder.h"
 #import "RJViewHierarchyScanner.h"
 #import "RJViewSerializer.h"
+
+#import "rejourney-Swift.h"
 #import <CoreFoundation/CoreFoundation.h>
 #import <QuartzCore/CABase.h>
 #import <UIKit/UIKit.h>
@@ -223,7 +225,6 @@ typedef struct {
   if (self.internalPerformanceLevel == RJPerformanceLevelMinimal) {
     scaleToUse = MIN(scaleToUse, 0.15);
   }
-
 
   scaleToUse = MIN(MAX(scaleToUse, 0.05), 1.0);
 
@@ -597,7 +598,7 @@ typedef struct {
 - (void)createPixelBufferPoolWithWidth:(size_t)width height:(size_t)height {
   if (_pixelBufferPool) {
     if (_poolWidth == width && _poolHeight == height) {
-      return; 
+      return;
     }
     CVPixelBufferPoolRelease(_pixelBufferPool);
     _pixelBufferPool = NULL;
@@ -628,13 +629,11 @@ typedef struct {
 
 - (void)prewarmRenderServer {
 
-
   dispatch_async(dispatch_get_main_queue(), ^{
     @try {
       RJLogDebug(@"CaptureEngine: Pre-warming Render Server (Direct-Buffer "
                  @"Path)...");
 
-     
       CVPixelBufferRef pixelBuffer =
           [self createNativePixelBufferFromPoolWithWidth:100 height:100];
       if (pixelBuffer) {
@@ -649,7 +648,7 @@ typedef struct {
         CGColorSpaceRelease(colorSpace);
 
         if (context) {
-         
+
           UIGraphicsPushContext(context);
 
           UIWindow *window = self.windowProvider ? self.windowProvider() : nil;
@@ -659,7 +658,6 @@ typedef struct {
           if (window) {
             [window drawViewHierarchyInRect:CGRectMake(0, 0, 100, 100)
                          afterScreenUpdates:NO];
-
 
             RJCaptureLayout layout =
                 [self currentCaptureLayoutForWindow:window];
@@ -875,8 +873,7 @@ typedef struct {
           RJLogInfo(
               @"CaptureEngine: Finishing segment synchronously (session stop)");
           [self.internalVideoEncoder finishSegmentSync];
-          self.internalVideoEncoder =
-              nil; 
+          self.internalVideoEncoder = nil;
         };
         if (dispatch_get_specific(kRJEncodingQueueKey)) {
           finishSync();
@@ -1895,8 +1892,7 @@ typedef struct {
   self.captureInProgress = NO;
   self.lastIntentTime = 0;
 
-  self.internalPerformanceLevel =
-      RJPerformanceLevelNormal;
+  self.internalPerformanceLevel = RJPerformanceLevelNormal;
 
   self.pendingCapture = nil;
   self.pendingCaptureGeneration = 0;

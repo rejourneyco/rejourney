@@ -1429,6 +1429,23 @@ static inline uint64_t fnv1a_u64(uint64_t h, const void *data, size_t len) {
     return;
   }
 
+  // Sanitize NaN/Inf values to prevent CoreGraphics errors
+  CGFloat x = isnan(frameInTarget.origin.x) || isinf(frameInTarget.origin.x)
+                  ? 0
+                  : frameInTarget.origin.x;
+  CGFloat y = isnan(frameInTarget.origin.y) || isinf(frameInTarget.origin.y)
+                  ? 0
+                  : frameInTarget.origin.y;
+  CGFloat w = isnan(frameInTarget.size.width) || isinf(frameInTarget.size.width)
+                  ? 0
+                  : frameInTarget.size.width;
+  CGFloat h =
+      isnan(frameInTarget.size.height) || isinf(frameInTarget.size.height)
+          ? 0
+          : frameInTarget.size.height;
+
+  frameInTarget = CGRectMake(x, y, w, h);
+
   if (CGRectIsEmpty(frameInTarget) ||
       !CGRectIntersectsRect(frameInTarget, targetWindow.bounds)) {
     return;

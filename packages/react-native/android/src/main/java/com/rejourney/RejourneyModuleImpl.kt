@@ -232,23 +232,10 @@ class RejourneyModuleImpl(
                         override fun onTaskRemoved() {
                             Logger.debug("[Rejourney] App terminated via swipe-away - SYNCHRONOUS session end (OEM: $oem)")
                             
-                            if (isRecording && !sessionEndSent) {
-                                try {
-                                    runBlocking {
-                                        withTimeout(5000L) {
-                                            Logger.debug("[Rejourney] Starting synchronous session end...")
-                                            endSessionSynchronous()
-                                            Logger.debug("[Rejourney] Synchronous session end completed")
-                                        }
-                                    }
-                                } catch (e: TimeoutCancellationException) {
-                                    Logger.warning("[Rejourney] Session end timed out after 5s - WorkManager will recover")
-                                } catch (e: Exception) {
-                                    Logger.error("[Rejourney] Failed to end session on task removed", e)
-                                }
-                            } else {
-                                Logger.debug("[Rejourney] Session already ended or not recording - skipping")
-                            }
+                            Logger.debug("[Rejourney] App terminated via swipe-away. Relying on next-launch recovery.")
+                            // CRITICAL: Do NOT attempt synchronous network calls here.
+                            // It causes ANRs. The UploadWorker and checkForUnclosedSessions
+                            // will handle the session close on next launch.
                         }
                     }
                 } catch (e: Exception) {
@@ -269,20 +256,34 @@ class RejourneyModuleImpl(
      * Adds an event with immediate disk persistence for crash safety.
      * This is the industry-standard approach for volume control.
      */
+    /**
+     * Adds an event with immediate disk persistence for crash safety.
+     * This is the industry-standard approach for volume control.
+     * 2026-02-01: Updated to launch in backgroundScope to avoid blocking main thread.
+     */
     private fun addEventWithPersistence(event: Map<String, Any?>) {
         val eventType = event["type"]?.toString() ?: "unknown"
         val sessionId = currentSessionId ?: "no-session"
         
         Logger.debug("[Rejourney] addEventWithPersistence: type=$eventType, sessionId=$sessionId, inMemoryCount=${sessionEvents.size + 1}")
         
-        val bufferSuccess = eventBuffer?.appendEvent(event) ?: false
-        if (!bufferSuccess) {
-            Logger.warning("[Rejourney] addEventWithPersistence: Failed to append event to buffer: type=$eventType")
-        } else {
-            Logger.debug("[Rejourney] addEventWithPersistence: Event appended to buffer: type=$eventType")
+        // Add to in-memory list immediately for "session end" aggregation
+        sessionEvents.add(event)
+        
+        // Persist to disk in background
+        backgroundScope.launch {
+            try {
+                val bufferSuccess = eventBuffer?.appendEvent(event) ?: false
+                if (!bufferSuccess) {
+                    Logger.warning("[Rejourney] addEventWithPersistence: Failed to append event to buffer: type=$eventType")
+                } else {
+                    Logger.debug("[Rejourney] addEventWithPersistence: Event appended to buffer: type=$eventType")
+                }
+            } catch (e: Exception) {
+                Logger.error("[Rejourney] Failed to persist event asynchronously", e)
+            }
         }
 
-        sessionEvents.add(event)
         Logger.debug("[Rejourney] addEventWithPersistence: Event added to in-memory list: type=$eventType, totalInMemory=${sessionEvents.size}")
     }
     
@@ -1240,91 +1241,7 @@ class RejourneyModuleImpl(
     }
 
     /**
-     * Synchronous session end for use with runBlocking when app is being killed.
-     * 
-     * This is called from onTaskRemoved where we need to complete session end
-     * BEFORE the process is killed. Unlike endSession() which uses scope.launch,
-     * this is a suspend function that runs in the calling coroutine context.
-     */
-    private suspend fun endSessionSynchronous() {
-        if (!isRecording) {
-            Logger.debug("[Rejourney] endSessionSynchronous: Not recording, skipping")
-            return
-        }
 
-        val sessionId = currentSessionId ?: ""
-        Logger.debug("[Rejourney] endSessionSynchronous: Starting for session $sessionId")
-
-        try {
-            stopBatchUploadTimer()
-            stopDurationLimitTimer()
-
-            /*
-            if (remoteRecordingEnabled) {
-                try {
-                    captureEngine?.forceCaptureWithReason("session_end_kill")
-                } catch (e: Exception) {
-                    Logger.warning("[Rejourney] Final capture failed: ${e.message}")
-                }
-            }
-            */
-
-            /*
-            try {
-                captureEngine?.stopSession()
-            } catch (e: Exception) {
-                Logger.warning("[Rejourney] Stop capture failed: ${e.message}")
-            }
-            */
-
-            try {
-                touchInterceptor?.disableGlobalTracking()
-                keyboardTracker?.stopTracking()
-                textInputTracker?.stopTracking()
-            } catch (e: Exception) {
-                Logger.warning("[Rejourney] Stop tracking failed: ${e.message}")
-            }
-
-            var crashCount = 0
-            var anrCount = 0
-            var errorCount = 0
-            for (event in sessionEvents) {
-                when (event["type"]) {
-                    "crash" -> crashCount++
-                    "anr" -> anrCount++
-                    "error" -> errorCount++
-                }
-            }
-            val durationSeconds = ((System.currentTimeMillis() - sessionStartTime) / 1000).toInt()
-
-            Logger.debug("[Rejourney] endSessionSynchronous: Skipping synchronous upload - relying on EventBuffer and UploadWorker recovery")
-            
-            val uploadSuccess = true
-            Logger.debug("[Rejourney] endSessionSynchronous: Upload result=SKIPPED (persisted)")
-
-            if (!sessionEndSent) {
-                sessionEndSent = true
-                Logger.debug("[Rejourney] endSessionSynchronous: Skipping /session/end - UploadWorker will handle recovery (sessionId=$sessionId)")
-                
-                
-                val endSuccess = true
-                Logger.debug("[Rejourney] endSessionSynchronous: /session/end result=SKIPPED (recovery)")
-
-            }
-
-
-
-            isRecording = false
-            currentSessionId = null
-            userId = null
-            sessionEvents.clear()
-
-            Logger.debug("[Rejourney] endSessionSynchronous: Completed successfully")
-        } catch (e: Exception) {
-            Logger.error("[Rejourney] endSessionSynchronous: Error", e)
-            isRecording = false
-        }
-    }
 
     /**
      * Internal method to start recording with options.

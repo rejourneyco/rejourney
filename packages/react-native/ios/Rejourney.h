@@ -28,11 +28,10 @@
 #import "Core/RJConstants.h"
 #import "Core/RJLogger.h"
 #import "Core/RJTypes.h"
-#import "Core/Rejourney.h"
+// #import "Rejourney.h" // Avoid circular import ambiguity
 
 // Capture
 #import "Capture/RJCaptureEngine.h"
-#import "Capture/RJSegmentUploader.h"
 #import "Capture/RJVideoEncoder.h"
 #import "Capture/RJViewSerializer.h"
 
@@ -41,9 +40,9 @@
 #import "Touch/RJTouchInterceptor.h"
 
 // Network
-#import "Network/RJUploadManager.h"
+// RJUploadManager is Swift-only
 
 // Utils
-#import "Utils/RJWindowUtils.h"
+// RJWindowUtils is Swift-only
 
 #endif /* Rejourney_h */

@@ -22,9 +22,9 @@
 //  Copyright (c) 2026 Rejourney
 //
 
+#import "RJTypes.h"
 #import <Foundation/Foundation.h>
 #import <UIKit/UIKit.h>
-#import "../Core/RJTypes.h"
 
 NS_ASSUME_NONNULL_BEGIN
 
@@ -34,19 +34,22 @@ NS_ASSUME_NONNULL_BEGIN
 @interface RJTouchPoint : NSObject
 
 /// X coordinate in window space
-@property (nonatomic, assign) CGFloat x;
+@property(nonatomic, assign) CGFloat x;
 
 /// Y coordinate in window space
-@property (nonatomic, assign) CGFloat y;
+@property(nonatomic, assign) CGFloat y;
 
 /// Timestamp in milliseconds
-@property (nonatomic, assign) NSTimeInterval timestamp;
+@property(nonatomic, assign) NSTimeInterval timestamp;
 
 /// Touch force (0.0-1.0, where available)
-@property (nonatomic, assign) CGFloat force;
+@property(nonatomic, assign) CGFloat force;
 
 /// Creates a touch point from coordinates
-+ (instancetype)pointWithX:(CGFloat)x y:(CGFloat)y timestamp:(NSTimeInterval)timestamp force:(CGFloat)force;
++ (instancetype)pointWithX:(CGFloat)x
+                         y:(CGFloat)y
+                 timestamp:(NSTimeInterval)timestamp
+                     force:(CGFloat)force;
 
 /// Converts to dictionary for logging
 - (NSDictionary *)toDictionary;
@@ -66,7 +69,8 @@ NS_ASSUME_NONNULL_BEGIN
  * RJGestureClassifier *classifier = [[RJGestureClassifier alloc] init];
  *
  * // Single-finger gesture
- * NSString *gesture = [classifier classifySingleTouchPath:touches duration:500];
+ * NSString *gesture = [classifier classifySingleTouchPath:touches
+ * duration:500];
  *
  * // Multi-finger gesture
  * NSString *gesture = [classifier classifyMultiTouchPaths:touchPaths
@@ -79,22 +83,22 @@ NS_ASSUME_NONNULL_BEGIN
 #pragma mark - Double-Tap Detection State
 
 /// Time of last tap for double-tap detection
-@property (nonatomic, assign) NSTimeInterval lastTapTime;
+@property(nonatomic, assign) NSTimeInterval lastTapTime;
 
 /// Location of last tap for double-tap detection
-@property (nonatomic, assign) CGPoint lastTapPoint;
+@property(nonatomic, assign) CGPoint lastTapPoint;
 
 /// Current tap count for multi-tap detection
-@property (nonatomic, assign) NSInteger tapCount;
+@property(nonatomic, assign) NSInteger tapCount;
 
 /// Maximum force recorded during current gesture
-@property (nonatomic, assign) CGFloat maxForce;
+@property(nonatomic, assign) CGFloat maxForce;
 
 /// Initial pinch distance for pinch detection
-@property (nonatomic, assign) CGFloat initialPinchDistance;
+@property(nonatomic, assign) CGFloat initialPinchDistance;
 
 /// Initial rotation angle for rotation detection
-@property (nonatomic, assign) CGFloat initialRotationAngle;
+@property(nonatomic, assign) CGFloat initialRotationAngle;
 
 #pragma mark - Classification
 
@@ -116,7 +120,8 @@ NS_ASSUME_NONNULL_BEGIN
  * @param touchCount Number of fingers involved.
  * @return Gesture type string (see RJGestureType constants).
  */
-- (RJGestureType)classifyMultiTouchPaths:(NSDictionary<NSNumber *, NSArray *> *)touchPaths
+- (RJGestureType)classifyMultiTouchPaths:
+                     (NSDictionary<NSNumber *, NSArray *> *)touchPaths
                                 duration:(NSTimeInterval)duration
                               touchCount:(NSInteger)touchCount;
 

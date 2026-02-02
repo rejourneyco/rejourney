@@ -1170,7 +1170,7 @@ function setupAuthErrorListener(): void {
       const hasEventEmitterHooks =
         typeof maybeAny?.addListener === 'function' && typeof maybeAny?.removeListeners === 'function';
 
-      const eventEmitter = hasEventEmitterHooks
+      const eventEmitter = (hasEventEmitterHooks && maybeAny)
         ? new RN.NativeEventEmitter(maybeAny)
         : new RN.NativeEventEmitter();
 

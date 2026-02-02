@@ -27,7 +27,7 @@
     "@react-native-masked-view/masked-view": "0.3.2",
     "@react-navigation/bottom-tabs": "^7.2.0",
     "@react-navigation/native": "^7.0.14",
-    "@rejourneyco/react-native": "file:../../packages/react-native/rejourneyco-react-native-1.0.4.tgz",
+    "@rejourneyco/react-native": "file:../../packages/react-native",
     "@supabase/supabase-js": "^2.49.1",
     "cors": "^2.8.5",
     "date-fns": "^4.1.0",
@@ -88,7 +88,6 @@
     "react-native-vision-camera": "^4.6.4",
     "react-native-web": "~0.19.13",
     "react-native-webview": "13.12.5",
-    "rejourney": "file:../../packages/react-native",
     "supabase": "^2.20.5",
     "tailwindcss": "^4.0.12"
   },

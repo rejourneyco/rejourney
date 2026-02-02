@@ -24,21 +24,22 @@
 #import "../Capture/RJCaptureEngine.h"
 #import "../Capture/RJCrashHandler.h"
 #import "../Capture/RJMotionEvent.h"
-#import "../Capture/RJSegmentUploader.h"
+// #import "../Capture/RJSegmentUploader.h"
 #import "../Capture/RJVideoEncoder.h"
 #import "../Capture/RJViewControllerTracker.h"
-#import "../Network/RJDeviceAuthManager.h"
-#import "../Network/RJNetworkMonitor.h"
-#import "../Network/RJUploadManager.h"
+// #import "../Network/RJDeviceAuthManager.h"
+// #import "../Network/RJNetworkMonitor.h"
 #import "../Privacy/RJPrivacyMask.h"
 #import "../Touch/RJTouchInterceptor.h"
-#import "../Utils/RJEventBuffer.h"
-#import "../Utils/RJTelemetry.h"
-#import "../Utils/RJWindowUtils.h"
+// #import "../Utils/RJEventBuffer.h"
+// #import "../Utils/RJTelemetry.h"
+// #import "../Utils/RJWindowUtils.h"
 #import "RJConstants.h"
-#import "RJLifecycleManager.h"
+#import "rejourney-Swift.h"
+// #import "RJLifecycleManager.h"
 #import "RJLogger.h"
 #import "RJTypes.h"
+#import "rejourney-Swift.h"
 
 #import <CommonCrypto/CommonDigest.h>
 #import <React/RCTLog.h>
@@ -351,7 +352,7 @@ RCT_EXPORT_MODULE()
 
   [[RJANRHandler sharedInstance] setDelegate:self];
   [[RJANRHandler sharedInstance] startMonitoring];
-  [[RJNetworkMonitor sharedInstance] startMonitoring];
+  [[RJNetworkMonitor shared] startMonitoring];
 
   [RJLogger logInitSuccess:RJSDKVersion];
 }
@@ -716,7 +717,6 @@ RCT_EXPORT_METHOD(stopSession : (RCTPromiseResolveBlock)
 
       NSString *sessionId = self.currentSessionId ?: @"";
 
-    
       NSTimeInterval totalBgTimeMs = 0;
       if (self.lifecycleManager) {
         totalBgTimeMs = self.lifecycleManager.totalBackgroundTimeMs;
@@ -1154,7 +1154,7 @@ RCT_EXPORT_METHOD(getUserIdentity : (RCTPromiseResolveBlock)
 - (void)setupDeviceAuthWithPublicKey:(NSString *)publicKey
                               apiUrl:(NSString *)apiUrl {
   RJLogDebug(@"Registering device for authentication...");
-  RJDeviceAuthManager *deviceAuth = [RJDeviceAuthManager sharedManager];
+  RJDeviceAuthManager *deviceAuth = [RJDeviceAuthManager shared];
   NSString *bundleId = [[NSBundle mainBundle] bundleIdentifier] ?: @"unknown";
 
   __weak __typeof__(self) weakSelf = self;
@@ -1211,7 +1211,7 @@ RCT_EXPORT_METHOD(getUserIdentity : (RCTPromiseResolveBlock)
         [self.captureEngine stopSession];
       }
 
-      [[RJDeviceAuthManager sharedManager] clearAllAuthData];
+      [[RJDeviceAuthManager shared] clearAllAuthData];
 
       @try {
         if (self.bridge) {
@@ -1327,7 +1327,7 @@ RCT_EXPORT_METHOD(getUserIdentity : (RCTPromiseResolveBlock)
 
   if (self.authRetryCount >= 2) {
     RJLogInfo(@"Clearing cached auth data and re-registering fresh...");
-    [[RJDeviceAuthManager sharedManager] clearAllAuthData];
+    [[RJDeviceAuthManager shared] clearAllAuthData];
   }
 
   [self setupDeviceAuthWithPublicKey:publicKey apiUrl:apiUrl];
@@ -2306,7 +2306,8 @@ RCT_EXPORT_METHOD(getUserIdentity : (RCTPromiseResolveBlock)
                 @"events, bgTime=%.0fms",
                 (unsigned long)finalEvents.count, totalBackgroundMs);
 
-      NSString *apiUrl = self.uploadManager.apiUrl ?: @"https://api.rejourney.co";
+      NSString *apiUrl =
+          self.uploadManager.apiUrl ?: @"https://api.rejourney.co";
       RJUploadManager *backgroundUploadManager =
           [[RJUploadManager alloc] initWithApiUrl:apiUrl];
       backgroundUploadManager.publicKey = self.uploadManager.publicKey;
@@ -2336,17 +2337,15 @@ RCT_EXPORT_METHOD(getUserIdentity : (RCTPromiseResolveBlock)
                                         oldSessionId);
                          }
                          if (strongSelf) {
-                           [strongSelf
-                               untrackBackgroundUploadManager:
-                                   backgroundUploadManager];
+                           [strongSelf untrackBackgroundUploadManager:
+                                           backgroundUploadManager];
                          }
                        }];
       } else {
-        dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_UTILITY,
-                                                 0), ^{
-          BOOL endOk = [backgroundUploadManager endSessionSync];
+        dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
+          __block BOOL endOk = [backgroundUploadManager endSessionSync];
           dispatch_async(dispatch_get_main_queue(), ^{
-            __strong __typeof__(weakSelf) strongSelf = weakSelf;
+            __strong __typeof__(weakSelf) strongSelfInner = weakSelf;
             if (endOk) {
               RJLogInfo(@"[RJ-SESSION-TIMEOUT] Old session %@ end signal sent",
                         oldSessionId);
@@ -2355,8 +2354,8 @@ RCT_EXPORT_METHOD(getUserIdentity : (RCTPromiseResolveBlock)
                            @"failed - pending on disk",
                            oldSessionId);
             }
-            if (strongSelf) {
-              [strongSelf
+            if (strongSelfInner) {
+              [strongSelfInner
                   untrackBackgroundUploadManager:backgroundUploadManager];
             }
           });

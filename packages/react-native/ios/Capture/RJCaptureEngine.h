@@ -25,7 +25,7 @@
 //  Copyright (c) 2026 Rejourney
 //
 
-#import "../Core/RJTypes.h"
+#import "RJTypes.h"
 #import <Foundation/Foundation.h>
 #import <UIKit/UIKit.h>
 

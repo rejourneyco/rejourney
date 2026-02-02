@@ -22,8 +22,7 @@ import com.rejourney.utils.TelemetryEventType
 import com.rejourney.utils.WindowUtils
 import com.rejourney.capture.SegmentUploader
 import kotlinx.coroutines.*
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
+
 import okhttp3.*
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.RequestBody.Companion.toRequestBody
@@ -72,7 +71,7 @@ class UploadManager(
 
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
-    private val uploadMutex = Mutex()
+
 
     private val pendingRootDir: File by lazy {
         File(context.filesDir, "rejourney/pending_uploads").apply { mkdirs() }

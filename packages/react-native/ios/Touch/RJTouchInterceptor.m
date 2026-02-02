@@ -20,10 +20,12 @@
 //
 
 #import "RJTouchInterceptor.h"
-#import "../Capture/RJMotionEvent.h"
-#import "../Core/RJLogger.h"
-#import "../Utils/RJWindowUtils.h"
-#import "RJGestureClassifier.h"
+#import "Core/RJLogger.h"
+#import "Core/RJMotionEvent.h"
+#import <UIKit/UIKit.h>
+// #import "RJWindowUtils.h" // Swift file
+#import "Rejourney-Swift.h"
+#import "Touch/RJGestureClassifier.h"
 #import <objc/runtime.h>
 
 #pragma mark - Static Variables

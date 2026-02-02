@@ -83,32 +83,55 @@ static NSString *const kLogPrefix = @"[Rejourney]";
 
 #pragma mark - Logging Methods
 
-+ (void)debug:(NSString *)format, ... {
++ (void)logDebug:(NSString *)format, ... {
   va_list args;
   va_start(args, format);
   [self logWithLevel:RJLogLevelDebug format:format arguments:args];
   va_end(args);
 }
 
-+ (void)info:(NSString *)format, ... {
++ (void)logInfo:(NSString *)format, ... {
   va_list args;
   va_start(args, format);
   [self logWithLevel:RJLogLevelInfo format:format arguments:args];
   va_end(args);
 }
 
-+ (void)warning:(NSString *)format, ... {
++ (void)logWarning:(NSString *)format, ... {
   va_list args;
   va_start(args, format);
   [self logWithLevel:RJLogLevelWarning format:format arguments:args];
   va_end(args);
 }
 
-+ (void)error:(NSString *)format, ... {
++ (void)logError:(NSString *)format, ... {
   va_list args;
   va_start(args, format);
   [self logWithLevel:RJLogLevelError format:format arguments:args];
   va_end(args);
+}
+
+#pragma mark - Swift Interop Methods
+
++ (void)logDebugMessage:(NSString *)message {
+  [self logLevel:RJLogLevelDebug message:message];
+}
+
++ (void)logInfoMessage:(NSString *)message {
+  [self logLevel:RJLogLevelInfo message:message];
+}
+
++ (void)logWarningMessage:(NSString *)message {
+  [self logLevel:RJLogLevelWarning message:message];
+}
+
++ (void)logErrorMessage:(NSString *)message {
+  [self logLevel:RJLogLevelError message:message];
+}
+
++ (void)logLevel:(RJLogLevel)level message:(NSString *)message {
+  // Use %s to avoid having message implicitly treated as format string
+  [self logWithLevel:level format:@"%@", message];
 }
 
 + (void)logWithLevel:(RJLogLevel)level format:(NSString *)format, ... {

@@ -2,29 +2,31 @@ package com.rejourney.utils
 
 import android.content.Context
 import com.rejourney.core.Logger
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.io.BufferedReader
 import java.io.File
 import java.io.FileOutputStream
 import java.io.FileReader
 import java.io.OutputStreamWriter
-import java.util.concurrent.locks.ReentrantLock
-import kotlin.concurrent.withLock
 
 /**
  * Write-first event buffer for crash-safe event persistence.
  *
  * Android implementation aligned with iOS RJEventBuffer:
- * - Events are written synchronously to disk on append.
+ * - Events are written to disk on append (Non-blocking Suspend).
  * - JSONL format (one JSON object per line).
- * - Thread-safe via a single lock.
+ * - Thread-safe via Mutex & Dispatchers.IO.
  */
 class EventBuffer(
     private val context: Context,
     private val sessionId: String,
     private val pendingRootPath: File
 ) {
-    private val lock = ReentrantLock()
+    private val mutex = Mutex()
     private val eventsFile: File
     private val metaFile: File
     private var fileWriter: OutputStreamWriter? = null
@@ -46,86 +48,92 @@ class EventBuffer(
         if (!eventsFile.exists()) {
             eventsFile.createNewFile()
         }
+    }
 
-        countExistingEvents()
-        openFileWriter()
-
-        Logger.debug("Event buffer ready: ${eventsFile.absolutePath} ($eventCount existing events)")
+    /**
+     * Initialize the buffer asynchronously using Dispatchers.IO.
+     * Must be called before use if precise event counts are needed immediately,
+     * but other methods will lazily init if needed.
+     */
+    suspend fun init() = withContext(Dispatchers.IO) {
+        mutex.withLock {
+            countExistingEvents()
+            openFileWriter()
+            Logger.debug("Event buffer ready: ${eventsFile.absolutePath} ($eventCount existing events)")
+        }
     }
 
     private fun countExistingEvents() {
-        lock.withLock {
-            try {
-                if (!eventsFile.exists()) {
-                    eventCount = 0
-                    return
-                }
+        try {
+            if (!eventsFile.exists()) {
+                eventCount = 0
+                return
+            }
 
-                var count = 0
-                var lastTs = 0L
+            var count = 0
+            var lastTs = 0L
 
-                BufferedReader(FileReader(eventsFile)).use { reader ->
-                    reader.lineSequence().forEach { line ->
-                        if (line.isNotBlank()) {
-                            try {
-                                val event = JSONObject(line)
-                                count++
-                                val ts = event.optLong("timestamp", 0)
-                                if (ts > lastTs) {
-                                    lastTs = ts
-                                }
-                            } catch (_: Exception) {
+            BufferedReader(FileReader(eventsFile)).use { reader ->
+                reader.lineSequence().forEach { line ->
+                    if (line.isNotBlank()) {
+                        try {
+                            val event = JSONObject(line)
+                            count++
+                            val ts = event.optLong("timestamp", 0)
+                            if (ts > lastTs) {
+                                lastTs = ts
                             }
+                        } catch (_: Exception) {
                         }
                     }
                 }
-
-                eventCount = count
-                lastEventTimestamp = lastTs
-
-                if (metaFile.exists()) {
-                    try {
-                        val meta = JSONObject(metaFile.readText())
-                        uploadedEventCount = meta.optInt("uploadedEventCount", 0)
-                    } catch (_: Exception) {
-                    }
-                }
-            } catch (e: Exception) {
-                Logger.warning("Failed to count existing events: ${e.message}")
-                eventCount = 0
             }
+
+            eventCount = count
+            lastEventTimestamp = lastTs
+
+            if (metaFile.exists()) {
+                try {
+                    val meta = JSONObject(metaFile.readText())
+                    uploadedEventCount = meta.optInt("uploadedEventCount", 0)
+                } catch (_: Exception) {
+                }
+            }
+        } catch (e: Exception) {
+            Logger.warning("Failed to count existing events: ${e.message}")
+            eventCount = 0
         }
     }
 
     private fun openFileWriter() {
-        lock.withLock {
-            try {
-                fileWriter = OutputStreamWriter(
-                    FileOutputStream(eventsFile, true),
-                    Charsets.UTF_8
-                )
-            } catch (e: Exception) {
-                Logger.error("Failed to open events file for writing", e)
-            }
+        try {
+            fileWriter = OutputStreamWriter(
+                FileOutputStream(eventsFile, true),
+                Charsets.UTF_8
+            )
+        } catch (e: Exception) {
+            Logger.error("Failed to open events file for writing", e)
         }
     }
 
-    fun appendEvent(event: Map<String, Any?>): Boolean {
+    suspend fun appendEvent(event: Map<String, Any?>): Boolean = withContext(Dispatchers.IO) {
         if (isShutdown) {
             Logger.warning("[EventBuffer] appendEvent: Buffer is shutdown, rejecting event type=${event["type"]}")
-            return false
+            return@withContext false
         }
 
-        return lock.withLock {
+        mutex.withLock {
+            if (fileWriter == null) openFileWriter()
             writeEventToDisk(event)
         }
     }
 
-    fun appendEvents(events: List<Map<String, Any?>>): Boolean {
-        if (events.isEmpty()) return true
-        if (isShutdown) return false
+    suspend fun appendEvents(events: List<Map<String, Any?>>): Boolean = withContext(Dispatchers.IO) {
+        if (events.isEmpty()) return@withContext true
+        if (isShutdown) return@withContext false
 
-        return lock.withLock {
+        mutex.withLock {
+            if (fileWriter == null) openFileWriter()
             var allSuccess = true
             events.forEach { event ->
                 if (!writeEventToDisk(event)) {
@@ -174,8 +182,8 @@ class EventBuffer(
         }
     }
 
-    fun flush(): Boolean {
-        return lock.withLock {
+    suspend fun flush(): Boolean = withContext(Dispatchers.IO) {
+        mutex.withLock {
             try {
                 fileWriter?.flush()
                 true
@@ -186,9 +194,12 @@ class EventBuffer(
         }
     }
 
-    fun readAllEvents(): List<Map<String, Any?>> {
-        return lock.withLock {
+    suspend fun readAllEvents(): List<Map<String, Any?>> = withContext(Dispatchers.IO) {
+        mutex.withLock {
             try {
+                if (fileWriter == null) openFileWriter() // Ensure file handling is consistent
+                fileWriter?.flush() // Ensure everything is written before reading
+
                 if (!eventsFile.exists()) {
                     return@withLock emptyList()
                 }
@@ -218,9 +229,12 @@ class EventBuffer(
         }
     }
 
-    fun readEventsAfterBatchNumber(afterBatchNumber: Int): List<Map<String, Any?>> {
-        return lock.withLock {
+    suspend fun readEventsAfterBatchNumber(afterBatchNumber: Int): List<Map<String, Any?>> = withContext(Dispatchers.IO) {
+        mutex.withLock {
             try {
+                if (fileWriter == null) openFileWriter()
+                fileWriter?.flush()
+
                 if (!eventsFile.exists()) {
                     return@withLock emptyList()
                 }
@@ -229,12 +243,9 @@ class EventBuffer(
                 val targetIndex = maxOf(uploadedEventCount, maxOf(0, afterBatchNumber))
                 var currentIndex = 0
 
-                // Use BufferedReader to stream the file line by line
-                // This avoids loading the whole file into memory just to skip lines
                 BufferedReader(FileReader(eventsFile)).use { reader ->
                     reader.forEachLine { line ->
                         if (line.isNotBlank()) {
-                            // Only parse JSON if we are past the skip threshold
                             if (currentIndex >= targetIndex) {
                                 try {
                                     val json = JSONObject(line)
@@ -258,7 +269,7 @@ class EventBuffer(
         }
     }
 
-    fun readPendingEvents(): List<Map<String, Any?>> {
+    suspend fun readPendingEvents(): List<Map<String, Any?>> {
         val allEvents = readAllEvents()
         if (uploadedEventCount >= allEvents.size) {
             return emptyList()
@@ -266,8 +277,8 @@ class EventBuffer(
         return allEvents.subList(uploadedEventCount, allEvents.size)
     }
 
-    fun markEventsUploadedUpToIndex(eventIndex: Int) {
-        lock.withLock {
+    suspend fun markEventsUploadedUpToIndex(eventIndex: Int) = withContext(Dispatchers.IO) {
+        mutex.withLock {
             uploadedEventCount = eventIndex
 
             try {
@@ -282,8 +293,8 @@ class EventBuffer(
         }
     }
 
-    fun clearAllEvents() {
-        lock.withLock {
+    suspend fun clearAllEvents() = withContext(Dispatchers.IO) {
+        mutex.withLock {
             closeFileWriter()
             eventsFile.delete()
             metaFile.delete()
@@ -293,8 +304,8 @@ class EventBuffer(
         }
     }
 
-    fun close() {
-        lock.withLock {
+    suspend fun close() = withContext(Dispatchers.IO) {
+        mutex.withLock {
             isShutdown = true
             closeFileWriter()
         }
