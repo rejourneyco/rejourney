@@ -272,15 +272,18 @@ async function processArtifactJob(job: any): Promise<boolean> {
     } catch (err) {
         log.error({ err }, 'Artifact job processing failed');
 
+        // Sanitize error message to remove null bytes (which PostgreSQL rejects)
+        const errorMsg = String(err).replace(/\x00/g, '').substring(0, 1000);
+
         if (job.attempts >= MAX_ATTEMPTS) {
             await db.update(ingestJobs)
-                .set({ status: 'dlq', errorMsg: String(err) })
+                .set({ status: 'dlq', errorMsg })
                 .where(eq(ingestJobs.id, job.id));
             log.warn('Job moved to DLQ after max attempts');
         } else {
             const nextRunAt = new Date(Date.now() + Math.pow(2, job.attempts) * 1000);
             await db.update(ingestJobs)
-                .set({ status: 'pending', nextRunAt, errorMsg: String(err) })
+                .set({ status: 'pending', nextRunAt, errorMsg })
                 .where(eq(ingestJobs.id, job.id));
         }
 

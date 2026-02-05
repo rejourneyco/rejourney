@@ -41,16 +41,20 @@ import com.rejourney.core.Logger
 import com.rejourney.core.PerformanceLevel
 import com.rejourney.privacy.PrivacyMask
 import com.rejourney.utils.PerfMetric
+import com.rejourney.utils.PerfFrameContext
 import com.rejourney.utils.PerfTiming
 import kotlinx.coroutines.*
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
+import java.util.concurrent.CountDownLatch
 import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.math.max
+import kotlin.math.min
 
 /**
  * Delegate for receiving segment completion notifications.
@@ -79,6 +83,7 @@ class CaptureEngine(private val context: Context) : VideoEncoderDelegate {
         var deadline: Long,
         val reason: String,
         val importance: CaptureImportance,
+        val forceRender: Boolean,
         val generation: Int,
         var scanResult: ViewHierarchyScanResult? = null,
         var layoutSignature: String? = null,
@@ -181,6 +186,10 @@ class CaptureEngine(private val context: Context) : VideoEncoderDelegate {
     private var lastCapturedHadBlockedSurface = false
     
     private var framesSinceSessionStart = 0
+    private var warmupFramesRemaining = 0
+    private var steadyFramesPerSegment = Constants.DEFAULT_FRAMES_PER_SEGMENT
+    private var initialFramesPerSegment = Constants.DEFAULT_FRAMES_PER_SEGMENT
+    private var hasCompletedInitialSegment = false
     private var framesThisMinute = 0
     private var minuteStartTime: Long = 0
     private var lastCaptureTime: Long = 0
@@ -228,6 +237,10 @@ class CaptureEngine(private val context: Context) : VideoEncoderDelegate {
         lastMapPresenceTimeMs = 0L
         framesSinceHierarchy = 0
         framesSinceSessionStart = 0
+        warmupFramesRemaining = 3
+        steadyFramesPerSegment = max(1, framesPerSegment)
+        initialFramesPerSegment = computeInitialSegmentFrames()
+        hasCompletedInitialSegment = false
         hierarchySnapshots.clear()
         viewScanner = null
         viewSerializer = null
@@ -263,7 +276,7 @@ class CaptureEngine(private val context: Context) : VideoEncoderDelegate {
 
         videoEncoder = VideoEncoder(segmentDir).apply {
             this.targetBitrate = this@CaptureEngine.targetBitrate
-            this.framesPerSegment = this@CaptureEngine.framesPerSegment
+            this.framesPerSegment = this@CaptureEngine.initialFramesPerSegment
             this.fps = this@CaptureEngine.targetFps
             this.captureScale = this@CaptureEngine.captureScale
             this.displayDensity = context.resources.displayMetrics.density
@@ -272,6 +285,11 @@ class CaptureEngine(private val context: Context) : VideoEncoderDelegate {
             this.delegate = this@CaptureEngine
             setSessionId(sessionId)
             prewarm()
+        }
+        if (initialFramesPerSegment != steadyFramesPerSegment) {
+            Logger.debug(
+                "[CaptureEngine] Hybrid segment strategy enabled (initial=$initialFramesPerSegment, steady=$steadyFramesPerSegment)"
+            )
         }
 
         cleanupOldSegments()
@@ -297,15 +315,23 @@ class CaptureEngine(private val context: Context) : VideoEncoderDelegate {
     /**
      * Stop the current capture session.
      */
-    fun stopSession() {
+    fun stopSession(skipSegmentFinalize: Boolean = false) {
         if (!_isRecording && sessionId == null) return
         
         Logger.info("[CaptureEngine] Stopping session: $sessionId")
+
+        if (!skipSegmentFinalize) {
+            captureLifecycleSnapshot("session_stop", waitForCompletionMs = 180)
+        }
         
         _isRecording = false
         stopCaptureTimer()
 
-        videoEncoder?.finishSegment()
+        if (skipSegmentFinalize) {
+            Logger.debug("[CaptureEngine] Skipping finishSegment during fast terminate path")
+        } else {
+            videoEncoder?.finishSegment()
+        }
         
         uploadCurrentHierarchySnapshots()
 
@@ -323,6 +349,7 @@ class CaptureEngine(private val context: Context) : VideoEncoderDelegate {
         hierarchySnapshots.clear()
         
         framesSinceSessionStart = 0
+        warmupFramesRemaining = 0
         framesSinceHierarchy = 0
         sessionId = null
         currentScreenName = "Unknown"
@@ -348,6 +375,8 @@ class CaptureEngine(private val context: Context) : VideoEncoderDelegate {
         
         Logger.info("[CaptureEngine] Pausing video capture")
 
+        captureLifecycleSnapshot("lifecycle_pause", waitForCompletionMs = 180)
+
         pendingCapture = null
         pendingCaptureGeneration = 0
         pendingDefensiveCaptureTime = 0L
@@ -360,6 +389,27 @@ class CaptureEngine(private val context: Context) : VideoEncoderDelegate {
         videoEncoder?.finishSegment()
         
         uploadCurrentHierarchySnapshots()
+    }
+
+    private fun captureLifecycleSnapshot(reason: String, waitForCompletionMs: Long) {
+        if (!_isRecording || isShuttingDown.get()) return
+        if (isWarmingUp.get()) return
+
+        requestCapture(CaptureImportance.CRITICAL, reason, forceCapture = true)
+
+        if (waitForCompletionMs <= 0) return
+        val deadline = android.os.SystemClock.elapsedRealtime() + waitForCompletionMs
+        while (android.os.SystemClock.elapsedRealtime() < deadline) {
+            val noPending = pendingCapture == null && !captureInProgress.get()
+            if (noPending) break
+            if (Looper.myLooper() == Looper.getMainLooper()) {
+                val latch = CountDownLatch(1)
+                mainHandler.post { latch.countDown() }
+                latch.await(8, TimeUnit.MILLISECONDS)
+            } else {
+                Thread.sleep(8)
+            }
+        }
     }
     
     /**
@@ -385,6 +435,7 @@ class CaptureEngine(private val context: Context) : VideoEncoderDelegate {
 
         captureHeuristics.reset()
         resetCachedFrames()
+        warmupFramesRemaining = 3
         pendingCapture = null
         pendingCaptureGeneration = 0
         pendingDefensiveCaptureTime = 0L
@@ -417,6 +468,15 @@ class CaptureEngine(private val context: Context) : VideoEncoderDelegate {
         val now = android.os.SystemClock.elapsedRealtime()
         captureHeuristics.invalidateSignature()
         captureHeuristics.recordNavigationEventAtTime(now)
+
+        // Force one immediate keyframe on navigation so short sessions/background
+        // transitions do not miss page changes.
+        requestCapture(CaptureImportance.CRITICAL, "navigation_immediate", forceCapture = true)
+
+        // Follow with a short settle capture to include post-layout updates.
+        requestDefensiveCaptureAfterDelay(DEFENSIVE_CAPTURE_DELAY_NAVIGATION_SETTLE_MS, "navigation_settle")
+        requestDefensiveCaptureAfterDelay(DEFENSIVE_CAPTURE_DELAY_NAVIGATION_LATE_SETTLE_MS, "navigation_late_settle")
+
         requestDefensiveCaptureAfterDelay(DEFENSIVE_CAPTURE_DELAY_NAVIGATION_MS, "navigation")
     }
 
@@ -439,13 +499,17 @@ class CaptureEngine(private val context: Context) : VideoEncoderDelegate {
         if (mapGesture) {
             captureHeuristics.recordMapInteractionAtTime(now)
             requestDefensiveCaptureAfterDelay(DEFENSIVE_CAPTURE_DELAY_MAP_MS, "map")
+            requestDefensiveCaptureAfterDelay(DEFENSIVE_CAPTURE_DELAY_MAP_SETTLE_MS, "map_settle")
             return
         }
 
         if (isScroll) {
             requestDefensiveCaptureAfterDelay(DEFENSIVE_CAPTURE_DELAY_SCROLL_MS, "scroll")
+            requestDefensiveCaptureAfterDelay(DEFENSIVE_CAPTURE_DELAY_SCROLL_SETTLE_MS, "scroll_settle")
+            requestDefensiveCaptureAfterDelay(DEFENSIVE_CAPTURE_DELAY_SCROLL_LATE_SETTLE_MS, "scroll_late_settle")
         } else {
             requestDefensiveCaptureAfterDelay(DEFENSIVE_CAPTURE_DELAY_INTERACTION_MS, "interaction")
+            requestDefensiveCaptureAfterDelay(DEFENSIVE_CAPTURE_DELAY_INTERACTION_SETTLE_MS, "interaction_settle")
         }
     }
 
@@ -471,6 +535,7 @@ class CaptureEngine(private val context: Context) : VideoEncoderDelegate {
         val now = android.os.SystemClock.elapsedRealtime()
         captureHeuristics.recordTouchEventAtTime(now)
         requestDefensiveCaptureAfterDelay(DEFENSIVE_CAPTURE_DELAY_INTERACTION_MS, "interaction_start")
+        requestDefensiveCaptureAfterDelay(DEFENSIVE_CAPTURE_DELAY_INTERACTION_SETTLE_MS, "interaction_settle")
     }
 
     /**
@@ -484,6 +549,8 @@ class CaptureEngine(private val context: Context) : VideoEncoderDelegate {
             val now = android.os.SystemClock.elapsedRealtime()
             captureHeuristics.recordTouchEventAtTime(now)
             requestDefensiveCaptureAfterDelay(DEFENSIVE_CAPTURE_DELAY_SCROLL_MS, "scroll")
+            requestDefensiveCaptureAfterDelay(DEFENSIVE_CAPTURE_DELAY_SCROLL_SETTLE_MS, "scroll_settle")
+            requestDefensiveCaptureAfterDelay(DEFENSIVE_CAPTURE_DELAY_SCROLL_LATE_SETTLE_MS, "scroll_late_settle")
         }
     }
 
@@ -502,6 +569,7 @@ class CaptureEngine(private val context: Context) : VideoEncoderDelegate {
         captureHeuristics.invalidateSignature()
         captureHeuristics.recordInteractionEventAtTime(now)
         requestDefensiveCaptureAfterDelay(DEFENSIVE_CAPTURE_DELAY_INTERACTION_MS, "rn_commit")
+        requestDefensiveCaptureAfterDelay(DEFENSIVE_CAPTURE_DELAY_COMMIT_SETTLE_MS, "rn_commit_settle")
     }
 
     fun notifyKeyboardEvent(reason: String) {
@@ -536,6 +604,14 @@ class CaptureEngine(private val context: Context) : VideoEncoderDelegate {
 
     override fun onSegmentFinished(segmentFile: File, startTime: Long, endTime: Long, frameCount: Int) {
         Logger.info("[CaptureEngine] Segment ready: ${segmentFile.name} ($frameCount frames, ${(endTime - startTime) / 1000.0}s)")
+
+        if (!hasCompletedInitialSegment) {
+            hasCompletedInitialSegment = true
+            if (videoEncoder != null && videoEncoder?.framesPerSegment != steadyFramesPerSegment) {
+                videoEncoder?.framesPerSegment = steadyFramesPerSegment
+                Logger.debug("[CaptureEngine] Switched to steady segment size ($steadyFramesPerSegment frames/segment)")
+            }
+        }
         
         delegate?.onSegmentReady(segmentFile, startTime, endTime, frameCount)
         
@@ -550,10 +626,18 @@ class CaptureEngine(private val context: Context) : VideoEncoderDelegate {
     private fun captureFrame(importance: CaptureImportance, reason: String) {
         requestCapture(importance, reason, forceCapture = false)
     }
+
+    private fun computeInitialSegmentFrames(): Int {
+        val safeSteady = max(1, steadyFramesPerSegment)
+        val safeFps = max(1, targetFps)
+        val targetBySeconds = max(5, safeFps * 10)
+        return min(safeSteady, targetBySeconds)
+    }
+
     private fun requestCapture(importance: CaptureImportance, reason: String, forceCapture: Boolean) {
         if (!_isRecording || isShuttingDown.get()) return
 
-        if (isWarmingUp.get()) {
+        if (isWarmingUp.get() && !(forceCapture || importance == CaptureImportance.CRITICAL)) {
             return
         }
 
@@ -573,12 +657,21 @@ class CaptureEngine(private val context: Context) : VideoEncoderDelegate {
         if (captureHeuristics.animationBlocking || captureHeuristics.scrollActive || captureHeuristics.keyboardAnimating) {
             graceMs = minOf(graceMs, 300L)
         }
+        if (importance == CaptureImportance.CRITICAL) {
+            graceMs = max(graceMs, 350L)
+        }
 
         val pending = PendingCapture(
             wantedAt = now,
             deadline = now + graceMs,
             reason = reason,
             importance = importance,
+            forceRender = reason.startsWith("navigation_") ||
+                reason.startsWith("app_") ||
+                reason.startsWith("session_") ||
+                reason.startsWith("lifecycle_") ||
+                reason.endsWith("_settle") ||
+                reason.startsWith("rn_commit"),
             generation = ++pendingCaptureGeneration
         )
         pendingCapture = pending
@@ -590,8 +683,19 @@ class CaptureEngine(private val context: Context) : VideoEncoderDelegate {
 
         val now = android.os.SystemClock.elapsedRealtime()
         val target = now + max(0L, delayMs)
-        if (pendingDefensiveCaptureTime > 0 && target >= pendingDefensiveCaptureTime - 10L) {
-            return
+        val isSettleReason = reason.endsWith("_settle")
+        val isCriticalReason = reason.startsWith("navigation_") ||
+            reason.startsWith("app_") ||
+            reason.startsWith("session_") ||
+            reason.startsWith("lifecycle_") ||
+            reason.startsWith("rn_commit")
+        if (pendingDefensiveCaptureTime > 0) {
+            if (isSettleReason) {
+                // Trailing-edge settle capture: keep pushing to the latest target.
+                if (target <= pendingDefensiveCaptureTime + 10L) return
+            } else if (!isCriticalReason && target >= pendingDefensiveCaptureTime - 10L) {
+                return
+            }
         }
 
         pendingDefensiveCaptureTime = target
@@ -601,8 +705,59 @@ class CaptureEngine(private val context: Context) : VideoEncoderDelegate {
             if (!_isRecording || isShuttingDown.get()) return@postDelayed
             if (pendingDefensiveCaptureGeneration != generation) return@postDelayed
             pendingDefensiveCaptureTime = 0L
-            requestCapture(CaptureImportance.HIGH, reason, forceCapture = true)
+            requestCapture(importanceForDefensiveReason(reason), reason, forceCapture = true)
         }, max(0L, delayMs))
+    }
+
+    private fun importanceForDefensiveReason(reason: String): CaptureImportance {
+        if (reason.startsWith("navigation") ||
+            reason.startsWith("rn_commit") ||
+            reason.startsWith("app_") ||
+            reason.startsWith("session_")
+        ) {
+            return CaptureImportance.CRITICAL
+        }
+        if (reason.startsWith("scroll") && !reason.endsWith("_settle")) {
+            return CaptureImportance.LOW
+        }
+        return CaptureImportance.MEDIUM
+    }
+
+    private fun shouldDelaySettleForceRender(pending: PendingCapture, now: Long): Boolean {
+        if (!pending.forceRender) return false
+        if (!pending.reason.endsWith("_settle")) return false
+        val uiBusy =
+            captureHeuristics.scrollActive || captureHeuristics.animationBlocking || captureHeuristics.keyboardAnimating
+        if (!uiBusy) return false
+        if ((now - pending.wantedAt) >= SETTLE_FORCE_RENDER_MAX_DEFERRAL_MS) return false
+
+        val recheckDelay = minOf(captureHeuristics.pollIntervalMs, SETTLE_FORCE_RENDER_RECHECK_MS)
+        pending.deadline = now + recheckDelay
+        scheduleIdleCaptureAttempt(recheckDelay)
+        return true
+    }
+
+    private fun shouldPostponeSettleEvaluation(pending: PendingCapture, now: Long): Boolean {
+        if (!pending.reason.endsWith("_settle")) return false
+        val uiBusy =
+            captureHeuristics.scrollActive || captureHeuristics.animationBlocking || captureHeuristics.keyboardAnimating
+        if (!uiBusy) return false
+        if ((now - pending.wantedAt) >= SETTLE_FORCE_RENDER_MAX_DEFERRAL_MS) return false
+
+        val recheckDelay = minOf(captureHeuristics.pollIntervalMs, SETTLE_FORCE_RENDER_RECHECK_MS)
+        pending.deadline = maxOf(pending.deadline, now + recheckDelay)
+        scheduleIdleCaptureAttempt(recheckDelay)
+        return true
+    }
+
+    private fun shouldForceRenderNow(pending: PendingCapture, now: Long): Boolean {
+        if (!pending.forceRender) return false
+        if (!pending.reason.endsWith("_settle")) return true
+
+        val uiBusy =
+            captureHeuristics.scrollActive || captureHeuristics.animationBlocking || captureHeuristics.keyboardAnimating
+        if (!uiBusy) return true
+        return (now - pending.wantedAt) >= SETTLE_FORCE_RENDER_MAX_DEFERRAL_MS
     }
 
     private fun attemptPendingCapture(pending: PendingCapture) {
@@ -611,12 +766,20 @@ class CaptureEngine(private val context: Context) : VideoEncoderDelegate {
 
         val now = android.os.SystemClock.elapsedRealtime()
         if (now > pending.deadline) {
-            emitFrameForPendingCapture(pending, shouldRender = false)
+            if (shouldDelaySettleForceRender(pending, now)) {
+                return
+            }
+            val renderAtDeadline = shouldForceRenderNow(pending, now)
+            emitFrameForPendingCapture(pending, shouldRender = renderAtDeadline)
             return
         }
 
         if (captureInProgress.get()) {
             scheduleIdleCaptureAttempt(captureHeuristics.pollIntervalMs)
+            return
+        }
+
+        if (shouldPostponeSettleEvaluation(pending, now)) {
             return
         }
 
@@ -631,7 +794,9 @@ class CaptureEngine(private val context: Context) : VideoEncoderDelegate {
         }
 
         val scanResult = try {
-            viewScanner?.scanAllWindowsRelativeTo(currentWindow)
+            PerfTiming.time(PerfMetric.VIEW_SCAN) {
+                viewScanner?.scanAllWindowsRelativeTo(currentWindow)
+            }
         } catch (e: Exception) {
             Logger.warning("[CaptureEngine] View scan failed: ${e.message}")
             null
@@ -647,17 +812,31 @@ class CaptureEngine(private val context: Context) : VideoEncoderDelegate {
 
         captureHeuristics.updateWithScanResult(scanResult, now)
 
-        val decision = captureHeuristics.decisionForSignature(
+        val rawDecision = captureHeuristics.decisionForSignature(
             pending.layoutSignature,
             now,
             hasLastFrame = lastCapturedBitmap != null,
             importance = pending.importance
         )
 
+        val decision = if (shouldForceRenderNow(pending, now) && rawDecision.action != CaptureAction.RenderNow) {
+            CaptureDecision(
+                action = CaptureAction.RenderNow,
+                reason = CaptureReason.RenderNow,
+                deferUntilMs = rawDecision.deferUntilMs
+            )
+        } else {
+            rawDecision
+        }
+
         if (decision.action == CaptureAction.Defer) {
             val deferUntil = max(decision.deferUntilMs, now + captureHeuristics.pollIntervalMs)
             if (deferUntil > pending.deadline) {
-                emitFrameForPendingCapture(pending, shouldRender = false)
+                if (shouldDelaySettleForceRender(pending, now)) {
+                    return
+                }
+                val renderAtDeadline = shouldForceRenderNow(pending, now)
+                emitFrameForPendingCapture(pending, shouldRender = renderAtDeadline)
                 return
             }
             scheduleIdleCaptureAttempt(deferUntil - now)
@@ -708,9 +887,30 @@ class CaptureEngine(private val context: Context) : VideoEncoderDelegate {
         }
 
         val scanResult = pending.scanResult
+        val isWarmupFrame = warmupFramesRemaining > 0
+        if (isWarmupFrame) {
+            warmupFramesRemaining--
+        }
         val hasBlockedSurface = scanResult?.let {
             it.cameraFrames.isNotEmpty() || it.webViewFrames.isNotEmpty() || it.videoFrames.isNotEmpty()
         } ?: false
+        val sensitiveRectsCount = scanResult?.let {
+            it.textInputFrames.size + it.cameraFrames.size + it.webViewFrames.size + it.videoFrames.size
+        } ?: 0
+
+        PerfTiming.setFrameContext(
+            PerfFrameContext(
+                reason = pending.reason,
+                shouldRender = shouldRender,
+                totalViewsScanned = scanResult?.totalViewsScanned ?: 0,
+                sensitiveRects = sensitiveRectsCount,
+                didBailOut = scanResult?.didBailOutEarly ?: false,
+                bailOutReason = scanResult?.bailOutReason ?: "none",
+                hasBlockedSurface = hasBlockedSurface,
+                performanceLevel = currentPerformanceLevel.name.lowercase(),
+                isWarmup = isWarmupFrame
+            )
+        )
 
         if (captureInProgress.getAndSet(true)) {
             return
@@ -773,7 +973,9 @@ class CaptureEngine(private val context: Context) : VideoEncoderDelegate {
                 return@submit
             }
             val success = try {
-                encoder.appendFrame(cachedBitmap, timestamp)
+                PerfTiming.time(PerfMetric.ENCODE) {
+                    encoder.appendFrame(cachedBitmap, timestamp)
+                }
             } catch (e: Exception) {
                 Logger.error("[CaptureEngine] Failed to append cached frame", e)
                 false
@@ -783,6 +985,7 @@ class CaptureEngine(private val context: Context) : VideoEncoderDelegate {
                 handleFrameAppended(scanResult, timestamp, didRender = false, hasBlockedSurface = hasBlockedSurface,
                     cachedBitmap = cachedBitmap)
             }
+            PerfTiming.dumpIfNeeded()
             captureInProgress.set(false)
         }
     }
@@ -831,17 +1034,21 @@ class CaptureEngine(private val context: Context) : VideoEncoderDelegate {
         val scaledHeight = (decorView.height * effectiveScale).toInt().coerceAtLeast(1)
 
         try {
-            val bitmap = getBitmap(scaledWidth, scaledHeight)
+            val bitmap = PerfTiming.time(PerfMetric.BUFFER_ALLOC) {
+                getBitmap(scaledWidth, scaledHeight)
+            }
             val requiresPixelCopy = requiresPixelCopyCapture(decorView)
 
             if (requiresPixelCopy) {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    val screenshotStart = PerfTiming.now()
                     try {
                         PixelCopy.request(
                             currentWindow,
                             bitmap,
                             { copyResult ->
                                 if (copyResult == PixelCopy.SUCCESS) {
+                                    PerfTiming.record(PerfMetric.SCREENSHOT, screenshotStart, PerfTiming.now())
                                     processingExecutor.submit {
                                         processCapture(
                                             bitmap,
@@ -854,6 +1061,7 @@ class CaptureEngine(private val context: Context) : VideoEncoderDelegate {
                                         )
                                     }
                                 } else {
+                                    PerfTiming.record(PerfMetric.SCREENSHOT, screenshotStart, PerfTiming.now())
                                     Logger.debug("[CaptureEngine] PixelCopy failed with result: $copyResult")
                                     captureInProgress.set(false)
                                     returnBitmap(bitmap)
@@ -862,6 +1070,7 @@ class CaptureEngine(private val context: Context) : VideoEncoderDelegate {
                             mainHandler
                         )
                     } catch (e: Exception) {
+                        PerfTiming.record(PerfMetric.SCREENSHOT, screenshotStart, PerfTiming.now())
                         Logger.debug("[CaptureEngine] PixelCopy request failed: ${e.message}")
                         captureInProgress.set(false)
                         returnBitmap(bitmap)
@@ -883,7 +1092,11 @@ class CaptureEngine(private val context: Context) : VideoEncoderDelegate {
                     }
                     canvas.scale(scaleX, scaleY)
 
-                    decorView.draw(canvas)
+                    val screenshotStart = PerfTiming.now()
+                    PerfTiming.time(PerfMetric.RENDER) {
+                        decorView.draw(canvas)
+                    }
+                    PerfTiming.record(PerfMetric.SCREENSHOT, screenshotStart, PerfTiming.now())
 
                     processingExecutor.submit {
                         processCapture(
@@ -936,14 +1149,18 @@ class CaptureEngine(private val context: Context) : VideoEncoderDelegate {
                 val shouldMask = privacyMaskTextInputs || privacyMaskCameraViews ||
                     privacyMaskWebViews || privacyMaskVideoLayers
                 val maskedBitmap = if (sensitiveRects.isNotEmpty() && shouldMask) {
-                    PrivacyMask.applyMasksToBitmap(bitmap, sensitiveRects, rootWidth, rootHeight)
+                    PerfTiming.time(PerfMetric.PRIVACY_MASK) {
+                        PrivacyMask.applyMasksToBitmap(bitmap, sensitiveRects, rootWidth, rootHeight)
+                    }
                 } else {
                     bitmap
                 }
 
                 val timestamp = System.currentTimeMillis()
 
-                val success = encoder.appendFrame(maskedBitmap, timestamp)
+                val success = PerfTiming.time(PerfMetric.ENCODE) {
+                    encoder.appendFrame(maskedBitmap, timestamp)
+                }
 
                 if (success) {
                     Logger.debug("[CaptureEngine] Frame captured ($reason) - ${maskedBitmap.width}x${maskedBitmap.height}")
@@ -975,6 +1192,7 @@ class CaptureEngine(private val context: Context) : VideoEncoderDelegate {
                     returnBitmap(bitmap)
                 }
             }
+            PerfTiming.dumpIfNeeded()
 
         } catch (e: Exception) {
             Logger.error("[CaptureEngine] Failed to process capture", e)
@@ -1008,6 +1226,10 @@ class CaptureEngine(private val context: Context) : VideoEncoderDelegate {
         }
 
         framesSinceSessionStart++
+        if (!didRender) {
+            return
+        }
+
         framesSinceHierarchy++
         val layoutSignature = scanResult?.layoutSignature
         val layoutChanged = layoutSignature != null && layoutSignature != lastSerializedSignature
@@ -1467,9 +1689,18 @@ class CaptureEngine(private val context: Context) : VideoEncoderDelegate {
 
     private companion object {
         private const val DEFENSIVE_CAPTURE_DELAY_NAVIGATION_MS = 200L
+        private const val DEFENSIVE_CAPTURE_DELAY_NAVIGATION_SETTLE_MS = 120L
+        private const val DEFENSIVE_CAPTURE_DELAY_NAVIGATION_LATE_SETTLE_MS = 450L
         private const val DEFENSIVE_CAPTURE_DELAY_INTERACTION_MS = 150L
+        private const val DEFENSIVE_CAPTURE_DELAY_INTERACTION_SETTLE_MS = 350L
         private const val DEFENSIVE_CAPTURE_DELAY_SCROLL_MS = 200L
+        private const val DEFENSIVE_CAPTURE_DELAY_SCROLL_SETTLE_MS = 350L
+        private const val DEFENSIVE_CAPTURE_DELAY_SCROLL_LATE_SETTLE_MS = 900L
         private const val DEFENSIVE_CAPTURE_DELAY_MAP_MS = 550L
+        private const val DEFENSIVE_CAPTURE_DELAY_MAP_SETTLE_MS = 750L
+        private const val DEFENSIVE_CAPTURE_DELAY_COMMIT_SETTLE_MS = 320L
+        private const val SETTLE_FORCE_RENDER_RECHECK_MS = 80L
+        private const val SETTLE_FORCE_RENDER_MAX_DEFERRAL_MS = 1200L
         private const val MAP_PRESENCE_WINDOW_MS = 2000L
     }
 }

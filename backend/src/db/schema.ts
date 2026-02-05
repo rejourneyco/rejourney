@@ -456,6 +456,9 @@ export const sessionMetrics = pgTable('session_metrics', {
     videoSegmentCount: integer('video_segment_count').default(0),
     videoTotalBytes: bigint('video_total_bytes', { mode: 'number' }).default(0),
     hierarchySnapshotCount: integer('hierarchy_snapshot_count').default(0),
+    // Screenshot segment metrics (iOS screenshot-based capture)
+    screenshotSegmentCount: integer('screenshot_segment_count').default(0),
+    screenshotTotalBytes: bigint('screenshot_total_bytes', { mode: 'number' }).default(0),
 });
 
 

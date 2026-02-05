@@ -22,6 +22,8 @@ import {
   SkipForward,
   RotateCcw,
   Layers,
+  Image as ImageIcon,
+  Film,
 } from 'lucide-react';
 import { useSessionData } from '../../context/SessionContext';
 import { usePathPrefix } from '../../hooks/usePathPrefix';
@@ -71,6 +73,8 @@ interface FullSession {
   id: string;
   userId: string;
   hasRecording?: boolean;
+  /** 'screenshots' | 'video' | 'none' - determines playback mode */
+  playbackMode?: 'screenshots' | 'video' | 'none';
   deviceInfo: {
     model?: string;
     systemName?: string;
@@ -92,6 +96,13 @@ interface FullSession {
   playableDuration?: number;
   events: SessionEvent[];
   networkRequests: NetworkRequest[];
+  /** Screenshot frames for image-based playback (primary) */
+  screenshotFrames?: {
+    timestamp: number;
+    url: string;
+    index: number;
+  }[];
+  /** Video segments for video-based playback (fallback) */
   videoSegments?: {
     url: string;
     startTime: number;
@@ -250,11 +261,31 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
   // DOM Inspector state
   const [hierarchySnapshots, setHierarchySnapshots] = useState<HierarchySnapshot[]>([]);
 
+  // Screenshot playback state
+  const [currentFrameIndex, setCurrentFrameIndex] = useState(0);
+  const screenshotFrameCacheRef = useRef<Map<string, HTMLImageElement>>(new Map());
+  const screenshotAnimationRef = useRef<number | null>(null);
+  const lastFrameTimeRef = useRef<number>(0);
+
   // Refs
   const videoRef = useRef<HTMLVideoElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
   const progressRef = useRef<HTMLDivElement>(null);
   const pendingSeekTimeRef = useRef<number | null>(null);
   const [isSeeking, setIsSeeking] = useState(false);
+
+  // Ref-based playback state to avoid stale closures in animation loop
+  const currentPlaybackTimeRef = useRef<number>(0);
+  const currentFrameIndexRef = useRef<number>(0);
+
+  // Sync refs with state for external interactions (like seeking)
+  useEffect(() => {
+    currentPlaybackTimeRef.current = currentPlaybackTime;
+  }, [currentPlaybackTime]);
+
+  useEffect(() => {
+    currentFrameIndexRef.current = currentFrameIndex;
+  }, [currentFrameIndex]);
 
   // Get basic session from context
   const session = sessions.find((s) => s.id === id);
@@ -289,6 +320,18 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
       console.log('[SESSION FETCH DEBUG] Gesture/touch events:', gestureEvents.length);
       console.log('[SESSION FETCH DEBUG] Platform:', (data as any).platform, '| Device:', (data as any).deviceInfo);
       console.log('[SESSION FETCH DEBUG] Hierarchy snapshots:', ((data as any).hierarchySnapshots || []).length);
+
+      // DEBUG: Log screenshot frames and playback mode for iOS replay debugging
+      console.log('[SESSION FETCH DEBUG] Playback mode:', (data as any).playbackMode);
+      console.log('[SESSION FETCH DEBUG] Screenshot frames:', ((data as any).screenshotFrames || []).length);
+      console.log('[SESSION FETCH DEBUG] Video segments:', ((data as any).videoSegments || []).length);
+      if ((data as any).screenshotFrames?.length > 0) {
+        console.log('[SESSION FETCH DEBUG] First screenshot frame:', (data as any).screenshotFrames[0]);
+      }
+      if ((data as any).videoSegments?.length > 0) {
+        console.log('[SESSION FETCH DEBUG] First video segment:', (data as any).videoSegments[0]);
+      }
+
       if (gestureEvents.length > 0) {
         console.log('[SESSION FETCH DEBUG] First gesture event:', JSON.stringify(gestureEvents[0], null, 2));
         // Check if touches array exists
@@ -327,7 +370,8 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
               root: rootNode,
             };
           })
-          .filter((snap: any): snap is HierarchySnapshot => snap !== null);
+          .filter((snap: any): snap is HierarchySnapshot => snap !== null)
+          .sort((a: HierarchySnapshot, b: HierarchySnapshot) => a.timestamp - b.timestamp);
 
         setHierarchySnapshots(transformed);
       }
@@ -436,12 +480,12 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
           let gestureType = e.gestureType || e.properties?.gestureType || 'tap';
           const props = e.properties || {};
 
-          // Check if this event is part of a detected rage tap sequence
-          // Use the same detection logic as the timeline (detectedRageTaps)
-          const isRageTapEvent = detectedRageTaps.some(rt =>
+          // Check for SDK-detected rage tap (frustrationKind) or detected rage tap sequence
+          const isSdkRageTap = e.frustrationKind === 'rage_tap' || gestureType === 'rage_tap';
+          const isRageTapEvent = isSdkRageTap || detectedRageTaps.some(rt =>
             Math.abs(rt.timestamp - e.timestamp) < 100 // Within 100ms
           );
-          if (isRageTapEvent && gestureType.includes('tap')) {
+          if (isRageTapEvent && (gestureType.includes('tap') || gestureType === 'rage_tap')) {
             gestureType = 'rage_tap';
           }
 
@@ -555,7 +599,7 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
   // Session metadata
   // Calculate duration for the timeline:
   // 1. If playableDuration is provided from backend, use it (excludes background time)
-  // 2. Otherwise, calculate from video segments, session end, or events
+  // 2. Otherwise, calculate from video segments, screenshot frames, session end, or events
   const durationSeconds = useMemo(() => {
     // If backend provided playable duration, use it - this is the most accurate
     if (fullSession?.playableDuration && fullSession.playableDuration > 0) {
@@ -567,6 +611,18 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
 
     // Collect all possible end times
     const candidates: number[] = [];
+
+    // Screenshot frames duration (iOS sessions) - use first to last frame span
+    if (fullSession?.screenshotFrames && fullSession.screenshotFrames.length > 0) {
+      const firstFrame = fullSession.screenshotFrames[0];
+      const lastFrame = fullSession.screenshotFrames[fullSession.screenshotFrames.length - 1];
+      // Calculate duration from last frame timestamp relative to session start
+      // Add a small buffer (500ms) to account for the last frame's display time
+      const screenshotDuration = ((lastFrame.timestamp - sessionStart) / 1000) + 0.5;
+      if (screenshotDuration > 0) {
+        candidates.push(screenshotDuration);
+      }
+    }
 
     // Video segment end time - use actual video content bounds
     if (fullSession?.videoSegments && fullSession.videoSegments.length > 0) {
@@ -625,6 +681,10 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
     const touchBuckets = Array(bucketCount).fill(0);
     const apiBuckets = Array(bucketCount).fill(0);
 
+    // DEBUG: Track bucket distribution
+    const touchEventTimes: number[] = [];
+    const apiEventTimes: number[] = [];
+
     allTimelineEvents.forEach((e) => {
       const elapsed = e.timestamp - replayBaseTime;
       const idx = Math.min(Math.floor(elapsed / bucketSize), bucketCount - 1);
@@ -635,12 +695,27 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
 
       if (type === 'network_request') {
         apiBuckets[idx]++;
+        apiEventTimes.push(elapsed / 1000);
       } else if (
         type === 'gesture' || type === 'tap' || type === 'touch' || type === 'scroll' ||
+        type === 'input' || // Include keyboard input in interaction density
         gestureType.includes('tap') || gestureType.includes('scroll')
       ) {
         touchBuckets[idx]++;
+        touchEventTimes.push(elapsed / 1000);
       }
+    });
+
+    // Log distribution for debugging
+    console.log('[DENSITY DEBUG]', {
+      durationSeconds,
+      bucketSize: bucketSize / 1000,
+      touchEventCount: touchEventTimes.length,
+      apiEventCount: apiEventTimes.length,
+      touchEventTimes: touchEventTimes.slice(0, 10),
+      apiEventTimes: apiEventTimes.slice(0, 10),
+      touchBucketDistribution: touchBuckets.map((v, i) => v > 0 ? `[${i}]:${v}` : null).filter(Boolean),
+      apiBucketDistribution: apiBuckets.map((v, i) => v > 0 ? `[${i}]:${v}` : null).filter(Boolean),
     });
 
     const maxTouch = Math.max(...touchBuckets, 1);
@@ -677,8 +752,52 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
     }
   }, [fullSession, allTimelineEvents, durationSeconds, replayBaseTime]);
 
-  // Video segments
+  // Screenshot frames (primary playback mode for iOS)
+  // Normalize timestamps to be relative to session start time
+  const screenshotFrames = useMemo(() => {
+    const rawFrames = fullSession?.screenshotFrames || [];
+    if (rawFrames.length === 0 || !fullSession?.startTime) return [];
+
+    const sessionStart = fullSession.startTime;
+    return rawFrames
+      .map((f, idx) => ({
+        ...f,
+        // relativeTime is seconds from session start (for playback)
+        relativeTime: (f.timestamp - sessionStart) / 1000,
+      }))
+      .sort((a, b) => a.timestamp - b.timestamp)
+      .map((f, idx) => ({ ...f, index: idx }));
+  }, [fullSession?.screenshotFrames, fullSession?.startTime]);
+
+
+  // Video segments (fallback playback mode)
   const segments = useMemo(() => fullSession?.videoSegments || [], [fullSession?.videoSegments]);
+
+  // Determine playback mode: screenshots take priority over video
+  const playbackMode = useMemo(() => {
+    if (fullSession?.playbackMode === 'screenshots' && screenshotFrames.length > 0) {
+      console.log('[PLAYBACK] Mode: screenshots (from server)', screenshotFrames.length, 'frames');
+      return 'screenshots' as const;
+    }
+    if (fullSession?.playbackMode === 'video' && segments.length > 0) {
+      console.log('[PLAYBACK] Mode: video (from server)', segments.length, 'segments');
+      return 'video' as const;
+    }
+    // Auto-detect
+    if (screenshotFrames.length > 0) {
+      console.log('[PLAYBACK] Mode: screenshots (auto-detect)', screenshotFrames.length, 'frames');
+      return 'screenshots' as const;
+    }
+    if (segments.length > 0) {
+      console.log('[PLAYBACK] Mode: video (auto-detect)', segments.length, 'segments');
+      return 'video' as const;
+    }
+    console.log('[PLAYBACK] Mode: none (no recording data)');
+    return 'none' as const;
+  }, [fullSession?.playbackMode, screenshotFrames, segments]);
+
+  // Has any visual recording?
+  const hasRecording = playbackMode !== 'none';
 
   // Get device dimensions - try multiple fallbacks for Android compatibility
   // Android may not always have deviceInfo.screenWidth/Height or hierarchy snapshots
@@ -781,17 +900,35 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
     [segments, fullSession, activeSegmentIndex, findSegmentForTime, durationSeconds]
   );
 
-  // Handle progress click/drag
+  // Handle progress click/drag - unified for both video and screenshot modes
   const handleProgressInteraction = useCallback(
     (e: React.MouseEvent<HTMLDivElement> | MouseEvent) => {
       if (!progressRef.current) return;
 
       const rect = progressRef.current.getBoundingClientRect();
       const percent = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-      const newTime = percent * durationSeconds;
-      seekToTime(newTime);
+
+      if (playbackMode === 'screenshots' && screenshotFrames.length > 0) {
+        const newTime = percent * durationSeconds;
+        // Binary search for closest frame by relativeTime
+        let left = 0;
+        let right = screenshotFrames.length - 1;
+        while (left < right) {
+          const mid = Math.floor((left + right + 1) / 2);
+          if (screenshotFrames[mid].relativeTime <= newTime) {
+            left = mid;
+          } else {
+            right = mid - 1;
+          }
+        }
+        setCurrentFrameIndex(left);
+        setCurrentPlaybackTime(screenshotFrames[left].relativeTime);
+      } else {
+        const newTime = percent * durationSeconds;
+        seekToTime(newTime);
+      }
     },
-    [durationSeconds, seekToTime]
+    [durationSeconds, seekToTime, playbackMode, screenshotFrames]
   );
 
   const handleProgressMouseDown = useCallback(
@@ -813,9 +950,14 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
     [handleProgressInteraction]
   );
 
-  // Toggle play/pause
+  // Toggle play/pause - works for both screenshot and video modes
   const togglePlayPause = useCallback(() => {
-    if (videoRef.current) {
+    if (playbackMode === 'screenshots') {
+      // Screenshot mode - just toggle the isPlaying state
+      // The screenshot animation effect handles the actual playback
+      setIsPlaying(!isPlaying);
+    } else if (videoRef.current) {
+      // Video mode
       if (isPlaying) {
         videoRef.current.pause();
       } else {
@@ -823,24 +965,49 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
       }
       setIsPlaying(!isPlaying);
     }
-  }, [isPlaying]);
+  }, [isPlaying, playbackMode]);
 
-  // Skip
+  // Skip - works for both modes
   const skip = useCallback(
     (seconds: number) => {
-      seekToTime(currentPlaybackTime + seconds);
+      if (playbackMode === 'screenshots' && screenshotFrames.length > 0) {
+        const targetTime = Math.max(0, Math.min(currentPlaybackTime + seconds, durationSeconds));
+        // Binary search for closest frame by relativeTime
+        let left = 0;
+        let right = screenshotFrames.length - 1;
+        while (left < right) {
+          const mid = Math.floor((left + right + 1) / 2);
+          if (screenshotFrames[mid].relativeTime <= targetTime) {
+            left = mid;
+          } else {
+            right = mid - 1;
+          }
+        }
+        const idx = Math.max(0, Math.min(left, screenshotFrames.length - 1));
+        setCurrentFrameIndex(idx);
+        setCurrentPlaybackTime(screenshotFrames[idx].relativeTime);
+      } else {
+        const newTime = currentPlaybackTime + seconds;
+        seekToTime(newTime);
+      }
     },
-    [currentPlaybackTime, seekToTime]
+    [currentPlaybackTime, seekToTime, playbackMode, screenshotFrames, durationSeconds]
   );
 
-  // Restart
+  // Restart - works for both modes
   const restart = useCallback(() => {
-    seekToTime(0);
-    if (videoRef.current) {
-      videoRef.current.play();
+    if (playbackMode === 'screenshots') {
+      setCurrentFrameIndex(0);
+      setCurrentPlaybackTime(0); // relativeTime of first frame is always 0
       setIsPlaying(true);
+    } else {
+      seekToTime(0);
+      if (videoRef.current) {
+        videoRef.current.play();
+        setIsPlaying(true);
+      }
     }
-  }, [seekToTime]);
+  }, [seekToTime, playbackMode, screenshotFrames]);
 
   // Handle segment end
   const handleSegmentEnd = useCallback(() => {
@@ -901,6 +1068,261 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
     return () => document.removeEventListener('keydown', handleKeyDown);
   }, [togglePlayPause, skip]);
 
+  // ============================================================================
+  // Screenshot Playback Effects
+  // ============================================================================
+
+  // Initialize currentPlaybackTime when screenshot mode loads
+  useEffect(() => {
+    if (playbackMode !== 'screenshots' || screenshotFrames.length === 0) return;
+    if (!fullSession?.startTime) return;
+
+    // Set initial playback time to the first frame's relative time
+    const firstFrameRelativeTime = (screenshotFrames[0].timestamp - fullSession.startTime) / 1000;
+    // Only initialize if we haven't moved from the default 0 yet
+    if (currentPlaybackTime === 0 && currentFrameIndex === 0) {
+      console.log('[SCREENSHOT] Initializing playback time to first frame:', firstFrameRelativeTime);
+      setCurrentPlaybackTime(Math.max(0, firstFrameRelativeTime));
+    }
+  }, [playbackMode, screenshotFrames, fullSession?.startTime, currentPlaybackTime, currentFrameIndex]);
+
+  // Preload screenshot frames
+  useEffect(() => {
+    if (playbackMode !== 'screenshots' || screenshotFrames.length === 0) return;
+
+    const cache = screenshotFrameCacheRef.current;
+
+    // Preload first 20 frames immediately
+    const preloadCount = Math.min(20, screenshotFrames.length);
+    console.log('[SCREENSHOT] Preloading first', preloadCount, 'frames');
+    for (let i = 0; i < preloadCount; i++) {
+      const frame = screenshotFrames[i];
+      if (!cache.has(frame.url)) {
+        const img = new Image();
+        img.crossOrigin = 'anonymous'; // Enable CORS for S3 presigned URLs
+        img.src = frame.url;
+        cache.set(frame.url, img);
+      }
+    }
+
+    // Preload rest in background
+    const preloadRest = () => {
+      for (let i = preloadCount; i < screenshotFrames.length; i++) {
+        const frame = screenshotFrames[i];
+        if (!cache.has(frame.url)) {
+          const img = new Image();
+          img.crossOrigin = 'anonymous'; // Enable CORS for S3 presigned URLs
+          img.src = frame.url;
+          cache.set(frame.url, img);
+        }
+      }
+    };
+
+    if ('requestIdleCallback' in window) {
+      (window as any).requestIdleCallback(preloadRest);
+    } else {
+      setTimeout(preloadRest, 100);
+    }
+  }, [playbackMode, screenshotFrames]);
+
+  // Update touch overlay for SCREENSHOT playback mode
+  // (Video mode uses handleTimeUpdate callback from <video> element)
+  useEffect(() => {
+    if (playbackMode !== 'screenshots' || !fullSession || !showTouchOverlay) {
+      return;
+    }
+
+    const sessionStartTime = fullSession.startTime || 0;
+    const currentAbsoluteTime = sessionStartTime + currentPlaybackTime * 1000;
+    const screenWidth = fullSession.deviceInfo?.screenWidth || 375;
+    const screenHeight = fullSession.deviceInfo?.screenHeight || 812;
+
+    const recentTouchEvents = (fullSession.events || [])
+      .filter((e) => {
+        const eventTime = e.timestamp;
+        const timeDiff = currentAbsoluteTime - eventTime;
+        const isGestureEvent = e.type === 'touch' || e.type === 'gesture';
+        const rawTouchesArr = e.touches ?? e.properties?.touches ?? [];
+        const touchesArr = Array.isArray(rawTouchesArr) ? rawTouchesArr : [];
+        return isGestureEvent && touchesArr.length > 0 && timeDiff >= 0 && timeDiff < 1000;
+      })
+      .map((e) => {
+        const rawTouchArray = e.touches || e.properties?.touches || [];
+        const touchArray = Array.isArray(rawTouchArray) ? rawTouchArray : [];
+        let gestureType = e.gestureType || e.properties?.gestureType || 'tap';
+        const props = e.properties || {};
+
+        // Check if this is a rage tap
+        const isRageTapEvent = detectedRageTaps.some(rt =>
+          Math.abs(rt.timestamp - e.timestamp) < 100
+        );
+        if (isRageTapEvent && gestureType.includes('tap')) {
+          gestureType = 'rage_tap';
+        }
+
+        const validTouches = touchArray
+          .filter((t: any) => {
+            const x = typeof t.x === 'number' ? t.x : 0;
+            const y = typeof t.y === 'number' ? t.y : 0;
+            return x > 5 && y > 5 && x < screenWidth * 3 && y < screenHeight * 3;
+          })
+          .map((t: any) => ({
+            x: t.x,
+            y: t.y,
+            timestamp: e.timestamp,
+            force: t.force,
+          }));
+
+        if (validTouches.length === 0) return null;
+
+        return {
+          id: (e as any).id || `touch-${e.timestamp}-${Math.random()}`,
+          timestamp: e.timestamp,
+          gestureType,
+          touches: validTouches,
+          targetLabel: e.targetLabel || props.targetLabel,
+          duration: props.duration || (e as any).duration,
+          velocity: props.velocity || (e as any).velocity,
+          maxForce: props.maxForce || (e as any).maxForce,
+          touchCount: validTouches.length,
+        } as TouchEvent;
+      })
+      .filter((e): e is TouchEvent => e !== null);
+
+    setTouchEvents(recentTouchEvents);
+  }, [playbackMode, fullSession, currentPlaybackTime, showTouchOverlay, detectedRageTaps]);
+
+  // Screenshot playback animation loop
+  // Uses relativeTime (seconds from first frame) for proper real-time playback
+  useEffect(() => {
+    if (playbackMode !== 'screenshots' || !isPlaying || screenshotFrames.length === 0) {
+      if (screenshotAnimationRef.current) {
+        cancelAnimationFrame(screenshotAnimationRef.current);
+        screenshotAnimationRef.current = null;
+      }
+      return;
+    }
+
+    lastFrameTimeRef.current = performance.now();
+
+    const tick = (now: number) => {
+      const deltaSec = ((now - lastFrameTimeRef.current) / 1000) * playbackRate;
+      lastFrameTimeRef.current = now;
+
+      // Advance current playback time using our master clock (ref)
+      const nextPlaybackTime = currentPlaybackTimeRef.current + deltaSec;
+      currentPlaybackTimeRef.current = nextPlaybackTime;
+
+      // Batch state updates to minimize re-renders while keeping UI in sync
+      setCurrentPlaybackTime(nextPlaybackTime);
+
+      // Robust frame selection: Binary search for the closest frame at or before nextPlaybackTime
+      let left = 0;
+      let right = screenshotFrames.length - 1;
+      let targetIdx = 0;
+
+      while (left <= right) {
+        const mid = Math.floor((left + right) / 2);
+        if (screenshotFrames[mid].relativeTime <= nextPlaybackTime) {
+          targetIdx = mid;
+          left = mid + 1;
+        } else {
+          right = mid - 1;
+        }
+      }
+
+      if (targetIdx !== currentFrameIndexRef.current) {
+        currentFrameIndexRef.current = targetIdx;
+        setCurrentFrameIndex(targetIdx);
+      }
+
+      // Check if reached absolute end of session
+      if (nextPlaybackTime >= durationSeconds) {
+        setIsPlaying(false);
+        setCurrentPlaybackTime(durationSeconds);
+        currentPlaybackTimeRef.current = durationSeconds;
+        return;
+      }
+
+      screenshotAnimationRef.current = requestAnimationFrame(tick);
+    };
+
+    screenshotAnimationRef.current = requestAnimationFrame(tick);
+
+    return () => {
+      if (screenshotAnimationRef.current) {
+        cancelAnimationFrame(screenshotAnimationRef.current);
+      }
+    };
+  }, [playbackMode, isPlaying, screenshotFrames, playbackRate, durationSeconds]);
+
+  // Draw current screenshot frame to canvas
+  useEffect(() => {
+    if (playbackMode !== 'screenshots' || !canvasRef.current || screenshotFrames.length === 0) {
+      return;
+    }
+
+    const frame = screenshotFrames[currentFrameIndex];
+    if (!frame) {
+      return;
+    }
+
+    const canvas = canvasRef.current;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) {
+      return;
+    }
+
+    const cache = screenshotFrameCacheRef.current;
+    const cachedImg = cache.get(frame.url);
+
+    if (cachedImg && cachedImg.complete && cachedImg.naturalWidth > 0) {
+      ctx.drawImage(cachedImg, 0, 0, canvas.width, canvas.height);
+    } else {
+      const img = new Image();
+      img.crossOrigin = 'anonymous'; // Enable CORS for S3 presigned URLs
+      img.onload = () => {
+        console.log('[SCREENSHOT] Frame loaded:', currentFrameIndex, 'size:', img.naturalWidth, 'x', img.naturalHeight);
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        cache.set(frame.url, img);
+      };
+      img.onerror = (err) => {
+        console.error('[SCREENSHOT] Frame load error:', currentFrameIndex, frame.url, err);
+      };
+      img.src = frame.url;
+    }
+  }, [playbackMode, screenshotFrames, currentFrameIndex]);
+
+  // Seek to frame by relativeTime (for screenshot mode)
+  const seekToScreenshotFrame = useCallback((targetRelativeTime: number) => {
+    if (screenshotFrames.length === 0) return;
+
+    // Binary search for closest frame by relativeTime
+    let left = 0;
+    let right = screenshotFrames.length - 1;
+
+    while (left < right) {
+      const mid = Math.floor((left + right + 1) / 2);
+      if (screenshotFrames[mid].relativeTime <= targetRelativeTime) {
+        left = mid;
+      } else {
+        right = mid - 1;
+      }
+    }
+
+    setCurrentFrameIndex(left);
+    setCurrentPlaybackTime(screenshotFrames[left].relativeTime);
+  }, [screenshotFrames]);
+
+  // Override seekToTime for screenshot mode
+  const handleSeekToTime = useCallback((time: number) => {
+    if (playbackMode === 'screenshots') {
+      seekToScreenshotFrame(time);
+    } else {
+      seekToTime(time);
+    }
+  }, [playbackMode, seekToScreenshotFrame, seekToTime]);
+
   // Format time as MM:SS
   const formatVideoTime = (seconds: number): string => {
     if (!isFinite(seconds) || isNaN(seconds)) return '00:00';
@@ -910,7 +1332,8 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
   };
 
   // Progress percentage
-  const progressPercent = durationSeconds > 0 ? (currentPlaybackTime / durationSeconds) * 100 : 0;
+  const effectiveDuration = durationSeconds;
+  const progressPercent = effectiveDuration > 0 ? (currentPlaybackTime / effectiveDuration) * 100 : 0;
 
   // ========================================================================
   // EARLY RETURNS (after all hooks)
@@ -1274,8 +1697,25 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
                       <p className="text-xs text-slate-400 mt-1 text-center">Recording has expired</p>
                     )}
                   </div>
-                ) : segments.length > 0 ? (
+                ) : hasRecording ? (
                   <div className="relative">
+                    {/* Playback Mode Indicator */}
+                    <div className="absolute -top-6 left-0 right-0 flex justify-center z-10">
+                      <div className="flex items-center gap-1 px-2 py-0.5 bg-slate-800/80 rounded text-[10px] text-white/80">
+                        {playbackMode === 'screenshots' ? (
+                          <>
+                            <ImageIcon className="w-3 h-3" />
+                            <span>{screenshotFrames.length} frames</span>
+                          </>
+                        ) : (
+                          <>
+                            <Film className="w-3 h-3" />
+                            <span>{segments.length} segments</span>
+                          </>
+                        )}
+                      </div>
+                    </div>
+
                     {/* Phone Body */}
                     <div
                       className="relative bg-slate-900 rounded-[2.5rem] p-[3px] shadow-xl"
@@ -1298,25 +1738,37 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
                             </div>
                           )}
 
-                          {/* Video Element */}
-                          <video
-                            ref={videoRef}
-                            className="absolute inset-0 w-full h-full object-cover"
-                            onTimeUpdate={handleTimeUpdate}
-                            onEnded={handleSegmentEnd}
-                            onLoadedMetadata={() => {
-                              setIsBuffering(false);
-                              if (pendingSeekTimeRef.current !== null && videoRef.current) {
-                                videoRef.current.currentTime = pendingSeekTimeRef.current;
-                                pendingSeekTimeRef.current = null;
-                              }
-                            }}
-                            onSeeked={() => setIsSeeking(false)}
-                            onWaiting={() => setIsBuffering(true)}
-                            onPlaying={() => setIsBuffering(false)}
-                            playsInline
-                            muted
-                          />
+                          {/* Screenshot Canvas (for screenshot playback mode) */}
+                          {playbackMode === 'screenshots' && (
+                            <canvas
+                              ref={canvasRef}
+                              width={deviceWidth}
+                              height={deviceHeight}
+                              className="absolute inset-0 w-full h-full object-cover bg-slate-100"
+                            />
+                          )}
+
+                          {/* Video Element (for video playback mode) */}
+                          {playbackMode === 'video' && (
+                            <video
+                              ref={videoRef}
+                              className="absolute inset-0 w-full h-full object-cover"
+                              onTimeUpdate={handleTimeUpdate}
+                              onEnded={handleSegmentEnd}
+                              onLoadedMetadata={() => {
+                                setIsBuffering(false);
+                                if (pendingSeekTimeRef.current !== null && videoRef.current) {
+                                  videoRef.current.currentTime = pendingSeekTimeRef.current;
+                                  pendingSeekTimeRef.current = null;
+                                }
+                              }}
+                              onSeeked={() => setIsSeeking(false)}
+                              onWaiting={() => setIsBuffering(true)}
+                              onPlaying={() => setIsBuffering(false)}
+                              playsInline
+                              muted
+                            />
+                          )}
 
                           {/* Enhanced Touch Overlay */}
                           {showTouchOverlay && (
@@ -1590,7 +2042,7 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
 
                     {/* Time Display */}
                     <span className="text-sm font-mono font-bold text-black tabular-nums ml-2 bg-white px-2 py-1 border-2 border-black">
-                      {formatVideoTime(currentPlaybackTime)} / {formatVideoTime(durationSeconds)}
+                      {formatVideoTime(currentPlaybackTime)} / {formatVideoTime(effectiveDuration)}
                     </span>
 
                     {/* Speed Control */}

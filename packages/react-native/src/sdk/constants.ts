@@ -2,7 +2,10 @@
  * Rejourney SDK Constants
  */
 
-export const SDK_VERSION = '1.0.3';
+// Import version from auto-generated file (generated from package.json by scripts/generate-version.js)
+import { SDK_VERSION } from './version';
+
+export { SDK_VERSION };
 
 /** Default configuration values */
 export const DEFAULT_CONFIG = {

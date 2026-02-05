@@ -33,6 +33,8 @@ object Logger {
         }
     }
 
+    fun isDebugMode(): Boolean = debugMode
+
     fun debug(message: String) {
         if (minimumLogLevel.priority <= LogLevel.DEBUG.priority) {
             Log.d(TAG, message)

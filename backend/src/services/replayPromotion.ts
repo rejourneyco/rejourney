@@ -495,13 +495,15 @@ export async function evaluateAndPromoteSession(
         return { promoted: true, reason: session.replayPromotedReason || 'already_promoted' };
     }
 
-    // 4. No video segments AND no hierarchy snapshots - nothing to promote
+    // 4. No video segments AND no screenshot segments - nothing to promote
     const videoSegmentCount = metrics?.videoSegmentCount ?? 0;
+    const screenshotSegmentCount = metrics?.screenshotSegmentCount ?? 0;
+    const hasRecordingData = videoSegmentCount > 0 || screenshotSegmentCount > 0;
 
-    // RULE: Strict video requirement for promotion (unless it's a critical crash we still want to flag)
-    // Actually, user explicitly said "sessions withotu video should not be promoted too"
-    if (videoSegmentCount === 0) {
-        return { promoted: false, reason: 'no_video' };
+    // RULE: Require video OR screenshot data for promotion
+    // Sessions without any visual recording data should not be promoted
+    if (!hasRecordingData) {
+        return { promoted: false, reason: 'no_recording_data' };
     }
 
     // 5. Get project config
@@ -573,6 +575,7 @@ export async function evaluateAndPromoteSession(
             reason: result.reason,
             score: result.score,
             videoSegmentCount,
+            screenshotSegmentCount,
         }, 'Session promoted for replay');
     }
 
