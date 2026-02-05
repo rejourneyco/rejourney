@@ -1267,6 +1267,12 @@ export function initRejourney(
     }
   }
 
+  // Set SDK version on native side (single source of truth from package.json)
+  const nativeModule = getRejourneyNative();
+  if (nativeModule && typeof (nativeModule as any).setSDKVersion === 'function') {
+    (nativeModule as any).setSDKVersion(SDK_VERSION);
+  }
+
   _isInitialized = true;
 
   (async () => {

@@ -18,22 +18,23 @@ export const NeoCard: React.FC<NeoCardProps> = ({
     disablePadding = false,
     ...props
 }) => {
-    const baseStyles = "bg-white border-4 border-black transition-all duration-200";
+    // Premium Base Styles: Subtle borders, soft transitions, no hard shadows
+    const baseStyles = "bg-white border border-slate-200 transition-all duration-200 rounded-xl";
     const variants = {
-        default: "shadow-[8px_8px_0px_0px_rgba(0,0,0,1)]",
-        flat: "shadow-none",
-        monitor: "p-6 relative bg-slate-900 shadow-[12px_12px_0px_0px_rgba(0,0,0,1)]"
+        default: "shadow-sm hover:shadow-md",
+        flat: "shadow-none border-transparent bg-transparent",
+        monitor: "p-6 relative bg-slate-900 shadow-xl border-slate-800"
     };
 
     if (variant === 'monitor') {
         return (
             <div className={`${baseStyles} ${variants.monitor} ${className}`} {...props}>
-                {/* Monitor Screen Effect */}
-                <div className="bg-white border-4 border-black h-full relative overflow-hidden shadow-[inset_4px_4px_12px_rgba(0,0,0,0.1)]">
+                {/* Monitor Screen Effect - Modernized */}
+                <div className="bg-white border border-slate-700 h-full relative overflow-hidden shadow-inner rounded-lg">
                     {children}
                 </div>
-                {/* Monitor Base */}
-                <div className="absolute -bottom-4 left-1/2 -translate-x-1/2 w-1/2 h-4 bg-black"></div>
+                {/* Monitor Base - Subtle */}
+                <div className="absolute -bottom-4 left-1/2 -translate-x-1/2 w-1/3 h-4 bg-slate-800 rounded-b-lg opacity-50"></div>
             </div>
         );
     }
@@ -41,11 +42,11 @@ export const NeoCard: React.FC<NeoCardProps> = ({
     return (
         <div className={`${baseStyles} ${variants[variant]} ${disablePadding ? '' : 'p-6'} ${className}`} {...props}>
             {(title || action) && (
-                <div className="flex justify-between items-center mb-8 pb-4 border-b-4 border-black">
+                <div className="flex justify-between items-center mb-6 pb-4 border-b border-slate-100">
                     {title && (
-                        <h3 className="text-2xl font-black uppercase tracking-tighter text-black">{title}</h3>
+                        <h3 className="text-lg font-semibold text-slate-900 tracking-tight">{title}</h3>
                     )}
-                    {action && <div className="flex gap-4">{action}</div>}
+                    {action && <div className="flex gap-3">{action}</div>}
                 </div>
             )}
             {children}

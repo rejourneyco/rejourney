@@ -40,6 +40,7 @@ data class ViewHierarchyScanResult(
     val hasAnyAnimations: Boolean = false,
     val animationAreaRatio: Float = 0f,
     val didBailOutEarly: Boolean = false,
+    val bailOutReason: String = "none",
     val totalViewsScanned: Int = 0,
     val scanTimestamp: Long = System.currentTimeMillis()
 )
@@ -78,6 +79,7 @@ class ViewHierarchyScanner(val config: ViewHierarchyScannerConfig = ViewHierarch
 
     private var viewCount = 0
     private var didBailOutEarly = false
+    private var bailOutReason = "none"
     private var foundMapView = false
     private var scanScrollActive = false
     private var scanBounceActive = false
@@ -86,6 +88,12 @@ class ViewHierarchyScanner(val config: ViewHierarchyScannerConfig = ViewHierarch
     private var scanHasAnimations = false
     private var scanAnimatedArea = 0f
     private var scanStartTime = 0L
+    private var effectiveMaxDepth = config.maxDepth
+    private var adaptiveDepthOffset = 0
+    private var depthBailOutStreak = 0
+    private var timeBailOutStreak = 0
+    private var countBailOutStreak = 0
+    private var stableScanStreak = 0
 
     private var layoutSignatureHash = FNV_OFFSET_BASIS
 
@@ -132,7 +140,7 @@ class ViewHierarchyScanner(val config: ViewHierarchyScannerConfig = ViewHierarch
         }
 
         val screenArea = max(1f, (primaryBounds.width() * primaryBounds.height()).toFloat())
-        return ViewHierarchyScanResult(
+        val result = ViewHierarchyScanResult(
             layoutSignature = signature,
             textInputFrames = textInputFrames.map { Rect(it) },
             cameraFrames = cameraFrames.map { Rect(it) },
@@ -150,21 +158,28 @@ class ViewHierarchyScanner(val config: ViewHierarchyScannerConfig = ViewHierarch
             hasAnyAnimations = scanHasAnimations,
             animationAreaRatio = min(scanAnimatedArea / screenArea, 1f),
             didBailOutEarly = didBailOutEarly,
+            bailOutReason = bailOutReason,
             totalViewsScanned = viewCount,
             scanTimestamp = System.currentTimeMillis()
         )
+        val scanDurationMs = SystemClock.elapsedRealtime() - scanStartTime
+        updateAdaptiveDepthBudget(result.bailOutReason, scanDurationMs, result.totalViewsScanned)
+        return result
     }
 
     private fun scanView(view: View, primaryRoot: View, depth: Int) {
-        if (viewCount >= config.maxViewCount || depth > config.maxDepth) {
-            didBailOutEarly = true
+        if (viewCount >= config.maxViewCount || depth > effectiveMaxDepth) {
+            markBailOut(
+                if (viewCount >= config.maxViewCount) "count_limit" else "depth_limit",
+                depth
+            )
             return
         }
 
         if (viewCount > 0 && viewCount % VIEW_TIME_CHECK_INTERVAL == 0) {
             val elapsed = SystemClock.elapsedRealtime() - scanStartTime
             if (elapsed > MAX_SCAN_TIME_MS) {
-                didBailOutEarly = true
+                markBailOut("time_limit", depth)
                 return
             }
         }
@@ -513,7 +528,9 @@ class ViewHierarchyScanner(val config: ViewHierarchyScannerConfig = ViewHierarch
         scanHasAnimations = false
         scanAnimatedArea = 0f
         scanStartTime = SystemClock.elapsedRealtime()
+        bailOutReason = "none"
         layoutSignatureHash = FNV_OFFSET_BASIS
+        effectiveMaxDepth = (config.maxDepth + adaptiveDepthOffset).coerceIn(MIN_EFFECTIVE_DEPTH, MAX_EFFECTIVE_DEPTH)
 
         primaryRoot.getLocationOnScreen(primaryWindowLocation)
         primaryBounds = Rect(0, 0, primaryRoot.width, primaryRoot.height)
@@ -521,6 +538,87 @@ class ViewHierarchyScanner(val config: ViewHierarchyScannerConfig = ViewHierarch
 
     private fun mixInt(value: Int) {
         layoutSignatureHash = fnv1a(layoutSignatureHash, value.toLong(), INT_BYTES)
+    }
+
+    private fun markBailOut(reason: String, depth: Int) {
+        didBailOutEarly = true
+        if (bailOutReason == "none") {
+            bailOutReason = reason
+            if (Logger.isDebugMode()) {
+                val elapsed = SystemClock.elapsedRealtime() - scanStartTime
+                Logger.warning(
+                    "[RJ-SCAN-BAILOUT] reason=$reason views=$viewCount depth=$depth " +
+                        "elapsed=${elapsed}ms limits(maxViews=${config.maxViewCount}, maxDepth=${config.maxDepth}, " +
+                        "effectiveMaxDepth=$effectiveMaxDepth, maxMs=$MAX_SCAN_TIME_MS)"
+                )
+            }
+        }
+    }
+
+    private fun updateAdaptiveDepthBudget(
+        bailOutReason: String,
+        scanDurationMs: Long,
+        scannedViews: Int
+    ) {
+        val depthLimit = bailOutReason == "depth_limit"
+        val timeLimit = bailOutReason == "time_limit"
+        val countLimit = bailOutReason == "count_limit"
+        val didBailOut = depthLimit || timeLimit || countLimit
+
+        when {
+            depthLimit -> {
+                depthBailOutStreak += 1
+                timeBailOutStreak = 0
+                countBailOutStreak = 0
+                stableScanStreak = 0
+            }
+            timeLimit -> {
+                timeBailOutStreak += 1
+                depthBailOutStreak = 0
+                countBailOutStreak = 0
+                stableScanStreak = 0
+            }
+            countLimit -> {
+                countBailOutStreak += 1
+                depthBailOutStreak = 0
+                timeBailOutStreak = 0
+                stableScanStreak = 0
+            }
+            else -> {
+                depthBailOutStreak = 0
+                timeBailOutStreak = 0
+                countBailOutStreak = 0
+                stableScanStreak += 1
+            }
+        }
+
+        val oldOffset = adaptiveDepthOffset
+        val cheapDepthBail = depthLimit &&
+            scanDurationMs < (MAX_SCAN_TIME_MS * 3 / 4) &&
+            scannedViews < (config.maxViewCount * 0.6).toInt()
+
+        if (cheapDepthBail && depthBailOutStreak >= 2) {
+            adaptiveDepthOffset = (adaptiveDepthOffset + 1).coerceAtMost(MAX_DEPTH_OFFSET)
+            depthBailOutStreak = 0
+        } else if ((timeLimit || countLimit) &&
+            (timeBailOutStreak >= 2 || countBailOutStreak >= 2)
+        ) {
+            adaptiveDepthOffset = (adaptiveDepthOffset - 1).coerceAtLeast(MIN_DEPTH_OFFSET)
+            timeBailOutStreak = 0
+            countBailOutStreak = 0
+        } else if (!didBailOut && stableScanStreak >= 8 && adaptiveDepthOffset != 0) {
+            adaptiveDepthOffset += if (adaptiveDepthOffset > 0) -1 else 1
+            stableScanStreak = 0
+        }
+
+        effectiveMaxDepth = (config.maxDepth + adaptiveDepthOffset).coerceIn(MIN_EFFECTIVE_DEPTH, MAX_EFFECTIVE_DEPTH)
+        if (oldOffset != adaptiveDepthOffset && Logger.isDebugMode()) {
+            Logger.debug(
+                "[RJ-SCAN-ADAPTIVE] baseMaxDepth=${config.maxDepth} offset=$adaptiveDepthOffset " +
+                    "effectiveMaxDepth=$effectiveMaxDepth reason=$bailOutReason views=$scannedViews " +
+                    "duration=${scanDurationMs}ms"
+            )
+        }
     }
 
     private fun fnv1a(hash: Long, value: Long, bytes: Int): Long {
@@ -596,12 +694,17 @@ class ViewHierarchyScanner(val config: ViewHierarchyScannerConfig = ViewHierarch
     )
 
     companion object {
-        private const val MAX_SCAN_TIME_MS = 30L
-        private const val VIEW_TIME_CHECK_INTERVAL = 200
+        // Keep scanner on a tighter budget to avoid main-thread spikes.
+        private const val MAX_SCAN_TIME_MS = 16L
+        private const val VIEW_TIME_CHECK_INTERVAL = 50
         private const val PRIVACY_FALLBACK_MAX_MS = 10L
         private const val PRIVACY_FALLBACK_MAX_VIEWS = 2000
         private const val MIN_FRAME_SIZE = 10
         private const val SCROLL_EPSILON = 1f
+        private const val MIN_EFFECTIVE_DEPTH = 4
+        private const val MAX_EFFECTIVE_DEPTH = 32
+        private const val MAX_DEPTH_OFFSET = 4
+        private const val MIN_DEPTH_OFFSET = -3
 
         private const val FNV_OFFSET_BASIS = -3750763034362895579L
         private const val FNV_PRIME = 1099511628211L

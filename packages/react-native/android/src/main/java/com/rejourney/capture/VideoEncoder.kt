@@ -649,6 +649,41 @@ class VideoEncoder(private val segmentDir: File) {
                             continue
                         }
                     }
+
+                    if (encoderName != null) {
+                        try {
+                            var warmSurface: Surface? = null
+                            val codec = MediaCodec.createByCodecName(encoderName)
+                            val warmFormat = MediaFormat.createVideoFormat(MediaFormat.MIMETYPE_VIDEO_AVC, 128, 128).apply {
+                                setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface)
+                                setInteger(MediaFormat.KEY_BIT_RATE, 250_000)
+                                setInteger(MediaFormat.KEY_FRAME_RATE, 15)
+                                setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, 1)
+                            }
+                            codec.configure(warmFormat, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
+                            warmSurface = codec.createInputSurface()
+                            codec.start()
+                            codec.signalEndOfInputStream()
+                            val info = MediaCodec.BufferInfo()
+                            val timeoutUs = 10_000L
+                            while (true) {
+                                val index = codec.dequeueOutputBuffer(info, timeoutUs)
+                                if (index >= 0) {
+                                    codec.releaseOutputBuffer(index, false)
+                                    if ((info.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0) {
+                                        break
+                                    }
+                                } else if (index == MediaCodec.INFO_TRY_AGAIN_LATER) {
+                                    break
+                                }
+                            }
+                            try { codec.stop() } catch (_: Exception) {}
+                            try { warmSurface?.release() } catch (_: Exception) {}
+                            try { codec.release() } catch (_: Exception) {}
+                        } catch (e: Exception) {
+                            Logger.warning("[VideoEncoder] Class prewarm codec path failed: ${e.message}")
+                        }
+                    }
                     
                     val elapsed = (System.nanoTime() - startTime) / 1_000_000.0
                     Logger.info("[VideoEncoder] H.264 class prewarm completed in ${elapsed}ms (encoder: $encoderName)")

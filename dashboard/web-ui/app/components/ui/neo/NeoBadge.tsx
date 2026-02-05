@@ -15,29 +15,30 @@ export const NeoBadge: React.FC<NeoBadgeProps> = ({
     size = 'md',
     onClick
 }) => {
-    const baseStyles = "inline-flex items-center font-bold uppercase rounded-full";
+    // Pill shape, font weight normal/medium, tracking normal
+    const baseStyles = "inline-flex items-center font-medium rounded-full border";
 
     const variants = {
-        neutral: "bg-gray-100 text-gray-700",
-        success: "bg-green-400 text-black",
-        warning: "bg-yellow-400 text-black",
-        danger: "bg-red-500 text-white",
-        info: "bg-cyan-400 text-black",
-        anr: "bg-purple-400 text-white",
-        rage: "bg-slate-500 text-white",
-        slow_start: "bg-orange-400 text-black",
-        slow_api: "bg-pink-400 text-black",
-        low_exp: "bg-indigo-400 text-white"
+        neutral: "bg-slate-50 text-slate-600 border-slate-200",
+        success: "bg-emerald-50 text-emerald-700 border-emerald-200",
+        warning: "bg-amber-50 text-amber-700 border-amber-200",
+        danger: "bg-red-50 text-red-700 border-red-200",
+        info: "bg-cyan-50 text-cyan-700 border-cyan-200",
+        anr: "bg-purple-50 text-purple-700 border-purple-200",
+        rage: "bg-rose-50 text-rose-700 border-rose-200",
+        slow_start: "bg-orange-50 text-orange-700 border-orange-200",
+        slow_api: "bg-pink-50 text-pink-700 border-pink-200",
+        low_exp: "bg-indigo-50 text-indigo-700 border-indigo-200"
     };
 
     const sizes = {
-        sm: "text-[10px] px-1.5 py-0.5",
-        md: "text-xs px-2 py-1"
+        sm: "text-[10px] px-2 py-0.5",
+        md: "text-xs px-2.5 py-0.5"
     };
 
     return (
         <span
-            className={`${baseStyles} ${variants[variant]} ${sizes[size]} ${className}`}
+            className={`${baseStyles} ${variants[variant]} ${sizes[size]} ${className} ${onClick ? 'cursor-pointer hover:opacity-80' : ''}`}
             onClick={onClick}
         >
             {children}

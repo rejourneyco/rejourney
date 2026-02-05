@@ -63,6 +63,10 @@ class UploadManager(
     private var circuitOpenTime: Long = 0
     private val circuitBreakerThreshold = 5
     private val circuitResetTimeMs = 60_000L
+    private var persistOnlyBackoffUntilMs: Long = 0
+    private var persistOnlyBackoffStep: Int = 0
+    private val persistOnlyBaseBackoffMs = 5_000L
+    private val persistOnlyMaxBackoffMs = 120_000L
 
     private val maxRetries = 3
     private val initialRetryDelayMs = 1000L
@@ -207,6 +211,10 @@ class UploadManager(
 
         if (canUploadNow) {
             effectiveSessionId?.takeIf { it.isNotBlank() }?.let { sid ->
+                val segmentsOk = flushPendingVideoSegments(sid)
+                if (!segmentsOk) {
+                    success = false
+                }
                 val ok = flushPendingForSession(sid)
                 if (!ok) {
                     success = false
@@ -292,7 +300,8 @@ class UploadManager(
         segmentFile: File,
         startTime: Long,
         endTime: Long,
-        frameCount: Int
+        frameCount: Int,
+        persistOnFailure: Boolean = true
     ): Boolean {
         val sid = extractSessionIdFromFilename(segmentFile.name) ?: sessionId ?: return false
         
@@ -318,11 +327,58 @@ class UploadManager(
         
         if (result.success) {
             Logger.debug("[UploadManager] Video segment uploaded: ${segmentFile.name}")
+            clearPendingVideoSegment(sid, segmentFile.name)
         } else {
             Logger.warning("[UploadManager] Video segment upload failed: ${result.error}")
+            if (persistOnFailure) {
+                persistPendingVideoSegment(
+                    sessionId = sid,
+                    segmentFile = segmentFile,
+                    startTime = startTime,
+                    endTime = endTime,
+                    frameCount = frameCount,
+                    error = result.error
+                )
+            }
         }
         
         return result.success
+    }
+
+    fun persistPendingVideoSegment(
+        sessionId: String,
+        segmentFile: File,
+        startTime: Long,
+        endTime: Long,
+        frameCount: Int,
+        error: String? = null
+    ) {
+        try {
+            if (!segmentFile.exists() || segmentFile.length() <= 0L) {
+                Logger.warning("[UploadManager] Skipping pending segment persistence (missing/empty): ${segmentFile.absolutePath}")
+                return
+            }
+            val dir = File(pendingRootDir, "$sessionId/segments").apply { mkdirs() }
+            val metaFile = File(dir, "${segmentFile.name}.segment.json")
+            val meta = JSONObject().apply {
+                put("sessionId", sessionId)
+                put("segmentPath", segmentFile.absolutePath)
+                put("startTime", startTime)
+                put("endTime", endTime)
+                put("frameCount", frameCount)
+                put("sizeBytes", segmentFile.length())
+                put("updatedAt", System.currentTimeMillis())
+                if (!error.isNullOrBlank()) {
+                    put("lastError", error)
+                }
+            }
+            metaFile.writeText(meta.toString())
+            markSessionActive(sessionId, sessionStartTime)
+            updateSessionRecoveryMeta(sessionId)
+            Logger.debug("[UploadManager] Persisted pending video segment: ${segmentFile.name}")
+        } catch (e: Exception) {
+            Logger.warning("[UploadManager] Failed to persist pending video segment: ${e.message}")
+        }
     }
 
     /**
@@ -481,6 +537,62 @@ class UploadManager(
         }
 
         return allOk
+    }
+
+    private suspend fun flushPendingVideoSegments(sessionId: String): Boolean {
+        val dir = File(pendingRootDir, "$sessionId/segments")
+        if (!dir.exists() || !dir.isDirectory) return true
+
+        val metaFiles = dir.listFiles()
+            ?.filter { it.isFile && it.name.endsWith(".segment.json") }
+            ?.sortedBy { it.name }
+            ?: emptyList()
+        if (metaFiles.isEmpty()) return true
+
+        var allOk = true
+        for (metaFile in metaFiles) {
+            try {
+                val meta = JSONObject(metaFile.readText())
+                val path = meta.optString("segmentPath")
+                val startTime = meta.optLong("startTime", 0L)
+                val endTime = meta.optLong("endTime", 0L)
+                val frameCount = meta.optInt("frameCount", 0)
+                val segment = File(path)
+
+                if (!segment.exists() || segment.length() <= 0L) {
+                    Logger.warning("[UploadManager] Dropping stale pending segment metadata: ${metaFile.name}")
+                    metaFile.delete()
+                    continue
+                }
+
+                val ok = uploadVideoSegment(
+                    segmentFile = segment,
+                    startTime = if (startTime > 0) startTime else segment.lastModified(),
+                    endTime = if (endTime > 0) endTime else System.currentTimeMillis(),
+                    frameCount = frameCount,
+                    persistOnFailure = false
+                )
+                if (ok) {
+                    metaFile.delete()
+                } else {
+                    allOk = false
+                }
+            } catch (e: Exception) {
+                allOk = false
+                Logger.warning("[UploadManager] Failed to flush pending segment meta ${metaFile.name}: ${e.message}")
+            }
+        }
+        return allOk
+    }
+
+    private fun clearPendingVideoSegment(sessionId: String, segmentFileName: String) {
+        try {
+            val metaFile = File(pendingRootDir, "$sessionId/segments/${segmentFileName}.segment.json")
+            if (metaFile.exists()) {
+                metaFile.delete()
+            }
+        } catch (_: Exception) {
+        }
     }
 
     /**
@@ -673,6 +785,11 @@ class UploadManager(
                         val result = JSONObject(responseBody)
                         Logger.debug("[UploadManager] Presign SUCCESS - got batchId: ${result.optString("batchId", "null")}")
                         result
+                    } else if (it.code == 408 || it.code == 429 || it.code in 500..599) {
+                        val errorBody = it.body?.string() ?: ""
+                        Logger.warning("[UploadManager] Presign transient failure: ${it.code} - $errorBody")
+                        registerTransientFailure("presign_http_${it.code}")
+                        null
                     } else if (it.code == 402) {
                         Logger.warning("[UploadManager] Presign BLOCKED (402) - billing issue, stopping uploads")
                         billingBlocked = true
@@ -690,6 +807,10 @@ class UploadManager(
             }
         } catch (e: CancellationException) {
             Logger.debug("[UploadManager] Presign request cancelled (shutdown)")
+            null
+        } catch (e: IOException) {
+            Logger.warning("[UploadManager] Presign transport error: ${e.message}")
+            registerTransientFailure("presign_transport")
             null
         } catch (e: Exception) {
             Logger.error("[UploadManager] Presign request EXCEPTION", e)
@@ -719,10 +840,17 @@ class UploadManager(
                     } else {
                         val errorBody = it.body?.string() ?: ""
                         Logger.error("[UploadManager] S3 upload FAILED: ${it.code} - $errorBody")
+                        if (it.code == 408 || it.code == 429 || it.code in 500..599) {
+                            registerTransientFailure("s3_http_${it.code}")
+                        }
                         false
                     }
                 }
             }
+        } catch (e: IOException) {
+            Logger.warning("[UploadManager] S3 upload transport error: ${e.message}")
+            registerTransientFailure("s3_transport")
+            false
         } catch (e: Exception) {
             Logger.error("[UploadManager] S3 upload EXCEPTION", e)
             false
@@ -755,15 +883,24 @@ class UploadManager(
                 val response = client.newCall(request).execute()
                 response.use { 
                     if (it.isSuccessful) {
+                        persistOnlyBackoffUntilMs = 0
+                        persistOnlyBackoffStep = 0
                         Logger.debug("[UploadManager] completeBatch SUCCESS")
                         true
                     } else {
                         val errorBody = it.body?.string() ?: ""
                         Logger.error("[UploadManager] completeBatch FAILED: ${it.code} - $errorBody")
+                        if (it.code == 408 || it.code == 429 || it.code in 500..599) {
+                            registerTransientFailure("complete_http_${it.code}")
+                        }
                         false
                     }
                 }
             }
+        } catch (e: IOException) {
+            Logger.warning("[UploadManager] completeBatch transport error: ${e.message}")
+            registerTransientFailure("complete_transport")
+            false
         } catch (e: Exception) {
             Logger.error("[UploadManager] completeBatch EXCEPTION", e)
             false
@@ -1179,8 +1316,13 @@ class UploadManager(
     }
 
     private fun canUpload(): Boolean {
+        val now = System.currentTimeMillis()
+        if (persistOnlyBackoffUntilMs > now) {
+            return false
+        }
+
         if (circuitOpen) {
-            if (System.currentTimeMillis() - circuitOpenTime > circuitResetTimeMs) {
+            if (now - circuitOpenTime > circuitResetTimeMs) {
                 circuitOpen = false
                 consecutiveFailures.set(0)
                 Logger.debug("Circuit breaker reset")
@@ -1195,6 +1337,8 @@ class UploadManager(
 
     private fun onUploadSuccess(durationMs: Long) {
         consecutiveFailures.set(0)
+        persistOnlyBackoffUntilMs = 0
+        persistOnlyBackoffStep = 0
         Telemetry.getInstance().recordUploadDuration(durationMs, success = true, byteCount = 0)
     }
 
@@ -1208,6 +1352,15 @@ class UploadManager(
             Telemetry.getInstance().recordEvent(TelemetryEventType.CIRCUIT_BREAKER_OPEN)
             Logger.warning("Circuit breaker opened after $failures consecutive failures")
         }
+    }
+
+    private fun registerTransientFailure(reason: String) {
+        val now = System.currentTimeMillis()
+        val cappedShift = persistOnlyBackoffStep.coerceAtMost(5)
+        val delay = (persistOnlyBaseBackoffMs shl cappedShift).coerceAtMost(persistOnlyMaxBackoffMs)
+        persistOnlyBackoffUntilMs = now + delay
+        persistOnlyBackoffStep = (persistOnlyBackoffStep + 1).coerceAtMost(6)
+        Logger.warning("[UploadManager] Persist-only backoff enabled for ${delay}ms (reason=$reason)")
     }
 
 

@@ -208,47 +208,46 @@ export async function apiKeyAuth(
                         const redisClient = getRedis();
                         const storedToken = await redisClient.get(`upload:token:${payload.deviceId}`);
 
-                        if (!storedToken || storedToken !== uploadToken) {
-                            logger.warn({ deviceId: payload.deviceId, projectId: payload.projectId }, 'Invalid or expired upload token');
-                            res.status(401).json({ error: 'Unauthorized', message: 'Invalid token' });
-                            return;
-                        }
+                        if (storedToken && storedToken === uploadToken) {
+                            // Valid upload token - lookup project
+                            const [projectResult] = await db
+                                .select({
+                                    project: projects,
+                                    team: teams,
+                                })
+                                .from(projects)
+                                .innerJoin(teams, eq(projects.teamId, teams.id))
+                                .where(eq(projects.id, payload.projectId))
+                                .limit(1);
 
-                        // Lookup project
-                        const [projectResult] = await db
-                            .select({
-                                project: projects,
-                                team: teams,
-                            })
-                            .from(projects)
-                            .innerJoin(teams, eq(projects.teamId, teams.id))
-                            .where(eq(projects.id, payload.projectId))
-                            .limit(1);
+                            if (projectResult && !projectResult.project.deletedAt) {
+                                req.project = {
+                                    id: projectResult.project.id,
+                                    teamId: projectResult.project.teamId,
+                                    name: projectResult.project.name,
+                                    recordingEnabled: projectResult.project.recordingEnabled,
+                                    rejourneyEnabled: (projectResult.project as any).rejourneyEnabled,
+                                };
+                                req.apiKey = {
+                                    id: 'device-auth',
+                                    projectId: projectResult.project.id,
+                                    scopes: ['ingest'],
+                                };
+                                // Update last seen for device asynchronously
+                                const { deviceRegistrations } = await import('../db/schema.js');
+                                db.update(deviceRegistrations)
+                                    .set({ lastSeenAt: new Date() })
+                                    .where(eq(deviceRegistrations.id, payload.deviceId))
+                                    .catch(() => { });
 
-                        if (projectResult && !projectResult.project.deletedAt) {
-                            req.project = {
-                                id: projectResult.project.id,
-                                teamId: projectResult.project.teamId,
-                                name: projectResult.project.name,
-                                recordingEnabled: projectResult.project.recordingEnabled,
-                                rejourneyEnabled: (projectResult.project as any).rejourneyEnabled,
-                            };
-                            req.apiKey = {
-                                id: 'device-auth',
-                                projectId: projectResult.project.id,
-                                scopes: ['ingest'],
-                            };
-                            // Update last seen for device asynchronously
-                            const { deviceRegistrations } = await import('../db/schema.js');
-                            db.update(deviceRegistrations)
-                                .set({ lastSeenAt: new Date() })
-                                .where(eq(deviceRegistrations.id, payload.deviceId))
-                                .catch(() => { });
-
-                            next();
-                            return;
+                                next();
+                                return;
+                            } else {
+                                logger.warn({ projectId: payload.projectId }, 'Project not found or deleted for upload token');
+                            }
                         } else {
-                            logger.warn({ projectId: payload.projectId }, 'Project not found or deleted for upload token');
+                            // Token not in Redis - fall through to API key auth
+                            logger.debug({ deviceId: payload.deviceId }, 'Upload token not found in Redis, falling back to API key auth');
                         }
                     }
                 }
@@ -265,6 +264,11 @@ export async function apiKeyAuth(
 
         // Hash the API key for lookup
         const hashedKey = createHash('sha256').update(apiKey).digest('hex');
+        
+        logger.debug({ 
+            apiKeyPrefix: apiKey.substring(0, 10), 
+            hashedKeyPrefix: hashedKey.substring(0, 16) 
+        }, 'Looking up API key');
 
         // Find API key with project and team
         const [keyResult] = await db
@@ -280,6 +284,7 @@ export async function apiKeyAuth(
             .limit(1);
 
         if (!keyResult) {
+            logger.warn({ apiKeyPrefix: apiKey.substring(0, 10), hashedKeyPrefix: hashedKey.substring(0, 16) }, 'API key not found in database');
             res.status(401).json({ error: 'Unauthorized', message: 'Invalid API key' });
             return;
         }

@@ -1885,14 +1885,15 @@ class RejourneyModuleImpl(
             
             if (remoteRecordingEnabled) {
                 Logger.debug("[BG] ===== STOPPING CAPTURE ENGINE =====")
-                
+                var emergencyFlushed = false
                 if (shouldEndSession) {
                     Logger.debug("[BG] Force kill detected - using emergency flush")
-                    captureEngine?.emergencyFlush()
+                    emergencyFlushed = captureEngine?.emergencyFlush() == true
+                    Logger.debug("[BG] Emergency flush result=$emergencyFlushed")
                 }
                 
                 Logger.debug("[BG] Stopping capture engine for background (sessionId=$currentSessionId)")
-                captureEngine?.stopSession()
+                captureEngine?.stopSession(skipSegmentFinalize = shouldEndSession && emergencyFlushed)
                 Logger.debug("[BG] Capture engine stopSession() called")
             }
             
@@ -1914,70 +1915,7 @@ class RejourneyModuleImpl(
                     expedited = true
                 )
                 Logger.debug("[BG] ✅ WorkManager upload scheduled for session: $sid")
-
-                scope.launch(Dispatchers.IO) {
-                    try {
-                        Logger.debug("[BG] 🚀 Attempting immediate best-effort upload for $sid")
-                        
-                        val authManager = DeviceAuthManager.getInstance(reactContext)
-                        val apiUrl = authManager.getCurrentApiUrl() ?: "https://api.rejourney.co"
-                        
-                        val bgUploader = com.rejourney.network.UploadManager(reactContext, apiUrl).apply {
-                            this.sessionId = sid
-                            this.setActiveSessionId(sid)
-                            this.publicKey = authManager.getCurrentPublicKey() ?: ""
-                            this.deviceHash = authManager.getCurrentDeviceHash() ?: ""
-                            this.sessionStartTime = uploadManager?.sessionStartTime ?: 0L
-                            this.totalBackgroundTimeMs = uploadManager?.totalBackgroundTimeMs ?: 0L
-                        }
-                        
-                        val eventBufferDir = File(reactContext.cacheDir, "rj_pending/$sid")
-                        val eventsFile = File(eventBufferDir, "events.jsonl")
-                        
-                        if (eventsFile.exists()) {
-                            val events = mutableListOf<Map<String, Any?>>()
-                            eventsFile.bufferedReader().useLines { lines ->
-                                lines.forEach { line ->
-                                    if (line.isNotBlank()) {
-                                        try {
-                                            val json = org.json.JSONObject(line)
-                                            val map = mutableMapOf<String, Any?>()
-                                            json.keys().forEach { key ->
-                                                map[key] = json.opt(key)
-                                            }
-                                            events.add(map)
-                                        } catch (e: Exception) { }
-                                    }
-                                }
-                            }
-                            
-                            if (events.isNotEmpty()) {
-                                Logger.debug("[BG] Immediate upload: found ${events.size} events")
-                                val success = bgUploader.uploadBatch(events, isFinal = shouldEndSession)
-                                if (success) {
-                                    Logger.debug("[BG] ✅ Immediate upload SUCCESS! Cleaning up disk...")
-                                    eventsFile.delete()
-                                    File(eventBufferDir, "buffer_meta.json").delete()
-                                    
-                                    if (shouldEndSession) {
-                                         Logger.debug("[BG] Immediate upload was final, ending session...")
-                                         bgUploader.endSession()
-                                    }
-                                } else {
-                                    Logger.warning("[BG] Immediate upload failed - leaving for WorkManager")
-                                }
-                            } else if (shouldEndSession) {
-                                Logger.debug("[BG] No events but shouldEndSession=true, ending session...")
-                                bgUploader.endSession()
-                            }
-                        } else if (shouldEndSession) {
-                             Logger.debug("[BG] No event file but shouldEndSession=true, ending session...")
-                             bgUploader.endSession()
-                        }
-                    } catch (e: Exception) {
-                        Logger.error("[BG] Immediate upload error: ${e.message} - WorkManager will handle it")
-                    }
-                }
+                Logger.debug("[BG] Skipping immediate network upload on background/close; relying on persisted disk state + UploadWorker recovery")
             }
         } else {
             Logger.debug("[BG] Skipping background handling (isRecording=$isRecording, isShuttingDown=$isShuttingDown)")
@@ -2215,6 +2153,17 @@ class RejourneyModuleImpl(
         
         if (isShuttingDown) {
             Logger.debug("Segment ready during shutdown - preserving file for recovery: ${segmentFile.name}")
+            val sid = currentSessionId ?: uploadManager?.getCurrentSessionId()
+            if (!sid.isNullOrBlank()) {
+                uploadManager?.persistPendingVideoSegment(
+                    sessionId = sid,
+                    segmentFile = segmentFile,
+                    startTime = startTime,
+                    endTime = endTime,
+                    frameCount = frameCount,
+                    error = "shutdown_deferred_upload"
+                )
+            }
             return
         }
 
@@ -2244,6 +2193,17 @@ class RejourneyModuleImpl(
                 }
             } catch (e: Exception) {
                 Logger.error("Failed to upload segment", e)
+                val sid = currentSessionId ?: uploadManager?.getCurrentSessionId()
+                if (!sid.isNullOrBlank()) {
+                    uploadManager?.persistPendingVideoSegment(
+                        sessionId = sid,
+                        segmentFile = segmentFile,
+                        startTime = startTime,
+                        endTime = endTime,
+                        frameCount = frameCount,
+                        error = e.message
+                    )
+                }
             }
         }
     }

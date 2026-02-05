@@ -58,12 +58,36 @@ export async function updateDeviceUsage(
  * Fast, no rate limits, works offline
  */
 export async function lookupGeoIp(sessionId: string, ip: string): Promise<void> {
-    logger.info({ sessionId, ip }, 'Starting GeoIP lookup');
-
     if (!ip) return;
 
+    // Normalize IPv6-mapped IPv4 addresses (e.g., ::ffff:192.168.1.1 -> 192.168.1.1)
+    let normalizedIp = ip.trim();
+    if (normalizedIp.startsWith('::ffff:')) {
+        normalizedIp = normalizedIp.slice(7);
+    }
+    
+    // Skip private/local IPs early
+    const privatePatterns = [
+        /^127\./,           // localhost
+        /^10\./,            // Class A private
+        /^172\.(1[6-9]|2[0-9]|3[01])\./,  // Class B private
+        /^192\.168\./,      // Class C private
+        /^::1$/,            // IPv6 localhost
+        /^fe80:/i,          // IPv6 link-local
+        /^fc00:/i,          // IPv6 unique local
+        /^fd/i,             // IPv6 unique local
+    ];
+    
+    const isPrivate = privatePatterns.some(pattern => pattern.test(normalizedIp));
+    if (isPrivate) {
+        logger.debug({ sessionId, ip: normalizedIp }, 'Skipping GeoIP for private/local IP');
+        return;
+    }
+
+    logger.info({ sessionId, ip: normalizedIp }, 'Starting GeoIP lookup');
+
     try {
-        const geo = geoip.lookup(ip);
+        const geo = geoip.lookup(normalizedIp);
 
         if (!geo) {
             logger.info({ sessionId, ip }, 'GeoIP lookup returned null (likely local/private IP)');
@@ -188,15 +212,37 @@ export async function ensureIngestSession(
 
     // Run GeoIP if provided (and if we grabbed/created a session)
     if (session && req) {
-        // Simple IP extraction
-        const xForwardedFor = req.headers['x-forwarded-for'];
+        // IP extraction with support for various proxy headers
+        // Priority: Cloudflare > X-Forwarded-For > X-Real-IP > socket
         let clientIp = '';
-        if (xForwardedFor) {
-            const ips = xForwardedFor.split(',').map((ip: string) => ip.trim());
+        
+        // Cloudflare puts the real client IP in CF-Connecting-IP
+        const cfConnectingIp = req.headers['cf-connecting-ip'];
+        const xForwardedFor = req.headers['x-forwarded-for'];
+        const xRealIp = req.headers['x-real-ip'];
+        
+        if (cfConnectingIp) {
+            clientIp = Array.isArray(cfConnectingIp) ? cfConnectingIp[0] : cfConnectingIp;
+        } else if (xForwardedFor) {
+            // X-Forwarded-For can have multiple IPs, first is the client
+            const ips = (Array.isArray(xForwardedFor) ? xForwardedFor[0] : xForwardedFor)
+                .split(',')
+                .map((ip: string) => ip.trim());
             clientIp = ips[0];
+        } else if (xRealIp) {
+            clientIp = Array.isArray(xRealIp) ? xRealIp[0] : xRealIp;
         } else {
-            clientIp = req.headers['x-real-ip'] || req.socket?.remoteAddress || req.ip || '';
+            clientIp = req.socket?.remoteAddress || req.ip || '';
         }
+
+        logger.debug({ 
+            sessionId: session.id, 
+            clientIp, 
+            cfConnectingIp: cfConnectingIp || 'not set',
+            xForwardedFor: xForwardedFor || 'not set',
+            xRealIp: xRealIp || 'not set',
+            socketRemoteAddress: req.socket?.remoteAddress || 'not set'
+        }, 'IP extraction for GeoIP');
 
         if (clientIp) {
             lookupGeoIp(session.id, clientIp).catch(() => { });

@@ -19,7 +19,8 @@ const CSP_POLICY = [
     "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://challenges.cloudflare.com https://js.stripe.com https://m.stripe.network",
     "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
     "font-src 'self' https://fonts.gstatic.com data:",
-    "img-src 'self' data: https: blob:",
+    // Session replay images/screenshots are served from MinIO/S3 (http for local dev)
+    "img-src 'self' data: http: https: blob:",
     // Session replay videos are served from MinIO/S3 in self-hosted/local setups
     "media-src 'self' blob: data: http: https:",
     "frame-src 'self' https://challenges.cloudflare.com https://js.stripe.com https://hooks.stripe.com",
