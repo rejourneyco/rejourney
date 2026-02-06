@@ -714,6 +714,7 @@ router.get(
             sessions: number;
             crashes: number;
             rageTaps: number;
+            deadTaps: number;
             avgUxScore: number;
             count: number;
             uniqueUserIds: Set<string>;
@@ -734,6 +735,7 @@ router.get(
                     sessions: 0,
                     crashes: 0,
                     rageTaps: 0,
+                    deadTaps: 0,
                     avgUxScore: 0,
                     count: 0,
                     uniqueUserIds: new Set<string>(),
@@ -749,6 +751,7 @@ router.get(
             dailyMap[date].sessions += s.totalSessions;
             dailyMap[date].crashes += s.totalCrashes || 0;
             dailyMap[date].rageTaps += s.totalRageTaps || 0;
+            dailyMap[date].deadTaps += s.totalDeadTaps || 0;
             dailyMap[date].avgUxScore += s.avgUxScore || 0;
             dailyMap[date].count++;
             // NEW: Aggregate additional metrics (weighted sum, divide later)
@@ -808,6 +811,7 @@ router.get(
                     sessions: data.sessions,
                     crashes: data.crashes,
                     rageTaps: data.rageTaps,
+                    deadTaps: data.deadTaps,
                     avgUxScore: data.count > 0 ? Math.round(data.avgUxScore / data.count) : 0,
                     dau: data.dau,
                     mau: mauSet.size,

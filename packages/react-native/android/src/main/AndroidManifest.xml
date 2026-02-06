@@ -7,7 +7,7 @@
         <!-- Service to detect app termination when swiped away from recent apps -->
         <!-- stopWithTask="false" is CRITICAL - allows onTaskRemoved() to fire when app is killed -->
         <service
-            android:name="com.rejourney.lifecycle.SessionLifecycleService"
+            android:name="com.rejourney.platform.SessionLifecycleService"
             android:exported="false"
             android:stopWithTask="false"
             tools:node="merge" />

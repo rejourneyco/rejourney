@@ -43,6 +43,7 @@ export type PromotionReason =
     | 'high_latency'     // API latency > 1000ms
     | 'slow_startup'     // App startup > 3000ms
     | 'rage_tap'         // Explicit rage tap promotion
+    | 'dead_tap'         // Taps on unresponsive interactive elements
     | 'low_exploration'  // User stuck/confused - low screens per minute
     | 'stuck_first_screen' // User stuck on initial screen
     | 'failed_funnel'    // User dropped off the happy path
@@ -80,6 +81,8 @@ export const HARD_PROMOTE_THRESHOLDS = {
     startupTimeMs: 2000,    // 2 second app startup time (was 3000)
     // User frustration - even 1 rage tap is worth capturing
     rageTapCount: 1,        // (was 2)
+    // Dead taps - tapping elements that look interactive but don't respond
+    deadTapCount: 3,        // 3+ dead taps indicates real UX pain
     // Low exploration - user stuck/confused
     minDurationSecondsForExploration: 60, // 1 minute minimum (was 2 minutes)
     screensPerMinuteThreshold: 0.75,      // Below this = low exploration (was 0.5)
@@ -104,6 +107,7 @@ export const REASON_RATE_LIMITS: Record<string, number> = {
     high_latency: 100, // Increased from 25
     slow_startup: 100, // Increased from 30
     rage_tap: 1000,    // Increased from 500
+    dead_tap: 1000,    // Dead tap promotion
     low_exploration: 200, // Increased from 100
     stuck_first_screen: 200,
     failed_funnel: 200,   // NEW: Failed funnel
@@ -270,6 +274,20 @@ export async function evaluateReplayPromotion(
         await incrementRateCounter(projectId, 'rage_tap');
         logger.debug({ projectId, rageTapCount: metrics.rageTapCount }, 'Session promoted: rage taps');
         return { promoted: true, reason: 'rage_tap' };
+    }
+
+    // =========================================================================
+    // HARD PROMOTE: Dead Taps (unresponsive UI elements)
+    // 3+ dead taps means the user repeatedly hit broken/disabled elements.
+    // =========================================================================
+    if ((metrics.deadTapCount ?? 0) >= T.deadTapCount) {
+        if (await isRateLimited(projectId, 'dead_tap')) {
+            logger.info({ projectId, deadTapCount: metrics.deadTapCount }, 'Replay rate limit hit for dead tap');
+            return { promoted: false, reason: 'rate_limited' };
+        }
+        await incrementRateCounter(projectId, 'dead_tap');
+        logger.debug({ projectId, deadTapCount: metrics.deadTapCount }, 'Session promoted: dead taps');
+        return { promoted: true, reason: 'dead_tap' };
     }
 
     // =========================================================================
@@ -495,13 +513,15 @@ export async function evaluateAndPromoteSession(
         return { promoted: true, reason: session.replayPromotedReason || 'already_promoted' };
     }
 
-    // 4. No video segments AND no hierarchy snapshots - nothing to promote
+    // 4. No video segments AND no screenshot segments - nothing to promote
     const videoSegmentCount = metrics?.videoSegmentCount ?? 0;
+    const screenshotSegmentCount = metrics?.screenshotSegmentCount ?? 0;
+    const hasRecordingData = videoSegmentCount > 0 || screenshotSegmentCount > 0;
 
-    // RULE: Strict video requirement for promotion (unless it's a critical crash we still want to flag)
-    // Actually, user explicitly said "sessions withotu video should not be promoted too"
-    if (videoSegmentCount === 0) {
-        return { promoted: false, reason: 'no_video' };
+    // RULE: Require video OR screenshot data for promotion
+    // Sessions without any visual recording data should not be promoted
+    if (!hasRecordingData) {
+        return { promoted: false, reason: 'no_recording_data' };
     }
 
     // 5. Get project config
@@ -573,6 +593,7 @@ export async function evaluateAndPromoteSession(
             reason: result.reason,
             score: result.score,
             videoSegmentCount,
+            screenshotSegmentCount,
         }, 'Session promoted for replay');
     }
 

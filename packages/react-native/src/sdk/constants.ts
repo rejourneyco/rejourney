@@ -1,8 +1,27 @@
 /**
+ * Copyright 2026 Rejourney
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+/**
  * Rejourney SDK Constants
  */
 
-export const SDK_VERSION = '1.0.3';
+// Import version from auto-generated file (generated from package.json by scripts/generate-version.js)
+import { SDK_VERSION } from './version';
+
+export { SDK_VERSION };
 
 /** Default configuration values */
 export const DEFAULT_CONFIG = {
@@ -18,6 +37,7 @@ export const DEFAULT_CONFIG = {
   inactivityThreshold: 5000,
   disableInDev: false,
   detectRageTaps: true,
+  detectDeadTaps: true,
   rageTapThreshold: 3,
   rageTapTimeWindow: 1000,
   debug: false,
@@ -51,6 +71,7 @@ export const GESTURE_TYPES = {
   PINCH: 'pinch',
   SCROLL: 'scroll',
   RAGE_TAP: 'rage_tap',
+  DEAD_TAP: 'dead_tap',
 } as const;
 
 /** Playback speeds */

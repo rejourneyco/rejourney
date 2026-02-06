@@ -151,6 +151,8 @@ const HeatmapCard: React.FC<{ screen: AlltimeHeatmapScreen }> = ({ screen }) => 
             : `${API_BASE_URL}${screen.screenshotUrl}`
         : null;
 
+    const [downloadProgress, setDownloadProgress] = useState(0);
+
     useEffect(() => {
         if (!fullCoverUrl) return;
 
@@ -159,21 +161,53 @@ const HeatmapCard: React.FC<{ screen: AlltimeHeatmapScreen }> = ({ screen }) => 
         const separator = fullCoverUrl.includes('?') ? '&' : '?';
         const fetchUrl = `${fullCoverUrl}${separator}_cb=${Date.now()}`;
 
-        fetch(fetchUrl, {
-            credentials: 'include',
-            cache: 'no-store',
-            headers: { 'Accept': 'image/*', 'X-CSRF-Token': csrfToken }
-        })
-            .then(async res => {
+        async function fetchWithProgress() {
+            try {
+                const res = await fetch(fetchUrl, {
+                    credentials: 'include',
+                    cache: 'no-store',
+                    headers: { 'Accept': 'image/*', 'X-CSRF-Token': csrfToken }
+                });
+
                 if (!res.ok) {
                     throw new Error(`HTTP ${res.status}: ${res.statusText}`);
                 }
+
+                const contentLength = +(res.headers.get('Content-Length') || 0);
                 const contentType = res.headers.get('Content-Type') || '';
-                const blob = await res.blob();
-                return { blob, contentType };
-            })
-            .then(async ({ blob, contentType }) => {
+
+                if (!res.body) {
+                    const blob = await res.blob();
+                    return { blob, contentType };
+                }
+
+                const reader = res.body.getReader();
+                let receivedLength = 0;
+                const chunks = [];
+
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+                    chunks.push(value);
+                    receivedLength += value.length;
+                    if (contentLength) {
+                        setDownloadProgress(Math.round((receivedLength / contentLength) * 100));
+                    }
+                }
+
                 if (cancelled) return;
+
+                const blob = new Blob(chunks);
+                return { blob, contentType };
+            } catch (error: any) {
+                throw error;
+            }
+        }
+
+        fetchWithProgress()
+            .then(async (result) => {
+                if (!result || cancelled) return;
+                const { blob, contentType } = result;
 
                 if (blob.size === 0) {
                     setLoadError('Empty image received');
@@ -242,10 +276,25 @@ const HeatmapCard: React.FC<{ screen: AlltimeHeatmapScreen }> = ({ screen }) => 
                                 onError={() => setLoadError('Failed to load image')}
                             />
                         ) : (
-                            <div className="absolute inset-0 bg-gradient-to-b from-slate-700 to-slate-800 flex items-center justify-center">
-                                <div className="text-center px-4">
+                            <div className="absolute inset-0 bg-gradient-to-b from-slate-700 to-slate-800 flex flex-col items-center justify-center p-4">
+                                <div className="text-center w-full">
                                     <MousePointer2 className="w-6 h-6 text-slate-500 mx-auto mb-2" />
-                                    <p className="text-[8px] font-bold text-slate-500 uppercase">{displayName}</p>
+                                    <p className="text-[8px] font-bold text-slate-500 uppercase mb-2">{displayName}</p>
+
+                                    {!loadError && downloadProgress > 0 && downloadProgress < 100 && (
+                                        <div className="w-full max-w-[80px] mx-auto">
+                                            <div className="h-1.5 w-full bg-slate-900/30 border border-slate-700 rounded-full overflow-hidden">
+                                                <div
+                                                    className="h-full bg-blue-500 transition-all duration-300"
+                                                    style={{ width: `${downloadProgress}%` }}
+                                                />
+                                            </div>
+                                            <p className="text-[6px] font-mono text-slate-400 mt-1 uppercase tracking-tighter">
+                                                fetching {downloadProgress}%
+                                            </p>
+                                        </div>
+                                    )}
+
                                     {loadError && (
                                         <p className="text-[6px] font-mono text-red-400 mt-1">{loadError}</p>
                                     )}
@@ -322,17 +371,106 @@ export const TouchHeatmapSection: React.FC = () => {
 
     if (isLoading) {
         return (
-            <NeoCard title="Touch Heatmaps (All Time)" variant="flat" className="border-4 border-black bg-white shadow-[8px_8px_0px_0px_rgba(0,0,0,1)]">
-                <div className="flex gap-4 overflow-hidden py-2">
-                    {[1, 2, 3, 4].map((i) => (
-                        <div key={i} className="flex-shrink-0 w-[140px] animate-pulse">
-                            <div className="aspect-[9/19.5] bg-slate-200 border-2 border-slate-300 rounded-3xl"></div>
-                            <div className="mt-3 space-y-2">
-                                <div className="h-3 bg-slate-200 rounded w-20 mx-auto border border-slate-300"></div>
-                                <div className="h-2 bg-slate-100 rounded w-16 mx-auto border border-slate-300"></div>
+            <NeoCard variant="flat" className="border-4 border-black bg-white shadow-[8px_8px_0px_0px_rgba(0,0,0,1)] p-6">
+                <div className="flex items-center justify-between mb-6">
+                    <div>
+                        <h3 className="text-xl font-black text-black uppercase tracking-tighter flex items-center gap-2">
+                            <MousePointer2 className="w-6 h-6" />
+                            Touch Heatmaps
+                            <span className="px-2 py-0.5 bg-black text-white text-[10px] font-mono font-bold rounded-sm ml-2">ALL TIME</span>
+                        </h3>
+                        <p className="text-xs font-bold text-slate-500 mt-1 uppercase tracking-wide">Aggregated touch patterns</p>
+                    </div>
+                </div>
+
+                <div className="relative overflow-hidden rounded-xl border-2 border-slate-200 bg-gradient-to-br from-slate-50 to-slate-100">
+                    {/* Animated shimmer overlay */}
+                    <div
+                        className="absolute inset-0 -translate-x-full animate-[shimmer_2s_infinite]"
+                        style={{
+                            background: 'linear-gradient(90deg, transparent, rgba(255,255,255,0.6), transparent)',
+                        }}
+                    />
+
+                    <div className="flex items-center justify-center py-16">
+                        <div className="flex flex-col items-center gap-6">
+                            {/* Animated heatmap icon */}
+                            <div className="relative">
+                                <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-slate-800 to-slate-900 flex items-center justify-center shadow-lg">
+                                    <MousePointer2 className="w-10 h-10 text-white animate-pulse" />
+                                </div>
+                                {/* Animated rings */}
+                                <div className="absolute inset-0 rounded-2xl border-2 border-indigo-400/50 animate-ping" style={{ animationDuration: '2s' }} />
+                                <div className="absolute -inset-2 rounded-3xl border border-indigo-300/30 animate-ping" style={{ animationDuration: '2.5s', animationDelay: '0.5s' }} />
+
+                                {/* Floating heat dots */}
+                                <div className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-gradient-to-br from-red-400 to-orange-500 animate-bounce shadow-lg" style={{ animationDelay: '0.1s' }} />
+                                <div className="absolute -bottom-1 -left-1 w-3 h-3 rounded-full bg-gradient-to-br from-green-400 to-emerald-500 animate-bounce shadow-lg" style={{ animationDelay: '0.3s' }} />
+                                <div className="absolute top-1/2 -right-2 w-2.5 h-2.5 rounded-full bg-gradient-to-br from-yellow-400 to-amber-500 animate-bounce shadow-lg" style={{ animationDelay: '0.5s' }} />
+                            </div>
+
+                            {/* Loading text */}
+                            <div className="text-center">
+                                <p className="text-sm font-bold text-slate-700 mb-1">Loading Touch Heatmaps</p>
+                                <p className="text-xs text-slate-500 max-w-xs">
+                                    Aggregating touch data from all user sessions...
+                                </p>
+                            </div>
+
+                            {/* Loading progress indicator */}
+                            <div className="flex items-center gap-3">
+                                <div className="flex items-center gap-1.5">
+                                    {[0, 1, 2].map((i) => (
+                                        <div
+                                            key={i}
+                                            className="w-2 h-2 rounded-full bg-indigo-500"
+                                            style={{
+                                                animation: 'pulse 1.2s ease-in-out infinite',
+                                                animationDelay: `${i * 0.2}s`,
+                                            }}
+                                        />
+                                    ))}
+                                </div>
+                                <span className="text-[10px] font-mono text-slate-400 uppercase tracking-wider">
+                                    Processing screens
+                                </span>
+                            </div>
+
+                            {/* Loading stages */}
+                            <div className="flex items-center gap-6 mt-2">
+                                <div className="flex items-center gap-2 text-[10px] font-medium text-emerald-600">
+                                    <div className="w-4 h-4 rounded-full bg-emerald-100 border-2 border-emerald-500 flex items-center justify-center">
+                                        <div className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                                    </div>
+                                    Fetching data
+                                </div>
+                                <div className="flex items-center gap-2 text-[10px] font-medium text-indigo-600 animate-pulse">
+                                    <div className="w-4 h-4 rounded-full bg-indigo-100 border-2 border-indigo-500 flex items-center justify-center">
+                                        <div className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-ping" />
+                                    </div>
+                                    Building heatmaps
+                                </div>
+                                <div className="flex items-center gap-2 text-[10px] font-medium text-slate-400">
+                                    <div className="w-4 h-4 rounded-full bg-slate-100 border-2 border-slate-300" />
+                                    Rendering
+                                </div>
                             </div>
                         </div>
-                    ))}
+                    </div>
+
+                    {/* Preview skeleton cards at bottom */}
+                    <div className="absolute bottom-0 left-0 right-0 h-24 bg-gradient-to-t from-white to-transparent flex items-end justify-center gap-4 pb-4 pointer-events-none">
+                        {[1, 2, 3, 4, 5].map((i) => (
+                            <div
+                                key={i}
+                                className="w-12 h-20 rounded-lg bg-slate-200/50 border border-slate-200"
+                                style={{
+                                    opacity: 1 - (Math.abs(i - 3) * 0.25),
+                                    transform: `scale(${1 - Math.abs(i - 3) * 0.1})`
+                                }}
+                            />
+                        ))}
+                    </div>
                 </div>
             </NeoCard>
         );

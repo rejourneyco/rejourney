@@ -272,15 +272,19 @@ async function processArtifactJob(job: any): Promise<boolean> {
     } catch (err) {
         log.error({ err }, 'Artifact job processing failed');
 
+        // Sanitize error message to remove null bytes (which PostgreSQL rejects)
+        // eslint-disable-next-line no-control-regex
+        const errorMsg = String(err).replace(/\x00/g, '').substring(0, 1000);
+
         if (job.attempts >= MAX_ATTEMPTS) {
             await db.update(ingestJobs)
-                .set({ status: 'dlq', errorMsg: String(err) })
+                .set({ status: 'dlq', errorMsg })
                 .where(eq(ingestJobs.id, job.id));
             log.warn('Job moved to DLQ after max attempts');
         } else {
             const nextRunAt = new Date(Date.now() + Math.pow(2, job.attempts) * 1000);
             await db.update(ingestJobs)
-                .set({ status: 'pending', nextRunAt, errorMsg: String(err) })
+                .set({ status: 'pending', nextRunAt, errorMsg })
                 .where(eq(ingestJobs.id, job.id));
         }
 
@@ -327,6 +331,7 @@ async function processEventsArtifact(job: any, _session: any, metrics: any, proj
     let networkTotalCount = 0, networkSuccessCount = 0, networkErrorCount = 0;
     let networkTotalDuration = 0, networkDurationCount = 0;
     let errorCount = 0, rageTapCount = 0, customEventCount = 0;
+    let deadTapCount = 0;
     let appStartupTimeMs: number | null = null;
     const recentTaps: { x: number; y: number; timestamp: number }[] = [];
     const screenPath: string[] = [];
@@ -338,6 +343,15 @@ async function processEventsArtifact(job: any, _session: any, metrics: any, proj
         errorType: string;
         errorName: string;
         message: string;
+        stack?: string;
+        screenName?: string;
+    }> = [];
+
+    // Collect ANRs for batch insert
+    const anrEvents: Array<{
+        timestamp: Date;
+        durationMs: number;
+        threadState?: string;
         stack?: string;
         screenName?: string;
     }> = [];
@@ -451,7 +465,9 @@ async function processEventsArtifact(job: any, _session: any, metrics: any, proj
             scrollCount++;
         } else if (type === 'gesture') {
             gestureCount++;
-            if (gestureType.includes('scroll') || gestureType.includes('swipe')) {
+            if (gestureType === 'dead_tap') {
+                deadTapCount++;
+            } else if (gestureType.includes('scroll') || gestureType.includes('swipe')) {
                 scrollCount++;
             }
             // Extract touch coordinates from gesture events (iOS SDK sends touches in the touches array)
@@ -535,6 +551,8 @@ async function processEventsArtifact(job: any, _session: any, metrics: any, proj
                     (screenHeatmapData[currentScreen].rageTapBuckets[bucket] || 0) + 1;
                 screenHeatmapData[currentScreen].totalRageTaps++;
             }
+        } else if (type === 'dead_tap' || gestureType === 'dead_tap') {
+            deadTapCount++;
         } else if (type === 'api_call' || type === 'network_request') {
             networkTotalCount++;
             if (event.duration && typeof event.duration === 'number') {
@@ -574,6 +592,14 @@ async function processEventsArtifact(job: any, _session: any, metrics: any, proj
                 stack: event.stack,
                 screenName: currentScreen || undefined,
             });
+        } else if (type === 'anr') {
+            anrEvents.push({
+                timestamp: new Date(event.timestamp || Date.now()),
+                durationMs: event.durationMs || 5000,
+                threadState: event.threadState || 'blocked',
+                stack: event.stack,
+                screenName: currentScreen || undefined,
+            });
         } else if (['keyboard_typing', 'keyboard_show', 'keyboard_hide', 'input', 'text_input'].includes(type)) {
             inputCount++;
         } else if (type === 'custom') {
@@ -599,7 +625,7 @@ async function processEventsArtifact(job: any, _session: any, metrics: any, proj
     }
 
     // Update session metrics
-    const existingMetrics = metrics || { touchCount: 0, scrollCount: 0, gestureCount: 0, inputCount: 0, rageTapCount: 0, apiTotalCount: 0, apiSuccessCount: 0, apiErrorCount: 0, errorCount: 0, customEventCount: 0, apiAvgResponseMs: 0, screensVisited: [] };
+    const existingMetrics = metrics || { touchCount: 0, scrollCount: 0, gestureCount: 0, inputCount: 0, rageTapCount: 0, deadTapCount: 0, apiTotalCount: 0, apiSuccessCount: 0, apiErrorCount: 0, errorCount: 0, customEventCount: 0, apiAvgResponseMs: 0, screensVisited: [] };
 
     const updates: any = {
         touchCount: (existingMetrics.touchCount || 0) + touchCount,
@@ -607,6 +633,7 @@ async function processEventsArtifact(job: any, _session: any, metrics: any, proj
         gestureCount: (existingMetrics.gestureCount || 0) + gestureCount,
         inputCount: (existingMetrics.inputCount || 0) + inputCount,
         rageTapCount: (existingMetrics.rageTapCount || 0) + rageTapCount,
+        deadTapCount: (existingMetrics.deadTapCount || 0) + deadTapCount,
         apiTotalCount: (existingMetrics.apiTotalCount || 0) + networkTotalCount,
         apiSuccessCount: (existingMetrics.apiSuccessCount || 0) + networkSuccessCount,
         apiErrorCount: (existingMetrics.apiErrorCount || 0) + networkErrorCount,
@@ -639,6 +666,7 @@ async function processEventsArtifact(job: any, _session: any, metrics: any, proj
     // Compute UX score
     let uxScore = 100;
     uxScore -= Math.min(updates.rageTapCount * 15, 45);
+    uxScore -= Math.min(updates.deadTapCount * 8, 24);
     uxScore -= Math.min(updates.errorCount * 10, 30);
     uxScore -= Math.min(updates.apiErrorCount * 5, 20);
     uxScore += Math.min((updates.touchCount || 0) + (updates.scrollCount || 0), 10);
@@ -748,7 +776,7 @@ async function processEventsArtifact(job: any, _session: any, metrics: any, proj
     }
 
     // Batch insert errors into errors table
-    if (errorEvents.length > 0 && deviceInfo) {
+    if (errorEvents.length > 0) {
         for (const errorEvent of errorEvents) {
             // Create fingerprint for grouping similar errors
             const fingerprintData = `${projectId}:${errorEvent.errorName}:${errorEvent.message} `;
@@ -763,9 +791,9 @@ async function processEventsArtifact(job: any, _session: any, metrics: any, proj
                 message: errorEvent.message,
                 stack: errorEvent.stack,
                 screenName: errorEvent.screenName || undefined,
-                deviceModel: deviceInfo?.model,
-                osVersion: deviceInfo?.systemVersion || deviceInfo?.osVersion,
-                appVersion: deviceInfo?.appVersion,
+                deviceModel: deviceInfo?.model ?? 'unknown',
+                osVersion: deviceInfo?.systemVersion || deviceInfo?.osVersion || 'unknown',
+                appVersion: deviceInfo?.appVersion ?? 'unknown',
                 fingerprint,
                 status: 'open',
             });
@@ -787,6 +815,46 @@ async function processEventsArtifact(job: any, _session: any, metrics: any, proj
             }).catch(() => { }); // Fire and forget
         }
         log.debug({ errorCount: errorEvents.length }, 'Error events saved to errors table');
+    }
+
+    // Batch insert ANRs into anrs table
+    if (anrEvents.length > 0) {
+        for (const anrEvent of anrEvents) {
+            await db.insert(anrs).values({
+                sessionId: job.sessionId,
+                projectId,
+                timestamp: anrEvent.timestamp,
+                durationMs: anrEvent.durationMs,
+                threadState: anrEvent.threadState || null,
+                deviceMetadata: {
+                    model: deviceInfo?.model,
+                    osVersion: deviceInfo?.systemVersion || deviceInfo?.osVersion,
+                    appVersion: deviceInfo?.appVersion,
+                    stack: anrEvent.stack,
+                    screenName: anrEvent.screenName,
+                },
+                status: 'open',
+                occurrenceCount: 1,
+            });
+
+            trackANRAsIssue({
+                projectId,
+                durationMs: anrEvent.durationMs,
+                threadState: anrEvent.threadState,
+                timestamp: anrEvent.timestamp,
+                sessionId: job.sessionId,
+                deviceModel: deviceInfo?.model,
+                osVersion: deviceInfo?.systemVersion || deviceInfo?.osVersion,
+                appVersion: deviceInfo?.appVersion,
+            }).catch(() => { }); // Fire and forget
+        }
+
+        // Update ANR count in session metrics
+        await db.update(sessionMetrics)
+            .set({ anrCount: sql`COALESCE(${sessionMetrics.anrCount}, 0) + ${anrEvents.length}` })
+            .where(eq(sessionMetrics.sessionId, job.sessionId));
+
+        log.debug({ anrCount: anrEvents.length }, 'ANR events saved to anrs table');
     }
 
     log.debug({ eventsCount: eventsData.length, touchCount, rageTapCount }, 'Events artifact processed');

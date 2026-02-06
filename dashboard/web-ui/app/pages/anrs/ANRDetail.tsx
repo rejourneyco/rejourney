@@ -12,7 +12,8 @@ import {
     Check,
     AlertOctagon,
     Server,
-    Activity
+    Activity,
+    Download
 } from 'lucide-react';
 import { api } from '../../services/api';
 
@@ -74,6 +75,17 @@ export const ANRDetail: React.FC<{ anrId?: string; projectId?: string }> = ({ an
         navigator.clipboard.writeText(stackText);
         setCopied(true);
         setTimeout(() => setCopied(false), 2000);
+    };
+
+    const handleDownloadStack = () => {
+        const stackText = anr?.threadState || anr?.fullReport?.threadState || '';
+        const blob = new Blob([stackText], { type: 'text/plain' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `anr-trace-${anr?.id}-${Date.now()}.txt`;
+        a.click();
+        URL.revokeObjectURL(url);
     };
 
     if (loading) {
@@ -166,6 +178,13 @@ export const ANRDetail: React.FC<{ anrId?: string; projectId?: string }> = ({ an
                                 >
                                     {copied ? <Check className="w-3 h-3 text-green-600" /> : <Copy className="w-3 h-3" />}
                                     {copied ? 'Copied' : 'Copy Trace'}
+                                </button>
+                                <button
+                                    onClick={handleDownloadStack}
+                                    className="flex items-center gap-2 px-3 py-1.5 text-xs font-black uppercase border-2 border-slate-200 hover:border-black hover:bg-slate-50 transition-all ml-2"
+                                >
+                                    <Download className="w-3 h-3" />
+                                    Download Trace
                                 </button>
                             </div>
 

@@ -11,7 +11,7 @@ package com.rejourney
 import com.facebook.react.bridge.*
 import com.facebook.react.module.annotations.ReactModule
 import com.facebook.proguard.annotations.DoNotStrip
-import com.rejourney.core.Logger
+import com.rejourney.engine.DiagnosticLog
 
 @ReactModule(name = RejourneyModule.NAME)
 class RejourneyModule(reactContext: ReactApplicationContext) : 
@@ -29,7 +29,7 @@ class RejourneyModule(reactContext: ReactApplicationContext) :
             RejourneyModuleImpl(reactContext, isNewArchitecture = true)
         } catch (e: Throwable) {
             initError = e
-            Logger.error("✗ CRITICAL: Failed to create RejourneyModuleImpl", e)
+            DiagnosticLog.fault("✗ CRITICAL: Failed to create RejourneyModuleImpl: ${e.message}")
             null
         }
     }
@@ -51,7 +51,7 @@ class RejourneyModule(reactContext: ReactApplicationContext) :
    override fun debugTriggerANR(durationMs: Double) {
           val instance = impl
           if (instance == null) {
-                 Logger.error("debugTriggerANR failed: module not initialized")
+                 DiagnosticLog.fault("debugTriggerANR failed: module not initialized")
                  return
           }
           instance.debugTriggerANR(durationMs)
@@ -60,6 +60,12 @@ class RejourneyModule(reactContext: ReactApplicationContext) :
     override fun invalidate() {
           impl?.invalidate()
         super.invalidate()
+    }
+
+    @ReactMethod
+    @DoNotStrip
+    override fun setSDKVersion(version: String) {
+        impl?.setSDKVersion(version)
     }
 
     @ReactMethod
@@ -144,7 +150,7 @@ class RejourneyModule(reactContext: ReactApplicationContext) :
     override fun debugCrash() {
            val instance = impl
            if (instance == null) {
-              Logger.error("debugCrash failed: module not initialized")
+              DiagnosticLog.fault("debugCrash failed: module not initialized")
               return
            }
            instance.debugCrash()
@@ -198,4 +204,16 @@ class RejourneyModule(reactContext: ReactApplicationContext) :
                 putString("error", error)
             }
         }
+
+    @ReactMethod
+    @DoNotStrip
+    override fun addListener(eventName: String) {
+        try { impl?.addListener(eventName) } catch (_: Exception) {}
+    }
+
+    @ReactMethod
+    @DoNotStrip
+    override fun removeListeners(count: Double) {
+        try { impl?.removeListeners(count) } catch (_: Exception) {}
+    }
 }

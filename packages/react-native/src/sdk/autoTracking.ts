@@ -1,4 +1,20 @@
 /**
+ * Copyright 2026 Rejourney
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+/**
  * Rejourney Auto Tracking Module
  * 
  * Automatic tracking features that work with just init() - no additional code needed.
@@ -105,6 +121,7 @@ export interface SessionMetrics {
   navigationCount: number;
   errorCount: number;
   rageTapCount: number;
+  deadTapCount: number;
   apiSuccessCount: number;
   apiErrorCount: number;
   apiTotalCount: number;
@@ -127,6 +144,7 @@ export interface AutoTrackingConfig {
   trackReactNativeErrors?: boolean;
   collectDeviceInfo?: boolean;
   maxSessionDurationMs?: number;
+  detectDeadTaps?: boolean;
 }
 
 let isInitialized = false;
@@ -150,9 +168,21 @@ let onRageTapDetected: ((count: number, x: number, y: number) => void) | null = 
 let onErrorCaptured: ((error: ErrorEvent) => void) | null = null;
 let onScreenChange: ((screenName: string, previousScreen?: string) => void) | null = null;
 
+
+/**
+ * Mark a tap as handled.
+ * No-op — kept for API compatibility. Dead tap detection is now native-side.
+ */
+export function markTapHandled(): void {
+  // No-op: dead tap detection is handled natively in TelemetryPipeline
+}
+// ========== End Dead Tap Detection ==========
+
 let originalErrorHandler: ((error: Error, isFatal: boolean) => void) | undefined;
 let originalOnError: OnErrorEventHandler | null = null;
 let originalOnUnhandledRejection: ((event: PromiseRejectionEvent) => void) | null = null;
+let originalConsoleError: ((...args: any[]) => void) | null = null;
+let _promiseRejectionTrackingDisable: (() => void) | null = null;
 
 /**
  * Initialize auto tracking features
@@ -250,6 +280,7 @@ export function trackTap(tap: TapEvent): void {
   detectRageTap();
   metrics.touchCount++;
   metrics.totalEvents++;
+  // Dead tap detection is now handled natively in TelemetryPipeline
 }
 
 /**
@@ -303,7 +334,7 @@ function detectRageTap(): void {
  * Kept for API compatibility
  */
 export function notifyStateChange(): void {
-  // No-op - kept for backward compatibility
+  // No-op: dead tap detection is handled natively in TelemetryPipeline
 }
 
 /**
@@ -325,6 +356,13 @@ function setupErrorTracking(): void {
 
 /**
  * Setup React Native ErrorUtils handler
+ *
+ * CRITICAL FIX: For fatal errors, we delay calling the original handler by 500ms
+ * to give the React Native bridge time to flush the logEvent('error') call to the
+ * native TelemetryPipeline. Without this delay, the error event is queued on the
+ * JS→native bridge but the app crashes (via originalErrorHandler) before the bridge
+ * flushes, so the error is lost. Crashes are captured separately by native crash
+ * handlers, but the corresponding JS error record was never making it to the backend.
  */
 function setupReactNativeErrorHandler(): void {
   try {
@@ -343,7 +381,16 @@ function setupReactNativeErrorHandler(): void {
       });
 
       if (originalErrorHandler) {
-        originalErrorHandler(error, isFatal);
+        if (isFatal) {
+          // For fatal errors, delay the original handler so the native bridge
+          // has time to deliver the error event to TelemetryPipeline before
+          // the app terminates. 500ms is enough for the bridge to flush.
+          setTimeout(() => {
+            originalErrorHandler!(error, isFatal);
+          }, 500);
+        } else {
+          originalErrorHandler(error, isFatal);
+        }
       }
     });
   } catch {
@@ -383,9 +430,80 @@ function setupJSErrorHandler(): void {
 
 /**
  * Setup unhandled promise rejection handler
+ *
+ * React Native's Hermes engine does NOT support the web-standard
+ * globalThis.addEventListener('unhandledrejection', ...) API.
+ * We use two complementary strategies:
+ *
+ * 1. React Native's built-in promise rejection tracking polyfill
+ *    (promise/setimmediate/rejection-tracking) — fires for all
+ *    unhandled rejections, including those that never hit ErrorUtils.
+ *
+ * 2. console.error interception — newer RN versions (0.73+) report
+ *    unhandled promise rejections via console.error with a recognizable
+ *    prefix. We intercept these as a fallback.
+ *
+ * 3. Web API fallback — for non-RN environments (e.g., testing in a browser).
  */
 function setupPromiseRejectionHandler(): void {
-  if (typeof _globalThis.addEventListener !== 'undefined') {
+  let rnTrackingSetUp = false;
+
+  // Strategy 1: RN-specific promise rejection tracking polyfill
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const tracking = require('promise/setimmediate/rejection-tracking');
+    if (tracking && typeof tracking.enable === 'function') {
+      tracking.enable({
+        allRejections: true,
+        onUnhandled: (_id: number, error: any) => {
+          trackError({
+            type: 'error',
+            timestamp: Date.now(),
+            message: error?.message || String(error) || 'Unhandled Promise Rejection',
+            stack: error?.stack,
+            name: error?.name || 'UnhandledRejection',
+          });
+        },
+        onHandled: () => { /* no-op */ },
+      });
+      _promiseRejectionTrackingDisable = () => {
+        try { tracking.disable(); } catch { /* ignore */ }
+      };
+      rnTrackingSetUp = true;
+    }
+  } catch {
+    // Polyfill not available — fall through to other strategies
+  }
+
+  // Strategy 2: Intercept console.error for promise rejection messages
+  // Newer RN versions log "Possible Unhandled Promise Rejection" via console.error
+  if (!rnTrackingSetUp && typeof console !== 'undefined' && console.error) {
+    originalConsoleError = console.error;
+    console.error = (...args: any[]) => {
+      // Detect RN-style promise rejection messages
+      const firstArg = args[0];
+      if (
+        typeof firstArg === 'string' &&
+        firstArg.includes('Possible Unhandled Promise Rejection')
+      ) {
+        const error = args[1];
+        trackError({
+          type: 'error',
+          timestamp: Date.now(),
+          message: error?.message || String(error) || firstArg,
+          stack: error?.stack,
+          name: error?.name || 'UnhandledRejection',
+        });
+      }
+      // Always call through to original console.error
+      if (originalConsoleError) {
+        originalConsoleError.apply(console, args);
+      }
+    };
+  }
+
+  // Strategy 3: Web API fallback (works in browser-based testing, not in RN Hermes)
+  if (!rnTrackingSetUp && typeof _globalThis.addEventListener !== 'undefined') {
     const handler = (event: PromiseRejectionEvent) => {
       const reason = event.reason;
       trackError({
@@ -421,6 +539,17 @@ function restoreErrorHandlers(): void {
   if (originalOnError !== null) {
     _globalThis.onerror = originalOnError;
     originalOnError = null;
+  }
+
+  // Restore promise rejection tracking
+  if (_promiseRejectionTrackingDisable) {
+    _promiseRejectionTrackingDisable();
+    _promiseRejectionTrackingDisable = null;
+  }
+
+  if (originalConsoleError) {
+    console.error = originalConsoleError;
+    originalConsoleError = null;
   }
 
   if (originalOnUnhandledRejection && typeof _globalThis.removeEventListener !== 'undefined') {
@@ -861,6 +990,7 @@ function createEmptyMetrics(): SessionMetrics {
     navigationCount: 0,
     errorCount: 0,
     rageTapCount: 0,
+    deadTapCount: 0,
     apiSuccessCount: 0,
     apiErrorCount: 0,
     apiTotalCount: 0,
@@ -939,6 +1069,8 @@ function calculateScores(): void {
   uxScore -= Math.min(30, metrics.errorCount * 15);
 
   uxScore -= Math.min(24, metrics.rageTapCount * 8);
+
+  uxScore -= Math.min(16, metrics.deadTapCount * 4);
 
   uxScore -= Math.min(20, metrics.apiErrorCount * 10);
 
@@ -1109,4 +1241,5 @@ export default {
   collectDeviceInfo,
   getAnonymousId,
   setAnonymousId,
+  markTapHandled,
 };

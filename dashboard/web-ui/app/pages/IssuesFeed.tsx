@@ -27,7 +27,6 @@ import { NeoCard } from '../components/ui/neo/NeoCard';
 import { NeoBadge } from '../components/ui/neo/NeoBadge';
 import { ModernPhoneFrame } from '../components/ui/ModernPhoneFrame';
 import { MiniSessionCard } from '../components/ui/MiniSessionCard';
-import { StackTraceModal } from '../components/ui/StackTraceModal';
 
 import { api } from '../services/api';
 import * as demoApiData from '../data/demoApiData';
@@ -154,7 +153,6 @@ export const IssuesFeed: React.FC = () => {
   const [expandedIssueDetail, setExpandedIssueDetail] = useState<{ stackTrace?: string } | null>(null);
   const [issueDetailLoading, setIssueDetailLoading] = useState(false);
   const [copiedStackId, setCopiedStackId] = useState<string | null>(null);
-  const [stackTraceModal, setStackTraceModal] = useState<{ isOpen: boolean; issueId: string | null }>({ isOpen: false, issueId: null });
 
   // Filters
   const [searchQuery, setSearchQuery] = useState(searchParams.get('search') || '');
@@ -819,21 +817,10 @@ export const IssuesFeed: React.FC = () => {
                               ) : expandedIssueDetail?.stackTrace ? (
                                 <div className="bg-white border-2 border-black shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] p-4">
                                   <div className="bg-slate-900 text-green-400 p-4 font-mono text-[10px] overflow-x-auto whitespace-pre border-2 border-black shadow-inner max-h-[200px] overflow-y-auto leading-relaxed">
-                                    {expandedIssueDetail.stackTrace.split('\n').slice(0, 15).join('\n')}
-                                    {expandedIssueDetail.stackTrace.split('\n').length > 15 && (
+                                    {expandedIssueDetail.stackTrace.split('\n').slice(0, 10).join('\n')}
+                                    {expandedIssueDetail.stackTrace.split('\n').length > 10 && (
                                       <div className="mt-2 pt-2 border-t border-slate-700 text-slate-500 text-[9px] flex items-center justify-between">
-                                        <span className="italic">... and {expandedIssueDetail.stackTrace.split('\n').length - 15} more lines</span>
-                                        <NeoButton
-                                          variant="ghost"
-                                          size="sm"
-                                          className="text-indigo-400 hover:text-indigo-300 hover:bg-slate-800"
-                                          onClick={(e) => {
-                                            e.stopPropagation();
-                                            setStackTraceModal({ isOpen: true, issueId: issue.id });
-                                          }}
-                                        >
-                                          View Full Trace
-                                        </NeoButton>
+                                        <span className="italic">... and {expandedIssueDetail.stackTrace.split('\n').length - 10} more lines</span>
                                       </div>
                                     )}
                                   </div>
@@ -892,28 +879,6 @@ export const IssuesFeed: React.FC = () => {
           })
         })()}
       </div>
-
-      {/* Stack Trace Modal */}
-      {stackTraceModal.issueId && (() => {
-        const issue = issues.find(i => i.id === stackTraceModal.issueId);
-        if (!issue || !expandedIssueDetail?.stackTrace) return null;
-        return (
-          <StackTraceModal
-            isOpen={stackTraceModal.isOpen}
-            onClose={() => setStackTraceModal({ isOpen: false, issueId: null })}
-            title={issue.title}
-            subtitle={issue.subtitle || issue.culprit}
-            stackTrace={expandedIssueDetail.stackTrace}
-            issueType={issue.issueType as 'crash' | 'error' | 'anr'}
-            sessionId={issue.sampleSessionId || undefined}
-            onViewReplay={() => {
-              if (issue.sampleSessionId) {
-                navigate(`${pathPrefix}/sessions/${issue.sampleSessionId}`);
-              }
-            }}
-          />
-        );
-      })()}
     </div >
   );
 };

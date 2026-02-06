@@ -76,7 +76,7 @@ app.use(cors({
                 if (dashboardBase === originBase) {
                     return callback(null, true);
                 }
-            } catch (e) {
+            } catch {
                 // Invalid URL, fall through to deny
             }
         }
@@ -96,7 +96,7 @@ app.use(cors({
     },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'X-API-Key', 'X-CSRF-Token', 'X-Device-Id', 'X-Ingest-Token', 'Idempotency-Key'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Rejourney-Key', 'X-API-Key', 'X-CSRF-Token', 'X-Device-Id', 'X-Upload-Token', 'X-Ingest-Token', 'Idempotency-Key', 'X-Session-Id'],
 }));
 
 

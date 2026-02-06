@@ -202,8 +202,12 @@ services:
       - minio
     entrypoint: >
       /bin/sh -c "
+      sleep 2 &&
       mc alias set local http://minio:9000 minioadmin minioadmin &&
-      mc mb -p local/rejourney || true
+      mc mb -p local/rejourney || true &&
+      mc anonymous set download local/rejourney &&
+      echo '{\"Version\":\"2012-10-17\",\"Statement\":[{\"Effect\":\"Allow\",\"Principal\":{\"AWS\":[\"*\"]},\"Action\":[\"s3:GetObject\"],\"Resource\":[\"arn:aws:s3:::rejourney/*\"]}]}' > /tmp/policy.json &&
+      mc anonymous set-json /tmp/policy.json local/rejourney || true
       "
     restart: on-failure:5
 
@@ -213,6 +217,8 @@ services:
     environment:
       MINIO_ROOT_USER: minioadmin
       MINIO_ROOT_PASSWORD: minioadmin
+      # Enable CORS for browser access to presigned URLs
+      MINIO_API_CORS_ALLOW_ORIGIN: "*"
     ports:
       - "9000:9000"
       - "9001:9001"

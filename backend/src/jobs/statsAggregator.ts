@@ -60,6 +60,7 @@ async function computeDailyRollup(projectId: string, date: Date): Promise<void> 
                 apiTotalCount: sessionMetrics.apiTotalCount,
                 errorCount: sessionMetrics.errorCount,
                 rageTapCount: sessionMetrics.rageTapCount,
+                deadTapCount: sessionMetrics.deadTapCount,
                 touchCount: sessionMetrics.touchCount,
                 scrollCount: sessionMetrics.scrollCount,
                 gestureCount: sessionMetrics.gestureCount,
@@ -203,6 +204,7 @@ async function computeDailyRollup(projectId: string, date: Date): Promise<void> 
 
         const totalErrors = daySessions.reduce((acc, s) => acc + (s.errorCount || 0), 0);
         const totalRageTaps = daySessions.reduce((acc, s) => acc + (s.rageTapCount || 0), 0);
+        const totalDeadTaps = daySessions.reduce((acc, s) => acc + (s.deadTapCount || 0), 0);
 
         // Percentiles
         const p50Duration = computePercentile(durations, 50);
@@ -235,6 +237,7 @@ async function computeDailyRollup(projectId: string, date: Date): Promise<void> 
                 p90InteractionScore,
                 totalErrors,
                 totalRageTaps,
+                totalDeadTaps,
                 // Engagement Segments
                 totalBouncers: bouncers,
                 totalCasuals: casuals,
@@ -274,6 +277,7 @@ async function computeDailyRollup(projectId: string, date: Date): Promise<void> 
                     p90InteractionScore,
                     totalErrors,
                     totalRageTaps,
+                    totalDeadTaps,
                     // Engagement Segments
                     totalBouncers: bouncers,
                     totalCasuals: casuals,
@@ -313,6 +317,7 @@ async function computeDailyRollup(projectId: string, date: Date): Promise<void> 
             let grandTotalSessions = 0;
             let grandTotalErrors = 0;
             let grandTotalRage = 0;
+            let grandTotalDeadTaps = 0;
             // Interaction Breakdown
             let grandTotalTouches = 0;
             let grandTotalScrolls = 0;
@@ -353,6 +358,7 @@ async function computeDailyRollup(projectId: string, date: Date): Promise<void> 
                 grandTotalSessions += n;
                 grandTotalErrors += d.totalErrors;
                 grandTotalRage += d.totalRageTaps;
+                grandTotalDeadTaps += (d.totalDeadTaps || 0);
                 // Interaction Breakdown
                 grandTotalTouches += (d.totalTouches || 0);
                 grandTotalScrolls += (d.totalScrolls || 0);
@@ -399,6 +405,7 @@ async function computeDailyRollup(projectId: string, date: Date): Promise<void> 
                     totalUsers: BigInt(totalUsers),
                     totalErrors: BigInt(grandTotalErrors),
                     totalRageTaps: BigInt(grandTotalRage),
+                    totalDeadTaps: BigInt(grandTotalDeadTaps),
                     // Interaction Breakdown
                     totalTouches: BigInt(grandTotalTouches),
                     totalScrolls: BigInt(grandTotalScrolls),
@@ -431,6 +438,7 @@ async function computeDailyRollup(projectId: string, date: Date): Promise<void> 
                         totalUsers: BigInt(totalUsers),
                         totalErrors: BigInt(grandTotalErrors),
                         totalRageTaps: BigInt(grandTotalRage),
+                        totalDeadTaps: BigInt(grandTotalDeadTaps),
                         // Interaction Breakdown
                         totalTouches: BigInt(grandTotalTouches),
                         totalScrolls: BigInt(grandTotalScrolls),

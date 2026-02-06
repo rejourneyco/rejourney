@@ -1,6 +1,6 @@
 {
     "name": "@rejourneyco/react-native",
-    "version": "1.0.5",
+    "version": "1.0.6",
     "description": "Rejourney Session Recording SDK for React Native",
     "main": "lib/commonjs/index.js",
     "module": "lib/module/index.js",
@@ -31,8 +31,9 @@
         "!lib/**/*.map"
     ],
     "scripts": {
-        "build": "npx react-native-builder-bob build",
-        "prepack": "npx react-native-builder-bob build",
+        "prebuild": "node scripts/generate-version.js",
+        "build": "npm run prebuild && npx react-native-builder-bob build",
+        "prepack": "npm run prebuild && npx react-native-builder-bob build",
         "typescript": "tsc --noEmit",
         "lint": "eslint \"**/*.{js,ts,tsx}\"",
         "test": "vitest run",

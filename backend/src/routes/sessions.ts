@@ -11,11 +11,13 @@ import { db, sessions, sessionMetrics, recordingArtifacts, projects, teamMembers
 import { gunzipSync } from 'zlib';
 
 import { getSignedDownloadUrlForProject, downloadFromS3ForProject, getObjectSizeBytesForProject } from '../db/s3.js';
+import { getSessionScreenshotFrames } from '../services/screenshotFrames.js';
 import { sessionAuth, asyncHandler, ApiError } from '../middleware/index.js';
 import { validate } from '../middleware/validation.js';
 import { dashboardRateLimiter, networkRateLimiter } from '../middleware/rateLimit.js';
 import { sessionIdParamSchema, networkGroupBySchema } from '../validation/sessions.js';
 import { generateAnonymousName } from '../utils/anonymousName.js';
+import { logger } from '../logger.js';
 
 const router = Router();
 
@@ -122,6 +124,7 @@ router.get(
                 m?.apiSuccessCount || 0,
                 m?.apiErrorCount || 0,
                 m?.rageTapCount || 0,
+                m?.deadTapCount || 0,
                 m?.crashCount || 0,
                 m?.errorCount || 0,
                 m?.uxScore || 0,
@@ -229,6 +232,7 @@ router.get(
             inputCount: m?.inputCount ?? 0,
             errorCount: m?.errorCount ?? 0,
             rageTapCount: m?.rageTapCount ?? 0,
+            deadTapCount: m?.deadTapCount ?? 0,
             apiSuccessCount: m?.apiSuccessCount ?? 0,
             apiErrorCount: m?.apiErrorCount ?? 0,
             apiTotalCount: m?.apiTotalCount ?? 0,
@@ -368,9 +372,10 @@ router.get(
         const eventsArtifacts = artifactsList.filter((a) => a.kind === 'events');
         const hierarchyArtifacts = artifactsList.filter((a) => a.kind === 'hierarchy');
         const networkArtifacts = artifactsList.filter((a) => a.kind === 'network');
-        // Video artifacts only exist if recording not deleted
+        // Video/screenshot artifacts only exist if recording not deleted
+        // iOS uses 'screenshots' kind, Android uses 'video' kind
         const videoArtifacts = (!session.isReplayExpired && !session.recordingDeleted)
-            ? artifactsList.filter((a) => a.kind === 'video')
+            ? artifactsList.filter((a) => a.kind === 'video' || a.kind === 'screenshots')
             : [];
 
         // Compute total storage used in S3 for this session's artifacts.
@@ -412,7 +417,7 @@ router.get(
                 }
                 const url = await getSignedDownloadUrlForProject(session.projectId, artifact.s3ObjectKey);
                 if (url) eventsUrls.push(url);
-            } catch (err) {
+            } catch {
                 // Silently skip failed artifacts - they may be corrupted or missing
             }
         }
@@ -429,15 +434,17 @@ router.get(
                         allNetwork.push(...parsed.networkRequests);
                     }
                 }
-            } catch (err) {
+            } catch {
                 // Silently skip failed artifacts - they may be corrupted or missing
             }
         }
 
-        // Generate presigned URLs for video segments (only if recording not deleted)
+        // Generate presigned URLs for video segments (only actual video files, not screenshots)
         // Sort by startTime to ensure proper playback order
-        videoArtifacts.sort((a, b) => (a.startTime || 0) - (b.startTime || 0));
-        for (const artifact of videoArtifacts) {
+        // Only include kind === 'video' in videoSegments - screenshots are handled separately
+        const pureVideoArtifacts = videoArtifacts.filter((a) => a.kind === 'video');
+        pureVideoArtifacts.sort((a, b) => (a.startTime || 0) - (b.startTime || 0));
+        for (const artifact of pureVideoArtifacts) {
             try {
                 const url = await getSignedDownloadUrlForProject(session.projectId, artifact.s3ObjectKey);
                 if (url) {
@@ -448,8 +455,42 @@ router.get(
                         frameCount: artifact.frameCount || null,
                     });
                 }
-            } catch (err) {
+            } catch {
                 // Silently skip failed artifacts - they may be corrupted or missing
+            }
+        }
+
+        // Extract screenshot frames for image-based playback (iOS sessions)
+        // Screenshot frames take priority over video for playback
+        let screenshotFrames: Array<{ timestamp: number; url: string; index: number }> = [];
+        const screenshotArtifacts = videoArtifacts.filter((a) => a.kind === 'screenshots');
+        
+        logger.info({
+            sessionId: session.id,
+            totalVideoArtifacts: videoArtifacts.length,
+            screenshotArtifactsCount: screenshotArtifacts.length,
+            videoArtifactKinds: videoArtifacts.map(a => a.kind),
+            isReplayExpired: session.isReplayExpired,
+            recordingDeleted: session.recordingDeleted,
+        }, '[sessions] Screenshot extraction debug');
+        
+        if (screenshotArtifacts.length > 0 && !session.isReplayExpired && !session.recordingDeleted) {
+            // Extract frames from screenshot archives
+            logger.info({ sessionId: session.id }, '[sessions] Attempting to extract screenshot frames');
+            const framesResult = await getSessionScreenshotFrames(session.id);
+            logger.info({
+                sessionId: session.id,
+                framesResult: framesResult ? { totalFrames: framesResult.totalFrames, cached: framesResult.cached } : null,
+            }, '[sessions] Screenshot frames extraction result');
+            if (framesResult && framesResult.frames.length > 0) {
+                // Use proxy URLs instead of direct S3 URLs to avoid CSP issues
+                // Frontend will fetch via /api/sessions/:sessionId/frame/:timestamp
+                screenshotFrames = framesResult.frames.map(f => ({
+                    timestamp: f.timestamp,
+                    // Use relative URL that will be resolved by the API base URL
+                    url: `/api/sessions/${session.id}/frame/${f.timestamp}`,
+                    index: f.index,
+                }));
             }
         }
 
@@ -468,7 +509,7 @@ router.get(
                             try {
                                 const decompressed = gunzipSync(data);
                                 return JSON.parse(decompressed.toString());
-                            } catch (e) {
+                            } catch {
                                 // Fallback to raw parsing if decompression fails (might be mislabeled)
                                 return JSON.parse(data.toString());
                             }
@@ -484,7 +525,7 @@ router.get(
                         rootElement,
                     });
                 }
-            } catch (err) {
+            } catch {
                 // Silently skip failed artifacts - they may be corrupted or missing
             }
         }
@@ -585,9 +626,11 @@ router.get(
         const mergedEvents = [...normalizedEvents, ...anrEvents]
             .sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
 
-        // Determine if this session has recording (video segments)
+        // Determine if this session has recording (video segments or screenshot frames)
         // A session without segments may still have analytics data (events, metrics)
-        const hasRecording = videoSegments.length > 0;
+        // Screenshot frames are primary, video segments are fallback
+        const hasRecording = screenshotFrames.length > 0 || videoSegments.length > 0;
+        const playbackMode = screenshotFrames.length > 0 ? 'screenshots' : (videoSegments.length > 0 ? 'video' : 'none');
 
         res.json({
             id: session.id,
@@ -598,6 +641,7 @@ router.get(
             platform: session.platform,
             appVersion: session.appVersion,
             hasRecording, // Indicates whether visual replay is available
+            playbackMode, // 'screenshots', 'video', or 'none' - determines which player to use
             deviceInfo: {
                 model: session.deviceModel,
                 os: session.platform,
@@ -649,8 +693,9 @@ router.get(
                 events: eventsUrl,
                 eventsBatches: eventsUrls,
             },
-            // Video capture mode data
-            videoSegments,
+            // Visual capture data - screenshot frames are primary, video is fallback
+            screenshotFrames, // Array of { timestamp, url, index } for image-based playback
+            videoSegments,    // Array of { url, startTime, endTime, frameCount } for video playback
             hierarchySnapshots,
             metrics: metrics
                 ? {
@@ -662,6 +707,7 @@ router.get(
                     navigationCount: metrics.screensVisited?.length ?? 0,
                     errorCount: metrics.errorCount,
                     rageTapCount: metrics.rageTapCount,
+                    deadTapCount: metrics.deadTapCount ?? 0,
                     apiSuccessCount: metrics.apiSuccessCount,
                     apiErrorCount: metrics.apiErrorCount,
                     apiTotalCount: metrics.apiTotalCount,
@@ -1066,6 +1112,49 @@ router.get(
         res.setHeader('Content-Type', 'image/jpeg');
         res.setHeader('Cache-Control', 'public, max-age=86400'); // 24 hours
         res.send(thumbnail);
+    })
+);
+
+/**
+ * GET /sessions/:id/frame/:frameTimestamp
+ * 
+ * Proxy endpoint for screenshot frames - avoids CSP issues by serving
+ * images through the API instead of direct S3 URLs.
+ */
+router.get(
+    '/:id/frame/:frameTimestamp',
+    sessionAuth,
+    asyncHandler(async (req, res) => {
+        const sessionId = req.params.id;
+        const frameTimestamp = req.params.frameTimestamp;
+        
+        // Get session to verify access and get projectId
+        const [session] = await db
+            .select({
+                id: sessions.id,
+                projectId: sessions.projectId,
+            })
+            .from(sessions)
+            .where(eq(sessions.id, sessionId))
+            .limit(1);
+        
+        if (!session) {
+            throw ApiError.notFound('Session not found');
+        }
+        
+        // Construct frame S3 key
+        const frameKey = `sessions/${sessionId}/frames/${frameTimestamp}.jpg`;
+        
+        // Download frame from S3
+        const frameData = await downloadFromS3ForProject(session.projectId, frameKey);
+        
+        if (!frameData) {
+            throw ApiError.notFound('Frame not found');
+        }
+        
+        res.setHeader('Content-Type', 'image/jpeg');
+        res.setHeader('Cache-Control', 'public, max-age=3600'); // 1 hour
+        res.send(frameData);
     })
 );
 

@@ -16,6 +16,10 @@ module.exports = {
                     'npm-optional',
                     'local',
                     'core'
+                ],
+                pathNot: [
+                    // 'promise' is always available at runtime — it's bundled with React Native
+                    'promise/setimmediate/rejection-tracking'
                 ]
             }
         }
