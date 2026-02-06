@@ -84,7 +84,7 @@ export async function sessionAuth(
                             roles: parsed.roles || [],
                         };
                     }
-                } catch (e) {
+                } catch {
                     // Invalid cache data, fall through to DB
                 }
             }

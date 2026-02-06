@@ -58,7 +58,7 @@ function getUptimeKumaConfig(): UptimeKumaConfig | null {
     try {
         const tokens = JSON.parse(tokensJson) as Record<WorkerName, string>;
         return { baseUrl, tokens };
-    } catch (e) {
+    } catch {
         logger.warn('Failed to parse UPTIME_KUMA_TOKENS');
         return null;
     }

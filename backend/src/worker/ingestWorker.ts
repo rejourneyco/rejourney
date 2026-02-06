@@ -273,6 +273,7 @@ async function processArtifactJob(job: any): Promise<boolean> {
         log.error({ err }, 'Artifact job processing failed');
 
         // Sanitize error message to remove null bytes (which PostgreSQL rejects)
+        // eslint-disable-next-line no-control-regex
         const errorMsg = String(err).replace(/\x00/g, '').substring(0, 1000);
 
         if (job.attempts >= MAX_ATTEMPTS) {
@@ -329,7 +330,7 @@ async function processEventsArtifact(job: any, _session: any, metrics: any, proj
     let touchCount = 0, scrollCount = 0, gestureCount = 0, inputCount = 0;
     let networkTotalCount = 0, networkSuccessCount = 0, networkErrorCount = 0;
     let networkTotalDuration = 0, networkDurationCount = 0;
-    let errorCount = 0, rageTapCount = 0, customEventCount = 0, anrCount = 0;
+    let errorCount = 0, rageTapCount = 0, customEventCount = 0;
     let deadTapCount = 0;
     let appStartupTimeMs: number | null = null;
     const recentTaps: { x: number; y: number; timestamp: number }[] = [];
@@ -592,7 +593,6 @@ async function processEventsArtifact(job: any, _session: any, metrics: any, proj
                 screenName: currentScreen || undefined,
             });
         } else if (type === 'anr') {
-            anrCount++;
             anrEvents.push({
                 timestamp: new Date(event.timestamp || Date.now()),
                 durationMs: event.durationMs || 5000,

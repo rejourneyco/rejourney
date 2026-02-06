@@ -131,7 +131,7 @@ export function originValidation(
                         });
                         return;
                     }
-                } catch (e) {
+                } catch {
                     // Invalid URL in origin header
                     res.status(403).json({
                         error: 'Forbidden',
@@ -156,7 +156,7 @@ export function originValidation(
                         });
                         return;
                     }
-                } catch (e) {
+                } catch {
                     // Invalid URL in referer header
                 }
             }

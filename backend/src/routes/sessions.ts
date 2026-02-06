@@ -417,7 +417,7 @@ router.get(
                 }
                 const url = await getSignedDownloadUrlForProject(session.projectId, artifact.s3ObjectKey);
                 if (url) eventsUrls.push(url);
-            } catch (err) {
+            } catch {
                 // Silently skip failed artifacts - they may be corrupted or missing
             }
         }
@@ -434,7 +434,7 @@ router.get(
                         allNetwork.push(...parsed.networkRequests);
                     }
                 }
-            } catch (err) {
+            } catch {
                 // Silently skip failed artifacts - they may be corrupted or missing
             }
         }
@@ -455,7 +455,7 @@ router.get(
                         frameCount: artifact.frameCount || null,
                     });
                 }
-            } catch (err) {
+            } catch {
                 // Silently skip failed artifacts - they may be corrupted or missing
             }
         }
@@ -509,7 +509,7 @@ router.get(
                             try {
                                 const decompressed = gunzipSync(data);
                                 return JSON.parse(decompressed.toString());
-                            } catch (e) {
+                            } catch {
                                 // Fallback to raw parsing if decompression fails (might be mislabeled)
                                 return JSON.parse(data.toString());
                             }
@@ -525,7 +525,7 @@ router.get(
                         rootElement,
                     });
                 }
-            } catch (err) {
+            } catch {
                 // Silently skip failed artifacts - they may be corrupted or missing
             }
         }

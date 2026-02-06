@@ -159,7 +159,7 @@ export async function ensureIngestSession(
         let platform = metadata?.platform || 'unknown';
         let deviceModel = metadata?.deviceModel;
         let osVersion = metadata?.osVersion;
-        let appVersion = metadata?.appVersion;
+        const appVersion = metadata?.appVersion;
 
         if (req?.headers?.['user-agent'] && !deviceModel) {
             const ua = req.headers['user-agent'];

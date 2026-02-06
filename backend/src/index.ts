@@ -76,7 +76,7 @@ app.use(cors({
                 if (dashboardBase === originBase) {
                     return callback(null, true);
                 }
-            } catch (e) {
+            } catch {
                 // Invalid URL, fall through to deny
             }
         }

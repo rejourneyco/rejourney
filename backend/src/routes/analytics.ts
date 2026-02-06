@@ -1780,7 +1780,7 @@ router.get(
         const totalCount = Number(countResult[0]?.count || 0);
 
         // Query errors with pagination
-        let errorsQuery = db
+        const errorsQuery = db
             .select({
                 id: errors.id,
                 sessionId: errors.sessionId,
@@ -2550,9 +2550,8 @@ router.get(
         }
 
         // Time filter
-        let startedAfter: Date | undefined;
         const days = timeRange === '24h' ? 1 : timeRange === '7d' ? 7 : timeRange === '30d' ? 30 : timeRange === '90d' ? 90 : 30;
-        startedAfter = new Date();
+        const startedAfter = new Date();
         startedAfter.setDate(startedAfter.getDate() - days);
 
         // Get sessions with their device ID and duration

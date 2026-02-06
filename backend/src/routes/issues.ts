@@ -888,7 +888,7 @@ router.post(
                     insightsCreated++;
                 }
             }
-        } catch (err) {
+        } catch {
             // API stats may not exist, skip gracefully
         }
 
@@ -949,7 +949,7 @@ router.post(
                     insightsCreated++;
                 }
             }
-        } catch (err) {
+        } catch {
             // Screen touch data may not exist, skip gracefully
         }
 
@@ -1136,7 +1136,7 @@ router.post(
                     }
                 }
             }
-        } catch (err) {
+        } catch {
             // Device correlation may fail, skip gracefully
         }
 
@@ -1194,7 +1194,7 @@ router.post(
                     insightsCreated++;
                 }
             }
-        } catch (err) {
+        } catch {
             // Startup metrics may not exist, skip gracefully
         }
 
