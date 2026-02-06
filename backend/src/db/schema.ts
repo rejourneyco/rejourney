@@ -185,47 +185,9 @@ export const apiKeys = pgTable(
 );
 
 // =============================================================================
-// Device Authentication (ECDSA-based)
-// =============================================================================
-
-export const deviceRegistrations = pgTable(
-    'device_registrations',
-    {
-        id: uuid('id').primaryKey().defaultRandom(),
-        deviceCredentialId: varchar('device_credential_id', { length: 255 }).unique().notNull(),
-        projectId: uuid('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
-        bundleId: varchar('bundle_id', { length: 255 }).notNull(),
-        packageName: varchar('package_name', { length: 255 }),
-        platform: varchar('platform', { length: 20 }).notNull(), // 'ios' | 'android' | 'web'
-        sdkVersion: varchar('sdk_version', { length: 50 }).notNull(),
-        devicePublicKey: text('device_public_key').notNull(), // PEM format ECDSA P-256 public key
-        deviceLabel: varchar('device_label', { length: 255 }), // optional user-friendly label
-        registeredAt: timestamp('registered_at').defaultNow().notNull(),
-        lastSeenAt: timestamp('last_seen_at').defaultNow().notNull(),
-        revokedAt: timestamp('revoked_at'),
-        revokeReason: varchar('revoke_reason', { length: 255 }),
-    },
-    (table) => [
-        uniqueIndex('device_registrations_credential_idx').on(table.deviceCredentialId),
-        index('device_registrations_project_idx').on(table.projectId),
-        index('device_registrations_last_seen_idx').on(table.lastSeenAt),
-        // Prevent duplicate public keys per project
-        uniqueIndex('device_registrations_project_pubkey_unique').on(table.projectId, table.devicePublicKey),
-    ]
-);
-
-export const deviceTrustScores = pgTable('device_trust_scores', {
-    deviceId: uuid('device_id').primaryKey().references(() => deviceRegistrations.id, { onDelete: 'cascade' }),
-    score: doublePrecision('score').default(1.0).notNull(), // 0.0 to 1.0
-    flags: json('flags').$type<{
-        timing_anomaly?: boolean;
-        entropy_low?: boolean;
-        replay_detected?: boolean;
-        cloud_ip?: boolean;
-        rapid_geo_change?: boolean;
-    }>().default({}),
-    updatedAt: timestamp('updated_at').defaultNow().notNull(),
-});
+// NOTE: deviceRegistrations table was removed along with the dead ECDSA auth flow.
+// The device_usage table now uses varchar device IDs (SHA-256 fingerprints)
+// scoped per project instead of FK-ing to a registration table.
 
 export const appAllTimeStats = pgTable('app_all_time_stats', {
     projectId: uuid('project_id').primaryKey().references(() => projects.id, { onDelete: 'cascade' }),
@@ -238,6 +200,7 @@ export const appAllTimeStats = pgTable('app_all_time_stats', {
     avgUxScore: doublePrecision('avg_ux_score').default(0),
     avgApiErrorRate: doublePrecision('avg_api_error_rate').default(0),
     totalRageTaps: bigint('total_rage_taps', { mode: 'bigint' }).default(sql`0`),
+    totalDeadTaps: bigint('total_dead_taps', { mode: 'bigint' }).default(sql`0`),
 
     // Engagement Segments
     totalBouncers: bigint('total_bouncers', { mode: 'bigint' }).default(sql`0`),
@@ -272,28 +235,11 @@ export const appAllTimeStats = pgTable('app_all_time_stats', {
     updatedAt: timestamp('updated_at').defaultNow().notNull(),
 });
 
-export const abuseSignals = pgTable(
-    'abuse_signals',
-    {
-        id: uuid('id').primaryKey().defaultRandom(),
-        deviceId: uuid('device_id').references(() => deviceRegistrations.id, { onDelete: 'cascade' }),
-        sessionId: varchar('session_id', { length: 64 }).references(() => sessions.id, { onDelete: 'cascade' }),
-        signalType: varchar('signal_type', { length: 50 }).notNull(), // 'timing_anomaly', 'entropy_low', etc.
-        severity: varchar('severity', { length: 20 }).notNull(), // 'low' | 'medium' | 'high' | 'critical'
-        metadata: json('metadata'),
-        detectedAt: timestamp('detected_at').defaultNow().notNull(),
-    },
-    (table) => [
-        index('abuse_signals_device_idx').on(table.deviceId, table.detectedAt),
-        index('abuse_signals_session_idx').on(table.sessionId),
-        index('abuse_signals_severity_idx').on(table.severity, table.detectedAt),
-    ]
-);
-
 export const deviceUsage = pgTable(
     'device_usage',
     {
-        deviceId: uuid('device_id').notNull().references(() => deviceRegistrations.id, { onDelete: 'cascade' }),
+        deviceId: varchar('device_id', { length: 64 }).notNull(), // SHA-256 fingerprint
+        projectId: uuid('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
         period: date('period').notNull(), // daily granularity (YYYY-MM-DD)
         bytesUploaded: bigint('bytes_uploaded', { mode: 'bigint' }).default(sql`0`).notNull(),
         minutesRecorded: integer('minutes_recorded').default(0).notNull(),
@@ -301,7 +247,8 @@ export const deviceUsage = pgTable(
         requestCount: integer('request_count').default(0).notNull(),
     },
     (table) => [
-        primaryKey({ columns: [table.deviceId, table.period] }),
+        primaryKey({ columns: [table.deviceId, table.projectId, table.period] }),
+        index('device_usage_project_idx').on(table.projectId),
         index('device_usage_period_idx').on(table.period),
     ]
 );
@@ -423,6 +370,7 @@ export const sessionMetrics = pgTable('session_metrics', {
     apiTotalCount: integer('api_total_count').default(0).notNull(),
     apiAvgResponseMs: doublePrecision('api_avg_response_ms').default(0).notNull(),
     rageTapCount: integer('rage_tap_count').default(0).notNull(),
+    deadTapCount: integer('dead_tap_count').default(0).notNull(),
     screensVisited: text('screens_visited').array().default(sql`ARRAY[]::text[]`),
     interactionScore: doublePrecision('interaction_score').default(0).notNull(),
     explorationScore: doublePrecision('exploration_score').default(0).notNull(),
@@ -663,6 +611,7 @@ export const appDailyStats = pgTable(
         p90InteractionScore: doublePrecision('p90_interaction_score'),
         totalErrors: integer('total_errors').default(0).notNull(),
         totalRageTaps: integer('total_rage_taps').default(0).notNull(),
+        totalDeadTaps: integer('total_dead_taps').default(0).notNull(),
         totalCrashes: integer('total_crashes').default(0).notNull(),
         totalAnrs: integer('total_anrs').default(0).notNull(),
         // Engagement Segments
@@ -1170,7 +1119,6 @@ export const teamInvitationsRelations = relations(teamInvitations, ({ one }) => 
 export const projectsRelations = relations(projects, ({ one, many }) => ({
     team: one(teams, { fields: [projects.teamId], references: [teams.id] }),
     apiKeys: many(apiKeys),
-    deviceRegistrations: many(deviceRegistrations),
     sessions: many(sessions),
     projectUsage: many(projectUsage),
     appDailyStats: many(appDailyStats),
@@ -1200,24 +1148,8 @@ export const apiKeysRelations = relations(apiKeys, ({ one }) => ({
     project: one(projects, { fields: [apiKeys.projectId], references: [projects.id] }),
 }));
 
-export const deviceRegistrationsRelations = relations(deviceRegistrations, ({ one, many }) => ({
-    project: one(projects, { fields: [deviceRegistrations.projectId], references: [projects.id] }),
-    trustScore: one(deviceTrustScores, { fields: [deviceRegistrations.id], references: [deviceTrustScores.deviceId] }),
-    abuseSignals: many(abuseSignals),
-    usage: many(deviceUsage),
-}));
-
-export const deviceTrustScoresRelations = relations(deviceTrustScores, ({ one }) => ({
-    device: one(deviceRegistrations, { fields: [deviceTrustScores.deviceId], references: [deviceRegistrations.id] }),
-}));
-
-export const abuseSignalsRelations = relations(abuseSignals, ({ one }) => ({
-    device: one(deviceRegistrations, { fields: [abuseSignals.deviceId], references: [deviceRegistrations.id] }),
-    session: one(sessions, { fields: [abuseSignals.sessionId], references: [sessions.id] }),
-}));
-
 export const deviceUsageRelations = relations(deviceUsage, ({ one }) => ({
-    device: one(deviceRegistrations, { fields: [deviceUsage.deviceId], references: [deviceRegistrations.id] }),
+    project: one(projects, { fields: [deviceUsage.projectId], references: [projects.id] }),
 }));
 
 export const ingestJobsRelations = relations(ingestJobs, ({ one }) => ({

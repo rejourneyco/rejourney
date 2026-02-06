@@ -1,4 +1,20 @@
 /**
+ * Copyright 2026 Rejourney
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+/**
  * Session Metrics Module for Rejourney SDK
  * 
  * Tracks and calculates session metrics including interaction scores,
@@ -18,6 +34,7 @@ export interface SessionMetrics {
     navigationCount: number;
     errorCount: number;
     rageTapCount: number;
+    deadTapCount: number;
     apiSuccessCount: number;
     apiErrorCount: number;
     apiTotalCount: number;
@@ -47,6 +64,7 @@ export function createEmptyMetrics(): SessionMetrics {
         navigationCount: 0,
         errorCount: 0,
         rageTapCount: 0,
+        deadTapCount: 0,
         apiSuccessCount: 0,
         apiErrorCount: 0,
         apiTotalCount: 0,
@@ -125,6 +143,10 @@ export function incrementRageTapCount(): void {
     metrics.rageTapCount++;
 }
 
+export function incrementDeadTapCount(): void {
+    metrics.deadTapCount++;
+}
+
 export function incrementErrorCount(): void {
     metrics.errorCount++;
     metrics.totalEvents++;
@@ -199,6 +221,7 @@ function calculateUXScore(): number {
 
     score -= metrics.errorCount * 10;
     score -= metrics.rageTapCount * 20;
+    score -= metrics.deadTapCount * 10;
     score -= metrics.apiErrorCount * 5;
     return Math.max(0, Math.min(100, score));
 }

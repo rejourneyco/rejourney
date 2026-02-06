@@ -14,7 +14,8 @@ import {
     Server,
     Bug,
     Activity,
-    AlertOctagon
+    AlertOctagon,
+    Download
 } from 'lucide-react';
 
 export const CrashDetail: React.FC<{ crashId?: string; projectId?: string }> = ({ crashId: propCrashId, projectId: propProjectId }) => {
@@ -56,6 +57,17 @@ export const CrashDetail: React.FC<{ crashId?: string; projectId?: string }> = (
         navigator.clipboard.writeText(crash.stackTrace);
         setCopied(true);
         setTimeout(() => setCopied(false), 2000);
+    };
+
+    const handleDownloadStack = () => {
+        if (!crash?.stackTrace) return;
+        const blob = new Blob([crash.stackTrace], { type: 'text/plain' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `crash-trace-${crash.id}-${Date.now()}.txt`;
+        a.click();
+        URL.revokeObjectURL(url);
     };
 
     if (loading) {
@@ -145,6 +157,13 @@ export const CrashDetail: React.FC<{ crashId?: string; projectId?: string }> = (
                                 >
                                     {copied ? <Check className="w-3 h-3 text-green-600" /> : <Copy className="w-3 h-3" />}
                                     {copied ? 'Copied to Clipboard' : 'Copy Trace'}
+                                </button>
+                                <button
+                                    onClick={handleDownloadStack}
+                                    className="flex items-center gap-2 px-3 py-1.5 text-xs font-black uppercase border-2 border-slate-200 hover:border-black hover:bg-slate-50 transition-all ml-2"
+                                >
+                                    <Download className="w-3 h-3" />
+                                    Download Trace
                                 </button>
                             </div>
 

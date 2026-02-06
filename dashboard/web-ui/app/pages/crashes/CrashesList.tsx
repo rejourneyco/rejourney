@@ -25,7 +25,6 @@ import { formatLastSeen, formatAge } from '../../utils/formatDates';
 import { NeoBadge } from '../../components/ui/neo/NeoBadge';
 import { NeoButton } from '../../components/ui/neo/NeoButton';
 import { NeoCard } from '../../components/ui/neo/NeoCard';
-import { StackTraceModal } from '../../components/ui/StackTraceModal';
 import { api } from '../../services/api';
 
 export const CrashesList: React.FC = () => {
@@ -38,7 +37,6 @@ export const CrashesList: React.FC = () => {
     const [timeRange, setTimeRange] = useState<TimeRange>(DEFAULT_TIME_RANGE);
     const [searchQuery, setSearchQuery] = useState('');
     const [crashDetails, setCrashDetails] = useState<Record<string, any>>({});
-    const [stackTraceModal, setStackTraceModal] = useState<{ isOpen: boolean; groupName: string | null }>({ isOpen: false, groupName: null });
 
 
     // Filter sessions by selected project
@@ -181,12 +179,6 @@ export const CrashesList: React.FC = () => {
         fetchCrashForGroup();
     }, [expandedGroup, selectedProject?.id, crashGroups, crashDetails]);
 
-    const totalCrashes = filteredSessions.reduce((sum, s) => sum + (s.crashCount || 0), 0);
-    const crashedSessions = filteredSessions.filter(s => (s.crashCount || 0) > 0).length;
-    const crashFreeRate = filteredSessions.length > 0
-        ? Math.round(((filteredSessions.length - crashedSessions) / filteredSessions.length) * 100)
-        : 100;
-
     if (isLoading) {
         return (
             <div className="flex flex-col items-center justify-center min-h-screen bg-white">
@@ -323,63 +315,55 @@ export const CrashesList: React.FC = () => {
                                     <div className="px-6 py-8 bg-slate-50/80 border-t border-slate-100">
                                         <div className="grid grid-cols-1 lg:grid-cols-12 gap-12">
 
-                                            {/* LEFT: Stack Trace & Details (matches Errors/ANRs layout) */}
-                                            <div className="lg:col-span-12 xl:col-span-8 space-y-6">
+                                            {/* LEFT: Stack Trace & Details */}
+                                            <div className="lg:col-span-8 space-y-6">
                                                 <div>
                                                     <div className="flex items-center justify-between mb-4">
                                                         <h4 className="text-[10px] font-black text-black uppercase tracking-widest flex items-center gap-2">
                                                             <Activity size={12} className="text-red-500" /> Stack Trace Preview
                                                         </h4>
-                                                        <NeoButton
-                                                            variant="ghost"
-                                                            size="sm"
-                                                            onClick={(e) => {
-                                                                e.stopPropagation();
-                                                                navigate(`${pathPrefix}/sessions/${group.sampleSessionId}`);
-                                                            }}
-                                                        >
-                                                            View Replay <ExternalLink size={10} className="ml-1" />
-                                                        </NeoButton>
                                                     </div>
 
                                                     <NeoCard variant="flat" className="p-0 overflow-hidden !bg-slate-900 border-2 border-black shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]">
                                                         {!crashDetails[group.name] ? (
-                                                            <div className="p-8 text-center">
-                                                                <div className="text-green-400 mb-2 flex justify-center"><Loader size={32} className="animate-spin" /></div>
-                                                                <p className="text-sm font-bold text-slate-400 uppercase tracking-wider">Loading stack trace...</p>
+                                                            <div className="p-8 text-center text-slate-500">
+                                                                <Loader size={24} className="animate-spin mx-auto mb-2" />
+                                                                Loading preview...
                                                             </div>
                                                         ) : crashDetails[group.name]?.stackTrace ? (
-                                                            <div className="p-6 font-mono text-xs text-green-400 overflow-x-auto whitespace-pre leading-relaxed max-h-[400px] overflow-y-auto">
-                                                                {crashDetails[group.name].stackTrace.split('\n').slice(0, 20).join('\n')}
-                                                                {crashDetails[group.name].stackTrace.split('\n').length > 20 && (
-                                                                    <div className="mt-4 pt-4 border-t border-slate-700 flex items-center justify-between">
-                                                                        <span className="text-slate-500 text-[10px] italic">
-                                                                            ... and {crashDetails[group.name].stackTrace.split('\n').length - 20} more lines
-                                                                        </span>
-                                                                        <NeoButton
-                                                                            variant="ghost"
-                                                                            size="sm"
-                                                                            className="text-red-400 hover:text-red-300 hover:bg-slate-800"
-                                                                            onClick={(e) => {
-                                                                                e.stopPropagation();
-                                                                                setStackTraceModal({ isOpen: true, groupName: group.name });
-                                                                            }}
-                                                                        >
-                                                                            View Full Trace
-                                                                        </NeoButton>
+                                                            <div className="p-6 font-mono text-xs text-green-400 overflow-x-auto whitespace-pre leading-relaxed">
+                                                                {crashDetails[group.name].stackTrace.split('\n').slice(0, 10).join('\n')}
+                                                                {crashDetails[group.name].stackTrace.split('\n').length > 10 && (
+                                                                    <div className="mt-4 pt-4 border-t border-slate-700 text-slate-500 text-[10px] italic">
+                                                                        ... clipping for preview ...
                                                                     </div>
                                                                 )}
                                                             </div>
                                                         ) : (
-                                                            <div className="p-8 text-center">
-                                                                <div className="text-slate-500 mb-2 flex justify-center"><AlertTriangle size={32} /></div>
-                                                                <p className="text-sm font-bold text-slate-400 uppercase tracking-wider">No stack trace available for this crash.</p>
+                                                            <div className="p-8 text-center text-slate-500">
+                                                                No stack trace captured.
                                                             </div>
                                                         )}
                                                     </NeoCard>
+
+                                                    <div className="mt-4">
+                                                        <NeoButton
+                                                            variant="primary"
+                                                            size="sm"
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                if (crashDetails[group.name]) {
+                                                                    navigate(`${pathPrefix}/stability/crashes/${selectedProject?.id}/${crashDetails[group.name].id}`);
+                                                                }
+                                                            }}
+                                                            rightIcon={<ChevronRight size={14} />}
+                                                        >
+                                                            Analyze Root Cause
+                                                        </NeoButton>
+                                                    </div>
                                                 </div>
 
-                                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                                                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                                                     <div className="bg-white p-4 border-2 border-black shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]">
                                                         <div className="text-[10px] font-black text-slate-400 uppercase tracking-wider mb-2">First Seen</div>
                                                         <div className="text-sm font-black text-black">{new Date(group.firstSeen).toLocaleDateString()}</div>
@@ -388,33 +372,23 @@ export const CrashesList: React.FC = () => {
                                                         <div className="text-[10px] font-black text-slate-400 uppercase tracking-wider mb-2">Last Seen</div>
                                                         <div className="text-sm font-black text-black">{formatLastSeen(group.lastOccurred)}</div>
                                                     </div>
-                                                    <div className="bg-white p-4 border-2 border-black shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] md:col-span-2 lg:col-span-1">
+                                                    <div className="bg-white p-4 border-2 border-black shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]">
                                                         <div className="text-[10px] font-black text-slate-400 uppercase tracking-wider mb-2">Environment</div>
                                                         <div className="flex flex-wrap gap-2">
-                                                            <NeoBadge variant="neutral" size="sm">{Object.keys(group.affectedDevices)[0] || 'Unknown Device'}</NeoBadge>
+                                                            <NeoBadge variant="neutral" size="sm">{Object.keys(group.affectedDevices)[0] || 'Unknown'}</NeoBadge>
                                                             <NeoBadge variant="info" size="sm">v{Object.keys(group.affectedVersions)[0] || '?'}</NeoBadge>
                                                         </div>
                                                     </div>
                                                 </div>
                                             </div>
 
-                                            {/* RIGHT: Visual Context (matches Errors/ANRs layout) */}
-                                            <div className="lg:col-span-12 xl:col-span-4 space-y-6">
+                                            {/* RIGHT: Visual Context */}
+                                            <div className="lg:col-span-4 space-y-6">
                                                 <div>
                                                     <div className="flex items-center justify-between mb-4">
                                                         <h4 className="text-[10px] font-black text-black uppercase tracking-widest flex items-center gap-2">
                                                             <Play size={12} className="text-indigo-500" /> Evidence Sample
                                                         </h4>
-                                                        <NeoButton
-                                                            variant="ghost"
-                                                            size="sm"
-                                                            onClick={(e) => {
-                                                                e.stopPropagation();
-                                                                navigate(`${pathPrefix}/sessions/${group.sampleSessionId}`);
-                                                            }}
-                                                        >
-                                                            Full Replay <ChevronRight size={10} className="ml-1" />
-                                                        </NeoButton>
                                                     </div>
 
                                                     <NeoCard variant="flat" className="flex justify-center items-center py-6 bg-slate-100 border-2 border-black !shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]">
@@ -439,25 +413,6 @@ export const CrashesList: React.FC = () => {
                     })}
                 </div>
             </div>
-
-            {/* Stack Trace Modal */}
-            {stackTraceModal.groupName && crashDetails[stackTraceModal.groupName] && (
-                <StackTraceModal
-                    isOpen={stackTraceModal.isOpen}
-                    onClose={() => setStackTraceModal({ isOpen: false, groupName: null })}
-                    title={stackTraceModal.groupName}
-                    subtitle={crashDetails[stackTraceModal.groupName]?.exceptionName}
-                    stackTrace={crashDetails[stackTraceModal.groupName]?.stackTrace || ''}
-                    issueType="crash"
-                    sessionId={crashGroups.find(g => g.name === stackTraceModal.groupName)?.sampleSessionId}
-                    onViewReplay={() => {
-                        const group = crashGroups.find(g => g.name === stackTraceModal.groupName);
-                        if (group) {
-                            navigate(`${pathPrefix}/sessions/${group.sampleSessionId}`);
-                        }
-                    }}
-                />
-            )}
         </div>
     );
 };

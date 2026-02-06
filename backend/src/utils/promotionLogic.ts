@@ -15,6 +15,7 @@ export interface SessionMetrics {
     apiErrorCount: number;
     errorCount: number;
     rageTapCount: number;
+    deadTapCount: number;
     avgApiLatencyMs: number;
     durationSeconds: number;
     startupTimeMs: number; // App startup time in milliseconds

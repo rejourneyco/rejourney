@@ -1,3 +1,19 @@
+/**
+ * Copyright 2026 Rejourney
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 import UIKit
 import QuartzCore
 
@@ -260,6 +276,32 @@ public final class TelemetryPipeline: NSObject {
         _enqueue(["type": "custom", "timestamp": _ts(), "name": name, "payload": payload])
     }
     
+    @objc public func recordJSErrorEvent(name: String, message: String, stack: String?) {
+        var event: [String: Any] = [
+            "type": "error",
+            "timestamp": _ts(),
+            "name": name,
+            "message": message
+        ]
+        if let stack = stack {
+            event["stack"] = stack
+        }
+        _enqueue(event)
+    }
+    
+    @objc public func recordAnrEvent(durationMs: Int, stack: String?) {
+        var event: [String: Any] = [
+            "type": "anr",
+            "timestamp": _ts(),
+            "durationMs": durationMs,
+            "threadState": "blocked"
+        ]
+        if let stack = stack {
+            event["stack"] = stack
+        }
+        _enqueue(event)
+    }
+    
     @objc public func recordUserAssociation(_ userId: String) {
         _enqueue(["type": "user_identity_changed", "timestamp": _ts(), "userId": userId])
     }
@@ -282,6 +324,19 @@ public final class TelemetryPipeline: NSObject {
         ])
     }
     
+    @objc public func recordDeadTapEvent(label: String, x: UInt64, y: UInt64) {
+        _enqueue([
+            "type": "gesture",
+            "gestureType": "dead_tap",
+            "timestamp": _ts(),
+            "label": label,
+            "x": x,
+            "y": y,
+            "frustrationKind": "dead_tap",
+            "touches": [["x": x, "y": y, "timestamp": _ts()]]
+        ])
+    }
+    
     @objc public func recordSwipeEvent(label: String, x: UInt64, y: UInt64, direction: String) {
         _enqueue(["type": "gesture", "gestureType": "swipe", "timestamp": _ts(), "label": label, "x": x, "y": y, "direction": direction, "touches": [["x": x, "y": y, "timestamp": _ts()]]])
     }
@@ -296,6 +351,14 @@ public final class TelemetryPipeline: NSObject {
     
     @objc public func recordLongPressEvent(label: String, x: UInt64, y: UInt64) {
         _enqueue(["type": "gesture", "gestureType": "long_press", "timestamp": _ts(), "label": label, "x": x, "y": y, "touches": [["x": x, "y": y, "timestamp": _ts()]]])
+    }
+    
+    @objc public func recordPinchEvent(label: String, x: UInt64, y: UInt64, scale: Double) {
+        _enqueue(["type": "gesture", "gestureType": "pinch", "timestamp": _ts(), "label": label, "x": x, "y": y, "scale": scale, "touches": [["x": x, "y": y, "timestamp": _ts()]]])
+    }
+    
+    @objc public func recordRotationEvent(label: String, x: UInt64, y: UInt64, angle: Double) {
+        _enqueue(["type": "gesture", "gestureType": "rotation", "timestamp": _ts(), "label": label, "x": x, "y": y, "angle": angle, "touches": [["x": x, "y": y, "timestamp": _ts()]]])
     }
     
     @objc public func recordInputEvent(value: String, redacted: Bool, label: String) {

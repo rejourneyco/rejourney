@@ -42,8 +42,8 @@ export function csrfProtection(
         return;
     }
 
-    // Skip CSRF for API key authenticated requests
-    if (req.headers['x-api-key']) {
+    // Skip CSRF for SDK requests (identified by project key header)
+    if (req.headers['x-rejourney-key'] || req.headers['x-api-key']) {
         next();
         return;
     }
@@ -92,8 +92,8 @@ export function originValidation(
         return;
     }
 
-    // Skip for API key authenticated requests
-    if (req.headers['x-api-key']) {
+    // Skip for SDK requests (identified by project key header)
+    if (req.headers['x-rejourney-key'] || req.headers['x-api-key']) {
         next();
         return;
     }

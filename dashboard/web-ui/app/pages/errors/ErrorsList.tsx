@@ -23,7 +23,6 @@ import { formatLastSeen, formatAge } from '../../utils/formatDates';
 import { NeoBadge } from '../../components/ui/neo/NeoBadge';
 import { NeoButton } from '../../components/ui/neo/NeoButton';
 import { NeoCard } from '../../components/ui/neo/NeoCard';
-import { StackTraceModal } from '../../components/ui/StackTraceModal';
 
 
 interface ErrorGroup {
@@ -54,7 +53,6 @@ export const ErrorsList: React.FC = () => {
 
     const [errors, setErrors] = useState<JSError[]>([]);
     const [loading, setLoading] = useState(true);
-    const [stackTraceModal, setStackTraceModal] = useState<{ isOpen: boolean; fingerprint: string | null }>({ isOpen: false, fingerprint: null });
 
     useEffect(() => {
         // In demo mode, we can call API with a dummy ID - the API service returns demo data
@@ -316,22 +314,12 @@ export const ErrorsList: React.FC = () => {
                                         <div className="grid grid-cols-1 lg:grid-cols-12 gap-12">
 
                                             {/* LEFT: Stack Trace & Details */}
-                                            <div className="lg:col-span-12 xl:col-span-8 space-y-8">
+                                            <div className="lg:col-span-8 space-y-8">
                                                 <div>
                                                     <div className="flex items-center justify-between mb-4">
                                                         <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest flex items-center gap-2">
                                                             <Activity size={12} className="text-amber-500" /> Stack Trace Preview
                                                         </h4>
-                                                        <NeoButton
-                                                            variant="ghost"
-                                                            size="sm"
-                                                            onClick={(e) => {
-                                                                e.stopPropagation();
-                                                                navigate(`${pathPrefix}/stability/errors/${currentProject?.id}/${group.sampleError.id}`);
-                                                            }}
-                                                        >
-                                                            Full Resolution <ExternalLink size={10} className="ml-1" />
-                                                        </NeoButton>
                                                     </div>
 
                                                     {group.sampleError.stack ? (
@@ -344,22 +332,11 @@ export const ErrorsList: React.FC = () => {
                                                                     <div className="w-2 h-2 rounded-full bg-slate-700" />
                                                                 </div>
                                                             </div>
-                                                            <div className="p-5 font-mono text-[11px] text-slate-300 leading-relaxed overflow-x-auto whitespace-pre custom-scrollbar max-h-80">
-                                                                {group.sampleError.stack.split('\n').slice(0, 12).join('\n')}
-                                                                {group.sampleError.stack.split('\n').length > 12 && (
-                                                                    <div className="mt-4 pt-4 border-t border-slate-800 text-slate-500 italic flex items-center justify-between">
-                                                                        <span>... and {group.sampleError.stack.split('\n').length - 12} more lines</span>
-                                                                        <NeoButton
-                                                                            variant="ghost"
-                                                                            size="sm"
-                                                                            className="text-amber-400 hover:text-amber-300 hover:bg-slate-800"
-                                                                            onClick={(e) => {
-                                                                                e.stopPropagation();
-                                                                                setStackTraceModal({ isOpen: true, fingerprint: group.fingerprint });
-                                                                            }}
-                                                                        >
-                                                                            View Full Trace
-                                                                        </NeoButton>
+                                                            <div className="p-5 font-mono text-[11px] text-slate-300 leading-relaxed overflow-x-auto whitespace-pre custom-scrollbar">
+                                                                {group.sampleError.stack.split('\n').slice(0, 10).join('\n')}
+                                                                {group.sampleError.stack.split('\n').length > 10 && (
+                                                                    <div className="mt-4 pt-4 border-t border-slate-800 text-slate-500 text-[10px] italic">
+                                                                        ... clipping for preview ...
                                                                     </div>
                                                                 )}
                                                             </div>
@@ -370,9 +347,23 @@ export const ErrorsList: React.FC = () => {
                                                             <p className="text-sm font-bold text-slate-400 uppercase tracking-wider">No stack trace trace sample found for this issue.</p>
                                                         </NeoCard>
                                                     )}
+
+                                                    <div className="mt-4">
+                                                        <NeoButton
+                                                            variant="primary"
+                                                            size="sm"
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                navigate(`${pathPrefix}/stability/errors/${currentProject?.id}/${group.sampleError.id}`);
+                                                            }}
+                                                            rightIcon={<ChevronRight size={14} />}
+                                                        >
+                                                            Inspect Resolution
+                                                        </NeoButton>
+                                                    </div>
                                                 </div>
 
-                                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                                                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                                                     <div className="bg-white p-4 border-2 border-black shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]">
                                                         <div className="text-[10px] font-black text-slate-400 uppercase tracking-wider mb-2">First Seen</div>
                                                         <div className="text-sm font-black text-black">{new Date(group.firstSeen).toLocaleDateString()}</div>
@@ -381,7 +372,7 @@ export const ErrorsList: React.FC = () => {
                                                         <div className="text-[10px] font-black text-slate-400 uppercase tracking-wider mb-2">Last Seen</div>
                                                         <div className="text-sm font-black text-black">{formatLastSeen(group.lastOccurred)}</div>
                                                     </div>
-                                                    <div className="bg-white p-4 border-2 border-black shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] md:col-span-2 lg:col-span-1">
+                                                    <div className="bg-white p-4 border-2 border-black shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]">
                                                         <div className="text-[10px] font-black text-slate-400 uppercase tracking-wider mb-2">Environment</div>
                                                         <div className="flex flex-wrap gap-2">
                                                             <NeoBadge variant="neutral" size="sm">{Object.keys(group.affectedDevices)[0] || 'Unknown SDK'}</NeoBadge>
@@ -392,22 +383,12 @@ export const ErrorsList: React.FC = () => {
                                             </div>
 
                                             {/* RIGHT: Visual Context */}
-                                            <div className="lg:col-span-12 xl:col-span-4 space-y-8">
+                                            <div className="lg:col-span-4 space-y-8">
                                                 <div>
                                                     <div className="flex items-center justify-between mb-4">
                                                         <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest flex items-center gap-2">
                                                             <Play size={12} className="text-indigo-500" /> Evidence Sample
                                                         </h4>
-                                                        <NeoButton
-                                                            variant="ghost"
-                                                            size="sm"
-                                                            onClick={(e) => {
-                                                                e.stopPropagation();
-                                                                if (group.sampleError.sessionId) navigate(`${pathPrefix}/sessions/${group.sampleError.sessionId}`);
-                                                            }}
-                                                        >
-                                                            Play Session <ChevronRight size={10} className="ml-1" />
-                                                        </NeoButton>
                                                     </div>
 
                                                     <NeoCard variant="flat" className="flex justify-center items-center py-6 bg-slate-100 border-2 border-black !shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]">
@@ -432,7 +413,10 @@ export const ErrorsList: React.FC = () => {
                                                     <NeoButton
                                                         variant="secondary"
                                                         size="sm"
-                                                        onClick={() => group.sampleError.sessionId && navigate(`${pathPrefix}/sessions/${group.sampleError.sessionId}`)}
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            group.sampleError.sessionId && navigate(`${pathPrefix}/sessions/${group.sampleError.sessionId}`);
+                                                        }}
                                                     >
                                                         Review Timeline <Play size={10} fill="currentColor" className="ml-1" />
                                                     </NeoButton>
@@ -446,28 +430,6 @@ export const ErrorsList: React.FC = () => {
                     })}
                 </div>
             </div>
-
-            {/* Stack Trace Modal */}
-            {stackTraceModal.fingerprint && (() => {
-                const group = errorGroups.find(g => g.fingerprint === stackTraceModal.fingerprint);
-                if (!group?.sampleError?.stack) return null;
-                return (
-                    <StackTraceModal
-                        isOpen={stackTraceModal.isOpen}
-                        onClose={() => setStackTraceModal({ isOpen: false, fingerprint: null })}
-                        title={group.errorName}
-                        subtitle={group.message}
-                        stackTrace={group.sampleError.stack}
-                        issueType="error"
-                        sessionId={group.sampleError.sessionId || undefined}
-                        onViewReplay={() => {
-                            if (group.sampleError.sessionId) {
-                                navigate(`${pathPrefix}/sessions/${group.sampleError.sessionId}`);
-                            }
-                        }}
-                    />
-                );
-            })()}
         </div>
     );
 };

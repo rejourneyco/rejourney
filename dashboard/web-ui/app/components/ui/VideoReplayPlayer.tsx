@@ -21,6 +21,7 @@ import {
   ChevronRight,
 } from 'lucide-react';
 import { TouchOverlay, TouchEvent } from './TouchOverlay';
+import { MarkerTooltip } from './MarkerTooltip';
 
 // Types
 export interface HierarchySnapshot {
@@ -121,6 +122,7 @@ export const VideoReplayPlayer = forwardRef<VideoReplayPlayerRef, VideoReplayPla
     const [showTouchOverlay, setShowTouchOverlay] = useState(true);
     const [touchEvents, setTouchEvents] = useState<TouchEvent[]>([]);
     const [isDragging, setIsDragging] = useState(false);
+    const [segmentDownloadProgress, setSegmentDownloadProgress] = useState<number | null>(null);
 
     // Background/termination overlay state
     const [isInBackground, setIsInBackground] = useState(false);
@@ -128,6 +130,7 @@ export const VideoReplayPlayer = forwardRef<VideoReplayPlayerRef, VideoReplayPla
     const [isTerminated, setIsTerminated] = useState(false);
     const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
     const [keyboardHeight, setKeyboardHeight] = useState(0);
+    const [hoveredMarker, setHoveredMarker] = useState<any>(null);
 
     const [isSeeking, setIsSeeking] = useState(false);
 
@@ -634,16 +637,75 @@ export const VideoReplayPlayer = forwardRef<VideoReplayPlayerRef, VideoReplayPla
       }
     }, [seekToTime]);
 
-    // Effect: Update video source
+    // Effect: Update video source with progress tracking
     useEffect(() => {
-      if (videoRef.current && segments[activeSegmentIndex]) {
-        const wasPlaying = isPlaying;
-        videoRef.current.src = segments[activeSegmentIndex].url;
-        videoRef.current.load();
-        if (wasPlaying) {
-          videoRef.current.play().catch(() => { });
+      if (!videoRef.current || !segments[activeSegmentIndex]) return;
+
+      let cancelled = false;
+      const wasPlaying = isPlaying;
+      const segment = segments[activeSegmentIndex];
+
+      async function fetchSegmentWithProgress() {
+        try {
+          setSegmentDownloadProgress(0);
+          const res = await fetch(segment.url);
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+          const contentLength = +(res.headers.get('Content-Length') || 0);
+          if (!res.body) {
+            videoRef.current!.src = segment.url;
+            return;
+          }
+
+          const reader = res.body.getReader();
+          let receivedLength = 0;
+          const chunks = [];
+
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            chunks.push(value);
+            receivedLength += value.length;
+            if (contentLength) {
+              setSegmentDownloadProgress(Math.round((receivedLength / contentLength) * 100));
+            }
+          }
+
+          if (cancelled) return;
+
+          const blob = new Blob(chunks, { type: 'video/mp4' });
+          const blobUrl = URL.createObjectURL(blob);
+
+          if (videoRef.current) {
+            videoRef.current.src = blobUrl;
+            videoRef.current.load();
+            if (wasPlaying) {
+              videoRef.current.play().catch(() => { });
+            }
+          }
+
+          // Cleanup blob URL when segment changes or component unmounts
+          return () => {
+            URL.revokeObjectURL(blobUrl);
+          };
+        } catch (err) {
+          console.error('Failed to fetch video segment:', err);
+          if (videoRef.current && !cancelled) {
+            videoRef.current.src = segment.url;
+          }
+        } finally {
+          if (!cancelled) {
+            setSegmentDownloadProgress(null);
+          }
         }
       }
+
+      const cleanup = fetchSegmentWithProgress();
+
+      return () => {
+        cancelled = true;
+        cleanup.then(fn => fn?.());
+      };
     }, [activeSegmentIndex, segments]);
 
     // Effect: Playback rate
@@ -772,10 +834,29 @@ export const VideoReplayPlayer = forwardRef<VideoReplayPlayerRef, VideoReplayPla
                       />
                     )}
 
-                    {/* Buffering */}
-                    {isBuffering && (
-                      <div className="absolute inset-0 flex items-center justify-center bg-black/60 z-30">
-                        <div className="w-10 h-10 border-3 border-white/20 border-t-white rounded-full animate-spin" />
+                    {/* Buffering / Segment Loading */}
+                    {(isBuffering || segmentDownloadProgress !== null) && (
+                      <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/60 z-30 p-6">
+                        <div className="w-10 h-10 border-3 border-white/20 border-t-white rounded-full animate-spin mb-4" />
+
+                        {segmentDownloadProgress !== null ? (
+                          <div className="w-full max-w-[160px]">
+                            <div className="h-1.5 w-full bg-white/20 rounded-full overflow-hidden border border-white/10">
+                              <div
+                                className="h-full bg-blue-500 transition-all duration-300"
+                                style={{ width: `${segmentDownloadProgress}%` }}
+                              />
+                            </div>
+                            <p className="text-[10px] font-mono text-center text-white/70 mt-3 uppercase tracking-widest leading-relaxed">
+                              Fetching from S3...<br />
+                              {segmentDownloadProgress}% complete
+                            </p>
+                          </div>
+                        ) : (
+                          <p className="text-[10px] font-mono text-center text-white/70 uppercase tracking-widest">
+                            Buffering...
+                          </p>
+                        )}
                       </div>
                     )}
 
@@ -877,49 +958,19 @@ export const VideoReplayPlayer = forwardRef<VideoReplayPlayerRef, VideoReplayPla
                       top: '50%',
                       transform: 'translate(-50%, -50%)',
                     }}
+                    onMouseEnter={() => setHoveredMarker({
+                      ...event,
+                      timestampStr: formatTime(event.relativeTime),
+                      x: percent
+                    })}
+                    onMouseLeave={() => setHoveredMarker(null)}
                   />
                 );
               })}
 
-              {/* Crash Markers */}
-              {normalizedCrashes.map((crash, i) => {
-                const percent = (crash.relativeTime / sessionDuration) * 100;
-                if (percent < 0 || percent > 100) return null;
-                return (
-                  <div
-                    key={`c-${i}`}
-                    className="absolute w-2.5 h-2.5 bg-red-500 border border-white rounded-sm rotate-45"
-                    style={{
-                      left: `${percent}%`,
-                      top: '50%',
-                      transform: 'translate(-50%, -50%) rotate(45deg)',
-                    }}
-                    title={`Crash: ${crash.exceptionName}`}
-                  />
-                );
-              })}
-
-              {/* ANR Markers */}
-              {normalizedAnrs.map((anr, i) => {
-                const percent = (anr.relativeTime / sessionDuration) * 100;
-                if (percent < 0 || percent > 100) return null;
-                return (
-                  <div
-                    key={`a-${i}`}
-                    className="absolute w-2.5 h-2.5 bg-orange-500 border border-white rounded-full"
-                    style={{
-                      left: `${percent}%`,
-                      top: '50%',
-                      transform: 'translate(-50%, -50%)',
-                    }}
-                    title={`ANR: ${anr.durationMs}ms`}
-                  />
-                );
-              })}
-
-              {/* Scrubber Handle */}
+              {/* Progress Scrubber Handle */}
               <div
-                className="absolute w-3.5 h-3.5 bg-white rounded-full shadow-md border-2 border-slate-300 opacity-0 group-hover:opacity-100 transition-opacity"
+                className="absolute w-3.5 h-3.5 bg-white rounded-full shadow-md border-2 border-slate-300 opacity-0 group-hover:opacity-100 transition-opacity z-20"
                 style={{
                   left: `${progressPercent}%`,
                   top: '50%',
@@ -927,6 +978,21 @@ export const VideoReplayPlayer = forwardRef<VideoReplayPlayerRef, VideoReplayPla
                 }}
               />
             </div>
+
+            {/* Marker Tooltip */}
+            {hoveredMarker && (
+              <MarkerTooltip
+                visible={!!hoveredMarker}
+                x={hoveredMarker.x}
+                type={hoveredMarker.type}
+                name={hoveredMarker.name}
+                timestamp={hoveredMarker.timestampStr}
+                target={hoveredMarker.targetLabel}
+                statusCode={hoveredMarker.properties?.statusCode}
+                success={hoveredMarker.properties?.success}
+                duration={hoveredMarker.properties?.duration}
+              />
+            )}
 
             {/* Control Buttons */}
             <div className="flex items-center justify-between">

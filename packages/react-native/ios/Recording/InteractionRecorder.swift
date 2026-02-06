@@ -1,3 +1,19 @@
+/**
+ * Copyright 2026 Rejourney
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 import UIKit
 import ObjectiveC
 
@@ -50,36 +66,61 @@ public final class InteractionRecorder: NSObject {
         TelemetryPipeline.shared.recordViewTransition(viewId: last, viewLabel: last, entering: false)
     }
     
+    private var _installedRecognizers: [UIGestureRecognizer] = []
+    
     private func _installGlobalRecognizers() {
         guard let agg = _gestureAggregator else { return }
         
         for window in UIApplication.shared.windows {
             let tap = UITapGestureRecognizer(target: agg, action: #selector(GestureAggregator.handleTap(_:)))
             tap.cancelsTouchesInView = false
+            tap.delaysTouchesBegan = false
             tap.delaysTouchesEnded = false
+            tap.delegate = agg
             window.addGestureRecognizer(tap)
+            _installedRecognizers.append(tap)
             
             let pan = UIPanGestureRecognizer(target: agg, action: #selector(GestureAggregator.handlePan(_:)))
             pan.cancelsTouchesInView = false
+            pan.delaysTouchesBegan = false
             pan.delaysTouchesEnded = false
             pan.minimumNumberOfTouches = 1
+            pan.delegate = agg
             window.addGestureRecognizer(pan)
+            _installedRecognizers.append(pan)
             
             let longPress = UILongPressGestureRecognizer(target: agg, action: #selector(GestureAggregator.handleLongPress(_:)))
             longPress.cancelsTouchesInView = false
+            longPress.delaysTouchesBegan = false
+            longPress.delaysTouchesEnded = false
             longPress.minimumPressDuration = 0.5
+            longPress.delegate = agg
             window.addGestureRecognizer(longPress)
+            _installedRecognizers.append(longPress)
+            
+            let pinch = UIPinchGestureRecognizer(target: agg, action: #selector(GestureAggregator.handlePinch(_:)))
+            pinch.cancelsTouchesInView = false
+            pinch.delaysTouchesBegan = false
+            pinch.delaysTouchesEnded = false
+            pinch.delegate = agg
+            window.addGestureRecognizer(pinch)
+            _installedRecognizers.append(pinch)
+            
+            let rotation = UIRotationGestureRecognizer(target: agg, action: #selector(GestureAggregator.handleRotation(_:)))
+            rotation.cancelsTouchesInView = false
+            rotation.delaysTouchesBegan = false
+            rotation.delaysTouchesEnded = false
+            rotation.delegate = agg
+            window.addGestureRecognizer(rotation)
+            _installedRecognizers.append(rotation)
         }
     }
     
     private func _removeGlobalRecognizers() {
-        for window in UIApplication.shared.windows {
-            window.gestureRecognizers?.forEach { gr in
-                if gr.delegate === _gestureAggregator {
-                    window.removeGestureRecognizer(gr)
-                }
-            }
+        for recognizer in _installedRecognizers {
+            recognizer.view?.removeGestureRecognizer(recognizer)
         }
+        _installedRecognizers.removeAll()
     }
     
     fileprivate func reportTap(location: CGPoint, target: String) {
@@ -124,6 +165,26 @@ public final class InteractionRecorder: NSObject {
         ReplayOrchestrator.shared.incrementGestureTally()
     }
     
+    fileprivate func reportPinch(location: CGPoint, scale: CGFloat, target: String) {
+        TelemetryPipeline.shared.recordPinchEvent(
+            label: target,
+            x: UInt64(max(0, location.x)),
+            y: UInt64(max(0, location.y)),
+            scale: Double(scale)
+        )
+        ReplayOrchestrator.shared.incrementGestureTally()
+    }
+    
+    fileprivate func reportRotation(location: CGPoint, angle: CGFloat, target: String) {
+        TelemetryPipeline.shared.recordRotationEvent(
+            label: target,
+            x: UInt64(max(0, location.x)),
+            y: UInt64(max(0, location.y)),
+            angle: Double(angle)
+        )
+        ReplayOrchestrator.shared.incrementGestureTally()
+    }
+    
     fileprivate func reportRageTap(location: CGPoint, count: Int, target: String) {
         TelemetryPipeline.shared.recordRageTapEvent(
             label: target,
@@ -132,6 +193,15 @@ public final class InteractionRecorder: NSObject {
             count: count
         )
         ReplayOrchestrator.shared.incrementRageTapTally()
+    }
+    
+    fileprivate func reportDeadTap(location: CGPoint, target: String) {
+        TelemetryPipeline.shared.recordDeadTapEvent(
+            label: target,
+            x: UInt64(max(0, location.x)),
+            y: UInt64(max(0, location.y))
+        )
+        ReplayOrchestrator.shared.incrementDeadTapTally()
     }
     
     fileprivate func reportInput(value: String, masked: Bool, hint: String) {
@@ -171,6 +241,8 @@ private final class GestureAggregator: NSObject, UIGestureRecognizerDelegate {
             _recentTaps.removeAll()
         } else {
             recorder?.reportTap(location: loc, target: target)
+            // Dead tap detection moved to JS side — native view hierarchy inspection
+            // is unreliable in React Native since touch handling is JS-based.
         }
     }
     
@@ -210,8 +282,61 @@ private final class GestureAggregator: NSObject, UIGestureRecognizerDelegate {
         recorder?.reportLongPress(location: loc, target: target)
     }
     
+    @objc func handlePinch(_ gesture: UIPinchGestureRecognizer) {
+        let loc = gesture.location(in: gesture.view)
+        let target = _resolveTarget(at: loc, in: gesture.view)
+        
+        switch gesture.state {
+        case .changed:
+            let now = Date()
+            if now.timeIntervalSince(_lastPanTime) >= _panThrottleInterval {
+                _lastPanTime = now
+                recorder?.reportPinch(location: loc, scale: gesture.scale, target: target)
+            }
+        case .ended:
+            recorder?.reportPinch(location: loc, scale: gesture.scale, target: target)
+        default:
+            break
+        }
+    }
+    
+    @objc func handleRotation(_ gesture: UIRotationGestureRecognizer) {
+        let loc = gesture.location(in: gesture.view)
+        let target = _resolveTarget(at: loc, in: gesture.view)
+        
+        switch gesture.state {
+        case .changed:
+            let now = Date()
+            if now.timeIntervalSince(_lastPanTime) >= _panThrottleInterval {
+                _lastPanTime = now
+                recorder?.reportRotation(location: loc, angle: gesture.rotation, target: target)
+            }
+        case .ended:
+            recorder?.reportRotation(location: loc, angle: gesture.rotation, target: target)
+        default:
+            break
+        }
+    }
+    
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool {
         true
+    }
+    
+    /// Allow text inputs to receive touches immediately without gesture resolution delay.
+    /// Without this, the system gesture gate times out waiting for our 5 window-level
+    /// recognizers, causing a ~3s delay before the keyboard appears on first tap.
+    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+        if let view = touch.view {
+            if view is UITextField || view is UITextView {
+                return false
+            }
+            // React Native text inputs use internal class names
+            let className = String(describing: type(of: view))
+            if className.contains("TextInput") || className.contains("RCTUITextField") || className.contains("RCTBaseText") {
+                return false
+            }
+        }
+        return true
     }
     
     private func _pruneOldTaps() {

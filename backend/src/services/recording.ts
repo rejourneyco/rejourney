@@ -5,10 +5,11 @@ import geoip from 'geoip-lite';
 
 /**
  * Update device usage metrics (atomic upsert for scalability)
- * Tracks bytes uploaded, request count, sessions started, minutes recorded
+ * Tracks bytes uploaded, request count, sessions started, minutes recorded per device per project per day.
  */
 export async function updateDeviceUsage(
     deviceId: string | null,
+    projectId: string,
     updates: {
         bytesUploaded?: number;
         requestCount?: number;
@@ -24,6 +25,7 @@ export async function updateDeviceUsage(
         await db.insert(deviceUsage)
             .values({
                 deviceId,
+                projectId,
                 period: today,
                 bytesUploaded: BigInt(updates.bytesUploaded || 0),
                 requestCount: updates.requestCount || 0,
@@ -31,7 +33,7 @@ export async function updateDeviceUsage(
                 minutesRecorded: updates.minutesRecorded || 0,
             })
             .onConflictDoUpdate({
-                target: [deviceUsage.deviceId, deviceUsage.period],
+                target: [deviceUsage.deviceId, deviceUsage.projectId, deviceUsage.period],
                 set: {
                     bytesUploaded: updates.bytesUploaded
                         ? sql`${deviceUsage.bytesUploaded} + ${updates.bytesUploaded}`
@@ -49,7 +51,7 @@ export async function updateDeviceUsage(
             });
     } catch (err) {
         // Non-blocking - usage tracking should not fail uploads
-        logger.warn({ err, deviceId }, 'Failed to update device usage');
+        logger.warn({ err, deviceId, projectId }, 'Failed to update device usage');
     }
 }
 

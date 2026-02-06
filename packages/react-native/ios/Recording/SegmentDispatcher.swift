@@ -1,3 +1,19 @@
+/**
+ * Copyright 2026 Rejourney
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 import Foundation
 
 final class SegmentDispatcher {
@@ -447,7 +463,6 @@ final class SegmentDispatcher {
     private func applyAuthHeaders(_ req: inout URLRequest) {
         if let t = apiToken {
             req.setValue(t, forHTTPHeaderField: "x-rejourney-key")
-            req.setValue(t, forHTTPHeaderField: "x-api-key")
         }
         if let c = credential {
             req.setValue(c, forHTTPHeaderField: "x-upload-token")

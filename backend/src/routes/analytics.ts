@@ -119,6 +119,7 @@ router.get(
                 totalInteractions: Number(s.totalInteractions || 0),
                 totalErrors: Number(s.totalErrors || 0),
                 totalRageTaps: Number(s.totalRageTaps || 0),
+                totalDeadTaps: Number(s.totalDeadTaps || 0),
             })),
         };
 
@@ -200,6 +201,7 @@ router.get(
         // Compute overall averages
         const totalSessions = stats.reduce((sum, s) => sum + s.totalSessions, 0);
         const totalRageTaps = stats.reduce((sum, s) => sum + (s.totalRageTaps || 0), 0);
+        const totalDeadTaps = stats.reduce((sum, s) => sum + (s.totalDeadTaps || 0), 0);
         const totalErrors = stats.reduce((sum, s) => sum + (s.totalErrors || 0), 0);
 
         // Interaction Breakdown
@@ -224,6 +226,7 @@ router.get(
             summary: {
                 totalSessions,
                 totalRageTaps,
+                totalDeadTaps,
                 totalErrors,
                 // Interaction Breakdown
                 totalTouches,
@@ -300,7 +303,7 @@ router.get(
                 res.json({
                     totalSessions: 0, avgDuration: 0, avgUxScore: 0, errorRate: 0,
                     platformBreakdown: { ios: 0, android: 0 },
-                    totalErrors: 0, totalRageTaps: 0, dau: 0, wau: 0, mau: 0
+                    totalErrors: 0, totalRageTaps: 0, totalDeadTaps: 0, dau: 0, wau: 0, mau: 0
                 });
                 return;
             }
@@ -315,7 +318,7 @@ router.get(
                 res.json({
                     totalSessions: 0, avgDuration: 0, avgUxScore: 0, errorRate: 0,
                     platformBreakdown: { ios: 0, android: 0 },
-                    totalErrors: 0, totalRageTaps: 0, dau: 0, wau: 0, mau: 0
+                    totalErrors: 0, totalRageTaps: 0, totalDeadTaps: 0, dau: 0, wau: 0, mau: 0
                 });
                 return;
             }
@@ -334,7 +337,7 @@ router.get(
 
             const stats = {
                 totalSessions: 0, avgDuration: 0, avgUxScore: 0, errorRate: 0,
-                platformBreakdown: { ios: 0, android: 0 }, totalErrors: 0, totalRageTaps: 0,
+                platformBreakdown: { ios: 0, android: 0 }, totalErrors: 0, totalRageTaps: 0, totalDeadTaps: 0,
                 dau: 0, wau: 0, mau: 0, totalUsers: 0,
                 // Interaction Breakdown
                 totalTouches: 0, totalScrolls: 0, totalGestures: 0, totalInteractions: 0,
@@ -366,6 +369,7 @@ router.get(
                     stats.totalSessions += sessionCount;
                     stats.totalErrors += Number(s.totalErrors || 0);
                     stats.totalRageTaps += Number(s.totalRageTaps || 0);
+                    stats.totalDeadTaps += Number(s.totalDeadTaps || 0);
                     stats.totalUsers += Number(s.totalUsers || 0);
 
                     // Interaction Breakdown
@@ -429,6 +433,7 @@ router.get(
             platformBreakdown: { ios: 0, android: 0 }, // Not in all-time table yet
             totalErrors: 0,
             totalRageTaps: 0,
+            totalDeadTaps: 0,
             // Interaction Breakdown
             totalTouches: 0,
             totalScrolls: 0,
@@ -458,6 +463,7 @@ router.get(
                 stats.errorRate = allTime.avgApiErrorRate || 0;
                 stats.totalErrors = Number(allTime.totalErrors);
                 stats.totalRageTaps = Number(allTime.totalRageTaps);
+                stats.totalDeadTaps = Number(allTime.totalDeadTaps || 0);
                 // Interaction Breakdown
                 stats.totalTouches = Number(allTime.totalTouches || 0);
                 stats.totalScrolls = Number(allTime.totalScrolls || 0);
@@ -494,6 +500,7 @@ router.get(
                 stats.totalSessions = totalSess;
                 stats.totalErrors = dailies.reduce((acc, d) => acc + d.totalErrors, 0);
                 stats.totalRageTaps = dailies.reduce((acc, d) => acc + d.totalRageTaps, 0);
+                stats.totalDeadTaps = dailies.reduce((acc, d) => acc + (d.totalDeadTaps || 0), 0);
 
                 stats.engagementSegments.bouncers = dailies.reduce((acc, d) => acc + (d.totalBouncers || 0), 0);
                 stats.engagementSegments.casuals = dailies.reduce((acc, d) => acc + (d.totalCasuals || 0), 0);

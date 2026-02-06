@@ -1,15 +1,25 @@
 /**
+ * Copyright 2026 Rejourney
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+/**
  * Rejourney - Session Recording and Replay SDK for React Native
  * 
  * Captures user interactions, gestures, and screen states for replay and analysis.
  * 
  * Just call initRejourney() - everything else is automatic!
- * 
- * Copyright (c) 2026 Rejourney
- * 
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * See LICENSE-APACHE for full terms.
  * 
  * @example
  * ```typescript
@@ -423,8 +433,6 @@ const Rejourney: RejourneyAPI = {
     try {
       const apiUrl = _storedConfig.apiUrl || 'https://api.rejourney.co';
       const publicKey = _storedConfig.publicRouteKey || '';
-
-      getLogger().debug(`Calling native startSession (apiUrl=${apiUrl})`);
 
       const deviceId = await getAutoTracking().ensurePersistentAnonymousId();
 
@@ -1259,6 +1267,7 @@ export function initRejourney(
     publicRouteKey,
   };
 
+
   if (options?.debug) {
     getLogger().setDebugMode(true);
     const nativeModule = getRejourneyNative();
@@ -1363,6 +1372,7 @@ export {
   trackScreen,
   captureError,
   getSessionMetrics,
+  markTapHandled,
 } from './sdk/autoTracking';
 
 export { trackNavigationState, useNavigationTracking } from './sdk/autoTracking';
