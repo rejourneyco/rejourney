@@ -67,7 +67,7 @@ export async function lookupGeoIp(sessionId: string, ip: string): Promise<void> 
     if (normalizedIp.startsWith('::ffff:')) {
         normalizedIp = normalizedIp.slice(7);
     }
-    
+
     // Skip private/local IPs early
     const privatePatterns = [
         /^127\./,           // localhost
@@ -79,7 +79,7 @@ export async function lookupGeoIp(sessionId: string, ip: string): Promise<void> 
         /^fc00:/i,          // IPv6 unique local
         /^fd/i,             // IPv6 unique local
     ];
-    
+
     const isPrivate = privatePatterns.some(pattern => pattern.test(normalizedIp));
     if (isPrivate) {
         logger.debug({ sessionId, ip: normalizedIp }, 'Skipping GeoIP for private/local IP');
@@ -136,6 +136,7 @@ export async function ensureIngestSession(
         osVersion?: string;
         networkType?: string;
         deviceId?: string;  // Device ID from upload token for anonymous name generation
+        isSampledIn?: boolean;  // SDK's sampling decision for server-side enforcement
     }
 ): Promise<{ session: any | null; created: boolean }> {
     let [session] = await db.select().from(sessions).where(eq(sessions.id, sessionId)).limit(1);
@@ -205,6 +206,7 @@ export async function ensureIngestSession(
             anonymousDisplayId,
             deviceId: metadata?.deviceId || null,  // Set deviceId on session creation for funny anonymous names
             startedAt,
+            isSampledIn: metadata?.isSampledIn ?? true,  // Default to true for backward compatibility
         }).returning();
 
         // Initialize metrics
@@ -217,12 +219,12 @@ export async function ensureIngestSession(
         // IP extraction with support for various proxy headers
         // Priority: Cloudflare > X-Forwarded-For > X-Real-IP > socket
         let clientIp = '';
-        
+
         // Cloudflare puts the real client IP in CF-Connecting-IP
         const cfConnectingIp = req.headers['cf-connecting-ip'];
         const xForwardedFor = req.headers['x-forwarded-for'];
         const xRealIp = req.headers['x-real-ip'];
-        
+
         if (cfConnectingIp) {
             clientIp = Array.isArray(cfConnectingIp) ? cfConnectingIp[0] : cfConnectingIp;
         } else if (xForwardedFor) {
@@ -237,9 +239,9 @@ export async function ensureIngestSession(
             clientIp = req.socket?.remoteAddress || req.ip || '';
         }
 
-        logger.debug({ 
-            sessionId: session.id, 
-            clientIp, 
+        logger.debug({
+            sessionId: session.id,
+            clientIp,
             cfConnectingIp: cfConnectingIp || 'not set',
             xForwardedFor: xForwardedFor || 'not set',
             xRealIp: xRealIp || 'not set',

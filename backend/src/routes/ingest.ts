@@ -156,6 +156,7 @@ router.post(
             osVersion: data.osVersion,
             networkType: data.networkType,
             deviceId: deviceAuthId || undefined,
+            isSampledIn: data.isSampledIn ?? true,  // SDK's sampling decision for server-side enforcement
         });
 
         // Session state validation
@@ -485,6 +486,48 @@ router.post(
 
         if (session.status === 'failed' || session.status === 'deleted') {
             throw ApiError.badRequest('Session is no longer accepting data');
+        }
+
+        // =====================================================
+        // SERVER-SIDE ENFORCEMENT: Sample Rate
+        // Reject video/screenshot uploads if session was sampled out by SDK
+        // =====================================================
+        if ((data.kind === 'video' || data.kind === 'screenshots') && !session.isSampledIn) {
+            res.json({
+                skipUpload: true,
+                sessionId: data.sessionId,
+                reason: 'Session sampled out - recording disabled for this session'
+            });
+            return;
+        }
+
+        // =====================================================
+        // SERVER-SIDE ENFORCEMENT: Max Recording Duration
+        // Reject segments that exceed maxRecordingMinutes from session start
+        // =====================================================
+        if ((data.kind === 'video' || data.kind === 'screenshots') && project.maxRecordingMinutes) {
+            const maxRecordingMs = project.maxRecordingMinutes * 60 * 1000;
+            const sessionStartMs = session.startedAt.getTime();
+            const segmentStartMs = Number(data.startTime);
+            const elapsedMs = segmentStartMs - sessionStartMs;
+
+            if (elapsedMs > maxRecordingMs) {
+                logger.info({
+                    sessionId: data.sessionId,
+                    segmentStartMs,
+                    sessionStartMs,
+                    elapsedMs,
+                    maxRecordingMs,
+                    maxRecordingMinutes: project.maxRecordingMinutes,
+                }, 'Segment rejected - exceeds max recording duration');
+
+                res.json({
+                    skipUpload: true,
+                    sessionId: data.sessionId,
+                    reason: `Recording limit exceeded (${project.maxRecordingMinutes} minutes max)`
+                });
+                return;
+            }
         }
 
         // Generate S3 key based on artifact type

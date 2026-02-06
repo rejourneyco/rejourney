@@ -167,12 +167,28 @@ export function SessionDataProvider({ children }: Props) {
       }
       setError(null);
 
-      const [apiSessions, stats, apiProjects, trends] = await Promise.all([
+      // Use Promise.allSettled so a failure in sessions/analytics doesn't
+      // prevent projects from loading. Projects are critical for navigation;
+      // analytics are not.
+      const [sessionsResult, statsResult, projectsResult, trendsResult] = await Promise.allSettled([
         api.getRecordingSessions(timeRange) as Promise<any[]>,
         api.getDashboardStatsWithTimeRange(timeRange),
         getProjects(),
         api.getInsightsTrends(undefined, timeRange)
       ]);
+
+      // Collect partial errors for display without blocking what succeeded
+      const partialErrors: string[] = [];
+
+      const apiSessions = sessionsResult.status === 'fulfilled' ? sessionsResult.value : (() => { partialErrors.push('sessions'); return []; })();
+      const stats = statsResult.status === 'fulfilled' ? statsResult.value : (() => { partialErrors.push('stats'); return { totalSessions: 0, avgDuration: 0, avgUxScore: 0, errorRate: 0 }; })();
+      const apiProjects = projectsResult.status === 'fulfilled' ? projectsResult.value : (() => { partialErrors.push('projects'); return []; })();
+      const trends = trendsResult.status === 'fulfilled' ? trendsResult.value : (() => { partialErrors.push('trends'); return { daily: [] }; })();
+
+      if (partialErrors.length > 0) {
+        console.error('Partial data fetch failures:', partialErrors);
+        setError(`Some data failed to load: ${partialErrors.join(', ')}. The dashboard may show incomplete information.`);
+      }
 
       // Filter projects to only those belonging to the current team
       const teamProjects = currentTeam
@@ -222,14 +238,16 @@ export function SessionDataProvider({ children }: Props) {
           : convertedProjects[0];
         setSelectedProjectState(projectToSelect);
         localStorage.setItem(key, projectToSelect.id);
-      } else {
+      } else if (projectsResult.status === 'fulfilled') {
+        // Only clear project selection if we successfully fetched and got 0 projects.
+        // If the projects fetch FAILED, keep the previous selection (stale is better than wrong).
         setSelectedProjectState(null);
         localStorage.removeItem(selectedProjectStorageKey(currentTeam?.id));
       }
     } catch (err) {
       console.error('Failed to fetch sessions:', err);
       setError(err instanceof Error ? err.message : 'Failed to load sessions');
-      // Don't clear sessions on error - keep showing stale data
+      // Don't clear sessions/projects on error - keep showing stale data
     } finally {
       isFetchingRef.current = false;
       if (!options.silent) {

@@ -245,8 +245,17 @@ jobs:
               sed -i "s|image: ghcr.io/${{ github.repository }}/web:.*|image: ghcr.io/${{ github.repository }}/web:${IMAGE_TAG}|g" k8s/*.yaml
               sed -i "s|image: ghcr.io/${{ github.repository }}/migration:.*|image: ghcr.io/${{ github.repository }}/migration:${IMAGE_TAG}|g" k8s/*.yaml
              
-             # Delete old migration/setup jobs so they run again
-             kubectl delete job db-migrate db-seed db-setup -n rejourney --ignore-not-found --wait=false
+             # Delete old migration/setup jobs and WAIT for them to be fully removed
+             # --wait=true ensures the Job is completely gone before we re-apply
+             echo "🗑️ Deleting old migration jobs..."
+             kubectl delete job db-migrate db-seed db-setup -n rejourney --ignore-not-found --wait=true --timeout=60s
+             
+             # Also delete any leftover pods from previous job runs
+             kubectl delete pods -n rejourney -l job-name=db-setup --ignore-not-found --wait=true --timeout=30s || true
+             kubectl delete pods -n rejourney -l job-name=db-migrate --ignore-not-found --wait=true --timeout=30s || true
+             kubectl delete pods -n rejourney -l job-name=db-seed --ignore-not-found --wait=true --timeout=30s || true
+             
+             echo "✅ Old migration jobs cleaned up"
 
              # Apply all manifests with pruning (removes deleted resources automatically)
              # Uses label selector to only prune resources we manage
@@ -275,6 +284,15 @@ jobs:
                --prune-allowlist=traefik.io/v1alpha1/Middleware \
                --prune-allowlist=batch/v1/CronJob \
                --prune-allowlist=batch/v1/Job
+             
+             # Wait for migration job to complete before restarting services
+             echo "⏳ Waiting for db-setup migration job to complete..."
+             kubectl wait --for=condition=complete job/db-setup -n rejourney --timeout=300s || {
+               echo "⚠️ Migration job did not complete in time. Checking status..."
+               kubectl describe job db-setup -n rejourney
+               kubectl logs job/db-setup -n rejourney --tail=50 || true
+               echo "❌ Migration may have failed - proceeding with deployment but check logs!"
+             }
              
              # Restart deployments to force pulling latest images
              kubectl rollout restart deployment api -n rejourney

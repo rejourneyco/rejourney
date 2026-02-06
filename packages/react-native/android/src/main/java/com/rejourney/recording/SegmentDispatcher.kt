@@ -48,6 +48,7 @@ class SegmentDispatcher private constructor() {
     var apiToken: String? = null
     var credential: String? = null
     var projectId: String? = null
+    var isSampledIn: Boolean = true  // SDK's sampling decision for server-side enforcement
     
     private var batchSeqNumber = 0
     private var billingBlocked = false
@@ -76,11 +77,12 @@ class SegmentDispatcher private constructor() {
     private val retryLock = ReentrantLock()
     private var active = true
     
-    fun configure(replayId: String, apiToken: String?, credential: String?, projectId: String?) {
+    fun configure(replayId: String, apiToken: String?, credential: String?, projectId: String?, isSampledIn: Boolean = true) {
         currentReplayId = replayId
         this.apiToken = apiToken
         this.credential = credential
         this.projectId = projectId
+        this.isSampledIn = isSampledIn
         batchSeqNumber = 0
         billingBlocked = false
         consecutiveFailures = 0
@@ -361,6 +363,7 @@ class SegmentDispatcher private constructor() {
             if (upload.contentType == "events") {
                 put("contentType", "events")
                 put("batchNumber", batchSeqNumber)
+                put("isSampledIn", isSampledIn)  // Server-side enforcement
             } else {
                 put("kind", upload.contentType)
                 put("startTime", upload.rangeStart)

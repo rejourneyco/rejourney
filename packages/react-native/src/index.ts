@@ -263,8 +263,24 @@ async function fetchRemoteConfig(apiUrl: string, publicKey: string): Promise<Con
   try {
     const RN = getReactNative();
     const platform = RN?.Platform?.OS || 'unknown';
-    const bundleId = RN?.Platform?.OS === 'ios' ? 'unknown' : undefined;
-    const packageName = RN?.Platform?.OS === 'android' ? 'unknown' : undefined;
+
+    // Read actual bundleId/packageName from native module instead of hardcoding
+    let bundleId: string | undefined;
+    let packageName: string | undefined;
+    try {
+      const nativeModule = getRejourneyNative();
+      if (nativeModule) {
+        const deviceInfo = await nativeModule.getDeviceInfo() as Record<string, any>;
+        if (platform === 'ios' && deviceInfo?.bundleId && deviceInfo.bundleId !== 'unknown') {
+          bundleId = deviceInfo.bundleId;
+        } else if (platform === 'android' && deviceInfo?.bundleId && deviceInfo.bundleId !== 'unknown') {
+          packageName = deviceInfo.bundleId; // Android returns packageName as bundleId
+        }
+      }
+    } catch {
+      // If we can't get device info, skip bundle validation headers
+      getLogger().debug('Could not read bundleId from native module');
+    }
 
     const headers: Record<string, string> = {
       'x-public-key': publicKey,
@@ -279,9 +295,9 @@ async function fetchRemoteConfig(apiUrl: string, publicKey: string): Promise<Con
     });
 
     if (!response.ok) {
-      // 401/403 = access denied (invalid key, project disabled, etc) - STOP recording
+      // 401/403/404 = access denied (invalid key, project disabled, deleted, etc) - STOP recording
       // Other errors (500, etc) = server issue - treat as network error, proceed with defaults
-      if (response.status === 401 || response.status === 403) {
+      if (response.status === 401 || response.status === 403 || response.status === 404) {
         getLogger().warn(`Access denied (${response.status}) - recording disabled`);
         return { status: 'access_denied', httpStatus: response.status };
       }
@@ -501,9 +517,6 @@ const Rejourney: RejourneyAPI = {
       const apiUrl = _storedConfig.apiUrl || 'https://api.rejourney.co';
       const publicKey = _storedConfig.publicRouteKey || '';
 
-<<<<<<< Updated upstream
-      getLogger().debug(`Calling native startSession (apiUrl=${apiUrl})`);
-=======
       // =========================================================
       // STEP 1: Fetch remote config from backend
       // This determines if recording is enabled and at what rate
@@ -568,7 +581,6 @@ const Rejourney: RejourneyAPI = {
         // This is "fail-open" behavior for temporary network issues
         getLogger().debug('Remote config unavailable (network issue), proceeding with defaults');
       }
->>>>>>> Stashed changes
 
       const deviceId = await getAutoTracking().ensurePersistentAnonymousId();
 
