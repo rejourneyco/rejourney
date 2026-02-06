@@ -1,25 +1,15 @@
 /**
- * Copyright 2026 Rejourney
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
-/**
  * Rejourney - Session Recording and Replay SDK for React Native
  * 
  * Captures user interactions, gestures, and screen states for replay and analysis.
  * 
  * Just call initRejourney() - everything else is automatic!
+ * 
+ * Copyright (c) 2026 Rejourney
+ * 
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * See LICENSE-APACHE for full terms.
  * 
  * @example
  * ```typescript
@@ -245,6 +235,83 @@ async function loadPersistedUserIdentity(): Promise<string | null> {
 
 let _storedConfig: RejourneyConfig | null = null;
 
+// Remote config from backend - controls sample rate and enable/disable
+interface RemoteConfig {
+  projectId: string;
+  rejourneyEnabled: boolean;
+  recordingEnabled: boolean;
+  sampleRate: number;
+  maxRecordingMinutes: number;
+  billingBlocked?: boolean;
+  billingReason?: string;
+}
+
+// Result type for fetchRemoteConfig - distinguishes network errors from access denial
+type ConfigFetchResult = 
+  | { status: 'success'; config: RemoteConfig }
+  | { status: 'network_error' }  // Proceed with defaults (fail-open)
+  | { status: 'access_denied'; httpStatus: number };  // Abort recording (fail-closed)
+
+let _remoteConfig: RemoteConfig | null = null;
+let _sessionSampledOut: boolean = false; // True = telemetry only, no replay video
+
+/**
+ * Fetch project configuration from backend
+ * This determines sample rate, enabled state, and other server-side settings
+ */
+async function fetchRemoteConfig(apiUrl: string, publicKey: string): Promise<ConfigFetchResult> {
+  try {
+    const RN = getReactNative();
+    const platform = RN?.Platform?.OS || 'unknown';
+    const bundleId = RN?.Platform?.OS === 'ios' ? 'unknown' : undefined;
+    const packageName = RN?.Platform?.OS === 'android' ? 'unknown' : undefined;
+
+    const headers: Record<string, string> = {
+      'x-public-key': publicKey,
+      'x-platform': platform,
+    };
+    if (bundleId) headers['x-bundle-id'] = bundleId;
+    if (packageName) headers['x-package-name'] = packageName;
+
+    const response = await fetch(`${apiUrl}/api/sdk/config`, {
+      method: 'GET',
+      headers,
+    });
+
+    if (!response.ok) {
+      // 401/403 = access denied (invalid key, project disabled, etc) - STOP recording
+      // Other errors (500, etc) = server issue - treat as network error, proceed with defaults
+      if (response.status === 401 || response.status === 403) {
+        getLogger().warn(`Access denied (${response.status}) - recording disabled`);
+        return { status: 'access_denied', httpStatus: response.status };
+      }
+      getLogger().warn(`Config fetch failed: ${response.status}`);
+      return { status: 'network_error' };
+    }
+
+    const config = await response.json();
+    getLogger().debug('Remote config:', JSON.stringify(config));
+    return { status: 'success', config: config as RemoteConfig };
+  } catch (error) {
+    // Network timeout, no connectivity, etc - proceed with defaults
+    getLogger().warn('Failed to fetch remote config:', error);
+    return { status: 'network_error' };
+  }
+}
+
+/**
+ * Determine if this session should be sampled (recorded)
+ * Returns true if recording should proceed, false if sampled out
+ */
+function shouldRecordSession(sampleRate: number): boolean {
+  // sampleRate is 0-100 (percentage)
+  if (sampleRate >= 100) return true;
+  if (sampleRate <= 0) return false;
+  
+  const randomValue = Math.random() * 100;
+  return randomValue < sampleRate;
+}
+
 // Lazy-loaded native module reference
 // We don't access TurboModuleRegistry at module load time to avoid
 // "PlatformConstants could not be found" errors on RN 0.81+
@@ -434,6 +501,75 @@ const Rejourney: RejourneyAPI = {
       const apiUrl = _storedConfig.apiUrl || 'https://api.rejourney.co';
       const publicKey = _storedConfig.publicRouteKey || '';
 
+<<<<<<< Updated upstream
+      getLogger().debug(`Calling native startSession (apiUrl=${apiUrl})`);
+=======
+      // =========================================================
+      // STEP 1: Fetch remote config from backend
+      // This determines if recording is enabled and at what rate
+      // =========================================================
+      const configResult = await fetchRemoteConfig(apiUrl, publicKey);
+      
+      // =========================================================
+      // CASE 0: Access denied (401/403) - abort immediately
+      // This means project disabled, invalid key, etc - HARD STOP
+      // =========================================================
+      if (configResult.status === 'access_denied') {
+        getLogger().info(`Recording disabled - access denied (${configResult.httpStatus})`);
+        return false;
+      }
+      
+      // For success, extract the config; for network_error, proceed with null
+      _remoteConfig = configResult.status === 'success' ? configResult.config : null;
+      
+      if (_remoteConfig) {
+        // =========================================================
+        // CASE 1: Rejourney completely disabled - abort early, nothing captured
+        // This is the most performant case - no native calls made
+        // =========================================================
+        if (!_remoteConfig.rejourneyEnabled) {
+          getLogger().logRecordingRemoteDisabled();
+          getLogger().info('Rejourney disabled by project settings - no data captured');
+          return false;
+        }
+
+        // =========================================================
+        // CASE 2: Billing blocked - abort early, nothing captured
+        // =========================================================
+        if (_remoteConfig.billingBlocked) {
+          getLogger().warn(`Recording blocked: ${_remoteConfig.billingReason || 'billing issue'}`);
+          return false;
+        }
+
+        // =========================================================
+        // CASE 3: Session sampled out - CONTINUE but disable REPLAY only
+        // Telemetry, events, and crash tracking still work
+        // =========================================================
+        _sessionSampledOut = !shouldRecordSession(_remoteConfig.sampleRate ?? 100);
+        if (_sessionSampledOut) {
+          getLogger().info(`Session sampled out (rate: ${_remoteConfig.sampleRate}%) - telemetry only, no replay video`);
+        }
+
+        // =========================================================
+        // CASE 4: recordingEnabled=false in dashboard - telemetry only
+        // Effective recording = dashboard setting AND not sampled out
+        // =========================================================
+        const effectiveRecordingEnabled = _remoteConfig.recordingEnabled && !_sessionSampledOut;
+
+        // Pass config to native - this controls visual capture on/off
+        await nativeModule.setRemoteConfig(
+          _remoteConfig.rejourneyEnabled,
+          effectiveRecordingEnabled,
+          _remoteConfig.sampleRate,
+          _remoteConfig.maxRecordingMinutes
+        );
+      } else {
+        // Network error (not access denied) - proceed with defaults
+        // This is "fail-open" behavior for temporary network issues
+        getLogger().debug('Remote config unavailable (network issue), proceeding with defaults');
+      }
+>>>>>>> Stashed changes
+
       const deviceId = await getAutoTracking().ensurePersistentAnonymousId();
 
       if (!_userIdentity) {
@@ -527,6 +663,7 @@ const Rejourney: RejourneyAPI = {
         try {
           const ignoreUrls: (string | RegExp)[] = [
             apiUrl,
+            '/api/sdk/config',
             '/api/ingest/presign',
             '/api/ingest/batch/complete',
             '/api/ingest/session/end',
@@ -1178,7 +1315,7 @@ function setupAuthErrorListener(): void {
       const hasEventEmitterHooks =
         typeof maybeAny?.addListener === 'function' && typeof maybeAny?.removeListeners === 'function';
 
-      const eventEmitter = (hasEventEmitterHooks && maybeAny)
+      const eventEmitter = hasEventEmitterHooks
         ? new RN.NativeEventEmitter(maybeAny)
         : new RN.NativeEventEmitter();
 
@@ -1267,19 +1404,12 @@ export function initRejourney(
     publicRouteKey,
   };
 
-
   if (options?.debug) {
     getLogger().setDebugMode(true);
     const nativeModule = getRejourneyNative();
     if (nativeModule) {
       nativeModule.setDebugMode(true).catch(() => { });
     }
-  }
-
-  // Set SDK version on native side (single source of truth from package.json)
-  const nativeModule = getRejourneyNative();
-  if (nativeModule && typeof (nativeModule as any).setSDKVersion === 'function') {
-    (nativeModule as any).setSDKVersion(SDK_VERSION);
   }
 
   _isInitialized = true;
@@ -1335,7 +1465,7 @@ export function startRejourney(): void {
       if (started) {
         getLogger().debug('✅ Recording started successfully');
       } else {
-        getLogger().warn('Recording not started (native module unavailable or already recording)');
+        getLogger().warn('Recording not started');
       }
     } catch (error) {
       getLogger().error('Failed to start recording:', error);
@@ -1372,7 +1502,6 @@ export {
   trackScreen,
   captureError,
   getSessionMetrics,
-  markTapHandled,
 } from './sdk/autoTracking';
 
 export { trackNavigationState, useNavigationTracking } from './sdk/autoTracking';

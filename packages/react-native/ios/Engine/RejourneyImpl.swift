@@ -575,6 +575,27 @@ public final class RejourneyImpl: NSObject {
         resolve(["success": true])
     }
     
+    @objc(setRemoteConfigWithRejourneyEnabled:recordingEnabled:sampleRate:maxRecordingMinutes:resolve:reject:)
+    public func setRemoteConfig(
+        rejourneyEnabled: Bool,
+        recordingEnabled: Bool,
+        sampleRate: Int,
+        maxRecordingMinutes: Int,
+        resolve: @escaping RCTPromiseResolveBlock,
+        reject: @escaping RCTPromiseRejectBlock
+    ) {
+        DiagnosticLog.notice("[Rejourney] setRemoteConfig: rejourneyEnabled=\(rejourneyEnabled), recordingEnabled=\(recordingEnabled), sampleRate=\(sampleRate), maxRecording=\(maxRecordingMinutes)min")
+        
+        ReplayOrchestrator.shared.setRemoteConfig(
+            rejourneyEnabled: rejourneyEnabled,
+            recordingEnabled: recordingEnabled,
+            sampleRate: sampleRate,
+            maxRecordingMinutes: maxRecordingMinutes
+        )
+        
+        resolve(["success": true])
+    }
+    
     @objc(setSDKVersion:)
     public func setSDKVersion(_ version: String) {
         RejourneyImpl.sdkVersion = version

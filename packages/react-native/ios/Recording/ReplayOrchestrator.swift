@@ -50,6 +50,12 @@ public final class ReplayOrchestrator: NSObject {
     @objc public var hierarchyCaptureInterval: Double = 2.0
     @objc public private(set) var currentScreenName: String?
     
+    // Remote config from backend (set via setRemoteConfig before session start)
+    @objc public private(set) var remoteRejourneyEnabled: Bool = true
+    @objc public private(set) var remoteRecordingEnabled: Bool = true
+    @objc public private(set) var remoteSampleRate: Int = 100
+    @objc public private(set) var remoteMaxRecordingMinutes: Int = 10
+    
     private var _netMonitor: NWPathMonitor?
     private var _netReady = false
     private var _live = false
@@ -254,6 +260,29 @@ public final class ReplayOrchestrator: NSObject {
     
     @objc public func unredactView(_ view: UIView) {
         VisualCapture.shared.unregisterRedaction(view)
+    }
+    
+    /// Set remote configuration from backend
+    /// Called by JS side before startSession to apply server-side settings
+    @objc public func setRemoteConfig(
+        rejourneyEnabled: Bool,
+        recordingEnabled: Bool,
+        sampleRate: Int,
+        maxRecordingMinutes: Int
+    ) {
+        self.remoteRejourneyEnabled = rejourneyEnabled
+        self.remoteRecordingEnabled = recordingEnabled
+        self.remoteSampleRate = sampleRate
+        self.remoteMaxRecordingMinutes = maxRecordingMinutes
+        
+        // Apply recording settings immediately
+        // If recording is disabled, disable visual capture
+        if !recordingEnabled {
+            visualCaptureEnabled = false
+            DiagnosticLog.notice("[ReplayOrchestrator] Visual capture disabled by remote config (recordingEnabled=false)")
+        }
+        
+        DiagnosticLog.notice("[ReplayOrchestrator] Remote config applied: rejourneyEnabled=\(rejourneyEnabled), recordingEnabled=\(recordingEnabled), sampleRate=\(sampleRate)%, maxRecording=\(maxRecordingMinutes)min")
     }
     
     @objc public func attachAttribute(key: String, value: String) {

@@ -100,6 +100,16 @@ class ReplayOrchestrator private constructor(private val context: Context) {
     var currentScreenName: String? = null
         private set
     
+    // Remote config from backend (set via setRemoteConfig before session start)
+    var remoteRejourneyEnabled: Boolean = true
+        private set
+    var remoteRecordingEnabled: Boolean = true
+        private set
+    var remoteSampleRate: Int = 100
+        private set
+    var remoteMaxRecordingMinutes: Int = 10
+        private set
+    
     // Network state tracking
     var currentNetworkType: String = "unknown"
         private set
@@ -287,6 +297,31 @@ class ReplayOrchestrator private constructor(private val context: Context) {
     
     fun redactView(view: View) {
         VisualCapture.shared?.registerRedaction(view)
+    }
+    
+    /**
+     * Set remote configuration from backend
+     * Called by JS side before startSession to apply server-side settings
+     */
+    fun setRemoteConfig(
+        rejourneyEnabled: Boolean,
+        recordingEnabled: Boolean,
+        sampleRate: Int,
+        maxRecordingMinutes: Int
+    ) {
+        this.remoteRejourneyEnabled = rejourneyEnabled
+        this.remoteRecordingEnabled = recordingEnabled
+        this.remoteSampleRate = sampleRate
+        this.remoteMaxRecordingMinutes = maxRecordingMinutes
+        
+        // Apply recording settings immediately
+        // If recording is disabled, disable visual capture
+        if (!recordingEnabled) {
+            visualCaptureEnabled = false
+            DiagnosticLog.notice("[ReplayOrchestrator] Visual capture disabled by remote config (recordingEnabled=false)")
+        }
+        
+        DiagnosticLog.notice("[ReplayOrchestrator] Remote config applied: rejourneyEnabled=$rejourneyEnabled, recordingEnabled=$recordingEnabled, sampleRate=$sampleRate%, maxRecording=${maxRecordingMinutes}min")
     }
     
     fun unredactView(view: View) {

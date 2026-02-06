@@ -198,6 +198,19 @@ class RejourneyModule(reactContext: ReactApplicationContext) :
            instance.setDebugMode(enabled, promise)
     }
 
+    @ReactMethod
+    @DoNotStrip
+    override fun setRemoteConfig(
+        rejourneyEnabled: Boolean,
+        recordingEnabled: Boolean,
+        sampleRate: Double,
+        maxRecordingMinutes: Double,
+        promise: Promise
+    ) {
+           val instance = getImplOrReject(promise) ?: return
+           instance.setRemoteConfig(rejourneyEnabled, recordingEnabled, sampleRate, maxRecordingMinutes, promise)
+    }
+
         private fun createErrorMap(error: String): WritableMap {
             return Arguments.createMap().apply {
                 putBoolean("success", false)

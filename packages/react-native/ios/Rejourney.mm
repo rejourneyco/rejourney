@@ -312,6 +312,25 @@ RCT_EXPORT_METHOD(setDebugMode : (BOOL)enabled resolve : (
   [impl setDebugMode:enabled resolve:resolve reject:reject];
 }
 
+RCT_EXPORT_METHOD(setRemoteConfig : (BOOL)rejourneyEnabled 
+                  recordingEnabled : (BOOL)recordingEnabled 
+                  sampleRate : (double)sampleRate 
+                  maxRecordingMinutes : (double)maxRecordingMinutes 
+                  resolve : (RCTPromiseResolveBlock)resolve 
+                  reject : (RCTPromiseRejectBlock)reject) {
+  RejourneyImpl *impl = [self ensureImpl];
+  if (!impl) {
+    resolve(@{@"success" : @NO});
+    return;
+  }
+  [impl setRemoteConfigWithRejourneyEnabled:rejourneyEnabled
+                           recordingEnabled:recordingEnabled
+                                 sampleRate:(NSInteger)sampleRate
+                        maxRecordingMinutes:(NSInteger)maxRecordingMinutes
+                                    resolve:resolve
+                                     reject:reject];
+}
+
 RCT_EXPORT_METHOD(getSDKMetrics : (RCTPromiseResolveBlock)
                       resolve reject : (RCTPromiseRejectBlock)reject) {
   RejourneyImpl *impl = [self ensureImpl];

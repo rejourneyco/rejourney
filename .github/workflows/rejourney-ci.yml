@@ -290,3 +290,29 @@ jobs:
              elif command -v docker &> /dev/null; then
                docker image prune -af --filter "until=24h"
              fi
+             
+             # ============================================
+             # CLEANUP: Run after every deployment
+             # ============================================
+             echo "🧹 Running post-deploy cleanup..."
+             
+             # 1. Clean up completed/failed pods
+             echo "  → Cleaning completed pods..."
+             kubectl delete pods -n rejourney --field-selector=status.phase==Succeeded --ignore-not-found
+             kubectl delete pods -n rejourney --field-selector=status.phase==Failed --ignore-not-found
+             
+             # 2. Clean up old debug pods
+             echo "  → Cleaning stale debug pods..."
+             kubectl get pods -n rejourney -o json | jq -r '.items[] | select(.metadata.name | startswith("debug-")) | .metadata.name' | xargs -r kubectl delete pod -n rejourney --ignore-not-found || true
+             
+             # 3. Clean up old completed jobs (keep last 3)
+             echo "  → Cleaning old job pods..."
+             kubectl get pods -n rejourney -o name | grep -E 'postgres-backup-|db-setup|db-migrate|db-seed' | head -n -3 | xargs -r kubectl delete -n rejourney --ignore-not-found || true
+             
+             # 4. Clean containerd garbage (exited containers)
+             echo "  → Cleaning exited containers..."
+             if command -v crictl &> /dev/null; then
+               crictl rm $(crictl ps -a -q --state exited) 2>/dev/null || true
+             fi
+             
+             echo "✅ Cleanup complete!"

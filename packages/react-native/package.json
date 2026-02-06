@@ -1,6 +1,10 @@
 {
     "name": "@rejourneyco/react-native",
-    "version": "1.0.6",
+<<<<<<< Updated upstream
+    "version": "1.0.5",
+=======
+    "version": "1.0.7",
+>>>>>>> Stashed changes
     "description": "Rejourney Session Recording SDK for React Native",
     "main": "lib/commonjs/index.js",
     "module": "lib/module/index.js",
@@ -31,9 +35,8 @@
         "!lib/**/*.map"
     ],
     "scripts": {
-        "prebuild": "node scripts/generate-version.js",
-        "build": "npm run prebuild && npx react-native-builder-bob build",
-        "prepack": "npm run prebuild && npx react-native-builder-bob build",
+        "build": "npx react-native-builder-bob build",
+        "prepack": "npx react-native-builder-bob build",
         "typescript": "tsc --noEmit",
         "lint": "eslint \"**/*.{js,ts,tsx}\"",
         "test": "vitest run",
