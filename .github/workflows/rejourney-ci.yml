@@ -285,12 +285,21 @@ jobs:
                --prune-allowlist=batch/v1/CronJob \
                --prune-allowlist=batch/v1/Job
              
+             # Wait for postgres to be ready before migration runs
+             echo "⏳ Waiting for PostgreSQL to be ready..."
+             kubectl wait --for=condition=ready pod -l app=postgres -n rejourney --timeout=120s || {
+               echo "⚠️ PostgreSQL not ready, checking status..."
+               kubectl describe pod -l app=postgres -n rejourney
+             }
+             
              # Wait for migration job to complete before restarting services
+             # Job has init container to wait for postgres, so give it extra time
              echo "⏳ Waiting for db-setup migration job to complete..."
-             kubectl wait --for=condition=complete job/db-setup -n rejourney --timeout=300s || {
+             kubectl wait --for=condition=complete job/db-setup -n rejourney --timeout=360s || {
                echo "⚠️ Migration job did not complete in time. Checking status..."
                kubectl describe job db-setup -n rejourney
-               kubectl logs job/db-setup -n rejourney --tail=50 || true
+               kubectl logs job/db-setup -n rejourney -c wait-postgres --tail=20 || true
+               kubectl logs job/db-setup -n rejourney -c setup --tail=50 || true
                echo "❌ Migration may have failed - proceeding with deployment but check logs!"
              }
              
@@ -319,9 +328,9 @@ jobs:
              kubectl delete pods -n rejourney --field-selector=status.phase==Succeeded --ignore-not-found
              kubectl delete pods -n rejourney --field-selector=status.phase==Failed --ignore-not-found
              
-             # 2. Clean up old debug pods
+             # 2. Clean up old debug pods (using kubectl native approach, no jq needed)
              echo "  → Cleaning stale debug pods..."
-             kubectl get pods -n rejourney -o json | jq -r '.items[] | select(.metadata.name | startswith("debug-")) | .metadata.name' | xargs -r kubectl delete pod -n rejourney --ignore-not-found || true
+             kubectl get pods -n rejourney --no-headers -o custom-columns=":metadata.name" | grep "^debug-" | xargs -r kubectl delete pod -n rejourney --ignore-not-found || true
              
              # 3. Clean up old completed jobs (keep last 3)
              echo "  → Cleaning old job pods..."

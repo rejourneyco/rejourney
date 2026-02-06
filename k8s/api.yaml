@@ -255,11 +255,11 @@ spec:
                   optional: true
           resources:
             requests:
-              cpu: 150m
+              cpu: 100m
               memory: 256Mi
             limits:
               cpu: 500m
-              memory: 768Mi
+              memory: 512Mi
           livenessProbe:
             httpGet:
               path: /health
@@ -285,11 +285,32 @@ metadata:
     app.kubernetes.io/part-of: rejourney
 spec:
   ttlSecondsAfterFinished: 86400
+  backoffLimit: 3
   template:
     spec:
       imagePullSecrets:
         - name: ghcr-secret
       restartPolicy: OnFailure
+      # Wait for postgres to be ready before starting migration
+      initContainers:
+        - name: wait-postgres
+          image: postgres:18-alpine
+          command:
+            - /bin/sh
+            - -c
+            - |
+              echo "Waiting for PostgreSQL to be ready..."
+              until pg_isready -h postgres -p 5432 -U rejourney; do
+                echo "PostgreSQL not ready, waiting 5s..."
+                sleep 5
+              done
+              echo "PostgreSQL is ready!"
+          env:
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: POSTGRES_PASSWORD
       containers:
         - name: setup
           image: ghcr.io/rejourneyco/rejourney/migration:latest

@@ -139,10 +139,10 @@ spec:
           resources:
             requests:
               cpu: 50m
-              memory: 192Mi
+              memory: 128Mi
             limits:
               cpu: 200m
-              memory: 512Mi
+              memory: 256Mi
           # No standard HTTP port, but we can check if the process is alive via command or if it has a health server
           # For now, let's assume it doesn't have a health server yet, but we can add one or use a dummy check
           # Actually, workers usually have some internal state. Let's add a dummy check if none exists

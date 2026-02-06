@@ -1,11 +1,12 @@
 # Uptime Kuma Monitoring for Rejourney
-# Deploys Uptime Kuma status page secured with Cloudflare Access for dev team
+# DISABLED: Not in use, saves ~96MB RAM on 4GB VPS
+# To re-enable: set replicas back to 1
 
 ---
 # Namespace already exists in namespace.yaml
 
 
-# Uptime Kuma Deployment
+# Uptime Kuma Deployment (DISABLED)
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -15,7 +16,7 @@ metadata:
     app: uptime-kuma
     app.kubernetes.io/part-of: rejourney
 spec:
-  replicas: 1
+  replicas: 0  # DISABLED - not in use
   selector:
     matchLabels:
       app: uptime-kuma
@@ -44,11 +45,11 @@ spec:
               mountPath: /app/data
           resources:
             requests:
-              cpu: 25m
+              cpu: 10m
               memory: 48Mi
             limits:
-              cpu: 100m
-              memory: 128Mi
+              cpu: 50m
+              memory: 96Mi
           livenessProbe:
             httpGet:
               path: /
