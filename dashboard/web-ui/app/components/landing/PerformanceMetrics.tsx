@@ -25,12 +25,12 @@ export const PerformanceMetrics: React.FC = () => {
 
     // Comparison Data (Flat line visual)
     const comparisonData = [
-        { version: 'v1.0', Rejourney: 1.6, Sentry: 7.1 },
-        { version: 'v1.1', Rejourney: 1.6, Sentry: 7.1 },
-        { version: 'v1.2', Rejourney: 1.6, Sentry: 7.1 },
-        { version: 'v1.3', Rejourney: 1.6, Sentry: 7.1 },
-        { version: 'v1.4', Rejourney: 1.6, Sentry: 7.1 },
-        { version: 'v1.5', Rejourney: 1.6, Sentry: 7.1 },
+        { version: 'v1.0', Rejourney: 0.96, Sentry: 7.1 },
+        { version: 'v1.1', Rejourney: 0.96, Sentry: 7.1 },
+        { version: 'v1.2', Rejourney: 0.96, Sentry: 7.1 },
+        { version: 'v1.3', Rejourney: 0.96, Sentry: 7.1 },
+        { version: 'v1.4', Rejourney: 0.96, Sentry: 7.1 },
+        { version: 'v1.5', Rejourney: 0.96, Sentry: 7.1 },
     ];
 
     return (
