@@ -96,6 +96,7 @@ public final class ReplayOrchestrator: NSObject {
     private var _finalized = false
     private var _hierarchyTimer: Timer?
     private var _lastHierarchyHash: String?
+    private var _durationLimitTimer: DispatchWorkItem?
     
     private override init() {
         super.init()
@@ -207,6 +208,7 @@ public final class ReplayOrchestrator: NSObject {
         _netMonitor = nil
         _hierarchyTimer?.invalidate()
         _hierarchyTimer = nil
+        _stopDurationLimitTimer()
         _detachLifecycle()
         
         let metrics: [String: Any] = [
@@ -275,6 +277,10 @@ public final class ReplayOrchestrator: NSObject {
         self.remoteSampleRate = sampleRate
         self.remoteMaxRecordingMinutes = maxRecordingMinutes
         
+        // Set isSampledIn for server-side enforcement
+        // recordingEnabled=false means either dashboard disabled OR session sampled out by JS
+        TelemetryPipeline.shared.isSampledIn = recordingEnabled
+        
         // Apply recording settings immediately
         // If recording is disabled, disable visual capture
         if !recordingEnabled {
@@ -282,7 +288,12 @@ public final class ReplayOrchestrator: NSObject {
             DiagnosticLog.notice("[ReplayOrchestrator] Visual capture disabled by remote config (recordingEnabled=false)")
         }
         
-        DiagnosticLog.notice("[ReplayOrchestrator] Remote config applied: rejourneyEnabled=\(rejourneyEnabled), recordingEnabled=\(recordingEnabled), sampleRate=\(sampleRate)%, maxRecording=\(maxRecordingMinutes)min")
+        // If already recording, restart the duration limit timer with updated config
+        if _live {
+            _startDurationLimitTimer()
+        }
+        
+        DiagnosticLog.notice("[ReplayOrchestrator] Remote config applied: rejourneyEnabled=\(rejourneyEnabled), recordingEnabled=\(recordingEnabled), sampleRate=\(sampleRate)%, maxRecording=\(maxRecordingMinutes)min, isSampledIn=\(recordingEnabled)")
     }
     
     @objc public func attachAttribute(key: String, value: String) {
@@ -480,6 +491,44 @@ public final class ReplayOrchestrator: NSObject {
         if faultTrackingEnabled { FaultTracker.shared.activate() }
         if responsivenessCaptureEnabled { ResponsivenessWatcher.shared.activate() }
         if hierarchyCaptureEnabled { _startHierarchyCapture() }
+        
+        // Start duration limit timer based on remote config
+        _startDurationLimitTimer()
+    }
+    
+    // MARK: - Duration Limit Timer
+    
+    private func _startDurationLimitTimer() {
+        _stopDurationLimitTimer()
+        
+        let maxMinutes = remoteMaxRecordingMinutes
+        guard maxMinutes > 0 else { return }
+        
+        let maxMs = UInt64(maxMinutes) * 60 * 1000
+        let now = UInt64(Date().timeIntervalSince1970 * 1000)
+        let elapsed = now - replayStartMs
+        let remaining = maxMs > elapsed ? maxMs - elapsed : 0
+        
+        guard remaining > 0 else {
+            DiagnosticLog.notice("[ReplayOrchestrator] Duration limit already exceeded, stopping session")
+            endReplay()
+            return
+        }
+        
+        let workItem = DispatchWorkItem { [weak self] in
+            guard let self, self._live else { return }
+            DiagnosticLog.notice("[ReplayOrchestrator] Recording duration limit reached (\(maxMinutes)min), stopping session")
+            self.endReplay()
+        }
+        _durationLimitTimer = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(Int(remaining)), execute: workItem)
+        
+        DiagnosticLog.notice("[ReplayOrchestrator] Duration limit timer set: \(remaining / 1000)s remaining (max \(maxMinutes)min)")
+    }
+    
+    private func _stopDurationLimitTimer() {
+        _durationLimitTimer?.cancel()
+        _durationLimitTimer = nil
     }
     
     private func _saveRecovery() {

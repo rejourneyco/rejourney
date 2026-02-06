@@ -25,6 +25,7 @@ final class SegmentDispatcher {
     var apiToken: String?
     var credential: String?
     var projectId: String?
+    var isSampledIn: Bool = true  // SDK's sampling decision for server-side enforcement
     
     private var batchSeqNumber = 0
     private var billingBlocked = false
@@ -58,11 +59,12 @@ final class SegmentDispatcher {
     
     private init() {}
     
-    func configure(replayId: String, apiToken: String?, credential: String?, projectId: String?) {
+    func configure(replayId: String, apiToken: String?, credential: String?, projectId: String?, isSampledIn: Bool = true) {
         currentReplayId = replayId
         self.apiToken = apiToken
         self.credential = credential
         self.projectId = projectId
+        self.isSampledIn = isSampledIn
         batchSeqNumber = 0
         billingBlocked = false
         consecutiveFailures = 0
@@ -315,6 +317,7 @@ final class SegmentDispatcher {
         if upload.contentType == "events" {
             body["contentType"] = "events"
             body["batchNumber"] = batchSeqNumber
+            body["isSampledIn"] = isSampledIn  // Server-side enforcement
         } else {
             body["kind"] = upload.contentType
             body["startTime"] = upload.rangeStart

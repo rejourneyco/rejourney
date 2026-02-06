@@ -44,6 +44,11 @@ public final class TelemetryPipeline: NSObject {
         didSet { SegmentDispatcher.shared.projectId = projectId }
     }
     
+    /// SDK's sampling decision for server-side enforcement
+    public var isSampledIn: Bool = true {
+        didSet { SegmentDispatcher.shared.isSampledIn = isSampledIn }
+    }
+    
     private let _eventRing = EventRingBuffer(capacity: 5000)
     private let _frameQueue = FrameBundleQueue(maxPending: 200)
     private var _deferredMode = false

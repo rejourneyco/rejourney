@@ -139,6 +139,7 @@ class ReplayOrchestrator private constructor(private val context: Context) {
     private var hierarchyHandler: Handler? = null
     private var hierarchyRunnable: Runnable? = null
     private var lastHierarchyHash: String? = null
+    private var durationLimitRunnable: Runnable? = null
     
     private val mainHandler = Handler(Looper.getMainLooper())
     
@@ -250,6 +251,7 @@ class ReplayOrchestrator private constructor(private val context: Context) {
         
         unregisterNetworkCallback()
         stopHierarchyCapture()
+        stopDurationLimitTimer()
         detachLifecycle()
         
         val metrics = mapOf(
@@ -314,6 +316,10 @@ class ReplayOrchestrator private constructor(private val context: Context) {
         this.remoteSampleRate = sampleRate
         this.remoteMaxRecordingMinutes = maxRecordingMinutes
         
+        // Set isSampledIn for server-side enforcement
+        // recordingEnabled=false means either dashboard disabled OR session sampled out by JS
+        TelemetryPipeline.shared?.isSampledIn = recordingEnabled
+        
         // Apply recording settings immediately
         // If recording is disabled, disable visual capture
         if (!recordingEnabled) {
@@ -321,7 +327,12 @@ class ReplayOrchestrator private constructor(private val context: Context) {
             DiagnosticLog.notice("[ReplayOrchestrator] Visual capture disabled by remote config (recordingEnabled=false)")
         }
         
-        DiagnosticLog.notice("[ReplayOrchestrator] Remote config applied: rejourneyEnabled=$rejourneyEnabled, recordingEnabled=$recordingEnabled, sampleRate=$sampleRate%, maxRecording=${maxRecordingMinutes}min")
+        // If already recording, restart the duration limit timer with updated config
+        if (live) {
+            startDurationLimitTimer()
+        }
+        
+        DiagnosticLog.notice("[ReplayOrchestrator] Remote config applied: rejourneyEnabled=$rejourneyEnabled, recordingEnabled=$recordingEnabled, sampleRate=$sampleRate%, maxRecording=${maxRecordingMinutes}min, isSampledIn=$recordingEnabled")
     }
     
     fun unredactView(view: View) {
@@ -405,10 +416,9 @@ class ReplayOrchestrator private constructor(private val context: Context) {
     
     private fun initSession() {
         replayStartMs = System.currentTimeMillis()
-        if (replayId.isNullOrEmpty()) {
-            val uuidPart = UUID.randomUUID().toString().replace("-", "").lowercase()
-            replayId = "session_${replayStartMs}_$uuidPart"
-        }
+        // Always generate a fresh session ID - never reuse stale IDs
+        val uuidPart = UUID.randomUUID().toString().replace("-", "").lowercase()
+        replayId = "session_${replayStartMs}_$uuidPart"
         finalized = false
         
         crashCount = 0
@@ -560,7 +570,45 @@ class ReplayOrchestrator private constructor(private val context: Context) {
         if (faultTrackingEnabled) StabilityMonitor.shared?.activate()
         if (responsivenessCaptureEnabled) AnrSentinel.shared?.activate()
         if (hierarchyCaptureEnabled) startHierarchyCapture()
+        
+        // Start duration limit timer based on remote config
+        startDurationLimitTimer()
+        
         DiagnosticLog.notice("[ReplayOrchestrator] beginRecording completed")
+    }
+    
+    // MARK: - Duration Limit Timer
+    
+    private fun startDurationLimitTimer() {
+        stopDurationLimitTimer()
+        
+        val maxMinutes = remoteMaxRecordingMinutes
+        if (maxMinutes <= 0) return
+        
+        val maxMs = maxMinutes.toLong() * 60 * 1000
+        val now = System.currentTimeMillis()
+        val elapsed = now - replayStartMs
+        val remaining = if (maxMs > elapsed) maxMs - elapsed else 0L
+        
+        if (remaining <= 0) {
+            DiagnosticLog.notice("[ReplayOrchestrator] Duration limit already exceeded, stopping session")
+            endReplay()
+            return
+        }
+        
+        durationLimitRunnable = Runnable {
+            if (!live) return@Runnable
+            DiagnosticLog.notice("[ReplayOrchestrator] Recording duration limit reached (${maxMinutes}min), stopping session")
+            endReplay()
+        }
+        mainHandler.postDelayed(durationLimitRunnable!!, remaining)
+        
+        DiagnosticLog.notice("[ReplayOrchestrator] Duration limit timer set: ${remaining / 1000}s remaining (max ${maxMinutes}min)")
+    }
+    
+    private fun stopDurationLimitTimer() {
+        durationLimitRunnable?.let { mainHandler.removeCallbacks(it) }
+        durationLimitRunnable = null
     }
     
     private fun saveRecovery() {

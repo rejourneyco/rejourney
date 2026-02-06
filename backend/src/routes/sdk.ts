@@ -96,7 +96,7 @@ router.get(
         }
 
         if (!project) {
-            throw ApiError.notFound('Project not found');
+            throw ApiError.unauthorized('Invalid public key');
         }
 
         const sampleRate = Math.max(0, Math.min(100, project.sampleRate ?? 100));

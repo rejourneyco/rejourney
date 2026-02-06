@@ -47,9 +47,19 @@ public final class RejourneyImpl: NSObject {
     // Session timeout threshold (60 seconds)
     private let sessionTimeoutSeconds: TimeInterval = 60
     
+    private let userIdentityKey = "com.rejourney.user.identity"
+    
     public override init() {
         super.init()
         setupLifecycleListeners()
+        _loadPersistedIdentity()
+    }
+    
+    private func _loadPersistedIdentity() {
+        if let persisted = UserDefaults.standard.string(forKey: userIdentityKey), !persisted.isEmpty {
+            self.currentUserIdentity = persisted
+            DiagnosticLog.notice("[Rejourney] Restored persisted user identity: \(persisted)")
+        }
     }
     
     deinit {
@@ -208,7 +218,7 @@ public final class RejourneyImpl: NSObject {
                 ReplayOrchestrator.shared.activateGestureRecording()
                 
                 // Re-apply user identity if it was set
-                if let userId = savedUserId, userId != "anonymous" {
+                if let userId = savedUserId, userId != "anonymous", !userId.hasPrefix("anon_") {
                     ReplayOrchestrator.shared.associateUser(userId)
                     DiagnosticLog.notice("[Rejourney] ✅ Restored user identity '\(userId)' to new session \(newSid)")
                 }
@@ -301,7 +311,9 @@ public final class RejourneyImpl: NSObject {
             }
             self.stateLock.unlock()
             
-            self.currentUserIdentity = userId
+            if !userId.isEmpty && userId != "anonymous" && !userId.hasPrefix("anon_") {
+                self.currentUserIdentity = userId
+            }
             
             // Store config for session restart after background timeout
             self.lastSessionConfig = config
@@ -325,7 +337,7 @@ public final class RejourneyImpl: NSObject {
                 
                 ReplayOrchestrator.shared.activateGestureRecording()
                 
-                if userId != "anonymous" {
+                if userId != "anonymous" && !userId.hasPrefix("anon_") {
                     ReplayOrchestrator.shared.associateUser(userId)
                 }
                 
@@ -391,8 +403,21 @@ public final class RejourneyImpl: NSObject {
         resolve: @escaping RCTPromiseResolveBlock,
         reject: @escaping RCTPromiseRejectBlock
     ) {
-        currentUserIdentity = userId
-        ReplayOrchestrator.shared.associateUser(userId)
+        if !userId.isEmpty && userId != "anonymous" && !userId.hasPrefix("anon_") {
+            currentUserIdentity = userId
+            
+            // Persist natively
+            UserDefaults.standard.set(userId, forKey: userIdentityKey)
+            DiagnosticLog.notice("[Rejourney] Persisted user identity: \(userId)")
+            
+            ReplayOrchestrator.shared.associateUser(userId)
+        } else if userId == "anonymous" || userId.isEmpty {
+            // Clear identity
+            currentUserIdentity = nil
+            UserDefaults.standard.removeObject(forKey: userIdentityKey)
+            DiagnosticLog.notice("[Rejourney] Cleared user identity")
+        }
+        
         resolve(["success": true])
     }
     
@@ -641,7 +666,8 @@ public final class RejourneyImpl: NSObject {
             "screenWidth": Int(screen.bounds.width * screen.scale),
             "screenHeight": Int(screen.bounds.height * screen.scale),
             "screenScale": screen.scale,
-            "deviceHash": computeHash()
+            "deviceHash": computeHash(),
+            "bundleId": Bundle.main.bundleIdentifier ?? "unknown"
         ])
     }
     

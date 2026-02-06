@@ -615,11 +615,20 @@ async function processEventsArtifact(job: any, _session: any, metrics: any, proj
         } else if (type === 'user_identity_changed') {
             // Update session's userId when user identity changes mid-session
             const newUserId = event.userId || event.details?.userId;
-            if (newUserId && newUserId !== 'anonymous') {
-                await db.update(sessions)
-                    .set({ userDisplayId: newUserId, updatedAt: new Date() })
-                    .where(eq(sessions.id, job.sessionId));
-                log.info({ userId: newUserId }, 'Session userId updated from user_identity_changed event');
+            if (newUserId && newUserId !== 'anonymous' && typeof newUserId === 'string') {
+                if (newUserId.startsWith('anon_')) {
+                    // It's an anonymous ID, update anonymousDisplayId instead
+                    await db.update(sessions)
+                        .set({ anonymousDisplayId: newUserId, updatedAt: new Date() })
+                        .where(eq(sessions.id, job.sessionId));
+                    log.info({ anonymousId: newUserId }, 'Session anonymousId updated from user_identity_changed event');
+                } else {
+                    // It's a real user ID
+                    await db.update(sessions)
+                        .set({ userDisplayId: newUserId, updatedAt: new Date() })
+                        .where(eq(sessions.id, job.sessionId));
+                    log.info({ userId: newUserId }, 'Session userId updated from user_identity_changed event');
+                }
             }
         }
     }

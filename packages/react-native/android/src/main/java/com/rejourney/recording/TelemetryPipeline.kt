@@ -81,6 +81,13 @@ class TelemetryPipeline private constructor(private val context: Context) {
             SegmentDispatcher.shared.projectId = value
         }
     
+    /// SDK's sampling decision for server-side enforcement
+    var isSampledIn: Boolean = true
+        set(value) {
+            field = value
+            SegmentDispatcher.shared.isSampledIn = value
+        }
+    
     // Event ring buffer
     private val eventRing = EventRingBuffer(5000)
     private val frameQueue = FrameBundleQueue(200)

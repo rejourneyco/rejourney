@@ -347,6 +347,9 @@ export const sessions = pgTable(
         // Video segment capture (new architecture)
         segmentCount: integer('segment_count').default(0),
         videoStorageBytes: bigint('video_storage_bytes', { mode: 'number' }).default(0),
+
+        // Server-side enforcement: SDK's sampling decision (for rejecting video/screenshot uploads)
+        isSampledIn: boolean('is_sampled_in').default(true).notNull(),
     },
     (table) => [
         index('sessions_project_started_idx').on(table.projectId, table.startedAt),

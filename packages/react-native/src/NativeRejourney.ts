@@ -154,9 +154,7 @@ export interface Spec extends TurboModule {
 
   setDebugMode(enabled: boolean): Promise<{ success: boolean }>;
 
-<<<<<<< Updated upstream
-=======
-  /**
+/**
    * Set SDK version from JS (called during init with version from package.json)
    */
   setSDKVersion(version: string): void;
@@ -172,7 +170,6 @@ export interface Spec extends TurboModule {
     maxRecordingMinutes: number
   ): Promise<{ success: boolean }>;
 
->>>>>>> Stashed changes
   getDeviceInfo(): Promise<Object>;
 }
 

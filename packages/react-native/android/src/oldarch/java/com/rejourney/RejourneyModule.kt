@@ -142,7 +142,7 @@ class RejourneyModule(reactContext: ReactApplicationContext) :
         try {
             impl.debugCrash()
         } catch (e: Exception) {
-            Logger.error("debugCrash failed", e)
+            DiagnosticLog.fault("debugCrash failed: ${e.message}")
         }
     }
 
@@ -151,7 +151,7 @@ class RejourneyModule(reactContext: ReactApplicationContext) :
         try {
             impl.debugTriggerANR(durationMs)
         } catch (e: Exception) {
-            Logger.error("debugTriggerANR failed", e)
+            DiagnosticLog.fault("debugTriggerANR failed: ${e.message}")
         }
     }
 
@@ -214,19 +214,35 @@ class RejourneyModule(reactContext: ReactApplicationContext) :
             promise.resolve(createErrorMap("Module initialization failed: ${e.message}"))
         }
     }
+
+    @ReactMethod
+    fun getUserIdentity(promise: Promise) {
+        try {
+            impl.getUserIdentity(promise)
+        } catch (e: Exception) {
+            promise.resolve(null)
+        }
+    }
+
+    @ReactMethod
+    fun setSDKVersion(version: String) {
+        try {
+            impl.setSDKVersion(version)
+        } catch (_: Exception) {}
+    }
     
     @ReactMethod
     fun setLogLevel(level: String, promise: Promise) {
         try {
-            val logLevel = when (level.uppercase()) {
-                "DEBUG" -> com.rejourney.core.LogLevel.DEBUG
-                "INFO" -> com.rejourney.core.LogLevel.INFO
-                "WARNING" -> com.rejourney.core.LogLevel.WARNING
-                "ERROR" -> com.rejourney.core.LogLevel.ERROR
-                "SILENT" -> com.rejourney.core.LogLevel.SILENT
-                else -> com.rejourney.core.LogLevel.ERROR
+            val minLevel = when (level.uppercase()) {
+                "DEBUG", "TRACE" -> 0
+                "INFO", "NOTICE" -> 1
+                "WARNING", "CAUTION" -> 2
+                "ERROR", "FAULT" -> 3
+                "SILENT" -> 4
+                else -> 3
             }
-            com.rejourney.core.Logger.setLogLevel(logLevel)
+            DiagnosticLog.minimumLevel = minLevel
             promise.resolve(true)
         } catch (e: Exception) {
             promise.resolve(false)

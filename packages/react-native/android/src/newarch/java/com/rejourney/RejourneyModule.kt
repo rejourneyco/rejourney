@@ -220,13 +220,13 @@ class RejourneyModule(reactContext: ReactApplicationContext) :
 
     @ReactMethod
     @DoNotStrip
-    override fun addListener(eventName: String) {
+    fun addListener(eventName: String) {
         try { impl?.addListener(eventName) } catch (_: Exception) {}
     }
 
     @ReactMethod
     @DoNotStrip
-    override fun removeListeners(count: Double) {
+    fun removeListeners(count: Double) {
         try { impl?.removeListeners(count) } catch (_: Exception) {}
     }
 }

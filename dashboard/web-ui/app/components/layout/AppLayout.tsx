@@ -33,7 +33,7 @@ function apiProjectToProject(apiProject: ApiProject): Project {
 
 export const ProjectLayout: React.FC<AppLayoutProps> = ({ children, pathPrefix = '' }) => {
   const { teams, currentTeam, setCurrentTeam, isLoading: teamsLoading } = useTeam();
-  const { selectedProject, setSelectedProject, refreshSessions, projects, isLoading: projectsLoading } = useSessionData();
+  const { selectedProject, setSelectedProject, refreshSessions, projects, isLoading: projectsLoading, error: sessionError } = useSessionData();
 
   // Changing this forces a remount of routed pages, ensuring all screens reset
   // their local state/effects when switching team/project.
@@ -41,8 +41,10 @@ export const ProjectLayout: React.FC<AppLayoutProps> = ({ children, pathPrefix =
 
   // Handle first-time users with no projects
   useEffect(() => {
-    // Only trigger for first-time users after loading is complete
-    if (!projectsLoading && !teamsLoading && projects.length === 0 && currentTeam) {
+    // Only trigger for first-time users after loading is complete.
+    // IMPORTANT: Do NOT show create-project modal if there's an API error —
+    // the empty projects list may be due to a backend failure, not an actual empty account.
+    if (!projectsLoading && !teamsLoading && projects.length === 0 && currentTeam && !sessionError) {
       // Check if we've already shown the modal for this session
       const hasShownModal = sessionStorage.getItem('hasShownFirstProjectModal');
       if (!hasShownModal) {
@@ -53,7 +55,7 @@ export const ProjectLayout: React.FC<AppLayoutProps> = ({ children, pathPrefix =
         }, 1000);
       }
     }
-  }, [projects.length, projectsLoading, teamsLoading, currentTeam]);
+  }, [projects.length, projectsLoading, teamsLoading, currentTeam, sessionError]);
 
   // Listen for project/team creation events to refresh list
   useEffect(() => {
