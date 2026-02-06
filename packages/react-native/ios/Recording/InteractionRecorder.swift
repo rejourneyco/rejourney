@@ -37,13 +37,14 @@ public final class InteractionRecorder: NSObject {
         guard !isTracking else { return }
         isTracking = true
         _gestureAggregator = GestureAggregator(delegate: self)
-        _installGlobalRecognizers()
+        _installSendEventHook()
     }
     
     @objc public func deactivate() {
         guard isTracking else { return }
         isTracking = false
-        _removeGlobalRecognizers()
+        // The sendEvent swizzle stays installed (one-time global hook), but
+        // the isTracking guard in processRawTouches prevents event processing.
         _gestureAggregator = nil
         _inputObservers.removeAllObjects()
         _navigationStack.removeAll()
@@ -66,65 +67,34 @@ public final class InteractionRecorder: NSObject {
         TelemetryPipeline.shared.recordViewTransition(viewId: last, viewLabel: last, entering: false)
     }
     
-    private var _installedRecognizers: [UIGestureRecognizer] = []
+    private static var _sendEventSwizzled = false
     
-    private func _installGlobalRecognizers() {
-        guard let agg = _gestureAggregator else { return }
-        
-        for window in UIApplication.shared.windows {
-            let tap = UITapGestureRecognizer(target: agg, action: #selector(GestureAggregator.handleTap(_:)))
-            tap.cancelsTouchesInView = false
-            tap.delaysTouchesBegan = false
-            tap.delaysTouchesEnded = false
-            tap.delegate = agg
-            window.addGestureRecognizer(tap)
-            _installedRecognizers.append(tap)
-            
-            let pan = UIPanGestureRecognizer(target: agg, action: #selector(GestureAggregator.handlePan(_:)))
-            pan.cancelsTouchesInView = false
-            pan.delaysTouchesBegan = false
-            pan.delaysTouchesEnded = false
-            pan.minimumNumberOfTouches = 1
-            pan.delegate = agg
-            window.addGestureRecognizer(pan)
-            _installedRecognizers.append(pan)
-            
-            let longPress = UILongPressGestureRecognizer(target: agg, action: #selector(GestureAggregator.handleLongPress(_:)))
-            longPress.cancelsTouchesInView = false
-            longPress.delaysTouchesBegan = false
-            longPress.delaysTouchesEnded = false
-            longPress.minimumPressDuration = 0.5
-            longPress.delegate = agg
-            window.addGestureRecognizer(longPress)
-            _installedRecognizers.append(longPress)
-            
-            let pinch = UIPinchGestureRecognizer(target: agg, action: #selector(GestureAggregator.handlePinch(_:)))
-            pinch.cancelsTouchesInView = false
-            pinch.delaysTouchesBegan = false
-            pinch.delaysTouchesEnded = false
-            pinch.delegate = agg
-            window.addGestureRecognizer(pinch)
-            _installedRecognizers.append(pinch)
-            
-            let rotation = UIRotationGestureRecognizer(target: agg, action: #selector(GestureAggregator.handleRotation(_:)))
-            rotation.cancelsTouchesInView = false
-            rotation.delaysTouchesBegan = false
-            rotation.delaysTouchesEnded = false
-            rotation.delegate = agg
-            window.addGestureRecognizer(rotation)
-            _installedRecognizers.append(rotation)
+    /// Install a UIWindow.sendEvent swizzle to passively observe all touch events.
+    /// Unlike gesture recognizers, this does NOT participate in the iOS gesture
+    /// resolution system, so it never triggers "System gesture gate timed out"
+    /// and never delays text input focus or keyboard appearance.
+    /// This is the same approach used by Datadog, Sentry, and FullStory SDKs.
+    private func _installSendEventHook() {
+        guard !InteractionRecorder._sendEventSwizzled else { return }
+        InteractionRecorder._sendEventSwizzled = true
+        ObjCRuntimeUtils.hotswapSafely(
+            cls: UIWindow.self,
+            original: #selector(UIWindow.sendEvent(_:)),
+            replacement: #selector(UIWindow.rj_sendEvent(_:))
+        )
+    }
+    
+    /// Called from the swizzled UIWindow.sendEvent to process raw touch events.
+    @objc public func processRawTouches(_ event: UIEvent, in window: UIWindow) {
+        guard isTracking, let agg = _gestureAggregator else { return }
+        guard let touches = event.allTouches else { return }
+        for touch in touches {
+            agg.processTouch(touch, in: window)
         }
     }
     
-    private func _removeGlobalRecognizers() {
-        for recognizer in _installedRecognizers {
-            recognizer.view?.removeGestureRecognizer(recognizer)
-        }
-        _installedRecognizers.removeAll()
-    }
-    
-    fileprivate func reportTap(location: CGPoint, target: String) {
-        TelemetryPipeline.shared.recordTapEvent(label: target, x: UInt64(max(0, location.x)), y: UInt64(max(0, location.y)))
+    fileprivate func reportTap(location: CGPoint, target: String, isInteractive: Bool) {
+        TelemetryPipeline.shared.recordTapEvent(label: target, x: UInt64(max(0, location.x)), y: UInt64(max(0, location.y)), isInteractive: isInteractive)
         ReplayOrchestrator.shared.incrementTapTally()
     }
     
@@ -209,145 +179,186 @@ public final class InteractionRecorder: NSObject {
     }
 }
 
-private final class GestureAggregator: NSObject, UIGestureRecognizerDelegate {
+private final class GestureAggregator: NSObject {
     
     weak var recorder: InteractionRecorder?
     
-    private var _recentTaps: [(location: CGPoint, time: Date)] = []
+    // Per-touch state for raw touch processing (replaces UIGestureRecognizer)
+    private struct TouchState {
+        let startLocation: CGPoint
+        let startTime: CFAbsoluteTime
+        var lastReportTime: CFAbsoluteTime
+        var isPanning: Bool
+        var maxDistance: CGFloat
+    }
+    
+    private var _activeTouches: [ObjectIdentifier: TouchState] = [:]
+    
+    // Gesture detection thresholds
+    private let _tapMaxDuration: CFAbsoluteTime = 0.3
+    private let _tapMaxDistance: CGFloat = 10
+    private let _panStartThreshold: CGFloat = 10
+    private let _longPressMinDuration: CFAbsoluteTime = 0.5
+    
+    // Rage tap detection
+    private var _recentTaps: [(location: CGPoint, time: CFAbsoluteTime)] = []
     private let _rageTapThreshold = 3
-    private let _rageTapWindow: TimeInterval = 1.0
+    private let _rageTapWindow: CFAbsoluteTime = 1.0
     private let _rageTapRadius: CGFloat = 50
     
-    // Throttle pan events to avoid flooding (100ms between events)
-    private var _lastPanTime: Date = .distantPast
-    private let _panThrottleInterval: TimeInterval = 0.1
+    // Throttle pan events to avoid flooding
+    private var _lastPanTime: CFAbsoluteTime = 0
+    private let _panThrottleInterval: CFAbsoluteTime = 0.1
     
     init(delegate: InteractionRecorder) {
         self.recorder = delegate
         super.init()
     }
     
-    @objc func handleTap(_ gesture: UITapGestureRecognizer) {
-        guard gesture.state == .ended else { return }
-        let loc = gesture.location(in: gesture.view)
-        let target = _resolveTarget(at: loc, in: gesture.view)
+    /// Process a raw touch event from UIWindow.sendEvent swizzle.
+    /// This replaces all UIGestureRecognizer-based detection. No recognizers are
+    /// installed on any window, so iOS's system gesture gate is never triggered
+    /// and text input focus / keyboard appearance is never delayed.
+    func processTouch(_ touch: UITouch, in window: UIWindow) {
+        let touchId = ObjectIdentifier(touch)
+        let location = touch.location(in: window)
+        let now = CFAbsoluteTimeGetCurrent()
         
-        _recentTaps.append((location: loc, time: Date()))
-        _pruneOldTaps()
-        
-        let nearby = _recentTaps.filter { $0.location.distance(to: loc) < _rageTapRadius }
-        if nearby.count >= _rageTapThreshold {
-            recorder?.reportRageTap(location: loc, count: nearby.count, target: target)
-            _recentTaps.removeAll()
-        } else {
-            recorder?.reportTap(location: loc, target: target)
-            // Dead tap detection moved to JS side — native view hierarchy inspection
-            // is unreliable in React Native since touch handling is JS-based.
-        }
-    }
-    
-    @objc func handlePan(_ gesture: UIPanGestureRecognizer) {
-        let loc = gesture.location(in: gesture.view)
-        let target = _resolveTarget(at: loc, in: gesture.view)
-        
-        // Record pan position during the gesture (throttled for trail visualization)
-        if gesture.state == .changed {
-            let now = Date()
-            if now.timeIntervalSince(_lastPanTime) >= _panThrottleInterval {
-                _lastPanTime = now
-                recorder?.reportPan(location: loc, target: target)
+        switch touch.phase {
+        case .began:
+            _activeTouches[touchId] = TouchState(
+                startLocation: location,
+                startTime: now,
+                lastReportTime: 0,
+                isPanning: false,
+                maxDistance: 0
+            )
+            
+        case .moved:
+            guard var state = _activeTouches[touchId] else { return }
+            let distance = location.distance(to: state.startLocation)
+            state.maxDistance = max(state.maxDistance, distance)
+            
+            if !state.isPanning && distance > _panStartThreshold {
+                state.isPanning = true
             }
-        }
-        
-        // Record final swipe/scroll direction when gesture ends
-        guard gesture.state == .ended else { return }
-        let velocity = gesture.velocity(in: gesture.view)
-        
-        let vec = SwipeVector.from(velocity: velocity)
-        if vec != .none {
-            // Fast pan = swipe
-            recorder?.reportSwipe(location: loc, direction: vec, target: target)
-        } else {
-            // Slow pan = scroll
-            recorder?.reportScroll(location: loc, target: target)
-        }
-        ReplayOrchestrator.shared.logScrollAction()
-    }
-    
-    @objc func handleLongPress(_ gesture: UILongPressGestureRecognizer) {
-        guard gesture.state == .began else { return }
-        let loc = gesture.location(in: gesture.view)
-        let target = _resolveTarget(at: loc, in: gesture.view)
-        
-        recorder?.reportLongPress(location: loc, target: target)
-    }
-    
-    @objc func handlePinch(_ gesture: UIPinchGestureRecognizer) {
-        let loc = gesture.location(in: gesture.view)
-        let target = _resolveTarget(at: loc, in: gesture.view)
-        
-        switch gesture.state {
-        case .changed:
-            let now = Date()
-            if now.timeIntervalSince(_lastPanTime) >= _panThrottleInterval {
-                _lastPanTime = now
-                recorder?.reportPinch(location: loc, scale: gesture.scale, target: target)
+            
+            if state.isPanning && (now - state.lastReportTime) >= _panThrottleInterval {
+                state.lastReportTime = now
+                let (target, _) = _resolveTarget(at: location, in: window)
+                recorder?.reportPan(location: location, target: target)
             }
+            
+            _activeTouches[touchId] = state
+            
         case .ended:
-            recorder?.reportPinch(location: loc, scale: gesture.scale, target: target)
+            guard let state = _activeTouches.removeValue(forKey: touchId) else { return }
+            let duration = now - state.startTime
+            
+            if state.isPanning {
+                // Calculate velocity for swipe vs scroll detection
+                let dt = max(duration, 0.001)
+                let dx = location.x - state.startLocation.x
+                let dy = location.y - state.startLocation.y
+                let velocity = CGPoint(x: dx / dt, y: dy / dt)
+                
+                let (target, _) = _resolveTarget(at: location, in: window)
+                let vec = SwipeVector.from(velocity: velocity)
+                if vec != .none {
+                    recorder?.reportSwipe(location: location, direction: vec, target: target)
+                } else {
+                    recorder?.reportScroll(location: location, target: target)
+                }
+                ReplayOrchestrator.shared.logScrollAction()
+            } else if duration < _tapMaxDuration && state.maxDistance < _tapMaxDistance {
+                // Tap — short duration, small movement
+                let (target, isInteractive) = _resolveTarget(at: location, in: window)
+                
+                _recentTaps.append((location: location, time: now))
+                _pruneOldTaps(now: now)
+                
+                let nearby = _recentTaps.filter { $0.location.distance(to: location) < _rageTapRadius }
+                if nearby.count >= _rageTapThreshold {
+                    recorder?.reportRageTap(location: location, count: nearby.count, target: target)
+                    _recentTaps.removeAll()
+                } else {
+                    recorder?.reportTap(location: location, target: target, isInteractive: isInteractive)
+                }
+            } else if duration >= _longPressMinDuration && state.maxDistance < _tapMaxDistance {
+                // Long press — held without significant movement
+                let (target, _) = _resolveTarget(at: location, in: window)
+                recorder?.reportLongPress(location: location, target: target)
+            }
+            
+        case .cancelled:
+            _activeTouches.removeValue(forKey: touchId)
+            
         default:
             break
         }
     }
     
-    @objc func handleRotation(_ gesture: UIRotationGestureRecognizer) {
-        let loc = gesture.location(in: gesture.view)
-        let target = _resolveTarget(at: loc, in: gesture.view)
-        
-        switch gesture.state {
-        case .changed:
-            let now = Date()
-            if now.timeIntervalSince(_lastPanTime) >= _panThrottleInterval {
-                _lastPanTime = now
-                recorder?.reportRotation(location: loc, angle: gesture.rotation, target: target)
-            }
-        case .ended:
-            recorder?.reportRotation(location: loc, angle: gesture.rotation, target: target)
-        default:
-            break
-        }
-    }
-    
-    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool {
-        true
-    }
-    
-    /// Allow text inputs to receive touches immediately without gesture resolution delay.
-    /// Without this, the system gesture gate times out waiting for our 5 window-level
-    /// recognizers, causing a ~3s delay before the keyboard appears on first tap.
-    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
-        if let view = touch.view {
-            if view is UITextField || view is UITextView {
-                return false
-            }
-            // React Native text inputs use internal class names
-            let className = String(describing: type(of: view))
-            if className.contains("TextInput") || className.contains("RCTUITextField") || className.contains("RCTBaseText") {
-                return false
-            }
-        }
-        return true
-    }
-    
-    private func _pruneOldTaps() {
-        let cutoff = Date().addingTimeInterval(-_rageTapWindow)
+    private func _pruneOldTaps(now: CFAbsoluteTime) {
+        let cutoff = now - _rageTapWindow
         _recentTaps.removeAll { $0.time < cutoff }
     }
     
-    private func _resolveTarget(at point: CGPoint, in view: UIView?) -> String {
-        guard let window = view as? UIWindow else { return "unknown" }
-        guard let hit = window.hitTest(point, with: nil) else { return "window" }
-        return hit.accessibilityIdentifier ?? hit.accessibilityLabel ?? String(describing: type(of: hit))
+    private func _resolveTarget(at point: CGPoint, in window: UIWindow) -> (label: String, isInteractive: Bool) {
+        guard let hit = window.hitTest(point, with: nil) else { return ("window", false) }
+        
+        let label = hit.accessibilityIdentifier ?? hit.accessibilityLabel ?? String(describing: type(of: hit))
+        let isInteractive = _isViewInteractive(hit)
+        
+        return (label, isInteractive)
+    }
+    
+    /// Check if a view is interactive (buttons, touchables, controls, etc.)
+    ///
+    /// In React Native Fabric, all view components render as RCTViewComponentView,
+    /// so class name heuristics don't work.  Instead we rely on:
+    ///   • UIControl (native buttons/switches/sliders)
+    ///   • isAccessibilityElement — RN sets this to true for Pressable,
+    ///     TouchableOpacity, and Button (via `accessible` prop, default true).
+    ///     Plain View defaults to false.
+    ///   • accessibilityTraits containing .button or .link
+    /// We walk up to 8 ancestors because hitTest returns the deepest child
+    /// (e.g. Text inside a Pressable), not the Pressable itself.
+    private func _isViewInteractive(_ view: UIView) -> Bool {
+        if _isSingleViewInteractive(view) { return true }
+        
+        // Walk ancestor chain — tap inside <Pressable><Text>...</Text></Pressable>
+        // hits the Text, but the Pressable parent is the interactive element.
+        var ancestor = view.superview
+        var depth = 0
+        while let parent = ancestor, depth < 8 {
+            if _isSingleViewInteractive(parent) { return true }
+            ancestor = parent.superview
+            depth += 1
+        }
+        
+        return false
+    }
+    
+    private func _isSingleViewInteractive(_ view: UIView) -> Bool {
+        // Native UIControls (UIButton, UISwitch, UISlider, etc.)
+        if view is UIControl { return true }
+        
+        // Text inputs
+        if view is UITextField || view is UITextView { return true }
+        
+        // React Native Pressable / TouchableOpacity / Button set accessible={true}
+        // which maps to isAccessibilityElement = true.  Plain View defaults to false.
+        if view.isAccessibilityElement {
+            return true
+        }
+        
+        // Explicit accessibility role indicating interactivity
+        let traits = view.accessibilityTraits
+        if traits.contains(.button) || traits.contains(.link) {
+            return true
+        }
+        
+        return false
     }
 }
 
@@ -398,5 +409,20 @@ private final class InputEndObserver: NSObject {
 private extension CGPoint {
     func distance(to other: CGPoint) -> CGFloat {
         sqrt(pow(x - other.x, 2) + pow(y - other.y, 2))
+    }
+}
+
+// MARK: - UIWindow sendEvent Swizzle
+
+extension UIWindow {
+    /// Swizzled sendEvent that passively observes touch events for session replay.
+    /// After ObjCRuntimeUtils.hotswapSafely swaps the IMP pointers, calling
+    /// rj_sendEvent actually invokes the ORIGINAL UIWindow.sendEvent.
+    @objc func rj_sendEvent(_ event: UIEvent) {
+        if event.type == .touches {
+            InteractionRecorder.shared.processRawTouches(event, in: self)
+        }
+        // Call original sendEvent (this IS the original after swizzle)
+        rj_sendEvent(event)
     }
 }

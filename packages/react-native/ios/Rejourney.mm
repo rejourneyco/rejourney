@@ -48,6 +48,8 @@
 
 @implementation Rejourney
 
+@synthesize bridge = _bridge;
+
 RCT_EXPORT_MODULE()
 
 + (BOOL)requiresMainQueueSetup {
@@ -64,6 +66,16 @@ RCT_EXPORT_MODULE()
     }
   }
   return self;
+}
+
+#pragma mark - Tap Event Emission (no-ops, dead tap detection is native-side)
+
+RCT_EXPORT_METHOD(addListener:(NSString *)eventName) {
+  // No-op: dead tap detection is handled natively in TelemetryPipeline
+}
+
+RCT_EXPORT_METHOD(removeListeners:(double)count) {
+  // No-op: dead tap detection is handled natively in TelemetryPipeline
 }
 
 - (RejourneyImpl *)resolveSwiftImpl {

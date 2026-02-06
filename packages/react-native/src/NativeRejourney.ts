@@ -176,6 +176,12 @@ export interface Spec extends TurboModule {
   setSDKVersion(version: string): void;
 
   getDeviceInfo(): Promise<Object>;
+
+  /**
+   * Required for NativeEventEmitter spec compliance (no-ops, dead tap detection is native-side)
+   */
+  addListener(eventName: string): void;
+  removeListeners(count: number): void;
 }
 
 /**

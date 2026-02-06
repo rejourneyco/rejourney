@@ -168,151 +168,21 @@ let onRageTapDetected: ((count: number, x: number, y: number) => void) | null = 
 let onErrorCaptured: ((error: ErrorEvent) => void) | null = null;
 let onScreenChange: ((screenName: string, previousScreen?: string) => void) | null = null;
 
-// ========== Dead Tap Detection (JS-side) ==========
-// Native view hierarchy inspection cannot reliably detect dead taps in React
-// Native because the touch/press system is entirely JS-based (Pressable,
-// TouchableOpacity, onPress handlers). Instead, we:
-//   1. Patch React.createElement / jsx to wrap every onPress with a notifier
-//   2. When native reports a tap via trackTap(), start a short timer
-//   3. If no onPress fires within the window → dead tap
-//
-// Performance: one typeof check per createElement (nanoseconds), one WeakMap
-// lookup per touchable element per render, one setTimeout per tap.
-const DEAD_TAP_TIMEOUT_MS = 300;
-let _pendingDeadTapTimer: ReturnType<typeof setTimeout> | null = null;
-let _lastTapEvent: TapEvent | null = null;
-let _tapHandledByPress = false;
-let _deadTapDetectionActive = false;
-
-// Cache wrapped onPress handlers to preserve referential equality across renders.
-// Without this, every render would create a new wrapper function for the same
-// onPress, defeating React's bailout optimisation (memo, PureComponent).
-const _wrappedPressHandlers = new WeakMap<Function, Function>();
-const _REJOURNEY_WRAPPED = '__rjWrapped';
-
-function _wrapOnPress(originalOnPress: Function): Function {
-  // Already wrapped — avoid double-wrapping if props object is reused
-  if ((originalOnPress as any)[_REJOURNEY_WRAPPED]) return originalOnPress;
-
-  let wrapped = _wrappedPressHandlers.get(originalOnPress);
-  if (!wrapped) {
-    wrapped = function rejourneyPressWrapper(this: any) {
-      _markTapHandled();
-      // eslint-disable-next-line prefer-rest-params
-      return originalOnPress.apply(this, arguments);
-    };
-    (wrapped as any)[_REJOURNEY_WRAPPED] = true;
-    _wrappedPressHandlers.set(originalOnPress, wrapped);
-  }
-  return wrapped;
-}
 
 /**
- * Signal that the most recent tap was handled by a press callback.
- * Called automatically when a wrapped onPress fires.
- * Can also be called manually from custom gesture handlers.
+ * Mark a tap as handled.
+ * No-op — kept for API compatibility. Dead tap detection is now native-side.
  */
 export function markTapHandled(): void {
-  _markTapHandled();
-}
-
-function _markTapHandled(): void {
-  _tapHandledByPress = true;
-  if (_pendingDeadTapTimer) {
-    clearTimeout(_pendingDeadTapTimer);
-    _pendingDeadTapTimer = null;
-  }
-}
-
-function _handleDeadTap(tap: TapEvent): void {
-  metrics.deadTapCount++;
-  metrics.totalEvents++;
-
-  // Report to native so the event appears in the session replay timeline
-  const nativeModule = getRejourneyNativeModule();
-  if (nativeModule && typeof (nativeModule as any).logEvent === 'function') {
-    try {
-      (nativeModule as any).logEvent('dead_tap', {
-        x: tap.x,
-        y: tap.y,
-        label: tap.targetId || 'unknown',
-      });
-    } catch {
-      // Best-effort — don't crash if native call fails
-    }
-  }
-
-  logger.debug(`Dead tap at (${tap.x}, ${tap.y}) target=${tap.targetId}`);
-}
-
-/**
- * Patch React element creation to intercept onPress / onLongPress props.
- * This runs once at init time — all subsequently rendered elements will have
- * wrapped press handlers that notify the dead tap detector when they fire.
- */
-function _setupDeadTapDetection(): void {
-  if (_deadTapDetectionActive) return;
-
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const React = require('react');
-
-    // Helper: patch a createElement-style function
-    const patchFactory = (orig: Function) =>
-      function rejourneyElementFactory(this: any, _type: any, props: any) {
-        if (props != null) {
-          if (typeof props.onPress === 'function') {
-            props.onPress = _wrapOnPress(props.onPress);
-          }
-          if (typeof props.onLongPress === 'function') {
-            props.onLongPress = _wrapOnPress(props.onLongPress);
-          }
-        }
-        // eslint-disable-next-line prefer-rest-params
-        return orig.apply(this, arguments);
-      };
-
-    // 1. Classic JSX transform: React.createElement
-    if (typeof React.createElement === 'function') {
-      React.createElement = patchFactory(React.createElement);
-    }
-
-    // 2. Automatic JSX transform (React 17+): react/jsx-runtime
-    try {
-      // eslint-disable-next-line @typescript-eslint/no-var-requires
-      const jsxRuntime = require('react/jsx-runtime');
-      if (typeof jsxRuntime.jsx === 'function') {
-        jsxRuntime.jsx = patchFactory(jsxRuntime.jsx);
-      }
-      if (typeof jsxRuntime.jsxs === 'function') {
-        jsxRuntime.jsxs = patchFactory(jsxRuntime.jsxs);
-      }
-    } catch {
-      // jsx-runtime not available — classic transform only
-    }
-
-    // 3. Development JSX transform: react/jsx-dev-runtime
-    try {
-      // eslint-disable-next-line @typescript-eslint/no-var-requires
-      const jsxDevRuntime = require('react/jsx-dev-runtime');
-      if (typeof jsxDevRuntime.jsxDEV === 'function') {
-        jsxDevRuntime.jsxDEV = patchFactory(jsxDevRuntime.jsxDEV);
-      }
-    } catch {
-      // jsx-dev-runtime not available
-    }
-
-    _deadTapDetectionActive = true;
-    logger.debug('Dead tap detection initialized (JS-side)');
-  } catch (e) {
-    logger.warn('Dead tap detection setup failed:', e);
-  }
+  // No-op: dead tap detection is handled natively in TelemetryPipeline
 }
 // ========== End Dead Tap Detection ==========
 
 let originalErrorHandler: ((error: Error, isFatal: boolean) => void) | undefined;
 let originalOnError: OnErrorEventHandler | null = null;
 let originalOnUnhandledRejection: ((event: PromiseRejectionEvent) => void) | null = null;
+let originalConsoleError: ((...args: any[]) => void) | null = null;
+let _promiseRejectionTrackingDisable: (() => void) | null = null;
 
 /**
  * Initialize auto tracking features
@@ -352,7 +222,6 @@ export function initAutoTracking(
   onScreenChange = callbacks.onScreen || null;
   setupErrorTracking();
   setupNavigationTracking();
-  _setupDeadTapDetection();
   loadAnonymousId().then(id => {
     anonymousId = id;
   });
@@ -368,12 +237,6 @@ export function cleanupAutoTracking(): void {
 
   restoreErrorHandlers();
   cleanupNavigationTracking();
-
-  // Cancel any pending dead tap timer
-  if (_pendingDeadTapTimer) {
-    clearTimeout(_pendingDeadTapTimer);
-    _pendingDeadTapTimer = null;
-  }
 
   // Reset state
   tapHead = 0;
@@ -417,21 +280,7 @@ export function trackTap(tap: TapEvent): void {
   detectRageTap();
   metrics.touchCount++;
   metrics.totalEvents++;
-
-  // Dead tap detection: start a timer — if no onPress fires before it
-  // expires, the tap landed on nothing interactive → dead tap.
-  if (_deadTapDetectionActive && config.detectDeadTaps !== false) {
-    _tapHandledByPress = false;
-    _lastTapEvent = tap;
-
-    if (_pendingDeadTapTimer) clearTimeout(_pendingDeadTapTimer);
-    _pendingDeadTapTimer = setTimeout(() => {
-      _pendingDeadTapTimer = null;
-      if (!_tapHandledByPress && _lastTapEvent === tap) {
-        _handleDeadTap(tap);
-      }
-    }, DEAD_TAP_TIMEOUT_MS);
-  }
+  // Dead tap detection is now handled natively in TelemetryPipeline
 }
 
 /**
@@ -485,7 +334,7 @@ function detectRageTap(): void {
  * Kept for API compatibility
  */
 export function notifyStateChange(): void {
-  // No-op - kept for backward compatibility
+  // No-op: dead tap detection is handled natively in TelemetryPipeline
 }
 
 /**
@@ -507,6 +356,13 @@ function setupErrorTracking(): void {
 
 /**
  * Setup React Native ErrorUtils handler
+ *
+ * CRITICAL FIX: For fatal errors, we delay calling the original handler by 500ms
+ * to give the React Native bridge time to flush the logEvent('error') call to the
+ * native TelemetryPipeline. Without this delay, the error event is queued on the
+ * JS→native bridge but the app crashes (via originalErrorHandler) before the bridge
+ * flushes, so the error is lost. Crashes are captured separately by native crash
+ * handlers, but the corresponding JS error record was never making it to the backend.
  */
 function setupReactNativeErrorHandler(): void {
   try {
@@ -525,7 +381,16 @@ function setupReactNativeErrorHandler(): void {
       });
 
       if (originalErrorHandler) {
-        originalErrorHandler(error, isFatal);
+        if (isFatal) {
+          // For fatal errors, delay the original handler so the native bridge
+          // has time to deliver the error event to TelemetryPipeline before
+          // the app terminates. 500ms is enough for the bridge to flush.
+          setTimeout(() => {
+            originalErrorHandler!(error, isFatal);
+          }, 500);
+        } else {
+          originalErrorHandler(error, isFatal);
+        }
       }
     });
   } catch {
@@ -565,9 +430,80 @@ function setupJSErrorHandler(): void {
 
 /**
  * Setup unhandled promise rejection handler
+ *
+ * React Native's Hermes engine does NOT support the web-standard
+ * globalThis.addEventListener('unhandledrejection', ...) API.
+ * We use two complementary strategies:
+ *
+ * 1. React Native's built-in promise rejection tracking polyfill
+ *    (promise/setimmediate/rejection-tracking) — fires for all
+ *    unhandled rejections, including those that never hit ErrorUtils.
+ *
+ * 2. console.error interception — newer RN versions (0.73+) report
+ *    unhandled promise rejections via console.error with a recognizable
+ *    prefix. We intercept these as a fallback.
+ *
+ * 3. Web API fallback — for non-RN environments (e.g., testing in a browser).
  */
 function setupPromiseRejectionHandler(): void {
-  if (typeof _globalThis.addEventListener !== 'undefined') {
+  let rnTrackingSetUp = false;
+
+  // Strategy 1: RN-specific promise rejection tracking polyfill
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const tracking = require('promise/setimmediate/rejection-tracking');
+    if (tracking && typeof tracking.enable === 'function') {
+      tracking.enable({
+        allRejections: true,
+        onUnhandled: (_id: number, error: any) => {
+          trackError({
+            type: 'error',
+            timestamp: Date.now(),
+            message: error?.message || String(error) || 'Unhandled Promise Rejection',
+            stack: error?.stack,
+            name: error?.name || 'UnhandledRejection',
+          });
+        },
+        onHandled: () => { /* no-op */ },
+      });
+      _promiseRejectionTrackingDisable = () => {
+        try { tracking.disable(); } catch { /* ignore */ }
+      };
+      rnTrackingSetUp = true;
+    }
+  } catch {
+    // Polyfill not available — fall through to other strategies
+  }
+
+  // Strategy 2: Intercept console.error for promise rejection messages
+  // Newer RN versions log "Possible Unhandled Promise Rejection" via console.error
+  if (!rnTrackingSetUp && typeof console !== 'undefined' && console.error) {
+    originalConsoleError = console.error;
+    console.error = (...args: any[]) => {
+      // Detect RN-style promise rejection messages
+      const firstArg = args[0];
+      if (
+        typeof firstArg === 'string' &&
+        firstArg.includes('Possible Unhandled Promise Rejection')
+      ) {
+        const error = args[1];
+        trackError({
+          type: 'error',
+          timestamp: Date.now(),
+          message: error?.message || String(error) || firstArg,
+          stack: error?.stack,
+          name: error?.name || 'UnhandledRejection',
+        });
+      }
+      // Always call through to original console.error
+      if (originalConsoleError) {
+        originalConsoleError.apply(console, args);
+      }
+    };
+  }
+
+  // Strategy 3: Web API fallback (works in browser-based testing, not in RN Hermes)
+  if (!rnTrackingSetUp && typeof _globalThis.addEventListener !== 'undefined') {
     const handler = (event: PromiseRejectionEvent) => {
       const reason = event.reason;
       trackError({
@@ -603,6 +539,17 @@ function restoreErrorHandlers(): void {
   if (originalOnError !== null) {
     _globalThis.onerror = originalOnError;
     originalOnError = null;
+  }
+
+  // Restore promise rejection tracking
+  if (_promiseRejectionTrackingDisable) {
+    _promiseRejectionTrackingDisable();
+    _promiseRejectionTrackingDisable = null;
+  }
+
+  if (originalConsoleError) {
+    console.error = originalConsoleError;
+    originalConsoleError = null;
   }
 
   if (originalOnUnhandledRejection && typeof _globalThis.removeEventListener !== 'undefined') {

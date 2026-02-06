@@ -204,4 +204,16 @@ class RejourneyModule(reactContext: ReactApplicationContext) :
                 putString("error", error)
             }
         }
+
+    @ReactMethod
+    @DoNotStrip
+    override fun addListener(eventName: String) {
+        try { impl?.addListener(eventName) } catch (_: Exception) {}
+    }
+
+    @ReactMethod
+    @DoNotStrip
+    override fun removeListeners(count: Double) {
+        try { impl?.removeListeners(count) } catch (_: Exception) {}
+    }
 }

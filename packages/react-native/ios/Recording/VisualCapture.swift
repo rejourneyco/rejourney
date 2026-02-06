@@ -190,8 +190,8 @@ public final class VisualCapture: NSObject {
         
         let frameStart = CFAbsoluteTimeGetCurrent()
         
-        // Industry standard: Take screenshot synchronously on main thread
-        // Only move compression to background
+        // Capture the pixel buffer on the main thread (required by UIKit),
+        // then move JPEG compression to the encode queue to reduce main-thread blocking.
         autoreleasepool {
             guard let window = UIApplication.shared.windows.first(where: \.isKeyWindow) else { return }
             let bounds = window.bounds
@@ -231,29 +231,34 @@ public final class VisualCapture: NSObject {
             }
             UIGraphicsEndImageContext()
             
-            // Compress immediately - JPEG encoding is fast enough inline
-            guard let data = image.jpegData(compressionQuality: quality) else { return }
-            
             let captureTs = UInt64(Date().timeIntervalSince1970 * 1000)
             _frameCounter += 1
+            let frameNumber = _frameCounter
+            let jpegQuality = quality
             
-            // Log frame timing every 30 frames to avoid log spam
-            if _frameCounter % 30 == 0 {
-                let frameDurationMs = (CFAbsoluteTimeGetCurrent() - frameStart) * 1000
-                DiagnosticLog.perfFrame(operation: "screenshot", durationMs: frameDurationMs, frameNumber: Int(_frameCounter), isMainThread: Thread.isMainThread)
-            }
-            
-            // Store in buffer (fast operation)
-            _stateLock.lock()
-            _screenshots.append((data, captureTs))
-            _enforceScreenshotCaps()
-            // Use internal batch size to avoid cross-object call overhead
-            let shouldSend = !_deferredUntilCommit && _screenshots.count >= _batchSize
-            _stateLock.unlock()
-            
-            // Move network send to background only
-            if shouldSend {
-                _sendScreenshots()
+            // Move JPEG compression off the main thread.
+            // drawHierarchy must be on main, but jpegData is thread-safe and
+            // accounts for ~40-60% of per-frame main-thread cost.
+            _encodeQueue.addOperation { [weak self] in
+                guard let self else { return }
+                guard let data = image.jpegData(compressionQuality: jpegQuality) else { return }
+                
+                // Log frame timing every 30 frames to avoid log spam
+                if frameNumber % 30 == 0 {
+                    let frameDurationMs = (CFAbsoluteTimeGetCurrent() - frameStart) * 1000
+                    DiagnosticLog.perfFrame(operation: "screenshot", durationMs: frameDurationMs, frameNumber: Int(frameNumber), isMainThread: Thread.isMainThread)
+                }
+                
+                // Store in buffer (fast operation)
+                self._stateLock.lock()
+                self._screenshots.append((data, captureTs))
+                self._enforceScreenshotCaps()
+                let shouldSend = !self._deferredUntilCommit && self._screenshots.count >= self._batchSize
+                self._stateLock.unlock()
+                
+                if shouldSend {
+                    self._sendScreenshots()
+                }
             }
         }
     }
@@ -466,6 +471,15 @@ private final class RedactionMask {
     private var _explicitViews = NSHashTable<UIView>.weakObjects()
     private let _lock = NSLock()
     
+    // Cache the hierarchy scan results to avoid scanning every frame.
+    // The full recursive scan runs String(describing: type(of:)) reflection
+    // on every view in the key window, which is expensive in React Native
+    // hierarchies (thousands of views). Caching for ~1s is safe because
+    // sensitive views (text inputs, cameras) don't appear/disappear at 3fps.
+    private var _cachedAutoRects: [CGRect] = []
+    private var _lastScanTime: CFAbsoluteTime = 0
+    private let _scanCacheDurationSec: CFAbsoluteTime = 1.0
+    
     // View class names that should always be masked (privacy sensitive)
     private let _sensitiveClassNames: Set<String> = [
         // Camera views
@@ -504,32 +518,70 @@ private final class RedactionMask {
         var rects: [CGRect] = []
         rects.reserveCapacity(explicitViews.count + 20)
         
-        // 1. Add explicitly registered views
+        // 1. Add explicitly registered views (always fresh — these are few)
         for v in explicitViews {
             if let rect = _viewRect(v) {
                 rects.append(rect)
             }
         }
         
-        // 2. Auto-detect sensitive views in window hierarchy
-        if let window = _keyWindow() {
-            _scanForSensitiveViews(in: window, rects: &rects)
+        // 2. Auto-detect sensitive views from a cached hierarchy scan.
+        //    The full recursive scan is expensive (String(describing:) reflection
+        //    on every view) so we cache results for ~1s. Explicit views above
+        //    are always re-evaluated, so newly focused inputs still get masked.
+        let now = CFAbsoluteTimeGetCurrent()
+        if now - _lastScanTime >= _scanCacheDurationSec {
+            _cachedAutoRects.removeAll()
+            if let window = _keyWindow() {
+                _scanForSensitiveViews(in: window, rects: &_cachedAutoRects)
+            }
+            _lastScanTime = now
         }
+        rects.append(contentsOf: _cachedAutoRects)
         
         return rects
     }
     
     private func _viewRect(_ v: UIView) -> CGRect? {
         guard let w = v.window else { return nil }
+        
+        // Skip views in non-key windows (keyboard windows, system windows).
+        // These have transitional layer transforms during animation that cause
+        // UIView.convert() to pass NaN to CoreGraphics internally, producing
+        // "invalid numeric value (NaN)" errors that we cannot catch because
+        // CoreGraphics logs the error before the return value is available.
+        if !w.isKeyWindow { return nil }
+        
         // Guard against views with invalid bounds before conversion
         let viewBounds = v.bounds
         guard viewBounds.width > 0 && viewBounds.height > 0 else { return nil }
         guard viewBounds.width.isFinite && viewBounds.height.isFinite else { return nil }
         guard !viewBounds.width.isNaN && !viewBounds.height.isNaN else { return nil }
+        guard viewBounds.origin.x.isFinite && viewBounds.origin.y.isFinite else { return nil }
+        guard !viewBounds.origin.x.isNaN && !viewBounds.origin.y.isNaN else { return nil }
         
         // During animation, convert() internally passes NaN to CoreGraphics
         // which logs an error even though we guard the output. Skip animated views.
         if v.layer.animationKeys()?.isEmpty == false {
+            return nil
+        }
+        
+        // Also check the view's layer transform — keyboard views during transition
+        // can have a transform with NaN or degenerate values that cause convert()
+        // to produce NaN internally in CoreGraphics before we can catch the result.
+        let t = v.layer.transform
+        if t.m11.isNaN || t.m22.isNaN || t.m33.isNaN || t.m44.isNaN ||
+           t.m41.isNaN || t.m42.isNaN || t.m43.isNaN {
+            return nil
+        }
+        // Degenerate transform (scale=0) will produce zero-area results
+        if t.m11 == 0 && t.m22 == 0 {
+            return nil
+        }
+        
+        // Also check the window's transform for safety (keyboard windows can have odd transforms)
+        let wt = w.layer.transform
+        if wt.m11.isNaN || wt.m22.isNaN || wt.m41.isNaN || wt.m42.isNaN {
             return nil
         }
         
@@ -553,12 +605,25 @@ private final class RedactionMask {
     }
     
     private func _scanForSensitiveViews(in view: UIView, rects: inout [CGRect], depth: Int = 0) {
-        // Limit recursion depth to avoid scanning deep hierarchies (keyboard internals etc.)
-        guard depth < 30 else { return }
+        // Limit recursion depth to avoid scanning deep hierarchies
+        guard depth < 20 else { return }
         
         // Skip hidden, transparent, or zero-sized views entirely
         guard !view.isHidden && view.alpha > 0.01 else { return }
         guard view.bounds.width > 0 && view.bounds.height > 0 else { return }
+        
+        // Skip keyboard windows entirely — their internal views have
+        // transitional frames during animation that produce NaN when
+        // converted via UIView.convert(_:to:), causing CoreGraphics
+        // "invalid numeric value (NaN)" errors. Keyboard content is
+        // not meaningful for session replay and is never recorded.
+        let className = String(describing: type(of: view))
+        if className.contains("UIRemoteKeyboardWindow") ||
+           className.contains("UITextEffectsWindow") ||
+           className.contains("UIInputSetHostView") ||
+           className.contains("UIKeyboard") {
+            return
+        }
         
         // Check if this view should be masked
         if _shouldMask(view), let rect = _viewRect(view) {

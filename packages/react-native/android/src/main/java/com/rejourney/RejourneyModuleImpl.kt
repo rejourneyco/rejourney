@@ -761,6 +761,16 @@ class RejourneyModuleImpl(
         InteractionRecorder.shared?.setCurrentActivity(null)
     }
 
+    // MARK: - Event Emission (no-ops, dead tap detection is native-side)
+
+    fun addListener(eventName: String) {
+        // No-op: dead tap detection is handled natively in TelemetryPipeline
+    }
+
+    fun removeListeners(count: Double) {
+        // No-op: dead tap detection is handled natively in TelemetryPipeline
+    }
+
     // MARK: - Cleanup
 
     fun invalidate() {

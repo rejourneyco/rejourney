@@ -67,61 +67,28 @@ export const CrashesList: React.FC = () => {
         window.scrollTo(0, 0);
     }, []);
 
+    // Map crashes to unique "groups" (effectively disabling aggregation)
     const crashGroups = useMemo(() => {
-        const groups: Record<string, {
-            name: string;
-            count: number;
-            users: Set<string>;
-            firstSeen: string;
-            lastOccurred: string;
-            affectedDevices: Record<string, number>;
-            affectedVersions: Record<string, number>;
-            sampleSessionId: string;
-            sampleCrashId?: string;
-        }> = {};
-
-        filteredSessions.forEach(s => {
-            if ((s.crashCount || 0) > 0) {
+        return filteredSessions
+            .filter(s => (s.crashCount || 0) > 0)
+            .map(s => {
                 const lastScreen = (s.screensVisited && s.screensVisited.length > 0)
                     ? s.screensVisited[s.screensVisited.length - 1]
                     : 'Unknown Screen';
                 const crashName = `Crash in ${lastScreen}`;
-                const key = crashName;
 
-                if (!groups[key]) {
-                    groups[key] = {
-                        name: crashName,
-                        count: 0,
-                        users: new Set(),
-                        firstSeen: s.startedAt,
-                        lastOccurred: s.startedAt,
-                        affectedDevices: {},
-                        affectedVersions: {},
-                        sampleSessionId: s.id
-                    };
-                }
-
-                const group = groups[key];
-                group.count += s.crashCount || 1;
-                group.users.add(s.userId || s.deviceId || s.id);
-
-                if (new Date(s.startedAt) > new Date(group.lastOccurred)) {
-                    group.lastOccurred = s.startedAt;
-                    group.sampleSessionId = s.id;
-                }
-                if (new Date(s.startedAt) < new Date(group.firstSeen)) {
-                    group.firstSeen = s.startedAt;
-                }
-
-                const device = s.deviceModel || 'Unknown';
-                group.affectedDevices[device] = (group.affectedDevices[device] || 0) + 1;
-
-                const version = s.appVersion || 'Unknown';
-                group.affectedVersions[version] = (group.affectedVersions[version] || 0) + 1;
-            }
-        });
-
-        return Object.values(groups).sort((a, b) => b.count - a.count);
+                return {
+                    name: crashName,
+                    id: s.id, // Using session ID as unique identifier for the row
+                    count: s.crashCount || 1,
+                    users: new Set([s.userId || s.deviceId || s.id]),
+                    firstSeen: s.startedAt,
+                    lastOccurred: s.startedAt,
+                    affectedDevices: { [s.deviceModel || 'Unknown']: 1 },
+                    affectedVersions: { [s.appVersion || 'Unknown']: 1 },
+                    sampleSessionId: s.id
+                };
+            }).sort((a, b) => new Date(b.lastOccurred).getTime() - new Date(a.lastOccurred).getTime());
     }, [filteredSessions]);
 
     // Filter crash groups by search query

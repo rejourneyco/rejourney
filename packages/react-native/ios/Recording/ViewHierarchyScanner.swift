@@ -31,6 +31,8 @@ import UIKit
     
     @objc public func captureHierarchy() -> [String: Any]? {
         guard let w = _keyWindow() else { return nil }
+        // Only serialize the key window — skip keyboard/system windows
+        // whose internal views produce NaN frames during transition
         return serializeWindow(w)
     }
     
@@ -66,9 +68,26 @@ import UIKit
         if (DispatchTime.now().uptimeNanoseconds - start) > _timeBudgetNs { return ["type": _typeName(view), "bailout": true] }
         if depth > 0 && (view.isHidden || view.alpha <= 0.01 || view.bounds.width <= 0 || view.bounds.height <= 0) { return nil }
         
+        // Skip keyboard/system windows to avoid NaN frames during keyboard transitions
+        let className = _typeName(view)
+        if className.contains("UIRemoteKeyboardWindow") ||
+           className.contains("UITextEffectsWindow") ||
+           className.contains("UIInputSetHostView") ||
+           className.contains("UIKeyboard") {
+            return nil
+        }
+        
         var node: [String: Any] = [:]
-        node["type"] = _typeName(view)
-        node["frame"] = ["x": view.frame.origin.x, "y": view.frame.origin.y, "w": view.frame.width, "h": view.frame.height]
+        node["type"] = className
+        
+        // Guard frame values against NaN / Inf — keyboard and animated views
+        // can have degenerate frames that poison downstream JSON serialization
+        let f = view.frame
+        let fx = f.origin.x.isFinite && !f.origin.x.isNaN ? f.origin.x : 0
+        let fy = f.origin.y.isFinite && !f.origin.y.isNaN ? f.origin.y : 0
+        let fw = f.width.isFinite && !f.width.isNaN ? f.width : 0
+        let fh = f.height.isFinite && !f.height.isNaN ? f.height : 0
+        node["frame"] = ["x": fx, "y": fy, "w": fw, "h": fh]
         
         if view.isHidden { node["hidden"] = true }
         if view.alpha < 1.0 { node["alpha"] = view.alpha }
@@ -92,8 +111,12 @@ import UIKit
         
         if let sv = view as? UIScrollView {
             node["scrollEnabled"] = sv.isScrollEnabled
-            node["contentOffset"] = ["x": sv.contentOffset.x, "y": sv.contentOffset.y]
-            node["contentSize"] = ["w": sv.contentSize.width, "h": sv.contentSize.height]
+            let ox = sv.contentOffset.x.isFinite && !sv.contentOffset.x.isNaN ? sv.contentOffset.x : 0
+            let oy = sv.contentOffset.y.isFinite && !sv.contentOffset.y.isNaN ? sv.contentOffset.y : 0
+            let cw = sv.contentSize.width.isFinite && !sv.contentSize.width.isNaN ? sv.contentSize.width : 0
+            let ch = sv.contentSize.height.isFinite && !sv.contentSize.height.isNaN ? sv.contentSize.height : 0
+            node["contentOffset"] = ["x": ox, "y": oy]
+            node["contentSize"] = ["w": cw, "h": ch]
         }
         
         if view is UIImageView { node["hasImage"] = true }

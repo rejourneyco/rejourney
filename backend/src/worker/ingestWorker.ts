@@ -776,7 +776,7 @@ async function processEventsArtifact(job: any, _session: any, metrics: any, proj
     }
 
     // Batch insert errors into errors table
-    if (errorEvents.length > 0 && deviceInfo) {
+    if (errorEvents.length > 0) {
         for (const errorEvent of errorEvents) {
             // Create fingerprint for grouping similar errors
             const fingerprintData = `${projectId}:${errorEvent.errorName}:${errorEvent.message} `;
@@ -791,9 +791,9 @@ async function processEventsArtifact(job: any, _session: any, metrics: any, proj
                 message: errorEvent.message,
                 stack: errorEvent.stack,
                 screenName: errorEvent.screenName || undefined,
-                deviceModel: deviceInfo?.model,
-                osVersion: deviceInfo?.systemVersion || deviceInfo?.osVersion,
-                appVersion: deviceInfo?.appVersion,
+                deviceModel: deviceInfo?.model ?? 'unknown',
+                osVersion: deviceInfo?.systemVersion || deviceInfo?.osVersion || 'unknown',
+                appVersion: deviceInfo?.appVersion ?? 'unknown',
                 fingerprint,
                 status: 'open',
             });

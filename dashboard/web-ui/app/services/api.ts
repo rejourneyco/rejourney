@@ -495,6 +495,7 @@ export function transformToRecordingSession(session: ApiSession | ApiSessionSumm
     apiAvgResponseMs: summary.apiAvgResponseMs ?? 0,
     appStartupTimeMs: summary.appStartupTimeMs ?? undefined,
     rageTapCount,
+    deadTapCount: summary.deadTapCount ?? 0,
     screensVisited,
 
     interactionScore,

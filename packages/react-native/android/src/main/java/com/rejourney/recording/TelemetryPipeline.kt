@@ -94,6 +94,19 @@ class TelemetryPipeline private constructor(private val context: Context) {
     
     private val batchSizeLimit = 500_000
     
+    // Dead tap detection — timestamp comparison.
+    // After a tap, a 400ms timer fires and checks whether any "response" event
+    // (navigation or input) occurred since the tap.  If not → dead tap.
+    // We do NOT cancel the timer proactively because gesture-recognizer scroll
+    // events fire on nearly every tap due to micro-movement and would mask real dead taps.
+    private var deadTapRunnable: Runnable? = null
+    private var lastTapLabel: String = ""
+    private var lastTapX: Long = 0
+    private var lastTapY: Long = 0
+    private val deadTapTimeoutMs: Long = 400
+    private var lastTapTs: Long = 0
+    private var lastResponseTs: Long = 0
+    
     fun activate() {
         // Upload any pending data from previous sessions first
         uploadPendingSessions()
@@ -332,16 +345,41 @@ class TelemetryPipeline private constructor(private val context: Context) {
         ))
     }
     
-    fun recordTapEvent(label: String, x: Long, y: Long) {
+    fun recordTapEvent(label: String, x: Long, y: Long, isInteractive: Boolean = false) {
+        // Cancel any existing dead tap timer (new tap supersedes previous)
+        cancelDeadTapTimer()
+        
+        val tapTs = ts()
         enqueue(mapOf(
             "type" to "touch",
             "gestureType" to "tap",
-            "timestamp" to ts(),
+            "timestamp" to tapTs,
             "label" to label,
             "x" to x,
             "y" to y,
-            "touches" to listOf(mapOf("x" to x, "y" to y, "timestamp" to ts()))
+            "touches" to listOf(mapOf("x" to x, "y" to y, "timestamp" to tapTs))
         ))
+        
+        // Skip dead tap detection for interactive elements (buttons, touchables, etc.)
+        // These are expected to respond, so we don't need to track "no response" as dead.
+        if (isInteractive) return
+        
+        // Start dead tap timer — when it fires, check if any response event
+        // occurred after this tap.  If not → dead tap.
+        lastTapLabel = label
+        lastTapX = x
+        lastTapY = y
+        lastTapTs = tapTs
+        val runnable = Runnable {
+            deadTapRunnable = null
+            // Only fire dead tap if no response event occurred since this tap
+            if (lastResponseTs <= lastTapTs) {
+                recordDeadTapEvent(lastTapLabel, lastTapX, lastTapY)
+                ReplayOrchestrator.shared?.incrementDeadTapTally()
+            }
+        }
+        deadTapRunnable = runnable
+        mainHandler.postDelayed(runnable, deadTapTimeoutMs)
     }
     
     fun recordRageTapEvent(label: String, x: Long, y: Long, count: Int) {
@@ -385,6 +423,10 @@ class TelemetryPipeline private constructor(private val context: Context) {
     }
     
     fun recordScrollEvent(label: String, x: Long, y: Long, direction: String) {
+        // NOTE: Do NOT mark scroll as a "response" for dead tap detection.
+        // Gesture recognisers classify micro-movement during a tap as a scroll,
+        // which would mask nearly every dead tap.  Only navigation and input
+        // count as definitive responses.
         enqueue(mapOf(
             "type" to "gesture",
             "gestureType" to "scroll",
@@ -448,6 +490,7 @@ class TelemetryPipeline private constructor(private val context: Context) {
     }
     
     fun recordInputEvent(value: String, redacted: Boolean, label: String) {
+        lastResponseTs = ts()   // keyboard input = definitive response
         enqueue(mapOf(
             "type" to "input",
             "timestamp" to ts(),
@@ -458,6 +501,7 @@ class TelemetryPipeline private constructor(private val context: Context) {
     }
     
     fun recordViewTransition(viewId: String, viewLabel: String, entering: Boolean) {
+        lastResponseTs = ts()   // navigation = definitive response
         enqueue(mapOf(
             "type" to "navigation",
             "timestamp" to ts(),
@@ -490,6 +534,11 @@ class TelemetryPipeline private constructor(private val context: Context) {
             "timestamp" to ts(),
             "totalBackgroundTime" to totalBackgroundTimeMs
         ))
+    }
+    
+    private fun cancelDeadTapTimer() {
+        deadTapRunnable?.let { mainHandler.removeCallbacks(it) }
+        deadTapRunnable = null
     }
     
     private fun enqueue(dict: Map<String, Any>) {

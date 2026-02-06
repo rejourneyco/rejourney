@@ -144,7 +144,7 @@ export const TouchOverlay: React.FC<TouchOverlayProps> = ({
           return (
             <div
               key={touch.id}
-              className="absolute rounded-full border-2 border-indigo-400/40 bg-indigo-400/10 backdrop-blur-[1px]"
+              className="absolute rounded-full border-2 border-stone-400/50 bg-stone-400/15 backdrop-blur-[1px]"
               style={{
                 left: `${xPercent}%`,
                 top: `${yPercent}%`,

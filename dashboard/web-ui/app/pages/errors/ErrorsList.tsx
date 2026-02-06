@@ -95,53 +95,27 @@ export const ErrorsList: React.FC = () => {
         return errors.filter(e => new Date(e.timestamp) >= cutoff);
     }, [errors, timeRange]);
 
-    // Group errors by fingerprint (errorName + message)
+    // Map errors to unique groups (effectively disabling aggregation)
     const errorGroups = useMemo(() => {
-        const groups: Record<string, ErrorGroup> = {};
+        return filteredErrors.map((error, idx) => {
+            const fingerprint = `${error.id || idx}-${error.timestamp}`;
 
-        filteredErrors.forEach(error => {
-            const fingerprint = `${error.errorName}:${error.message.slice(0, 100)}`;
+            const group: ErrorGroup = {
+                fingerprint,
+                errorName: error.errorName,
+                message: error.message,
+                count: 1,
+                users: new Set([error.sessionId || 'unknown']),
+                firstSeen: error.timestamp,
+                lastOccurred: error.timestamp,
+                affectedDevices: { [error.deviceModel || 'Unknown']: 1 },
+                affectedVersions: { [error.appVersion || 'Unknown']: 1 },
+                sampleError: error,
+                screens: new Set(error.screenName ? [error.screenName] : []),
+            };
 
-            if (!groups[fingerprint]) {
-                groups[fingerprint] = {
-                    fingerprint,
-                    errorName: error.errorName,
-                    message: error.message,
-                    count: 0,
-                    users: new Set(),
-                    firstSeen: error.timestamp,
-                    lastOccurred: error.timestamp,
-                    affectedDevices: {},
-                    affectedVersions: {},
-                    sampleError: error,
-                    screens: new Set(),
-                };
-            }
-
-            const group = groups[fingerprint];
-            group.count++;
-            group.users.add(error.sessionId || 'unknown');
-
-            if (new Date(error.timestamp) > new Date(group.lastOccurred)) {
-                group.lastOccurred = error.timestamp;
-                group.sampleError = error;
-            }
-            if (new Date(error.timestamp) < new Date(group.firstSeen)) {
-                group.firstSeen = error.timestamp;
-            }
-
-            const device = error.deviceModel || 'Unknown';
-            group.affectedDevices[device] = (group.affectedDevices[device] || 0) + 1;
-
-            const version = error.appVersion || 'Unknown';
-            group.affectedVersions[version] = (group.affectedVersions[version] || 0) + 1;
-
-            if (error.screenName) {
-                group.screens.add(error.screenName);
-            }
-        });
-
-        return Object.values(groups).sort((a, b) => b.count - a.count);
+            return group;
+        }).sort((a, b) => new Date(b.lastOccurred).getTime() - new Date(a.lastOccurred).getTime());
     }, [filteredErrors]);
 
     // Filter groups by search query

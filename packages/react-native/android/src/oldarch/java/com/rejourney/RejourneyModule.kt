@@ -224,4 +224,14 @@ class RejourneyModule(reactContext: ReactApplicationContext) :
             putString("error", error)
         }
     }
+
+    @ReactMethod
+    fun addListener(eventName: String) {
+        try { impl.addListener(eventName) } catch (_: Exception) {}
+    }
+
+    @ReactMethod
+    fun removeListeners(count: Double) {
+        try { impl.removeListeners(count) } catch (_: Exception) {}
+    }
 }

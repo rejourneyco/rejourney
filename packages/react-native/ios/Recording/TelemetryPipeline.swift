@@ -56,6 +56,25 @@ public final class TelemetryPipeline: NSObject {
     
     private let _batchSizeLimit = 500_000
     
+    // Dead tap detection — timestamp comparison.
+    // After a tap, a 400ms timer fires and checks whether any "response" event
+    // (navigation, input, haptics, or animation) occurred since the tap.  If not → dead tap.
+    // We do NOT cancel the timer proactively because gesture-recognizer scroll
+    // events fire on nearly every tap due to micro-movement and would mask real dead taps.
+    private static let _deadTapTimeoutSec: Double = 0.4
+    private var _deadTapTimer: DispatchWorkItem?
+    private var _lastTapLabel: String = ""
+    private var _lastTapX: UInt64 = 0
+    private var _lastTapY: UInt64 = 0
+    private var _lastTapTs: Int64 = 0
+    private var _lastResponseTs: Int64 = 0
+    
+    /// Call this when haptic feedback, animations, or other UI responses occur.
+    /// This prevents the current tap from being marked as a "dead tap".
+    @objc public func markResponseReceived() {
+        _lastResponseTs = _ts()
+    }
+    
     private override init() {
         super.init()
     }
@@ -306,8 +325,37 @@ public final class TelemetryPipeline: NSObject {
         _enqueue(["type": "user_identity_changed", "timestamp": _ts(), "userId": userId])
     }
     
-    @objc public func recordTapEvent(label: String, x: UInt64, y: UInt64) {
-        _enqueue(["type": "touch", "gestureType": "tap", "timestamp": _ts(), "label": label, "x": x, "y": y, "touches": [["x": x, "y": y, "timestamp": _ts()]]])
+    @objc public func recordTapEvent(label: String, x: UInt64, y: UInt64, isInteractive: Bool = false) {
+        // Cancel any existing dead tap timer (new tap supersedes previous)
+        _cancelDeadTapTimer()
+        
+        let tapTs = _ts()
+        _enqueue(["type": "touch", "gestureType": "tap", "timestamp": tapTs, "label": label, "x": x, "y": y, "touches": [["x": x, "y": y, "timestamp": tapTs]]])
+        
+        // Skip dead tap detection for interactive elements (buttons, touchables, etc.)
+        // These are expected to respond, so we don't need to track "no response" as dead.
+        if isInteractive {
+            // Interactive elements are assumed to respond — no dead tap timer needed
+            return
+        }
+        
+        // Start dead tap timer only for non-interactive elements (labels, images, empty space)
+        // When it fires, check if any response event occurred after this tap. If not → dead tap.
+        _lastTapLabel = label
+        _lastTapX = x
+        _lastTapY = y
+        _lastTapTs = tapTs
+        let work = DispatchWorkItem { [weak self] in
+            guard let self = self else { return }
+            self._deadTapTimer = nil
+            // Only fire dead tap if no response event occurred since this tap
+            if self._lastResponseTs <= self._lastTapTs {
+                self.recordDeadTapEvent(label: self._lastTapLabel, x: self._lastTapX, y: self._lastTapY)
+                ReplayOrchestrator.shared.incrementDeadTapTally()
+            }
+        }
+        _deadTapTimer = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + TelemetryPipeline._deadTapTimeoutSec, execute: work)
     }
     
     @objc public func recordRageTapEvent(label: String, x: UInt64, y: UInt64, count: Int) {
@@ -342,6 +390,10 @@ public final class TelemetryPipeline: NSObject {
     }
     
     @objc public func recordScrollEvent(label: String, x: UInt64, y: UInt64, direction: String) {
+        // NOTE: Do NOT mark scroll as a "response" for dead tap detection.
+        // Gesture recognisers classify micro-movement during a tap as a scroll,
+        // which would mask nearly every dead tap.  Only navigation and input
+        // count as definitive responses.
         _enqueue(["type": "gesture", "gestureType": "scroll", "timestamp": _ts(), "label": label, "x": x, "y": y, "direction": direction, "touches": [["x": x, "y": y, "timestamp": _ts()]]])
     }
     
@@ -362,10 +414,12 @@ public final class TelemetryPipeline: NSObject {
     }
     
     @objc public func recordInputEvent(value: String, redacted: Bool, label: String) {
+        _lastResponseTs = _ts()   // keyboard input = definitive response
         _enqueue(["type": "input", "timestamp": _ts(), "value": redacted ? "***" : value, "redacted": redacted, "label": label])
     }
     
     @objc public func recordViewTransition(viewId: String, viewLabel: String, entering: Bool) {
+        _lastResponseTs = _ts()   // navigation = definitive response
         _enqueue(["type": "navigation", "timestamp": _ts(), "screen": viewLabel, "screenName": viewLabel, "viewId": viewId, "entering": entering])
     }
     
@@ -391,6 +445,13 @@ public final class TelemetryPipeline: NSObject {
             "timestamp": _ts(),
             "totalBackgroundTime": totalBackgroundTimeMs
         ])
+    }
+    
+    // MARK: - Dead Tap Timer
+    
+    private func _cancelDeadTapTimer() {
+        _deadTapTimer?.cancel()
+        _deadTapTimer = nil
     }
     
     private func _enqueue(_ dict: [String: Any]) {

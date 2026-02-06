@@ -35,6 +35,7 @@ import { api } from '../../services/api';
 import DOMInspector, { HierarchySnapshot } from '../../components/ui/DOMInspector';
 import { TouchOverlay, TouchEvent } from '../../components/ui/TouchOverlay';
 import { MarkerTooltip } from '../../components/ui/MarkerTooltip';
+import { SessionLoadingOverlay } from '../../components/recordings/SessionLoadingOverlay';
 
 // ============================================================================
 // Types
@@ -174,16 +175,16 @@ const EVENT_COLORS = {
   error: '#ef4444',
   apiError: '#ef4444',
   rageTap: '#f43f5e',
-  deadTap: '#818cf8',
+  deadTap: '#94a3b8',
   crash: '#b91c1c',
   anr: '#a855f7',
   apiSuccess: '#22c55e',
-  tap: '#6366f1',
-  scroll: '#5dadec',
-  gesture: '#10b981',
-  swipe: '#06b6d4',
-  pinch: '#14b8a6',
-  pan: '#8b5cf6',
+  tap: '#3b82f6',
+  scroll: '#3b82f6',
+  gesture: '#3b82f6',
+  swipe: '#3b82f6',
+  pinch: '#3b82f6',
+  pan: '#3b82f6',
   rotation: '#ec4899',
   appBackground: '#f59e0b',
   appForeground: '#10b981',
@@ -1360,17 +1361,11 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
   // ========================================================================
 
   // Loading state
+  if (isLoading) {
+    return <SessionLoadingOverlay />;
+  }
+
   if (!session && !fullSession) {
-    if (isLoading) {
-      return (
-        <div className="min-h-screen bg-slate-50 flex items-center justify-center">
-          <div className="flex flex-col items-center gap-3">
-            <Loader2 className="w-8 h-8 animate-spin text-slate-400" />
-            <span className="text-sm font-medium text-slate-500">Loading session...</span>
-          </div>
-        </div>
-      );
-    }
     return (
       <div className="min-h-screen bg-slate-50 flex items-center justify-center">
         <div className="text-center">
@@ -1689,8 +1684,15 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
                             <div className="flex-1 min-w-0">
                               <div className="flex items-center justify-between mb-0.5">
                                 <span className="text-[10px] font-black uppercase tracking-tight text-black">
-                                  {isNetwork ? event.name : event.type.replace(/_/g, ' ')}
+                                  {isNetwork
+                                    ? event.name
+                                    : (event.type === 'gesture' || event.type === 'touch')
+                                      ? (event.gestureType || event.properties?.gestureType || event.type).replace(/_/g, ' ')
+                                      : event.type.replace(/_/g, ' ')}
                                 </span>
+                                {(event.frustrationKind === 'dead_tap' || event.gestureType === 'dead_tap') && (
+                                  <span className="text-[8px] font-black uppercase px-1 py-0.5 bg-stone-100 text-stone-600 border border-stone-300 rounded-sm">Dead Tap</span>
+                                )}
                                 <span className="text-[9px] font-mono font-bold text-slate-400 bg-slate-100 px-1 py-0.5 border border-slate-200">
                                   {timeStr}
                                 </span>
@@ -1699,7 +1701,7 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
                               <div className="mt-1 flex flex-col gap-0.5">
                                 <div className="text-xs font-black text-black break-words leading-tight">
                                   <HighlightedText
-                                    text={event.targetLabel || event.properties?.targetLabel || event.name || (event as any).screen || event.type}
+                                    text={event.targetLabel || event.properties?.targetLabel || event.name || (event as any).screen || (event.gestureType && event.type === 'gesture' ? event.gestureType.replace(/_/g, ' ') : event.type)}
                                     search={activitySearch}
                                   />
                                 </div>
@@ -2036,11 +2038,13 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
                     if (time < 0 || durationSeconds <= 0) return null;
                     const percent = Math.min(100, Math.max(0, (time / durationSeconds) * 100));
                     const color = getEventColor(event);
-                    const isFrustration = event.frustrationKind || event.type === 'rage_tap';
+                    const isFrustration = event.frustrationKind || event.type === 'rage_tap' || event.gestureType === 'dead_tap';
                     const isNetwork = event.type === 'network_request';
                     const eventLabel = isNetwork
                       ? `${event.name || 'API'} ${event.properties?.urlPath || event.properties?.url || ''}`.trim()
-                      : event.type.replace(/_/g, ' ');
+                      : (event.type === 'gesture' || event.type === 'touch')
+                        ? (event.gestureType || event.properties?.gestureType || event.type).replace(/_/g, ' ')
+                        : event.type.replace(/_/g, ' ');
                     const tooltipText = `${eventLabel} • ${formatEventTime(event.timestamp)}`;
 
                     return (

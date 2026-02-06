@@ -140,8 +140,8 @@ class InteractionRecorder private constructor(private val context: Context) {
     
     // Report methods (called by GestureAggregator)
     
-    internal fun reportTap(location: PointF, target: String) {
-        TelemetryPipeline.shared?.recordTapEvent(target, location.x.toLong().coerceAtLeast(0), location.y.toLong().coerceAtLeast(0))
+    internal fun reportTap(location: PointF, target: String, isInteractive: Boolean = false) {
+        TelemetryPipeline.shared?.recordTapEvent(target, location.x.toLong().coerceAtLeast(0), location.y.toLong().coerceAtLeast(0), isInteractive)
         ReplayOrchestrator.shared?.incrementTapTally()
     }
     
@@ -429,9 +429,8 @@ private class GestureAggregator(
             recorder.reportRageTap(location, nearby.size, target)
             recentTaps.clear()
         } else {
-            recorder.reportTap(location, target)
-            // Dead tap detection moved to JS side — native view hierarchy inspection
-            // is unreliable in React Native since touch handling is JS-based.
+            val isInteractive = isViewInteractive(location)
+            recorder.reportTap(location, target, isInteractive)
         }
     }
     
@@ -452,5 +451,69 @@ private class GestureAggregator(
     
     private fun resolveTarget(location: PointF): String {
         return "view_${location.x.toInt()}_${location.y.toInt()}"
+    }
+    
+    /**
+     * Check if the view at a given screen location is interactive.
+     * 
+     * In React Native, Pressable/TouchableOpacity set view.isClickable = true
+     * on the native Android ReactViewGroup. Plain View defaults to isClickable = false.
+     * We walk up to 8 ancestors because the deepest hit view may be a child
+     * (e.g. TextView inside a Pressable), not the clickable Pressable itself.
+     */
+    private fun isViewInteractive(location: PointF): Boolean {
+        val activity = recorder.currentActivity?.get() ?: return false
+        val decorView = activity.window?.decorView ?: return false
+        val hit = findViewAt(decorView, location.x.toInt(), location.y.toInt()) ?: return false
+        
+        // Check the hit view itself
+        if (isSingleViewInteractive(hit)) return true
+        
+        // Walk ancestor chain — the hit view may be a child (e.g. TextView)
+        // inside a Pressable/TouchableOpacity.
+        var ancestor = hit.parent
+        var depth = 0
+        while (ancestor is View && depth < 8) {
+            if (isSingleViewInteractive(ancestor)) return true
+            ancestor = (ancestor as View).parent
+            depth++
+        }
+        
+        return false
+    }
+    
+    private fun isSingleViewInteractive(view: View): Boolean {
+        // React Native's Pressable/TouchableOpacity set accessible={true} by default,
+        // which maps to importantForAccessibility = YES on Android.
+        // Plain View defaults to accessible={false} → importantForAccessibility = AUTO.
+        if (view.importantForAccessibility == View.IMPORTANT_FOR_ACCESSIBILITY_YES) return true
+        
+        // Also check contentDescription — RN sets this from accessibilityLabel,
+        // which Pressable often has (e.g. accessibilityLabel="Go to Details")
+        if (!view.contentDescription.isNullOrEmpty()) return true
+        
+        // Native isClickable (set by native Android buttons, switches, etc.)
+        if (view.isClickable || view.isLongClickable) return true
+        
+        // Native input
+        if (view is EditText) return true
+        
+        return false
+    }
+    
+    private fun findViewAt(root: View, x: Int, y: Int): View? {
+        if (root !is ViewGroup) return root
+        // Traverse children in reverse order (topmost first)
+        for (i in root.childCount - 1 downTo 0) {
+            val child = root.getChildAt(i)
+            if (child.visibility != View.VISIBLE) continue
+            val loc = IntArray(2)
+            child.getLocationOnScreen(loc)
+            if (x >= loc[0] && x < loc[0] + child.width &&
+                y >= loc[1] && y < loc[1] + child.height) {
+                return findViewAt(child, x, y) ?: child
+            }
+        }
+        return root
     }
 }
