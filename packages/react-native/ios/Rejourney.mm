@@ -1,8 +1,17 @@
 /**
- * Rejourney Native Module for React Native
+ * Copyright 2026 Rejourney
  *
- * Supports both Old Architecture (Bridge) and New Architecture (TurboModules).
- * Bridges to Swift implementation via the generated -Swift.h header.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 #import "Rejourney.h"
@@ -32,7 +41,7 @@
 #pragma mark - Private Interface
 
 @interface Rejourney ()
-@property (nonatomic, strong) RejourneyImpl *impl;
+@property(nonatomic, strong) RejourneyImpl *impl;
 @end
 
 #pragma mark - Implementation
@@ -41,26 +50,25 @@
 
 RCT_EXPORT_MODULE()
 
-+ (BOOL)requiresMainQueueSetup
-{
++ (BOOL)requiresMainQueueSetup {
   return YES;
 }
 
-- (instancetype)init
-{
+- (instancetype)init {
   self = [super init];
   if (self) {
     _impl = [self resolveSwiftImpl];
     if (!_impl) {
-      RCTLogWarn(@"[Rejourney] Swift implementation not found - will retry at method call time");
+      RCTLogWarn(@"[Rejourney] Swift implementation not found - will retry at "
+                 @"method call time");
     }
   }
   return self;
 }
 
-- (RejourneyImpl *)resolveSwiftImpl
-{
-  // First try direct class access (works when Swift header is properly imported)
+- (RejourneyImpl *)resolveSwiftImpl {
+  // First try direct class access (works when Swift header is properly
+  // imported)
   Class implClass = NSClassFromString(@"RejourneyImpl");
   if (!implClass) {
     // Try module-prefixed names
@@ -69,7 +77,7 @@ RCT_EXPORT_MODULE()
   if (!implClass) {
     implClass = NSClassFromString(@"rejourney.RejourneyImpl");
   }
-  
+
   if (implClass) {
     SEL sharedSel = NSSelectorFromString(@"shared");
     if ([implClass respondsToSelector:sharedSel]) {
@@ -79,12 +87,11 @@ RCT_EXPORT_MODULE()
 #pragma clang diagnostic pop
     }
   }
-  
+
   return nil;
 }
 
-- (RejourneyImpl *)ensureImpl
-{
+- (RejourneyImpl *)ensureImpl {
   if (!_impl) {
     _impl = [self resolveSwiftImpl];
   }
@@ -92,54 +99,60 @@ RCT_EXPORT_MODULE()
 }
 
 #ifdef RCT_NEW_ARCH_ENABLED
-- (std::shared_ptr<facebook::react::TurboModule>)getTurboModule:(const facebook::react::ObjCTurboModule::InitParams &)params
-{
+- (std::shared_ptr<facebook::react::TurboModule>)getTurboModule:
+    (const facebook::react::ObjCTurboModule::InitParams &)params {
   return std::make_shared<facebook::react::NativeRejourneySpecJSI>(params);
 }
 #endif
 
 #pragma mark - Session Lifecycle
 
-RCT_EXPORT_METHOD(startSession:(NSString *)userId
-                  apiUrl:(NSString *)apiUrl
-                  publicKey:(NSString *)publicKey
-                  resolve:(RCTPromiseResolveBlock)resolve
-                  reject:(RCTPromiseRejectBlock)reject)
-{
+RCT_EXPORT_METHOD(startSession : (NSString *)userId apiUrl : (NSString *)
+                      apiUrl publicKey : (NSString *)
+                          publicKey resolve : (RCTPromiseResolveBlock)
+                              resolve reject : (RCTPromiseRejectBlock)reject) {
   RejourneyImpl *impl = [self ensureImpl];
   if (!impl) {
-    resolve(@{@"success": @NO, @"sessionId": @"", @"error": @"Native module not available - cannot start recording"});
+    resolve(@{
+      @"success" : @NO,
+      @"sessionId" : @"",
+      @"error" : @"Native module not available - cannot start recording"
+    });
     return;
   }
-  [impl startSession:userId apiUrl:apiUrl publicKey:publicKey resolve:resolve reject:reject];
+  [impl startSession:userId
+              apiUrl:apiUrl
+           publicKey:publicKey
+             resolve:resolve
+              reject:reject];
 }
 
-RCT_EXPORT_METHOD(startSessionWithOptions:(NSDictionary *)options
-                  resolve:(RCTPromiseResolveBlock)resolve
-                  reject:(RCTPromiseRejectBlock)reject)
-{
+RCT_EXPORT_METHOD(startSessionWithOptions : (NSDictionary *)options resolve : (
+    RCTPromiseResolveBlock)resolve reject : (RCTPromiseRejectBlock)reject) {
   RejourneyImpl *impl = [self ensureImpl];
   if (!impl) {
-    resolve(@{@"success": @NO, @"sessionId": @"", @"error": @"Native module not available"});
+    resolve(@{
+      @"success" : @NO,
+      @"sessionId" : @"",
+      @"error" : @"Native module not available"
+    });
     return;
   }
   [impl startSessionWithOptions:options resolve:resolve reject:reject];
 }
 
-RCT_EXPORT_METHOD(stopSession:(RCTPromiseResolveBlock)resolve
-                  reject:(RCTPromiseRejectBlock)reject)
-{
+RCT_EXPORT_METHOD(stopSession : (RCTPromiseResolveBlock)
+                      resolve reject : (RCTPromiseRejectBlock)reject) {
   RejourneyImpl *impl = [self ensureImpl];
   if (!impl) {
-    resolve(@{@"success": @YES, @"sessionId": @""});
+    resolve(@{@"success" : @YES, @"sessionId" : @""});
     return;
   }
   [impl stopSession:resolve reject:reject];
 }
 
-RCT_EXPORT_METHOD(getSessionId:(RCTPromiseResolveBlock)resolve
-                  reject:(RCTPromiseRejectBlock)reject)
-{
+RCT_EXPORT_METHOD(getSessionId : (RCTPromiseResolveBlock)
+                      resolve reject : (RCTPromiseRejectBlock)reject) {
   RejourneyImpl *impl = [self ensureImpl];
   if (!impl) {
     resolve([NSNull null]);
@@ -150,21 +163,18 @@ RCT_EXPORT_METHOD(getSessionId:(RCTPromiseResolveBlock)resolve
 
 #pragma mark - User Identity
 
-RCT_EXPORT_METHOD(setUserIdentity:(NSString *)userId
-                  resolve:(RCTPromiseResolveBlock)resolve
-                  reject:(RCTPromiseRejectBlock)reject)
-{
+RCT_EXPORT_METHOD(setUserIdentity : (NSString *)userId resolve : (
+    RCTPromiseResolveBlock)resolve reject : (RCTPromiseRejectBlock)reject) {
   RejourneyImpl *impl = [self ensureImpl];
   if (!impl) {
-    resolve(@{@"success": @NO});
+    resolve(@{@"success" : @NO});
     return;
   }
   [impl setUserIdentity:userId resolve:resolve reject:reject];
 }
 
-RCT_EXPORT_METHOD(getUserIdentity:(RCTPromiseResolveBlock)resolve
-                  reject:(RCTPromiseRejectBlock)reject)
-{
+RCT_EXPORT_METHOD(getUserIdentity : (RCTPromiseResolveBlock)
+                      resolve reject : (RCTPromiseRejectBlock)reject) {
   RejourneyImpl *impl = [self ensureImpl];
   if (!impl) {
     resolve([NSNull null]);
@@ -175,116 +185,104 @@ RCT_EXPORT_METHOD(getUserIdentity:(RCTPromiseResolveBlock)resolve
 
 #pragma mark - Events and Tracking
 
-RCT_EXPORT_METHOD(logEvent:(NSString *)eventType
-                  details:(NSDictionary *)details
-                  resolve:(RCTPromiseResolveBlock)resolve
-                  reject:(RCTPromiseRejectBlock)reject)
-{
+RCT_EXPORT_METHOD(logEvent : (NSString *)eventType details : (NSDictionary *)
+                      details resolve : (RCTPromiseResolveBlock)
+                          resolve reject : (RCTPromiseRejectBlock)reject) {
   RejourneyImpl *impl = [self ensureImpl];
   if (!impl) {
-    resolve(@{@"success": @YES}); // Silent success - don't break the app
+    resolve(@{@"success" : @YES}); // Silent success - don't break the app
     return;
   }
   [impl logEvent:eventType details:details resolve:resolve reject:reject];
 }
 
-RCT_EXPORT_METHOD(screenChanged:(NSString *)screenName
-                  resolve:(RCTPromiseResolveBlock)resolve
-                  reject:(RCTPromiseRejectBlock)reject)
-{
+RCT_EXPORT_METHOD(screenChanged : (NSString *)screenName resolve : (
+    RCTPromiseResolveBlock)resolve reject : (RCTPromiseRejectBlock)reject) {
   RejourneyImpl *impl = [self ensureImpl];
   if (!impl) {
-    resolve(@{@"success": @YES});
+    resolve(@{@"success" : @YES});
     return;
   }
   [impl screenChanged:screenName resolve:resolve reject:reject];
 }
 
-RCT_EXPORT_METHOD(onScroll:(double)offsetY
-                  resolve:(RCTPromiseResolveBlock)resolve
-                  reject:(RCTPromiseRejectBlock)reject)
-{
+RCT_EXPORT_METHOD(onScroll : (double)offsetY resolve : (RCTPromiseResolveBlock)
+                      resolve reject : (RCTPromiseRejectBlock)reject) {
   RejourneyImpl *impl = [self ensureImpl];
   if (!impl) {
-    resolve(@{@"success": @YES});
+    resolve(@{@"success" : @YES});
     return;
   }
   [impl onScroll:offsetY resolve:resolve reject:reject];
 }
 
-RCT_EXPORT_METHOD(markVisualChange:(NSString *)reason
-                  importance:(NSString *)importance
-                  resolve:(RCTPromiseResolveBlock)resolve
-                  reject:(RCTPromiseRejectBlock)reject)
-{
+RCT_EXPORT_METHOD(markVisualChange : (NSString *)reason importance : (
+    NSString *)importance resolve : (RCTPromiseResolveBlock)
+                      resolve reject : (RCTPromiseRejectBlock)reject) {
   RejourneyImpl *impl = [self ensureImpl];
   if (!impl) {
     resolve(@YES);
     return;
   }
-  [impl markVisualChange:reason importance:importance resolve:resolve reject:reject];
+  [impl markVisualChange:reason
+              importance:importance
+                 resolve:resolve
+                  reject:reject];
 }
 
 #pragma mark - External Events
 
-RCT_EXPORT_METHOD(onExternalURLOpened:(NSString *)urlScheme
-                  resolve:(RCTPromiseResolveBlock)resolve
-                  reject:(RCTPromiseRejectBlock)reject)
-{
+RCT_EXPORT_METHOD(onExternalURLOpened : (NSString *)urlScheme resolve : (
+    RCTPromiseResolveBlock)resolve reject : (RCTPromiseRejectBlock)reject) {
   RejourneyImpl *impl = [self ensureImpl];
   if (!impl) {
-    resolve(@{@"success": @YES});
+    resolve(@{@"success" : @YES});
     return;
   }
   [impl onExternalURLOpened:urlScheme resolve:resolve reject:reject];
 }
 
-RCT_EXPORT_METHOD(onOAuthStarted:(NSString *)provider
-                  resolve:(RCTPromiseResolveBlock)resolve
-                  reject:(RCTPromiseRejectBlock)reject)
-{
+RCT_EXPORT_METHOD(onOAuthStarted : (NSString *)provider resolve : (
+    RCTPromiseResolveBlock)resolve reject : (RCTPromiseRejectBlock)reject) {
   RejourneyImpl *impl = [self ensureImpl];
   if (!impl) {
-    resolve(@{@"success": @YES});
+    resolve(@{@"success" : @YES});
     return;
   }
   [impl onOAuthStarted:provider resolve:resolve reject:reject];
 }
 
-RCT_EXPORT_METHOD(onOAuthCompleted:(NSString *)provider
-                  success:(BOOL)success
-                  resolve:(RCTPromiseResolveBlock)resolve
-                  reject:(RCTPromiseRejectBlock)reject)
-{
+RCT_EXPORT_METHOD(onOAuthCompleted : (NSString *)provider success : (BOOL)
+                      success resolve : (RCTPromiseResolveBlock)
+                          resolve reject : (RCTPromiseRejectBlock)reject) {
   RejourneyImpl *impl = [self ensureImpl];
   if (!impl) {
-    resolve(@{@"success": @YES});
+    resolve(@{@"success" : @YES});
     return;
   }
-  [impl onOAuthCompleted:provider success:success resolve:resolve reject:reject];
+  [impl onOAuthCompleted:provider
+                 success:success
+                 resolve:resolve
+                  reject:reject];
 }
 
 #pragma mark - View Masking
 
-RCT_EXPORT_METHOD(maskViewByNativeID:(NSString *)nativeID
-                  resolve:(RCTPromiseResolveBlock)resolve
-                  reject:(RCTPromiseRejectBlock)reject)
-{
+RCT_EXPORT_METHOD(maskViewByNativeID : (NSString *)nativeID resolve : (
+    RCTPromiseResolveBlock)resolve reject : (RCTPromiseRejectBlock)reject) {
   RejourneyImpl *impl = [self ensureImpl];
   if (!impl) {
-    resolve(@{@"success": @NO});
+    resolve(@{@"success" : @NO});
     return;
   }
   [impl maskViewByNativeID:nativeID resolve:resolve reject:reject];
 }
 
-RCT_EXPORT_METHOD(unmaskViewByNativeID:(NSString *)nativeID
-                  resolve:(RCTPromiseResolveBlock)resolve
-                  reject:(RCTPromiseRejectBlock)reject)
-{
+RCT_EXPORT_METHOD(unmaskViewByNativeID : (NSString *)nativeID resolve : (
+    RCTPromiseResolveBlock)resolve reject : (RCTPromiseRejectBlock)reject) {
   RejourneyImpl *impl = [self ensureImpl];
   if (!impl) {
-    resolve(@{@"success": @NO});
+    resolve(@{@"success" : @NO});
     return;
   }
   [impl unmaskViewByNativeID:nativeID resolve:resolve reject:reject];
@@ -292,21 +290,18 @@ RCT_EXPORT_METHOD(unmaskViewByNativeID:(NSString *)nativeID
 
 #pragma mark - Debug and Info
 
-RCT_EXPORT_METHOD(setDebugMode:(BOOL)enabled
-                  resolve:(RCTPromiseResolveBlock)resolve
-                  reject:(RCTPromiseRejectBlock)reject)
-{
+RCT_EXPORT_METHOD(setDebugMode : (BOOL)enabled resolve : (
+    RCTPromiseResolveBlock)resolve reject : (RCTPromiseRejectBlock)reject) {
   RejourneyImpl *impl = [self ensureImpl];
   if (!impl) {
-    resolve(@{@"success": @NO});
+    resolve(@{@"success" : @NO});
     return;
   }
   [impl setDebugMode:enabled resolve:resolve reject:reject];
 }
 
-RCT_EXPORT_METHOD(getSDKMetrics:(RCTPromiseResolveBlock)resolve
-                  reject:(RCTPromiseRejectBlock)reject)
-{
+RCT_EXPORT_METHOD(getSDKMetrics : (RCTPromiseResolveBlock)
+                      resolve reject : (RCTPromiseRejectBlock)reject) {
   RejourneyImpl *impl = [self ensureImpl];
   if (!impl) {
     resolve(@{});
@@ -315,9 +310,8 @@ RCT_EXPORT_METHOD(getSDKMetrics:(RCTPromiseResolveBlock)resolve
   [impl getSDKMetrics:resolve reject:reject];
 }
 
-RCT_EXPORT_METHOD(getDeviceInfo:(RCTPromiseResolveBlock)resolve
-                  reject:(RCTPromiseRejectBlock)reject)
-{
+RCT_EXPORT_METHOD(getDeviceInfo : (RCTPromiseResolveBlock)
+                      resolve reject : (RCTPromiseRejectBlock)reject) {
   RejourneyImpl *impl = [self ensureImpl];
   if (!impl) {
     resolve(@{});
@@ -326,24 +320,21 @@ RCT_EXPORT_METHOD(getDeviceInfo:(RCTPromiseResolveBlock)resolve
   [impl getDeviceInfo:resolve reject:reject];
 }
 
-RCT_EXPORT_METHOD(setSDKVersion:(NSString *)version)
-{
+RCT_EXPORT_METHOD(setSDKVersion : (NSString *)version) {
   RejourneyImpl *impl = [self ensureImpl];
   if (impl) {
     [impl setSDKVersion:version];
   }
 }
 
-RCT_EXPORT_METHOD(debugCrash)
-{
+RCT_EXPORT_METHOD(debugCrash) {
   RejourneyImpl *impl = [self ensureImpl];
   if (impl) {
     [impl debugCrash];
   }
 }
 
-RCT_EXPORT_METHOD(debugTriggerANR:(double)durationMs)
-{
+RCT_EXPORT_METHOD(debugTriggerANR : (double)durationMs) {
   RejourneyImpl *impl = [self ensureImpl];
   if (impl) {
     [impl debugTriggerANR:durationMs];

@@ -1,3 +1,19 @@
+/**
+ * Copyright 2026 Rejourney
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 import UIKit
 import React
 import CommonCrypto
@@ -401,6 +417,30 @@ public final class RejourneyImpl: NSObject {
             if let detailsDict = details as? [String: Any] {
                 TelemetryPipeline.shared.recordNetworkEvent(details: detailsDict)
             }
+            resolve(["success": true])
+            return
+        }
+        
+        // Handle JS error events - route through TelemetryPipeline as type:"error"
+        // so the backend ingest worker processes them into the errors table
+        if eventType == "error" {
+            let message = details["message"] as? String ?? "Unknown error"
+            let name = details["name"] as? String ?? "Error"
+            let stack = details["stack"] as? String
+            TelemetryPipeline.shared.recordJSErrorEvent(name: name, message: message, stack: stack)
+            resolve(["success": true])
+            return
+        }
+        
+        // Handle dead_tap events from JS-side detection
+        // Native view hierarchy inspection is unreliable in React Native,
+        // so dead tap detection runs in JS and reports back via logEvent.
+        if eventType == "dead_tap" {
+            let x = (details["x"] as? NSNumber)?.uint64Value ?? 0
+            let y = (details["y"] as? NSNumber)?.uint64Value ?? 0
+            let label = details["label"] as? String ?? "unknown"
+            TelemetryPipeline.shared.recordDeadTapEvent(label: label, x: x, y: y)
+            ReplayOrchestrator.shared.incrementDeadTapTally()
             resolve(["success": true])
             return
         }

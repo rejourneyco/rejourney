@@ -15,7 +15,6 @@ import ingestRoutes from './ingest.js';
 import apiKeysRoutes from './apiKeys.js';
 
 import sdkRoutes from './sdk.js';
-import devicesRoutes from './devices.js';
 import crashesRoutes from './crashes.js';
 import anrsRoutes from './anrs.js';
 import errorsRoutes from './errors.js';
@@ -36,9 +35,6 @@ router.use('/sdk', sdkRoutes);
 
 // Demo routes (public, no auth required)
 router.use('/demo', demoRoutes);
-
-// Device authentication routes (new ECDSA-based auth)
-router.use('/devices', devicesRoutes);
 
 // Dashboard routes
 router.use('/projects', projectsRoutes);

@@ -1,3 +1,19 @@
+/**
+ * Copyright 2026 Rejourney
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 import UIKit
 import Foundation
 import QuartzCore
@@ -511,6 +527,12 @@ private final class RedactionMask {
         guard viewBounds.width.isFinite && viewBounds.height.isFinite else { return nil }
         guard !viewBounds.width.isNaN && !viewBounds.height.isNaN else { return nil }
         
+        // During animation, convert() internally passes NaN to CoreGraphics
+        // which logs an error even though we guard the output. Skip animated views.
+        if v.layer.animationKeys()?.isEmpty == false {
+            return nil
+        }
+        
         let r = v.convert(viewBounds, to: w)
         // Guard against NaN and invalid values that cause CoreGraphics errors
         guard r.width > 0 && r.height > 0 else { return nil }
@@ -530,16 +552,23 @@ private final class RedactionMask {
         }
     }
     
-    private func _scanForSensitiveViews(in view: UIView, rects: inout [CGRect]) {
+    private func _scanForSensitiveViews(in view: UIView, rects: inout [CGRect], depth: Int = 0) {
+        // Limit recursion depth to avoid scanning deep hierarchies (keyboard internals etc.)
+        guard depth < 30 else { return }
+        
+        // Skip hidden, transparent, or zero-sized views entirely
+        guard !view.isHidden && view.alpha > 0.01 else { return }
+        guard view.bounds.width > 0 && view.bounds.height > 0 else { return }
+        
         // Check if this view should be masked
         if _shouldMask(view), let rect = _viewRect(view) {
             rects.append(rect)
             return // Don't scan children - parent mask covers them
         }
         
-        // Recurse into subviews (limit depth for performance)
+        // Recurse into subviews
         for subview in view.subviews {
-            _scanForSensitiveViews(in: subview, rects: &rects)
+            _scanForSensitiveViews(in: subview, rects: &rects, depth: depth + 1)
         }
     }
     

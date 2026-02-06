@@ -10,14 +10,15 @@
  */
 
 import { Router } from 'express';
-import { randomBytes } from 'crypto';
+import { randomBytes, createHmac } from 'crypto';
 import { eq, and, sql } from 'drizzle-orm';
-import { db, sessions, sessionMetrics, projects, recordingArtifacts, ingestJobs } from '../db/client.js';
+import { db, sessions, sessionMetrics, projects, recordingArtifacts, ingestJobs, crashes, anrs } from '../db/client.js';
 
 import { logger } from '../logger.js';
-import { getIdempotencyStatus, setIdempotencyStatus } from '../db/redis.js';
+import { getRedis, getIdempotencyStatus, setIdempotencyStatus } from '../db/redis.js';
 import { generateS3Key, getSignedUploadUrl } from '../db/s3.js';
 import { apiKeyAuth, requireScope, asyncHandler, ApiError } from '../middleware/index.js';
+import { config } from '../config.js';
 import { validate } from '../middleware/validation.js';
 import { ingestProjectRateLimiter, ingestDeviceRateLimiter } from '../middleware/rateLimit.js';
 import { endSessionSchema } from '../validation/ingest.js';
@@ -25,6 +26,7 @@ import { updateDeviceUsage, ensureIngestSession } from '../services/recording.js
 import { evaluateAndPromoteSession } from '../services/replayPromotion.js';
 import { checkAndEnforceSessionLimit, checkBillingStatus, incrementProjectSessionCount } from '../services/quotaCheck.js';
 import { invalidateFrameCache } from '../services/screenshotFrames.js';
+import { trackCrashAsIssue, trackANRAsIssue } from '../services/issueTracker.js';
 
 const router = Router();
 
@@ -178,7 +180,7 @@ router.post(
         // deviceAuthId already extracted above for session creation
         if (deviceAuthId) {
             // Track upload attempt for device analytics
-            updateDeviceUsage(deviceAuthId, { requestCount: 1 }).catch(() => { });
+            updateDeviceUsage(deviceAuthId, projectId, { requestCount: 1 }).catch(() => { });
         }
 
         // =====================================================
@@ -367,7 +369,7 @@ router.post(
         }
 
         // Device usage tracking (non-blocking, atomic upsert)
-        updateDeviceUsage(deviceId, {
+        updateDeviceUsage(deviceId, projectId, {
             bytesUploaded: actualSizeBytes || 0,
             requestCount: 1,
         }).catch(() => { }); // Fire-and-forget for performance
@@ -547,7 +549,7 @@ router.post(
         // Track device usage
         const deviceAuthId = extractDeviceIdFromToken(req);
         if (deviceAuthId) {
-            updateDeviceUsage(deviceAuthId, { requestCount: 1 }).catch(() => { });
+            updateDeviceUsage(deviceAuthId, projectId, { requestCount: 1 }).catch(() => { });
         }
 
         // Mark idempotency as processing
@@ -745,7 +747,7 @@ router.post(
 
         // Device usage tracking
         const deviceId = extractDeviceIdFromToken(req);
-        updateDeviceUsage(deviceId, {
+        updateDeviceUsage(deviceId, projectId, {
             bytesUploaded: actualSizeBytes || artifact.sizeBytes || 0,
             requestCount: 1,
         }).catch(() => { });
@@ -898,7 +900,7 @@ router.post(
 
         // Track session duration for analytics (not billing)
         const deviceAuthId = extractDeviceIdFromToken(req);
-        updateDeviceUsage(deviceAuthId, { requestCount: 1 }).catch(() => { });
+        updateDeviceUsage(deviceAuthId, projectId, { requestCount: 1 }).catch(() => { });
 
         // Evaluate session for promotion - this is THE single place where promotion is decided
         // Uses the unified function that waits for ingest jobs and evaluates with complete metrics
@@ -956,6 +958,200 @@ router.post(
             reason: result.reason,
             score: result.score,
         });
+    })
+);
+
+/**
+ * Device authentication and upload token issuance
+ * POST /api/ingest/auth/device
+ *
+ * Called by iOS/Android SDKs to exchange a project public key for
+ * a time-limited upload token. The token is stored in Redis for
+ * stateful validation in apiKeyAuth middleware.
+ *
+ * No apiKeyAuth middleware here — the project public key IS the credential.
+ */
+router.post(
+    '/auth/device',
+    ingestDeviceRateLimiter,
+    asyncHandler(async (req, res) => {
+        const projectKey =
+            (req.headers['x-rejourney-key'] as string) ||
+            (req.headers['x-api-key'] as string);
+        const { deviceId, metadata } = req.body || {};
+
+        if (!projectKey) {
+            throw ApiError.unauthorized('Project key is required');
+        }
+        if (!deviceId || typeof deviceId !== 'string') {
+            throw ApiError.badRequest('deviceId is required');
+        }
+
+        // Look up project by its public key
+        const [project] = await db
+            .select({
+                id: projects.id,
+                teamId: projects.teamId,
+                name: projects.name,
+                deletedAt: projects.deletedAt,
+            })
+            .from(projects)
+            .where(eq(projects.publicKey, projectKey))
+            .limit(1);
+
+        if (!project || project.deletedAt) {
+            throw ApiError.unauthorized('Invalid project key');
+        }
+
+        // Build upload token with HMAC signature
+        const tokenTTL = 3600; // 1 hour
+        const tokenPayload = JSON.stringify({
+            type: 'upload',
+            deviceId,
+            projectId: project.id,
+            iat: Math.floor(Date.now() / 1000),
+            exp: Math.floor(Date.now() / 1000) + tokenTTL,
+        });
+        const payloadB64 = Buffer.from(tokenPayload).toString('base64');
+        const hmacSig = createHmac('sha256', config.INGEST_HMAC_SECRET)
+            .update(payloadB64)
+            .digest('hex');
+        const token = `${payloadB64}.${hmacSig}`;
+
+        // Store in Redis for stateful validation (non-critical; HMAC provides offline fallback)
+        try {
+            const redis = getRedis();
+            await Promise.race([
+                redis.set(`upload:token:${project.id}:${deviceId}`, token, 'EX', tokenTTL),
+                new Promise((_, reject) =>
+                    setTimeout(() => reject(new Error('Redis timeout')), 500)
+                ),
+            ]);
+        } catch (err) {
+            // Redis failure is non-fatal — apiKeyAuth has a public-key fallback
+            logger.warn({ err, projectId: project.id }, 'Redis unavailable for upload token storage');
+        }
+
+        logger.info(
+            { projectId: project.id, platform: (metadata as any)?.os },
+            'Device upload token issued',
+        );
+
+        res.json({ uploadToken: token, expiresIn: tokenTTL });
+    })
+);
+
+/**
+ * Direct fault report (crash / ANR)
+ * POST /api/ingest/fault
+ *
+ * Called by native StabilityMonitor on next app launch to report a crash or
+ * ANR that was persisted to disk before the process died.
+ *
+ * Accepts the IncidentRecord JSON produced by iOS StabilityMonitor.swift and
+ * Android StabilityMonitor.kt.
+ */
+router.post(
+    '/fault',
+    apiKeyAuth,
+    requireScope('ingest'),
+    ingestProjectRateLimiter,
+    asyncHandler(async (req, res) => {
+        const projectId = req.project!.id;
+        const incident = req.body;
+
+        if (!incident || !incident.category || !incident.sessionId) {
+            throw ApiError.badRequest('Missing required fields: category, sessionId');
+        }
+
+        const sessionId = incident.sessionId;
+        const timestamp = new Date(incident.timestampMs || Date.now());
+
+        // Ensure session row exists so foreign-key constraints are satisfied
+        const [existingSession] = await db
+            .select()
+            .from(sessions)
+            .where(eq(sessions.id, sessionId))
+            .limit(1);
+
+        if (!existingSession) {
+            await db.insert(sessions).values({
+                id: sessionId,
+                projectId,
+                status: 'processing',
+                platform: 'unknown',
+            });
+            await db.insert(sessionMetrics).values({ sessionId });
+        }
+
+        const stackTrace = Array.isArray(incident.frames)
+            ? incident.frames.join('\n')
+            : typeof incident.frames === 'string'
+                ? incident.frames
+                : null;
+
+        if (incident.category === 'anr') {
+            // ANR incident
+            const durationMs =
+                incident.context?.durationMs
+                    ? parseInt(incident.context.durationMs, 10)
+                    : 5000;
+
+            await db.insert(anrs).values({
+                sessionId,
+                projectId,
+                timestamp,
+                durationMs,
+                threadState: incident.context?.threadState || null,
+                deviceMetadata: incident.context || null,
+                status: 'open',
+                occurrenceCount: 1,
+            });
+
+            await db.update(sessionMetrics)
+                .set({ anrCount: sql`COALESCE(${sessionMetrics.anrCount}, 0) + 1` })
+                .where(eq(sessionMetrics.sessionId, sessionId));
+
+            trackANRAsIssue({
+                projectId,
+                durationMs,
+                threadState: incident.context?.threadState,
+                timestamp,
+                sessionId,
+            }).catch(() => { });
+
+            logger.info({ projectId, sessionId, category: 'anr', durationMs }, 'Fault report ingested');
+        } else {
+            // Crash / signal / exception incident
+            await db.insert(crashes).values({
+                sessionId,
+                projectId,
+                timestamp,
+                exceptionName: incident.identifier || 'Unknown',
+                reason: incident.detail || null,
+                stackTrace,
+                deviceMetadata: incident.context || null,
+                status: 'open',
+                occurrenceCount: 1,
+            });
+
+            await db.update(sessionMetrics)
+                .set({ crashCount: sql`COALESCE(${sessionMetrics.crashCount}, 0) + 1` })
+                .where(eq(sessionMetrics.sessionId, sessionId));
+
+            trackCrashAsIssue({
+                projectId,
+                exceptionName: incident.identifier || 'Unknown',
+                reason: incident.detail,
+                stackTrace: stackTrace || undefined,
+                timestamp,
+                sessionId,
+            }).catch(() => { });
+
+            logger.info({ projectId, sessionId, category: incident.category, identifier: incident.identifier }, 'Fault report ingested');
+        }
+
+        res.json({ ok: true });
     })
 );
 

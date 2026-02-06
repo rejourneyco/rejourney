@@ -151,6 +151,8 @@ const HeatmapCard: React.FC<{ screen: AlltimeHeatmapScreen }> = ({ screen }) => 
             : `${API_BASE_URL}${screen.screenshotUrl}`
         : null;
 
+    const [downloadProgress, setDownloadProgress] = useState(0);
+
     useEffect(() => {
         if (!fullCoverUrl) return;
 
@@ -159,21 +161,53 @@ const HeatmapCard: React.FC<{ screen: AlltimeHeatmapScreen }> = ({ screen }) => 
         const separator = fullCoverUrl.includes('?') ? '&' : '?';
         const fetchUrl = `${fullCoverUrl}${separator}_cb=${Date.now()}`;
 
-        fetch(fetchUrl, {
-            credentials: 'include',
-            cache: 'no-store',
-            headers: { 'Accept': 'image/*', 'X-CSRF-Token': csrfToken }
-        })
-            .then(async res => {
+        async function fetchWithProgress() {
+            try {
+                const res = await fetch(fetchUrl, {
+                    credentials: 'include',
+                    cache: 'no-store',
+                    headers: { 'Accept': 'image/*', 'X-CSRF-Token': csrfToken }
+                });
+
                 if (!res.ok) {
                     throw new Error(`HTTP ${res.status}: ${res.statusText}`);
                 }
+
+                const contentLength = +(res.headers.get('Content-Length') || 0);
                 const contentType = res.headers.get('Content-Type') || '';
-                const blob = await res.blob();
-                return { blob, contentType };
-            })
-            .then(async ({ blob, contentType }) => {
+
+                if (!res.body) {
+                    const blob = await res.blob();
+                    return { blob, contentType };
+                }
+
+                const reader = res.body.getReader();
+                let receivedLength = 0;
+                const chunks = [];
+
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+                    chunks.push(value);
+                    receivedLength += value.length;
+                    if (contentLength) {
+                        setDownloadProgress(Math.round((receivedLength / contentLength) * 100));
+                    }
+                }
+
                 if (cancelled) return;
+
+                const blob = new Blob(chunks);
+                return { blob, contentType };
+            } catch (error: any) {
+                throw error;
+            }
+        }
+
+        fetchWithProgress()
+            .then(async (result) => {
+                if (!result || cancelled) return;
+                const { blob, contentType } = result;
 
                 if (blob.size === 0) {
                     setLoadError('Empty image received');
@@ -242,10 +276,25 @@ const HeatmapCard: React.FC<{ screen: AlltimeHeatmapScreen }> = ({ screen }) => 
                                 onError={() => setLoadError('Failed to load image')}
                             />
                         ) : (
-                            <div className="absolute inset-0 bg-gradient-to-b from-slate-700 to-slate-800 flex items-center justify-center">
-                                <div className="text-center px-4">
+                            <div className="absolute inset-0 bg-gradient-to-b from-slate-700 to-slate-800 flex flex-col items-center justify-center p-4">
+                                <div className="text-center w-full">
                                     <MousePointer2 className="w-6 h-6 text-slate-500 mx-auto mb-2" />
-                                    <p className="text-[8px] font-bold text-slate-500 uppercase">{displayName}</p>
+                                    <p className="text-[8px] font-bold text-slate-500 uppercase mb-2">{displayName}</p>
+
+                                    {!loadError && downloadProgress > 0 && downloadProgress < 100 && (
+                                        <div className="w-full max-w-[80px] mx-auto">
+                                            <div className="h-1.5 w-full bg-slate-900/30 border border-slate-700 rounded-full overflow-hidden">
+                                                <div
+                                                    className="h-full bg-blue-500 transition-all duration-300"
+                                                    style={{ width: `${downloadProgress}%` }}
+                                                />
+                                            </div>
+                                            <p className="text-[6px] font-mono text-slate-400 mt-1 uppercase tracking-tighter">
+                                                fetching {downloadProgress}%
+                                            </p>
+                                        </div>
+                                    )}
+
                                     {loadError && (
                                         <p className="text-[6px] font-mono text-red-400 mt-1">{loadError}</p>
                                     )}

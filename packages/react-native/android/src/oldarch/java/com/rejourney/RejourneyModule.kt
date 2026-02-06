@@ -10,7 +10,7 @@ package com.rejourney
 
 import com.facebook.react.bridge.*
 import com.facebook.react.module.annotations.ReactModule
-import com.rejourney.core.Logger
+import com.rejourney.engine.DiagnosticLog
 
 @ReactModule(name = RejourneyModule.NAME)
 class RejourneyModule(reactContext: ReactApplicationContext) : 
@@ -26,7 +26,7 @@ class RejourneyModule(reactContext: ReactApplicationContext) :
         try {
             RejourneyModuleImpl(reactContext, isNewArchitecture = false)
         } catch (e: Throwable) {
-            Logger.error("✗ CRITICAL: Failed to create RejourneyModuleImpl", e)
+            DiagnosticLog.fault("✗ CRITICAL: Failed to create RejourneyModuleImpl: ${e.message}")
             throw e // Re-throw to make the error visible
         }
     }

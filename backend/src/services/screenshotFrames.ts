@@ -1,15 +1,22 @@
 /**
  * Screenshot Frames Service
  * 
- * Extracts individual JPEG frames from tar.gz screenshot archives.
+ * Extracts individual JPEG frames from screenshot archives.
  * Supports both on-demand extraction and Redis caching for performance.
  * 
- * Screenshot archives are uploaded by iOS SDK as tar.gz containing:
- * - Multiple JPEG files named by timestamp: {sessionEpoch}_1_{frameTimestamp}.jpeg
- * - Frames are captured at configurable intervals (default 500ms)
+ * Two archive formats are supported:
+ * 
+ * iOS (tar.gz): Standard tar archive containing JPEG files named:
+ *   {sessionEpoch}_1_{frameTimestamp}.jpeg
+ * 
+ * Android (binary.gz): Custom binary format where each frame is:
+ *   [8-byte BE timestamp offset from session epoch]
+ *   [4-byte BE JPEG size]
+ *   [N bytes raw JPEG data]
+ *   Repeated for each frame, then gzip-compressed.
  * 
  * This service provides:
- * - Frame extraction from archives
+ * - Frame extraction from both archive formats
  * - Redis caching of extracted frame metadata (not raw bytes)
  * - Presigned URLs for direct frame access
  * - Frame index for timeline-accurate playback
@@ -77,8 +84,105 @@ export interface SessionScreenshotFrames {
 }
 
 // ============================================================================
-// TAR Archive Parsing
+// Archive Format Detection & Parsing
 // ============================================================================
+
+/** JPEG magic bytes: FF D8 FF */
+const JPEG_MAGIC = [0xFF, 0xD8, 0xFF];
+
+/**
+ * Detect whether a decompressed buffer is a tar archive or Android binary format.
+ * 
+ * Android binary: starts with 8-byte BE timestamp + 4-byte BE size, then JPEG data.
+ * Since timestamps are offsets (usually small numbers), bytes 0-7 will be mostly zeros
+ * followed by the JPEG magic at byte 12.
+ * 
+ * Tar archive: starts with a 512-byte header containing a filename string.
+ */
+function isAndroidBinaryFormat(buf: Buffer): boolean {
+    if (buf.length < 16) return false;
+    
+    // Read what would be the JPEG size in Android format (bytes 8-11, BE int)
+    const possibleSize = buf.readUInt32BE(8);
+    
+    // Check if we find JPEG magic right after the 12-byte header
+    if (buf.length >= 15 && 
+        buf[12] === JPEG_MAGIC[0] && 
+        buf[13] === JPEG_MAGIC[1] && 
+        buf[14] === JPEG_MAGIC[2] &&
+        possibleSize > 0 && 
+        possibleSize < buf.length) {
+        return true;
+    }
+    
+    return false;
+}
+
+/**
+ * Parse Android's custom binary screenshot format.
+ * Format per frame: [8-byte BE timestamp offset][4-byte BE jpeg size][jpeg data]
+ * 
+ * @param buf - Decompressed binary data
+ * @param sessionStartTime - Session start epoch ms, used to convert offsets to absolute timestamps
+ */
+function parseAndroidBinaryArchive(
+    buf: Buffer, 
+    sessionStartTime: number
+): ExtractedFrame[] {
+    const frames: ExtractedFrame[] = [];
+    let offset = 0;
+    const HEADER_SIZE = 12; // 8 (timestamp) + 4 (size)
+    
+    while (offset + HEADER_SIZE <= buf.length) {
+        // Read 8-byte big-endian timestamp offset (ms from session epoch)
+        const tsHigh = buf.readUInt32BE(offset);
+        const tsLow = buf.readUInt32BE(offset + 4);
+        const tsOffset = tsHigh * 0x100000000 + tsLow;
+        
+        // Read 4-byte big-endian JPEG size
+        const jpegSize = buf.readUInt32BE(offset + 8);
+        
+        offset += HEADER_SIZE;
+        
+        // Sanity checks
+        if (jpegSize <= 0 || jpegSize > 10 * 1024 * 1024) { // max 10MB per frame
+            logger.warn({ jpegSize, offset }, '[screenshotFrames] Android binary: invalid frame size, stopping');
+            break;
+        }
+        if (offset + jpegSize > buf.length) {
+            logger.warn({ jpegSize, offset, bufLen: buf.length }, '[screenshotFrames] Android binary: frame extends past buffer, stopping');
+            break;
+        }
+        
+        // Verify JPEG magic
+        if (buf[offset] !== 0xFF || buf[offset + 1] !== 0xD8) {
+            logger.warn({ byte0: buf[offset], byte1: buf[offset + 1], offset }, '[screenshotFrames] Android binary: not JPEG data, stopping');
+            break;
+        }
+        
+        const jpegData = Buffer.from(buf.subarray(offset, offset + jpegSize));
+        const absoluteTimestamp = sessionStartTime + tsOffset;
+        
+        frames.push({
+            filename: `android_${absoluteTimestamp}.jpeg`,
+            timestamp: absoluteTimestamp,
+            index: frames.length,
+            data: jpegData,
+        });
+        
+        offset += jpegSize;
+    }
+    
+    logger.info({
+        frameCount: frames.length,
+        bufferSize: buf.length,
+        sessionStartTime,
+        firstTs: frames[0]?.timestamp,
+        lastTs: frames[frames.length - 1]?.timestamp,
+    }, '[screenshotFrames] Parsed Android binary archive');
+    
+    return frames;
+}
 
 /**
  * Parse a tar archive buffer and extract all files
@@ -145,16 +249,20 @@ function parseFrameTimestamp(filename: string): number | null {
 // ============================================================================
 
 /**
- * Extract all frames from a screenshot archive
+ * Extract all frames from a screenshot archive.
  * 
- * The archive may be:
- * 1. Raw tar (if already decompressed by S3 download helper)
- * 2. Gzip-compressed tar (if downloaded without auto-decompression)
+ * Supports two formats:
+ * 1. iOS tar.gz — standard tar with named JPEG files
+ * 2. Android binary.gz — custom binary: [8-byte ts offset][4-byte size][jpeg] per frame
  * 
- * We detect based on gzip magic bytes (0x1f 0x8b).
+ * Format is auto-detected after gzip decompression.
+ * 
+ * @param archiveBuffer - Raw archive data (gzipped or already decompressed)
+ * @param sessionStartTime - Session start epoch ms (needed for Android format timestamp reconstruction)
  */
 export async function extractFramesFromArchive(
-    archiveBuffer: Buffer
+    archiveBuffer: Buffer,
+    sessionStartTime: number = 0
 ): Promise<ExtractedFrame[]> {
     try {
         // Check if gzip compressed (magic bytes: 0x1f 0x8b)
@@ -162,45 +270,60 @@ export async function extractFramesFromArchive(
                           archiveBuffer[0] === 0x1f && 
                           archiveBuffer[1] === 0x8b;
         
-        // Decompress if needed, otherwise use as-is (already tar)
-        let tarBuffer: Buffer;
+        // Decompress if needed
+        let rawBuffer: Buffer;
         if (isGzipped) {
             logger.debug({ archiveSize: archiveBuffer.length }, '[screenshotFrames] Decompressing gzip archive');
-            tarBuffer = gunzipSync(archiveBuffer);
+            rawBuffer = gunzipSync(archiveBuffer);
         } else {
-            logger.debug({ archiveSize: archiveBuffer.length }, '[screenshotFrames] Archive is already decompressed tar');
-            tarBuffer = archiveBuffer;
+            logger.debug({ archiveSize: archiveBuffer.length }, '[screenshotFrames] Archive is already decompressed');
+            rawBuffer = archiveBuffer;
         }
         
-        // Parse tar
-        const files = parseTarArchive(tarBuffer);
+        // ── Detect format and parse ──────────────────────────────────────
+        let frames: ExtractedFrame[];
         
-        logger.info({ 
-            tarSize: tarBuffer.length, 
-            fileCount: files.length,
-            fileNames: files.map(f => f.name),
-        }, '[screenshotFrames] Parsed tar archive - all filenames');
-        
-        // Filter to JPEG files and extract timestamps
-        const frames: ExtractedFrame[] = [];
-        
-        for (const file of files) {
-            if (!file.name.endsWith('.jpg') && !file.name.endsWith('.jpeg')) {
-                continue;
-            }
+        if (isAndroidBinaryFormat(rawBuffer)) {
+            // Android custom binary format
+            logger.info({ bufferSize: rawBuffer.length, sessionStartTime }, '[screenshotFrames] Detected Android binary format');
+            frames = parseAndroidBinaryArchive(rawBuffer, sessionStartTime);
+        } else {
+            // Try standard tar parsing (iOS)
+            const files = parseTarArchive(rawBuffer);
             
-            const timestamp = parseFrameTimestamp(file.name);
-            if (timestamp === null) {
-                logger.warn({ filename: file.name }, '[screenshotFrames] Could not parse timestamp from filename');
-                continue;
-            }
+            logger.info({ 
+                tarSize: rawBuffer.length, 
+                fileCount: files.length,
+                fileNames: files.map(f => f.name),
+            }, '[screenshotFrames] Parsed tar archive - all filenames');
             
-            frames.push({
-                filename: file.name,
-                timestamp,
-                index: 0, // Will be set after sorting
-                data: file.data,
-            });
+            // If tar produced 0 files but buffer has data, try Android binary as fallback
+            if (files.length === 0 && rawBuffer.length > 12) {
+                logger.info('[screenshotFrames] Tar produced 0 files, trying Android binary fallback');
+                frames = parseAndroidBinaryArchive(rawBuffer, sessionStartTime);
+            } else {
+                // Standard tar path — filter to JPEG files and extract timestamps
+                frames = [];
+                
+                for (const file of files) {
+                    if (!file.name.endsWith('.jpg') && !file.name.endsWith('.jpeg')) {
+                        continue;
+                    }
+                    
+                    const timestamp = parseFrameTimestamp(file.name);
+                    if (timestamp === null) {
+                        logger.warn({ filename: file.name }, '[screenshotFrames] Could not parse timestamp from filename');
+                        continue;
+                    }
+                    
+                    frames.push({
+                        filename: file.name,
+                        timestamp,
+                        index: 0,
+                        data: file.data,
+                    });
+                }
+            }
         }
         
         // Sort by timestamp and assign indices
@@ -211,7 +334,7 @@ export async function extractFramesFromArchive(
         
         logger.info({
             archiveSize: archiveBuffer.length,
-            tarSize: tarBuffer.length,
+            rawSize: rawBuffer.length,
             frameCount: frames.length,
             firstTimestamp: frames[0]?.timestamp,
             lastTimestamp: frames[frames.length - 1]?.timestamp,
@@ -423,8 +546,8 @@ export async function getSessionScreenshotFrames(
             continue;
         }
         
-        // Extract frames
-        const frames = await extractFramesFromArchive(archiveData);
+        // Extract frames (pass sessionStartTime for Android binary format)
+        const frames = await extractFramesFromArchive(archiveData, sessionStartTime);
         
         // Upload individual frames to S3 for direct access
         for (const frame of frames) {

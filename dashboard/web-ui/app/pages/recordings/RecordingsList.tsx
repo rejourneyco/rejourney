@@ -25,7 +25,8 @@ import {
   Filter,
   Loader,
   Gauge,
-  Timer
+  Timer,
+  MousePointerClick
 } from 'lucide-react';
 import { TimeFilter, TimeRange, DEFAULT_TIME_RANGE } from '../../components/ui/TimeFilter';
 import { NeoBadge } from '../../components/ui/neo/NeoBadge';
@@ -79,7 +80,7 @@ export const RecordingsList: React.FC = () => {
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [hasMore, setHasMore] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
-  const [filter, setFilter] = useState<'all' | 'crashes' | 'anrs' | 'errors' | 'rage' | 'failed_funnel' | 'slow_start' | 'slow_api'>('all');
+  const [filter, setFilter] = useState<'all' | 'crashes' | 'anrs' | 'errors' | 'rage' | 'dead_taps' | 'failed_funnel' | 'slow_start' | 'slow_api'>('all');
   const [timeRange, setTimeRange] = useState<TimeRange>(DEFAULT_TIME_RANGE);
   const [sortConfigs, setSortConfigs] = useState<SortConfig[]>([{ key: 'date', direction: 'desc' }]);
   const [currentPage, setCurrentPage] = useState(1);
@@ -161,6 +162,7 @@ export const RecordingsList: React.FC = () => {
       if (filter === 'anrs') return ((session as any).anrCount || 0) > 0;
       if (filter === 'errors') return ((session as any).errorCount || 0) > 0;
       if (filter === 'rage') return (session.rageTapCount || 0) > 3;
+      if (filter === 'dead_taps') return ((session as any).deadTapCount || 0) > 0;
       if (filter === 'slow_start') return ((session as any).appStartupTimeMs || 0) > 3000;
       if (filter === 'slow_api') return (session.apiAvgResponseMs || 0) > 1000;
       if (filter === 'failed_funnel') {
@@ -370,6 +372,7 @@ export const RecordingsList: React.FC = () => {
               { id: 'errors', label: 'Errors', icon: AlertTriangle },
               { id: 'anrs', label: 'ANRs', icon: Clock },
               { id: 'rage', label: 'Rage', icon: Zap },
+              { id: 'dead_taps', label: 'Dead Taps', icon: MousePointerClick },
               { id: 'slow_start', label: 'Slow Start', icon: Timer },
               { id: 'slow_api', label: 'Slow API', icon: Gauge },
               { id: 'failed_funnel', label: 'Failed Funnel', icon: Compass },
@@ -403,9 +406,9 @@ export const RecordingsList: React.FC = () => {
               <div className="hidden xl:block w-24 text-right px-2"><SortableHeader label="API Lat." sortKey="apiResponse" align="right" /></div>
               <div className="hidden xl:block w-24 text-right px-2"><SortableHeader label="API Err" sortKey="apiError" align="right" /></div>
 
-              {/* Issues Group */}
+              {/* Reason Recorded */}
               <div className="w-56 flex justify-end gap-1 px-2">
-                <SortableHeader label="Issues" sortKey="crashes" align="right" />
+                <SortableHeader label="Reason Recorded" sortKey="crashes" align="right" />
               </div>
               <div className="w-10"></div>
               <div className="w-10"></div>
@@ -440,11 +443,15 @@ export const RecordingsList: React.FC = () => {
             const hasSlowApi = (session.apiAvgResponseMs || 0) > 1000;
             const durationMinutes = session.durationSeconds / 60;
             const hasLowExp = session.replayPromotedReason === 'failed_funnel';
+            const hasDeadTaps = ((session as any).deadTapCount || 0) > 0;
+
+            const isProcessing = session.durationSeconds === 0;
 
             const hasIssues = (session.crashCount || 0) > 0 ||
               ((session as any).anrCount || 0) > 0 ||
               ((session as any).errorCount || 0) > 0 ||
               (session.rageTapCount || 0) > 0 ||
+              hasDeadTaps ||
               hasSlowStart || hasSlowApi || hasLowExp;
 
             return (
@@ -459,14 +466,14 @@ export const RecordingsList: React.FC = () => {
                 >
                   {/* Visual Indicator */}
                   <div className="w-8 flex-shrink-0 flex justify-center">
-                    <div className={`w-3 h-3 border-2 border-black shadow-[1px_1px_0px_0px_rgba(0,0,0,1)] ${hasIssues ? 'bg-amber-400' : 'bg-success'}`} />
+                    <div className={`w-3 h-3 border-2 border-black shadow-[1px_1px_0px_0px_rgba(0,0,0,1)] ${isProcessing ? 'bg-indigo-400 animate-pulse' : hasIssues ? 'bg-amber-400' : 'bg-success'}`} />
                   </div>
 
                   {/* User & Device */}
                   <div className="flex-1 min-w-0 px-2">
                     <div className="flex items-center gap-2 mb-1">
                       <h3
-                        className="font-black text-sm text-black font-mono truncate"
+                        className={`font-black text-sm text-black font-mono truncate ${isProcessing ? 'opacity-50' : ''}`}
                         title={userId}
                       >
                         {displayUserId}
@@ -480,7 +487,7 @@ export const RecordingsList: React.FC = () => {
                         </button>
                       )}
                     </div>
-                    <div className="flex items-center gap-2 text-[10px] text-slate-500 uppercase font-bold tracking-tight">
+                    <div className={`flex items-center gap-2 text-[10px] text-slate-500 uppercase font-bold tracking-tight ${isProcessing ? 'opacity-50' : ''}`}>
                       <span className="truncate max-w-[120px]">{session.deviceModel || 'Unknown Device'}</span>
                       <span className="w-1 h-1 bg-black"></span>
                       <span>v{session.appVersion || '?.?.?'}</span>
@@ -495,9 +502,15 @@ export const RecordingsList: React.FC = () => {
 
                   {/* Duration */}
                   <div className="hidden md:block w-24 text-right px-2">
-                    <span className="text-xs font-mono font-bold text-black border border-black bg-slate-100 px-1 py-0.5 shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]">
-                      {Math.floor(session.durationSeconds / 60)}:{String(session.durationSeconds % 60).padStart(2, '0')}
-                    </span>
+                    {isProcessing ? (
+                      <span className="text-[9px] font-black text-indigo-600 bg-indigo-50 border border-indigo-200 px-1 py-0.5 animate-pulse rounded-sm">
+                        LIVE INGEST
+                      </span>
+                    ) : (
+                      <span className="text-xs font-mono font-bold text-black border border-black bg-slate-100 px-1 py-0.5 shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]">
+                        {Math.floor(session.durationSeconds / 60)}:{String(session.durationSeconds % 60).padStart(2, '0')}
+                      </span>
+                    )}
                   </div>
 
                   {/* Screens */}
@@ -521,12 +534,14 @@ export const RecordingsList: React.FC = () => {
                     ) : <span className="text-slate-300 text-xs">-</span>}
                   </div>
 
-                  {/* Issues Badges */}
+                  {/* Reason Recorded */}
                   <div className="w-56 flex justify-end gap-1 px-2 items-center flex-wrap">
+                    {!hasIssues && <NeoBadge variant="success" size="sm">HEALTHY</NeoBadge>}
                     {(session.crashCount || 0) > 0 && <NeoBadge variant="danger" size="sm">CRASH</NeoBadge>}
                     {((session as any).anrCount || 0) > 0 && <NeoBadge variant="anr" size="sm">ANR</NeoBadge>}
                     {((session as any).errorCount || 0) > 0 && <NeoBadge variant="warning" size="sm">ERR</NeoBadge>}
                     {(session.rageTapCount || 0) > 0 && <NeoBadge variant="rage" size="sm">RAGE</NeoBadge>}
+                    {hasDeadTaps && <NeoBadge variant="dead_tap" size="sm">DEAD TAP</NeoBadge>}
                     {hasSlowStart && <NeoBadge variant="slow_start" size="sm">SLOW</NeoBadge>}
                     {hasSlowApi && <NeoBadge variant="slow_api" size="sm">API</NeoBadge>}
                     {hasLowExp && <NeoBadge variant="low_exp" size="sm">FAILED FUNNEL</NeoBadge>}
@@ -536,12 +551,15 @@ export const RecordingsList: React.FC = () => {
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
-                      navigate(`${pathPrefix}/sessions/${session.id}`);
+                      if (!isProcessing) {
+                        navigate(`${pathPrefix}/sessions/${session.id}`);
+                      }
                     }}
-                    className="w-10 h-8 flex items-center justify-center rounded-none border-2 border-transparent hover:border-black hover:bg-black hover:text-white transition-all group/play"
-                    title="Open Replay"
+                    disabled={isProcessing}
+                    className={`w-10 h-8 flex items-center justify-center rounded-none border-2 border-transparent transition-all group/play ${isProcessing ? 'cursor-not-allowed opacity-20' : 'hover:border-black hover:bg-black hover:text-white'}`}
+                    title={isProcessing ? "Session is still processing" : "Open Replay"}
                   >
-                    <Play size={16} className="group-hover/play:fill-white" />
+                    <Play size={16} className={isProcessing ? "" : "group-hover/play:fill-white"} />
                   </button>
 
                   {/* Expand Toggle */}
@@ -612,10 +630,15 @@ export const RecordingsList: React.FC = () => {
                           <NeoButton
                             variant="primary"
                             size="sm"
-                            onClick={() => navigate(`${pathPrefix}/sessions/${session.id}`)}
-                            className="w-full justify-center"
+                            onClick={() => !isProcessing && navigate(`${pathPrefix}/sessions/${session.id}`)}
+                            className={`w-full justify-center ${isProcessing ? 'opacity-50 cursor-not-allowed' : ''}`}
+                            disabled={isProcessing}
                           >
-                            <Play size={12} fill="currentColor" className="mr-2" /> Open Replay
+                            {isProcessing ? (
+                              <><Loader size={12} className="animate-spin mr-2" /> Live Ingesting...</>
+                            ) : (
+                              <><Play size={12} fill="currentColor" className="mr-2" /> Open Replay</>
+                            )}
                           </NeoButton>
                         </div>
                       </div>

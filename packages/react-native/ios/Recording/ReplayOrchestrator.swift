@@ -1,3 +1,19 @@
+/**
+ * Copyright 2026 Rejourney
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 import UIKit
 import Network
 import QuartzCore
@@ -67,6 +83,7 @@ public final class ReplayOrchestrator: NSObject {
     private var _scrollCount = 0
     private var _gestureCount = 0
     private var _rageCount = 0
+    private var _deadTapCount = 0
     private var _visitedScreens: [String] = []
     private var _bgTimeMs: UInt64 = 0
     private var _bgStartMs: UInt64?
@@ -195,6 +212,7 @@ public final class ReplayOrchestrator: NSObject {
             "scrollCount": _scrollCount,
             "gestureCount": _gestureCount,
             "rageTapCount": _rageCount,
+            "deadTapCount": _deadTapCount,
             "screensVisited": _visitedScreens,
             "screenCount": Set(_visitedScreens).count
         ]
@@ -300,6 +318,7 @@ public final class ReplayOrchestrator: NSObject {
     @objc public func logScrollAction() { _scrollCount += 1 }
     @objc public func incrementGestureTally() { _gestureCount += 1 }
     @objc public func incrementRageTapTally() { _rageCount += 1 }
+    @objc public func incrementDeadTapTally() { _deadTapCount += 1 }
     
     @objc public func logScreenView(_ screenId: String) {
         guard !screenId.isEmpty else { return }
@@ -321,6 +340,7 @@ public final class ReplayOrchestrator: NSObject {
         _scrollCount = 0
         _gestureCount = 0
         _rageCount = 0
+        _deadTapCount = 0
         _visitedScreens.removeAll()
         _bgTimeMs = 0
         _bgStartMs = nil

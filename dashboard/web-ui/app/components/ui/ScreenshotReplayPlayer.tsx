@@ -36,6 +36,7 @@ import {
   Film,
 } from 'lucide-react';
 import { TouchOverlay, TouchEvent } from './TouchOverlay';
+import { MarkerTooltip } from './MarkerTooltip';
 
 // ============================================================================
 // Types
@@ -130,7 +131,8 @@ function useScreenshotPlayback(
   playbackRate: number,
   isPlaying: boolean,
   setIsPlaying: (playing: boolean) => void,
-  onFrameChange: (frameIndex: number, timestamp: number) => void
+  onFrameChange: (frameIndex: number, timestamp: number) => void,
+  onPreloadProgress?: (loaded: number, total: number) => void
 ) {
   const frameCache = useRef<FrameCache>({});
   const currentFrameIndex = useRef(0);
@@ -154,16 +156,30 @@ function useScreenshotPlayback(
   useEffect(() => {
     if (frames.length === 0) return;
 
+    let loadedCount = 0;
+    const totalCount = frames.length;
+
+    const handleLoad = () => {
+      loadedCount++;
+      onPreloadProgress?.(loadedCount, totalCount);
+    };
+
     // Preload first 10 frames immediately
     const preloadCount = Math.min(10, frames.length);
     for (let i = 0; i < preloadCount; i++) {
       const frame = frames[i];
       if (!frameCache.current[frame.url]) {
         const img = new Image();
+        img.onload = handleLoad;
+        img.onerror = handleLoad; // Count error as "done" for progress
         img.src = frame.url;
         frameCache.current[frame.url] = img;
+      } else {
+        loadedCount++;
       }
     }
+
+    onPreloadProgress?.(loadedCount, totalCount);
 
     // Preload rest in background
     const preloadRest = () => {
@@ -171,10 +187,15 @@ function useScreenshotPlayback(
         const frame = frames[i];
         if (!frameCache.current[frame.url]) {
           const img = new Image();
+          img.onload = handleLoad;
+          img.onerror = handleLoad;
           img.src = frame.url;
           frameCache.current[frame.url] = img;
+        } else {
+          loadedCount++;
         }
       }
+      onPreloadProgress?.(loadedCount, totalCount);
     };
 
     // Use requestIdleCallback if available, otherwise setTimeout
@@ -183,7 +204,7 @@ function useScreenshotPlayback(
     } else {
       setTimeout(preloadRest, 100);
     }
-  }, [frames]);
+  }, [frames, onPreloadProgress]);
 
   // Playback loop
   useEffect(() => {
@@ -343,6 +364,8 @@ export const ScreenshotReplayPlayer = forwardRef<
   const [isTerminated, setIsTerminated] = useState(false);
   const [touchEvents, setTouchEvents] = useState<TouchEvent[]>([]);
   const [showTouchOverlay, setShowTouchOverlay] = useState(true);
+  const [preloadProgress, setPreloadProgress] = useState({ loaded: 0, total: 0 });
+  const [hoveredMarker, setHoveredMarker] = useState<any>(null);
 
   // Refs
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -444,7 +467,8 @@ export const ScreenshotReplayPlayer = forwardRef<
     playbackRate,
     isPlaying && playbackMode === 'screenshots',
     setIsPlaying,
-    handleFrameChange
+    handleFrameChange,
+    (loaded, total) => setPreloadProgress({ loaded, total })
   );
 
   // Seek to time (seconds relative to session start)
@@ -642,6 +666,24 @@ export const ScreenshotReplayPlayer = forwardRef<
             />
           )}
 
+          {/* Preloading Frames Overlay */}
+          {playbackMode === 'screenshots' && preloadProgress.total > 0 && preloadProgress.loaded < Math.min(preloadProgress.total, 20) && (
+            <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/60 z-30">
+              <div className="w-10 h-10 border-3 border-white/20 border-t-white rounded-full animate-spin mb-4" />
+              <div className="w-48">
+                <div className="h-1.5 w-full bg-white/20 rounded-full overflow-hidden border border-white/10">
+                  <div
+                    className="h-full bg-blue-500 transition-all duration-300"
+                    style={{ width: `${(preloadProgress.loaded / preloadProgress.total) * 100}%` }}
+                  />
+                </div>
+                <p className="text-[10px] font-mono text-center text-white/70 mt-2 uppercase tracking-widest">
+                  Preloading frames ({preloadProgress.loaded}/{preloadProgress.total})
+                </p>
+              </div>
+            </div>
+          )}
+
           {/* Touch overlay */}
           {showTouchOverlay && touchEvents.length > 0 && (
             <TouchOverlay
@@ -714,12 +756,57 @@ export const ScreenshotReplayPlayer = forwardRef<
             );
           })}
 
+          {/* Event markers (Dots) */}
+          {events.slice(0, 100).map((event, i) => {
+            const relativeTime = (event.timestamp - sessionStartTime) / 1000;
+            const percent = (relativeTime / sessionDuration) * 100;
+            if (percent < 0 || percent > 100) return null;
+
+            const isFrustration = event.frustrationKind || event.type === 'frustration' || event.type === 'rage_tap';
+            const isTouch = event.type === 'touch' || event.type === 'gesture';
+            const isIssue = event.type === 'crash' || event.type === 'anr' || event.type === 'error';
+
+            return (
+              <div
+                key={`e-${i}`}
+                className={`absolute w-1.5 h-1.5 rounded-full transition-all hover:scale-[2.5] z-10 cursor-pointer ${isIssue ? 'bg-red-500' : isFrustration ? 'bg-orange-500' : isTouch ? 'bg-blue-400' : 'bg-slate-400'
+                  }`}
+                style={{
+                  left: `${percent}%`,
+                  top: '50%',
+                  transform: 'translate(-50%, -50%)',
+                }}
+                onMouseEnter={() => setHoveredMarker({
+                  ...event,
+                  timestampStr: formatTime(relativeTime),
+                  x: percent
+                })}
+                onMouseLeave={() => setHoveredMarker(null)}
+              />
+            );
+          })}
+
           {/* Scrubber handle */}
           <div
-            className="absolute top-1/2 -translate-y-1/2 w-4 h-4 bg-white rounded-full shadow-lg"
+            className="absolute top-1/2 -translate-y-1/2 w-4 h-4 bg-white rounded-full shadow-lg z-20"
             style={{ left: `calc(${progressPercent}% - 8px)` }}
           />
         </div>
+
+        {/* Marker Tooltip */}
+        {hoveredMarker && (
+          <MarkerTooltip
+            visible={!!hoveredMarker}
+            x={hoveredMarker.x}
+            type={hoveredMarker.type}
+            name={hoveredMarker.name}
+            timestamp={hoveredMarker.timestampStr}
+            target={hoveredMarker.targetLabel}
+            statusCode={(hoveredMarker as any).properties?.statusCode}
+            success={(hoveredMarker as any).properties?.success}
+            duration={(hoveredMarker as any).properties?.duration}
+          />
+        )}
 
         {/* Control buttons */}
         <div className="flex items-center justify-between">

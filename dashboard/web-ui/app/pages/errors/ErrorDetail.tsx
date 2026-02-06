@@ -15,7 +15,8 @@ import {
     Monitor,
     AlertTriangle,
     Server,
-    Layers
+    Layers,
+    Download
 } from 'lucide-react';
 import { api } from '../../services/api';
 
@@ -73,6 +74,17 @@ export const ErrorDetail: React.FC<{ errorId?: string; projectId?: string }> = (
         navigator.clipboard.writeText(stackText);
         setCopied(true);
         setTimeout(() => setCopied(false), 2000);
+    };
+
+    const handleDownloadStack = () => {
+        const stackText = errorData?.stack || '';
+        const blob = new Blob([stackText], { type: 'text/plain' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `error-trace-${errorData?.id}-${Date.now()}.txt`;
+        a.click();
+        URL.revokeObjectURL(url);
     };
 
     const getErrorTypeLabel = (errorType: string) => {
@@ -174,13 +186,22 @@ export const ErrorDetail: React.FC<{ errorId?: string; projectId?: string }> = (
                                     <h2 className="text-xl font-black uppercase text-slate-900">Stack Trace</h2>
                                 </div>
                                 {errorData.stack && (
-                                    <button
-                                        onClick={handleCopyStack}
-                                        className="flex items-center gap-2 px-3 py-1.5 text-xs font-black uppercase border-2 border-slate-200 hover:border-black hover:bg-slate-50 transition-all"
-                                    >
-                                        {copied ? <Check className="w-3 h-3 text-green-600" /> : <Copy className="w-3 h-3" />}
-                                        {copied ? 'Copied' : 'Copy'}
-                                    </button>
+                                    <div className="flex items-center gap-2">
+                                        <button
+                                            onClick={handleCopyStack}
+                                            className="flex items-center gap-2 px-3 py-1.5 text-xs font-black uppercase border-2 border-slate-200 hover:border-black hover:bg-slate-50 transition-all"
+                                        >
+                                            {copied ? <Check className="w-3 h-3 text-green-600" /> : <Copy className="w-3 h-3" />}
+                                            {copied ? 'Copied' : 'Copy'}
+                                        </button>
+                                        <button
+                                            onClick={handleDownloadStack}
+                                            className="flex items-center gap-2 px-3 py-1.5 text-xs font-black uppercase border-2 border-slate-200 hover:border-black hover:bg-slate-50 transition-all"
+                                        >
+                                            <Download className="w-3 h-3" />
+                                            Download
+                                        </button>
+                                    </div>
                                 )}
                             </div>
 
@@ -274,8 +295,8 @@ export const ErrorDetail: React.FC<{ errorId?: string; projectId?: string }> = (
                         </div>
                     </div>
                 </div>
-            </div>
-        </div>
+            </div >
+        </div >
     );
 };
 

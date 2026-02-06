@@ -24,12 +24,17 @@ import {
   Layers,
   Image as ImageIcon,
   Film,
+  Move,
+  Maximize2,
+  RefreshCw,
+  GripHorizontal,
 } from 'lucide-react';
 import { useSessionData } from '../../context/SessionContext';
 import { usePathPrefix } from '../../hooks/usePathPrefix';
 import { api } from '../../services/api';
 import DOMInspector, { HierarchySnapshot } from '../../components/ui/DOMInspector';
 import { TouchOverlay, TouchEvent } from '../../components/ui/TouchOverlay';
+import { MarkerTooltip } from '../../components/ui/MarkerTooltip';
 
 // ============================================================================
 // Types
@@ -168,11 +173,12 @@ interface FullSession {
 const EVENT_COLORS = {
   error: '#ef4444',
   apiError: '#ef4444',
-  rageTap: '#dc2626',
+  rageTap: '#f43f5e',
+  deadTap: '#818cf8',
   crash: '#b91c1c',
   anr: '#a855f7',
   apiSuccess: '#22c55e',
-  tap: '#3b82f6',
+  tap: '#6366f1',
   scroll: '#5dadec',
   gesture: '#10b981',
   swipe: '#06b6d4',
@@ -191,6 +197,7 @@ const getEventColor = (event: SessionEvent): string => {
   const type = event.type?.toLowerCase() || '';
   const gestureType = (event.gestureType || event.properties?.gestureType || '').toLowerCase();
 
+  if (event.frustrationKind === 'dead_tap' || type === 'dead_tap') return EVENT_COLORS.deadTap;
   if (event.frustrationKind || type === 'rage_tap') return EVENT_COLORS.rageTap;
   if (type === 'crash') return EVENT_COLORS.crash;
   if (type === 'anr') return EVENT_COLORS.anr;
@@ -224,9 +231,15 @@ const getEventIcon = (event: SessionEvent) => {
   if (type === 'navigation' || type === 'screen_view') return Navigation;
   if (type === 'app_foreground' || type === 'app_background') return Play;
   if (type === 'device_info') return Smartphone;
+  if (type === 'dead_tap' || event.frustrationKind === 'dead_tap') return MousePointer2;
   if (type === 'rage_tap' || event.frustrationKind) return Zap;
-  if (gestureType.includes('tap') || type === 'tap' || type === 'touch') return Hand;
+  if (gestureType.includes('pinch') || gestureType.includes('zoom')) return Maximize2;
+  if (gestureType.includes('rotat')) return RefreshCw;
+  if (gestureType.includes('swipe')) return Move;
+  if (gestureType.includes('pan') || gestureType.includes('drag')) return GripHorizontal;
   if (gestureType.includes('scroll') || type === 'scroll') return MousePointer2;
+  if (gestureType.includes('long_press')) return Hand;
+  if (gestureType.includes('tap') || type === 'tap' || type === 'touch') return Hand;
 
   return Monitor;
 };
@@ -256,7 +269,10 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
   const [isBuffering, setIsBuffering] = useState(false);
   const [showTouchOverlay, setShowTouchOverlay] = useState(true);
   const [touchEvents, setTouchEvents] = useState<TouchEvent[]>([]);
+  const [activitySearch, setActivitySearch] = useState<string>('');
+  const [isSearching, setIsSearching] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
+  const [hoveredMarker, setHoveredMarker] = useState<any>(null);
 
   // DOM Inspector state
   const [hierarchySnapshots, setHierarchySnapshots] = useState<HierarchySnapshot[]>([]);
@@ -471,7 +487,9 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
           const isGestureEvent = e.type === 'touch' || e.type === 'gesture';
           const rawTouchesArr = e.touches ?? e.properties?.touches ?? [];
           const touchesArr = Array.isArray(rawTouchesArr) ? rawTouchesArr : [];
-          return isGestureEvent && touchesArr.length > 0 && timeDiff >= 0 && timeDiff < 1000;
+          // Use wider window for gesture events (swipe/scroll need more time to be visible)
+          const maxAge = (e.type === 'gesture') ? 1500 : 1000;
+          return isGestureEvent && touchesArr.length > 0 && timeDiff >= 0 && timeDiff < maxAge;
         })
         .map((e) => {
           const rawTouchArray = e.touches || e.properties?.touches || [];
@@ -1144,7 +1162,9 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
         const isGestureEvent = e.type === 'touch' || e.type === 'gesture';
         const rawTouchesArr = e.touches ?? e.properties?.touches ?? [];
         const touchesArr = Array.isArray(rawTouchesArr) ? rawTouchesArr : [];
-        return isGestureEvent && touchesArr.length > 0 && timeDiff >= 0 && timeDiff < 1000;
+        // Use wider window for gesture events (swipe/scroll need more time to be visible)
+        const maxAge = (e.type === 'gesture') ? 1500 : 1000;
+        return isGestureEvent && touchesArr.length > 0 && timeDiff >= 0 && timeDiff < maxAge;
       })
       .map((e) => {
         const rawTouchArray = e.touches || e.properties?.touches || [];
@@ -1402,7 +1422,7 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
       !replayPromoted ? 'not_promoted' :
         null;
 
-  // Filter activity feed - also filter out empty/invalid events
+  // Filter activity feed - also filter out empty/invalid events and apply search
   const filteredActivity = allTimelineEvents.filter((e) => {
     const type = e.type?.toLowerCase() || '';
 
@@ -1418,24 +1438,61 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
       if (!hasUrl) return false;
     }
 
-    if (activityFilter === 'all') return true;
-
+    // Apply activity filter (tabs)
     const gestureType = (e.gestureType || e.properties?.gestureType || '').toLowerCase();
+    let matchesFilter = true;
 
     if (activityFilter === 'navigation') {
-      return type === 'navigation' || type === 'screen_view' || type === 'app_foreground' || type === 'app_background';
+      matchesFilter = type === 'navigation' || type === 'screen_view' || type === 'app_foreground' || type === 'app_background';
+    } else if (activityFilter === 'touches') {
+      matchesFilter = type === 'tap' || type === 'touch' || type === 'gesture' || gestureType.includes('tap');
+    } else if (activityFilter === 'network') {
+      matchesFilter = type === 'network_request';
+    } else if (activityFilter === 'issues') {
+      matchesFilter = type === 'crash' || type === 'error' || type === 'anr' || type === 'rage_tap' || type === 'dead_tap' || gestureType === 'rage_tap' || gestureType === 'dead_tap';
+    } else if (activityFilter === 'dead_taps') {
+      matchesFilter = type === 'dead_tap' || gestureType === 'dead_tap' || e.frustrationKind === 'dead_tap';
     }
-    if (activityFilter === 'touches') {
-      return type === 'tap' || type === 'touch' || type === 'gesture' || gestureType.includes('tap');
+
+    if (!matchesFilter) return false;
+
+    // Apply search filter
+    if (activitySearch.trim()) {
+      const search = activitySearch.toLowerCase();
+      const name = (e.name || '').toLowerCase();
+      const target = (e.targetLabel || e.properties?.targetLabel || '').toLowerCase();
+      const url = (e.properties?.url || e.properties?.urlPath || '').toLowerCase();
+      const props = JSON.stringify(e.properties || {}).toLowerCase();
+      const gesture = gestureType.toLowerCase();
+
+      return (
+        type.includes(search) ||
+        name.includes(search) ||
+        target.includes(search) ||
+        url.includes(search) ||
+        props.includes(search) ||
+        gesture.includes(search)
+      );
     }
-    if (activityFilter === 'network') {
-      return type === 'network_request';
-    }
-    if (activityFilter === 'issues') {
-      return type === 'crash' || type === 'error' || type === 'anr' || type === 'rage_tap';
-    }
+
     return true;
   });
+
+  const HighlightedText: React.FC<{ text: string; search: string }> = ({ text, search }) => {
+    if (!search.trim() || !text) return <>{text}</>;
+    const parts = text.split(new RegExp(`(${search})`, 'gi'));
+    return (
+      <>
+        {parts.map((part, i) =>
+          part.toLowerCase() === search.toLowerCase() ? (
+            <mark key={i} className="bg-yellow-200 text-black px-0.5 rounded-sm">{part}</mark>
+          ) : (
+            part
+          )
+        )}
+      </>
+    );
+  };
 
   return (
     <div className="min-h-screen bg-slate-50">
@@ -1514,9 +1571,45 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
             <div className="bg-white border-4 border-black shadow-[6px_6px_0px_0px_rgba(0,0,0,1)] h-[750px] flex flex-col overflow-hidden rounded-lg">
               {/* Header */}
               <div className="px-4 py-3 border-b-4 border-black flex-shrink-0 bg-slate-50">
-                <h3 className="font-black text-sm text-black uppercase tracking-tight mb-2">
-                  Session Activity
-                </h3>
+                <div className="flex items-center justify-between mb-2">
+                  <h3 className="font-black text-sm text-black uppercase tracking-tight">
+                    Session Activity
+                  </h3>
+                  <button
+                    onClick={() => {
+                      setIsSearching(!isSearching);
+                      if (isSearching) setActivitySearch('');
+                    }}
+                    className={`p-1 rounded transition-colors ${isSearching ? 'bg-black text-white' : 'hover:bg-slate-200 text-slate-500'}`}
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                    </svg>
+                  </button>
+                </div>
+
+                {isSearching && (
+                  <div className="mb-3 relative">
+                    <input
+                      type="text"
+                      autoFocus
+                      placeholder="Search events, labels, values..."
+                      className="w-full px-3 py-1.5 text-xs font-bold border-2 border-black shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] focus:outline-none placeholder:text-slate-400 placeholder:font-normal"
+                      value={activitySearch}
+                      onChange={(e) => setActivitySearch(e.target.value)}
+                    />
+                    {activitySearch && (
+                      <button
+                        onClick={() => setActivitySearch('')}
+                        className="absolute right-2 top-1/2 -translate-y-1/2 p-0.5 text-slate-400 hover:text-black"
+                      >
+                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                      </button>
+                    )}
+                  </div>
+                )}
 
                 {/* Filter Tabs */}
                 <div className="flex flex-wrap gap-1.5">
@@ -1525,6 +1618,7 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
                     { id: 'navigation', label: 'Nav' },
                     { id: 'touches', label: 'Taps' },
                     { id: 'network', label: 'API' },
+                    { id: 'dead_taps', label: 'Dead' },
                     { id: 'issues', label: 'Issues' },
                   ].map((filter) => (
                     <button
@@ -1602,39 +1696,32 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
                                 </span>
                               </div>
 
-                              {isNetwork ? (
-                                <div className="space-y-0.5">
-                                  <div className="text-[10px] text-slate-500 font-mono truncate">
-                                    {event.properties?.urlPath || event.properties?.url}
+                              <div className="mt-1 flex flex-col gap-0.5">
+                                <div className="text-xs font-black text-black break-words leading-tight">
+                                  <HighlightedText
+                                    text={event.targetLabel || event.properties?.targetLabel || event.name || (event as any).screen || event.type}
+                                    search={activitySearch}
+                                  />
+                                </div>
+                                {isNetwork && (
+                                  <div className="text-[10px] font-bold text-slate-500 break-all font-mono leading-tight">
+                                    <HighlightedText text={(event.properties?.urlPath || event.properties?.url || '').substring(0, 80)} search={activitySearch} />
                                   </div>
-                                  {typeof event.properties?.duration === 'number' && event.properties.duration > 0 && (
-                                    <span className={`
+                                )}
+                              </div>
+
+                              {typeof event.properties?.duration === 'number' && event.properties.duration > 0 && (
+                                <span className={`
                                       inline-block text-[9px] font-bold font-mono px-1 py-0.5 rounded
                                       ${event.properties.duration > 1000
-                                        ? 'bg-red-100 text-red-700'
-                                        : event.properties.duration > 500
-                                          ? 'bg-amber-100 text-amber-700'
-                                          : 'bg-slate-100 text-slate-600'
-                                      }
+                                    ? 'bg-red-100 text-red-700'
+                                    : event.properties.duration > 500
+                                      ? 'bg-amber-100 text-amber-700'
+                                      : 'bg-slate-100 text-slate-600'
+                                  }
                                     `}>
-                                      {event.properties.duration}ms
-                                    </span>
-                                  )}
-                                </div>
-                              ) : (
-                                <div className="text-[10px] text-slate-500 truncate">
-                                  {event.screen && (
-                                    <span className="bg-slate-200 px-1 py-0.5 text-[8px] font-black text-black uppercase mr-1">
-                                      {event.screen}
-                                    </span>
-                                  )}
-                                  {event.targetLabel && (
-                                    <span className="text-slate-600">{event.targetLabel}</span>
-                                  )}
-                                  {event.properties?.reason && (
-                                    <span className="text-red-500 font-medium">{event.properties.reason}</span>
-                                  )}
-                                </div>
+                                  {event.properties.duration}ms
+                                </span>
                               )}
                             </div>
                           </div>
@@ -1965,25 +2052,41 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
                           e.currentTarget.blur();
                           seekToTime(Math.max(0, time));
                         }}
+                        onMouseEnter={() => setHoveredMarker({ ...event, x: percent })}
+                        onMouseLeave={() => setHoveredMarker(null)}
                         onKeyDown={(e) => {
                           if (e.key === 'Enter' || e.key === ' ') {
                             e.preventDefault();
                             seekToTime(Math.max(0, time));
                           }
                         }}
-                        className={`absolute rounded-full transition-transform hover:scale-150 focus:outline-none focus:ring-2 focus:ring-black/30 cursor-pointer ${isFrustration ? 'w-2 h-2' : 'w-1.5 h-1.5'
-                          }`}
+                        className={`absolute rounded-full transition-all group/marker focus:outline-none focus:ring-2 focus:ring-black/30 cursor-pointer ${isFrustration ? 'w-2 h-2 z-20' : 'w-1.5 h-1.5 z-10'
+                          } ${hoveredMarker === event ? 'scale-[2] shadow-[0_0_10px_rgba(0,0,0,0.5)]' : 'hover:scale-150'}`}
                         style={{
                           left: `${percent}%`,
                           top: '50%',
                           transform: 'translate(-50%, -50%)',
                           backgroundColor: color,
                         }}
-                        title={tooltipText}
                         aria-label={tooltipText}
                       />
                     );
                   })}
+
+                  {/* Enhanced Tooltip Integration */}
+                  {hoveredMarker && (
+                    <MarkerTooltip
+                      visible={true}
+                      x={hoveredMarker.x}
+                      type={hoveredMarker.type || 'gesture'}
+                      name={hoveredMarker.name}
+                      target={hoveredMarker.targetLabel || hoveredMarker.properties?.targetLabel}
+                      timestamp={formatEventTime(hoveredMarker.timestamp)}
+                      statusCode={hoveredMarker.properties?.statusCode}
+                      success={hoveredMarker.properties?.success}
+                      duration={hoveredMarker.properties?.duration}
+                    />
+                  )}
 
                   {/* Scrubber Handle */}
                   <div
@@ -2133,7 +2236,7 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
           </div>
         </div>
       </div>
-    </div>
+    </div >
   );
 };
 

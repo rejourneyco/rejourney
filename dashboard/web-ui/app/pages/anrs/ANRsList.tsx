@@ -26,7 +26,6 @@ import { formatLastSeen } from '../../utils/formatDates';
 import { NeoBadge } from '../../components/ui/neo/NeoBadge';
 import { NeoButton } from '../../components/ui/neo/NeoButton';
 import { NeoCard } from '../../components/ui/neo/NeoCard';
-import { StackTraceModal } from '../../components/ui/StackTraceModal';
 
 export const ANRsList: React.FC = () => {
     const { selectedProject } = useSessionData();
@@ -42,7 +41,6 @@ export const ANRsList: React.FC = () => {
     const [timeRange, setTimeRange] = useState<TimeRange>(DEFAULT_TIME_RANGE);
     const [searchQuery, setSearchQuery] = useState('');
     const [copiedId, setCopiedId] = useState<string | null>(null);
-    const [stackTraceModal, setStackTraceModal] = useState<{ isOpen: boolean; anrId: string | null }>({ isOpen: false, anrId: null });
 
     useEffect(() => {
         const fetchAnrs = async () => {
@@ -252,33 +250,13 @@ export const ANRsList: React.FC = () => {
                                     <div className="px-6 py-8 bg-slate-50/80 border-t border-slate-100">
                                         <div className="grid grid-cols-1 lg:grid-cols-12 gap-12">
 
-                                            {/* LEFT: Thread State snippet */}
-                                            <div className="lg:col-span-12 xl:col-span-8 space-y-8">
+                                            {/* LEFT: Main Content */}
+                                            <div className="lg:col-span-8 space-y-8">
+                                                {/* Thread State snippet */}
                                                 <div>
-                                                    <div className="flex items-center justify-between mb-4">
-                                                        <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest flex items-center gap-2">
-                                                            <Activity size={12} className="text-purple-500" /> Main Thread Halted
-                                                        </h4>
-                                                        {anr.threadState && (
-                                                            <button
-                                                                onClick={(e) => {
-                                                                    e.stopPropagation();
-                                                                    copyToClipboard(anr.threadState!, anr.id);
-                                                                }}
-                                                                className="text-[10px] font-extrabold text-slate-500 hover:text-indigo-600 transition-colors flex items-center gap-1 uppercase tracking-wider"
-                                                            >
-                                                                {copiedId === anr.id ? (
-                                                                    <>
-                                                                        <Check size={10} className="text-emerald-600" /> Copied
-                                                                    </>
-                                                                ) : (
-                                                                    <>
-                                                                        <Copy size={10} /> Full Trace
-                                                                    </>
-                                                                )}
-                                                            </button>
-                                                        )}
-                                                    </div>
+                                                    <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest flex items-center gap-2 mb-4">
+                                                        <Activity size={12} className="text-purple-500" /> Main Thread Snapshot
+                                                    </h4>
 
                                                     <NeoCard variant="flat" className="p-0 overflow-hidden !bg-slate-900 border-2 border-black shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]">
                                                         <div className="bg-slate-800/50 px-4 py-2 border-b-2 border-black flex justify-between items-center">
@@ -294,41 +272,34 @@ export const ANRsList: React.FC = () => {
                                                         </div>
                                                     </NeoCard>
 
-                                                    <div className="mt-4 flex items-center gap-3">
+                                                    <div className="mt-4">
                                                         <NeoButton
-                                                            variant="ghost"
+                                                            variant="primary"
                                                             size="sm"
-                                                            onClick={() => navigate(`${pathPrefix}/stability/anrs/${currentProject?.id}/${anr.id}`)}
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                navigate(`${pathPrefix}/stability/anrs/${currentProject?.id}/${anr.id}`);
+                                                            }}
+                                                            rightIcon={<ChevronRight size={14} />}
                                                         >
-                                                            Inspect full thread dump <ExternalLink size={10} className="ml-1" />
+                                                            Deep Analysis
                                                         </NeoButton>
-                                                        {anr.threadState && (
-                                                            <NeoButton
-                                                                variant="primary"
-                                                                size="sm"
-                                                                onClick={(e) => {
-                                                                    e.stopPropagation();
-                                                                    setStackTraceModal({ isOpen: true, anrId: anr.id });
-                                                                }}
-                                                            >
-                                                                View Full Trace
-                                                            </NeoButton>
-                                                        )}
                                                     </div>
                                                 </div>
 
-                                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                                                {/* Metadata Grid */}
+                                                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                                                     <div className="bg-white p-4 border-2 border-black shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]">
-                                                        <div className="text-[10px] font-black text-slate-400 uppercase tracking-wider mb-2 text-center md:text-left">Freeze Duration</div>
-                                                        <div className="text-sm font-black text-black text-center md:text-left">{(anr.durationMs / 1000).toFixed(2)}s</div>
+                                                        <div className="text-[10px] font-black text-slate-400 uppercase tracking-wider mb-2">Freeze Duration</div>
+                                                        <div className="text-sm font-black text-black">{(anr.durationMs / 1000).toFixed(2)}s</div>
                                                     </div>
                                                     <div className="bg-white p-4 border-2 border-black shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]">
-                                                        <div className="text-[10px] font-black text-slate-400 uppercase tracking-wider mb-2 text-center md:text-left">Detected At</div>
-                                                        <div className="text-sm font-black text-black text-center md:text-left">{new Date(anr.timestamp).toLocaleString()}</div>
+                                                        <div className="text-[10px] font-black text-slate-400 uppercase tracking-wider mb-2">Detected At</div>
+                                                        <div className="text-sm font-black text-black">{new Date(anr.timestamp).toLocaleString()}</div>
                                                     </div>
-                                                    <div className="bg-white p-4 border-2 border-black shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] md:col-span-2 lg:col-span-1">
-                                                        <div className="text-[10px] font-black text-slate-400 uppercase tracking-wider mb-2 text-center md:text-left">Environment</div>
-                                                        <div className="flex flex-wrap gap-2 justify-center md:justify-start">
+                                                    <div className="bg-white p-4 border-2 border-black shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]">
+                                                        <div className="text-[10px] font-black text-slate-400 uppercase tracking-wider mb-2">Environment</div>
+                                                        <div className="flex flex-wrap gap-2">
                                                             <NeoBadge variant="neutral" size="sm">{anr.deviceMetadata?.deviceModel}</NeoBadge>
                                                             <NeoBadge variant="info" size="sm">iOS {anr.deviceMetadata?.osVersion}</NeoBadge>
                                                         </div>
@@ -336,8 +307,8 @@ export const ANRsList: React.FC = () => {
                                                 </div>
                                             </div>
 
-                                            {/* RIGHT: Visual Context */}
-                                            <div className="lg:col-span-12 xl:col-span-4 space-y-8">
+                                            {/* RIGHT: Visual Context & Analysis */}
+                                            <div className="lg:col-span-4 space-y-8">
                                                 <div>
                                                     <div className="flex items-center justify-between mb-4">
                                                         <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest flex items-center gap-2">
@@ -347,7 +318,10 @@ export const ANRsList: React.FC = () => {
                                                             <NeoButton
                                                                 variant="ghost"
                                                                 size="sm"
-                                                                onClick={() => navigate(`${pathPrefix}/sessions/${anr.sessionId}`)}
+                                                                onClick={(e) => {
+                                                                    e.stopPropagation();
+                                                                    navigate(`${pathPrefix}/sessions/${anr.sessionId}`);
+                                                                }}
                                                             >
                                                                 Watch Replay <ChevronRight size={10} className="ml-1" />
                                                             </NeoButton>
@@ -377,7 +351,10 @@ export const ANRsList: React.FC = () => {
                                                         <NeoButton
                                                             variant="secondary"
                                                             size="sm"
-                                                            onClick={() => navigate(`${pathPrefix}/sessions/${anr.sessionId}`)}
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                navigate(`${pathPrefix}/sessions/${anr.sessionId}`);
+                                                            }}
                                                         >
                                                             Investigate Interaction <Play size={10} fill="currentColor" className="ml-1" />
                                                         </NeoButton>
@@ -392,28 +369,6 @@ export const ANRsList: React.FC = () => {
                     })}
                 </div>
             </div>
-
-            {/* Stack Trace Modal */}
-            {stackTraceModal.anrId && (() => {
-                const anr = anrs.find(a => a.id === stackTraceModal.anrId);
-                if (!anr?.threadState) return null;
-                return (
-                    <StackTraceModal
-                        isOpen={stackTraceModal.isOpen}
-                        onClose={() => setStackTraceModal({ isOpen: false, anrId: null })}
-                        title={`ANR Issue: ${anr.durationMs}ms Freeze`}
-                        subtitle={anr.deviceMetadata?.deviceModel}
-                        stackTrace={anr.threadState}
-                        issueType="anr"
-                        sessionId={anr.sessionId}
-                        onViewReplay={() => {
-                            if (anr.sessionId) {
-                                navigate(`${pathPrefix}/sessions/${anr.sessionId}`);
-                            }
-                        }}
-                    />
-                );
-            })()}
         </div>
     );
 };

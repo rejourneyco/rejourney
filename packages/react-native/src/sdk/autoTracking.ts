@@ -1,4 +1,20 @@
 /**
+ * Copyright 2026 Rejourney
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+/**
  * Rejourney Auto Tracking Module
  * 
  * Automatic tracking features that work with just init() - no additional code needed.
@@ -105,6 +121,7 @@ export interface SessionMetrics {
   navigationCount: number;
   errorCount: number;
   rageTapCount: number;
+  deadTapCount: number;
   apiSuccessCount: number;
   apiErrorCount: number;
   apiTotalCount: number;
@@ -127,6 +144,7 @@ export interface AutoTrackingConfig {
   trackReactNativeErrors?: boolean;
   collectDeviceInfo?: boolean;
   maxSessionDurationMs?: number;
+  detectDeadTaps?: boolean;
 }
 
 let isInitialized = false;
@@ -149,6 +167,148 @@ let anonymousIdPromise: Promise<string> | null = null;
 let onRageTapDetected: ((count: number, x: number, y: number) => void) | null = null;
 let onErrorCaptured: ((error: ErrorEvent) => void) | null = null;
 let onScreenChange: ((screenName: string, previousScreen?: string) => void) | null = null;
+
+// ========== Dead Tap Detection (JS-side) ==========
+// Native view hierarchy inspection cannot reliably detect dead taps in React
+// Native because the touch/press system is entirely JS-based (Pressable,
+// TouchableOpacity, onPress handlers). Instead, we:
+//   1. Patch React.createElement / jsx to wrap every onPress with a notifier
+//   2. When native reports a tap via trackTap(), start a short timer
+//   3. If no onPress fires within the window → dead tap
+//
+// Performance: one typeof check per createElement (nanoseconds), one WeakMap
+// lookup per touchable element per render, one setTimeout per tap.
+const DEAD_TAP_TIMEOUT_MS = 300;
+let _pendingDeadTapTimer: ReturnType<typeof setTimeout> | null = null;
+let _lastTapEvent: TapEvent | null = null;
+let _tapHandledByPress = false;
+let _deadTapDetectionActive = false;
+
+// Cache wrapped onPress handlers to preserve referential equality across renders.
+// Without this, every render would create a new wrapper function for the same
+// onPress, defeating React's bailout optimisation (memo, PureComponent).
+const _wrappedPressHandlers = new WeakMap<Function, Function>();
+const _REJOURNEY_WRAPPED = '__rjWrapped';
+
+function _wrapOnPress(originalOnPress: Function): Function {
+  // Already wrapped — avoid double-wrapping if props object is reused
+  if ((originalOnPress as any)[_REJOURNEY_WRAPPED]) return originalOnPress;
+
+  let wrapped = _wrappedPressHandlers.get(originalOnPress);
+  if (!wrapped) {
+    wrapped = function rejourneyPressWrapper(this: any) {
+      _markTapHandled();
+      // eslint-disable-next-line prefer-rest-params
+      return originalOnPress.apply(this, arguments);
+    };
+    (wrapped as any)[_REJOURNEY_WRAPPED] = true;
+    _wrappedPressHandlers.set(originalOnPress, wrapped);
+  }
+  return wrapped;
+}
+
+/**
+ * Signal that the most recent tap was handled by a press callback.
+ * Called automatically when a wrapped onPress fires.
+ * Can also be called manually from custom gesture handlers.
+ */
+export function markTapHandled(): void {
+  _markTapHandled();
+}
+
+function _markTapHandled(): void {
+  _tapHandledByPress = true;
+  if (_pendingDeadTapTimer) {
+    clearTimeout(_pendingDeadTapTimer);
+    _pendingDeadTapTimer = null;
+  }
+}
+
+function _handleDeadTap(tap: TapEvent): void {
+  metrics.deadTapCount++;
+  metrics.totalEvents++;
+
+  // Report to native so the event appears in the session replay timeline
+  const nativeModule = getRejourneyNativeModule();
+  if (nativeModule && typeof (nativeModule as any).logEvent === 'function') {
+    try {
+      (nativeModule as any).logEvent('dead_tap', {
+        x: tap.x,
+        y: tap.y,
+        label: tap.targetId || 'unknown',
+      });
+    } catch {
+      // Best-effort — don't crash if native call fails
+    }
+  }
+
+  logger.debug(`Dead tap at (${tap.x}, ${tap.y}) target=${tap.targetId}`);
+}
+
+/**
+ * Patch React element creation to intercept onPress / onLongPress props.
+ * This runs once at init time — all subsequently rendered elements will have
+ * wrapped press handlers that notify the dead tap detector when they fire.
+ */
+function _setupDeadTapDetection(): void {
+  if (_deadTapDetectionActive) return;
+
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const React = require('react');
+
+    // Helper: patch a createElement-style function
+    const patchFactory = (orig: Function) =>
+      function rejourneyElementFactory(this: any, _type: any, props: any) {
+        if (props != null) {
+          if (typeof props.onPress === 'function') {
+            props.onPress = _wrapOnPress(props.onPress);
+          }
+          if (typeof props.onLongPress === 'function') {
+            props.onLongPress = _wrapOnPress(props.onLongPress);
+          }
+        }
+        // eslint-disable-next-line prefer-rest-params
+        return orig.apply(this, arguments);
+      };
+
+    // 1. Classic JSX transform: React.createElement
+    if (typeof React.createElement === 'function') {
+      React.createElement = patchFactory(React.createElement);
+    }
+
+    // 2. Automatic JSX transform (React 17+): react/jsx-runtime
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const jsxRuntime = require('react/jsx-runtime');
+      if (typeof jsxRuntime.jsx === 'function') {
+        jsxRuntime.jsx = patchFactory(jsxRuntime.jsx);
+      }
+      if (typeof jsxRuntime.jsxs === 'function') {
+        jsxRuntime.jsxs = patchFactory(jsxRuntime.jsxs);
+      }
+    } catch {
+      // jsx-runtime not available — classic transform only
+    }
+
+    // 3. Development JSX transform: react/jsx-dev-runtime
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const jsxDevRuntime = require('react/jsx-dev-runtime');
+      if (typeof jsxDevRuntime.jsxDEV === 'function') {
+        jsxDevRuntime.jsxDEV = patchFactory(jsxDevRuntime.jsxDEV);
+      }
+    } catch {
+      // jsx-dev-runtime not available
+    }
+
+    _deadTapDetectionActive = true;
+    logger.debug('Dead tap detection initialized (JS-side)');
+  } catch (e) {
+    logger.warn('Dead tap detection setup failed:', e);
+  }
+}
+// ========== End Dead Tap Detection ==========
 
 let originalErrorHandler: ((error: Error, isFatal: boolean) => void) | undefined;
 let originalOnError: OnErrorEventHandler | null = null;
@@ -192,6 +352,7 @@ export function initAutoTracking(
   onScreenChange = callbacks.onScreen || null;
   setupErrorTracking();
   setupNavigationTracking();
+  _setupDeadTapDetection();
   loadAnonymousId().then(id => {
     anonymousId = id;
   });
@@ -207,6 +368,12 @@ export function cleanupAutoTracking(): void {
 
   restoreErrorHandlers();
   cleanupNavigationTracking();
+
+  // Cancel any pending dead tap timer
+  if (_pendingDeadTapTimer) {
+    clearTimeout(_pendingDeadTapTimer);
+    _pendingDeadTapTimer = null;
+  }
 
   // Reset state
   tapHead = 0;
@@ -250,6 +417,21 @@ export function trackTap(tap: TapEvent): void {
   detectRageTap();
   metrics.touchCount++;
   metrics.totalEvents++;
+
+  // Dead tap detection: start a timer — if no onPress fires before it
+  // expires, the tap landed on nothing interactive → dead tap.
+  if (_deadTapDetectionActive && config.detectDeadTaps !== false) {
+    _tapHandledByPress = false;
+    _lastTapEvent = tap;
+
+    if (_pendingDeadTapTimer) clearTimeout(_pendingDeadTapTimer);
+    _pendingDeadTapTimer = setTimeout(() => {
+      _pendingDeadTapTimer = null;
+      if (!_tapHandledByPress && _lastTapEvent === tap) {
+        _handleDeadTap(tap);
+      }
+    }, DEAD_TAP_TIMEOUT_MS);
+  }
 }
 
 /**
@@ -861,6 +1043,7 @@ function createEmptyMetrics(): SessionMetrics {
     navigationCount: 0,
     errorCount: 0,
     rageTapCount: 0,
+    deadTapCount: 0,
     apiSuccessCount: 0,
     apiErrorCount: 0,
     apiTotalCount: 0,
@@ -939,6 +1122,8 @@ function calculateScores(): void {
   uxScore -= Math.min(30, metrics.errorCount * 15);
 
   uxScore -= Math.min(24, metrics.rageTapCount * 8);
+
+  uxScore -= Math.min(16, metrics.deadTapCount * 4);
 
   uxScore -= Math.min(20, metrics.apiErrorCount * 10);
 
@@ -1109,4 +1294,5 @@ export default {
   collectDeviceInfo,
   getAnonymousId,
   setAnonymousId,
+  markTapHandled,
 };

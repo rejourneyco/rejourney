@@ -2,7 +2,7 @@ import React from 'react';
 
 interface NeoBadgeProps {
     children: React.ReactNode;
-    variant?: 'neutral' | 'success' | 'warning' | 'danger' | 'info' | 'anr' | 'rage' | 'slow_start' | 'slow_api' | 'low_exp';
+    variant?: 'neutral' | 'success' | 'warning' | 'danger' | 'info' | 'anr' | 'rage' | 'dead_tap' | 'slow_start' | 'slow_api' | 'low_exp';
     className?: string;
     size?: 'sm' | 'md';
     onClick?: () => void;
@@ -26,6 +26,7 @@ export const NeoBadge: React.FC<NeoBadgeProps> = ({
         info: "bg-cyan-50 text-cyan-700 border-cyan-200",
         anr: "bg-purple-50 text-purple-700 border-purple-200",
         rage: "bg-rose-50 text-rose-700 border-rose-200",
+        dead_tap: "bg-stone-50 text-stone-700 border-stone-300",
         slow_start: "bg-orange-50 text-orange-700 border-orange-200",
         slow_api: "bg-pink-50 text-pink-700 border-pink-200",
         low_exp: "bg-indigo-50 text-indigo-700 border-indigo-200"
