@@ -47,11 +47,11 @@ spec:
               value: "postgres://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@postgres:5432/$(POSTGRES_DB)?sslmode=disable"
           resources:
             requests:
-              cpu: 10m
-              memory: 32Mi
+              cpu: 5m
+              memory: 24Mi
             limits:
-              cpu: 100m
-              memory: 64Mi
+              cpu: 50m
+              memory: 48Mi
 
 ---
 apiVersion: v1
@@ -98,11 +98,11 @@ spec:
               value: "local:redis:6379"
           resources:
             requests:
-              cpu: 10m
-              memory: 32Mi
+              cpu: 5m
+              memory: 24Mi
             limits:
-              cpu: 100m
-              memory: 64Mi
+              cpu: 50m
+              memory: 48Mi
 
 ---
 apiVersion: v1
@@ -120,6 +120,7 @@ spec:
   selector:
     app: redis-commander
 
+---
 # Ingress for admin tools (protected by Cloudflare Access)
 apiVersion: networking.k8s.io/v1
 kind: Ingress

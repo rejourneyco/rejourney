@@ -121,7 +121,7 @@ class RejourneyModuleImpl(
                         DiagnosticLog.notice("[Rejourney] Restored persisted user identity: $persistedIdentity")
                     }
                 } catch (e: Exception) {
-                    DiagnosticLog.error("[Rejourney] Failed to load persisted identity: ${e.message}")
+                    DiagnosticLog.fault("[Rejourney] Failed to load persisted identity: ${e.message}")
                 }
 
                 DeviceRegistrar.getInstance(reactContext)
@@ -534,7 +534,7 @@ class RejourneyModuleImpl(
                 prefs.edit().putString(KEY_USER_IDENTITY, userId).apply()
                 DiagnosticLog.notice("[Rejourney] Persisted user identity: $userId")
             } catch (e: Exception) {
-                DiagnosticLog.error("[Rejourney] Failed to persist identity: ${e.message}")
+                DiagnosticLog.fault("[Rejourney] Failed to persist identity: ${e.message}")
             }
             
             ReplayOrchestrator.shared?.associateUser(userId)
