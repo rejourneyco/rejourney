@@ -137,9 +137,12 @@ spec:
                   key: PUBLIC_DASHBOARD_URL
                   optional: true
           resources:
+            requests:
+              cpu: 50m
+              memory: 192Mi
             limits:
               cpu: 200m
-              memory: 256Mi
+              memory: 512Mi
           # No standard HTTP port, but we can check if the process is alive via command or if it has a health server
           # For now, let's assume it doesn't have a health server yet, but we can add one or use a dummy check
           # Actually, workers usually have some internal state. Let's add a dummy check if none exists
@@ -235,11 +238,11 @@ spec:
                   key: tokens
           resources:
             requests:
-              cpu: 20m
-              memory: 64Mi
+              cpu: 10m
+              memory: 32Mi
             limits:
               cpu: 100m
-              memory: 128Mi
+              memory: 64Mi
 
 
 ---
@@ -355,8 +358,8 @@ spec:
                   optional: true
           resources:
             requests:
-              cpu: 20m
-              memory: 64Mi
+              cpu: 10m
+              memory: 32Mi
             limits:
               cpu: 100m
-              memory: 128Mi
+              memory: 64Mi

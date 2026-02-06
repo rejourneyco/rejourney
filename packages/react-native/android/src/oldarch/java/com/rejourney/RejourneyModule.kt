@@ -199,6 +199,21 @@ class RejourneyModule(reactContext: ReactApplicationContext) :
             promise.resolve(createErrorMap("Module initialization failed: ${e.message}"))
         }
     }
+
+    @ReactMethod
+    fun setRemoteConfig(
+        rejourneyEnabled: Boolean,
+        recordingEnabled: Boolean,
+        sampleRate: Double,
+        maxRecordingMinutes: Double,
+        promise: Promise
+    ) {
+        try {
+            impl.setRemoteConfig(rejourneyEnabled, recordingEnabled, sampleRate, maxRecordingMinutes, promise)
+        } catch (e: Exception) {
+            promise.resolve(createErrorMap("Module initialization failed: ${e.message}"))
+        }
+    }
     
     @ReactMethod
     fun setLogLevel(level: String, promise: Promise) {

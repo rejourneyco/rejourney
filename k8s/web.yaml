@@ -56,6 +56,8 @@ spec:
           env:
             - name: NODE_ENV
               value: "production"
+            - name: NODE_OPTIONS
+              value: "--max-old-space-size=448"
             - name: PORT
               value: "8080"
             - name: API_URL
@@ -69,10 +71,10 @@ spec:
           resources:
             requests:
               cpu: 50m
-              memory: 64Mi
+              memory: 256Mi
             limits:
-              cpu: 200m
-              memory: 128Mi
+              cpu: 500m
+              memory: 512Mi
           livenessProbe:
             httpGet:
               path: /

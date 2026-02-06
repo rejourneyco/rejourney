@@ -1,6 +1,10 @@
 {
   "name": "rejourney-monorepo",
-  "version": "1.1.14",
+<<<<<<< Updated upstream
+  "version": "1.1.13",
+=======
+  "version": "1.1.15",
+>>>>>>> Stashed changes
   "private": true,
   "description": "Rejourney Monorepo - Session Recording Platform",
   "workspaces": [

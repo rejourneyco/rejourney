@@ -113,6 +113,13 @@ spec:
             - name: os-release
               mountPath: /host/etc/os-release
               readOnly: true
+          resources:
+            requests:
+              cpu: 25m
+              memory: 64Mi
+            limits:
+              cpu: 100m
+              memory: 160Mi
       volumes:
         - name: proc
           hostPath:
