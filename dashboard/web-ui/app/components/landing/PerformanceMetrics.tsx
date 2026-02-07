@@ -25,12 +25,12 @@ export const PerformanceMetrics: React.FC = () => {
 
     // Comparison Data (Flat line visual)
     const comparisonData = [
-        { version: 'v1.0', Rejourney: 0.96, Sentry: 7.1 },
-        { version: 'v1.1', Rejourney: 0.96, Sentry: 7.1 },
-        { version: 'v1.2', Rejourney: 0.96, Sentry: 7.1 },
-        { version: 'v1.3', Rejourney: 0.96, Sentry: 7.1 },
-        { version: 'v1.4', Rejourney: 0.96, Sentry: 7.1 },
-        { version: 'v1.5', Rejourney: 0.96, Sentry: 7.1 },
+        { version: 'v1.0', Rejourney: 0.97, Sentry: 7.1 },
+        { version: 'v1.1', Rejourney: 0.97, Sentry: 7.1 },
+        { version: 'v1.2', Rejourney: 0.97, Sentry: 7.1 },
+        { version: 'v1.3', Rejourney: 0.97, Sentry: 7.1 },
+        { version: 'v1.4', Rejourney: 0.97, Sentry: 7.1 },
+        { version: 'v1.5', Rejourney: 0.97, Sentry: 7.1 },
     ];
 
     return (
@@ -52,13 +52,13 @@ export const PerformanceMetrics: React.FC = () => {
                             <span className="text-gray-400">Extreme Impact.</span>
                         </h2>
                         <p className="font-mono text-sm text-gray-500 uppercase tracking-widest">
-                            4.4x Efficiency Advantage over industry standards
+                            7.3x Efficiency Advantage over industry standards
                         </p>
                     </div>
 
                     {/* Floating Badge */}
                     <div className="hidden lg:block bg-black text-white p-6 border-2 border-black shadow-[8px_8px_0px_0px_rgba(93,173,236,1)] rotate-2">
-                        <p className="text-4xl font-black font-mono">4.4X</p>
+                        <p className="text-4xl font-black font-mono">7.3X</p>
                         <p className="text-[10px] uppercase font-bold tracking-widest mt-1">Smaller SDK Size</p>
                     </div>
                 </div>
@@ -135,8 +135,8 @@ export const PerformanceMetrics: React.FC = () => {
                             <div>
                                 <p className="text-[10px] font-black uppercase tracking-widest text-[#5dadec] mb-2">Rejourney SDK</p>
                                 <div className="flex items-baseline gap-2">
-                                    <span className="text-6xl font-black font-mono tracking-tighter text-[#5dadec]">1.6</span>
-                                    <span className="text-xl font-bold uppercase text-[#5dadec]">MB</span>
+                                    <span className="text-6xl font-black font-mono tracking-tighter text-[#5dadec]">970</span>
+                                    <span className="text-xl font-bold uppercase text-[#5dadec]">KB</span>
                                 </div>
                             </div>
                         </div>
@@ -147,7 +147,7 @@ export const PerformanceMetrics: React.FC = () => {
                     <div className="mt-12">
                         <div className="border-b-2 border-black pb-2 mb-6">
                             <h3 className="text-lg font-black uppercase tracking-tight">Performance Metrics</h3>
-                            <p className="text-[10px] font-mono text-gray-500 uppercase">iPhone 15 Pro; iOS 26; Expo SDK 54; RN New Arch. Running on <a href="https://merchcampus.com" target="_blank" rel="noopener noreferrer" className="underline">Merch App</a>. Steady-state, first 3 frames excluded.</p>
+                            <p className="text-[10px] font-mono text-gray-500 uppercase">iPhone 15 Pro; iOS 18; Expo SDK 54; RN New Architecture. Running on <a href="https://merchcampus.com" target="_blank" rel="noopener noreferrer" className="underline">Merch App</a>. Production build.</p>
                         </div>
 
                         <div className="border-2 border-black bg-white overflow-hidden">
@@ -157,63 +157,45 @@ export const PerformanceMetrics: React.FC = () => {
                                         <th className="text-left py-3 px-4 text-[10px] font-black uppercase tracking-widest border-r-2 border-white">Metric</th>
                                         <th className="text-right py-3 px-4 text-[10px] font-black uppercase tracking-widest border-r-2 border-white">Average (ms)</th>
                                         <th className="text-right py-3 px-4 text-[10px] font-black uppercase tracking-widest border-r-2 border-white">Max (ms)</th>
-                                        <th className="text-right py-3 px-4 text-[10px] font-black uppercase tracking-widest">Min (ms)</th>
+                                        <th className="text-right py-3 px-4 text-[10px] font-black uppercase tracking-widest border-r-2 border-white">Min (ms)</th>
+                                        <th className="text-right py-3 px-4 text-[10px] font-black uppercase tracking-widest">Thread</th>
                                     </tr>
                                 </thead>
                                 <tbody>
                                     <tr className="border-b-2 border-black hover:bg-slate-50 transition-colors">
-                                        <td className="py-3 px-4 text-xs font-black uppercase border-r-2 border-black">frame_total</td>
-                                        <td className="py-3 px-4 text-xs font-mono font-bold text-right border-r-2 border-black">17.5</td>
-                                        <td className="py-3 px-4 text-xs font-mono font-bold text-right border-r-2 border-black">66.0</td>
-                                        <td className="py-3 px-4 text-xs font-mono font-bold text-right">0.01</td>
+                                        <td className="py-3 px-4 text-xs font-black uppercase border-r-2 border-black font-bold">Main: UIKit + Metal Capture</td>
+                                        <td className="py-3 px-4 text-xs font-mono font-bold text-right border-r-2 border-black">12.4</td>
+                                        <td className="py-3 px-4 text-xs font-mono font-bold text-right border-r-2 border-black">28.2</td>
+                                        <td className="py-3 px-4 text-xs font-mono font-bold text-right border-r-2 border-black">8.1</td>
+                                        <td className="py-3 px-4 text-xs font-bold text-center text-red-600">Main</td>
                                     </tr>
                                     <tr className="border-b-2 border-black hover:bg-slate-50 transition-colors">
-                                        <td className="py-3 px-4 text-xs font-black uppercase border-r-2 border-black">screenshot_ui</td>
-                                        <td className="py-3 px-4 text-xs font-mono font-bold text-right border-r-2 border-black">22.8</td>
-                                        <td className="py-3 px-4 text-xs font-mono font-bold text-right border-r-2 border-black">65.8</td>
-                                        <td className="py-3 px-4 text-xs font-mono font-bold text-right">8.4</td>
+                                        <td className="py-3 px-4 text-xs font-black uppercase border-r-2 border-black">BG: Async Image Processing</td>
+                                        <td className="py-3 px-4 text-xs font-mono font-bold text-right border-r-2 border-black">42.5</td>
+                                        <td className="py-3 px-4 text-xs font-mono font-bold text-right border-r-2 border-black">88.0</td>
+                                        <td className="py-3 px-4 text-xs font-mono font-bold text-right border-r-2 border-black">32.4</td>
+                                        <td className="py-3 px-4 text-xs font-bold text-center text-green-600">Background</td>
                                     </tr>
                                     <tr className="border-b-2 border-black hover:bg-slate-50 transition-colors">
-                                        <td className="py-3 px-4 text-xs font-black uppercase border-r-2 border-black">render_draw</td>
-                                        <td className="py-3 px-4 text-xs font-mono font-bold text-right border-r-2 border-black">12.8</td>
-                                        <td className="py-3 px-4 text-xs font-mono font-bold text-right border-r-2 border-black">25.2</td>
-                                        <td className="py-3 px-4 text-xs font-mono font-bold text-right">7.2</td>
+                                        <td className="py-3 px-4 text-xs font-black uppercase border-r-2 border-black">BG: Tar+Gzip Compression</td>
+                                        <td className="py-3 px-4 text-xs font-mono font-bold text-right border-r-2 border-black">14.2</td>
+                                        <td className="py-3 px-4 text-xs font-mono font-bold text-right border-r-2 border-black">32.5</td>
+                                        <td className="py-3 px-4 text-xs font-mono font-bold text-right border-r-2 border-black">9.6</td>
+                                        <td className="py-3 px-4 text-xs font-bold text-center text-green-600">Background</td>
                                     </tr>
                                     <tr className="border-b-2 border-black hover:bg-slate-50 transition-colors">
-                                        <td className="py-3 px-4 text-xs font-black uppercase border-r-2 border-black">view_scan</td>
-                                        <td className="py-3 px-4 text-xs font-mono font-bold text-right border-r-2 border-black">5.1</td>
-                                        <td className="py-3 px-4 text-xs font-mono font-bold text-right border-r-2 border-black">28.3</td>
-                                        <td className="py-3 px-4 text-xs font-mono font-bold text-right">0.69</td>
-                                    </tr>
-                                    <tr className="border-b-2 border-black hover:bg-slate-50 transition-colors">
-                                        <td className="py-3 px-4 text-xs font-black uppercase border-r-2 border-black">view_serialize</td>
-                                        <td className="py-3 px-4 text-xs font-mono font-bold text-right border-r-2 border-black">1.5</td>
-                                        <td className="py-3 px-4 text-xs font-mono font-bold text-right border-r-2 border-black">3.6</td>
-                                        <td className="py-3 px-4 text-xs font-mono font-bold text-right">0.16</td>
-                                    </tr>
-                                    <tr className="border-b-2 border-black hover:bg-slate-50 transition-colors">
-                                        <td className="py-3 px-4 text-xs font-black uppercase border-r-2 border-black">downscale</td>
-                                        <td className="py-3 px-4 text-xs font-mono font-bold text-right border-r-2 border-black">58.6</td>
-                                        <td className="py-3 px-4 text-xs font-mono font-bold text-right border-r-2 border-black">400.7</td>
-                                        <td className="py-3 px-4 text-xs font-mono font-bold text-right">9.4</td>
-                                    </tr>
-                                    <tr className="border-b-2 border-black hover:bg-slate-50 transition-colors">
-                                        <td className="py-3 px-4 text-xs font-black uppercase border-r-2 border-black">encode_append</td>
-                                        <td className="py-3 px-4 text-xs font-mono font-bold text-right border-r-2 border-black">0.20</td>
-                                        <td className="py-3 px-4 text-xs font-mono font-bold text-right border-r-2 border-black">0.80</td>
-                                        <td className="py-3 px-4 text-xs font-mono font-bold text-right">0.07</td>
-                                    </tr>
-                                    <tr className="border-b-2 border-black hover:bg-slate-50 transition-colors">
-                                        <td className="py-3 px-4 text-xs font-black uppercase border-r-2 border-black">encode_h264</td>
-                                        <td className="py-3 px-4 text-xs font-mono font-bold text-right border-r-2 border-black">85.5</td>
-                                        <td className="py-3 px-4 text-xs font-mono font-bold text-right border-r-2 border-black">1989.1</td>
-                                        <td className="py-3 px-4 text-xs font-mono font-bold text-right">0.34</td>
+                                        <td className="py-3 px-4 text-xs font-black uppercase border-r-2 border-black">BG: Upload Handshake</td>
+                                        <td className="py-3 px-4 text-xs font-mono font-bold text-right border-r-2 border-black">0.8</td>
+                                        <td className="py-3 px-4 text-xs font-mono font-bold text-right border-r-2 border-black">2.4</td>
+                                        <td className="py-3 px-4 text-xs font-mono font-bold text-right border-r-2 border-black">0.3</td>
+                                        <td className="py-3 px-4 text-xs font-bold text-center text-green-600">Background</td>
                                     </tr>
                                     <tr className="hover:bg-slate-50 transition-colors">
-                                        <td className="py-3 px-4 text-xs font-black uppercase border-r-2 border-black">buffer_alloc</td>
-                                        <td className="py-3 px-4 text-xs font-mono font-bold text-right border-r-2 border-black">0.40</td>
-                                        <td className="py-3 px-4 text-xs font-mono font-bold text-right border-r-2 border-black">1.30</td>
-                                        <td className="py-3 px-4 text-xs font-mono font-bold text-right">0.22</td>
+                                        <td className="py-3 px-4 text-xs font-black uppercase border-r-2 border-black font-bold">Total Main Thread Impact</td>
+                                        <td className="py-3 px-4 text-xs font-mono font-bold text-right border-r-2 border-black">12.4</td>
+                                        <td className="py-3 px-4 text-xs font-mono font-bold text-right border-r-2 border-black">28.2</td>
+                                        <td className="py-3 px-4 text-xs font-mono font-bold text-right border-r-2 border-black">8.1</td>
+                                        <td className="py-3 px-4 text-xs font-bold text-center text-red-600">Main</td>
                                     </tr>
                                 </tbody>
                             </table>

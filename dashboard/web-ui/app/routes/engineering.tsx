@@ -35,10 +35,10 @@ const articleSchema = {
 };
 
 const perfMetrics = [
-  { name: "Main: UIKit Capture (drawHierarchy)", avg: "12.4", max: "28.2", min: "8.1", thread: "Main" },
+  { name: "Main: UIKit + Metal Capture", avg: "12.4", max: "28.2", min: "8.1", thread: "Main" },
   { name: "BG: Async Image Processing", avg: "42.5", max: "88.0", min: "32.4", thread: "Background" },
   { name: "BG: Tar+Gzip Compression", avg: "14.2", max: "32.5", min: "9.6", thread: "Background" },
-  { name: "BG: Segment Upload Handshake", avg: "0.8", max: "2.4", min: "0.3", thread: "Background" },
+  { name: "BG: Upload Handshake", avg: "0.8", max: "2.4", min: "0.3", thread: "Background" },
   { name: "Total Main Thread Impact", avg: "12.4", max: "28.2", min: "8.1", thread: "Main" },
 ];
 
@@ -298,8 +298,11 @@ _captureTimer = Timer.scheduledTimer(
                     <th className="text-right py-3 px-4 text-[10px] font-black uppercase tracking-widest border-r-2 border-white">
                       Avg (ms)
                     </th>
-                    <th className="text-right py-3 px-4 text-[10px] font-black uppercase tracking-widest">
+                    <th className="text-right py-3 px-4 text-[10px] font-black uppercase tracking-widest border-r-2 border-white">
                       Max (ms)
+                    </th>
+                    <th className="text-right py-3 px-4 text-[10px] font-black uppercase tracking-widest">
+                      Min (ms)
                     </th>
                   </tr>
                 </thead>
@@ -320,8 +323,11 @@ _captureTimer = Timer.scheduledTimer(
                       <td className="py-3 px-4 text-xs font-mono font-bold text-right border-r-2 border-black">
                         {metric.avg}
                       </td>
-                      <td className="py-3 px-4 text-xs font-mono font-bold text-right">
+                      <td className="py-3 px-4 text-xs font-mono font-bold text-right border-r-2 border-black">
                         {metric.max}
+                      </td>
+                      <td className="py-3 px-4 text-xs font-mono font-bold text-right">
+                        {metric.min}
                       </td>
                     </tr>
                   ))}
