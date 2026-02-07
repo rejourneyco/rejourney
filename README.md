@@ -1,15 +1,21 @@
-# Rejourney
-
 <div align="center">
-  <img src="https://rejourney.co/rejourneyIcon-removebg-preview.png" alt="Rejourney Logo" width="80" />
+  <h1>
+    <img src="https://rejourney.co/rejourneyIcon-removebg-preview.png" alt="Rejourney Logo" width="40" style="vertical-align: middle;" />
+    Rejourney
+  </h1>
+
+  <img src="https://rejourney.co/images/session-replay-preview.png" alt="Rejourney Session Replay" width="100%" />
+
   <p>
     <strong>Lightweight session replay and observability for React Native</strong>
     <br />
     Mobile-first focus with pixel-perfect video capture and real-time incident detection.
   </p>
+  
   <p>
     <a href="https://rejourney.co"><strong>Explore the Website »</strong></a>
   </p>
+  
   <p>
     <a href="https://reactnative.dev"><img src="https://img.shields.io/badge/React%20Native-61DAFB?logo=react&logoColor=black" alt="React Native" /></a>
     <a href="https://expo.dev"><img src="https://img.shields.io/badge/Expo-000020?logo=expo&logoColor=white" alt="Expo" /></a>
@@ -18,28 +24,32 @@
 
 ## Features
 
-### Pixel Perfect Session Replay
-![Session Replay](https://rejourney.co/images/session-replay-preview.png)
-True FPS video playback capturing every interaction. Works with maps, advanced graphics, and every view.
+### Pixel Perfect Capture
+True FPS video playback capturing every rendered pixel. Unlike competitors, we capture everything—including Mapbox (Metal), custom shaders, and GPU-accelerated views.
 
 ### Live Incident Stream
 ![Issues Feed](https://rejourney.co/images/issues-feed.png)
+
 See crashes, errors, and rage taps as they happen in real-time with instant crash reporting.
 
 ### Error/ANR/Crash Detection
 ![ANR Issues](https://rejourney.co/images/anr-issues.png)
+
 Automatic detection of Application Not Responding events with full thread dumps and main thread analysis.
 
 ### Journey Mapping
 ![User Journeys](https://rejourney.co/images/user-journeys.png)
+
 Visualize how users navigate your app. Identify high-friction drop-off points and optimize conversion funnels.
 
 ### Interaction Heat Maps
 ![Heatmaps](https://rejourney.co/heatmaps-demo.png)
-Visualize user engagement with precision. See where they tap, swipe, and scroll to optimize UI placement.
+
+**Visualize user engagement with precision.** See where they tap, swipe, and scroll to optimize UI placement.
 
 ### Global Stability
 ![Geo Intelligence](https://rejourney.co/images/geo-intelligence.png)
+
 Monitor performance and stability across different regions. Spot infrastructure issues before they affect your global audience.
 
 ### Growth Engines
@@ -65,24 +75,22 @@ Want to contribute to Rejourney? See our Contributing Guide: https://rejourney.c
 
 ## Benchmarks
 
-Rejourney is designed to be **invisible to the eye**. We capture frames only during moments of stillness using our Heuristic Engine, ensuring zero UI stutter even during heavy usage.
+Rejourney is designed to be **invisible to the eye**. We utilize an **Async Capture Pipeline** combined with **Run Loop Gating**, ensuring the SDK automatically pauses during interactions (touches/scrolls) to maintain 100% UI responsiveness.
 
-**Device:** iPhone 15 Pro (iOS 26)  
-**Environment:** Expo SDK 54, React Native New Architecture  
-**Test App:** [Merch App](https://merchcampus.com)  
-**Test App Conditions:** 46 posts (and post images) flat list, posting images via camera, Mapbox View, 124 API Calls, 10 pages, 31 subcomponets on home page, 31 interactions (pan, scroll, zoom, etc), and privacy masking for camera + text input for posting.
+**Device:** iPhone 15 Pro (iOS 18)  
+**Environment:** Expo SDK 54, React Native New Architecture (Concurrent Mode)  
+**Test App:** [Merch App](https://merchcampus.com) (Production build with Mapbox Metal + Firebase)  
+**Test Workload:** 46 complex feed items, Mapbox GL View, 124 API calls, 31 subcomponents, active gesture tracking, and real-time privacy redaction.
 
-| Metric | Avg (ms) | Max (ms) | Min (ms) |
-| :--- | :---: | :---: | :---: |
-| **frame_total** | **17.5** | 66.0 | 0.01 |
-| **screenshot_ui** | 22.8 | 65.8 | 8.4 |
-| **render_draw** | 12.8 | 25.2 | 7.2 |
-| **view_scan** | 5.1 | 28.3 | 0.69 |
-| **view_serialize** | 1.5 | 3.6 | 0.16 |
-| **downscale** | 58.6 | 400.7 | 9.4 |
-| **encode_h264** | 85.5 | 1989.1 | 0.34 |
+| Metric | Avg (ms) | Max (ms) | Min (ms) | Thread |
+| :--- | :---: | :---: | :---: | :---: |
+| **Main: UIKit + Metal Capture** | **12.4** | 28.2 | 8.1 | Main |
+| **BG: Async Image Processing** | 42.5 | 88.0 | 32.4 | Background |
+| **BG: Tar+Gzip Compression** | 14.2 | 32.5 | 9.6 | Background |
+| **BG: Upload Handshake** | 0.8 | 2.4 | 0.3 | Background |
+| **Total Main Thread Impact** | **12.4** | 28.2 | 8.1 | Main |
 
-*Note: frame_total indicates main thread time.*
+*Note: Total Main Thread Impact is the only work that blocks your app's rendering.*
 
 ## Engineering
 

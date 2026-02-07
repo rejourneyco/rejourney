@@ -43,6 +43,7 @@ IMPORTANT:
 - Remind the user to put their project key in the initRejourney function.
 - Remind the user it is up to them to ensure privacy and consent beyond this simiple integration. 
 
+A pod install is required for iOS to link native modules.
 
 Once done ask the user for their project key to put in.`;
 
