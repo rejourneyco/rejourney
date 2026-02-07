@@ -50,7 +50,7 @@ RUN npm ci --omit=dev --ignore-scripts
 COPY node_modules/geoip-lite/data/ node_modules/geoip-lite/data/
 
 # Install drizzle-kit and tsx globally to ensure they are available for migrations
-RUN npm install -g drizzle-kit@1.0.0-beta.12 drizzle-orm@1.0.0-beta.12 tsx
+RUN npm install -g drizzle-kit@beta drizzle-orm@beta tsx
 
 # Copy Drizzle config from backend source (it's in the root of the backend folder)
 COPY backend/drizzle.config.ts backend/
