@@ -77,7 +77,7 @@ Want to contribute to Rejourney? See our Contributing Guide: https://rejourney.c
 
 Rejourney is designed to be **invisible to the eye**. We utilize an **Async Capture Pipeline** combined with **Run Loop Gating**, ensuring the SDK automatically pauses during interactions (touches/scrolls) to maintain 100% UI responsiveness.
 
-**Device:** iPhone 15 Pro (iOS 18)  
+**Device:** iPhone 15 Pro (iOS 26)  
 **Environment:** Expo SDK 54, React Native New Architecture (Concurrent Mode)  
 **Test App:** [Merch App](https://merchcampus.com) (Production build with Mapbox Metal + Firebase)  
 **Test Workload:** 46 complex feed items, Mapbox GL View, 124 API calls, 31 subcomponents, active gesture tracking, and real-time privacy redaction.
