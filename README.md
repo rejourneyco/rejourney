@@ -99,3 +99,12 @@ Engineering decisions and architecture: https://rejourney.co/engineering
 ## License
 
 Client-side components (SDKs, CLIs) are licensed under Apache 2.0. Server-side components (backend, dashboard) are licensed under SSPL 1.0. See [LICENSE-APACHE](LICENSE-APACHE) and [LICENSE-SSPL](LICENSE-SSPL) for details.
+
+---
+
+## Translations
+
+- [Arabic | العربية](i18n/README_AR.md)
+- [Spanish | Español](i18n/README_ES.md)
+- [Turkish | Türkçe](i18n/README_TR.md)
+

@@ -262,6 +262,10 @@ jobs:
              # First apply namespace (not pruned)
              kubectl apply -f k8s/namespace.yaml
 
+             # Configure Traefik to trust Cloudflare headers for real client IP forwarding
+             # This goes to kube-system namespace, separate from the pruned apply
+             kubectl apply -f k8s/traefik-config.yaml
+
              # Auto-install cert-manager if missing (Required for SSL)
              if ! kubectl get namespace cert-manager &> /dev/null; then
                echo "🔒 cert-manager not found. Installing..."
