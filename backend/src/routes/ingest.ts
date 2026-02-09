@@ -5,7 +5,8 @@
  * 
  * Session Counting (Billing):
  * - Sessions are counted when rejourneyEnabled=true (regardless of recordingEnabled)
- * - Sessions are counted on first chunk upload (/presign endpoint)
+ * - Sessions are counted on first upload that creates the session
+ *   (either /presign or /segment/presign)
  * - Sessions are NOT counted for duplicate session IDs
  */
 
@@ -477,7 +478,7 @@ router.post(
         const segmentDeviceId = extractDeviceIdFromToken(req);
 
         // Ensure session exists
-        const { session } = await ensureIngestSession(projectId, data.sessionId, req, {
+        const { session, created: isNewSession } = await ensureIngestSession(projectId, data.sessionId, req, {
             platform: data.platform,
             deviceModel: data.deviceModel,
             appVersion: data.appVersion,
@@ -486,6 +487,13 @@ router.post(
 
         if (session.status === 'failed' || session.status === 'deleted') {
             throw ApiError.badRequest('Session is no longer accepting data');
+        }
+
+        // Count sessions on first upload for this session ID.
+        // This covers the case where segment uploads arrive before events uploads.
+        if (isNewSession && project.rejourneyEnabled) {
+            await incrementProjectSessionCount(projectId, teamId, 1);
+            logger.debug({ projectId, teamId, sessionId: session.id }, 'Session counted for billing');
         }
 
         // =====================================================
