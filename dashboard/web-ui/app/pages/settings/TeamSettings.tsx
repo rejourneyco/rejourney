@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Link } from 'react-router';
+import { Link, useNavigate } from 'react-router';
 import { useTeam } from '../../context/TeamContext';
 import { useAuth } from '../../context/AuthContext';
 import { usePathPrefix } from '../../hooks/usePathPrefix';
@@ -21,12 +21,17 @@ import {
   Building2,
   CreditCard,
   ArrowRight,
+  AlertTriangle,
 } from 'lucide-react';
 import {
   addTeamMember,
   removeTeamMember,
   updateTeamMember,
   updateTeam,
+  requestTeamDeletionOtp,
+  deleteTeam,
+  getTeamPlan,
+  TeamPlanInfo,
   getTeamInvitations,
   cancelInvitation,
   resendInvitation,
@@ -37,6 +42,7 @@ export const TeamSettings: React.FC = () => {
   const { user } = useAuth();
   const { currentTeam, teamMembers, refreshMembers, refreshTeams, isLoading: teamsLoading } = useTeam();
   const pathPrefix = usePathPrefix();
+  const navigate = useNavigate();
 
   // Member management
   const [showAddMember, setShowAddMember] = useState(false);
@@ -55,9 +61,31 @@ export const TeamSettings: React.FC = () => {
   const [isSavingName, setIsSavingName] = useState(false);
   const [editNameValue, setEditNameValue] = useState('');
 
+  // Team deletion
+  const [showDeleteTeamModal, setShowDeleteTeamModal] = useState(false);
+  const [deleteConfirmText, setDeleteConfirmText] = useState('');
+  const [deleteOtpCode, setDeleteOtpCode] = useState('');
+  const [isSendingDeleteOtp, setIsSendingDeleteOtp] = useState(false);
+  const [deleteOtpSent, setDeleteOtpSent] = useState(false);
+  const [deleteOtpMessage, setDeleteOtpMessage] = useState<string | null>(null);
+  const [acknowledgeBillingDowngrade, setAcknowledgeBillingDowngrade] = useState(false);
+  const [isDeletingTeam, setIsDeletingTeam] = useState(false);
+  const [deleteTeamError, setDeleteTeamError] = useState<string | null>(null);
+
+  // Billing plan context for delete safeguards
+  const [teamPlan, setTeamPlan] = useState<TeamPlanInfo | null>(null);
+  const [isLoadingTeamPlan, setIsLoadingTeamPlan] = useState(false);
+
   const isOwner = currentTeam?.ownerUserId === user?.id;
   const currentMember = teamMembers.find(m => m.userId === user?.id);
   const isAdmin = isOwner || currentMember?.role === 'admin';
+  const teamDeleteConfirmTarget =
+    currentTeam?.name && currentTeam.name.trim().length > 0 ? currentTeam.name : (currentTeam?.id || '');
+  const subscriptionStatus = teamPlan?.subscriptionStatus?.toLowerCase();
+  const hasActiveSubscription =
+    Boolean(teamPlan?.subscriptionId) &&
+    subscriptionStatus !== 'canceled' &&
+    subscriptionStatus !== 'incomplete_expired';
 
   // Sync edit name state
   useEffect(() => {
@@ -86,6 +114,27 @@ export const TeamSettings: React.FC = () => {
   useEffect(() => {
     loadInvitations();
   }, [loadInvitations]);
+
+  useEffect(() => {
+    const loadTeamPlan = async () => {
+      if (!currentTeam || !isOwner) {
+        setTeamPlan(null);
+        return;
+      }
+      try {
+        setIsLoadingTeamPlan(true);
+        const plan = await getTeamPlan(currentTeam.id);
+        setTeamPlan(plan);
+      } catch (err) {
+        console.error('Failed to load team plan:', err);
+        setTeamPlan(null);
+      } finally {
+        setIsLoadingTeamPlan(false);
+      }
+    };
+
+    loadTeamPlan();
+  }, [currentTeam?.id, isOwner]);
 
   const handleUpdateName = async () => {
     if (!currentTeam || !editNameValue.trim()) return;
@@ -167,6 +216,84 @@ export const TeamSettings: React.FC = () => {
       setTimeout(() => setMemberSuccess(null), 3000);
     } catch (err) {
       setMemberError(err instanceof Error ? err.message : 'Failed to resend invitation');
+    }
+  };
+
+  const handleDeleteTeam = async () => {
+    if (!currentTeam) return;
+
+    if (deleteConfirmText !== teamDeleteConfirmTarget) {
+      setDeleteTeamError(`Type "${teamDeleteConfirmTarget}" exactly to confirm deletion.`);
+      return;
+    }
+
+    if (hasActiveSubscription && !acknowledgeBillingDowngrade) {
+      setDeleteTeamError('You must acknowledge immediate downgrade to free tier before deleting.');
+      return;
+    }
+
+    if (!deleteOtpCode.trim()) {
+      setDeleteTeamError('OTP code is required');
+      return;
+    }
+
+    try {
+      setIsDeletingTeam(true);
+      setDeleteTeamError(null);
+
+      await deleteTeam(currentTeam.id, {
+        confirmText: deleteConfirmText,
+        otpCode: deleteOtpCode.trim().toUpperCase(),
+        acknowledgeBillingDowngrade: acknowledgeBillingDowngrade || undefined,
+      });
+
+      setShowDeleteTeamModal(false);
+      setDeleteConfirmText('');
+      setDeleteOtpCode('');
+      setDeleteOtpSent(false);
+      setDeleteOtpMessage(null);
+      setAcknowledgeBillingDowngrade(false);
+
+      await refreshTeams();
+      navigate(`${pathPrefix}/issues`);
+    } catch (err) {
+      setDeleteTeamError(err instanceof Error ? err.message : 'Failed to delete team');
+    } finally {
+      setIsDeletingTeam(false);
+    }
+  };
+
+  const handleSendDeleteOtp = async () => {
+    if (!currentTeam) return;
+
+    if (deleteConfirmText !== teamDeleteConfirmTarget) {
+      setDeleteTeamError(`Type "${teamDeleteConfirmTarget}" exactly before requesting OTP.`);
+      return;
+    }
+
+    if (hasActiveSubscription && !acknowledgeBillingDowngrade) {
+      setDeleteTeamError('Acknowledge immediate downgrade before requesting OTP.');
+      return;
+    }
+
+    try {
+      setIsSendingDeleteOtp(true);
+      setDeleteTeamError(null);
+      setDeleteOtpMessage(null);
+
+      const result = await requestTeamDeletionOtp(currentTeam.id, {
+        confirmText: deleteConfirmText,
+        acknowledgeBillingDowngrade: acknowledgeBillingDowngrade || undefined,
+      });
+
+      setDeleteOtpSent(true);
+      setDeleteOtpMessage(result.devCode
+        ? `OTP sent. Dev code: ${result.devCode}`
+        : 'OTP sent to your email.');
+    } catch (err) {
+      setDeleteTeamError(err instanceof Error ? err.message : 'Failed to send OTP');
+    } finally {
+      setIsSendingDeleteOtp(false);
     }
   };
 
@@ -435,6 +562,48 @@ export const TeamSettings: React.FC = () => {
         </NeoCard>
       </section>
 
+      {/* Danger Zone */}
+      {isOwner && (
+        <section className="space-y-4">
+          <h2 className="text-xl font-black uppercase tracking-tight text-red-600 flex items-center gap-2">
+            <AlertTriangle className="w-5 h-5" /> Danger Zone
+          </h2>
+          <NeoCard className="p-6 border-rose-600 bg-rose-50">
+            <div className="space-y-3">
+              <h3 className="text-lg font-black text-rose-900 uppercase tracking-tight">Delete Team</h3>
+              <p className="text-sm font-bold text-rose-700">
+                Owner-only action. Deleting this team permanently removes all nested projects, S3 artifacts, and Postgres data.
+              </p>
+              {isLoadingTeamPlan ? (
+                <p className="text-xs font-bold uppercase tracking-wide text-rose-600">
+                  Checking billing status...
+                </p>
+              ) : hasActiveSubscription ? (
+                <div className="p-3 border border-amber-300 bg-amber-50 text-amber-900 text-xs font-bold">
+                  Active subscription detected. Deletion will immediately downgrade this team to free tier and cancel the subscription to prevent next-cycle auto charges.
+                </div>
+              ) : null}
+            </div>
+            <NeoButton
+              variant="danger"
+              className="mt-4"
+              onClick={() => {
+                setShowDeleteTeamModal(true);
+                setDeleteConfirmText('');
+                setDeleteOtpCode('');
+                setDeleteOtpSent(false);
+                setDeleteOtpMessage(null);
+                setAcknowledgeBillingDowngrade(false);
+                setDeleteTeamError(null);
+              }}
+              leftIcon={<Trash2 className="w-4 h-4" />}
+            >
+              Delete Team Permanently
+            </NeoButton>
+          </NeoCard>
+        </section>
+      )}
+
       {/* Add Member Modal */}
       <Modal
         isOpen={showAddMember}
@@ -488,6 +657,135 @@ export const TeamSettings: React.FC = () => {
               </button>
             </div>
           </div>
+        </div>
+      </Modal>
+
+      <Modal
+        isOpen={showDeleteTeamModal}
+        onClose={() => {
+          setShowDeleteTeamModal(false);
+          setDeleteConfirmText('');
+          setDeleteOtpCode('');
+          setDeleteOtpSent(false);
+          setDeleteOtpMessage(null);
+          setAcknowledgeBillingDowngrade(false);
+          setDeleteTeamError(null);
+        }}
+        title="Delete Team"
+        footer={
+          <div className="flex gap-2 justify-end w-full">
+            <NeoButton
+              variant="secondary"
+              onClick={() => {
+                setShowDeleteTeamModal(false);
+                setDeleteConfirmText('');
+                setDeleteOtpCode('');
+                setDeleteOtpSent(false);
+                setDeleteOtpMessage(null);
+                setAcknowledgeBillingDowngrade(false);
+                setDeleteTeamError(null);
+              }}
+            >
+              Cancel
+            </NeoButton>
+            <NeoButton
+              variant="danger"
+              onClick={handleDeleteTeam}
+              disabled={
+                isDeletingTeam ||
+                !deleteOtpSent ||
+                !deleteOtpCode.trim() ||
+                deleteConfirmText !== teamDeleteConfirmTarget ||
+                (hasActiveSubscription && !acknowledgeBillingDowngrade)
+              }
+            >
+              {isDeletingTeam ? 'Deleting...' : 'Permanently Delete Team'}
+            </NeoButton>
+          </div>
+        }
+      >
+        <div className="space-y-5">
+          <div className="bg-red-50 border border-red-200 rounded-md p-4">
+            <div className="flex gap-2 text-red-800 font-semibold mb-2 items-center">
+              <AlertTriangle className="w-5 h-5" /> Final Confirmation
+            </div>
+            <p className="text-red-700 text-sm">
+              This action permanently deletes <strong>{currentTeam.name || currentTeam.id}</strong>, all sub-projects, and associated S3/Postgres data. This cannot be undone.
+            </p>
+          </div>
+
+          {hasActiveSubscription && (
+            <label className="flex items-start gap-3 p-3 border border-amber-300 bg-amber-50 rounded-md cursor-pointer">
+              <input
+                type="checkbox"
+                checked={acknowledgeBillingDowngrade}
+                onChange={(e) => {
+                  setAcknowledgeBillingDowngrade(e.target.checked);
+                  setDeleteTeamError(null);
+                }}
+                className="mt-1"
+              />
+              <span className="text-sm font-bold text-amber-900">
+                I understand this team has an active subscription and deleting it will trigger an immediate downgrade to free tier to prevent next billing-cycle charges.
+              </span>
+            </label>
+          )}
+
+          <div className="space-y-2">
+            <label className="text-sm font-medium text-slate-700">
+              Type <strong className="font-mono">{teamDeleteConfirmTarget}</strong> to confirm:
+            </label>
+            <Input
+              value={deleteConfirmText}
+              onChange={(e) => {
+                setDeleteConfirmText(e.target.value);
+                setDeleteTeamError(null);
+              }}
+              placeholder={teamDeleteConfirmTarget}
+            />
+          </div>
+
+          <div className="space-y-2">
+            <NeoButton
+              variant="secondary"
+              onClick={handleSendDeleteOtp}
+              disabled={
+                isSendingDeleteOtp ||
+                deleteConfirmText !== teamDeleteConfirmTarget ||
+                (hasActiveSubscription && !acknowledgeBillingDowngrade)
+              }
+            >
+              {isSendingDeleteOtp ? 'Sending OTP...' : 'Send OTP'}
+            </NeoButton>
+            {deleteOtpMessage && (
+              <div className="text-sm text-emerald-700 bg-emerald-50 border border-emerald-100 p-2 rounded">
+                {deleteOtpMessage}
+              </div>
+            )}
+          </div>
+
+          {deleteOtpSent && (
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-slate-700">
+                Enter OTP code
+              </label>
+              <Input
+                value={deleteOtpCode}
+                onChange={(e) => {
+                  setDeleteOtpCode(e.target.value.toUpperCase());
+                  setDeleteTeamError(null);
+                }}
+                placeholder="XXXXXXXXXX"
+                maxLength={10}
+              />
+            </div>
+          )}
+
+          {deleteTeamError && (
+            <div className="text-sm text-red-700 bg-red-50 border border-red-100 p-2 rounded">
+              {deleteTeamError}
+            </div>
+          )}
         </div>
       </Modal>
     </SettingsLayout>

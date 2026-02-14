@@ -141,6 +141,10 @@ public final class TelemetryPipeline: NSObject {
         }
     }
     
+    @objc public func getQueueDepth() -> Int {
+        _eventRing.count + _frameQueue.count
+    }
+    
     @objc private func _appSuspending() {
         guard !_draining else { return }
         _draining = true
@@ -150,16 +154,18 @@ public final class TelemetryPipeline: NSObject {
             self?._endBackgroundTask()
         }
         
-        // Flush visual frames to disk immediately
+        // Flush visual frames to disk for crash safety
         VisualCapture.shared.flushToDisk()
+        // Submit any buffered frames to the upload pipeline (even if below batch threshold)
+        VisualCapture.shared.flushBufferToNetwork()
         
         // Try to upload pending data with remaining background time
         _serialWorker.async { [weak self] in
             self?._shipPendingEvents()
             self?._shipPendingFrames()
             
-            // Allow a short delay for network operations to complete
-            Thread.sleep(forTimeInterval: 0.5)
+            // Allow time for network operations to complete
+            Thread.sleep(forTimeInterval: 2.0)
             
             DispatchQueue.main.async {
                 self?._endBackgroundTask()
@@ -485,6 +491,12 @@ private final class EventRingBuffer {
         _storage.reserveCapacity(capacity)
     }
     
+    var count: Int {
+        _lock.lock()
+        defer { _lock.unlock() }
+        return _storage.count
+    }
+    
     func push(_ entry: EventEntry) {
         _lock.lock()
         defer { _lock.unlock() }
@@ -523,6 +535,12 @@ private final class FrameBundleQueue {
     
     init(maxPending: Int) {
         _maxPending = maxPending
+    }
+    
+    var count: Int {
+        _lock.lock()
+        defer { _lock.unlock() }
+        return _queue.count
     }
     
     func enqueue(_ bundle: PendingFrameBundle) {

@@ -29,6 +29,7 @@ import android.widget.EditText
 import android.widget.ImageButton
 import java.lang.ref.WeakReference
 import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.atomic.AtomicLong
 import kotlin.math.abs
 import kotlin.math.sqrt
 
@@ -59,6 +60,7 @@ class InteractionRecorder private constructor(private val context: Context) {
     private val inputObservers = CopyOnWriteArrayList<WeakReference<EditText>>()
     private val navigationStack = mutableListOf<String>()
     private val coalesceWindow: Long = 300 // ms
+    private val lastInteractionTimestampMs = AtomicLong(0L)
     
     internal var currentActivity: WeakReference<Activity>? = null
     
@@ -86,7 +88,10 @@ class InteractionRecorder private constructor(private val context: Context) {
         gestureAggregator = null
         inputObservers.clear()
         navigationStack.clear()
+        lastInteractionTimestampMs.set(0L)
     }
+    
+    fun latestInteractionTimestampMs(): Long = lastInteractionTimestampMs.get()
     
     fun observeTextField(field: EditText) {
         if (inputObservers.any { it.get() === field }) return
@@ -122,11 +127,16 @@ class InteractionRecorder private constructor(private val context: Context) {
         window.callback = object : Window.Callback by original {
             override fun dispatchTouchEvent(event: MotionEvent?): Boolean {
                 if (event != null) {
+                    markInteractionNow()
                     agg.processTouchEvent(event)
                 }
                 return original.dispatchTouchEvent(event)
             }
         }
+    }
+    
+    private fun markInteractionNow() {
+        lastInteractionTimestampMs.set(System.currentTimeMillis())
     }
     
     private fun removeGlobalTouchListener() {

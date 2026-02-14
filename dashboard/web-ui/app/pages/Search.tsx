@@ -43,8 +43,8 @@ export const Search: React.FC = () => {
     const searchableItems: SearchableItem[] = useMemo(() => [
         // Monitor
         { id: 'issues', title: 'Issues', path: '/issues', icon: MessageSquareWarning, description: 'Track and manage errors, crashes, and ANRs', section: 'Monitor', keywords: ['bugs', 'problems', 'exceptions'] },
-        { id: 'sessions', title: 'Sessions', path: '/sessions', icon: Database, description: 'Watch user session replays', section: 'Monitor', keywords: ['recordings', 'replays', 'videos', 'playback'] },
-        { id: 'api', title: 'API Performance', path: '/analytics/api', icon: Activity, description: 'API latency and endpoint performance', section: 'Analytics', keywords: ['latency', 'endpoints', 'requests', 'network'] },
+        { id: 'sessions', title: 'Replays', path: '/sessions', icon: Database, description: 'Watch and inspect user replay sessions', section: 'Monitor', keywords: ['recordings', 'replays', 'videos', 'playback'] },
+        { id: 'api', title: 'API Insights', path: '/analytics/api', icon: Activity, description: 'API reliability, latency, and replay-backed evidence', section: 'Analytics', keywords: ['latency', 'endpoints', 'requests', 'network', 'api'] },
         { id: 'growth', title: 'Growth', path: '/analytics/growth', icon: LineChart, description: 'Growth metrics, retention cohorts, and user trends', section: 'Analytics', keywords: ['metrics', 'retention', 'dau', 'mau', 'users', 'analytics'] },
         { id: 'journeys', title: 'User Journeys', path: '/analytics/journeys', icon: MapIcon, description: 'User flows and navigation paths', section: 'Analytics', keywords: ['flows', 'navigation', 'screens', 'paths', 'funnels'] },
         { id: 'devices', title: 'Devices', path: '/analytics/devices', icon: Smartphone, description: 'Device models and OS version breakdown', section: 'Analytics', keywords: ['device', 'os', 'model', 'android', 'ios', 'version'] },
@@ -87,7 +87,7 @@ export const Search: React.FC = () => {
     // Group items by section for display
     const groupedItems = useMemo(() => {
         const groups: Record<string, typeof filteredItems> = {};
-        const sectionOrder = ['Monitor', 'Growth', 'Stability', 'Breakdowns', 'Workspace', 'You'];
+        const sectionOrder = ['Monitor', 'Analytics', 'Stability', 'Workspace', 'You'];
         
         filteredItems.forEach(item => {
             if (!groups[item.section]) {
@@ -107,10 +107,11 @@ export const Search: React.FC = () => {
     };
 
     return (
-        <div className="p-8 max-w-4xl mx-auto">
+        <div className="min-h-screen bg-slate-50/60 p-8">
+            <div className="mx-auto max-w-5xl rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
             <div className="mb-8">
-                <h1 className="text-2xl font-bold text-slate-900 mb-2">New Tab</h1>
-                <p className="text-slate-500">Search for a page to open</p>
+                <h1 className="text-2xl font-semibold text-slate-900 mb-2">New Tab</h1>
+                <p className="text-slate-500">Search and open any workspace page.</p>
             </div>
 
             <div className="relative mb-8">
@@ -120,7 +121,7 @@ export const Search: React.FC = () => {
                 <input
                     type="text"
                     className="w-full pl-10 pr-4 py-3 bg-white border border-slate-200 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 text-lg placeholder:text-slate-400"
-                    placeholder="Search pages (e.g., Crashes, Sessions, Billing)..."
+                    placeholder="Search pages (e.g., Replays, API Insights, Billing)..."
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
                     autoFocus
@@ -131,7 +132,7 @@ export const Search: React.FC = () => {
                 <div className="space-y-8">
                     {groupedItems.map(({ section, items }) => (
                         <div key={section}>
-                            <h2 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">{section}</h2>
+                            <h2 className="mb-3 text-xs font-medium text-slate-500">{section}</h2>
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                                 {items.map((item) => (
                                     <div
@@ -158,6 +159,7 @@ export const Search: React.FC = () => {
                     No pages found matching "{searchQuery}"
                 </div>
             )}
+            </div>
         </div>
     );
 };

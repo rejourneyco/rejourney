@@ -69,7 +69,7 @@ router.get(
         let artifactUrl: string | null = null;
 
         if (artifactsList.length > 0) {
-            const mainArtifact = artifactsList.find(a => a.kind === 'video') || artifactsList[0];
+            const mainArtifact = artifactsList.find(a => a.kind === 'screenshots') || artifactsList[0];
             try {
                 artifactUrl = await getSignedDownloadUrlForProject(session.projectId, mainArtifact.s3ObjectKey, 3600);
             } catch (err) {
@@ -142,10 +142,10 @@ router.get(
 );
 
 /**
- * Get demo session video artifact
+ * Get demo session screenshot artifact
  * GET /api/demo/session/artifact
- * 
- * Redirects to signed S3 URL for the demo session's video
+ *
+ * Redirects to signed S3 URL for the demo session's screenshot archive.
  */
 router.get(
     '/session/artifact',
@@ -168,7 +168,7 @@ router.get(
             .where(and(
                 eq(recordingArtifacts.sessionId, DEMO_SESSION_ID),
                 eq(recordingArtifacts.status, 'ready'),
-                eq(recordingArtifacts.kind, 'video')
+                eq(recordingArtifacts.kind, 'screenshots')
             ));
 
         if (artifactsList.length === 0) {

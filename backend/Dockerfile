@@ -31,8 +31,8 @@ WORKDIR /app
 # Set production environment
 ENV NODE_ENV=production
 
-# Install CA certificates
-RUN apt-get update -y && apt-get install -y ca-certificates ffmpeg && rm -rf /var/lib/apt/lists/*
+# Install CA certificates + mmdblookup (for GeoLite2-City MMDB lookups)
+RUN apt-get update -y && apt-get install -y ca-certificates mmdb-bin && rm -rf /var/lib/apt/lists/*
 
 # Copy root package files
 COPY package.json package-lock.json ./
@@ -45,7 +45,7 @@ COPY packages/react-native/package.json packages/react-native/
 # Install production dependencies only (from root)
 RUN npm ci --omit=dev --ignore-scripts
 
-# Copy pre-downloaded GeoIP database files (geoip-lite postinstall script requires MaxMind license)
+# Copy pre-downloaded GeoIP-lite database files (fallback path)
 # These files are committed to the repo or downloaded during CI/local development
 COPY node_modules/geoip-lite/data/ node_modules/geoip-lite/data/
 

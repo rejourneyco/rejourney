@@ -32,7 +32,7 @@ if (isProduction) {
         scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'", "https://challenges.cloudflare.com", "https://js.stripe.com", "https://m.stripe.network", "https://static.cloudflareinsights.com"],
         styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
         imgSrc: ["'self'", "data:", "https:", "blob:"],
-        // Session replay videos are served from MinIO/S3 (often http://<host>:9000)
+        // Session replay media is served from MinIO/S3 (often http://<host>:9000)
         mediaSrc: ["'self'", "blob:", "data:", "http:", "https:"],
         fontSrc: ["'self'", "data:", "https://fonts.gstatic.com"],
         connectSrc: ["'self'", "https://api.rejourney.co", "wss://api.rejourney.co", "https://ingest.rejourney.co", "https://api.stripe.com", "https://m.stripe.network", "https://cloudflareinsights.com"],

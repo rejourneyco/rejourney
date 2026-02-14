@@ -8,6 +8,7 @@ import { Router } from 'express';
 import { eq, and, desc, asc, sql, or, ilike, gte, inArray } from 'drizzle-orm';
 import { db, issues, issueEvents, projects, teamMembers, users, errors, crashes, anrs, sessions, recordingArtifacts, sessionMetrics, apiEndpointDailyStats, screenTouchHeatmaps } from '../db/client.js';
 import { sessionAuth, asyncHandler, ApiError } from '../middleware/index.js';
+import { writeApiRateLimiter } from '../middleware/rateLimit.js';
 
 const router = Router();
 
@@ -301,6 +302,7 @@ router.get(
 router.patch(
     '/issues/:issueId',
     sessionAuth,
+    writeApiRateLimiter,
     asyncHandler(async (req, res) => {
         const { issueId } = req.params;
         const { status, priority, assigneeId } = req.body;
@@ -372,6 +374,7 @@ router.patch(
 router.post(
     '/issues/bulk-update',
     sessionAuth,
+    writeApiRateLimiter,
     asyncHandler(async (req, res) => {
         const { issueIds, status, priority, assigneeId } = req.body;
 
@@ -470,6 +473,7 @@ router.get(
 router.post(
     '/issues/sync',
     sessionAuth,
+    writeApiRateLimiter,
     asyncHandler(async (req, res) => {
         const projectId = req.query.projectId as string;
 
@@ -966,6 +970,7 @@ router.post(
                 .where(and(
                     eq(issues.projectId, projectId),
                     eq(issues.status, 'unresolved'),
+                    inArray(issues.issueType, ['error', 'crash', 'anr', 'rage_tap']),
                     sql`${issues.sampleDeviceModel} IS NOT NULL`
                 ))
                 .groupBy(issues.sampleDeviceModel)
@@ -978,7 +983,7 @@ router.post(
                 const topDevicePercentage = (Number(topDevice.count) / totalIssuesCount * 100).toFixed(0);
 
                 // If one device has > 40% of issues, flag it
-                if (Number(topDevicePercentage) > 40 && Number(topDevice.count) >= 3) {
+                if (topDevice.deviceModel && Number(topDevicePercentage) > 40 && Number(topDevice.count) >= 3) {
                     const fingerprint = `device_correlation:${topDevice.deviceModel}`;
                     const [existing] = await db
                         .select({ id: issues.id })
@@ -986,7 +991,76 @@ router.post(
                         .where(and(eq(issues.projectId, projectId), eq(issues.fingerprint, fingerprint)))
                         .limit(1);
 
-                    if (!existing) {
+                    const relatedVersions = await db
+                        .select({
+                            appVersion: issues.sampleAppVersion,
+                            count: sql<number>`count(*)`,
+                        })
+                        .from(issues)
+                        .where(and(
+                            eq(issues.projectId, projectId),
+                            eq(issues.status, 'unresolved'),
+                            inArray(issues.issueType, ['error', 'crash', 'anr', 'rage_tap']),
+                            eq(issues.sampleDeviceModel, topDevice.deviceModel),
+                            sql`${issues.sampleAppVersion} IS NOT NULL`
+                        ))
+                        .groupBy(issues.sampleAppVersion)
+                        .orderBy(desc(sql`count(*)`))
+                        .limit(5);
+
+                    const affectedVersions: Record<string, number> = {};
+                    for (const v of relatedVersions) {
+                        if (v.appVersion) {
+                            affectedVersions[v.appVersion] = Number(v.count);
+                        }
+                    }
+
+                    const [sampleIssueForDevice] = await db
+                        .select({
+                            sampleSessionId: issues.sampleSessionId,
+                            sampleOsVersion: issues.sampleOsVersion,
+                            sampleAppVersion: issues.sampleAppVersion,
+                        })
+                        .from(issues)
+                        .where(and(
+                            eq(issues.projectId, projectId),
+                            eq(issues.status, 'unresolved'),
+                            inArray(issues.issueType, ['error', 'crash', 'anr', 'rage_tap']),
+                            eq(issues.sampleDeviceModel, topDevice.deviceModel),
+                            sql`${issues.sampleSessionId} IS NOT NULL`
+                        ))
+                        .orderBy(desc(issues.lastSeen))
+                        .limit(1);
+
+                    const deviceCorrelationValues = {
+                        issueType: 'performance' as any,
+                        title: `Issues concentrated on ${topDevice.deviceModel}`,
+                        subtitle: `${topDevicePercentage}% of issues (${topDevice.count} issues) affect this device`,
+                        culprit: topDevice.deviceModel,
+                        isHandled: true,
+                        priority: Number(topDevicePercentage) > 60 ? 'high' : 'medium',
+                        status: 'unresolved',
+                        firstSeen: now,
+                        lastSeen: now,
+                        eventCount: BigInt(topDevice.count),
+                        userCount: 0,
+                        events24h: 0,
+                        events90d: Number(topDevice.count),
+                        affectedDevices: { [topDevice.deviceModel]: Number(topDevice.count) },
+                        affectedVersions,
+                        sampleSessionId: sampleIssueForDevice?.sampleSessionId ?? null,
+                        sampleDeviceModel: topDevice.deviceModel,
+                        sampleOsVersion: sampleIssueForDevice?.sampleOsVersion ?? null,
+                        sampleAppVersion: sampleIssueForDevice?.sampleAppVersion ?? null,
+                        updatedAt: now,
+                    };
+
+                    if (existing) {
+                        await db
+                            .update(issues)
+                            .set(deviceCorrelationValues)
+                            .where(eq(issues.id, existing.id));
+                    } else {
                         const nextIdResult = await db
                             .select({ count: sql<number>`count(*)` })
                             .from(issues)
@@ -998,19 +1072,7 @@ router.post(
                             projectId,
                             shortId,
                             fingerprint,
-                            issueType: 'performance' as any,
-                            title: `Issues concentrated on ${topDevice.deviceModel}`,
-                            subtitle: `${topDevicePercentage}% of issues (${topDevice.count} issues) affect this device`,
-                            culprit: topDevice.deviceModel!,
-                            isHandled: true,
-                            priority: Number(topDevicePercentage) > 60 ? 'high' : 'medium',
-                            status: 'unresolved',
-                            firstSeen: now,
-                            lastSeen: now,
-                            eventCount: BigInt(topDevice.count),
-                            userCount: 0,
-                            events24h: 0,
-                            events90d: Number(topDevice.count),
+                            ...deviceCorrelationValues,
                         });
                         insightsCreated++;
                     }
@@ -1027,6 +1089,7 @@ router.post(
                 .where(and(
                     eq(issues.projectId, projectId),
                     eq(issues.status, 'unresolved'),
+                    inArray(issues.issueType, ['error', 'crash', 'anr', 'rage_tap']),
                     sql`${issues.sampleOsVersion} IS NOT NULL`
                 ))
                 .groupBy(issues.sampleOsVersion)
@@ -1038,7 +1101,7 @@ router.post(
                 const totalCount = osIssues.reduce((sum, o) => sum + Number(o.count), 0);
                 const topOSPercentage = (Number(topOS.count) / totalCount * 100).toFixed(0);
 
-                if (Number(topOSPercentage) > 50 && Number(topOS.count) >= 3) {
+                if (topOS.osVersion && Number(topOSPercentage) > 50 && Number(topOS.count) >= 3) {
                     const fingerprint = `os_correlation:${topOS.osVersion}`;
                     const [existing] = await db
                         .select({ id: issues.id })
@@ -1046,7 +1109,100 @@ router.post(
                         .where(and(eq(issues.projectId, projectId), eq(issues.fingerprint, fingerprint)))
                         .limit(1);
 
-                    if (!existing) {
+                    const affectedDevicesRows = await db
+                        .select({
+                            deviceModel: issues.sampleDeviceModel,
+                            count: sql<number>`count(*)`,
+                        })
+                        .from(issues)
+                        .where(and(
+                            eq(issues.projectId, projectId),
+                            eq(issues.status, 'unresolved'),
+                            inArray(issues.issueType, ['error', 'crash', 'anr', 'rage_tap']),
+                            eq(issues.sampleOsVersion, topOS.osVersion),
+                            sql`${issues.sampleDeviceModel} IS NOT NULL`
+                        ))
+                        .groupBy(issues.sampleDeviceModel)
+                        .orderBy(desc(sql`count(*)`))
+                        .limit(5);
+
+                    const affectedDevices: Record<string, number> = {};
+                    for (const d of affectedDevicesRows) {
+                        if (d.deviceModel) {
+                            affectedDevices[d.deviceModel] = Number(d.count);
+                        }
+                    }
+
+                    const affectedVersionsRows = await db
+                        .select({
+                            appVersion: issues.sampleAppVersion,
+                            count: sql<number>`count(*)`,
+                        })
+                        .from(issues)
+                        .where(and(
+                            eq(issues.projectId, projectId),
+                            eq(issues.status, 'unresolved'),
+                            inArray(issues.issueType, ['error', 'crash', 'anr', 'rage_tap']),
+                            eq(issues.sampleOsVersion, topOS.osVersion),
+                            sql`${issues.sampleAppVersion} IS NOT NULL`
+                        ))
+                        .groupBy(issues.sampleAppVersion)
+                        .orderBy(desc(sql`count(*)`))
+                        .limit(5);
+
+                    const affectedVersions: Record<string, number> = {};
+                    for (const v of affectedVersionsRows) {
+                        if (v.appVersion) {
+                            affectedVersions[v.appVersion] = Number(v.count);
+                        }
+                    }
+
+                    const [sampleIssueForOs] = await db
+                        .select({
+                            sampleSessionId: issues.sampleSessionId,
+                            sampleDeviceModel: issues.sampleDeviceModel,
+                            sampleAppVersion: issues.sampleAppVersion,
+                        })
+                        .from(issues)
+                        .where(and(
+                            eq(issues.projectId, projectId),
+                            eq(issues.status, 'unresolved'),
+                            inArray(issues.issueType, ['error', 'crash', 'anr', 'rage_tap']),
+                            eq(issues.sampleOsVersion, topOS.osVersion),
+                            sql`${issues.sampleSessionId} IS NOT NULL`
+                        ))
+                        .orderBy(desc(issues.lastSeen))
+                        .limit(1);
+
+                    const osCorrelationValues = {
+                        issueType: 'performance' as any,
+                        title: `Issues concentrated on OS ${topOS.osVersion}`,
+                        subtitle: `${topOSPercentage}% of issues (${topOS.count} issues) affect this OS version`,
+                        culprit: topOS.osVersion,
+                        isHandled: true,
+                        priority: Number(topOSPercentage) > 70 ? 'high' : 'medium',
+                        status: 'unresolved',
+                        firstSeen: now,
+                        lastSeen: now,
+                        eventCount: BigInt(topOS.count),
+                        userCount: 0,
+                        events24h: 0,
+                        events90d: Number(topOS.count),
+                        affectedDevices,
+                        affectedVersions,
+                        sampleSessionId: sampleIssueForOs?.sampleSessionId ?? null,
+                        sampleDeviceModel: sampleIssueForOs?.sampleDeviceModel ?? null,
+                        sampleOsVersion: topOS.osVersion,
+                        sampleAppVersion: sampleIssueForOs?.sampleAppVersion ?? null,
+                        updatedAt: now,
+                    };
+
+                    if (existing) {
+                        await db
+                            .update(issues)
+                            .set(osCorrelationValues)
+                            .where(eq(issues.id, existing.id));
+                    } else {
                         const nextIdResult = await db
                             .select({ count: sql<number>`count(*)` })
                             .from(issues)
@@ -1058,19 +1214,7 @@ router.post(
                             projectId,
                             shortId,
                             fingerprint,
-                            issueType: 'performance' as any,
-                            title: `Issues concentrated on OS ${topOS.osVersion}`,
-                            subtitle: `${topOSPercentage}% of issues (${topOS.count} issues) affect this OS version`,
-                            culprit: topOS.osVersion!,
-                            isHandled: true,
-                            priority: Number(topOSPercentage) > 70 ? 'high' : 'medium',
-                            status: 'unresolved',
-                            firstSeen: now,
-                            lastSeen: now,
-                            eventCount: BigInt(topOS.count),
-                            userCount: 0,
-                            events24h: 0,
-                            events90d: Number(topOS.count),
+                            ...osCorrelationValues,
                         });
                         insightsCreated++;
                     }
@@ -1087,6 +1231,7 @@ router.post(
                 .where(and(
                     eq(issues.projectId, projectId),
                     eq(issues.status, 'unresolved'),
+                    inArray(issues.issueType, ['error', 'crash', 'anr', 'rage_tap']),
                     sql`${issues.sampleAppVersion} IS NOT NULL`
                 ))
                 .groupBy(issues.sampleAppVersion)
@@ -1098,7 +1243,7 @@ router.post(
                 const totalCount = versionIssues.reduce((sum, v) => sum + Number(v.count), 0);
                 const topVersionPercentage = (Number(topVersion.count) / totalCount * 100).toFixed(0);
 
-                if (Number(topVersionPercentage) > 50 && Number(topVersion.count) >= 3) {
+                if (topVersion.appVersion && Number(topVersionPercentage) > 50 && Number(topVersion.count) >= 3) {
                     const fingerprint = `version_correlation:${topVersion.appVersion}`;
                     const [existing] = await db
                         .select({ id: issues.id })
@@ -1106,7 +1251,76 @@ router.post(
                         .where(and(eq(issues.projectId, projectId), eq(issues.fingerprint, fingerprint)))
                         .limit(1);
 
-                    if (!existing) {
+                    const affectedDevicesRows = await db
+                        .select({
+                            deviceModel: issues.sampleDeviceModel,
+                            count: sql<number>`count(*)`,
+                        })
+                        .from(issues)
+                        .where(and(
+                            eq(issues.projectId, projectId),
+                            eq(issues.status, 'unresolved'),
+                            inArray(issues.issueType, ['error', 'crash', 'anr', 'rage_tap']),
+                            eq(issues.sampleAppVersion, topVersion.appVersion),
+                            sql`${issues.sampleDeviceModel} IS NOT NULL`
+                        ))
+                        .groupBy(issues.sampleDeviceModel)
+                        .orderBy(desc(sql`count(*)`))
+                        .limit(5);
+
+                    const affectedDevices: Record<string, number> = {};
+                    for (const d of affectedDevicesRows) {
+                        if (d.deviceModel) {
+                            affectedDevices[d.deviceModel] = Number(d.count);
+                        }
+                    }
+
+                    const [sampleIssueForVersion] = await db
+                        .select({
+                            sampleSessionId: issues.sampleSessionId,
+                            sampleDeviceModel: issues.sampleDeviceModel,
+                            sampleOsVersion: issues.sampleOsVersion,
+                        })
+                        .from(issues)
+                        .where(and(
+                            eq(issues.projectId, projectId),
+                            eq(issues.status, 'unresolved'),
+                            inArray(issues.issueType, ['error', 'crash', 'anr', 'rage_tap']),
+                            eq(issues.sampleAppVersion, topVersion.appVersion),
+                            sql`${issues.sampleSessionId} IS NOT NULL`
+                        ))
+                        .orderBy(desc(issues.lastSeen))
+                        .limit(1);
+
+                    const versionCorrelationValues = {
+                        issueType: 'performance' as any,
+                        title: `Issues concentrated on v${topVersion.appVersion}`,
+                        subtitle: `${topVersionPercentage}% of issues (${topVersion.count} issues) affect this version`,
+                        culprit: `v${topVersion.appVersion}`,
+                        isHandled: true,
+                        priority: Number(topVersionPercentage) > 70 ? 'high' : 'medium',
+                        status: 'unresolved',
+                        firstSeen: now,
+                        lastSeen: now,
+                        eventCount: BigInt(topVersion.count),
+                        userCount: 0,
+                        events24h: 0,
+                        events90d: Number(topVersion.count),
+                        affectedDevices,
+                        affectedVersions: { [topVersion.appVersion]: Number(topVersion.count) },
+                        sampleSessionId: sampleIssueForVersion?.sampleSessionId ?? null,
+                        sampleDeviceModel: sampleIssueForVersion?.sampleDeviceModel ?? null,
+                        sampleOsVersion: sampleIssueForVersion?.sampleOsVersion ?? null,
+                        sampleAppVersion: topVersion.appVersion,
+                        updatedAt: now,
+                    };
+
+                    if (existing) {
+                        await db
+                            .update(issues)
+                            .set(versionCorrelationValues)
+                            .where(eq(issues.id, existing.id));
+                    } else {
                         const nextIdResult = await db
                             .select({ count: sql<number>`count(*)` })
                             .from(issues)
@@ -1118,19 +1332,7 @@ router.post(
                             projectId,
                             shortId,
                             fingerprint,
-                            issueType: 'performance' as any,
-                            title: `Issues concentrated on v${topVersion.appVersion}`,
-                            subtitle: `${topVersionPercentage}% of issues (${topVersion.count} issues) affect this version`,
-                            culprit: `v${topVersion.appVersion}`,
-                            isHandled: true,
-                            priority: Number(topVersionPercentage) > 70 ? 'high' : 'medium',
-                            status: 'unresolved',
-                            firstSeen: now,
-                            lastSeen: now,
-                            eventCount: BigInt(topVersion.count),
-                            userCount: 0,
-                            events24h: 0,
-                            events90d: Number(topVersion.count),
+                            ...versionCorrelationValues,
                         });
                         insightsCreated++;
                     }
@@ -1299,7 +1501,7 @@ router.get(
             .orderBy(desc(sessions.createdAt))
             .limit(limit);
 
-        // Get cover photos for sessions
+        // Get thumbnail availability for sessions
         const frameArtifacts = await db
             .select({
                 id: recordingArtifacts.id,
@@ -1308,7 +1510,7 @@ router.get(
             .from(recordingArtifacts)
             .where(and(
                 inArray(recordingArtifacts.sessionId, Array.from(sessionIds)),
-                eq(recordingArtifacts.kind, 'video'),
+                eq(recordingArtifacts.kind, 'screenshots'),
                 eq(recordingArtifacts.status, 'ready')
             ))
             .limit(100);
@@ -1329,9 +1531,9 @@ router.get(
                 durationSeconds: s.durationSeconds || 0,
                 uxScore: Math.round(s.uxScore || 0),
                 createdAt: s.createdAt,
-                // Use video-thumbnail endpoint since iOS uses video segments (not individual frames)
+                // Use screenshot thumbnail endpoint when replay data exists.
                 coverPhotoUrl: sessionCoverMap.has(s.id)
-                    ? `/api/session/video-thumbnail/${s.id}`
+                    ? `/api/session/thumbnail/${s.id}`
                     : null,
             })),
         });

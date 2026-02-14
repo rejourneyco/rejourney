@@ -190,7 +190,7 @@ router.get(
             .sort((a, b) => b.frictionScore - a.frictionScore)
             .slice(0, 15);
 
-        // Batch query to find frame artifacts for ANY of the sessions in the top screens
+        // Batch query to find screenshot artifacts for any of the sessions in the top screens
         // Collect all candidate session IDs (flattened)
         const allSessionIds = sortedScreens.flatMap(s => s.sessionIds);
         const uniqueSessionIds = [...new Set(allSessionIds)];
@@ -198,9 +198,9 @@ router.get(
         logger.info({
             screenCount: sortedScreens.length,
             uniqueSessionCount: uniqueSessionIds.length
-        }, 'Searching for frame artifacts for heatmap screens');
+        }, 'Searching for screenshot artifacts for heatmap screens');
 
-        // Get available frame artifacts for these sessions
+        // Get available screenshot artifacts for these sessions
         // We only need one valid frame per session to check availability
         const frameArtifacts = uniqueSessionIds.length > 0
             ? await db
@@ -211,7 +211,7 @@ router.get(
                 .from(recordingArtifacts)
                 .where(and(
                     inArray(recordingArtifacts.sessionId, uniqueSessionIds),
-                    eq(recordingArtifacts.kind, 'video'),
+                    eq(recordingArtifacts.kind, 'screenshots'),
                     eq(recordingArtifacts.status, 'ready')
                 ))
                 // Limit strictly to avoid massive results, but enough to cover screens
@@ -220,7 +220,7 @@ router.get(
 
         logger.info({
             foundArtifactCount: frameArtifacts.length
-        }, 'Found frame artifacts for heatmap');
+        }, 'Found screenshot artifacts for heatmap');
 
         // Map session IDs to their frame artifact ID
         const sessionFrameMap = new Map<string, string>();
@@ -315,12 +315,11 @@ router.get(
         const screens = sortedScreens.map((screen, screenIndex) => {
             let screenshotUrl: string | null = null;
 
-            // Find a session that has video artifacts for getting screen screenshot
+            // Find a session that has screenshot artifacts for getting screen screenshot
             for (const sessionId of screen.sessionIds) {
                 const artifactId = sessionFrameMap.get(sessionId);
                 if (artifactId) {
-                    // Use video-thumbnail endpoint since iOS uses video segments
-                    screenshotUrl = `/api/session/video-thumbnail/${sessionId}`;
+                    screenshotUrl = `/api/session/thumbnail/${sessionId}`;
                     break; // Found one!
                 }
             }
@@ -335,7 +334,7 @@ router.get(
             if (!screenshotUrl && heatmap?.sampleSessionId) {
                 const artifactId = sessionFrameMap.get(heatmap.sampleSessionId);
                 if (artifactId) {
-                    screenshotUrl = `/api/session/video-thumbnail/${heatmap.sampleSessionId}`;
+                    screenshotUrl = `/api/session/thumbnail/${heatmap.sampleSessionId}`;
                 }
             }
 
@@ -486,7 +485,7 @@ router.get(
                 .from(recordingArtifacts)
                 .where(and(
                     inArray(recordingArtifacts.sessionId, uniqueSessionIds),
-                    eq(recordingArtifacts.kind, 'video'),
+                    eq(recordingArtifacts.kind, 'screenshots'),
                     eq(recordingArtifacts.status, 'ready')
                 ))
                 .limit(500)
@@ -495,7 +494,7 @@ router.get(
         logger.info({
             artifactsFound: sampleFrameArtifacts.length,
             artifacts: sampleFrameArtifacts.map(a => ({ sessionId: a.sessionId, id: a.id, kind: a.kind, status: a.status })),
-        }, '[alltime-heatmap] Video artifacts found for sample sessions');
+        }, '[alltime-heatmap] Screenshot artifacts found for sample sessions');
 
         // Map session IDs to their frame artifact availability
         const sessionFrameMap = new Map<string, boolean>();
@@ -512,11 +511,11 @@ router.get(
         const screenNames = Array.from(screenHeatmapMap.keys());
         const screenSessionMap = new Map<string, string[]>();
 
-        // Query recent sessions that have video artifacts and visited these screens
+        // Query recent sessions that have screenshot artifacts and visited these screens
         if (screenNames.length > 0) {
-            // Find recent sessions with ready video artifacts for these projects
+            // Find recent sessions with ready screenshot artifacts for these projects
             // Note: screensVisited is on sessionMetrics, not sessions
-            const recentSessionsWithVideo = await db
+            const recentSessionsWithScreenshots = await db
                 .select({
                     sessionId: sessions.id,
                     screensVisited: sessionMetrics.screensVisited,
@@ -525,15 +524,15 @@ router.get(
                 .innerJoin(sessionMetrics, eq(sessionMetrics.sessionId, sessions.id))
                 .innerJoin(recordingArtifacts, and(
                     eq(recordingArtifacts.sessionId, sessions.id),
-                    eq(recordingArtifacts.kind, 'video'),
+                    eq(recordingArtifacts.kind, 'screenshots'),
                     eq(recordingArtifacts.status, 'ready')
                 ))
                 .where(inArray(sessions.projectId, projectIds))
                 .orderBy(desc(sessions.createdAt))
                 .limit(500);
 
-            // Map each screen to sessions that visited it (with valid video)
-            for (const row of recentSessionsWithVideo) {
+            // Map each screen to sessions that visited it (with valid screenshots)
+            for (const row of recentSessionsWithScreenshots) {
                 const visited = row.screensVisited || [];
                 for (const screen of visited) {
                     if (screenNames.includes(screen)) {
@@ -589,9 +588,9 @@ router.get(
                     timestampParam = `?ts=${data.screenFirstSeenMs}`;
                 }
 
-                // First, try sample session if it has video artifacts
+                // First, try sample session if it has screenshot artifacts
                 if (data.sampleSessionId && sessionFrameMap.has(data.sampleSessionId)) {
-                    screenshotUrl = `/api/session/video-thumbnail/${data.sampleSessionId}${timestampParam}`;
+                    screenshotUrl = `/api/session/thumbnail/${data.sampleSessionId}${timestampParam}`;
                     screenshotSource = 'sampleSession';
                 }
 
@@ -602,7 +601,7 @@ router.get(
                     for (const sessionId of fallbackSessions) {
                         if (sessionFrameMap.has(sessionId)) {
                             // Fallback sessions don't have screen-specific timestamp, use default
-                            screenshotUrl = `/api/session/video-thumbnail/${sessionId}`;
+                            screenshotUrl = `/api/session/thumbnail/${sessionId}`;
                             screenshotSource = 'fallbackSession';
                             break;
                         }
@@ -831,4 +830,3 @@ router.get(
 );
 
 export default router;
-

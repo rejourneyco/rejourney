@@ -111,6 +111,12 @@ export function TeamProvider({ children }: Props) {
         if (typeof window !== 'undefined') {
           localStorage.setItem('selectedTeamId', teamToSelect.id);
         }
+      } else {
+        setCurrentTeamState(null);
+        setTeamMembers([]);
+        if (typeof window !== 'undefined') {
+          localStorage.removeItem('selectedTeamId');
+        }
       }
     } catch (err) {
       console.error('Failed to fetch teams:', err);
@@ -190,4 +196,3 @@ export function TeamProvider({ children }: Props) {
 }
 
 export default TeamProvider;
-

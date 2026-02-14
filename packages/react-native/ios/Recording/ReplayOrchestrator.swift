@@ -38,7 +38,7 @@ public final class ReplayOrchestrator: NSObject {
         }
     }
     
-    @objc public var snapshotInterval: Double = 0.33
+    @objc public var snapshotInterval: Double = 1.0
     @objc public var compressionLevel: Double = 0.5
     @objc public var visualCaptureEnabled: Bool = true
     @objc public var interactionCaptureEnabled: Bool = true
@@ -168,7 +168,7 @@ public final class ReplayOrchestrator: NSObject {
         _initSession()
         TelemetryPipeline.shared.activateDeferredMode()
         
-        let renderCfg = _computeRender(fps: 3, tier: "standard")
+        let renderCfg = _computeRender(fps: 1, tier: "standard")
         
         if visualCaptureEnabled {
             VisualCapture.shared.configure(snapshotInterval: renderCfg.interval, jpegQuality: renderCfg.quality)
@@ -224,6 +224,7 @@ public final class ReplayOrchestrator: NSObject {
             "screensVisited": _visitedScreens,
             "screenCount": Set(_visitedScreens).count
         ]
+        let queueDepthAtFinalize = TelemetryPipeline.shared.getQueueDepth()
         
         SegmentDispatcher.shared.evaluateReplayRetention(replayId: sid, metrics: metrics) { [weak self] retain, reason in
             guard let self else { return }
@@ -246,7 +247,13 @@ public final class ReplayOrchestrator: NSObject {
             }
             self._finalized = true
             
-            SegmentDispatcher.shared.concludeReplay(replayId: sid, concludedAt: termMs, backgroundDurationMs: self._bgTimeMs, metrics: metrics) { [weak self] ok in
+            SegmentDispatcher.shared.concludeReplay(
+                replayId: sid,
+                concludedAt: termMs,
+                backgroundDurationMs: self._bgTimeMs,
+                metrics: metrics,
+                currentQueueDepth: queueDepthAtFinalize
+            ) { [weak self] ok in
                 if ok { self?._clearRecovery() }
                 completion?(true, ok)
             }
@@ -344,8 +351,15 @@ public final class ReplayOrchestrator: NSObject {
             "crashCount": 1,
             "durationSeconds": Int((nowMs - origStart) / 1000)
         ]
+        let queueDepthAtFinalize = TelemetryPipeline.shared.getQueueDepth()
         
-        SegmentDispatcher.shared.concludeReplay(replayId: recId, concludedAt: nowMs, backgroundDurationMs: 0, metrics: crashMetrics) { [weak self] ok in
+        SegmentDispatcher.shared.concludeReplay(
+            replayId: recId,
+            concludedAt: nowMs,
+            backgroundDurationMs: 0,
+            metrics: crashMetrics,
+            currentQueueDepth: queueDepthAtFinalize
+        ) { [weak self] ok in
             self?._clearRecovery()
             completion(ok ? recId : nil)
         }
@@ -483,7 +497,7 @@ public final class ReplayOrchestrator: NSObject {
         SegmentDispatcher.shared.activate()
         TelemetryPipeline.shared.activate()
         
-        let renderCfg = _computeRender(fps: 3, tier: "high")
+        let renderCfg = _computeRender(fps: 1, tier: "high")
         VisualCapture.shared.configure(snapshotInterval: renderCfg.interval, jpegQuality: renderCfg.quality)
         
         if visualCaptureEnabled { VisualCapture.shared.beginCapture(sessionOrigin: replayStartMs) }
@@ -613,7 +627,8 @@ private func _computeRender(fps: Int, tier: String) -> (interval: Double, qualit
     switch tier.lowercased() {
     case "low": quality = 0.4
     case "standard": quality = 0.5
-    case "high": quality = 0.6
+    // Slightly reduce default high-tier JPEG quality for lower storage without a major visual shift.
+    case "high": quality = 0.55
     default: quality = 0.5
     }
     return (interval, quality)

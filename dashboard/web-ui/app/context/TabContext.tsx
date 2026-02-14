@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useCallback, useRef, useEff
 import { useNavigate, useLocation } from 'react-router';
 import { TabRegistry } from '../config/TabRegistry';
 import { useSessionData } from './SessionContext';
+import { useSafeTeam } from './TeamContext';
 import { getWorkspace, saveWorkspace, WorkspaceTab } from '../services/api';
 
 export interface Tab {
@@ -12,32 +13,92 @@ export interface Tab {
     component?: React.ReactNode;
     isClosable: boolean;
     scrollPosition?: number;
+    projectId?: string;
+    projectName?: string;
+    teamId?: string;
+    teamName?: string;
 }
 
 interface TabContextType {
     tabs: Tab[];
     activeTabId: string;
     recentlyClosed: Tab[];
+    isSplitView: boolean;
+    secondaryTabId: string | null;
+    splitRatio: number;
     openTab: (tab: Omit<Tab, 'isClosable'> & { isClosable?: boolean }) => void;
     closeTab: (id: string, event?: React.MouseEvent) => void;
     closeAllTabs: () => void;
     closeOtherTabs: (id: string) => void;
+    closeStaleTabs: () => void;
+    openTabInSplit: (id: string) => void;
+    closeSplitView: () => void;
+    setSplitRatio: (ratio: number) => void;
     setActiveTabId: (id: string) => void;
     reorderTabs: (startIndex: number, endIndex: number) => void;
     reopenTab: () => void;
+    maxTabs: number;
 }
 
 const TabContext = createContext<TabContextType | undefined>(undefined);
+
+const MAX_OPEN_TABS = 14;
+const MAX_DETAIL_TABS = 6;
+const STALE_TAB_KEEP_COUNT = 6;
+const RECENTLY_CLOSED_LIMIT = 10;
+
+function isDetailTab(tabId: string): boolean {
+    return tabId.startsWith('session-') || tabId.startsWith('crash-') || tabId.startsWith('error-');
+}
+
+function trimTabsForLimits(
+    candidateTabs: Tab[],
+    recentlyClosed: Tab[],
+    keepIds: Set<string>
+): { tabs: Tab[]; recentlyClosed: Tab[] } {
+    let tabs = [...candidateTabs];
+    let closed = [...recentlyClosed];
+
+    const pushClosed = (tab: Tab) => {
+        closed = [...closed.slice(-9), tab];
+    };
+
+    // Keep detail tabs bounded first, since they are the main accumulation source.
+    while (tabs.filter(t => isDetailTab(t.id)).length > MAX_DETAIL_TABS) {
+        const victimIndex = tabs.findIndex(t => isDetailTab(t.id) && t.isClosable && !keepIds.has(t.id));
+        if (victimIndex === -1) break;
+        const [victim] = tabs.splice(victimIndex, 1);
+        pushClosed(victim);
+    }
+
+    // Then keep overall tab count bounded.
+    while (tabs.length > MAX_OPEN_TABS) {
+        const victimIndex = tabs.findIndex(t => t.isClosable && !keepIds.has(t.id));
+        if (victimIndex === -1) break;
+        const [victim] = tabs.splice(victimIndex, 1);
+        pushClosed(victim);
+    }
+
+    return { tabs, recentlyClosed: closed };
+}
+
+function appendRecentlyClosed(existing: Tab[], additions: Tab[]): Tab[] {
+    if (additions.length === 0) return existing.slice(-RECENTLY_CLOSED_LIMIT);
+    return [...existing, ...additions].slice(-RECENTLY_CLOSED_LIMIT);
+}
 
 export const TabProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     const [tabs, setTabs] = useState<Tab[]>([]);
     const [activeTabId, setActiveTabIdState] = useState<string>('');
     const [recentlyClosed, setRecentlyClosed] = useState<Tab[]>([]);
+    const [isSplitView, setIsSplitView] = useState(false);
+    const [secondaryTabId, setSecondaryTabId] = useState<string | null>(null);
+    const [splitRatioState, setSplitRatioState] = useState(0.5);
     const [hasLoaded, setHasLoaded] = useState(false);
-    const [loadedFromBackend, setLoadedFromBackend] = useState(false);
     const navigate = useNavigate();
     const location = useLocation();
     const { selectedProject, isLoading: isProjectLoading } = useSessionData();
+    const { currentTeam } = useSafeTeam();
 
     // Derive path prefix from current location
     const getPathPrefix = useCallback(() => {
@@ -70,6 +131,19 @@ export const TabProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         activeTabIdRef.current = id;
         setActiveTabIdState(id);
     }, []);
+
+    const setSplitRatio = useCallback((ratio: number) => {
+        const clamped = Math.max(0.25, Math.min(0.75, ratio));
+        setSplitRatioState(clamped);
+    }, []);
+
+    const annotateTabWithScope = useCallback((tab: Tab): Tab => ({
+        ...tab,
+        projectId: tab.projectId ?? selectedProject?.id,
+        projectName: tab.projectName ?? selectedProject?.name,
+        teamId: tab.teamId ?? selectedProject?.teamId ?? currentTeam?.id,
+        teamName: tab.teamName ?? currentTeam?.name,
+    }), [selectedProject?.id, selectedProject?.name, selectedProject?.teamId, currentTeam?.id, currentTeam?.name]);
 
     // Save workspace state to backend (debounced using refs to avoid stale closures)
     const saveToBackend = useCallback(() => {
@@ -195,6 +269,26 @@ export const TabProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     // Track which project we've loaded workspace for
     const loadedProjectIdRef = useRef<string | null>(null);
+    const workspaceScopeKey = `${currentTeam?.id ?? 'no-team'}:${selectedProject?.id ?? 'no-project'}`;
+    const previousScopeKeyRef = useRef(workspaceScopeKey);
+
+    // Clear tab UI immediately when switching team/project so users do not see stale tabs.
+    useEffect(() => {
+        if (previousScopeKeyRef.current === workspaceScopeKey) return;
+        previousScopeKeyRef.current = workspaceScopeKey;
+
+        loadedProjectIdRef.current = null;
+        tabsRef.current = [];
+        recentlyClosedRef.current = [];
+        activeTabIdRef.current = '';
+
+        setTabs([]);
+        setRecentlyClosed([]);
+        setActiveTabId('');
+        setSecondaryTabId(null);
+        setIsSplitView(false);
+        setHasLoaded(false);
+    }, [workspaceScopeKey, setActiveTabId]);
 
     // Load workspace from backend on initial mount - wait for project to be ready
     useEffect(() => {
@@ -222,27 +316,58 @@ export const TabProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                     // Normalize all saved paths to ensure they have the correct prefix
                     const loadedTabs: Tab[] = workspace.tabs.map(t => {
                         const normalizedPath = normalizePath(t.path, prefix);
-                        return {
-                            id: t.id,
+                        const canonicalTabInfo = TabRegistry.getTabInfo(normalizedPath);
+                        return annotateTabWithScope({
+                            id: canonicalTabInfo?.id || t.id,
                             type: 'page',
-                            title: t.title,
+                            title: canonicalTabInfo?.title || t.title,
                             path: normalizedPath,
                             isClosable: true,
-                        };
+                        });
                     });
                     const loadedClosed: Tab[] = (workspace.recentlyClosed || []).map(t => {
                         const normalizedPath = normalizePath(t.path, prefix);
-                        return {
-                            id: t.id,
+                        const canonicalTabInfo = TabRegistry.getTabInfo(normalizedPath);
+                        return annotateTabWithScope({
+                            id: canonicalTabInfo?.id || t.id,
                             type: 'page',
-                            title: t.title,
+                            title: canonicalTabInfo?.title || t.title,
                             path: normalizedPath,
                             isClosable: true,
-                        };
+                        });
                     });
-                    setTabs(loadedTabs);
-                    setRecentlyClosed(loadedClosed);
-                    setLoadedFromBackend(true);
+                    const resolveSavedActiveTabId = (): string | null => {
+                        const savedId = workspace.activeTabId || null;
+                        if (!savedId) return null;
+                        if (loadedTabs.some(tab => tab.id === savedId)) return savedId;
+
+                        const original = workspace.tabs.find(tab => tab.id === savedId);
+                        if (original) {
+                            const normalizedPath = normalizePath(original.path, prefix);
+                            const canonicalInfo = TabRegistry.getTabInfo(normalizedPath);
+                            if (canonicalInfo && loadedTabs.some(tab => tab.id === canonicalInfo.id)) {
+                                return canonicalInfo.id;
+                            }
+                        }
+
+                        // Legacy migration: older builds used duplicate "Replays" naming for /analytics/api.
+                        const legacyReplayApiTab = workspace.tabs.find((tab) =>
+                            tab.id === savedId && (tab.path.includes('/analytics/api') || tab.title.toLowerCase() === 'replays'),
+                        );
+                        if (legacyReplayApiTab && loadedTabs.some((tab) => tab.id === 'analytics-api')) {
+                            return 'analytics-api';
+                        }
+
+                        return null;
+                    };
+                    const resolvedActiveTabId = resolveSavedActiveTabId();
+                    const trimmed = trimTabsForLimits(
+                        loadedTabs,
+                        loadedClosed,
+                        new Set([resolvedActiveTabId || ''])
+                    );
+                    setTabs(trimmed.tabs);
+                    setRecentlyClosed(trimmed.recentlyClosed);
 
                     // Check if current URL is a valid registered route
                     const currentRouteInfo = TabRegistry.getTabInfo(location.pathname);
@@ -250,21 +375,25 @@ export const TabProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                     if (currentRouteInfo) {
                         // Current URL is valid - respect it (user refreshed or navigated directly)
                         // Make sure we have a tab for this route
-                        const hasCurrentTab = loadedTabs.some(t => t.id === currentRouteInfo.id);
+                        const hasCurrentTab = trimmed.tabs.some(t => t.id === currentRouteInfo.id);
                         if (!hasCurrentTab) {
                             // Add current route as a new tab
-                            setTabs(prev => [...prev, {
-                                id: currentRouteInfo.id,
-                                type: 'page',
-                                title: currentRouteInfo.title,
-                                path: location.pathname,
-                                isClosable: true,
-                            }]);
+                            const currentTabs = tabsRef.current;
+                            const merged = [...currentTabs, annotateTabWithScope({
+                                    id: currentRouteInfo.id,
+                                    type: 'page' as const,
+                                    title: currentRouteInfo.title,
+                                    path: location.pathname,
+                                    isClosable: true,
+                                })];
+                            const mergedTrimmed = trimTabsForLimits(merged, recentlyClosedRef.current, new Set([currentRouteInfo.id]));
+                            setTabs(mergedTrimmed.tabs);
+                            setRecentlyClosed(mergedTrimmed.recentlyClosed);
                         }
                         setActiveTabId(currentRouteInfo.id);
-                    } else if (workspace.activeTabId) {
+                    } else if (resolvedActiveTabId) {
                         // Current URL is not a known route - fall back to saved active tab
-                        const activeTab = loadedTabs.find(t => t.id === workspace.activeTabId);
+                        const activeTab = trimmed.tabs.find(t => t.id === resolvedActiveTabId);
 
                         if (activeTab) {
                             // Don't restore sessions tab - always default to issues
@@ -274,7 +403,7 @@ export const TabProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                                 return;
                             }
 
-                            setActiveTabId(workspace.activeTabId);
+                            setActiveTabId(resolvedActiveTabId);
 
                             // Only navigate if we're not on a public page
                             const isPublicPage = location.pathname === '/' ||
@@ -312,7 +441,7 @@ export const TabProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             }
         }
         loadWorkspace();
-    }, [selectedProject?.id, isProjectLoading, getPathPrefix, normalizePath, location.pathname, navigate, setActiveTabId]); // Wait for project loading AND id
+    }, [selectedProject?.id, isProjectLoading, getPathPrefix, normalizePath, location.pathname, navigate, setActiveTabId, annotateTabWithScope]); // Wait for project loading AND id
 
     // Auto-open tabs when URL changes based on TabRegistry
     // Skip the initial auto-open if we just loaded tabs from backend (to avoid overriding)
@@ -321,37 +450,47 @@ export const TabProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
         const info = TabRegistry.getTabInfo(location.pathname);
         if (!info) return;
-
-        setTabs((prevTabs) => {
-            const existingTab = prevTabs.find((t) => t.id === info.id);
-            if (existingTab) {
-                // Tab exists - update path if needed
-                if (existingTab.path !== location.pathname) {
-                    return prevTabs.map(t => t.id === info.id ? { ...t, path: location.pathname } : t);
-                }
-                return prevTabs;
+        const currentTabs = tabsRef.current;
+        const existingTab = currentTabs.find((t) => t.id === info.id);
+        if (existingTab) {
+            if (existingTab.path !== location.pathname) {
+                const updatedTabs = currentTabs.map(t => t.id === info.id ? annotateTabWithScope({ ...t, path: location.pathname }) : t);
+                setTabs(updatedTabs);
             }
-            // New tab - add it
-            return [...prevTabs, { id: info.id, type: 'page', title: info.title, path: location.pathname, isClosable: true }];
-        });
+            setActiveTabId(info.id);
+            return;
+        }
+        const merged = [...currentTabs, annotateTabWithScope({
+            id: info.id,
+            type: 'page',
+            title: info.title,
+            path: location.pathname,
+            isClosable: true,
+        })];
+        const trimmed = trimTabsForLimits(merged, recentlyClosedRef.current, new Set([info.id]));
+        setTabs(trimmed.tabs);
+        setRecentlyClosed(trimmed.recentlyClosed);
         setActiveTabId(info.id);
-    }, [location.pathname, hasLoaded, setActiveTabId]);
+    }, [location.pathname, hasLoaded, setActiveTabId, annotateTabWithScope]);
 
 
     const openTab = useCallback((newTab: Omit<Tab, 'isClosable'> & { isClosable?: boolean }) => {
-        setTabs((prevTabs) => {
-            const existingTab = prevTabs.find((t) => t.id === newTab.id);
-            if (existingTab) {
-                // Tab already exists - update path if changed
-                if (existingTab.path !== newTab.path) {
-                    return prevTabs.map(t => t.id === newTab.id ? { ...t, ...newTab, isClosable: newTab.isClosable ?? true } : t);
-                }
-                return prevTabs;
+        const currentTabs = tabsRef.current;
+        const normalizedNewTab = annotateTabWithScope({ ...newTab, isClosable: newTab.isClosable ?? true });
+        const existingTab = currentTabs.find((t) => t.id === newTab.id);
+        if (existingTab) {
+            if (existingTab.path !== newTab.path || existingTab.title !== newTab.title) {
+                setTabs(currentTabs.map(t => t.id === newTab.id ? normalizedNewTab : t));
             }
-            return [...prevTabs, { ...newTab, isClosable: newTab.isClosable ?? true }];
-        });
+            setActiveTabId(newTab.id);
+            return;
+        }
+        const merged = [...currentTabs, normalizedNewTab];
+        const trimmed = trimTabsForLimits(merged, recentlyClosedRef.current, new Set([newTab.id]));
+        setTabs(trimmed.tabs);
+        setRecentlyClosed(trimmed.recentlyClosed);
         setActiveTabId(newTab.id);
-    }, [setActiveTabId]);
+    }, [setActiveTabId, annotateTabWithScope]);
 
     const closeTab = useCallback((id: string, event?: React.MouseEvent) => {
         if (event) {
@@ -371,7 +510,13 @@ export const TabProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setTabs(newTabs);
 
         // Then add to recently closed (keep last 10)
-        setRecentlyClosed(prev => [...prev.slice(-9), closedTab]);
+        setRecentlyClosed(prev => appendRecentlyClosed(prev, [closedTab]));
+
+        // Close split pane if its tab is closed.
+        if (secondaryTabId === id) {
+            setSecondaryTabId(null);
+            setIsSplitView(false);
+        }
 
         // If closing active tab, switch to adjacent tab
         if (id === currentActiveId && newTabs.length > 0) {
@@ -386,13 +531,15 @@ export const TabProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             const prefix = getPathPrefix();
             navigate(`${prefix}/issues`, { replace: true });
         }
-    }, [navigate, setActiveTabId, getPathPrefix]);
+    }, [navigate, setActiveTabId, getPathPrefix, secondaryTabId]);
 
     const closeAllTabs = useCallback(() => {
         const currentTabs = tabsRef.current;
-        setRecentlyClosed(prev => [...prev.slice(-10 + currentTabs.length), ...currentTabs]);
+        setRecentlyClosed(prev => appendRecentlyClosed(prev, currentTabs));
         setTabs([]);
         setActiveTabId('');
+        setSecondaryTabId(null);
+        setIsSplitView(false);
         navigate(`${getPathPrefix()}/issues`, { replace: true });
     }, [navigate, setActiveTabId, getPathPrefix]);
 
@@ -400,10 +547,40 @@ export const TabProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         const currentTabs = tabsRef.current;
         const closedTabs = currentTabs.filter((t) => t.id !== id && t.isClosable);
         const remainingTabs = currentTabs.filter((t) => t.id === id || !t.isClosable);
-        setRecentlyClosed(prev => [...prev.slice(-10 + closedTabs.length), ...closedTabs]);
+        setRecentlyClosed(prev => appendRecentlyClosed(prev, closedTabs));
         setTabs(remainingTabs);
         setActiveTabId(id);
-    }, [setActiveTabId]);
+        if (secondaryTabId && secondaryTabId !== id && !remainingTabs.some(t => t.id === secondaryTabId)) {
+            setSecondaryTabId(null);
+            setIsSplitView(false);
+        }
+    }, [setActiveTabId, secondaryTabId]);
+
+    const closeStaleTabs = useCallback(() => {
+        const currentTabs = tabsRef.current;
+        const currentActiveId = activeTabIdRef.current;
+        if (currentTabs.length <= STALE_TAB_KEEP_COUNT) return;
+
+        const closable = currentTabs.filter(t => t.isClosable);
+        if (closable.length <= STALE_TAB_KEEP_COUNT) return;
+
+        // Keep the newest tabs plus current active tab.
+        const keepIds = new Set<string>([currentActiveId]);
+        for (let i = currentTabs.length - 1; i >= 0 && keepIds.size < STALE_TAB_KEEP_COUNT; i--) {
+            keepIds.add(currentTabs[i].id);
+        }
+
+        const remainingTabs = currentTabs.filter(t => !t.isClosable || keepIds.has(t.id));
+        const closedTabs = currentTabs.filter(t => t.isClosable && !keepIds.has(t.id));
+        if (closedTabs.length === 0) return;
+
+        setTabs(remainingTabs);
+        setRecentlyClosed(prev => appendRecentlyClosed(prev, closedTabs));
+        if (secondaryTabId && !remainingTabs.some(t => t.id === secondaryTabId)) {
+            setSecondaryTabId(null);
+            setIsSplitView(false);
+        }
+    }, [secondaryTabId]);
 
     const reorderTabs = useCallback((startIndex: number, endIndex: number) => {
         setTabs((prev) => {
@@ -417,25 +594,67 @@ export const TabProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const reopenTab = useCallback(() => {
         const currentClosed = recentlyClosedRef.current;
         if (currentClosed.length === 0) return;
-        const tabToReopen = currentClosed[currentClosed.length - 1];
-        setRecentlyClosed(prev => prev.slice(0, -1));
-        setTabs(prev => [...prev, tabToReopen]);
+        const tabToReopen = annotateTabWithScope(currentClosed[currentClosed.length - 1]);
+        const remainingClosed = currentClosed.slice(0, -1);
+        const reopened = [...tabsRef.current, tabToReopen];
+        const trimmed = trimTabsForLimits(reopened, remainingClosed, new Set([tabToReopen.id]));
+        setRecentlyClosed(trimmed.recentlyClosed);
+        setTabs(trimmed.tabs);
         setActiveTabId(tabToReopen.id);
         navigate(tabToReopen.path, { replace: true });
-    }, [navigate, setActiveTabId]);
+    }, [navigate, setActiveTabId, annotateTabWithScope]);
+
+    const openTabInSplit = useCallback((id: string) => {
+        const currentTabs = tabsRef.current;
+        if (!currentTabs.some(t => t.id === id)) return;
+
+        let nextSecondaryId = id;
+        const currentActiveId = activeTabIdRef.current;
+        if (id === currentActiveId) {
+            const alternative = [...currentTabs].reverse().find(t => t.id !== currentActiveId);
+            if (!alternative) return;
+            nextSecondaryId = alternative.id;
+        }
+
+        setSecondaryTabId(nextSecondaryId);
+        setIsSplitView(true);
+    }, []);
+
+    const closeSplitView = useCallback(() => {
+        setSecondaryTabId(null);
+        setIsSplitView(false);
+    }, []);
+
+    // Ensure split view stays valid when tabs change.
+    useEffect(() => {
+        if (!secondaryTabId) return;
+        const exists = tabs.some(t => t.id === secondaryTabId);
+        if (!exists) {
+            setSecondaryTabId(null);
+            setIsSplitView(false);
+        }
+    }, [tabs, secondaryTabId]);
 
     return (
         <TabContext.Provider value={{
             tabs,
             activeTabId,
             recentlyClosed,
+            isSplitView,
+            secondaryTabId,
+            splitRatio: splitRatioState,
             openTab,
             closeTab,
             closeAllTabs,
             closeOtherTabs,
+            closeStaleTabs,
+            openTabInSplit,
+            closeSplitView,
+            setSplitRatio,
             setActiveTabId,
             reorderTabs,
-            reopenTab
+            reopenTab,
+            maxTabs: MAX_OPEN_TABS,
         }}>
             {children}
         </TabContext.Provider>

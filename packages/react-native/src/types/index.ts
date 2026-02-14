@@ -23,7 +23,7 @@ export interface RejourneyConfig {
 
   /** Enable or disable recording (default: true) */
   enabled?: boolean;
-  /** Video capture FPS (default: 2 = capture every 500ms) */
+  /** Visual capture FPS (default: 1 = capture every 1000ms) */
   captureFPS?: number;
   /** Maximum session duration in milliseconds (default: 30 minutes) */
   maxSessionDuration?: number;
@@ -410,8 +410,6 @@ export interface SessionMetadata {
   geoLocation?: GeoLocation;
   /** Number of events in session */
   eventCount: number;
-  /** Number of video segments */
-  videoSegmentCount?: number;
   /** Total storage size in bytes */
   storageSize: number;
   /** Session tags */
@@ -436,7 +434,6 @@ export interface SessionSummary {
   endTime?: number;
   duration?: number;
   eventCount: number;
-  videoSegmentCount?: number;
   storageSize: number;
   isComplete: boolean;
   filePath: string;
@@ -451,8 +448,6 @@ export interface ReplayState {
   speed: 0.5 | 1 | 2 | 4;
   /** Session duration */
   duration: number;
-  /** Current video segment time position */
-  currentVideoTime?: number;
   /** Events at or near current time */
   activeEvents: SessionEvent[];
 }

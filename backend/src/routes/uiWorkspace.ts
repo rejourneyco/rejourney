@@ -4,6 +4,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { db, teamMembers, uiWorkspaces, projects } from '../db/client.js';
 import { sessionAuth, asyncHandler, ApiError } from '../middleware/index.js';
 import { validate } from '../middleware/validation.js';
+import { writeApiRateLimiter } from '../middleware/rateLimit.js';
 import {
     workspaceQuerySchema,
     workspaceUpsertSchema,
@@ -88,6 +89,7 @@ router.get(
 router.put(
     '/workspace',
     sessionAuth,
+    writeApiRateLimiter,
     validate(workspaceUpsertSchema, 'body'),
     asyncHandler(async (req, res) => {
         const body = req.body;
@@ -123,6 +125,7 @@ router.put(
 router.post(
     '/workspace/reopen',
     sessionAuth,
+    writeApiRateLimiter,
     validate(workspaceReopenSchema, 'body'),
     asyncHandler(async (req, res) => {
         const body = req.body;
@@ -189,6 +192,7 @@ router.post(
 router.delete(
     '/workspace/tab/:id',
     sessionAuth,
+    writeApiRateLimiter,
     validate(workspaceQuerySchema, 'query'),
     validate(tabStateSchema.pick({ id: true }), 'params'),
     asyncHandler(async (req, res) => {
@@ -250,6 +254,7 @@ router.delete(
 router.post(
     '/workspace/reorder',
     sessionAuth,
+    writeApiRateLimiter,
     validate(workspaceReorderSchema, 'body'),
     asyncHandler(async (req, res) => {
         const body = req.body;

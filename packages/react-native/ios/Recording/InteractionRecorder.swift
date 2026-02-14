@@ -28,6 +28,7 @@ public final class InteractionRecorder: NSObject {
     private var _inputObservers = NSMapTable<UITextField, AnyObject>.weakToStrongObjects()
     private var _navigationStack: [String] = []
     private let _coalesceWindow: TimeInterval = 0.3
+    private var _lastInteractionTimestampMs: UInt64 = 0
     
     private override init() {
         super.init()
@@ -48,6 +49,11 @@ public final class InteractionRecorder: NSObject {
         _gestureAggregator = nil
         _inputObservers.removeAllObjects()
         _navigationStack.removeAll()
+        _lastInteractionTimestampMs = 0
+    }
+    
+    @objc public func latestInteractionTimestampMs() -> UInt64 {
+        _lastInteractionTimestampMs
     }
     
     @objc public func observeTextField(_ field: UITextField) {
@@ -88,6 +94,7 @@ public final class InteractionRecorder: NSObject {
     @objc public func processRawTouches(_ event: UIEvent, in window: UIWindow) {
         guard isTracking, let agg = _gestureAggregator else { return }
         guard let touches = event.allTouches else { return }
+        _lastInteractionTimestampMs = UInt64(Date().timeIntervalSince1970 * 1000)
         for touch in touches {
             agg.processTouch(touch, in: window)
         }

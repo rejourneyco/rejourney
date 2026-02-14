@@ -25,7 +25,7 @@ public final class VisualCapture: NSObject {
     
     @objc public static let shared = VisualCapture()
     
-    @objc public var snapshotInterval: Double = 0.5
+    @objc public var snapshotInterval: Double = 1.0
     @objc public var quality: CGFloat = 0.5
     
     @objc public var isCapturing: Bool {
@@ -58,6 +58,7 @@ public final class VisualCapture: NSObject {
     
     // Industry standard batch size (20 frames per batch, not 5)
     private let _batchSize = 20
+
     
     private override init() {
         _redactionMask = RedactionMask()
@@ -135,6 +136,13 @@ public final class VisualCapture: NSObject {
         _flushBufferToDisk()
     }
     
+    /// Submit any buffered frames to the upload pipeline immediately
+    /// (regardless of batch size threshold). Packages synchronously to
+    /// avoid race conditions during backgrounding.
+    @objc public func flushBufferToNetwork() {
+        _flushBuffer()
+    }
+    
     @objc public func activateDeferredMode() {
         _deferredUntilCommit = true
     }
@@ -163,15 +171,12 @@ public final class VisualCapture: NSObject {
     
     @objc public func snapshotNow() {
         DispatchQueue.main.async { [weak self] in
-            self?._captureFrame()
+            self?._captureFrame(forced: true)
         }
     }
     
     private func _startCaptureTimer() {
         _stopCaptureTimer()
-        // Industry standard: Use default run loop mode (NOT .common)
-        // This lets the timer pause during scrolling/tracking which prevents stutter
-        // The capture will resume when scrolling stops
         _captureTimer = Timer.scheduledTimer(withTimeInterval: snapshotInterval, repeats: true) { [weak self] _ in
             self?._captureFrame()
         }
@@ -182,7 +187,7 @@ public final class VisualCapture: NSObject {
         _captureTimer = nil
     }
     
-    private func _captureFrame() {
+    private func _captureFrame(forced: Bool = false) {
         guard _stateMachine.currentState == .capturing else { return }
         
         // Skip capture if app is not in foreground (prevents "not in visible window" warnings)
@@ -202,9 +207,7 @@ public final class VisualCapture: NSObject {
             
             let redactRects = _redactionMask.computeRects()
             
-            // Use UIGraphicsBeginImageContextWithOptions for lower overhead (industry pattern)
-            let screenScale: CGFloat = 1.25 // Lower scale reduces encoding time significantly
-            UIGraphicsBeginImageContextWithOptions(bounds.size, false, screenScale)
+            UIGraphicsBeginImageContextWithOptions(bounds.size, false, 1.0)
             guard let context = UIGraphicsGetCurrentContext() else {
                 UIGraphicsEndImageContext()
                 return
@@ -262,6 +265,8 @@ public final class VisualCapture: NSObject {
             }
         }
     }
+    
+
     
     /// Enforce memory caps to prevent unbounded growth (industry standard backpressure)
     private func _enforceScreenshotCaps() {

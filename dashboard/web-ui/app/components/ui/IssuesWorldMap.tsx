@@ -91,6 +91,7 @@ export const IssuesWorldMap: React.FC<IssuesWorldMapProps> = ({
     className
 }) => {
     const [hoveredLocation, setHoveredLocation] = useState<string | null>(null);
+    const canClick = Boolean(onLocationClick);
 
     // Filter locations with issues for selected type
     const filteredLocations = useMemo(() => {
@@ -106,7 +107,7 @@ export const IssuesWorldMap: React.FC<IssuesWorldMapProps> = ({
     const yOffset = 0;
 
     return (
-        <div className={`relative w-full aspect-[2/1] bg-slate-50 border border-slate-200 shadow-sm rounded-lg overflow-hidden ${className}`}>
+        <div className={`relative w-full aspect-[2/1] bg-slate-50 border border-slate-200 shadow-sm rounded-xl overflow-hidden ${className}`}>
             {/* Background Map Image */}
             <img
                 src="/Eckert4-optimized.jpg"
@@ -116,46 +117,43 @@ export const IssuesWorldMap: React.FC<IssuesWorldMapProps> = ({
                 decoding="async"
             />
 
-            {/* Subtle overlay to make markers pop */}
-            <div className="absolute inset-0 bg-slate-900/10 pointer-events-none" />
-
-            {/* Grid Overlay */}
-            <div className="absolute inset-0 bg-[linear-gradient(rgba(15,23,42,0.05)_1px,transparent_1px),linear-gradient(90deg,rgba(15,23,42,0.05)_1px,transparent_1px)] bg-[size:20px_20px] pointer-events-none" />
+            {/* Subtle overlay to keep markers legible */}
+            <div className="absolute inset-0 bg-slate-900/[0.08] pointer-events-none" />
 
             {/* Legend */}
-            <div className="absolute bottom-4 left-4 z-10 bg-white/95 backdrop-blur border border-slate-200 p-3 shadow-sm rounded-md">
-                <div className="text-[10px] font-bold uppercase mb-2 text-slate-500 tracking-wider">
+            <div className="absolute bottom-4 left-4 z-10 bg-white/95 backdrop-blur border border-slate-200 p-3 shadow-sm rounded-lg">
+                <div className="text-[11px] font-semibold mb-2 text-slate-600">
                     {ISSUE_TYPE_CONFIG[selectedIssueType].label} Severity
                 </div>
                 <div className="space-y-1.5">
                     <div className="flex items-center gap-2">
                         <div className={`w-3 h-3 rounded-full border-2 ${SEVERITY_COLORS.critical.bg} ${SEVERITY_COLORS.critical.border}`}></div>
-                        <span className="text-[10px] font-mono">Critical (&gt;70% of max)</span>
+                        <span className="text-[11px] text-slate-600">Critical (&gt;70% of max)</span>
                     </div>
                     <div className="flex items-center gap-2">
                         <div className={`w-3 h-3 rounded-full border-2 ${SEVERITY_COLORS.high.bg} ${SEVERITY_COLORS.high.border}`}></div>
-                        <span className="text-[10px] font-mono">High (40-70%)</span>
+                        <span className="text-[11px] text-slate-600">High (40-70%)</span>
                     </div>
                     <div className="flex items-center gap-2">
                         <div className={`w-3 h-3 rounded-full border-2 ${SEVERITY_COLORS.medium.bg} ${SEVERITY_COLORS.medium.border}`}></div>
-                        <span className="text-[10px] font-mono">Medium (15-40%)</span>
+                        <span className="text-[11px] text-slate-600">Medium (15-40%)</span>
                     </div>
                     <div className="flex items-center gap-2">
                         <div className={`w-3 h-3 rounded-full border-2 ${SEVERITY_COLORS.low.bg} ${SEVERITY_COLORS.low.border}`}></div>
-                        <span className="text-[10px] font-mono">Low (&lt;15%)</span>
+                        <span className="text-[11px] text-slate-600">Low (&lt;15%)</span>
                     </div>
                 </div>
             </div>
 
             {/* Stats summary */}
-            <div className="absolute top-4 right-4 z-10 bg-white/95 backdrop-blur border border-slate-200 p-3 shadow-sm rounded-md">
-                <div className="text-[10px] font-bold uppercase mb-1 text-slate-500 tracking-wider">
+            <div className="absolute top-4 right-4 z-10 bg-white/95 backdrop-blur border border-slate-200 p-3 shadow-sm rounded-lg">
+                <div className="text-[11px] font-semibold mb-1 text-slate-600">
                     Hotspots
                 </div>
-                <div className="text-2xl font-black font-mono text-slate-900">
+                <div className="text-2xl font-semibold text-slate-900">
                     {filteredLocations.length}
                 </div>
-                <div className="text-[10px] font-mono text-slate-500">
+                <div className="text-[11px] text-slate-500">
                     locations affected
                 </div>
             </div>
@@ -177,7 +175,7 @@ export const IssuesWorldMap: React.FC<IssuesWorldMapProps> = ({
                     return (
                         <div
                             key={i}
-                            className="absolute transform -translate-x-1/2 -translate-y-1/2 group cursor-pointer"
+                            className={`absolute transform -translate-x-1/2 -translate-y-1/2 group ${canClick ? 'cursor-pointer' : 'cursor-default'}`}
                             style={{
                                 left: `${x + xOffset}%`,
                                 top: `${y + yOffset}%`,
@@ -185,7 +183,9 @@ export const IssuesWorldMap: React.FC<IssuesWorldMapProps> = ({
                             }}
                             onMouseEnter={() => setHoveredLocation(`${loc.city}-${i}`)}
                             onMouseLeave={() => setHoveredLocation(null)}
-                            onClick={() => onLocationClick?.(loc)}
+                            onClick={() => {
+                                if (onLocationClick) onLocationClick(loc);
+                            }}
                         >
                             {/* Pulse effect for critical locations */}
                             {severity === 'critical' && (
@@ -208,8 +208,8 @@ export const IssuesWorldMap: React.FC<IssuesWorldMapProps> = ({
 
                             {/* Tooltip */}
                             <div className={`absolute bottom-full left-1/2 -translate-x-1/2 mb-3 transition-all duration-200 pointer-events-none z-[1001] ${isHovered ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-1'}`}>
-                                <div className="bg-slate-800 text-white text-xs px-3 py-2 rounded shadow-lg min-w-[180px]">
-                                    <div className="font-bold text-sm mb-1">{loc.city}, {loc.country}</div>
+                                <div className="bg-slate-800 text-white text-xs px-3 py-2 rounded-lg shadow-lg min-w-[180px]">
+                                    <div className="font-semibold text-sm mb-1">{loc.city}, {loc.country}</div>
                                     <div className="text-slate-400 text-[10px] mb-2">{loc.sessions.toLocaleString()} sessions</div>
                                     <div className="border-t border-slate-700 pt-2 space-y-1">
                                         {selectedIssueType === 'all' ? (
@@ -217,36 +217,36 @@ export const IssuesWorldMap: React.FC<IssuesWorldMapProps> = ({
                                                 {loc.issues.crashes > 0 && (
                                                     <div className="flex justify-between">
                                                         <span className="text-red-400">Crashes</span>
-                                                        <span className="font-bold">{loc.issues.crashes}</span>
+                                                        <span className="font-semibold">{loc.issues.crashes}</span>
                                                     </div>
                                                 )}
                                                 {loc.issues.anrs > 0 && (
                                                     <div className="flex justify-between">
                                                         <span className="text-orange-400">ANRs</span>
-                                                        <span className="font-bold">{loc.issues.anrs}</span>
+                                                        <span className="font-semibold">{loc.issues.anrs}</span>
                                                     </div>
                                                 )}
                                                 {loc.issues.errors > 0 && (
                                                     <div className="flex justify-between">
                                                         <span className="text-amber-400">Errors</span>
-                                                        <span className="font-bold">{loc.issues.errors}</span>
+                                                        <span className="font-semibold">{loc.issues.errors}</span>
                                                     </div>
                                                 )}
                                                 {loc.issues.rageTaps > 0 && (
                                                     <div className="flex justify-between">
                                                         <span className="text-purple-400">Rage Taps</span>
-                                                        <span className="font-bold">{loc.issues.rageTaps}</span>
+                                                        <span className="font-semibold">{loc.issues.rageTaps}</span>
                                                     </div>
                                                 )}
                                                 {loc.issues.apiErrors > 0 && (
                                                     <div className="flex justify-between">
                                                         <span className="text-blue-400">API Errors</span>
-                                                        <span className="font-bold">{loc.issues.apiErrors}</span>
+                                                        <span className="font-semibold">{loc.issues.apiErrors}</span>
                                                     </div>
                                                 )}
                                                 <div className="flex justify-between border-t border-slate-700 pt-1 mt-1">
                                                     <span className="text-white">Total</span>
-                                                    <span className="font-bold text-white">{loc.issues.total}</span>
+                                                    <span className="font-semibold text-white">{loc.issues.total}</span>
                                                 </div>
                                             </>
                                         ) : (
@@ -254,7 +254,7 @@ export const IssuesWorldMap: React.FC<IssuesWorldMapProps> = ({
                                                 <span className={ISSUE_TYPE_CONFIG[selectedIssueType].color}>
                                                     {ISSUE_TYPE_CONFIG[selectedIssueType].label}
                                                 </span>
-                                                <span className="font-bold">{count}</span>
+                                                <span className="font-semibold">{count}</span>
                                             </div>
                                         )}
                                     </div>
@@ -263,11 +263,6 @@ export const IssuesWorldMap: React.FC<IssuesWorldMapProps> = ({
                         </div>
                     );
                 })}
-            </div>
-
-            {/* Projection label */}
-            <div className="absolute bottom-4 right-4 font-mono text-[10px] text-white bg-slate-900/80 px-2 py-1 border border-slate-700">
-                ECKERT IV PROJECTION
             </div>
         </div>
     );

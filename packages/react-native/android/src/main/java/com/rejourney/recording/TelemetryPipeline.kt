@@ -178,15 +178,17 @@ class TelemetryPipeline private constructor(private val context: Context) {
         if (draining) return
         draining = true
         
-        // Flush visual frames immediately
+        // Flush visual frames to disk for crash safety
         VisualCapture.shared?.flushToDisk()
+        // Submit any buffered frames to the upload pipeline (even if below batch threshold)
+        VisualCapture.shared?.flushBufferToNetwork()
         
         // Try to upload pending data
         serialWorker.execute {
             shipPendingEvents()
             shipPendingFrames()
             
-            Thread.sleep(500)
+            Thread.sleep(2000)
             draining = false
         }
     }

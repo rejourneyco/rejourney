@@ -20,16 +20,16 @@ export const NeoBadge: React.FC<NeoBadgeProps> = ({
 
     const variants = {
         neutral: "bg-slate-50 text-slate-600 border-slate-200",
-        success: "bg-emerald-50 text-emerald-700 border-emerald-200",
-        warning: "bg-amber-50 text-amber-700 border-amber-200",
-        danger: "bg-red-50 text-red-700 border-red-200",
-        info: "bg-cyan-50 text-cyan-700 border-cyan-200",
-        anr: "bg-purple-50 text-purple-700 border-purple-200",
-        rage: "bg-rose-50 text-rose-700 border-rose-200",
-        dead_tap: "bg-stone-50 text-stone-700 border-stone-300",
-        slow_start: "bg-orange-50 text-orange-700 border-orange-200",
-        slow_api: "bg-pink-50 text-pink-700 border-pink-200",
-        low_exp: "bg-indigo-50 text-indigo-700 border-indigo-200"
+        success: "bg-emerald-50 text-emerald-700 border-emerald-100",
+        warning: "bg-amber-50 text-amber-700 border-amber-100",
+        danger: "bg-rose-50 text-rose-700 border-rose-100",
+        info: "bg-sky-50 text-sky-700 border-sky-100",
+        anr: "bg-violet-50 text-violet-700 border-violet-100",
+        rage: "bg-pink-50 text-pink-700 border-pink-100",
+        dead_tap: "bg-stone-50 text-stone-700 border-stone-200",
+        slow_start: "bg-orange-50 text-orange-700 border-orange-100",
+        slow_api: "bg-indigo-50 text-indigo-700 border-indigo-100",
+        low_exp: "bg-blue-50 text-blue-700 border-blue-100"
     };
 
     const sizes = {

@@ -62,33 +62,7 @@ export default function LoginPage() {
                 localStorage.removeItem('returnUrl');
                 navigate(returnUrl, { replace: true });
             } else {
-                // Check if user has projects - if not, trigger project creation
-                fetch(`${API_BASE_URL || ''}/api/projects`, {
-                    credentials: 'include',
-                })
-                    .then((response) => {
-                        if (response.ok) {
-                            return response.json();
-                        }
-                        return [];
-                    })
-                    .then((projects) => {
-                        if (projects.length === 0) {
-                            // No projects - redirect to dashboard and trigger project creation modal
-                            navigate('/dashboard/issues', { replace: true });
-                            // Trigger the add project modal after a short delay to ensure the page loads
-                            setTimeout(() => {
-                                window.dispatchEvent(new CustomEvent('openAddProjectModal'));
-                            }, 500);
-                        } else {
-                            // Default redirect for users with projects
-                            navigate('/dashboard/issues', { replace: true });
-                        }
-                    })
-                    .catch(() => {
-                        // Default redirect if project check fails
-                        navigate('/dashboard/issues', { replace: true });
-                    });
+                navigate('/dashboard/issues', { replace: true });
             }
         }
     }, [isAuthenticated, authLoading, navigate]);
@@ -204,27 +178,6 @@ export default function LoginPage() {
                     localStorage.removeItem('returnUrl');
                     navigate(returnUrl);
                 } else {
-                    // Check if user has projects - if not, trigger project creation
-                    try {
-                        const response = await fetch(`${API_BASE_URL || ''}/api/projects`, {
-                            credentials: 'include',
-                        });
-                        if (response.ok) {
-                            const projects = await response.json();
-                            if (projects.length === 0) {
-                                // No projects - redirect to dashboard and trigger project creation modal
-                                navigate('/dashboard/issues');
-                                // Trigger the add project modal after a short delay to ensure the page loads
-                                setTimeout(() => {
-                                    window.dispatchEvent(new CustomEvent('openAddProjectModal'));
-                                }, 500);
-                                return;
-                            }
-                        }
-                    } catch (err) {
-                        console.warn('Failed to check projects:', err);
-                    }
-                    // Default redirect for users with projects
                     navigate('/dashboard/issues');
                 }
             } else {

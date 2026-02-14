@@ -10,6 +10,7 @@ import type { Route } from "./+types/_dashboard";
 import { useEffect } from "react";
 import { ProjectLayout } from "~/components/layout/AppLayout";
 import { TabBar } from "~/components/layout/TabBar";
+import { TabWorkspace } from "~/components/layout/TabWorkspace";
 import { useAuth } from "~/context/AuthContext";
 import { SessionDataProvider } from "~/context/SessionContext";
 import { TabProvider } from "~/context/TabContext";
@@ -56,11 +57,11 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 function DashboardLayoutContent() {
     return (
         <ProjectLayout pathPrefix="/dashboard">
-            <div className="flex flex-col h-full bg-gray-50">
+            <div className="flex flex-col h-full min-h-0 bg-gray-50">
                 <TabBar pathPrefix="/dashboard" />
-                <div className="flex-1 overflow-y-auto">
+                <TabWorkspace>
                     <Outlet />
-                </div>
+                </TabWorkspace>
             </div>
         </ProjectLayout>
     );

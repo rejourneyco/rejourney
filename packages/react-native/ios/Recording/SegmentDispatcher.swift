@@ -57,6 +57,22 @@ final class SegmentDispatcher {
     private let retryLock = NSLock()
     private var active = true
     
+    private let metricsLock = NSLock()
+    private var uploadSuccessCount = 0
+    private var uploadFailureCount = 0
+    private var retryAttemptCount = 0
+    private var circuitBreakerOpenCount = 0
+    private var memoryEvictionCount = 0
+    private var offlinePersistCount = 0
+    private var sessionStartCount = 0
+    private var crashCount = 0
+    private var totalBytesUploaded: Int64 = 0
+    private var totalBytesEvicted: Int64 = 0
+    private var totalUploadDurationMs: Double = 0
+    private var uploadDurationSampleCount = 0
+    private var lastUploadTime: Int64?
+    private var lastRetryTime: Int64?
+    
     private init() {}
     
     func configure(replayId: String, apiToken: String?, credential: String?, projectId: String?, isSampledIn: Bool = true) {
@@ -68,6 +84,7 @@ final class SegmentDispatcher {
         batchSeqNumber = 0
         billingBlocked = false
         consecutiveFailures = 0
+        resetSessionTelemetry()
     }
     
     /// Reactivate the dispatcher for a new session
@@ -148,11 +165,19 @@ final class SegmentDispatcher {
         }
     }
     
-    func concludeReplay(replayId: String, concludedAt: UInt64, backgroundDurationMs: UInt64, metrics: [String: Any]?, completion: @escaping (Bool) -> Void) {
+    func concludeReplay(
+        replayId: String,
+        concludedAt: UInt64,
+        backgroundDurationMs: UInt64,
+        metrics: [String: Any]?,
+        currentQueueDepth: Int = 0,
+        completion: @escaping (Bool) -> Void
+    ) {
         guard let url = URL(string: "\(endpoint)/api/ingest/session/end") else {
             completion(false)
             return
         }
+        ingestFinalizeMetrics(metrics)
         
         var req = URLRequest(url: url)
         req.httpMethod = "POST"
@@ -162,6 +187,7 @@ final class SegmentDispatcher {
         var body: [String: Any] = ["sessionId": replayId, "endedAt": concludedAt]
         if backgroundDurationMs > 0 { body["totalBackgroundTimeMs"] = backgroundDurationMs }
         if let m = metrics { body["metrics"] = m }
+        body["sdkTelemetry"] = sdkTelemetrySnapshot(currentQueueDepth: currentQueueDepth)
         
         do {
             req.httpBody = try JSONSerialization.data(withJSONObject: body)
@@ -222,7 +248,17 @@ final class SegmentDispatcher {
     
     private func registerFailure() {
         consecutiveFailures += 1
+        metricsLock.lock()
+        uploadFailureCount += 1
+        metricsLock.unlock()
+        
         if consecutiveFailures >= circuitBreakerThreshold {
+            metricsLock.lock()
+            if !circuitOpen {
+                circuitBreakerOpenCount += 1
+            }
+            metricsLock.unlock()
+            
             circuitOpen = true
             circuitOpenTime = Date().timeIntervalSince1970
         }
@@ -230,6 +266,10 @@ final class SegmentDispatcher {
     
     private func registerSuccess() {
         consecutiveFailures = 0
+        metricsLock.lock()
+        uploadSuccessCount += 1
+        lastUploadTime = Self.nowMs()
+        metricsLock.unlock()
     }
     
     private func scheduleUpload(_ upload: PendingUpload, completion: ((Bool) -> Void)?) {
@@ -260,7 +300,7 @@ final class SegmentDispatcher {
                 return
             }
             
-            self.uploadToS3(url: presign.presignedUrl, payload: upload.payload, contentType: upload.contentType) { s3ok in
+            self.uploadToS3(url: presign.presignedUrl, payload: upload.payload) { s3ok in
                 guard s3ok else {
                     self.registerFailure()
                     self.scheduleRetryIfNeeded(upload, completion: completion)
@@ -284,6 +324,11 @@ final class SegmentDispatcher {
             retryLock.lock()
             retryQueue.append(retry)
             retryLock.unlock()
+            
+            metricsLock.lock()
+            retryAttemptCount += 1
+            lastRetryTime = Self.nowMs()
+            metricsLock.unlock()
         }
         completion?(false)
     }
@@ -316,7 +361,7 @@ final class SegmentDispatcher {
         
         if upload.contentType == "events" {
             body["contentType"] = "events"
-            body["batchNumber"] = batchSeqNumber
+            body["batchNumber"] = upload.batchNumber
             body["isSampledIn"] = isSampledIn  // Server-side enforcement
         } else {
             body["kind"] = upload.contentType
@@ -368,7 +413,7 @@ final class SegmentDispatcher {
         }.resume()
     }
     
-    private func uploadToS3(url: String, payload: Data, contentType: String, completion: @escaping (Bool) -> Void) {
+    private func uploadToS3(url: String, payload: Data, completion: @escaping (Bool) -> Void) {
         guard let uploadUrl = URL(string: url) else {
             completion(false)
             return
@@ -377,16 +422,25 @@ final class SegmentDispatcher {
         var req = URLRequest(url: uploadUrl)
         req.httpMethod = "PUT"
         
-        switch contentType {
-        case "video": req.setValue("video/mp4", forHTTPHeaderField: "Content-Type")
-        default: req.setValue("application/gzip", forHTTPHeaderField: "Content-Type")
-        }
+        req.setValue("application/gzip", forHTTPHeaderField: "Content-Type")
         
         req.httpBody = payload
+        let startMs = Date().timeIntervalSince1970 * 1000
         
         httpSession.dataTask(with: req) { _, resp, _ in
             let status = (resp as? HTTPURLResponse)?.statusCode ?? 0
-            completion(status >= 200 && status < 300)
+            let succeeded = status >= 200 && status < 300
+            let durationMs = (Date().timeIntervalSince1970 * 1000) - startMs
+            
+            self.metricsLock.lock()
+            self.uploadDurationSampleCount += 1
+            self.totalUploadDurationMs += durationMs
+            if succeeded {
+                self.totalBytesUploaded += Int64(payload.count)
+            }
+            self.metricsLock.unlock()
+            
+            completion(succeeded)
         }.resume()
     }
     
@@ -407,6 +461,7 @@ final class SegmentDispatcher {
             "actualSizeBytes": upload.payload.count,
             "timestamp": Date().timeIntervalSince1970 * 1000
         ]
+        body["sdkTelemetry"] = sdkTelemetrySnapshot(currentQueueDepth: 0)
         
         if upload.contentType == "events" {
             body["batchId"] = batchId
@@ -436,7 +491,8 @@ final class SegmentDispatcher {
             rangeStart: 0,
             rangeEnd: 0,
             itemCount: eventCount,
-            attempt: 0
+            attempt: 0,
+            batchNumber: batchNum
         )
         
         requestPresignedUrl(upload: upload) { [weak self] presignResponse in
@@ -446,7 +502,7 @@ final class SegmentDispatcher {
                 return
             }
             
-            self.uploadToS3(url: presign.presignedUrl, payload: payload, contentType: "events") { s3ok in
+            self.uploadToS3(url: presign.presignedUrl, payload: payload) { s3ok in
                 guard s3ok else {
                     self.registerFailure()
                     completion?(false)
@@ -474,6 +530,81 @@ final class SegmentDispatcher {
             req.setValue(sid, forHTTPHeaderField: "x-session-id")
         }
     }
+    
+    private func ingestFinalizeMetrics(_ metrics: [String: Any]?) {
+        guard let crashes = (metrics?["crashCount"] as? NSNumber)?.intValue else { return }
+        metricsLock.lock()
+        crashCount = max(crashCount, crashes)
+        metricsLock.unlock()
+    }
+    
+    func sdkTelemetrySnapshot(currentQueueDepth: Int = 0) -> [String: Any] {
+        retryLock.lock()
+        let retryDepth = retryQueue.count
+        retryLock.unlock()
+        
+        metricsLock.lock()
+        let successCount = uploadSuccessCount
+        let failureCount = uploadFailureCount
+        let retryCount = retryAttemptCount
+        let breakerCount = circuitBreakerOpenCount
+        let memoryEvictions = memoryEvictionCount
+        let offlinePersists = offlinePersistCount
+        let starts = sessionStartCount
+        let crashes = crashCount
+        let uploadedBytes = totalBytesUploaded
+        let evictedBytes = totalBytesEvicted
+        let avgUploadDurationMs = uploadDurationSampleCount > 0
+            ? totalUploadDurationMs / Double(uploadDurationSampleCount)
+            : 0
+        let uploadTs = lastUploadTime
+        let retryTs = lastRetryTime
+        metricsLock.unlock()
+        
+        let totalUploads = successCount + failureCount
+        let successRate = totalUploads > 0 ? Double(successCount) / Double(totalUploads) : 1.0
+        
+        return [
+            "uploadSuccessCount": successCount,
+            "uploadFailureCount": failureCount,
+            "retryAttemptCount": retryCount,
+            "circuitBreakerOpenCount": breakerCount,
+            "memoryEvictionCount": memoryEvictions,
+            "offlinePersistCount": offlinePersists,
+            "sessionStartCount": starts,
+            "crashCount": crashes,
+            "uploadSuccessRate": successRate,
+            "avgUploadDurationMs": avgUploadDurationMs,
+            "currentQueueDepth": currentQueueDepth + retryDepth,
+            "lastUploadTime": uploadTs.map { NSNumber(value: $0) } ?? NSNull(),
+            "lastRetryTime": retryTs.map { NSNumber(value: $0) } ?? NSNull(),
+            "totalBytesUploaded": uploadedBytes,
+            "totalBytesEvicted": evictedBytes
+        ]
+    }
+    
+    private func resetSessionTelemetry() {
+        metricsLock.lock()
+        uploadSuccessCount = 0
+        uploadFailureCount = 0
+        retryAttemptCount = 0
+        circuitBreakerOpenCount = 0
+        memoryEvictionCount = 0
+        offlinePersistCount = 0
+        sessionStartCount = 1
+        crashCount = 0
+        totalBytesUploaded = 0
+        totalBytesEvicted = 0
+        totalUploadDurationMs = 0
+        uploadDurationSampleCount = 0
+        lastUploadTime = nil
+        lastRetryTime = nil
+        metricsLock.unlock()
+    }
+    
+    private static func nowMs() -> Int64 {
+        Int64(Date().timeIntervalSince1970 * 1000)
+    }
 }
 
 private struct PendingUpload {
@@ -484,6 +615,7 @@ private struct PendingUpload {
     let rangeEnd: UInt64
     let itemCount: Int
     var attempt: Int
+    let batchNumber: Int = 0
 }
 
 private struct PresignResponse {

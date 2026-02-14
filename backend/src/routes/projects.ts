@@ -7,18 +7,26 @@
 import { Router } from 'express';
 import { randomBytes } from 'crypto';
 import { eq, and, inArray, gte, isNull, sql, sum, desc, ne } from 'drizzle-orm';
-import { db, projects, teamMembers, sessions, sessionMetrics, apiKeys } from '../db/client.js';
+import { db, projects, teamMembers, sessions, sessionMetrics, teams } from '../db/client.js';
 import { getRedis } from '../db/redis.js';
 import { logger } from '../logger.js';
 import { sessionAuth, requireProjectAccess, asyncHandler, ApiError } from '../middleware/index.js';
 import { validate } from '../middleware/validation.js';
-import { dashboardRateLimiter } from '../middleware/rateLimit.js';
+import { dashboardRateLimiter, writeApiRateLimiter } from '../middleware/rateLimit.js';
 import {
     createProjectSchema,
     updateProjectSchema,
     projectIdParamSchema,
+    requestDeleteProjectOtpSchema,
+    deleteProjectSchema,
 } from '../validation/projects.js';
 import { auditFromRequest } from '../services/auditLog.js';
+import { hardDeleteProject } from '../services/deletion.js';
+import { sendDeletionOtp, verifyDeletionOtp } from '../services/deleteOtp.js';
+import {
+    assertNoDuplicateContentSpam,
+    enforceNewAccountActionLimit,
+} from '../services/abuseDetection.js';
 
 const router = Router();
 
@@ -95,6 +103,7 @@ router.get(
 router.post(
     '/',
     sessionAuth,
+    writeApiRateLimiter,
     dashboardRateLimiter,
     validate(createProjectSchema),
     asyncHandler(async (req, res) => {
@@ -125,6 +134,18 @@ router.post(
                 throw ApiError.forbidden('No access to this team');
             }
         }
+
+        await enforceNewAccountActionLimit({
+            userId: req.user!.id,
+            action: 'project_create',
+        });
+
+        await assertNoDuplicateContentSpam({
+            actorId: req.user!.id,
+            action: 'project_create',
+            contentParts: [data.name, data.webDomain, data.bundleId, data.packageName],
+            targetId: teamId,
+        });
 
         // Check for duplicate bundle IDs (if provided)
         if (data.bundleId) {
@@ -236,6 +257,7 @@ router.get(
 router.put(
     '/:id',
     sessionAuth,
+    writeApiRateLimiter,
     validate(projectIdParamSchema, 'params'),
     validate(updateProjectSchema),
     requireProjectAccess,
@@ -324,6 +346,25 @@ router.put(
             packageName = data.packageName;
         }
 
+        if (
+            data.name !== undefined ||
+            data.webDomain !== undefined ||
+            bundleId !== undefined ||
+            packageName !== undefined
+        ) {
+            await assertNoDuplicateContentSpam({
+                actorId: req.user!.id,
+                action: 'project_update',
+                contentParts: [
+                    data.name,
+                    typeof data.webDomain === 'string' ? data.webDomain : null,
+                    bundleId,
+                    packageName,
+                ],
+                targetId: req.params.id,
+            });
+        }
+
         // Build update object, only including fields that should be updated
         const updateData: Record<string, any> = {
             updatedAt: new Date(),
@@ -383,55 +424,134 @@ router.put(
 );
 
 /**
- * Delete project (soft delete)
+ * Send project deletion OTP
+ * POST /api/projects/:id/delete-otp
+ */
+router.post(
+    '/:id/delete-otp',
+    sessionAuth,
+    writeApiRateLimiter,
+    validate(projectIdParamSchema, 'params'),
+    validate(requestDeleteProjectOtpSchema),
+    dashboardRateLimiter,
+    asyncHandler(async (req, res) => {
+        const projectId = req.params.id;
+        const { confirmText } = req.body;
+
+        const [projectResult] = await db
+            .select({
+                project: projects,
+                ownerUserId: teams.ownerUserId,
+            })
+            .from(projects)
+            .innerJoin(teams, eq(projects.teamId, teams.id))
+            .where(eq(projects.id, projectId))
+            .limit(1);
+
+        if (!projectResult) {
+            throw ApiError.notFound('Project not found');
+        }
+
+        if (projectResult.ownerUserId !== req.user!.id) {
+            throw ApiError.forbidden('Only the team owner can delete projects');
+        }
+
+        const expectedConfirmText =
+            projectResult.project.name && projectResult.project.name.trim().length > 0
+                ? projectResult.project.name
+                : projectResult.project.id;
+        if (confirmText !== expectedConfirmText) {
+            throw ApiError.badRequest(
+                `Confirmation text must match project ${projectResult.project.name ? 'name' : 'ID'} exactly`
+            );
+        }
+
+        const otpResult = await sendDeletionOtp({
+            scope: 'project',
+            resourceId: projectResult.project.id,
+            userId: req.user!.id,
+            userEmail: req.user!.email,
+        });
+
+        res.json({
+            success: true,
+            message: 'OTP sent to your email. Enter it to confirm project deletion.',
+            expiresInMinutes: otpResult.expiresInMinutes,
+            ...(otpResult.devCode ? { devCode: otpResult.devCode } : {}),
+        });
+    })
+);
+
+/**
+ * Delete project (hard delete, OTP confirmed)
  * DELETE /api/projects/:id
  */
 router.delete(
     '/:id',
     sessionAuth,
+    writeApiRateLimiter,
     validate(projectIdParamSchema, 'params'),
-    requireProjectAccess,
+    validate(deleteProjectSchema),
     asyncHandler(async (req, res) => {
         const projectId = req.params.id;
+        const { confirmText, otpCode } = req.body;
 
-        // Verify admin/owner access
-        const [project] = await db
-            .select()
+        const [projectResult] = await db
+            .select({
+                project: projects,
+                ownerUserId: teams.ownerUserId,
+            })
             .from(projects)
+            .innerJoin(teams, eq(projects.teamId, teams.id))
             .where(eq(projects.id, projectId))
             .limit(1);
 
-        if (!project) {
+        if (!projectResult) {
             throw ApiError.notFound('Project not found');
         }
 
-        const [membership] = await db
-            .select()
-            .from(teamMembers)
-            .where(and(eq(teamMembers.teamId, project.teamId), eq(teamMembers.userId, req.user!.id)))
-            .limit(1);
-
-        if (!membership || !['owner', 'admin'].includes(membership.role)) {
-            throw ApiError.forbidden('Admin access required to delete project');
+        if (projectResult.ownerUserId !== req.user!.id) {
+            throw ApiError.forbidden('Only the team owner can delete projects');
         }
 
-        // Soft delete
-        await db.update(projects)
-            .set({ deletedAt: new Date() })
-            .where(eq(projects.id, projectId));
+        const expectedConfirmText =
+            projectResult.project.name && projectResult.project.name.trim().length > 0
+                ? projectResult.project.name
+                : projectResult.project.id;
+        if (confirmText !== expectedConfirmText) {
+            throw ApiError.badRequest(
+                `Confirmation text must match project ${projectResult.project.name ? 'name' : 'ID'} exactly`
+            );
+        }
 
-        // Revoke all API keys
-        await db.update(apiKeys)
-            .set({ revokedAt: new Date() })
-            .where(eq(apiKeys.projectId, projectId));
+        await verifyDeletionOtp({
+            scope: 'project',
+            resourceId: projectResult.project.id,
+            userId: req.user!.id,
+            code: otpCode,
+        });
 
-        logger.info({ projectId, userId: req.user!.id }, 'Project deleted');
+        await hardDeleteProject({
+            id: projectResult.project.id,
+            teamId: projectResult.project.teamId,
+            name: projectResult.project.name,
+            publicKey: projectResult.project.publicKey,
+        });
+
+        try {
+            await getRedis().del(`sdk:config:${projectResult.project.publicKey}`);
+        } catch {
+            // ignore cache errors
+        }
+
+        logger.info({ projectId, userId: req.user!.id }, 'Project deleted (hard delete)');
 
         // Audit log
         await auditFromRequest(req, 'project_deleted', {
             targetType: 'project',
             targetId: projectId,
-            previousValue: { name: project.name, teamId: project.teamId },
+            previousValue: { name: projectResult.project.name, teamId: projectResult.project.teamId },
+            newValue: { hardDeleted: true, otpConfirmed: true, deletedByRole: 'owner' },
         });
 
         res.json({ success: true });

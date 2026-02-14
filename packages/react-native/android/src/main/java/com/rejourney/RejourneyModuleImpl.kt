@@ -709,26 +709,28 @@ class RejourneyModuleImpl(
     fun getSDKMetrics(promise: Promise) {
         val dispatcher = SegmentDispatcher.shared
         val pipeline = TelemetryPipeline.shared
+        val telemetry = dispatcher.sdkTelemetrySnapshot(pipeline?.getQueueDepth() ?: 0)
+        
+        fun toIntValue(key: String): Int = (telemetry[key] as? Number)?.toInt() ?: 0
+        fun toDoubleValue(key: String, fallback: Double = 0.0): Double = (telemetry[key] as? Number)?.toDouble() ?: fallback
+        fun toLongValue(key: String): Long? = (telemetry[key] as? Number)?.toLong()
         
         promise.resolve(Arguments.createMap().apply {
-            putInt("uploadSuccessCount", dispatcher.uploadSuccessCount)
-            putInt("uploadFailureCount", dispatcher.uploadFailureCount)
-            putInt("retryAttemptCount", 0)
-            putInt("circuitBreakerOpenCount", dispatcher.circuitBreakerOpenCount)
-            putInt("memoryEvictionCount", 0)
-            putInt("offlinePersistCount", 0)
-            putInt("sessionStartCount", if (ReplayOrchestrator.shared?.replayId != null) 1 else 0)
-            putInt("crashCount", 0)
-            
-            val total = dispatcher.uploadSuccessCount + dispatcher.uploadFailureCount
-            putDouble("uploadSuccessRate", if (total > 0) dispatcher.uploadSuccessCount.toDouble() / total else 1.0)
-            
-            putDouble("avgUploadDurationMs", 0.0)
-            putInt("currentQueueDepth", pipeline?.getQueueDepth() ?: 0)
-            putNull("lastUploadTime")
-            putNull("lastRetryTime")
-            putDouble("totalBytesUploaded", dispatcher.totalBytesUploaded.toDouble())
-            putInt("totalBytesEvicted", 0)
+            putInt("uploadSuccessCount", toIntValue("uploadSuccessCount"))
+            putInt("uploadFailureCount", toIntValue("uploadFailureCount"))
+            putInt("retryAttemptCount", toIntValue("retryAttemptCount"))
+            putInt("circuitBreakerOpenCount", toIntValue("circuitBreakerOpenCount"))
+            putInt("memoryEvictionCount", toIntValue("memoryEvictionCount"))
+            putInt("offlinePersistCount", toIntValue("offlinePersistCount"))
+            putInt("sessionStartCount", toIntValue("sessionStartCount"))
+            putInt("crashCount", toIntValue("crashCount"))
+            putDouble("uploadSuccessRate", toDoubleValue("uploadSuccessRate", 1.0))
+            putDouble("avgUploadDurationMs", toDoubleValue("avgUploadDurationMs", 0.0))
+            putInt("currentQueueDepth", toIntValue("currentQueueDepth"))
+            toLongValue("lastUploadTime")?.let { putDouble("lastUploadTime", it.toDouble()) } ?: putNull("lastUploadTime")
+            toLongValue("lastRetryTime")?.let { putDouble("lastRetryTime", it.toDouble()) } ?: putNull("lastRetryTime")
+            putDouble("totalBytesUploaded", toDoubleValue("totalBytesUploaded", 0.0))
+            putDouble("totalBytesEvicted", toDoubleValue("totalBytesEvicted", 0.0))
         })
     }
 
