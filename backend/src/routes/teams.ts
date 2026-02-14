@@ -9,17 +9,26 @@ import { randomBytes } from 'crypto';
 import { eq, and, count, sql, isNull } from 'drizzle-orm';
 import { db, teams, teamMembers, teamInvitations, users, projects } from '../db/client.js';
 import { logger } from '../logger.js';
-import { sessionAuth, requireTeamAccess, requireTeamAdmin, asyncHandler, ApiError } from '../middleware/index.js';
+import { sessionAuth, requireTeamAccess, requireTeamAdmin, requireTeamOwner, asyncHandler, ApiError } from '../middleware/index.js';
 import { validate } from '../middleware/validation.js';
-import { dashboardRateLimiter } from '../middleware/rateLimit.js';
+import { dashboardRateLimiter, writeApiRateLimiter, inviteRateLimiter } from '../middleware/rateLimit.js';
 import { sendTeamInviteEmail } from '../services/email.js';
 import { auditFromRequest } from '../services/auditLog.js';
+import { hardDeleteTeam } from '../services/deletion.js';
+import { sendDeletionOtp, verifyDeletionOtp } from '../services/deleteOtp.js';
+import { isDisposableEmail } from '../utils/disposableEmail.js';
+import {
+    assertNoDuplicateContentSpam,
+    enforceNewAccountActionLimit,
+} from '../services/abuseDetection.js';
 import {
     createTeamSchema,
     updateTeamSchema,
     addTeamMemberSchema,
     updateTeamMemberSchema,
     removeTeamMemberSchema,
+    requestDeleteTeamOtpSchema,
+    deleteTeamSchema,
     teamIdParamSchema,
     invitationIdParamSchema,
     acceptInvitationSchema,
@@ -61,9 +70,21 @@ router.get(
 router.post(
     '/',
     sessionAuth,
+    writeApiRateLimiter,
     dashboardRateLimiter,
     validate(createTeamSchema),
     asyncHandler(async (req, res) => {
+        await enforceNewAccountActionLimit({
+            userId: req.user!.id,
+            action: 'team_create',
+        });
+
+        await assertNoDuplicateContentSpam({
+            actorId: req.user!.id,
+            action: 'team_create',
+            contentParts: [req.body.name || `${req.user!.email.split('@')[0]}'s Team`],
+        });
+
         // Teams start on free tier - Stripe subscription created via billing flow
         const [team] = await db.insert(teams).values({
             name: req.body.name || `${req.user!.email.split('@')[0]}'s Team`,
@@ -135,10 +156,20 @@ router.get(
 router.put(
     '/:teamId',
     sessionAuth,
+    writeApiRateLimiter,
     validate(teamIdParamSchema, 'params'),
     validate(updateTeamSchema),
     requireTeamAdmin,
     asyncHandler(async (req, res) => {
+        if (req.body.name) {
+            await assertNoDuplicateContentSpam({
+                actorId: req.user!.id,
+                action: 'team_update',
+                contentParts: [req.body.name],
+                targetId: req.params.teamId,
+            });
+        }
+
         const [team] = await db.update(teams)
             .set({
                 name: req.body.name,
@@ -157,6 +188,176 @@ router.put(
         });
 
         res.json({ team });
+    })
+);
+
+/**
+ * Send team deletion OTP
+ * POST /api/teams/:teamId/delete-otp
+ *
+ * Safeguards:
+ * - Owner access required
+ * - Must provide confirmation text (team name, or team ID if no name)
+ * - If paid subscription exists, caller must acknowledge immediate downgrade
+ */
+router.post(
+    '/:teamId/delete-otp',
+    sessionAuth,
+    writeApiRateLimiter,
+    validate(teamIdParamSchema, 'params'),
+    validate(requestDeleteTeamOtpSchema),
+    requireTeamOwner,
+    dashboardRateLimiter,
+    asyncHandler(async (req, res) => {
+        const teamId = req.params.teamId;
+        const { confirmText, acknowledgeBillingDowngrade } = req.body;
+
+        const [team] = await db
+            .select({
+                id: teams.id,
+                name: teams.name,
+                ownerUserId: teams.ownerUserId,
+                stripeSubscriptionId: teams.stripeSubscriptionId,
+            })
+            .from(teams)
+            .where(eq(teams.id, teamId))
+            .limit(1);
+
+        if (!team) {
+            throw ApiError.notFound('Team not found');
+        }
+
+        const expectedConfirmText = team.name && team.name.trim().length > 0 ? team.name : team.id;
+        if (confirmText !== expectedConfirmText) {
+            throw ApiError.badRequest(
+                `Confirmation text must match team ${team.name ? 'name' : 'ID'} exactly`
+            );
+        }
+
+        const hasActiveSubscription = Boolean(team.stripeSubscriptionId);
+        if (hasActiveSubscription && acknowledgeBillingDowngrade !== true) {
+            throw ApiError.badRequest(
+                'This team has an active subscription. Confirm immediate downgrade to free tier before deletion.'
+            );
+        }
+
+        const otpResult = await sendDeletionOtp({
+            scope: 'team',
+            resourceId: team.id,
+            userId: req.user!.id,
+            userEmail: req.user!.email,
+        });
+
+        res.json({
+            success: true,
+            message: 'OTP sent to your email. Enter it to confirm team deletion.',
+            expiresInMinutes: otpResult.expiresInMinutes,
+            ...(otpResult.devCode ? { devCode: otpResult.devCode } : {}),
+        });
+    })
+);
+
+/**
+ * Delete team (hard delete, OTP confirmed)
+ * DELETE /api/teams/:teamId
+ *
+ * Safeguards:
+ * - Owner access required
+ * - Must provide confirmation text (team name, or team ID if no name)
+ * - If paid subscription exists, caller must acknowledge immediate downgrade
+ */
+router.delete(
+    '/:teamId',
+    sessionAuth,
+    writeApiRateLimiter,
+    validate(teamIdParamSchema, 'params'),
+    validate(deleteTeamSchema),
+    requireTeamOwner,
+    dashboardRateLimiter,
+    asyncHandler(async (req, res) => {
+        const teamId = req.params.teamId;
+        const { confirmText, acknowledgeBillingDowngrade, otpCode } = req.body;
+
+        const [team] = await db
+            .select({
+                id: teams.id,
+                name: teams.name,
+                ownerUserId: teams.ownerUserId,
+                stripeSubscriptionId: teams.stripeSubscriptionId,
+            })
+            .from(teams)
+            .where(eq(teams.id, teamId))
+            .limit(1);
+
+        if (!team) {
+            throw ApiError.notFound('Team not found');
+        }
+
+        const expectedConfirmText = team.name && team.name.trim().length > 0 ? team.name : team.id;
+        if (confirmText !== expectedConfirmText) {
+            throw ApiError.badRequest(
+                `Confirmation text must match team ${team.name ? 'name' : 'ID'} exactly`
+            );
+        }
+
+        const hasActiveSubscription = Boolean(team.stripeSubscriptionId);
+        if (hasActiveSubscription && acknowledgeBillingDowngrade !== true) {
+            throw ApiError.badRequest(
+                'This team has an active subscription. Confirm immediate downgrade to free tier before deletion.'
+            );
+        }
+
+        await verifyDeletionOtp({
+            scope: 'team',
+            resourceId: team.id,
+            userId: req.user!.id,
+            code: otpCode,
+        });
+
+        const [projectCountResult] = await db
+            .select({ count: count() })
+            .from(projects)
+            .where(eq(projects.teamId, teamId));
+
+        const deletionResult = await hardDeleteTeam(teamId);
+
+        logger.info({
+            teamId,
+            deletedBy: req.user!.id,
+            deletedProjectCount: deletionResult.deletedProjectCount,
+            hadActiveSubscription: deletionResult.hadActiveSubscription,
+        }, 'Team deleted (hard delete)');
+
+        await auditFromRequest(req, 'team_deleted', {
+            targetType: 'team',
+            targetId: teamId,
+            previousValue: {
+                name: team.name,
+                ownerUserId: team.ownerUserId,
+                projectCount: Number(projectCountResult?.count ?? 0),
+                hadActiveSubscription: hasActiveSubscription,
+            },
+            newValue: {
+                hardDeleted: true,
+                deletedProjectCount: deletionResult.deletedProjectCount,
+                immediateDowngradeToFree: deletionResult.hadActiveSubscription,
+                otpConfirmed: true,
+                deletedByRole: 'owner',
+            },
+        });
+
+        res.json({
+            success: true,
+            deletedProjectCount: deletionResult.deletedProjectCount,
+            billing: {
+                hadActiveSubscription: deletionResult.hadActiveSubscription,
+                subscriptionCancelled: deletionResult.subscriptionCancelled,
+                downgradedToFree: deletionResult.downgradedToFree,
+                warning: deletionResult.hadActiveSubscription
+                    ? 'Active subscription was canceled immediately and downgraded to free before deletion to prevent next-cycle charges.'
+                    : null,
+            },
+        });
     })
 );
 
@@ -211,6 +412,8 @@ router.get(
 router.post(
     '/:teamId/members',
     sessionAuth,
+    writeApiRateLimiter,
+    inviteRateLimiter,
     validate(teamIdParamSchema, 'params'),
     validate(addTeamMemberSchema),
     requireTeamAdmin,
@@ -224,6 +427,21 @@ router.post(
         if (!team) {
             throw ApiError.notFound('Team not found');
         }
+
+        await enforceNewAccountActionLimit({
+            userId: req.user!.id,
+            action: 'invite_send',
+        });
+
+        await assertNoDuplicateContentSpam({
+            actorId: req.user!.id,
+            action: 'team_invite',
+            contentParts: [normalizedEmail, role || 'member'],
+            targetId: teamId,
+            checkLinks: false,
+            maxIdenticalInWindow: 6,
+            maxIdenticalTargets: 3,
+        });
 
         // Find user by email
         const [existingUser] = await db
@@ -273,6 +491,10 @@ router.post(
             });
         } else {
             // User doesn't exist - create invitation
+            if (isDisposableEmail(normalizedEmail)) {
+                throw ApiError.badRequest('Inviting disposable email domains is blocked.');
+            }
+
             // Check if there's already a pending invitation
             const [existingInvite] = await db
                 .select()
@@ -329,6 +551,7 @@ router.post(
 router.put(
     '/:teamId/members',
     sessionAuth,
+    writeApiRateLimiter,
     validate(teamIdParamSchema, 'params'),
     validate(updateTeamMemberSchema),
     requireTeamAdmin,
@@ -366,6 +589,7 @@ router.put(
 router.delete(
     '/:teamId/members',
     sessionAuth,
+    writeApiRateLimiter,
     validate(teamIdParamSchema, 'params'),
     validate(removeTeamMemberSchema),
     requireTeamAdmin,
@@ -456,6 +680,7 @@ router.get(
 router.delete(
     '/:teamId/invitations/:invitationId',
     sessionAuth,
+    writeApiRateLimiter,
     validate(invitationIdParamSchema, 'params'),
     requireTeamAdmin,
     asyncHandler(async (req, res) => {
@@ -485,6 +710,8 @@ router.delete(
 router.post(
     '/:teamId/invitations/:invitationId/resend',
     sessionAuth,
+    writeApiRateLimiter,
+    inviteRateLimiter,
     validate(invitationIdParamSchema, 'params'),
     requireTeamAdmin,
     asyncHandler(async (req, res) => {
@@ -504,6 +731,21 @@ router.post(
         if (!invitation) {
             throw ApiError.notFound('Invitation not found');
         }
+
+        await enforceNewAccountActionLimit({
+            userId: req.user!.id,
+            action: 'invite_send',
+        });
+
+        await assertNoDuplicateContentSpam({
+            actorId: req.user!.id,
+            action: 'team_invite_resend',
+            contentParts: [invitation.email, invitation.role],
+            targetId: teamId,
+            checkLinks: false,
+            maxIdenticalInWindow: 6,
+            maxIdenticalTargets: 3,
+        });
 
         // Get team info
         const [team] = await db.select().from(teams).where(eq(teams.id, teamId)).limit(1);
@@ -539,6 +781,7 @@ router.post(
 router.post(
     '/invitations/accept',
     sessionAuth,
+    writeApiRateLimiter,
     validate(acceptInvitationSchema),
     asyncHandler(async (req, res) => {
         const { token } = req.body;

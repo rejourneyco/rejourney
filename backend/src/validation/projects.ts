@@ -35,5 +35,17 @@ export const projectIdParamSchema = z.object({
     id: z.string().uuid('Invalid project ID'),
 });
 
+export const requestDeleteProjectOtpSchema = z.object({
+    confirmText: z.string().min(1, 'Confirmation text is required'),
+});
+
+export const deleteProjectSchema = z.object({
+    confirmText: z.string().min(1, 'Confirmation text is required'),
+    otpCode: z
+        .string()
+        .length(10, 'OTP must be 10 characters')
+        .regex(/^[A-Z0-9]+$/, 'OTP must be alphanumeric'),
+});
+
 export type CreateProjectInput = z.infer<typeof createProjectSchema>;
 export type UpdateProjectInput = z.infer<typeof updateProjectSchema>;

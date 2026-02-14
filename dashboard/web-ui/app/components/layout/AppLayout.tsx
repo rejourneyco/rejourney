@@ -92,7 +92,7 @@ export const ProjectLayout: React.FC<AppLayoutProps> = ({ children, pathPrefix =
   };
 
   return (
-    <div className="flex h-screen bg-background">
+    <div className="dashboard-modern dashboard-shell flex h-screen">
       <Sidebar
         currentProject={selectedProject}
         onProjectChange={handleProjectChange}
@@ -107,9 +107,13 @@ export const ProjectLayout: React.FC<AppLayoutProps> = ({ children, pathPrefix =
       />
       <div key={routeScopeKey} className="flex-1 flex flex-col overflow-hidden">
         <TopBar currentProject={selectedProject} />
-        <div className="flex-1 overflow-y-auto bg-background">{children}</div>
+        {sessionError && (
+          <div className="mx-4 mt-3 rounded-md border border-amber-300 bg-amber-50 px-4 py-2 text-sm text-amber-900">
+            {sessionError}
+          </div>
+        )}
+        <div className="flex-1 overflow-y-auto dashboard-content">{children}</div>
       </div>
     </div>
   );
 };
-

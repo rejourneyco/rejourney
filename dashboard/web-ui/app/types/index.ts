@@ -101,8 +101,8 @@ export interface RecordingSession {
   retentionTier?: 1 | 2 | 3 | 4 | 5;
   // Computed flag indicating if the replay is expired (S3 objects deleted)
   isReplayExpired?: boolean;
-  // Replay promotion status - indicates if video was ever uploaded for this session
-  // Non-promoted sessions have event data but no video replay
+  // Replay promotion status - indicates if visual replay artifacts were uploaded for this session
+  // Non-promoted sessions have event data but no visual replay
   replayPromoted?: boolean;
   replayPromotedReason?: string | null;
   // Joined/Hydrated data

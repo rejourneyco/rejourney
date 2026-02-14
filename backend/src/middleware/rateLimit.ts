@@ -148,12 +148,57 @@ export const otpSendRateLimiter = rateLimit({
     message: 'Too many OTP requests. Please wait before requesting another code.',
 });
 
+// OTP send IP limiter (prevents email rotation abuse from one IP)
+export const otpSendIpRateLimiter = rateLimit({
+    windowMs: 15 * 60_000,
+    max: 40,
+    keyGenerator: (req) => `rate:otp:send:ip:${req.ip || 'unknown'}`,
+    failOpen: false,
+    message: 'Too many OTP requests from this network. Please try again later.',
+});
+
 // OTP verify rate limiter
 export const otpVerifyRateLimiter = rateLimit({
     ...rateLimits.auth.otpVerify,
     keyGenerator: (req) => `rate:otp:verify:${req.body?.email || req.ip}`,
     failOpen: false,
     message: 'Too many verification attempts. Please try again later.',
+});
+
+// OTP verify IP limiter (prevents many-email brute force from one IP)
+export const otpVerifyIpRateLimiter = rateLimit({
+    windowMs: 60_000,
+    max: 80,
+    keyGenerator: (req) => `rate:otp:verify:ip:${req.ip || 'unknown'}`,
+    failOpen: false,
+    message: 'Too many verification attempts from this network. Please try again later.',
+});
+
+// OAuth flow limiter
+export const oauthRateLimiter = rateLimit({
+    windowMs: 15 * 60_000,
+    max: 60,
+    keyGenerator: (req) => `rate:oauth:${req.ip || 'unknown'}`,
+    failOpen: false,
+    message: 'Too many OAuth attempts. Please try again later.',
+});
+
+// Generic write limiter for authenticated dashboard write APIs
+export const writeApiRateLimiter = rateLimit({
+    windowMs: 60_000,
+    max: 120,
+    keyGenerator: (req) => `rate:write:${req.user?.id || req.ip || 'unknown'}`,
+    failOpen: false,
+    message: 'Too many write operations. Please slow down.',
+});
+
+// Invitation-specific limiter
+export const inviteRateLimiter = rateLimit({
+    windowMs: 60 * 60_000,
+    max: 40,
+    keyGenerator: (req) => `rate:invite:${req.user?.id || req.ip || 'unknown'}:${req.params.teamId || 'global'}`,
+    failOpen: false,
+    message: 'Too many invitations sent. Please wait before sending more.',
 });
 
 // API key rate limiter

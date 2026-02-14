@@ -192,11 +192,11 @@ export interface ApiSession {
     duration: string;
     durationMinutes: string;
     eventCount: number;
-    videoSegmentCount?: number;
+    screenshotSegmentCount?: number;
     totalSizeKB: string;
     kbPerMinute: string;
     eventsSizeKB: string;
-    videoSizeKB?: string;
+    screenshotSizeKB?: string;
     networkStats: {
       total: number;
       successful: number;
@@ -511,7 +511,7 @@ export function transformToRecordingSession(session: ApiSession | ApiSessionSumm
     recordingDeletedAt: (session as any).recordingDeletedAt ?? null,
     retentionDays: (session as any).retentionDays ?? 14,
     customEventCount: (summary.customEventCount ?? metrics.customEventCount ?? 0),
-    // Replay promotion status - determines if video was ever uploaded
+    // Replay promotion status - determines if visual replay artifacts were uploaded
     replayPromoted: (session as any).replayPromoted ?? false,
     replayPromotedReason: (session as any).replayPromotedReason ?? null,
 
@@ -696,11 +696,31 @@ export async function updateProject(projectId: string, data: { name?: string; ma
 }
 
 /**
+ * Request OTP for project deletion
+ */
+export async function requestProjectDeletionOtp(
+  projectId: string,
+  payload: { confirmText: string }
+): Promise<{ success: boolean; message: string; expiresInMinutes: number; devCode?: string }> {
+  return fetchJson<{ success: boolean; message: string; expiresInMinutes: number; devCode?: string }>(
+    `/api/projects/${projectId}/delete-otp`,
+    {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }
+  );
+}
+
+/**
  * Delete a project
  */
-export async function deleteProject(projectId: string): Promise<void> {
+export async function deleteProject(
+  projectId: string,
+  payload: { confirmText: string; otpCode: string }
+): Promise<void> {
   await fetchJson<void>(`/api/projects/${projectId}`, {
     method: 'DELETE',
+    body: JSON.stringify(payload),
   });
 }
 
@@ -1778,6 +1798,46 @@ export async function updateTeam(teamId: string, updates: { name?: string; billi
   return data.team;
 }
 
+export interface DeleteTeamResponse {
+  success: boolean;
+  deletedProjectCount: number;
+  billing: {
+    hadActiveSubscription: boolean;
+    subscriptionCancelled: boolean;
+    downgradedToFree: boolean;
+    warning: string | null;
+  };
+}
+
+/**
+ * Request OTP for team deletion.
+ */
+export async function requestTeamDeletionOtp(
+  teamId: string,
+  payload: { confirmText: string; acknowledgeBillingDowngrade?: boolean }
+): Promise<{ success: boolean; message: string; expiresInMinutes: number; devCode?: string }> {
+  return fetchJson<{ success: boolean; message: string; expiresInMinutes: number; devCode?: string }>(
+    `/api/teams/${teamId}/delete-otp`,
+    {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }
+  );
+}
+
+/**
+ * Delete a team and all nested projects/data.
+ */
+export async function deleteTeam(
+  teamId: string,
+  payload: { confirmText: string; otpCode: string; acknowledgeBillingDowngrade?: boolean }
+): Promise<DeleteTeamResponse> {
+  return fetchJson<DeleteTeamResponse>(`/api/teams/${teamId}`, {
+    method: 'DELETE',
+    body: JSON.stringify(payload),
+  });
+}
+
 /**
  * Get team members
  */
@@ -2133,6 +2193,17 @@ export interface ObservabilityJourneySummary {
     failureScore: number;
     sampleSessionIds: string[];
   }>;
+  happyPathJourney: {
+    path: string[];
+    sessionCount: number;
+    crashes: number;
+    anrs: number;
+    apiErrors: number;
+    rageTaps: number;
+    failureScore: number;
+    health: 'healthy' | 'degraded';
+    sampleSessionIds: string[];
+  } | null;
   exitAfterError: Array<{
     screen: string;
     exitCount: number;
@@ -2222,6 +2293,89 @@ export async function getGrowthObservability(projectId?: string, timeRange?: str
   if (timeRange) params.set('timeRange', timeRange);
   const qs = params.toString() ? `?${params.toString()}` : '';
   return fetchJson<GrowthObservability>(`/api/analytics/growth-observability${qs}`);
+}
+
+// =============================================================================
+// Observability Deep Metrics (Sentry-style metrics derived from existing schema)
+// =============================================================================
+
+export interface ObservabilityDeepMetrics {
+  dataWindow: {
+    totalSessions: number;
+    analyzedSessions: number;
+    sampled: boolean;
+    visualReplayCoverageRate: number;
+    analyticsCoverageRate: number;
+  };
+  reliability: {
+    crashFreeSessionRate: number;
+    anrFreeSessionRate: number;
+    errorFreeSessionRate: number;
+    frustrationFreeSessionRate: number;
+    degradedSessionRate: number;
+    apiFailureRate: number;
+  };
+  performance: {
+    apiApdex: number | null;
+    p50ApiResponseMs: number | null;
+    p95ApiResponseMs: number | null;
+    p99ApiResponseMs: number | null;
+    slowApiSessionRate: number;
+    p50StartupMs: number | null;
+    p95StartupMs: number | null;
+    slowStartupRate: number;
+  };
+  impact: {
+    uniqueUsers: number;
+    affectedUsers: number;
+    affectedUserRate: number;
+    issueReoccurrenceRate: number;
+  };
+  ingestHealth: {
+    sdkUploadSuccessRate: number | null;
+    sessionsWithUploadFailures: number;
+    sessionsWithOfflinePersist: number;
+    sessionsWithMemoryEvictions: number;
+    sessionsWithCircuitBreakerOpen: number;
+    sessionsWithHeavyRetries: number;
+  };
+  networkBreakdown: Array<{
+    networkType: string;
+    sessions: number;
+    apiCalls: number;
+    apiErrorRate: number;
+    avgLatencyMs: number;
+  }>;
+  releaseRisk: Array<{
+    version: string;
+    sessions: number;
+    degradedSessions: number;
+    failureRate: number;
+    deltaVsOverall: number;
+    crashCount: number;
+    anrCount: number;
+    errorCount: number;
+    latestSeen: string;
+  }>;
+  evidenceSessions: Array<{
+    title: string;
+    description: string;
+    metric: string;
+    value: string;
+    sessionIds: string[];
+  }>;
+}
+
+export async function getObservabilityDeepMetrics(projectId?: string, timeRange?: string): Promise<ObservabilityDeepMetrics> {
+  if (isDemoMode()) {
+    return demoApiData.demoObservabilityDeepMetrics;
+  }
+
+  const params = new URLSearchParams();
+  if (projectId) params.set('projectId', projectId);
+  if (timeRange) params.set('timeRange', timeRange);
+  const qs = params.toString() ? `?${params.toString()}` : '';
+  return fetchJson<ObservabilityDeepMetrics>(`/api/analytics/observability-deep-metrics${qs}`);
 }
 
 // =============================================================================
@@ -2474,6 +2628,7 @@ export const api = {
   getCrash,
   getANRs,
   getANR,
+  getObservabilityDeepMetrics,
   getWorkspace,
   saveWorkspace,
   clearCache,

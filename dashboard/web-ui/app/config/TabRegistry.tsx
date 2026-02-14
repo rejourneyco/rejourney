@@ -41,7 +41,7 @@ const routes: Array<{
 }> = [
         { pattern: '/issues', getInfo: () => ({ id: 'issues', title: 'Issues' }), Component: IssuesFeed },
         // Analytics routes
-        { pattern: '/analytics/api', getInfo: () => ({ id: 'analytics-api', title: 'API Performance' }), Component: ApiAnalytics },
+        { pattern: '/analytics/api', getInfo: () => ({ id: 'analytics-api', title: 'API Insights' }), Component: ApiAnalytics },
         { pattern: '/analytics/growth', getInfo: () => ({ id: 'analytics-growth', title: 'Growth' }), Component: Growth },
         { pattern: '/analytics/journeys', getInfo: () => ({ id: 'analytics-journeys', title: 'User Journeys' }), Component: Journeys },
         { pattern: '/analytics/devices', getInfo: () => ({ id: 'analytics-devices', title: 'Devices' }), Component: Devices },
@@ -51,12 +51,12 @@ const routes: Array<{
         { pattern: '/stability/anrs', getInfo: () => ({ id: 'stability-anrs', title: 'ANRs' }), Component: ANRsList },
         { pattern: '/stability/errors', getInfo: () => ({ id: 'stability-errors', title: 'Errors' }), Component: ErrorsList },
         // Sessions routes
-        { pattern: '/sessions', getInfo: () => ({ id: 'sessions', title: 'Session Archive' }), Component: RecordingsList },
+        { pattern: '/sessions', getInfo: () => ({ id: 'sessions', title: 'Replays' }), Component: RecordingsList },
         // Alerts
         { pattern: '/alerts/emails', getInfo: () => ({ id: 'alerts-emails', title: 'Email Alerts' }), Component: AlertEmails },
         {
             pattern: '/sessions/:sessionId',
-            getInfo: (p) => ({ id: `session-${p.sessionId}`, title: `Session ${(p.sessionId || '').replace('session_', '').substring(0, 8)}...` }),
+            getInfo: (p) => ({ id: `session-${p.sessionId}`, title: `Replay ${(p.sessionId || '').replace('session_', '').substring(0, 8)}...` }),
             Component: RecordingDetail,
             getProps: (p) => ({ sessionId: p.sessionId })
         },

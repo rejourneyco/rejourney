@@ -344,11 +344,11 @@ export const sessions = pgTable(
         createdAt: timestamp('created_at').defaultNow().notNull(),
         updatedAt: timestamp('updated_at').defaultNow().notNull(),
 
-        // Video segment capture (new architecture)
-        segmentCount: integer('segment_count').default(0),
-        videoStorageBytes: bigint('video_storage_bytes', { mode: 'number' }).default(0),
+        // Replay artifact counters
+        replaySegmentCount: integer('replay_segment_count').default(0),
+        replayStorageBytes: bigint('replay_storage_bytes', { mode: 'number' }).default(0),
 
-        // Server-side enforcement: SDK's sampling decision (for rejecting video/screenshot uploads)
+        // Server-side enforcement: SDK sampling decision (for rejecting visual replay uploads)
         isSampledIn: boolean('is_sampled_in').default(true).notNull(),
     },
     (table) => [
@@ -403,9 +403,7 @@ export const sessionMetrics = pgTable('session_metrics', {
     sdkTotalBytesUploaded: bigint('sdk_total_bytes_uploaded', { mode: 'bigint' }),
     sdkTotalBytesEvicted: bigint('sdk_total_bytes_evicted', { mode: 'bigint' }),
 
-    // Video segment metrics (new architecture)
-    videoSegmentCount: integer('video_segment_count').default(0),
-    videoTotalBytes: bigint('video_total_bytes', { mode: 'number' }).default(0),
+    // Replay artifact metrics
     hierarchySnapshotCount: integer('hierarchy_snapshot_count').default(0),
     // Screenshot segment metrics (iOS screenshot-based capture)
     screenshotSegmentCount: integer('screenshot_segment_count').default(0),
@@ -419,21 +417,21 @@ export const recordingArtifacts = pgTable(
     {
         id: uuid('id').primaryKey().defaultRandom(),
         sessionId: varchar('session_id', { length: 64 }).notNull().references(() => sessions.id, { onDelete: 'cascade' }),
-        kind: varchar('kind', { length: 50 }).notNull(), // 'events', 'video', 'hierarchy', 'crashes', 'anrs'
+        kind: varchar('kind', { length: 50 }).notNull(), // 'events', 'screenshots', 'hierarchy', 'crashes', 'anrs'
         s3ObjectKey: text('s3_object_key').notNull(),
         sizeBytes: integer('size_bytes'),
         status: varchar('status', { length: 20 }).default('pending').notNull(),
         readyAt: timestamp('ready_at'),
         timestamp: doublePrecision('timestamp'),
-        // Video segment specific fields
+        // Replay segment timing fields
         startTime: bigint('start_time', { mode: 'number' }), // Segment start time in epoch ms
         endTime: bigint('end_time', { mode: 'number' }), // Segment end time in epoch ms
-        frameCount: integer('frame_count'), // Number of frames in video segment
+        frameCount: integer('frame_count'), // Number of frames in replay segment
         createdAt: timestamp('created_at').defaultNow().notNull(),
     },
     (table) => [
         index('recording_artifacts_session_id_idx').on(table.sessionId),
-        index('recording_artifacts_video_idx').on(table.sessionId, table.kind),
+        index('recording_artifacts_kind_idx').on(table.sessionId, table.kind),
     ]
 );
 
@@ -469,7 +467,7 @@ export const ingestJobs = pgTable(
         projectId: uuid('project_id').notNull().references(() => projects.id),
         sessionId: varchar('session_id', { length: 64 }),
         artifactId: uuid('artifact_id').references(() => recordingArtifacts.id, { onDelete: 'cascade' }),
-        kind: varchar('kind', { length: 50 }), // 'events', 'video', 'hierarchy', 'crashes', 'anrs'
+        kind: varchar('kind', { length: 50 }), // 'events', 'screenshots', 'hierarchy', 'crashes', 'anrs'
         payloadRef: text('payload_ref'),
         status: varchar('status', { length: 20 }).default('pending').notNull(),
         attempts: integer('attempts').default(0).notNull(),
@@ -695,7 +693,7 @@ export const screenTouchHeatmaps = pgTable(
         // Sample session ID for cover frame reference
         sampleSessionId: varchar('sample_session_id', { length: 64 }),
         // Timestamp (in ms since epoch) when this screen was first seen in the sample session
-        // Used to extract the correct video thumbnail frame for this screen
+        // Used to extract the correct replay thumbnail frame for this screen
         screenFirstSeenMs: bigint('screen_first_seen_ms', { mode: 'number' }),
         updatedAt: timestamp('updated_at').defaultNow().notNull(),
     },

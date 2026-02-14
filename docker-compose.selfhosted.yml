@@ -91,6 +91,10 @@ services:
       PUBLIC_API_URL: ${PUBLIC_API_URL}
       PUBLIC_INGEST_URL: ${PUBLIC_INGEST_URL}
       DASHBOARD_ORIGIN: ${DASHBOARD_ORIGIN}
+      GEOIP_PREFER_MMDB: ${GEOIP_PREFER_MMDB:-true}
+      GEOIP_MMDB_AUTO_DOWNLOAD: ${GEOIP_MMDB_AUTO_DOWNLOAD:-true}
+      GEOIP_MMDB_URL: ${GEOIP_MMDB_URL:-https://cdn.jsdelivr.net/npm/geolite2-city/GeoLite2-City.mmdb.gz}
+      GEOIP_MMDB_PATH: ${GEOIP_MMDB_PATH:-/tmp/rejourney/GeoLite2-City.mmdb}
       # Optional: Email
       SMTP_HOST: ${SMTP_HOST:-}
       SMTP_PORT: ${SMTP_PORT:-}

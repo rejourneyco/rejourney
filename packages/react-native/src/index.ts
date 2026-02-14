@@ -247,13 +247,13 @@ interface RemoteConfig {
 }
 
 // Result type for fetchRemoteConfig - distinguishes network errors from access denial
-type ConfigFetchResult = 
+type ConfigFetchResult =
   | { status: 'success'; config: RemoteConfig }
   | { status: 'network_error' }  // Proceed with defaults (fail-open)
   | { status: 'access_denied'; httpStatus: number };  // Abort recording (fail-closed)
 
 let _remoteConfig: RemoteConfig | null = null;
-let _sessionSampledOut: boolean = false; // True = telemetry only, no replay video
+let _sessionSampledOut: boolean = false; // True = telemetry only, no visual replay capture
 
 /**
  * Fetch project configuration from backend
@@ -323,7 +323,7 @@ function shouldRecordSession(sampleRate: number): boolean {
   // sampleRate is 0-100 (percentage)
   if (sampleRate >= 100) return true;
   if (sampleRate <= 0) return false;
-  
+
   const randomValue = Math.random() * 100;
   return randomValue < sampleRate;
 }
@@ -522,7 +522,7 @@ const Rejourney: RejourneyAPI = {
       // This determines if recording is enabled and at what rate
       // =========================================================
       const configResult = await fetchRemoteConfig(apiUrl, publicKey);
-      
+
       // =========================================================
       // CASE 0: Access denied (401/403) - abort immediately
       // This means project disabled, invalid key, etc - HARD STOP
@@ -531,10 +531,10 @@ const Rejourney: RejourneyAPI = {
         getLogger().info(`Recording disabled - access denied (${configResult.httpStatus})`);
         return false;
       }
-      
+
       // For success, extract the config; for network_error, proceed with null
       _remoteConfig = configResult.status === 'success' ? configResult.config : null;
-      
+
       if (_remoteConfig) {
         // =========================================================
         // CASE 1: Rejourney completely disabled - abort early, nothing captured
@@ -560,7 +560,7 @@ const Rejourney: RejourneyAPI = {
         // =========================================================
         _sessionSampledOut = !shouldRecordSession(_remoteConfig.sampleRate ?? 100);
         if (_sessionSampledOut) {
-          getLogger().info(`Session sampled out (rate: ${_remoteConfig.sampleRate}%) - telemetry only, no replay video`);
+          getLogger().info(`Session sampled out (rate: ${_remoteConfig.sampleRate}%) - telemetry only, no visual replay capture`);
         }
 
         // =========================================================
@@ -868,7 +868,6 @@ const Rejourney: RejourneyAPI = {
         duration: 0,
         deviceInfo: { model: '', os: 'ios', osVersion: '', screenWidth: 0, screenHeight: 0, pixelRatio: 1 },
         eventCount: 0,
-        videoSegmentCount: 0,
         storageSize: 0,
         sdkVersion: SDK_VERSION,
         isComplete: false,
@@ -957,10 +956,10 @@ const Rejourney: RejourneyAPI = {
   },
 
   /**
-   * Report a scroll event for video capture timing
+   * Report a scroll event for visual replay timing
    * 
    * Call this from your ScrollView's onScroll handler to improve scroll capture.
-   * The SDK captures video at 2 FPS continuously, but this helps log scroll events
+   * The SDK captures visual replay frames continuously, and this helps log scroll events
    * for timeline correlation during replay.
    * 
    * @param scrollOffset - Current scroll offset (vertical or horizontal)

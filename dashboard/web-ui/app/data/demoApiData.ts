@@ -18,6 +18,7 @@ import {
     FrictionHeatmap,
     ObservabilityJourneySummary,
     GrowthObservability,
+    ObservabilityDeepMetrics,
     UserEngagementTrends,
 } from '../services/api';
 
@@ -406,6 +407,17 @@ export const demoJourneyObservability: ObservabilityJourneySummary = {
         { path: ['Home', 'Products', 'Product Detail', 'Cart'], sessionCount: 356, crashes: 3, anrs: 0, apiErrors: 67, rageTaps: 89, failureScore: 38, sampleSessionIds: ['demo-008', 'demo-009'] },
         { path: ['Cart', 'Checkout', 'Order Confirmation'], sessionCount: 278, crashes: 2, anrs: 1, apiErrors: 45, rageTaps: 67, failureScore: 28, sampleSessionIds: ['demo-010', 'demo-011'] },
     ],
+    happyPathJourney: {
+        path: ['Home', 'Products', 'Product Detail', 'Cart', 'Checkout', 'Order Confirmation'],
+        sessionCount: 1128,
+        crashes: 0,
+        anrs: 0,
+        apiErrors: 0,
+        rageTaps: 0,
+        failureScore: 0,
+        health: 'healthy',
+        sampleSessionIds: ['demo-happy-001', 'demo-happy-002', 'demo-happy-003'],
+    },
     exitAfterError: [
         { screen: 'Checkout', exitCount: 456, errorTypes: { api: 312, crash: 45, rage: 234 }, sampleSessionIds: ['demo-err-001', 'demo-err-002'] },
         { screen: 'Cart', exitCount: 234, errorTypes: { api: 145, crash: 23, rage: 156 }, sampleSessionIds: ['demo-err-003', 'demo-err-004'] },
@@ -545,6 +557,131 @@ export const demoGrowthObservability: GrowthObservability = {
         },
     ],
     dailyHealth: generateDailyHealth(),
+};
+
+// ================================================================================
+// Observability Deep Metrics (for Replays/API page)
+// ================================================================================
+
+export const demoObservabilityDeepMetrics: ObservabilityDeepMetrics = {
+    dataWindow: {
+        totalSessions: 12847,
+        analyzedSessions: 12847,
+        sampled: false,
+        visualReplayCoverageRate: 88.4,
+        analyticsCoverageRate: 97.2,
+    },
+    reliability: {
+        crashFreeSessionRate: 98.1,
+        anrFreeSessionRate: 99.2,
+        errorFreeSessionRate: 87.6,
+        frustrationFreeSessionRate: 90.4,
+        degradedSessionRate: 21.3,
+        apiFailureRate: 1.84,
+    },
+    performance: {
+        apiApdex: 0.874,
+        p50ApiResponseMs: 168,
+        p95ApiResponseMs: 912,
+        p99ApiResponseMs: 1430,
+        slowApiSessionRate: 7.6,
+        p50StartupMs: 980,
+        p95StartupMs: 3210,
+        slowStartupRate: 12.8,
+    },
+    impact: {
+        uniqueUsers: 8432,
+        affectedUsers: 1276,
+        affectedUserRate: 15.13,
+        issueReoccurrenceRate: 71.4,
+    },
+    ingestHealth: {
+        sdkUploadSuccessRate: 96.8,
+        sessionsWithUploadFailures: 214,
+        sessionsWithOfflinePersist: 167,
+        sessionsWithMemoryEvictions: 73,
+        sessionsWithCircuitBreakerOpen: 41,
+        sessionsWithHeavyRetries: 92,
+    },
+    networkBreakdown: [
+        { networkType: 'wifi', sessions: 7421, apiCalls: 221879, apiErrorRate: 1.24, avgLatencyMs: 172 },
+        { networkType: 'cellular', sessions: 4022, apiCalls: 96444, apiErrorRate: 3.19, avgLatencyMs: 336 },
+        { networkType: '5g', sessions: 612, apiCalls: 18890, apiErrorRate: 1.72, avgLatencyMs: 241 },
+        { networkType: '4g', sessions: 504, apiCalls: 14492, apiErrorRate: 2.88, avgLatencyMs: 382 },
+        { networkType: 'unknown', sessions: 288, apiCalls: 6710, apiErrorRate: 2.06, avgLatencyMs: 298 },
+    ],
+    releaseRisk: [
+        {
+            version: '2.4.1',
+            sessions: 3456,
+            degradedSessions: 973,
+            failureRate: 28.15,
+            deltaVsOverall: 6.85,
+            crashCount: 51,
+            anrCount: 19,
+            errorCount: 514,
+            latestSeen: new Date(Date.now() - 2 * day).toISOString(),
+        },
+        {
+            version: '2.4.0',
+            sessions: 2988,
+            degradedSessions: 648,
+            failureRate: 21.69,
+            deltaVsOverall: 0.39,
+            crashCount: 32,
+            anrCount: 11,
+            errorCount: 376,
+            latestSeen: new Date(Date.now() - 5 * day).toISOString(),
+        },
+        {
+            version: '2.3.9',
+            sessions: 2701,
+            degradedSessions: 463,
+            failureRate: 17.14,
+            deltaVsOverall: -4.16,
+            crashCount: 19,
+            anrCount: 7,
+            errorCount: 292,
+            latestSeen: new Date(Date.now() - 9 * day).toISOString(),
+        },
+    ],
+    evidenceSessions: [
+        {
+            title: 'Crash/ANR outliers',
+            description: 'Highest fatal stability impact sessions.',
+            metric: 'stability',
+            value: '2,734 degraded sessions',
+            sessionIds: ['demo-obs-001', 'demo-obs-002', 'demo-obs-003'],
+        },
+        {
+            title: 'API degradation outliers',
+            description: 'High latency or high API failure sessions.',
+            metric: 'api',
+            value: '1.84% API failure rate',
+            sessionIds: ['demo-obs-004', 'demo-obs-005', 'demo-obs-006'],
+        },
+        {
+            title: 'Frustration hotspots',
+            description: 'Sessions with strong rage/dead tap signals.',
+            metric: 'ux-friction',
+            value: '9.60% friction sessions',
+            sessionIds: ['demo-obs-007', 'demo-obs-008', 'demo-obs-009'],
+        },
+        {
+            title: 'Slow startup evidence',
+            description: 'Cold starts above 3 seconds.',
+            metric: 'startup',
+            value: '12.80% slow startup',
+            sessionIds: ['demo-obs-010', 'demo-obs-011', 'demo-obs-012'],
+        },
+        {
+            title: 'SDK upload pipeline failures',
+            description: 'Sessions where ingestion reliability degraded.',
+            metric: 'ingest',
+            value: '214 sessions with upload failures',
+            sessionIds: ['demo-obs-013', 'demo-obs-014', 'demo-obs-015'],
+        },
+    ],
 };
 
 // ================================================================================
@@ -883,25 +1020,17 @@ export const demoFullSession = {
     duration: 42,
     events: sessionEvents,
     networkRequests: networkRequests,
-    videoSegments: [
-        {
-            url: `/demo/session_1769126989388_555B08ED/segments/1769126989700.mp4`,
-            startTime: 1769126989700,
-            endTime: 1769127028427,
-            frameCount: 45
-        }
-    ],
     batches: [],
     stats: {
         duration: '0:42',
         durationMinutes: '0.7',
         eventCount: sessionEvents.length,
         frameCount: 45,
-        videoSegmentCount: 1,
+        screenshotSegmentCount: 0,
         totalSizeKB: '1820',
         kbPerMinute: '3640',
         eventsSizeKB: '140',
-        videoSizeKB: '1780',
+        screenshotSizeKB: '1780',
         networkStats: {
             total: networkRequests.length,
             successful: networkRequests.filter((r: any) => r.success).length,

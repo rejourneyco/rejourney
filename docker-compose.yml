@@ -44,6 +44,10 @@ services:
       PUBLIC_API_URL: ${PUBLIC_API_URL:-http://localhost:3000}
       PUBLIC_INGEST_URL: ${PUBLIC_INGEST_URL:-http://localhost:3000}
       DASHBOARD_ORIGIN: ${DASHBOARD_ORIGIN:-http://localhost:8080}
+      GEOIP_PREFER_MMDB: ${GEOIP_PREFER_MMDB:-true}
+      GEOIP_MMDB_AUTO_DOWNLOAD: ${GEOIP_MMDB_AUTO_DOWNLOAD:-true}
+      GEOIP_MMDB_URL: ${GEOIP_MMDB_URL:-https://cdn.jsdelivr.net/npm/geolite2-city/GeoLite2-City.mmdb.gz}
+      GEOIP_MMDB_PATH: ${GEOIP_MMDB_PATH:-/tmp/rejourney/GeoLite2-City.mmdb}
       STORAGE_ENCRYPTION_KEY: ${STORAGE_ENCRYPTION_KEY:-}
     depends_on:
       - postgres
@@ -230,4 +234,3 @@ volumes:
   pgdata:
   redisdata:
   miniodata:
-

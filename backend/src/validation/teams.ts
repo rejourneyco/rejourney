@@ -27,6 +27,20 @@ export const removeTeamMemberSchema = z.object({
     userId: z.string().uuid('Invalid user ID'),
 });
 
+export const requestDeleteTeamOtpSchema = z.object({
+    confirmText: z.string().min(1, 'Confirmation text is required'),
+    acknowledgeBillingDowngrade: z.boolean().optional(),
+});
+
+export const deleteTeamSchema = z.object({
+    confirmText: z.string().min(1, 'Confirmation text is required'),
+    acknowledgeBillingDowngrade: z.boolean().optional(),
+    otpCode: z
+        .string()
+        .length(10, 'OTP must be 10 characters')
+        .regex(/^[A-Z0-9]+$/, 'OTP must be alphanumeric'),
+});
+
 export const teamIdParamSchema = z.object({
     teamId: z.string().uuid('Invalid team ID'),
 });
@@ -45,4 +59,6 @@ export type UpdateTeamInput = z.infer<typeof updateTeamSchema>;
 export type AddTeamMemberInput = z.infer<typeof addTeamMemberSchema>;
 export type UpdateTeamMemberInput = z.infer<typeof updateTeamMemberSchema>;
 export type RemoveTeamMemberInput = z.infer<typeof removeTeamMemberSchema>;
+export type RequestDeleteTeamOtpInput = z.infer<typeof requestDeleteTeamOtpSchema>;
+export type DeleteTeamInput = z.infer<typeof deleteTeamSchema>;
 export type AcceptInvitationInput = z.infer<typeof acceptInvitationSchema>;

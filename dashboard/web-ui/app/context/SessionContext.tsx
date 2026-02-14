@@ -187,7 +187,11 @@ export function SessionDataProvider({ children }: Props) {
 
       if (partialErrors.length > 0) {
         console.error('Partial data fetch failures:', partialErrors);
-        setError(`Some data failed to load: ${partialErrors.join(', ')}. The dashboard may show incomplete information.`);
+        if (partialErrors.includes('projects')) {
+          setError('Unable to reach server. Please try again soon. Your projects could not be loaded right now.');
+        } else {
+          setError(`Some data failed to load: ${partialErrors.join(', ')}. The dashboard may show incomplete information.`);
+        }
       }
 
       // Filter projects to only those belonging to the current team

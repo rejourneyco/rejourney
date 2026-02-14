@@ -23,7 +23,6 @@ import {
   RotateCcw,
   Layers,
   Image as ImageIcon,
-  Film,
   Move,
   Maximize2,
   RefreshCw,
@@ -40,13 +39,6 @@ import { SessionLoadingOverlay } from '../../components/recordings/SessionLoadin
 // ============================================================================
 // Types
 // ============================================================================
-
-interface VideoSegment {
-  url: string;
-  startTime: number;
-  endTime: number | null;
-  frameCount: number | null;
-}
 
 interface SessionEvent {
   type: string;
@@ -79,8 +71,8 @@ interface FullSession {
   id: string;
   userId: string;
   hasRecording?: boolean;
-  /** 'screenshots' | 'video' | 'none' - determines playback mode */
-  playbackMode?: 'screenshots' | 'video' | 'none';
+  /** 'screenshots' | 'none' - determines playback mode */
+  playbackMode?: 'screenshots' | 'none';
   deviceInfo: {
     model?: string;
     systemName?: string;
@@ -107,13 +99,6 @@ interface FullSession {
     timestamp: number;
     url: string;
     index: number;
-  }[];
-  /** Video segments for video-based playback (fallback) */
-  videoSegments?: {
-    url: string;
-    startTime: number;
-    endTime: number | null;
-    frameCount: number | null;
   }[];
   hierarchySnapshots?: {
     timestamp: number;
@@ -160,8 +145,8 @@ interface FullSession {
     };
     totalSizeKB?: string;
     eventsSizeKB?: string;
-    videoSizeKB?: string;
-    videoSegmentCount?: number;
+    screenshotSizeKB?: string;
+    screenshotSegmentCount?: number;
   };
   uxScore?: number;
   screensVisited?: string[];
@@ -245,6 +230,24 @@ const getEventIcon = (event: SessionEvent) => {
   return Monitor;
 };
 
+const percentile = (values: number[], percentileValue: number): number => {
+  if (values.length === 0) return 0;
+  const sorted = [...values].sort((a, b) => a - b);
+  const clampedPercentile = Math.max(0, Math.min(100, percentileValue));
+  const index = Math.min(
+    sorted.length - 1,
+    Math.ceil((clampedPercentile / 100) * sorted.length) - 1
+  );
+  return sorted[Math.max(0, index)];
+};
+
+const formatBytesToHuman = (bytes: number): string => {
+  if (!Number.isFinite(bytes) || bytes <= 0) return '0 KB';
+  const kb = bytes / 1024;
+  if (kb >= 1024) return `${(kb / 1024).toFixed(1)} MB`;
+  return `${kb.toFixed(1)} KB`;
+};
+
 // ============================================================================
 // Main Component
 // ============================================================================
@@ -262,12 +265,10 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
   const [activityFilter, setActivityFilter] = useState<string>('all');
   const [currentPlaybackTime, setCurrentPlaybackTime] = useState<number>(0);
 
-  // Video player state
+  // Replay player state
   const [isPlaying, setIsPlaying] = useState(false);
   const [playbackRate, setPlaybackRate] = useState(1.5);
   const [showSpeedMenu, setShowSpeedMenu] = useState(false);
-  const [activeSegmentIndex, setActiveSegmentIndex] = useState(0);
-  const [isBuffering, setIsBuffering] = useState(false);
   const [showTouchOverlay, setShowTouchOverlay] = useState(true);
   const [touchEvents, setTouchEvents] = useState<TouchEvent[]>([]);
   const [activitySearch, setActivitySearch] = useState<string>('');
@@ -285,11 +286,8 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
   const lastFrameTimeRef = useRef<number>(0);
 
   // Refs
-  const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const progressRef = useRef<HTMLDivElement>(null);
-  const pendingSeekTimeRef = useRef<number | null>(null);
-  const [isSeeking, setIsSeeking] = useState(false);
 
   // Ref-based playback state to avoid stale closures in animation loop
   const currentPlaybackTimeRef = useRef<number>(0);
@@ -320,13 +318,13 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
       if (stats) {
         const totalMB = (parseFloat(stats.totalSizeKB || '0') / 1024).toFixed(2);
         const eventsMB = (parseFloat(stats.eventsSizeKB || '0') / 1024).toFixed(2);
-        const videoMB = (parseFloat(stats.videoSizeKB || '0') / 1024).toFixed(2);
+        const screenshotMB = (parseFloat(stats.screenshotSizeKB || '0') / 1024).toFixed(2);
         const hierarchyMB = (parseFloat(stats.hierarchySizeKB || '0') / 1024).toFixed(2);
         const networkMB = (parseFloat(stats.networkSizeKB || '0') / 1024).toFixed(2);
 
         console.log(
           `[SESSION S3 SIZE] Session ${id}: Total=${totalMB}MB ` +
-          `(events=${eventsMB}MB, network=${networkMB}MB, hierarchy=${hierarchyMB}MB, video=${videoMB}MB)`
+          `(events=${eventsMB}MB, network=${networkMB}MB, hierarchy=${hierarchyMB}MB, screenshots=${screenshotMB}MB)`
         );
       }
 
@@ -341,12 +339,8 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
       // DEBUG: Log screenshot frames and playback mode for iOS replay debugging
       console.log('[SESSION FETCH DEBUG] Playback mode:', (data as any).playbackMode);
       console.log('[SESSION FETCH DEBUG] Screenshot frames:', ((data as any).screenshotFrames || []).length);
-      console.log('[SESSION FETCH DEBUG] Video segments:', ((data as any).videoSegments || []).length);
       if ((data as any).screenshotFrames?.length > 0) {
         console.log('[SESSION FETCH DEBUG] First screenshot frame:', (data as any).screenshotFrames[0]);
-      }
-      if ((data as any).videoSegments?.length > 0) {
-        console.log('[SESSION FETCH DEBUG] First video segment:', (data as any).videoSegments[0]);
       }
 
       if (gestureEvents.length > 0) {
@@ -403,7 +397,7 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
     fetchFullSession();
   }, [fetchFullSession]);
 
-  // Detect rage taps - placed before handleTimeUpdate so it can be used in touch overlay
+  // Detect rage taps for touch overlay and timeline
   // This detects 3+ taps in same area within 1.5s as rage taps
   const detectedRageTaps = useMemo(() => {
     const sessionEvents = fullSession?.events || [];
@@ -436,129 +430,6 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
     }
     return rageTaps;
   }, [fullSession]);
-
-  // Handle playback time updates
-  const handleTimeUpdate = useCallback(() => {
-    if (!videoRef.current || isDragging || isSeeking || !fullSession?.videoSegments) return;
-
-    const segments = fullSession.videoSegments;
-    const segment = segments[activeSegmentIndex];
-    if (!segment) return;
-
-    const sessionStartTime = fullSession.startTime;
-    const segmentStartRelative = (segment.startTime - sessionStartTime) / 1000;
-    const newTime = segmentStartRelative + videoRef.current.currentTime;
-
-    setCurrentPlaybackTime(newTime);
-
-    // Update touch overlay - process events for enhanced visualization
-    if (showTouchOverlay) {
-      const currentAbsoluteTime = sessionStartTime + newTime * 1000;
-
-      // DEBUG: Log all gesture events to diagnose Android touch overlay issues
-      const allGestureEvents = (fullSession.events || []).filter((e) =>
-        e.type === 'touch' || e.type === 'gesture'
-      );
-
-      // Log once per video playback start (when newTime is near 0)
-      if (newTime < 0.5 && allGestureEvents.length > 0) {
-        console.log('[TOUCH OVERLAY DEBUG] Total gesture events:', allGestureEvents.length);
-        console.log('[TOUCH OVERLAY DEBUG] First gesture event:', JSON.stringify(allGestureEvents[0], null, 2));
-        console.log('[TOUCH OVERLAY DEBUG] Device dimensions:', {
-          screenWidth: fullSession.deviceInfo?.screenWidth,
-          screenHeight: fullSession.deviceInfo?.screenHeight,
-        });
-
-        // Count events with/without touches array
-        const withTouches = allGestureEvents.filter(e => {
-          const rawArr = e.touches ?? e.properties?.touches ?? [];
-          const arr = Array.isArray(rawArr) ? rawArr : [];
-          return arr.length > 0;
-        });
-        console.log('[TOUCH OVERLAY DEBUG] Events with touches array:', withTouches.length, 'of', allGestureEvents.length);
-        if (withTouches.length > 0) {
-          console.log('[TOUCH OVERLAY DEBUG] First event with touches:', JSON.stringify(withTouches[0], null, 2));
-        }
-      }
-
-      const recentTouchEvents = (fullSession.events || [])
-        .filter((e) => {
-          const eventTime = e.timestamp;
-          const timeDiff = currentAbsoluteTime - eventTime;
-          const isGestureEvent = e.type === 'touch' || e.type === 'gesture';
-          const rawTouchesArr = e.touches ?? e.properties?.touches ?? [];
-          const touchesArr = Array.isArray(rawTouchesArr) ? rawTouchesArr : [];
-          // Use wider window for gesture events (swipe/scroll need more time to be visible)
-          const maxAge = (e.type === 'gesture') ? 1500 : 1000;
-          return isGestureEvent && touchesArr.length > 0 && timeDiff >= 0 && timeDiff < maxAge;
-        })
-        .map((e) => {
-          const rawTouchArray = e.touches || e.properties?.touches || [];
-          // Defensive check: ensure touchArray is actually an array (Android may sometimes send non-array)
-          const touchArray = Array.isArray(rawTouchArray) ? rawTouchArray : [];
-          let gestureType = e.gestureType || e.properties?.gestureType || 'tap';
-          const props = e.properties || {};
-
-          // Check for SDK-detected rage tap (frustrationKind) or detected rage tap sequence
-          const isSdkRageTap = e.frustrationKind === 'rage_tap' || gestureType === 'rage_tap';
-          const isRageTapEvent = isSdkRageTap || detectedRageTaps.some(rt =>
-            Math.abs(rt.timestamp - e.timestamp) < 100 // Within 100ms
-          );
-          if (isRageTapEvent && (gestureType.includes('tap') || gestureType === 'rage_tap')) {
-            gestureType = 'rage_tap';
-          }
-
-
-          // ========================================================================
-          // Platform Coordinate Handling (React Native iOS vs Android)
-          // ========================================================================
-          // Both platforms now send coordinates in density-independent pixels:
-          //   - iOS (RN): Uses native UIKit points (already density-independent)
-          //   - Android (RN): Touch coords from TouchInterceptor are normalized to dp
-          //                   (raw pixels / displayDensity), and screenWidth/Height
-          //                   are also sent in dp units from UploadManager.
-          //
-          // This means the coordinate system is unified across platforms:
-          //   touch.x / deviceWidth * 100 = correct percentage position
-          // ========================================================================
-          const screenWidth = fullSession.deviceInfo?.screenWidth || 375;
-          const screenHeight = fullSession.deviceInfo?.screenHeight || 812;
-
-          // Filter valid touches
-          const validTouches = touchArray
-            .filter((t: any) => {
-              const x = typeof t.x === 'number' ? t.x : 0;
-              const y = typeof t.y === 'number' ? t.y : 0;
-              return x > 5 && y > 5 && x < screenWidth * 3 && y < screenHeight * 3;
-            })
-            .map((t: any) => ({
-              x: t.x,
-              y: t.y,
-              timestamp: e.timestamp,
-              force: t.force,
-            }));
-
-          if (validTouches.length === 0) return null;
-
-          return {
-            id: (e as any).id || `touch-${e.timestamp}-${Math.random()}`,
-            timestamp: e.timestamp,
-            gestureType,
-            touches: validTouches,
-            targetLabel: e.targetLabel || props.targetLabel,
-            duration: props.duration || (e as any).duration,
-            velocity: props.velocity || (e as any).velocity,
-            maxForce: props.maxForce || (e as any).maxForce,
-            touchCount: validTouches.length,
-          } as TouchEvent;
-        })
-        .filter((e): e is TouchEvent => e !== null);
-
-      setTouchEvents(recentTouchEvents);
-    } else {
-      setTouchEvents([]);
-    }
-  }, [fullSession, activeSegmentIndex, showTouchOverlay, isDragging, detectedRageTaps]);
 
   // ========================================================================
   // ALL DATA PROCESSING MUST HAPPEN BEFORE ANY EARLY RETURNS (React hooks rule)
@@ -596,8 +467,7 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
       }));
   }, [networkRequests]);
 
-  // Note: detectedRageTaps is now defined earlier (before handleTimeUpdate)
-  // for use in the touch overlay. This reference is kept for the timeline.
+  // Note: detectedRageTaps is also used for timeline visualization.
 
   // Crash events for timeline
   const crashEvents: SessionEvent[] = useMemo(() => {
@@ -618,7 +488,7 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
   // Session metadata
   // Calculate duration for the timeline:
   // 1. If playableDuration is provided from backend, use it (excludes background time)
-  // 2. Otherwise, calculate from video segments, screenshot frames, session end, or events
+  // 2. Otherwise, calculate from screenshot frames, session end, or events
   const durationSeconds = useMemo(() => {
     // If backend provided playable duration, use it - this is the most accurate
     if (fullSession?.playableDuration && fullSession.playableDuration > 0) {
@@ -640,18 +510,6 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
       const screenshotDuration = ((lastFrame.timestamp - sessionStart) / 1000) + 0.5;
       if (screenshotDuration > 0) {
         candidates.push(screenshotDuration);
-      }
-    }
-
-    // Video segment end time - use actual video content bounds
-    if (fullSession?.videoSegments && fullSession.videoSegments.length > 0) {
-      const firstSegment = fullSession.videoSegments[0];
-      const lastSegment = fullSession.videoSegments[fullSession.videoSegments.length - 1];
-      const firstSegmentStart = firstSegment.startTime;
-      const segmentEndTime = lastSegment.endTime || lastSegment.startTime;
-      // Use video content span, not wall clock time
-      if (segmentEndTime > firstSegmentStart) {
-        candidates.push((segmentEndTime - firstSegmentStart) / 1000);
       }
     }
 
@@ -761,12 +619,6 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
         lastEventTime: lastEvent?.timestamp,
         firstEventRelative: firstEvent ? (firstEvent.timestamp - replayBaseTime) / 1000 : null,
         lastEventRelative: lastEvent ? (lastEvent.timestamp - replayBaseTime) / 1000 : null,
-        videoSegments: fullSession.videoSegments?.map(s => ({
-          startTime: s.startTime,
-          endTime: s.endTime,
-          startRelative: (s.startTime - (fullSession.startTime || 0)) / 1000,
-          endRelative: s.endTime ? (s.endTime - (fullSession.startTime || 0)) / 1000 : null,
-        })),
       });
     }
   }, [fullSession, allTimelineEvents, durationSeconds, replayBaseTime]);
@@ -788,32 +640,19 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
       .map((f, idx) => ({ ...f, index: idx }));
   }, [fullSession?.screenshotFrames, fullSession?.startTime]);
 
-
-  // Video segments (fallback playback mode)
-  const segments = useMemo(() => fullSession?.videoSegments || [], [fullSession?.videoSegments]);
-
-  // Determine playback mode: screenshots take priority over video
+  // Determine playback mode
   const playbackMode = useMemo(() => {
     if (fullSession?.playbackMode === 'screenshots' && screenshotFrames.length > 0) {
       console.log('[PLAYBACK] Mode: screenshots (from server)', screenshotFrames.length, 'frames');
       return 'screenshots' as const;
     }
-    if (fullSession?.playbackMode === 'video' && segments.length > 0) {
-      console.log('[PLAYBACK] Mode: video (from server)', segments.length, 'segments');
-      return 'video' as const;
-    }
-    // Auto-detect
     if (screenshotFrames.length > 0) {
       console.log('[PLAYBACK] Mode: screenshots (auto-detect)', screenshotFrames.length, 'frames');
       return 'screenshots' as const;
     }
-    if (segments.length > 0) {
-      console.log('[PLAYBACK] Mode: video (auto-detect)', segments.length, 'segments');
-      return 'video' as const;
-    }
     console.log('[PLAYBACK] Mode: none (no recording data)');
     return 'none' as const;
-  }, [fullSession?.playbackMode, screenshotFrames, segments]);
+  }, [fullSession?.playbackMode, screenshotFrames]);
 
   // Has any visual recording?
   const hasRecording = playbackMode !== 'none';
@@ -875,51 +714,7 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
   const deviceWidth = inferredDimensions.width;
   const deviceHeight = inferredDimensions.height;
 
-  // Find segment for time
-  const findSegmentForTime = useCallback(
-    (time: number) => {
-      if (!fullSession?.videoSegments) return 0;
-      const absoluteTime = (fullSession.startTime || 0) + time * 1000;
-      for (let i = 0; i < segments.length; i++) {
-        const segment = segments[i];
-        const segmentEnd = segment.endTime || fullSession.endTime || segment.startTime + 60000;
-        if (absoluteTime >= segment.startTime && absoluteTime <= segmentEnd) {
-          return i;
-        }
-      }
-      return 0;
-    },
-    [segments, fullSession]
-  );
-
-  // Seek to time
-  const seekToTime = useCallback(
-    (time: number) => {
-      if (!fullSession?.videoSegments || segments.length === 0) return;
-
-      const clampedTime = Math.max(0, Math.min(time, durationSeconds));
-      const segmentIndex = findSegmentForTime(clampedTime);
-      const segment = segments[segmentIndex];
-
-      if (!segment) return;
-
-      const segmentStartRelative = (segment.startTime - (fullSession.startTime || 0)) / 1000;
-      const timeWithinSegment = clampedTime - segmentStartRelative;
-
-      if (segmentIndex !== activeSegmentIndex) {
-        pendingSeekTimeRef.current = Math.max(0, timeWithinSegment);
-        setActiveSegmentIndex(segmentIndex);
-      } else if (videoRef.current) {
-        setIsSeeking(true);
-        videoRef.current.currentTime = Math.max(0, timeWithinSegment);
-      }
-
-      setCurrentPlaybackTime(clampedTime);
-    },
-    [segments, fullSession, activeSegmentIndex, findSegmentForTime, durationSeconds]
-  );
-
-  // Handle progress click/drag - unified for both video and screenshot modes
+  // Handle progress click/drag for screenshot playback
   const handleProgressInteraction = useCallback(
     (e: React.MouseEvent<HTMLDivElement> | MouseEvent) => {
       if (!progressRef.current) return;
@@ -927,27 +722,23 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
       const rect = progressRef.current.getBoundingClientRect();
       const percent = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
 
-      if (playbackMode === 'screenshots' && screenshotFrames.length > 0) {
-        const newTime = percent * durationSeconds;
-        // Binary search for closest frame by relativeTime
-        let left = 0;
-        let right = screenshotFrames.length - 1;
-        while (left < right) {
-          const mid = Math.floor((left + right + 1) / 2);
-          if (screenshotFrames[mid].relativeTime <= newTime) {
-            left = mid;
-          } else {
-            right = mid - 1;
-          }
+      if (screenshotFrames.length === 0) return;
+      const newTime = percent * durationSeconds;
+      // Binary search for closest frame by relativeTime
+      let left = 0;
+      let right = screenshotFrames.length - 1;
+      while (left < right) {
+        const mid = Math.floor((left + right + 1) / 2);
+        if (screenshotFrames[mid].relativeTime <= newTime) {
+          left = mid;
+        } else {
+          right = mid - 1;
         }
-        setCurrentFrameIndex(left);
-        setCurrentPlaybackTime(screenshotFrames[left].relativeTime);
-      } else {
-        const newTime = percent * durationSeconds;
-        seekToTime(newTime);
       }
+      setCurrentFrameIndex(left);
+      setCurrentPlaybackTime(screenshotFrames[left].relativeTime);
     },
-    [durationSeconds, seekToTime, playbackMode, screenshotFrames]
+    [durationSeconds, screenshotFrames]
   );
 
   const handleProgressMouseDown = useCallback(
@@ -958,7 +749,6 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
       const handleMouseMove = (ev: MouseEvent) => handleProgressInteraction(ev);
       const handleMouseUp = () => {
         setIsDragging(false);
-        setIsSeeking(false);
         document.removeEventListener('mousemove', handleMouseMove);
         document.removeEventListener('mouseup', handleMouseUp);
       };
@@ -969,101 +759,42 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
     [handleProgressInteraction]
   );
 
-  // Toggle play/pause - works for both screenshot and video modes
+  // Toggle play/pause for screenshot playback
   const togglePlayPause = useCallback(() => {
-    if (playbackMode === 'screenshots') {
-      // Screenshot mode - just toggle the isPlaying state
-      // The screenshot animation effect handles the actual playback
-      setIsPlaying(!isPlaying);
-    } else if (videoRef.current) {
-      // Video mode
-      if (isPlaying) {
-        videoRef.current.pause();
-      } else {
-        videoRef.current.play();
-      }
-      setIsPlaying(!isPlaying);
-    }
-  }, [isPlaying, playbackMode]);
+    // The screenshot animation effect handles the actual playback.
+    setIsPlaying(!isPlaying);
+  }, [isPlaying]);
 
-  // Skip - works for both modes
+  // Skip in screenshot playback
   const skip = useCallback(
     (seconds: number) => {
-      if (playbackMode === 'screenshots' && screenshotFrames.length > 0) {
-        const targetTime = Math.max(0, Math.min(currentPlaybackTime + seconds, durationSeconds));
-        // Binary search for closest frame by relativeTime
-        let left = 0;
-        let right = screenshotFrames.length - 1;
-        while (left < right) {
-          const mid = Math.floor((left + right + 1) / 2);
-          if (screenshotFrames[mid].relativeTime <= targetTime) {
-            left = mid;
-          } else {
-            right = mid - 1;
-          }
+      if (screenshotFrames.length === 0) return;
+      const targetTime = Math.max(0, Math.min(currentPlaybackTime + seconds, durationSeconds));
+      // Binary search for closest frame by relativeTime
+      let left = 0;
+      let right = screenshotFrames.length - 1;
+      while (left < right) {
+        const mid = Math.floor((left + right + 1) / 2);
+        if (screenshotFrames[mid].relativeTime <= targetTime) {
+          left = mid;
+        } else {
+          right = mid - 1;
         }
-        const idx = Math.max(0, Math.min(left, screenshotFrames.length - 1));
-        setCurrentFrameIndex(idx);
-        setCurrentPlaybackTime(screenshotFrames[idx].relativeTime);
-      } else {
-        const newTime = currentPlaybackTime + seconds;
-        seekToTime(newTime);
       }
+      const idx = Math.max(0, Math.min(left, screenshotFrames.length - 1));
+      setCurrentFrameIndex(idx);
+      setCurrentPlaybackTime(screenshotFrames[idx].relativeTime);
     },
-    [currentPlaybackTime, seekToTime, playbackMode, screenshotFrames, durationSeconds]
+    [currentPlaybackTime, screenshotFrames, durationSeconds]
   );
 
-  // Restart - works for both modes
+  // Restart screenshot playback
   const restart = useCallback(() => {
-    if (playbackMode === 'screenshots') {
-      setCurrentFrameIndex(0);
-      setCurrentPlaybackTime(0); // relativeTime of first frame is always 0
-      setIsPlaying(true);
-    } else {
-      seekToTime(0);
-      if (videoRef.current) {
-        videoRef.current.play();
-        setIsPlaying(true);
-      }
-    }
-  }, [seekToTime, playbackMode, screenshotFrames]);
-
-  // Handle segment end
-  const handleSegmentEnd = useCallback(() => {
-    if (activeSegmentIndex < segments.length - 1) {
-      setActiveSegmentIndex(activeSegmentIndex + 1);
-    } else {
-      setIsPlaying(false);
-    }
-  }, [activeSegmentIndex, segments.length]);
-
-  // Effect: Update video source
-  useEffect(() => {
-    if (videoRef.current && segments[activeSegmentIndex]) {
-      const segment = segments[activeSegmentIndex];
-      const newUrl = segment.url;
-
-      // Check if URL is effectively the same to avoid reload
-      const currentSrc = videoRef.current.currentSrc || videoRef.current.src;
-      if (currentSrc && currentSrc.includes(newUrl)) {
-        return;
-      }
-
-      const wasPlaying = isPlaying;
-      videoRef.current.src = newUrl;
-      videoRef.current.load();
-      if (wasPlaying) {
-        videoRef.current.play().catch(() => { });
-      }
-    }
-  }, [activeSegmentIndex, segments]); // Removed isPlaying to prevent reset on toggle
-
-  // Effect: Playback rate
-  useEffect(() => {
-    if (videoRef.current) {
-      videoRef.current.playbackRate = playbackRate;
-    }
-  }, [playbackRate]);
+    if (screenshotFrames.length === 0) return;
+    setCurrentFrameIndex(0);
+    setCurrentPlaybackTime(0); // relativeTime of first frame is always 0
+    setIsPlaying(true);
+  }, [screenshotFrames]);
 
   // Effect: Keyboard shortcut for play/pause
   useEffect(() => {
@@ -1144,8 +875,7 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
     }
   }, [playbackMode, screenshotFrames]);
 
-  // Update touch overlay for SCREENSHOT playback mode
-  // (Video mode uses handleTimeUpdate callback from <video> element)
+  // Update touch overlay for screenshot playback mode
   useEffect(() => {
     if (playbackMode !== 'screenshots' || !fullSession || !showTouchOverlay) {
       return;
@@ -1335,17 +1065,13 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
     setCurrentPlaybackTime(screenshotFrames[left].relativeTime);
   }, [screenshotFrames]);
 
-  // Override seekToTime for screenshot mode
+  // Seek helper used by timeline and activity interactions
   const handleSeekToTime = useCallback((time: number) => {
-    if (playbackMode === 'screenshots') {
-      seekToScreenshotFrame(time);
-    } else {
-      seekToTime(time);
-    }
-  }, [playbackMode, seekToScreenshotFrame, seekToTime]);
+    seekToScreenshotFrame(time);
+  }, [seekToScreenshotFrame]);
 
   // Format time as MM:SS
-  const formatVideoTime = (seconds: number): string => {
+  const formatPlaybackTime = (seconds: number): string => {
     if (!isFinite(seconds) || isNaN(seconds)) return '00:00';
     const mins = Math.floor(seconds / 60);
     const secs = Math.floor(seconds % 60);
@@ -1389,8 +1115,138 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
 
   // Calculate metrics
   const metrics = fullSession?.metrics || {};
-  const rageTapCount = metrics.rageTapCount || session?.rageTapCount || detectedRageTaps.length || 0;
-  const screensVisited = fullSession?.screensVisited || metrics.screensVisited || session?.screensVisited || [];
+  const rageTapCount =
+    metrics.rageTapCount ??
+    fullSession?.rageTapCount ??
+    session?.rageTapCount ??
+    detectedRageTaps.length ??
+    0;
+
+  const recordedScreens =
+    fullSession?.screensVisited ??
+    metrics.screensVisited ??
+    session?.screensVisited ??
+    [];
+
+  const inferredScreensVisited = Array.from(
+    new Set(
+      events
+        .map((event) => {
+          const directScreen = (event as any).screen;
+          const contextScreen =
+            event.properties?.screenName ||
+            event.properties?.screen ||
+            event.properties?.toScreen ||
+            event.properties?.routeName;
+          return (directScreen || contextScreen || '').toString().trim();
+        })
+        .filter((screen): screen is string => screen.length > 0)
+    )
+  );
+  const screensVisited = recordedScreens.length > 0 ? recordedScreens : inferredScreensVisited;
+  const crashCount = fullSession?.crashes?.length || 0;
+  const anrCount = fullSession?.anrs?.length || 0;
+  const explicitErrorCount =
+    metrics.errorCount ??
+    fullSession?.errorCount ??
+    session?.errorCount ??
+    events.filter((event) => (event.type || '').toLowerCase() === 'error').length;
+
+  const metricsDerivedInteractionCount =
+    (metrics.touchCount ?? fullSession?.touchCount ?? session?.touchCount ?? 0) +
+    (metrics.scrollCount ?? fullSession?.scrollCount ?? session?.scrollCount ?? 0) +
+    (metrics.gestureCount ?? fullSession?.gestureCount ?? session?.gestureCount ?? 0);
+  const inferredInteractionCount = events.filter((event) => {
+    const type = (event.type || '').toLowerCase();
+    const gestureType = (event.gestureType || event.properties?.gestureType || '').toLowerCase();
+    return (
+      type === 'tap' ||
+      type === 'touch' ||
+      type === 'gesture' ||
+      type === 'scroll' ||
+      type === 'input' ||
+      gestureType.includes('tap') ||
+      gestureType.includes('scroll') ||
+      gestureType.includes('swipe') ||
+      gestureType.includes('pan')
+    );
+  }).length;
+  const interactionCount = metricsDerivedInteractionCount > 0 ? metricsDerivedInteractionCount : inferredInteractionCount;
+  const interactionsPerMinute = durationSeconds > 0 ? interactionCount / Math.max(1, durationSeconds / 60) : 0;
+  const screensPerMinute = durationSeconds > 0 ? screensVisited.length / Math.max(1, durationSeconds / 60) : 0;
+
+  const failedRequestCount = networkRequests.filter((request) => {
+    const success = request.success ?? request.statusCode < 400;
+    return !success;
+  }).length;
+  const apiErrorRate = networkRequests.length > 0 ? (failedRequestCount / networkRequests.length) * 100 : 0;
+  const apiP95LatencyMs = percentile(
+    networkRequests
+      .map((request) => request.duration || 0)
+      .filter((duration) => Number.isFinite(duration) && duration > 0),
+    95
+  );
+
+  const issueSignals = crashCount + anrCount + explicitErrorCount + rageTapCount + failedRequestCount;
+  const issueSignalsPerMinute = durationSeconds > 0 ? issueSignals / Math.max(1, durationSeconds / 60) : 0;
+
+  const issueEventTimestamps = allTimelineEvents
+    .filter((event) => {
+      const type = (event.type || '').toLowerCase();
+      const gestureType = (event.gestureType || event.properties?.gestureType || '').toLowerCase();
+      if (type === 'crash' || type === 'anr' || type === 'error' || type === 'rage_tap' || type === 'dead_tap') return true;
+      if (gestureType === 'rage_tap' || gestureType === 'dead_tap') return true;
+      if (type === 'network_request') {
+        return !(event.properties?.success ?? (event.properties?.statusCode < 400));
+      }
+      return false;
+    })
+    .map((event) => event.timestamp)
+    .filter((timestamp) => Number.isFinite(timestamp) && timestamp >= replayBaseTime);
+
+  const firstIssueTimestamp = issueEventTimestamps.length > 0 ? Math.min(...issueEventTimestamps) : null;
+  const timeToFirstIssueMs = firstIssueTimestamp !== null ? Math.max(0, firstIssueTimestamp - replayBaseTime) : null;
+
+  const firstInteractionTimestamp = allTimelineEvents
+    .filter((event) => {
+      const type = (event.type || '').toLowerCase();
+      const gestureType = (event.gestureType || event.properties?.gestureType || '').toLowerCase();
+      return (
+        type === 'tap' ||
+        type === 'touch' ||
+        type === 'gesture' ||
+        type === 'scroll' ||
+        type === 'input' ||
+        gestureType.includes('tap') ||
+        gestureType.includes('scroll') ||
+        gestureType.includes('swipe') ||
+        gestureType.includes('pan')
+      );
+    })
+    .map((event) => event.timestamp)
+    .filter((timestamp) => Number.isFinite(timestamp) && timestamp >= replayBaseTime)
+    .sort((a, b) => a - b)[0];
+
+  const inferredStartupMs =
+    ((fullSession as any)?.appStartupTimeMs as number | undefined) ||
+    ((session as any)?.appStartupTimeMs as number | undefined) ||
+    (firstInteractionTimestamp ? Math.max(0, firstInteractionTimestamp - replayBaseTime) : null);
+
+  const totalPayloadBytes = networkRequests.reduce((sum, request) => {
+    return sum + (request.requestBodySize || 0) + (request.responseBodySize || 0);
+  }, 0);
+
+  const stabilityScore = Math.max(
+    0,
+    Math.min(
+      100,
+      100 - (
+        issueSignalsPerMinute * 20 +
+        apiErrorRate * 1.1 +
+        Math.max(0, (apiP95LatencyMs - 400) / 35)
+      )
+    )
+  );
 
   // User visit count
   const userIdentifier = session?.deviceId || session?.userId || session?.anonymousId || fullSession?.userId;
@@ -1557,17 +1413,122 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
         </div>
       </div>
 
+      {/* Inferred Session Metrics */}
+      <div className="max-w-[1920px] mx-auto px-4 pt-4">
+        <div className="rounded-xl border border-slate-200 bg-white shadow-sm p-4">
+          <div className="flex flex-col gap-1.5 md:flex-row md:items-end md:justify-between">
+            <div>
+              <h2 className="text-sm font-semibold text-slate-900">Session Insights (Inferred)</h2>
+              <p className="text-xs text-slate-500">
+                Computed directly from this replay&apos;s events, network requests, crashes, and ANRs.
+              </p>
+            </div>
+            <div className="text-[11px] text-slate-500">
+              Better triage: understand reliability, responsiveness, and user friction at a glance.
+            </div>
+          </div>
+
+          <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
+            <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+              <div className="flex items-center justify-between text-xs text-slate-500">
+                <span>Stability Score</span>
+                <AlertCircle className="w-3.5 h-3.5" />
+              </div>
+              <div className={`mt-1 text-2xl font-semibold ${stabilityScore < 60 ? 'text-red-600' : stabilityScore < 80 ? 'text-amber-600' : 'text-emerald-600'}`}>
+                {stabilityScore.toFixed(0)}
+              </div>
+              <p className="mt-1 text-[11px] text-slate-500">Blend of issue intensity, API failure rate, and p95 latency.</p>
+            </div>
+
+            <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+              <div className="flex items-center justify-between text-xs text-slate-500">
+                <span>API Error Rate</span>
+                <Globe className="w-3.5 h-3.5" />
+              </div>
+              <div className={`mt-1 text-2xl font-semibold ${apiErrorRate > 8 ? 'text-red-600' : apiErrorRate > 3 ? 'text-amber-600' : 'text-emerald-600'}`}>
+                {apiErrorRate.toFixed(1)}%
+              </div>
+              <p className="mt-1 text-[11px] text-slate-500">
+                {failedRequestCount.toLocaleString()} failed of {networkRequests.length.toLocaleString()} requests.
+              </p>
+            </div>
+
+            <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+              <div className="flex items-center justify-between text-xs text-slate-500">
+                <span>API p95 Latency</span>
+                <Clock className="w-3.5 h-3.5" />
+              </div>
+              <div className={`mt-1 text-2xl font-semibold ${apiP95LatencyMs > 1000 ? 'text-red-600' : apiP95LatencyMs > 500 ? 'text-amber-600' : 'text-slate-900'}`}>
+                {apiP95LatencyMs > 0 ? `${Math.round(apiP95LatencyMs)} ms` : 'N/A'}
+              </div>
+              <p className="mt-1 text-[11px] text-slate-500">Latency experienced by the slowest 5% of API calls.</p>
+            </div>
+
+            <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+              <div className="flex items-center justify-between text-xs text-slate-500">
+                <span>Time To First Issue</span>
+                <AlertTriangle className="w-3.5 h-3.5" />
+              </div>
+              <div className={`mt-1 text-2xl font-semibold ${timeToFirstIssueMs !== null && timeToFirstIssueMs < 10000 ? 'text-red-600' : 'text-slate-900'}`}>
+                {timeToFirstIssueMs === null ? 'No issue' : formatPlaybackTime(timeToFirstIssueMs / 1000)}
+              </div>
+              <p className="mt-1 text-[11px] text-slate-500">Time from replay start to first failure signal or API error.</p>
+            </div>
+
+            <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+              <div className="flex items-center justify-between text-xs text-slate-500">
+                <span>Interaction Rate</span>
+                <MousePointer2 className="w-3.5 h-3.5" />
+              </div>
+              <div className="mt-1 text-2xl font-semibold text-slate-900">{interactionsPerMinute.toFixed(1)}/min</div>
+              <p className="mt-1 text-[11px] text-slate-500">
+                {interactionCount.toLocaleString()} touches, scrolls, and gestures captured.
+              </p>
+            </div>
+
+            <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+              <div className="flex items-center justify-between text-xs text-slate-500">
+                <span>Screen Pace</span>
+                <Monitor className="w-3.5 h-3.5" />
+              </div>
+              <div className="mt-1 text-2xl font-semibold text-slate-900">{screensPerMinute.toFixed(2)}/min</div>
+              <p className="mt-1 text-[11px] text-slate-500">{screensVisited.length.toLocaleString()} unique screens visited.</p>
+            </div>
+
+            <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+              <div className="flex items-center justify-between text-xs text-slate-500">
+                <span>Startup Latency</span>
+                <Smartphone className="w-3.5 h-3.5" />
+              </div>
+              <div className={`mt-1 text-2xl font-semibold ${inferredStartupMs !== null && inferredStartupMs > 2000 ? 'text-amber-600' : 'text-slate-900'}`}>
+                {inferredStartupMs !== null ? `${Math.round(inferredStartupMs)} ms` : 'N/A'}
+              </div>
+              <p className="mt-1 text-[11px] text-slate-500">App startup metric or first meaningful interaction fallback.</p>
+            </div>
+
+            <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+              <div className="flex items-center justify-between text-xs text-slate-500">
+                <span>Network Payload</span>
+                <Layers className="w-3.5 h-3.5" />
+              </div>
+              <div className="mt-1 text-2xl font-semibold text-slate-900">{formatBytesToHuman(totalPayloadBytes)}</div>
+              <p className="mt-1 text-[11px] text-slate-500">Approximate request + response bytes in this replay.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
       {/* Main Content */}
       <div className="max-w-[1920px] mx-auto px-4 py-4">
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
 
           {/* Left Column: Session Activity */}
           <div className="lg:col-span-3 order-2 lg:order-1">
-            <div className="bg-white border-4 border-black shadow-[6px_6px_0px_0px_rgba(0,0,0,1)] h-[750px] flex flex-col overflow-hidden rounded-lg">
+            <div className="bg-white border border-slate-200 shadow-sm h-[750px] flex flex-col overflow-hidden rounded-xl">
               {/* Header */}
-              <div className="px-4 py-3 border-b-4 border-black flex-shrink-0 bg-slate-50">
+              <div className="px-4 py-3 border-b border-slate-200 flex-shrink-0 bg-slate-50/70">
                 <div className="flex items-center justify-between mb-2">
-                  <h3 className="font-black text-sm text-black uppercase tracking-tight">
+                  <h3 className="font-semibold text-sm text-slate-900">
                     Session Activity
                   </h3>
                   <button
@@ -1575,7 +1536,7 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
                       setIsSearching(!isSearching);
                       if (isSearching) setActivitySearch('');
                     }}
-                    className={`p-1 rounded transition-colors ${isSearching ? 'bg-black text-white' : 'hover:bg-slate-200 text-slate-500'}`}
+                    className={`p-1 rounded transition-colors ${isSearching ? 'bg-slate-900 text-white' : 'hover:bg-slate-200 text-slate-500'}`}
                   >
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
@@ -1589,7 +1550,7 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
                       type="text"
                       autoFocus
                       placeholder="Search events, labels, values..."
-                      className="w-full px-3 py-1.5 text-xs font-bold border-2 border-black shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] focus:outline-none placeholder:text-slate-400 placeholder:font-normal"
+                      className="w-full px-3 py-1.5 text-xs border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500 placeholder:text-slate-400"
                       value={activitySearch}
                       onChange={(e) => setActivitySearch(e.target.value)}
                     />
@@ -1620,10 +1581,10 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
                       key={filter.id}
                       onClick={() => setActivityFilter(filter.id)}
                       className={`
-                        px-2 py-1 text-[9px] font-black uppercase tracking-wide border-2 border-black transition-all
+                        px-2 py-1 text-[11px] font-medium rounded-md border transition-colors
                         ${activityFilter === filter.id
-                          ? 'bg-black text-white shadow-none translate-x-[1px] translate-y-[1px]'
-                          : 'bg-white text-black shadow-[1px_1px_0px_0px_rgba(0,0,0,1)] hover:shadow-none hover:translate-x-[1px] hover:translate-y-[1px]'
+                          ? 'bg-slate-900 text-white border-slate-900'
+                          : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-100'
                         }
                       `}
                     >
@@ -1638,7 +1599,7 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
                 {filteredActivity.length === 0 ? (
                   <div className="flex flex-col items-center justify-center h-48 text-slate-400">
                     <AlertTriangle className="w-8 h-8 mb-2 opacity-50" />
-                    <span className="text-xs font-bold uppercase">No activity found</span>
+                    <span className="text-xs font-medium">No activity found</span>
                   </div>
                 ) : (
                   <div>
@@ -1654,9 +1615,9 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
                           key={i}
                           className={`
                             group px-3 py-2 border-b border-slate-100 hover:bg-white transition-all cursor-pointer
-                            ${isHighlighted ? 'bg-amber-50 border-l-4 border-l-amber-500' : 'border-l-4 border-l-transparent hover:border-l-black'}
+                            ${isHighlighted ? 'bg-amber-50 border-l-4 border-l-amber-500' : 'border-l-4 border-l-transparent hover:border-l-slate-400'}
                           `}
-                          onClick={() => seekToTime(Math.max(0, (event.timestamp - replayBaseTime) / 1000))}
+                          onClick={() => handleSeekToTime(Math.max(0, (event.timestamp - replayBaseTime) / 1000))}
                         >
                           <div className="flex items-start gap-2">
                             {/* Icon */}
@@ -1664,15 +1625,15 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
                               {isNetwork ? (
                                 <div
                                   className={`
-                                    px-1 py-0.5 text-[8px] font-black font-mono border-2 border-black shadow-[1px_1px_0px_0px_rgba(0,0,0,1)]
-                                    ${event.properties?.success ? 'bg-emerald-400 text-black' : 'bg-red-500 text-white'}
+                                    px-1 py-0.5 text-[8px] font-semibold font-mono rounded border
+                                    ${event.properties?.success ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-red-50 text-red-700 border-red-200'}
                                   `}
                                 >
                                   {event.properties?.statusCode || 'ERR'}
                                 </div>
                               ) : (
                                 <div
-                                  className="w-4 h-4 rounded flex items-center justify-center border-2 border-black shadow-[1px_1px_0px_0px_rgba(0,0,0,1)]"
+                                  className="w-4 h-4 rounded flex items-center justify-center border border-slate-200"
                                   style={{ backgroundColor: color }}
                                 >
                                   <Icon className="w-2.5 h-2.5 text-white" />
@@ -1683,7 +1644,7 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
                             {/* Content */}
                             <div className="flex-1 min-w-0">
                               <div className="flex items-center justify-between mb-0.5">
-                                <span className="text-[10px] font-black uppercase tracking-tight text-black">
+                                <span className="text-[10px] font-semibold text-slate-700">
                                   {isNetwork
                                     ? event.name
                                     : (event.type === 'gesture' || event.type === 'touch')
@@ -1691,7 +1652,7 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
                                       : event.type.replace(/_/g, ' ')}
                                 </span>
                                 {(event.frustrationKind === 'dead_tap' || event.gestureType === 'dead_tap') && (
-                                  <span className="text-[8px] font-black uppercase px-1 py-0.5 bg-stone-100 text-stone-600 border border-stone-300 rounded-sm">Dead Tap</span>
+                                  <span className="text-[9px] font-medium px-1 py-0.5 bg-stone-100 text-stone-700 border border-stone-300 rounded">Dead Tap</span>
                                 )}
                                 <span className="text-[9px] font-mono font-bold text-slate-400 bg-slate-100 px-1 py-0.5 border border-slate-200">
                                   {timeStr}
@@ -1699,7 +1660,7 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
                               </div>
 
                               <div className="mt-1 flex flex-col gap-0.5">
-                                <div className="text-xs font-black text-black break-words leading-tight">
+                                <div className="text-xs font-medium text-slate-800 break-words leading-tight">
                                   <HighlightedText
                                     text={event.targetLabel || event.properties?.targetLabel || event.name || (event as any).screen || (event.gestureType && event.type === 'gesture' ? event.gestureType.replace(/_/g, ' ') : event.type)}
                                     search={activitySearch}
@@ -1736,10 +1697,10 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
             </div>
           </div>
 
-          {/* Center Column: Video Player */}
+          {/* Center Column: Replay Player */}
           <div className="lg:col-span-5 order-1 lg:order-2">
-            <div className="bg-white border-4 border-black shadow-[8px_8px_0px_0px_rgba(0,0,0,1)] rounded-lg overflow-hidden">
-              {/* Video Area */}
+            <div className="bg-white border border-slate-200 shadow-sm rounded-xl overflow-hidden">
+              {/* Replay Area */}
               <div className="relative flex items-center justify-center py-6 px-4 bg-slate-50">
                 {/* Navigation Arrow - Left (Previous Session) */}
                 {sessions.length > 1 && (
@@ -1754,7 +1715,7 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
                       }
                     }}
                     onMouseDown={(e) => e.preventDefault()}
-                    className="absolute left-4 z-10 w-10 h-10 bg-white hover:bg-slate-100 border-3 border-black flex items-center justify-center text-black transition-all shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] hover:shadow-none hover:translate-x-[3px] hover:translate-y-[3px]"
+                    className="absolute left-4 z-10 w-10 h-10 bg-white hover:bg-slate-100 border border-slate-300 rounded-lg flex items-center justify-center text-slate-800 transition-colors shadow-sm"
                   >
                     <ChevronLeft className="w-5 h-5" />
                   </button>
@@ -1763,11 +1724,11 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
                 {(isReplayExpired || replayUnavailableReason) ? (
                   <div className="w-[280px] aspect-[9/19.5] flex flex-col items-center justify-center text-slate-400 bg-slate-100 rounded-[2rem] px-4">
                     <VideoOff className="w-12 h-12 mb-3 opacity-40" />
-                    <p className="font-semibold text-sm text-center">Video Replay Unavailable</p>
+                    <p className="font-semibold text-sm text-center">Replay Unavailable</p>
                     {replayUnavailableReason === 'deleted' ? (
                       <>
                         <p className="text-xs text-slate-400 mt-1 text-center">
-                          Video was automatically deleted after the retention period
+                          Replay media was automatically deleted after the retention period
                         </p>
                         <p className="text-[10px] text-slate-300 mt-2 text-center">
                           Session data (events, timeline, network) is still available below
@@ -1776,10 +1737,10 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
                     ) : replayUnavailableReason === 'not_promoted' ? (
                       <>
                         <p className="text-xs text-slate-400 mt-1 text-center">
-                          No video was recorded for this session
+                          No replay was captured for this session
                         </p>
                         <p className="text-[10px] text-slate-300 mt-2 text-center">
-                          Only high-value sessions (crashes, errors, rage taps) have video
+                          Only high-value sessions (crashes, errors, rage taps) keep replay media
                         </p>
                       </>
                     ) : (
@@ -1791,17 +1752,8 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
                     {/* Playback Mode Indicator */}
                     <div className="absolute -top-6 left-0 right-0 flex justify-center z-10">
                       <div className="flex items-center gap-1 px-2 py-0.5 bg-slate-800/80 rounded text-[10px] text-white/80">
-                        {playbackMode === 'screenshots' ? (
-                          <>
-                            <ImageIcon className="w-3 h-3" />
-                            <span>{screenshotFrames.length} frames</span>
-                          </>
-                        ) : (
-                          <>
-                            <Film className="w-3 h-3" />
-                            <span>{segments.length} segments</span>
-                          </>
-                        )}
+                        <ImageIcon className="w-3 h-3" />
+                        <span>{screenshotFrames.length} frames</span>
                       </div>
                     </div>
 
@@ -1827,37 +1779,12 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
                             </div>
                           )}
 
-                          {/* Screenshot Canvas (for screenshot playback mode) */}
-                          {playbackMode === 'screenshots' && (
-                            <canvas
-                              ref={canvasRef}
-                              width={deviceWidth}
-                              height={deviceHeight}
-                              className="absolute inset-0 w-full h-full object-cover bg-slate-100"
-                            />
-                          )}
-
-                          {/* Video Element (for video playback mode) */}
-                          {playbackMode === 'video' && (
-                            <video
-                              ref={videoRef}
-                              className="absolute inset-0 w-full h-full object-cover"
-                              onTimeUpdate={handleTimeUpdate}
-                              onEnded={handleSegmentEnd}
-                              onLoadedMetadata={() => {
-                                setIsBuffering(false);
-                                if (pendingSeekTimeRef.current !== null && videoRef.current) {
-                                  videoRef.current.currentTime = pendingSeekTimeRef.current;
-                                  pendingSeekTimeRef.current = null;
-                                }
-                              }}
-                              onSeeked={() => setIsSeeking(false)}
-                              onWaiting={() => setIsBuffering(true)}
-                              onPlaying={() => setIsBuffering(false)}
-                              playsInline
-                              muted
-                            />
-                          )}
+                          <canvas
+                            ref={canvasRef}
+                            width={deviceWidth}
+                            height={deviceHeight}
+                            className="absolute inset-0 w-full h-full object-cover bg-slate-100"
+                          />
 
                           {/* Enhanced Touch Overlay */}
                           {showTouchOverlay && (
@@ -1868,13 +1795,6 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
                               currentTime={(fullSession?.startTime || 0) + currentPlaybackTime * 1000}
                               visibleWindowMs={800}
                             />
-                          )}
-
-                          {/* Buffering */}
-                          {isBuffering && (
-                            <div className="absolute inset-0 flex items-center justify-center bg-white/80 z-30">
-                              <div className="w-8 h-8 border-3 border-slate-200 border-t-blue-500 rounded-full animate-spin" />
-                            </div>
                           )}
 
                           {/* Home Indicator */}
@@ -1904,7 +1824,7 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
                       }
                     }}
                     onMouseDown={(e) => e.preventDefault()}
-                    className="absolute right-4 z-10 w-10 h-10 bg-white hover:bg-slate-100 border-3 border-black flex items-center justify-center text-black transition-all shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] hover:shadow-none hover:translate-x-[3px] hover:translate-y-[3px]"
+                    className="absolute right-4 z-10 w-10 h-10 bg-white hover:bg-slate-100 border border-slate-300 rounded-lg flex items-center justify-center text-slate-800 transition-colors shadow-sm"
                   >
                     <ChevronRight className="w-5 h-5" />
                   </button>
@@ -1912,21 +1832,21 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
               </div>
 
               {/* Unified Timeline */}
-              <div className="border-t-4 border-black bg-white">
+              <div className="border-t border-slate-200 bg-white">
                 {/* Timeline Header */}
-                <div className="px-4 py-2 flex items-center justify-between border-b-2 border-black bg-slate-50">
-                  <div className="flex items-center gap-4 text-[10px] font-black uppercase tracking-wide text-black">
+                <div className="px-4 py-2 flex items-center justify-between border-b border-slate-200 bg-slate-50/80">
+                  <div className="flex items-center gap-4 text-[10px] font-semibold uppercase tracking-wide text-slate-700">
                     <div className="flex items-center gap-1.5">
-                      <div className="w-3 h-3 bg-blue-500 border-2 border-black"></div>
+                      <div className="w-2.5 h-2.5 bg-blue-500 rounded-full"></div>
                       <span>Touches</span>
                     </div>
                     <div className="flex items-center gap-1.5">
-                      <div className="w-3 h-3 bg-emerald-500 border-2 border-black"></div>
+                      <div className="w-2.5 h-2.5 bg-emerald-500 rounded-full"></div>
                       <span>API</span>
                     </div>
                     {(fullSession?.crashes?.length || 0) > 0 && (
                       <div className="flex items-center gap-1.5">
-                        <div className="w-3 h-3 bg-red-500 border-2 border-black"></div>
+                        <div className="w-2.5 h-2.5 bg-red-500 rounded-full"></div>
                         <span>Crash</span>
                       </div>
                     )}
@@ -1937,9 +1857,9 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
                     <button
                       onClick={() => setShowTouchOverlay(!showTouchOverlay)}
                       onMouseDown={(e) => e.preventDefault()}
-                      className={`flex items-center gap-1.5 px-2 py-1 text-[10px] font-black uppercase border-2 border-black transition-all ${showTouchOverlay
-                        ? 'bg-blue-400 text-black shadow-none translate-x-[2px] translate-y-[2px]'
-                        : 'bg-white text-black shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] hover:shadow-none hover:translate-x-[2px] hover:translate-y-[2px]'
+                      className={`flex items-center gap-1.5 px-2 py-1 text-[10px] font-semibold uppercase border rounded-md transition-colors ${showTouchOverlay
+                        ? 'bg-blue-600 text-white border-blue-600'
+                        : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-100'
                         }`}
                       title="Toggle touch indicators"
                     >
@@ -2054,14 +1974,14 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
                         tabIndex={0}
                         onClick={(e) => {
                           e.currentTarget.blur();
-                          seekToTime(Math.max(0, time));
+                          handleSeekToTime(Math.max(0, time));
                         }}
                         onMouseEnter={() => setHoveredMarker({ ...event, x: percent })}
                         onMouseLeave={() => setHoveredMarker(null)}
                         onKeyDown={(e) => {
                           if (e.key === 'Enter' || e.key === ' ') {
                             e.preventDefault();
-                            seekToTime(Math.max(0, time));
+                            handleSeekToTime(Math.max(0, time));
                           }
                         }}
                         className={`absolute rounded-full transition-all group/marker focus:outline-none focus:ring-2 focus:ring-black/30 cursor-pointer ${isFrustration ? 'w-2 h-2 z-20' : 'w-1.5 h-1.5 z-10'
@@ -2104,12 +2024,12 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
                 </div>
 
                 {/* Controls Bar */}
-                <div className="px-4 py-3 border-t-4 border-black bg-slate-50">
+                <div className="px-4 py-3 border-t border-slate-200 bg-slate-50/80">
                   <div className="flex items-center justify-center gap-2">
                     <button
                       onClick={restart}
                       onMouseDown={(e) => e.preventDefault()}
-                      className="p-2 text-slate-500 hover:text-black hover:bg-white border-2 border-transparent hover:border-black rounded transition-all"
+                      className="p-2 text-slate-500 hover:text-slate-900 hover:bg-white border border-transparent hover:border-slate-300 rounded-md transition-colors"
                       title="Restart"
                     >
                       <RotateCcw className="w-4 h-4" />
@@ -2118,7 +2038,7 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
                     <button
                       onClick={() => skip(-5)}
                       onMouseDown={(e) => e.preventDefault()}
-                      className="p-2 text-slate-500 hover:text-black hover:bg-white border-2 border-transparent hover:border-black rounded transition-all"
+                      className="p-2 text-slate-500 hover:text-slate-900 hover:bg-white border border-transparent hover:border-slate-300 rounded-md transition-colors"
                       title="Back 5s"
                     >
                       <SkipBack className="w-4 h-4" />
@@ -2127,9 +2047,9 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
                     <button
                       onClick={togglePlayPause}
                       onMouseDown={(e) => e.preventDefault()}
-                      className={`w-12 h-12 border-4 border-black rounded-full flex items-center justify-center transition-all shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] hover:shadow-none hover:translate-x-[3px] hover:translate-y-[3px] ${isPlaying ? 'bg-amber-400 text-black' : 'bg-emerald-400 text-black'
+                      className={`w-12 h-12 border rounded-full flex items-center justify-center transition-colors shadow-sm ${isPlaying ? 'bg-amber-100 text-amber-700 border-amber-300 hover:bg-amber-200' : 'bg-emerald-100 text-emerald-700 border-emerald-300 hover:bg-emerald-200'
                         }`}
-                      disabled={segments.length === 0}
+                      disabled={!hasRecording || isReplayExpired || Boolean(replayUnavailableReason)}
                     >
                       {isPlaying ? (
                         <Pause className="w-5 h-5" />
@@ -2141,15 +2061,15 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
                     <button
                       onClick={() => skip(5)}
                       onMouseDown={(e) => e.preventDefault()}
-                      className="p-2 text-slate-500 hover:text-black hover:bg-white border-2 border-transparent hover:border-black rounded transition-all"
+                      className="p-2 text-slate-500 hover:text-slate-900 hover:bg-white border border-transparent hover:border-slate-300 rounded-md transition-colors"
                       title="Forward 5s"
                     >
                       <SkipForward className="w-4 h-4" />
                     </button>
 
                     {/* Time Display */}
-                    <span className="text-sm font-mono font-bold text-black tabular-nums ml-2 bg-white px-2 py-1 border-2 border-black">
-                      {formatVideoTime(currentPlaybackTime)} / {formatVideoTime(effectiveDuration)}
+                    <span className="text-sm font-mono font-semibold text-slate-800 tabular-nums ml-2 bg-white px-2 py-1 border border-slate-300 rounded">
+                      {formatPlaybackTime(currentPlaybackTime)} / {formatPlaybackTime(effectiveDuration)}
                     </span>
 
                     {/* Speed Control */}
@@ -2157,7 +2077,7 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
                       <button
                         onClick={() => setShowSpeedMenu(!showSpeedMenu)}
                         onMouseDown={(e) => e.preventDefault()}
-                        className="px-2 py-1 text-xs font-black text-black bg-white border-2 border-black shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] hover:shadow-none hover:translate-x-[2px] hover:translate-y-[2px] transition-all"
+                        className="px-2 py-1 text-xs font-semibold text-slate-700 bg-white border border-slate-300 rounded-md hover:bg-slate-100 transition-colors"
                       >
                         {playbackRate}x
                       </button>
@@ -2168,7 +2088,7 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
                             className="fixed inset-0 z-40"
                             onClick={() => setShowSpeedMenu(false)}
                           />
-                          <div className="absolute bottom-full right-0 mb-2 bg-white border-4 border-black shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] overflow-hidden z-50 min-w-[80px]">
+                          <div className="absolute bottom-full right-0 mb-2 bg-white border border-slate-200 shadow-lg rounded-lg overflow-hidden z-50 min-w-[80px]">
                             {[0.5, 1, 1.5, 2, 4].map((rate) => (
                               <button
                                 key={rate}
@@ -2177,9 +2097,9 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
                                   setShowSpeedMenu(false);
                                 }}
                                 onMouseDown={(e) => e.preventDefault()}
-                                className={`w-full px-3 py-2 text-xs font-bold text-left transition-colors border-b-2 border-black last:border-b-0 ${playbackRate === rate
-                                  ? 'bg-amber-400 text-black'
-                                  : 'text-black hover:bg-slate-100'
+                                className={`w-full px-3 py-2 text-xs font-medium text-left transition-colors border-b border-slate-100 last:border-b-0 ${playbackRate === rate
+                                  ? 'bg-blue-50 text-blue-700'
+                                  : 'text-slate-700 hover:bg-slate-50'
                                   }`}
                               >
                                 {rate}x
@@ -2193,29 +2113,12 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
                 </div>
               </div>
 
-              {/* Segment Indicator Pills */}
-              {segments.length > 1 && (
-                <div className="flex items-center justify-center gap-1.5 py-3 border-t-2 border-black">
-                  {segments.map((_, i) => (
-                    <button
-                      key={i}
-                      onClick={() => setActiveSegmentIndex(i)}
-                      onMouseDown={(e) => e.preventDefault()}
-                      className={`h-2 border-2 border-black transition-all ${i === activeSegmentIndex
-                        ? 'w-6 bg-amber-400'
-                        : 'w-2 bg-slate-200 hover:bg-slate-300'
-                        }`}
-                      title={`Segment ${i + 1}`}
-                    />
-                  ))}
-                </div>
-              )}
             </div>
           </div>
 
           {/* Right Column: DOM Inspector */}
           <div className="lg:col-span-4 order-3">
-            <div className="bg-white border-4 border-black shadow-[6px_6px_0px_0px_rgba(0,0,0,1)] h-[750px] max-h-[80vh] rounded-lg overflow-hidden flex flex-col">
+            <div className="bg-white border border-slate-200 shadow-sm h-[750px] max-h-[80vh] rounded-xl overflow-hidden flex flex-col">
               {hierarchySnapshots.length > 0 ? (
                 <DOMInspector
                   hierarchySnapshots={hierarchySnapshots}

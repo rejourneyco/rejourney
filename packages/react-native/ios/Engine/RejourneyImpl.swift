@@ -631,23 +631,8 @@ public final class RejourneyImpl: NSObject {
         resolve: @escaping RCTPromiseResolveBlock,
         reject: @escaping RCTPromiseRejectBlock
     ) {
-        resolve([
-            "uploadSuccessCount": 0,
-            "uploadFailureCount": 0,
-            "retryAttemptCount": 0,
-            "circuitBreakerOpenCount": 0,
-            "memoryEvictionCount": 0,
-            "offlinePersistCount": 0,
-            "sessionStartCount": (ReplayOrchestrator.shared.replayId != nil) ? 1 : 0,
-            "crashCount": 0,
-            "uploadSuccessRate": 1.0,
-            "avgUploadDurationMs": 0.0,
-            "currentQueueDepth": 0,
-            "lastUploadTime": NSNull(),
-            "lastRetryTime": NSNull(),
-            "totalBytesUploaded": 0,
-            "totalBytesEvicted": 0
-        ])
+        let queueDepth = TelemetryPipeline.shared.getQueueDepth()
+        resolve(SegmentDispatcher.shared.sdkTelemetrySnapshot(currentQueueDepth: queueDepth))
     }
     
     @objc(getDeviceInfo:reject:)

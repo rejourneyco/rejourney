@@ -10,7 +10,7 @@ import { db, projects, teamMembers, users, alertSettings, alertRecipients, alert
 import { logger } from '../logger.js';
 import { sessionAuth, requireProjectAccess, asyncHandler, ApiError } from '../middleware/index.js';
 import { validate } from '../middleware/validation.js';
-import { dashboardRateLimiter } from '../middleware/rateLimit.js';
+import { dashboardRateLimiter, writeApiRateLimiter } from '../middleware/rateLimit.js';
 import { z } from 'zod';
 
 const router = Router();
@@ -84,6 +84,7 @@ router.get(
 router.put(
     '/projects/:projectId/alert-settings',
     sessionAuth,
+    writeApiRateLimiter,
     validate(projectIdParamSchema, 'params'),
     validate(updateAlertSettingsSchema),
     requireProjectAccess,
@@ -162,6 +163,7 @@ router.get(
 router.post(
     '/projects/:projectId/alert-recipients',
     sessionAuth,
+    writeApiRateLimiter,
     validate(projectIdParamSchema, 'params'),
     validate(addRecipientSchema),
     requireProjectAccess,
@@ -251,6 +253,7 @@ router.post(
 router.delete(
     '/projects/:projectId/alert-recipients/:userId',
     sessionAuth,
+    writeApiRateLimiter,
     validate(removeRecipientParamSchema, 'params'),
     requireProjectAccess,
     dashboardRateLimiter,

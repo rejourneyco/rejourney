@@ -11,12 +11,25 @@ import { db, users, teams, teamMembers, otpTokens, userSessions, sessions, sessi
 import { logger } from '../logger.js';
 import { config, isSelfHosted } from '../config.js';
 import { validate, asyncHandler, ApiError, sessionAuth } from '../middleware/index.js';
-import { otpSendRateLimiter, otpVerifyRateLimiter } from '../middleware/rateLimit.js';
+import {
+    otpSendRateLimiter,
+    otpSendIpRateLimiter,
+    otpVerifyRateLimiter,
+    otpVerifyIpRateLimiter,
+    oauthRateLimiter,
+    writeApiRateLimiter,
+} from '../middleware/rateLimit.js';
 import { sendOtpSchema, verifyOtpSchema } from '../validation/auth.js';
 import { sendOtpEmail } from '../services/email.js';
 import { createAuditLog } from '../services/auditLog.js';
 import { UAParser } from 'ua-parser-js';
 import { getSessionCookieOptions, getOAuthStateCookieOptions } from '../utils/cookies.js';
+import { isDisposableEmail } from '../utils/disposableEmail.js';
+import {
+    enforceAccountCreationVelocity,
+    enforceCredentialStuffingGuards,
+    recordFailedAuthAttempt,
+} from '../services/abuseDetection.js';
 
 const router = Router();
 
@@ -68,11 +81,18 @@ async function verifyTurnstileToken(token: string, remoteIp?: string): Promise<b
  */
 router.post(
     '/otp/send',
+    otpSendIpRateLimiter,
     otpSendRateLimiter,
     validate(sendOtpSchema),
     asyncHandler(async (req, res) => {
         const { email, fingerprint, turnstileToken } = req.body;
         const normalizedEmail = email.toLowerCase().trim();
+        const accountFingerprint =
+            fingerprint?.browserFingerprint ||
+            [fingerprint?.timezone, fingerprint?.platform, fingerprint?.screenResolution]
+                .filter(Boolean)
+                .join('|') ||
+            null;
 
         // Verify Turnstile token (if configured)
         if (config.TURNSTILE_SECRET_KEY) {
@@ -103,6 +123,15 @@ router.post(
         let [user] = await db.select().from(users).where(eq(users.email, normalizedEmail)).limit(1);
 
         if (!user) {
+            if (isDisposableEmail(normalizedEmail)) {
+                throw ApiError.badRequest('Disposable email domains are not allowed. Please use a permanent email address.');
+            }
+
+            await enforceAccountCreationVelocity({
+                ip: req.ip,
+                fingerprint: accountFingerprint,
+            });
+
             // Collect fingerprint data for new users
             [user] = await db.insert(users).values({
                 email: normalizedEmail,
@@ -182,12 +211,18 @@ router.post(
  */
 router.post(
     '/otp/verify',
+    otpVerifyIpRateLimiter,
     otpVerifyRateLimiter,
     validate(verifyOtpSchema),
     asyncHandler(async (req, res) => {
         const { email, code, fingerprint } = req.body;
         const normalizedEmail = email.toLowerCase().trim();
         const codeHash = createHash('sha256').update(code).digest('hex');
+
+        await enforceCredentialStuffingGuards({
+            email: normalizedEmail,
+            ip: req.ip,
+        });
 
         // Find OTP token with user
         const [otpToken] = await db
@@ -213,12 +248,14 @@ router.post(
             .limit(1);
 
         if (!otpToken) {
+            await recordFailedAuthAttempt({ email: normalizedEmail, ip: req.ip });
             throw ApiError.badRequest('Invalid or expired code');
         }
 
         // Check attempts
         if (otpToken.attempts >= 5) {
             await db.delete(otpTokens).where(eq(otpTokens.id, otpToken.id));
+            await recordFailedAuthAttempt({ email: normalizedEmail, ip: req.ip });
             throw ApiError.tooManyRequests('Too many attempts. Please request a new code.');
         }
 
@@ -227,6 +264,7 @@ router.post(
             await db.update(otpTokens)
                 .set({ attempts: sql`${otpTokens.attempts} + 1` })
                 .where(eq(otpTokens.id, otpToken.id));
+            await recordFailedAuthAttempt({ email: normalizedEmail, ip: req.ip });
             throw ApiError.badRequest('Invalid code');
         }
 
@@ -369,6 +407,7 @@ router.get(
  */
 router.post(
     '/logout',
+    writeApiRateLimiter,
     asyncHandler(async (req, res) => {
         const token = req.cookies?.session || req.headers.authorization?.replace('Bearer ', '');
 
@@ -407,7 +446,7 @@ const GITHUB_EMAILS_URL = 'https://api.github.com/user/emails';
  * Initiate GitHub OAuth
  * GET /api/auth/github
  */
-router.get('/github', (req, res) => {
+router.get('/github', oauthRateLimiter, (req, res) => {
     if (!config.GITHUB_CLIENT_ID || !config.GITHUB_CLIENT_SECRET) {
         throw ApiError.badRequest('GitHub OAuth is not configured');
     }
@@ -440,6 +479,7 @@ router.get('/github', (req, res) => {
  */
 router.get(
     '/github/callback',
+    oauthRateLimiter,
     asyncHandler(async (req, res) => {
         const { code, state } = req.query;
         const storedState = req.cookies?.oauth_state;
@@ -579,6 +619,23 @@ router.get(
 
             // Create new user if not found
             if (!existingUser) {
+                if (isDisposableEmail(normalizedEmail)) {
+                    const dashboardUrl = config.PUBLIC_DASHBOARD_URL || 'https://rejourney.co';
+                    logger.warn({ email: normalizedEmail }, 'GitHub OAuth rejected disposable email domain');
+                    return res.redirect(`${dashboardUrl}/login?error=disposable_email`);
+                }
+
+                try {
+                    await enforceAccountCreationVelocity({ ip: req.ip });
+                } catch (err) {
+                    if (err instanceof ApiError) {
+                        const dashboardUrl = config.PUBLIC_DASHBOARD_URL || 'https://rejourney.co';
+                        logger.warn({ ip: req.ip, email: normalizedEmail }, 'GitHub OAuth signup velocity check blocked');
+                        return res.redirect(`${dashboardUrl}/login?error=signup_limited`);
+                    }
+                    throw err;
+                }
+
                 // Collect fingerprint data for new GitHub users
                 const userAgent = req.headers['user-agent'] || '';
                 const parser = new UAParser(userAgent);
@@ -703,11 +760,12 @@ router.get(
  * POST /api/auth/export-data
  * 
  * Rate limited to once per 30 days for scalability.
- * Returns minimal data: account info + session summaries (no video frames or raw events).
+ * Returns minimal data: account info + session summaries (no replay frames or raw events).
  */
 router.post(
     '/export-data',
     sessionAuth,
+    writeApiRateLimiter,
     asyncHandler(async (req, res) => {
         const userId = req.user!.id;
 
@@ -824,7 +882,7 @@ router.post(
             metadata: {
                 totalSessionsExported: sessionSummaries.length,
                 exportPeriod: `Last 90 days (${ninetyDaysAgo.toISOString().split('T')[0]} to ${now.toISOString().split('T')[0]})`,
-                note: 'Video recordings and raw event data are not included for privacy and scalability reasons.',
+                note: 'Replay screenshots and raw event data are not included for privacy and scalability reasons.',
             },
         };
 
@@ -843,4 +901,3 @@ router.post(
 );
 
 export default router;
-

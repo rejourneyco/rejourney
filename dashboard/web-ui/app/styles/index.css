@@ -14,8 +14,8 @@
     --popover: 0 0% 100%;
     --popover-foreground: 222.2 47.4% 11.2%;
 
-    --primary: 243 75% 59%;
-    /* Indigo 600 */
+    --primary: 205 70% 63%;
+    /* Logo blue */
     --primary-foreground: 210 40% 98%;
 
     --secondary: 210 40% 96.1%;
@@ -32,7 +32,7 @@
 
     --border: 214.3 31.8% 91.4%;
     --input: 214.3 31.8% 91.4%;
-    --ring: 243 75% 59%;
+    --ring: 205 70% 63%;
 
     --radius: 0.75rem;
   }
@@ -47,7 +47,7 @@
     --popover: 222.2 84% 4.9%;
     --popover-foreground: 210 40% 98%;
 
-    --primary: 243 75% 59%;
+    --primary: 205 70% 63%;
     --primary-foreground: 222.2 47.4% 11.2%;
 
     --secondary: 217.2 32.6% 17.5%;
@@ -116,16 +116,16 @@
   }
 
   .custom-scrollbar::-webkit-scrollbar-track {
-    background: rgba(255, 255, 255, 0.05);
+    background: rgba(148, 163, 184, 0.15);
   }
 
   .custom-scrollbar::-webkit-scrollbar-thumb {
-    background: rgba(255, 255, 255, 0.2);
+    background: rgba(148, 163, 184, 0.45);
     border-radius: 10px;
   }
 
   .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-    background: rgba(255, 255, 255, 0.3);
+    background: rgba(148, 163, 184, 0.65);
   }
 
   /* Custom Range Slider with Blue Fill */
@@ -282,4 +282,112 @@
   .hover-glow:hover {
     box-shadow: 0 0 20px rgba(93, 173, 236, 0.3), 8px 8px 0px 0px rgba(0, 0, 0, 1);
   }
+}
+
+/* Unified dashboard shell theme */
+.dashboard-shell {
+  background:
+    radial-gradient(1100px 560px at 88% -10%, rgba(148, 163, 184, 0.08), transparent 70%),
+    radial-gradient(920px 460px at -8% 108%, rgba(148, 163, 184, 0.06), transparent 64%),
+    #f3f5f9;
+}
+
+.dashboard-content {
+  background: transparent;
+}
+
+.dashboard-sidebar {
+  background:
+    linear-gradient(180deg, #1d2735 0%, #243448 50%, #2a3d53 100%);
+  color: #cbd5e1;
+  border-right: 1px solid #334155;
+  box-shadow: inset -1px 0 0 rgba(148, 163, 184, 0.14), 8px 0 20px rgba(2, 6, 23, 0.24);
+}
+
+.dashboard-topbar {
+  box-shadow: 0 1px 0 rgba(203, 225, 245, 0.85), 0 5px 14px rgba(30, 64, 175, 0.03);
+}
+
+/* Logo-aligned blue accents for a lightweight premium feel */
+.dashboard-modern .bg-blue-600 {
+  background-color: #68b5e6 !important;
+}
+
+.dashboard-modern .border-blue-600 {
+  border-color: #68b5e6 !important;
+}
+
+.dashboard-modern .text-blue-600 {
+  color: #4e9ccf !important;
+}
+
+.dashboard-modern .text-blue-700 {
+  color: #448ab9 !important;
+}
+
+.dashboard-modern [class*="bg-blue-50"] {
+  background-color: #f1f8ff !important;
+}
+
+.dashboard-modern [class*="border-blue-200"] {
+  border-color: #d5e9f8 !important;
+}
+
+.dashboard-modern [class*="border-blue-300"] {
+  border-color: #bfdef4 !important;
+}
+
+/* Dashboard-wide style normalization:
+   Softens older neo-brutal utility styling without rewriting every page. */
+.dashboard-modern {
+  --dashboard-border-soft: rgb(203 213 225);
+  --dashboard-shadow-soft: 0 1px 2px rgba(15, 23, 42, 0.08), 0 8px 20px rgba(15, 23, 42, 0.04);
+}
+
+.dashboard-modern .rounded-xl.border.bg-white,
+.dashboard-modern .rounded-lg.border.bg-white {
+  border-color: #e2e8f0 !important;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06), 0 6px 14px rgba(15, 23, 42, 0.03) !important;
+}
+
+.dashboard-modern .rounded-xl.border.bg-emerald-50,
+.dashboard-modern .rounded-xl.border.bg-emerald-50\/70,
+.dashboard-modern .rounded-xl.border.bg-blue-50,
+.dashboard-modern .rounded-xl.border.bg-blue-50\/60,
+.dashboard-modern .rounded-lg.border.bg-slate-50,
+.dashboard-modern .rounded-lg.border.bg-slate-50\/60,
+.dashboard-modern .rounded-lg.border.bg-slate-50\/70 {
+  background-color: #ffffff !important;
+}
+
+.dashboard-modern [class*="border-black"] {
+  border-color: var(--dashboard-border-soft) !important;
+}
+
+.dashboard-modern [class*="border-4"],
+.dashboard-modern [class*="border-2"] {
+  border-width: 1px !important;
+}
+
+.dashboard-modern [class*="shadow-["],
+.dashboard-modern [class*="shadow-sm"],
+.dashboard-modern [class*="shadow-md"],
+.dashboard-modern [class*="shadow-lg"],
+.dashboard-modern [class*="shadow-xl"] {
+  box-shadow: var(--dashboard-shadow-soft) !important;
+}
+
+.dashboard-modern [class*="font-black"] {
+  font-weight: 700 !important;
+}
+
+.dashboard-modern [class*="uppercase"] {
+  text-transform: none !important;
+}
+
+.dashboard-modern [class*="tracking-widest"],
+.dashboard-modern [class*="tracking-wide"],
+.dashboard-modern [class*="tracking-tighter"],
+.dashboard-modern [class*="tracking-tight"] {
+  letter-spacing: normal !important;
 }

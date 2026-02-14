@@ -12,8 +12,12 @@ import { logger } from '../logger.js';
 import { auditFromRequest } from '../services/auditLog.js';
 import { sessionAuth, requireProjectAccess, asyncHandler, ApiError } from '../middleware/index.js';
 import { validate } from '../middleware/validation.js';
-import { dashboardRateLimiter } from '../middleware/rateLimit.js';
+import { dashboardRateLimiter, writeApiRateLimiter } from '../middleware/rateLimit.js';
 import { projectIdParamSchema } from '../validation/projects.js';
+import {
+    assertNoDuplicateContentSpam,
+    enforceNewAccountActionLimit,
+} from '../services/abuseDetection.js';
 
 const router = Router();
 
@@ -62,11 +66,27 @@ router.get(
 router.post(
     '/projects/:id/api-keys',
     sessionAuth,
+    writeApiRateLimiter,
     validate(projectIdParamSchema, 'params'),
     requireProjectAccess,
     dashboardRateLimiter,
     asyncHandler(async (req, res) => {
         const projectId = req.params.id;
+
+        await enforceNewAccountActionLimit({
+            userId: req.user!.id,
+            action: 'api_key_create',
+        });
+
+        if (req.body?.name) {
+            await assertNoDuplicateContentSpam({
+                actorId: req.user!.id,
+                action: 'api_key_create',
+                contentParts: [req.body.name],
+                targetId: projectId,
+                checkLinks: false,
+            });
+        }
 
         // Generate API key
         const keyBytes = randomBytes(32);
@@ -109,6 +129,7 @@ router.post(
 router.delete(
     '/api-keys/:id',
     sessionAuth,
+    writeApiRateLimiter,
     dashboardRateLimiter,
     asyncHandler(async (req, res) => {
         const keyId = req.params.id;

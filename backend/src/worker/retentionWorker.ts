@@ -1,19 +1,19 @@
 /**
  * Retention Worker
  * 
- * Deletes expired VIDEO recording artifacts based on retention tier:
+ * Deletes expired replay screenshot artifacts based on retention tier:
  * - Scans sessions past retention window
- * - Deletes ONLY video/MP4 S3 objects (keeps session data, events, crashes, etc.)
- * - Removes video artifact rows from recording_artifacts table
- * - Updates session flags to indicate video recording is deleted
+ * - Deletes ONLY screenshot archive S3 objects (keeps session data, events, crashes, etc.)
+ * - Removes screenshot artifact rows from recording_artifacts table
+ * - Updates session flags to indicate replay data is deleted
  * 
  * IMPORTANT: Session metadata (events, crashes, ANRs, hierarchy) is kept indefinitely
  * as it has negligible storage cost and provides valuable analytics data.
  * 
  * S3 KEY SAFETY:
- * - Video files are stored at: tenant/{teamId}/project/{projectId}/sessions/{sessionId}/segments/{timestamp}.mp4
- * - We validate the S3 key contains /segments/ and ends with .mp4 before deletion
- * - Only artifacts with kind='video' are processed
+ * - Screenshot files are stored at: tenant/{teamId}/project/{projectId}/sessions/{sessionId}/screenshots/{timestamp}.tar.gz
+ * - We validate the S3 key contains /screenshots/ and ends with .tar.gz before deletion
+ * - Only artifacts with kind='screenshots' are processed
  */
 
 import { eq, and, lt, isNotNull, sql, ne } from 'drizzle-orm';
@@ -22,49 +22,50 @@ import { logger } from '../logger.js';
 import { deleteFromS3ForProject } from '../db/s3.js';
 import { retentionTiers } from '../config.js';
 import { pingWorker } from '../services/monitoring.js';
+import { hardDeleteProject } from '../services/deletion.js';
 
 const RUN_INTERVAL_MS = 6 * 60 * 60 * 1000; // 6 hours
 const BATCH_SIZE = 100;
 
-// Safety patterns - video files must match these patterns
-const VIDEO_KEY_PATTERNS = {
-    requiredSubstring: '/segments/',
-    validExtensions: ['.mp4', '.m4v'],
+// Safety patterns - screenshot archives must match these patterns.
+const SCREENSHOT_KEY_PATTERNS = {
+    requiredSubstring: '/screenshots/',
+    validExtensions: ['.tar.gz'],
 };
 
 let isRunning = true;
 
 /**
- * Validate that an S3 key looks like a video segment
- * This is a safety check to prevent accidental deletion of non-video data
+ * Validate that an S3 key looks like a screenshot archive
+ * This is a safety check to prevent accidental deletion of non-screenshot data.
  */
-function isValidVideoS3Key(key: string): boolean {
+function isValidScreenshotS3Key(key: string): boolean {
     if (!key) return false;
-    
-    // Must contain /segments/ directory
-    if (!key.includes(VIDEO_KEY_PATTERNS.requiredSubstring)) {
+
+    // Must contain /screenshots/ directory.
+    if (!key.includes(SCREENSHOT_KEY_PATTERNS.requiredSubstring)) {
         return false;
     }
-    
-    // Must end with a valid video extension
-    const hasValidExtension = VIDEO_KEY_PATTERNS.validExtensions.some(ext => 
+
+    // Must end with a valid screenshot extension.
+    const hasValidExtension = SCREENSHOT_KEY_PATTERNS.validExtensions.some(ext =>
         key.toLowerCase().endsWith(ext)
     );
-    
+
     return hasValidExtension;
 }
 
 /**
- * Process expired sessions - delete VIDEO artifacts only
- * 
+ * Process expired sessions - delete screenshot artifacts only.
+ *
  * Session metadata (events, crashes, ANRs, hierarchy) is kept indefinitely
  * as it provides valuable analytics with negligible storage cost.
- * Only video/MP4 files are deleted based on retention tier.
+ * Only screenshot archive files are deleted based on retention tier.
  */
 async function processExpiredSessions(): Promise<number> {
     let processedCount = 0;
-    let totalVideosDeleted = 0;
-    let skippedNonVideoKeys = 0;
+    let totalScreenshotsDeleted = 0;
+    let skippedNonScreenshotKeys = 0;
 
     const now = new Date();
 
@@ -74,7 +75,7 @@ async function processExpiredSessions(): Promise<number> {
 
         const expiryDate = new Date(now.getTime() - tierConfig.days * 24 * 60 * 60 * 1000);
 
-        // Find expired sessions that still have video recordings
+        // Find expired sessions that still have replay recordings.
         const expiredSessions = await db
             .select({
                 session: sessions,
@@ -94,58 +95,58 @@ async function processExpiredSessions(): Promise<number> {
 
         for (const { session } of expiredSessions) {
             try {
-                // Get ONLY VIDEO artifacts for this session - keep events, crashes, ANRs, etc.
-                const videoArtifacts = await db
+                // Get ONLY screenshot artifacts for this session - keep events, crashes, ANRs, etc.
+                const screenshotArtifacts = await db
                     .select()
                     .from(recordingArtifacts)
                     .where(
                         and(
                             eq(recordingArtifacts.sessionId, session.id),
-                            eq(recordingArtifacts.kind, 'video')
+                            eq(recordingArtifacts.kind, 'screenshots')
                         )
                     );
 
-                // Also log how many non-video artifacts are retained for verification
+                // Also log how many non-screenshot artifacts are retained for verification.
                 const retainedArtifactsCount = await db
                     .select({ count: sql<number>`count(*)` })
                     .from(recordingArtifacts)
                     .where(
                         and(
                             eq(recordingArtifacts.sessionId, session.id),
-                            ne(recordingArtifacts.kind, 'video')
+                            ne(recordingArtifacts.kind, 'screenshots')
                         )
                     );
                 const retainedCount = retainedArtifactsCount[0]?.count ?? 0;
 
-                // Delete ONLY video S3 objects with safety validation
-                let deletedVideoCount = 0;
-                for (const artifact of videoArtifacts) {
+                // Delete ONLY screenshot S3 objects with safety validation.
+                let deletedScreenshotCount = 0;
+                for (const artifact of screenshotArtifacts) {
                     try {
-                        // SAFETY CHECK: Validate the S3 key looks like a video file
-                        if (!isValidVideoS3Key(artifact.s3ObjectKey)) {
+                        // SAFETY CHECK: Validate the S3 key looks like a screenshot archive.
+                        if (!isValidScreenshotS3Key(artifact.s3ObjectKey)) {
                             logger.warn({
                                 artifactId: artifact.id,
                                 kind: artifact.kind,
                                 s3ObjectKey: artifact.s3ObjectKey,
-                            }, 'SAFETY: Skipping artifact deletion - S3 key does not match video pattern');
-                            skippedNonVideoKeys++;
+                            }, 'SAFETY: Skipping artifact deletion - S3 key does not match screenshot pattern');
+                            skippedNonScreenshotKeys++;
                             continue;
                         }
 
                         await deleteFromS3ForProject(session.projectId, artifact.s3ObjectKey);
 
-                        // Hard delete the video artifact row from DB
+                        // Hard delete the screenshot artifact row from DB.
                         await db.delete(recordingArtifacts)
                             .where(eq(recordingArtifacts.id, artifact.id));
-                        
-                        deletedVideoCount++;
-                        totalVideosDeleted++;
+
+                        deletedScreenshotCount++;
+                        totalScreenshotsDeleted++;
                     } catch (err) {
-                        logger.error({ err, artifactId: artifact.id, s3Key: artifact.s3ObjectKey }, 'Failed to delete video artifact');
+                        logger.error({ err, artifactId: artifact.id, s3Key: artifact.s3ObjectKey }, 'Failed to delete screenshot artifact');
                     }
                 }
 
-                // Mark session as recording deleted (video is gone, but session data remains)
+                // Mark session as recording deleted (screenshots gone, session data remains).
                 await db.update(sessions)
                     .set({
                         recordingDeleted: true,
@@ -158,9 +159,9 @@ async function processExpiredSessions(): Promise<number> {
                 logger.info({ 
                     sessionId: session.id, 
                     tier: tierConfig.tier,
-                    deletedVideoCount,
+                    deletedScreenshotCount,
                     retainedArtifacts: retainedCount,
-                }, 'Session video expired - videos deleted, session data retained');
+                }, 'Session replay expired - screenshots deleted, session data retained');
 
             } catch (err) {
                 logger.error({ err, sessionId: session.id }, 'Failed to process expired session');
@@ -169,12 +170,12 @@ async function processExpiredSessions(): Promise<number> {
     }
 
     // Log summary if any work was done
-    if (processedCount > 0 || skippedNonVideoKeys > 0) {
+    if (processedCount > 0 || skippedNonScreenshotKeys > 0) {
         logger.info({
             sessionsProcessed: processedCount,
-            totalVideosDeleted,
-            skippedNonVideoKeys,
-        }, 'Video retention cleanup cycle complete');
+            totalScreenshotsDeleted,
+            skippedNonScreenshotKeys,
+        }, 'Replay retention cleanup cycle complete');
     }
 
     return processedCount;
@@ -201,25 +202,12 @@ async function processDeletedProjects(): Promise<number> {
         try {
             logger.info({ projectId: project.id }, 'Processing project deletion...');
 
-            // 1. Delete S3 Assets
-            // This includes recordings, snapshots, and any other artifacts
-            try {
-                // Lazy import to avoid circular dependency issues if any
-                const { deleteProjectAssets } = await import('../db/s3.js');
-                await deleteProjectAssets(project.id, project.teamId);
-                logger.info({ projectId: project.id }, 'S3 assets deleted');
-            } catch (err) {
-                logger.error({ err, projectId: project.id }, 'Failed to delete S3 assets, continuing to DB cleanup');
-                // We continue to DB deletion even if S3 fails partially,
-                // or we might want to retry. for now, we log and proceed to avoid zombie projects.
-            }
-
-            // 2. Hard Delete from DB
-            // Cascading deletes should handle related tables (sessions, events, etc.)
-            // if configured in schema, otherwise we'd manually delete them here.
-            // Assuming DB schema has ON DELETE CASCADE for foreign keys.
-            await db.delete(projects)
-                .where(eq(projects.id, project.id));
+            await hardDeleteProject({
+                id: project.id,
+                teamId: project.teamId,
+                name: project.name,
+                publicKey: project.publicKey,
+            });
 
             processedCount++;
             logger.info({ projectId: project.id }, 'Project hard deleted (GDPR compliant)');

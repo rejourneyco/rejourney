@@ -6,12 +6,13 @@
  */
 
 import { Router } from 'express';
-import { eq, gte, lte, and, asc, inArray, sql } from 'drizzle-orm';
-import { db, appDailyStats, projects, teamMembers, appAllTimeStats, sessions, sessionMetrics } from '../db/client.js';
+import { eq, gte, lte, and, asc, inArray, sql, desc, isNotNull } from 'drizzle-orm';
+import { db, appDailyStats, projects, teamMembers, appAllTimeStats, sessions, sessionMetrics, crashes, anrs, errors } from '../db/client.js';
 import { getRedis } from '../db/redis.js';
 import { logger } from '../logger.js';
 import { asyncHandler, ApiError } from '../middleware/index.js';
 import { sessionAuth } from '../middleware/auth.js';
+import { writeApiRateLimiter } from '../middleware/rateLimit.js';
 import { runDailyRollup, backfillDailyStats } from '../jobs/statsAggregator.js';
 
 const router = Router();
@@ -19,6 +20,19 @@ const redis = getRedis();
 
 // Cache TTL in seconds
 const CACHE_TTL = 300; // 5 minutes
+
+function toPercent(numerator: number, denominator: number, decimals: number = 1): number {
+    if (denominator <= 0) return 0;
+    return Number(((numerator / denominator) * 100).toFixed(decimals));
+}
+
+function percentile(values: number[], p: number): number | null {
+    if (values.length === 0) return null;
+    const sorted = [...values].sort((a, b) => a - b);
+    const index = Math.ceil((p / 100) * sorted.length) - 1;
+    const normalizedIndex = Math.max(0, Math.min(index, sorted.length - 1));
+    return Math.round(sorted[normalizedIndex]);
+}
 
 /**
  * Get daily stats for a project
@@ -257,6 +271,7 @@ router.get(
 router.post(
     '/rollup',
     sessionAuth,
+    writeApiRateLimiter,
     asyncHandler(async (req, res) => {
         const { date, backfillDays } = req.body;
 
@@ -1111,8 +1126,8 @@ router.get(
             return;
         }
 
-        // Cache check - using v3 for rollup-based implementation
-        const cacheKey = `analytics:device-summary:${projectIds.sort().join(',')}:${timeRange || 'all'}:v3`;
+        // Cache check - v4 includes per-dimension issue counts.
+        const cacheKey = `analytics:device-summary:${projectIds.sort().join(',')}:${timeRange || 'all'}:v4`;
         const cached = await redis.get(cacheKey);
         if (cached) {
             res.json(JSON.parse(cached));
@@ -1130,7 +1145,7 @@ router.get(
             }
         }
 
-        // Query from appDailyStats rollup table (SCALABLE - queries days, not sessions)
+        // Query session counts from appDailyStats rollup table (SCALABLE - queries days, not sessions)
         const conditions = [inArray(appDailyStats.projectId, projectIds)];
         if (startDateStr) {
             conditions.push(gte(appDailyStats.date, startDateStr));
@@ -1150,12 +1165,39 @@ router.get(
             .from(appDailyStats)
             .where(and(...conditions));
 
-        // Aggregate JSONB breakdowns across all days
+        // Aggregate JSONB session breakdowns across all days.
         const deviceCounts: Record<string, number> = {};
         const osCounts: Record<string, number> = {};
         const versionCounts: Record<string, number> = {};
         const platformCounts: Record<string, number> = {};
         let totalSessions = 0;
+
+        type IssueBreakdown = { crashes: number; anrs: number; errors: number };
+        const deviceIssues: Record<string, IssueBreakdown> = {};
+        const osIssues: Record<string, IssueBreakdown> = {};
+        const versionIssues: Record<string, IssueBreakdown> = {};
+
+        const ensureIssueBucket = (map: Record<string, IssueBreakdown>, key: string): IssueBreakdown => {
+            if (!map[key]) {
+                map[key] = { crashes: 0, anrs: 0, errors: 0 };
+            }
+            return map[key];
+        };
+
+        const normalizeKey = (value: unknown): string => {
+            const str = typeof value === 'string' ? value.trim() : '';
+            return str.length > 0 ? str : 'UNKNOWN';
+        };
+
+        const addIssueCount = (
+            key: string,
+            issueType: keyof IssueBreakdown,
+            count: number,
+            map: Record<string, IssueBreakdown>
+        ) => {
+            const bucket = ensureIssueBucket(map, normalizeKey(key));
+            bucket[issueType] += count;
+        };
 
         // Helper to merge JSONB breakdowns
         const mergeBreakdown = (target: Record<string, number>, source: Record<string, number> | null) => {
@@ -1173,20 +1215,122 @@ router.get(
             mergeBreakdown(versionCounts, day.appVersionBreakdown);
         }
 
-        // Transform to arrays (note: issue counts per-device not available in rollup, showing 0s)
-        // For accurate per-device crash/anr/error rates, would need to extend rollup schema
-        const devices = Object.entries(deviceCounts)
-            .map(([model, count]) => ({ model, count, crashes: 0, anrs: 0, errors: 0 }))
+        const startTime = startDateStr ? new Date(`${startDateStr}T00:00:00.000Z`) : undefined;
+
+        // Aggregate issue counts by device/os/app from raw issue tables.
+        const crashWhere = [inArray(crashes.projectId, projectIds)];
+        if (startTime) crashWhere.push(gte(crashes.timestamp, startTime));
+
+        const crashDeviceExpr = sql<string>`COALESCE(NULLIF(TRIM(${sessions.deviceModel}), ''), NULLIF(TRIM(${crashes.deviceMetadata}::jsonb->>'deviceModel'), ''), 'UNKNOWN')`;
+        const crashOsExpr = sql<string>`COALESCE(NULLIF(TRIM(${sessions.osVersion}), ''), NULLIF(TRIM(${crashes.deviceMetadata}::jsonb->>'osVersion'), ''), NULLIF(TRIM(${crashes.deviceMetadata}::jsonb->>'os_version'), ''), 'UNKNOWN')`;
+        const crashAppExpr = sql<string>`COALESCE(NULLIF(TRIM(${sessions.appVersion}), ''), NULLIF(TRIM(${crashes.deviceMetadata}::jsonb->>'appVersion'), ''), NULLIF(TRIM(${crashes.deviceMetadata}::jsonb->>'app_version'), ''), 'UNKNOWN')`;
+
+        const crashRows = await db
+            .select({
+                model: crashDeviceExpr,
+                osVersion: crashOsExpr,
+                appVersion: crashAppExpr,
+                count: sql<number>`count(*)::int`,
+            })
+            .from(crashes)
+            .leftJoin(sessions, eq(crashes.sessionId, sessions.id))
+            .where(and(...crashWhere))
+            .groupBy(crashDeviceExpr, crashOsExpr, crashAppExpr);
+
+        for (const row of crashRows) {
+            const c = Number(row.count) || 0;
+            addIssueCount(row.model, 'crashes', c, deviceIssues);
+            addIssueCount(row.osVersion, 'crashes', c, osIssues);
+            addIssueCount(row.appVersion, 'crashes', c, versionIssues);
+        }
+
+        const anrWhere = [inArray(anrs.projectId, projectIds)];
+        if (startTime) anrWhere.push(gte(anrs.timestamp, startTime));
+
+        const anrDeviceExpr = sql<string>`COALESCE(NULLIF(TRIM(${sessions.deviceModel}), ''), NULLIF(TRIM(${anrs.deviceMetadata}::jsonb->>'deviceModel'), ''), 'UNKNOWN')`;
+        const anrOsExpr = sql<string>`COALESCE(NULLIF(TRIM(${sessions.osVersion}), ''), NULLIF(TRIM(${anrs.deviceMetadata}::jsonb->>'osVersion'), ''), NULLIF(TRIM(${anrs.deviceMetadata}::jsonb->>'os_version'), ''), 'UNKNOWN')`;
+        const anrAppExpr = sql<string>`COALESCE(NULLIF(TRIM(${sessions.appVersion}), ''), NULLIF(TRIM(${anrs.deviceMetadata}::jsonb->>'appVersion'), ''), NULLIF(TRIM(${anrs.deviceMetadata}::jsonb->>'app_version'), ''), 'UNKNOWN')`;
+
+        const anrRows = await db
+            .select({
+                model: anrDeviceExpr,
+                osVersion: anrOsExpr,
+                appVersion: anrAppExpr,
+                count: sql<number>`count(*)::int`,
+            })
+            .from(anrs)
+            .leftJoin(sessions, eq(anrs.sessionId, sessions.id))
+            .where(and(...anrWhere))
+            .groupBy(anrDeviceExpr, anrOsExpr, anrAppExpr);
+
+        for (const row of anrRows) {
+            const c = Number(row.count) || 0;
+            addIssueCount(row.model, 'anrs', c, deviceIssues);
+            addIssueCount(row.osVersion, 'anrs', c, osIssues);
+            addIssueCount(row.appVersion, 'anrs', c, versionIssues);
+        }
+
+        const errorWhere = [inArray(errors.projectId, projectIds)];
+        if (startTime) errorWhere.push(gte(errors.timestamp, startTime));
+
+        const errorDeviceExpr = sql<string>`COALESCE(NULLIF(TRIM(${errors.deviceModel}), ''), NULLIF(TRIM(${sessions.deviceModel}), ''), 'UNKNOWN')`;
+        const errorOsExpr = sql<string>`COALESCE(NULLIF(TRIM(${errors.osVersion}), ''), NULLIF(TRIM(${sessions.osVersion}), ''), 'UNKNOWN')`;
+        const errorAppExpr = sql<string>`COALESCE(NULLIF(TRIM(${errors.appVersion}), ''), NULLIF(TRIM(${sessions.appVersion}), ''), 'UNKNOWN')`;
+
+        const errorRows = await db
+            .select({
+                model: errorDeviceExpr,
+                osVersion: errorOsExpr,
+                appVersion: errorAppExpr,
+                count: sql<number>`count(*)::int`,
+            })
+            .from(errors)
+            .leftJoin(sessions, eq(errors.sessionId, sessions.id))
+            .where(and(...errorWhere))
+            .groupBy(errorDeviceExpr, errorOsExpr, errorAppExpr);
+
+        for (const row of errorRows) {
+            const c = Number(row.count) || 0;
+            addIssueCount(row.model, 'errors', c, deviceIssues);
+            addIssueCount(row.osVersion, 'errors', c, osIssues);
+            addIssueCount(row.appVersion, 'errors', c, versionIssues);
+        }
+
+        // Transform to arrays. Session counts come from rollups, issue counts from raw tables.
+        const deviceKeys = new Set([...Object.keys(deviceCounts), ...Object.keys(deviceIssues)]);
+        const osKeys = new Set([...Object.keys(osCounts), ...Object.keys(osIssues)]);
+        const versionKeys = new Set([...Object.keys(versionCounts), ...Object.keys(versionIssues)]);
+
+        const devices = Array.from(deviceKeys)
+            .map((model) => ({
+                model,
+                count: deviceCounts[model] || 0,
+                crashes: deviceIssues[model]?.crashes || 0,
+                anrs: deviceIssues[model]?.anrs || 0,
+                errors: deviceIssues[model]?.errors || 0,
+            }))
             .sort((a, b) => b.count - a.count)
             .slice(0, 50);
 
-        const appVersions = Object.entries(versionCounts)
-            .map(([version, count]) => ({ version, count, crashes: 0, anrs: 0, errors: 0 }))
+        const appVersions = Array.from(versionKeys)
+            .map((version) => ({
+                version,
+                count: versionCounts[version] || 0,
+                crashes: versionIssues[version]?.crashes || 0,
+                anrs: versionIssues[version]?.anrs || 0,
+                errors: versionIssues[version]?.errors || 0,
+            }))
             .sort((a, b) => b.count - a.count)
             .slice(0, 20);
 
-        const osVersions = Object.entries(osCounts)
-            .map(([version, count]) => ({ version, count, crashes: 0, anrs: 0, errors: 0 }))
+        const osVersions = Array.from(osKeys)
+            .map((version) => ({
+                version,
+                count: osCounts[version] || 0,
+                crashes: osIssues[version]?.crashes || 0,
+                anrs: osIssues[version]?.anrs || 0,
+                errors: osIssues[version]?.errors || 0,
+            }))
             .sort((a, b) => b.count - a.count)
             .slice(0, 20);
 
@@ -1891,7 +2035,7 @@ router.get(
                 .where(eq(teamMembers.userId, req.user!.id));
             const teamIds = membership.map(m => m.teamId);
             if (teamIds.length === 0) {
-                res.json({ healthSummary: { healthy: 0, degraded: 0, problematic: 0 }, flows: [], problematicJourneys: [], exitAfterError: [], timeToFailure: {}, screenHealth: [], topScreens: [], entryPoints: [], exitPoints: [] });
+                res.json({ healthSummary: { healthy: 0, degraded: 0, problematic: 0 }, flows: [], problematicJourneys: [], happyPathJourney: null, exitAfterError: [], timeToFailure: {}, screenHealth: [], topScreens: [], entryPoints: [], exitPoints: [] });
                 return;
             }
             const userProjects = await db
@@ -1902,11 +2046,11 @@ router.get(
         }
 
         if (projectIds.length === 0) {
-            res.json({ healthSummary: { healthy: 0, degraded: 0, problematic: 0 }, flows: [], problematicJourneys: [], exitAfterError: [], timeToFailure: {}, screenHealth: [], topScreens: [], entryPoints: [], exitPoints: [] });
+            res.json({ healthSummary: { healthy: 0, degraded: 0, problematic: 0 }, flows: [], problematicJourneys: [], happyPathJourney: null, exitAfterError: [], timeToFailure: {}, screenHealth: [], topScreens: [], entryPoints: [], exitPoints: [] });
             return;
         }
 
-        const cacheKey = `analytics:journey-observability:${projectIds.sort().join(',')}:${timeRange || 'all'}`;
+        const cacheKey = `analytics:journey-observability:v2:${projectIds.sort().join(',')}:${timeRange || 'all'}`;
         const cached = await redis.get(cacheKey);
         if (cached) {
             res.json(JSON.parse(cached));
@@ -2159,21 +2303,68 @@ router.get(
             .sort((a, b) => b.count - a.count)
             .slice(0, 50);
 
+        const allJourneys = Object.entries(journeyMap)
+            .map(([path, stats]) => {
+                const failureScore = stats.crashes * 5 + stats.anrs * 4 + stats.apiErrors * 2 + stats.rageTaps;
+                return {
+                    path: path.split(' → '),
+                    sessionCount: stats.sessionCount,
+                    crashes: stats.crashes,
+                    anrs: stats.anrs,
+                    apiErrors: stats.apiErrors,
+                    rageTaps: stats.rageTaps,
+                    failureScore,
+                    failurePerSession: stats.sessionCount > 0 ? failureScore / stats.sessionCount : Number.POSITIVE_INFINITY,
+                    sampleSessionIds: stats.sessionIds,
+                };
+            });
+
         // Failure-weighted journeys (failureScore = crashes×5 + anrs×4 + apiErrors×2 + rageTaps×1)
-        const problematicJourneys = Object.entries(journeyMap)
-            .map(([path, stats]) => ({
-                path: path.split(' → '),
-                sessionCount: stats.sessionCount,
-                crashes: stats.crashes,
-                anrs: stats.anrs,
-                apiErrors: stats.apiErrors,
-                rageTaps: stats.rageTaps,
-                failureScore: stats.crashes * 5 + stats.anrs * 4 + stats.apiErrors * 2 + stats.rageTaps,
-                sampleSessionIds: stats.sessionIds,
-            }))
+        const problematicJourneys = allJourneys
             .filter(j => j.failureScore > 0)
             .sort((a, b) => b.failureScore - a.failureScore)
             .slice(0, 20);
+
+        // Happy path = highest-volume clean path. Fallback = lowest failure-per-session path.
+        const happyPathJourney = (() => {
+            const candidates = allJourneys.filter(j => j.path.length > 1);
+            if (candidates.length === 0) return null;
+
+            const cleanCandidates = candidates
+                .filter(j => j.failureScore === 0)
+                .sort((a, b) => (b.sessionCount - a.sessionCount) || (b.path.length - a.path.length));
+
+            if (cleanCandidates.length > 0) {
+                const best = cleanCandidates[0];
+                return {
+                    path: best.path,
+                    sessionCount: best.sessionCount,
+                    crashes: best.crashes,
+                    anrs: best.anrs,
+                    apiErrors: best.apiErrors,
+                    rageTaps: best.rageTaps,
+                    failureScore: best.failureScore,
+                    health: 'healthy' as const,
+                    sampleSessionIds: best.sampleSessionIds,
+                };
+            }
+
+            const fallback = [...candidates].sort(
+                (a, b) => (a.failurePerSession - b.failurePerSession) || (b.sessionCount - a.sessionCount) || (b.path.length - a.path.length),
+            )[0];
+
+            return {
+                path: fallback.path,
+                sessionCount: fallback.sessionCount,
+                crashes: fallback.crashes,
+                anrs: fallback.anrs,
+                apiErrors: fallback.apiErrors,
+                rageTaps: fallback.rageTaps,
+                failureScore: fallback.failureScore,
+                health: 'degraded' as const,
+                sampleSessionIds: fallback.sampleSessionIds,
+            };
+        })();
 
         // Exit after error
         const exitAfterError = Object.entries(exitAfterErrorMap)
@@ -2234,6 +2425,7 @@ router.get(
             healthSummary,
             flows,
             problematicJourneys,
+            happyPathJourney,
             exitAfterError,
             timeToFailure,
             screenHealth,
@@ -2500,6 +2692,583 @@ router.get(
 );
 
 /**
+ * Observability Deep Metrics
+ * GET /api/analytics/observability-deep-metrics
+ *
+ * Derives richer Sentry-style observability signals using existing schema + replay data only.
+ */
+router.get(
+    '/observability-deep-metrics',
+    sessionAuth,
+    asyncHandler(async (req, res) => {
+        const { projectId, timeRange } = req.query;
+
+        let projectIds: string[] = [];
+        if (projectId && typeof projectId === 'string') {
+            const [project] = await db.select({ teamId: projects.teamId }).from(projects).where(eq(projects.id, projectId)).limit(1);
+            if (!project) throw ApiError.notFound('Project not found');
+            const [mem] = await db.select({ id: teamMembers.id }).from(teamMembers).where(and(eq(teamMembers.teamId, project.teamId), eq(teamMembers.userId, req.user!.id))).limit(1);
+            if (!mem) throw ApiError.forbidden('Access denied');
+            projectIds = [projectId];
+        } else {
+            const membership = await db
+                .select({ teamId: teamMembers.teamId })
+                .from(teamMembers)
+                .where(eq(teamMembers.userId, req.user!.id));
+            const teamIds = membership.map((m) => m.teamId);
+            if (teamIds.length === 0) {
+                res.json({
+                    dataWindow: {
+                        totalSessions: 0,
+                        analyzedSessions: 0,
+                        sampled: false,
+                        visualReplayCoverageRate: 0,
+                        analyticsCoverageRate: 0,
+                    },
+                    reliability: {
+                        crashFreeSessionRate: 0,
+                        anrFreeSessionRate: 0,
+                        errorFreeSessionRate: 0,
+                        frustrationFreeSessionRate: 0,
+                        degradedSessionRate: 0,
+                        apiFailureRate: 0,
+                    },
+                    performance: {
+                        apiApdex: null,
+                        p50ApiResponseMs: null,
+                        p95ApiResponseMs: null,
+                        p99ApiResponseMs: null,
+                        slowApiSessionRate: 0,
+                        p50StartupMs: null,
+                        p95StartupMs: null,
+                        slowStartupRate: 0,
+                    },
+                    impact: {
+                        uniqueUsers: 0,
+                        affectedUsers: 0,
+                        affectedUserRate: 0,
+                        issueReoccurrenceRate: 0,
+                    },
+                    ingestHealth: {
+                        sdkUploadSuccessRate: null,
+                        sessionsWithUploadFailures: 0,
+                        sessionsWithOfflinePersist: 0,
+                        sessionsWithMemoryEvictions: 0,
+                        sessionsWithCircuitBreakerOpen: 0,
+                        sessionsWithHeavyRetries: 0,
+                    },
+                    networkBreakdown: [],
+                    releaseRisk: [],
+                    evidenceSessions: [],
+                });
+                return;
+            }
+            const userProjects = await db
+                .select({ id: projects.id })
+                .from(projects)
+                .where(inArray(projects.teamId, teamIds));
+            projectIds = userProjects.map((p) => p.id);
+        }
+
+        if (projectIds.length === 0) {
+            res.json({
+                dataWindow: {
+                    totalSessions: 0,
+                    analyzedSessions: 0,
+                    sampled: false,
+                    visualReplayCoverageRate: 0,
+                    analyticsCoverageRate: 0,
+                },
+                reliability: {
+                    crashFreeSessionRate: 0,
+                    anrFreeSessionRate: 0,
+                    errorFreeSessionRate: 0,
+                    frustrationFreeSessionRate: 0,
+                    degradedSessionRate: 0,
+                    apiFailureRate: 0,
+                },
+                performance: {
+                    apiApdex: null,
+                    p50ApiResponseMs: null,
+                    p95ApiResponseMs: null,
+                    p99ApiResponseMs: null,
+                    slowApiSessionRate: 0,
+                    p50StartupMs: null,
+                    p95StartupMs: null,
+                    slowStartupRate: 0,
+                },
+                impact: {
+                    uniqueUsers: 0,
+                    affectedUsers: 0,
+                    affectedUserRate: 0,
+                    issueReoccurrenceRate: 0,
+                },
+                ingestHealth: {
+                    sdkUploadSuccessRate: null,
+                    sessionsWithUploadFailures: 0,
+                    sessionsWithOfflinePersist: 0,
+                    sessionsWithMemoryEvictions: 0,
+                    sessionsWithCircuitBreakerOpen: 0,
+                    sessionsWithHeavyRetries: 0,
+                },
+                networkBreakdown: [],
+                releaseRisk: [],
+                evidenceSessions: [],
+            });
+            return;
+        }
+
+        const cacheKey = `analytics:observability-deep-metrics:v1:${projectIds.sort().join(',')}:${timeRange || 'all'}`;
+        const cached = await redis.get(cacheKey);
+        if (cached) {
+            res.json(JSON.parse(cached));
+            return;
+        }
+
+        // Time filter
+        let startedAfter: Date | undefined;
+        if (timeRange && typeof timeRange === 'string') {
+            const days = timeRange === '24h' ? 1 : timeRange === '7d' ? 7 : timeRange === '30d' ? 30 : timeRange === '90d' ? 90 : undefined;
+            if (days) {
+                startedAfter = new Date();
+                startedAfter.setDate(startedAfter.getDate() - days);
+            }
+        }
+
+        const baseConditions = [inArray(sessions.projectId, projectIds)];
+        if (startedAfter) baseConditions.push(gte(sessions.startedAt, startedAfter));
+
+        const totalCountRows = await db
+            .select({ count: sql<number>`count(*)::int` })
+            .from(sessions)
+            .where(and(...baseConditions));
+        const totalSessions = Number(totalCountRows[0]?.count || 0);
+
+        const ANALYZE_LIMIT = 20000;
+        const sessionsWithMetrics = await db
+            .select({
+                id: sessions.id,
+                startedAt: sessions.startedAt,
+                deviceId: sessions.deviceId,
+                appVersion: sessions.appVersion,
+                replayPromoted: sessions.replayPromoted,
+                crashCount: sessionMetrics.crashCount,
+                anrCount: sessionMetrics.anrCount,
+                errorCount: sessionMetrics.errorCount,
+                rageTapCount: sessionMetrics.rageTapCount,
+                deadTapCount: sessionMetrics.deadTapCount,
+                apiTotalCount: sessionMetrics.apiTotalCount,
+                apiErrorCount: sessionMetrics.apiErrorCount,
+                apiAvgResponseMs: sessionMetrics.apiAvgResponseMs,
+                appStartupTimeMs: sessionMetrics.appStartupTimeMs,
+                networkType: sessionMetrics.networkType,
+                screenshotSegmentCount: sessionMetrics.screenshotSegmentCount,
+                eventsSizeBytes: sessionMetrics.eventsSizeBytes,
+                sdkUploadSuccessCount: sessionMetrics.sdkUploadSuccessCount,
+                sdkUploadFailureCount: sessionMetrics.sdkUploadFailureCount,
+                sdkRetryAttemptCount: sessionMetrics.sdkRetryAttemptCount,
+                sdkCircuitBreakerOpenCount: sessionMetrics.sdkCircuitBreakerOpenCount,
+                sdkMemoryEvictionCount: sessionMetrics.sdkMemoryEvictionCount,
+                sdkOfflinePersistCount: sessionMetrics.sdkOfflinePersistCount,
+            })
+            .from(sessions)
+            .leftJoin(sessionMetrics, eq(sessions.id, sessionMetrics.sessionId))
+            .where(and(...baseConditions))
+            .orderBy(desc(sessions.startedAt))
+            .limit(ANALYZE_LIMIT);
+
+        const analyzedSessions = sessionsWithMetrics.length;
+        if (analyzedSessions === 0) {
+            const emptyResult = {
+                dataWindow: {
+                    totalSessions: 0,
+                    analyzedSessions: 0,
+                    sampled: false,
+                    visualReplayCoverageRate: 0,
+                    analyticsCoverageRate: 0,
+                },
+                reliability: {
+                    crashFreeSessionRate: 0,
+                    anrFreeSessionRate: 0,
+                    errorFreeSessionRate: 0,
+                    frustrationFreeSessionRate: 0,
+                    degradedSessionRate: 0,
+                    apiFailureRate: 0,
+                },
+                performance: {
+                    apiApdex: null,
+                    p50ApiResponseMs: null,
+                    p95ApiResponseMs: null,
+                    p99ApiResponseMs: null,
+                    slowApiSessionRate: 0,
+                    p50StartupMs: null,
+                    p95StartupMs: null,
+                    slowStartupRate: 0,
+                },
+                impact: {
+                    uniqueUsers: 0,
+                    affectedUsers: 0,
+                    affectedUserRate: 0,
+                    issueReoccurrenceRate: 0,
+                },
+                ingestHealth: {
+                    sdkUploadSuccessRate: null,
+                    sessionsWithUploadFailures: 0,
+                    sessionsWithOfflinePersist: 0,
+                    sessionsWithMemoryEvictions: 0,
+                    sessionsWithCircuitBreakerOpen: 0,
+                    sessionsWithHeavyRetries: 0,
+                },
+                networkBreakdown: [],
+                releaseRisk: [],
+                evidenceSessions: [],
+            };
+            await redis.set(cacheKey, JSON.stringify(emptyResult), 'EX', CACHE_TTL);
+            res.json(emptyResult);
+            return;
+        }
+
+        const toNumber = (value: number | null | undefined): number => Number(value || 0);
+        const hasVisualReplay = (row: typeof sessionsWithMetrics[number]): boolean =>
+            Boolean(row.replayPromoted || toNumber(row.screenshotSegmentCount) > 0);
+
+        let crashFreeSessions = 0;
+        let anrFreeSessions = 0;
+        let errorFreeSessions = 0;
+        let frustrationFreeSessions = 0;
+        let degradedSessions = 0;
+        let sessionsWithApiLatency = 0;
+        let sessionsWithSlowApi = 0;
+        let visualReplaySessions = 0;
+        let analyticsDataSessions = 0;
+
+        let totalApiCalls = 0;
+        let totalApiErrors = 0;
+        let totalSdkUploadSuccess = 0;
+        let totalSdkUploadFailure = 0;
+
+        let sessionsWithUploadFailures = 0;
+        let sessionsWithOfflinePersist = 0;
+        let sessionsWithMemoryEvictions = 0;
+        let sessionsWithCircuitBreakerOpen = 0;
+        let sessionsWithHeavyRetries = 0;
+
+        let apdexSatisfied = 0;
+        let apdexTolerating = 0;
+        let apdexTotal = 0;
+
+        const apiLatencyValues: number[] = [];
+        const startupValues: number[] = [];
+
+        const allUsers = new Set<string>();
+        const affectedUsers = new Set<string>();
+        const networkMap: Record<string, { sessions: number; apiCalls: number; apiErrors: number; latencySum: number; latencySamples: number }> = {};
+        const versionMap: Record<string, { sessions: number; degradedSessions: number; crashCount: number; anrCount: number; errorCount: number; latestSeen: Date }> = {};
+
+        for (const row of sessionsWithMetrics) {
+            const crashCount = toNumber(row.crashCount);
+            const anrCount = toNumber(row.anrCount);
+            const errorCount = toNumber(row.errorCount);
+            const rageTapCount = toNumber(row.rageTapCount);
+            const deadTapCount = toNumber(row.deadTapCount);
+            const apiTotalCount = toNumber(row.apiTotalCount);
+            const apiErrorCount = toNumber(row.apiErrorCount);
+            const apiAvgResponseMs = toNumber(row.apiAvgResponseMs);
+            const appStartupTimeMs = toNumber(row.appStartupTimeMs);
+            const sdkUploadSuccessCount = toNumber(row.sdkUploadSuccessCount);
+            const sdkUploadFailureCount = toNumber(row.sdkUploadFailureCount);
+            const sdkRetryAttemptCount = toNumber(row.sdkRetryAttemptCount);
+            const sdkCircuitBreakerOpenCount = toNumber(row.sdkCircuitBreakerOpenCount);
+            const sdkMemoryEvictionCount = toNumber(row.sdkMemoryEvictionCount);
+            const sdkOfflinePersistCount = toNumber(row.sdkOfflinePersistCount);
+
+            if (crashCount === 0) crashFreeSessions++;
+            if (anrCount === 0) anrFreeSessions++;
+            if (errorCount === 0) errorFreeSessions++;
+            if (rageTapCount === 0 && deadTapCount === 0) frustrationFreeSessions++;
+
+            const apiErrorRate = apiTotalCount > 0 ? (apiErrorCount / apiTotalCount) * 100 : 0;
+            const hasDegradedSignal = crashCount > 0
+                || anrCount > 0
+                || errorCount > 0
+                || rageTapCount >= 2
+                || apiErrorRate > 5
+                || apiAvgResponseMs > 1000
+                || appStartupTimeMs > 3000;
+            if (hasDegradedSignal) degradedSessions++;
+
+            if (apiTotalCount > 0) {
+                totalApiCalls += apiTotalCount;
+                totalApiErrors += apiErrorCount;
+                if (apiAvgResponseMs > 0) {
+                    sessionsWithApiLatency++;
+                    apiLatencyValues.push(apiAvgResponseMs);
+                    if (apiAvgResponseMs > 1000) sessionsWithSlowApi++;
+
+                    // Apdex-style breakdown using T=300ms, 4T=1200ms.
+                    apdexTotal++;
+                    if (apiAvgResponseMs <= 300) apdexSatisfied++;
+                    else if (apiAvgResponseMs <= 1200) apdexTolerating++;
+                }
+            }
+
+            if (appStartupTimeMs > 0) {
+                startupValues.push(appStartupTimeMs);
+            }
+
+            if (hasVisualReplay(row)) {
+                visualReplaySessions++;
+            }
+            if (hasVisualReplay(row) || toNumber(row.eventsSizeBytes) > 0) {
+                analyticsDataSessions++;
+            }
+
+            totalSdkUploadSuccess += sdkUploadSuccessCount;
+            totalSdkUploadFailure += sdkUploadFailureCount;
+            if (sdkUploadFailureCount > 0) sessionsWithUploadFailures++;
+            if (sdkOfflinePersistCount > 0) sessionsWithOfflinePersist++;
+            if (sdkMemoryEvictionCount > 0) sessionsWithMemoryEvictions++;
+            if (sdkCircuitBreakerOpenCount > 0) sessionsWithCircuitBreakerOpen++;
+            if (sdkRetryAttemptCount >= 3) sessionsWithHeavyRetries++;
+
+            if (row.deviceId) {
+                allUsers.add(row.deviceId);
+                if (crashCount > 0 || anrCount > 0 || errorCount > 0) {
+                    affectedUsers.add(row.deviceId);
+                }
+            }
+
+            const networkType = (row.networkType || 'unknown').toLowerCase();
+            if (!networkMap[networkType]) {
+                networkMap[networkType] = { sessions: 0, apiCalls: 0, apiErrors: 0, latencySum: 0, latencySamples: 0 };
+            }
+            networkMap[networkType].sessions++;
+            networkMap[networkType].apiCalls += apiTotalCount;
+            networkMap[networkType].apiErrors += apiErrorCount;
+            if (apiAvgResponseMs > 0) {
+                networkMap[networkType].latencySum += apiAvgResponseMs;
+                networkMap[networkType].latencySamples++;
+            }
+
+            const appVersion = row.appVersion || 'unknown';
+            if (!versionMap[appVersion]) {
+                versionMap[appVersion] = {
+                    sessions: 0,
+                    degradedSessions: 0,
+                    crashCount: 0,
+                    anrCount: 0,
+                    errorCount: 0,
+                    latestSeen: row.startedAt,
+                };
+            }
+            versionMap[appVersion].sessions++;
+            if (hasDegradedSignal) versionMap[appVersion].degradedSessions++;
+            versionMap[appVersion].crashCount += crashCount;
+            versionMap[appVersion].anrCount += anrCount;
+            versionMap[appVersion].errorCount += errorCount;
+            if (row.startedAt > versionMap[appVersion].latestSeen) {
+                versionMap[appVersion].latestSeen = row.startedAt;
+            }
+        }
+
+        const issueConditionsErrors = [inArray(errors.projectId, projectIds), isNotNull(errors.fingerprint)];
+        if (startedAfter) issueConditionsErrors.push(gte(errors.timestamp, startedAfter));
+        const groupedErrors = await db
+            .select({
+                fingerprint: errors.fingerprint,
+                count: sql<number>`count(*)::int`,
+            })
+            .from(errors)
+            .where(and(...issueConditionsErrors))
+            .groupBy(errors.fingerprint);
+
+        const issueConditionsCrashes = [inArray(crashes.projectId, projectIds), isNotNull(crashes.fingerprint)];
+        if (startedAfter) issueConditionsCrashes.push(gte(crashes.timestamp, startedAfter));
+        const groupedCrashes = await db
+            .select({
+                fingerprint: crashes.fingerprint,
+                count: sql<number>`count(*)::int`,
+            })
+            .from(crashes)
+            .where(and(...issueConditionsCrashes))
+            .groupBy(crashes.fingerprint);
+
+        let fingerprintEvents = 0;
+        let repeatedFingerprintEvents = 0;
+        for (const row of groupedErrors) {
+            const count = Number(row.count || 0);
+            fingerprintEvents += count;
+            if (count > 1) repeatedFingerprintEvents += count;
+        }
+        for (const row of groupedCrashes) {
+            const count = Number(row.count || 0);
+            fingerprintEvents += count;
+            if (count > 1) repeatedFingerprintEvents += count;
+        }
+
+        const networkBreakdown = Object.entries(networkMap)
+            .map(([networkType, stats]) => ({
+                networkType,
+                sessions: stats.sessions,
+                apiCalls: stats.apiCalls,
+                apiErrorRate: toPercent(stats.apiErrors, Math.max(1, stats.apiCalls), 2),
+                avgLatencyMs: stats.latencySamples > 0 ? Math.round(stats.latencySum / stats.latencySamples) : 0,
+            }))
+            .sort((a, b) => b.sessions - a.sessions)
+            .slice(0, 8);
+
+        const overallDegradedRate = toPercent(degradedSessions, analyzedSessions, 2);
+        const releaseRisk = Object.entries(versionMap)
+            .map(([version, stats]) => {
+                const failureRate = toPercent(stats.degradedSessions, Math.max(1, stats.sessions), 2);
+                return {
+                    version,
+                    sessions: stats.sessions,
+                    degradedSessions: stats.degradedSessions,
+                    failureRate,
+                    deltaVsOverall: Number((failureRate - overallDegradedRate).toFixed(2)),
+                    crashCount: stats.crashCount,
+                    anrCount: stats.anrCount,
+                    errorCount: stats.errorCount,
+                    latestSeen: stats.latestSeen.toISOString(),
+                };
+            })
+            .filter((row) => row.sessions >= 20)
+            .sort((a, b) => (b.deltaVsOverall - a.deltaVsOverall) || (b.sessions - a.sessions))
+            .slice(0, 5);
+
+        const rankedRows = [...sessionsWithMetrics];
+        const getEvidenceIds = (
+            predicate: (row: typeof sessionsWithMetrics[number]) => boolean,
+            ranker: (row: typeof sessionsWithMetrics[number]) => number,
+        ): string[] => {
+            const candidates = rankedRows.filter(predicate).sort((a, b) => ranker(b) - ranker(a));
+            const replayCandidates = candidates.filter(hasVisualReplay);
+            const source = replayCandidates.length > 0 ? replayCandidates : candidates;
+            return Array.from(new Set(source.slice(0, 3).map((row) => row.id)));
+        };
+
+        const crashEvidence = getEvidenceIds(
+            (row) => toNumber(row.crashCount) + toNumber(row.anrCount) > 0,
+            (row) => (toNumber(row.crashCount) * 5) + (toNumber(row.anrCount) * 4) + toNumber(row.errorCount),
+        );
+        const apiEvidence = getEvidenceIds(
+            (row) => {
+                const apiTotal = toNumber(row.apiTotalCount);
+                if (apiTotal <= 0) return false;
+                const apiErrorRate = (toNumber(row.apiErrorCount) / Math.max(1, apiTotal)) * 100;
+                return apiErrorRate > 5 || toNumber(row.apiAvgResponseMs) > 1000;
+            },
+            (row) => {
+                const apiTotal = toNumber(row.apiTotalCount);
+                const apiErrorRate = (toNumber(row.apiErrorCount) / Math.max(1, apiTotal)) * 100;
+                return (apiErrorRate * 200) + toNumber(row.apiAvgResponseMs);
+            },
+        );
+        const frustrationEvidence = getEvidenceIds(
+            (row) => toNumber(row.rageTapCount) + toNumber(row.deadTapCount) > 0,
+            (row) => (toNumber(row.rageTapCount) * 3) + (toNumber(row.deadTapCount) * 2) + toNumber(row.errorCount),
+        );
+        const startupEvidence = getEvidenceIds(
+            (row) => toNumber(row.appStartupTimeMs) > 3000,
+            (row) => toNumber(row.appStartupTimeMs),
+        );
+        const ingestEvidence = getEvidenceIds(
+            (row) => toNumber(row.sdkUploadFailureCount) > 0 || toNumber(row.sdkOfflinePersistCount) > 0 || toNumber(row.sdkMemoryEvictionCount) > 0,
+            (row) => (toNumber(row.sdkUploadFailureCount) * 5) + (toNumber(row.sdkOfflinePersistCount) * 2) + (toNumber(row.sdkMemoryEvictionCount) * 2) + toNumber(row.sdkRetryAttemptCount),
+        );
+
+        const evidenceSessions = [
+            {
+                title: 'Crash/ANR outliers',
+                description: 'Highest fatal stability impact sessions.',
+                metric: 'stability',
+                value: `${degradedSessions.toLocaleString()} degraded sessions`,
+                sessionIds: crashEvidence,
+            },
+            {
+                title: 'API degradation outliers',
+                description: 'High latency or high API failure sessions.',
+                metric: 'api',
+                value: `${toPercent(totalApiErrors, Math.max(1, totalApiCalls), 2)}% API failure rate`,
+                sessionIds: apiEvidence,
+            },
+            {
+                title: 'Frustration hotspots',
+                description: 'Sessions with strong rage/dead tap signals.',
+                metric: 'ux-friction',
+                value: `${toPercent(analyzedSessions - frustrationFreeSessions, analyzedSessions, 2)}% friction sessions`,
+                sessionIds: frustrationEvidence,
+            },
+            {
+                title: 'Slow startup evidence',
+                description: 'Cold starts above 3 seconds.',
+                metric: 'startup',
+                value: `${toPercent(startupValues.filter((v) => v > 3000).length, Math.max(1, startupValues.length), 2)}% slow startup`,
+                sessionIds: startupEvidence,
+            },
+            {
+                title: 'SDK upload pipeline failures',
+                description: 'Sessions where ingestion reliability degraded.',
+                metric: 'ingest',
+                value: `${sessionsWithUploadFailures.toLocaleString()} sessions with upload failures`,
+                sessionIds: ingestEvidence,
+            },
+        ].filter((item) => item.sessionIds.length > 0);
+
+        const result = {
+            dataWindow: {
+                totalSessions,
+                analyzedSessions,
+                sampled: totalSessions > analyzedSessions,
+                visualReplayCoverageRate: toPercent(visualReplaySessions, analyzedSessions, 2),
+                analyticsCoverageRate: toPercent(analyticsDataSessions, analyzedSessions, 2),
+            },
+            reliability: {
+                crashFreeSessionRate: toPercent(crashFreeSessions, analyzedSessions, 2),
+                anrFreeSessionRate: toPercent(anrFreeSessions, analyzedSessions, 2),
+                errorFreeSessionRate: toPercent(errorFreeSessions, analyzedSessions, 2),
+                frustrationFreeSessionRate: toPercent(frustrationFreeSessions, analyzedSessions, 2),
+                degradedSessionRate: toPercent(degradedSessions, analyzedSessions, 2),
+                apiFailureRate: toPercent(totalApiErrors, Math.max(1, totalApiCalls), 2),
+            },
+            performance: {
+                apiApdex: apdexTotal > 0 ? Number((((apdexSatisfied + apdexTolerating * 0.5) / apdexTotal)).toFixed(3)) : null,
+                p50ApiResponseMs: percentile(apiLatencyValues, 50),
+                p95ApiResponseMs: percentile(apiLatencyValues, 95),
+                p99ApiResponseMs: percentile(apiLatencyValues, 99),
+                slowApiSessionRate: toPercent(sessionsWithSlowApi, Math.max(1, sessionsWithApiLatency), 2),
+                p50StartupMs: percentile(startupValues, 50),
+                p95StartupMs: percentile(startupValues, 95),
+                slowStartupRate: toPercent(startupValues.filter((v) => v > 3000).length, Math.max(1, startupValues.length), 2),
+            },
+            impact: {
+                uniqueUsers: allUsers.size,
+                affectedUsers: affectedUsers.size,
+                affectedUserRate: toPercent(affectedUsers.size, Math.max(1, allUsers.size), 2),
+                issueReoccurrenceRate: toPercent(repeatedFingerprintEvents, Math.max(1, fingerprintEvents), 2),
+            },
+            ingestHealth: {
+                sdkUploadSuccessRate: (totalSdkUploadSuccess + totalSdkUploadFailure) > 0
+                    ? Number((totalSdkUploadSuccess / (totalSdkUploadSuccess + totalSdkUploadFailure) * 100).toFixed(2))
+                    : null,
+                sessionsWithUploadFailures,
+                sessionsWithOfflinePersist,
+                sessionsWithMemoryEvictions,
+                sessionsWithCircuitBreakerOpen,
+                sessionsWithHeavyRetries,
+            },
+            networkBreakdown,
+            releaseRisk,
+            evidenceSessions,
+        };
+
+        await redis.set(cacheKey, JSON.stringify(result), 'EX', CACHE_TTL);
+        res.json(result);
+    })
+);
+
+/**
  * User Engagement Trends - Daily unique user counts per engagement segment
  * GET /api/analytics/user-engagement-trends
  * 
@@ -2629,9 +3398,3 @@ router.get(
 );
 
 export default router;
-
-
-
-
-
-

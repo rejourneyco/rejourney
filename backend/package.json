@@ -17,6 +17,8 @@
         "db:studio": "drizzle-kit studio",
         "db:seed": "tsx src/db/seed.ts",
         "db:seed:selfhosted": "tsx src/db/seedSelfHosted.ts",
+        "usage:backfill:device": "node --import tsx/esm scripts/backfill_device_usage.ts",
+        "usage:backfill:device:dry-run": "node --import tsx/esm scripts/backfill_device_usage.ts --dry-run",
         "worker:ingest": "tsx src/worker/ingestWorker.ts",
         "worker:billing": "tsx src/worker/billingWorker.ts",
         "worker:retention": "tsx src/worker/retentionWorker.ts",

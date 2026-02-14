@@ -21,9 +21,9 @@ export const NeoCard: React.FC<NeoCardProps> = ({
     // Premium Base Styles: Subtle borders, soft transitions, no hard shadows
     const baseStyles = "bg-white border border-slate-200 transition-all duration-200 rounded-xl";
     const variants = {
-        default: "shadow-sm hover:shadow-md",
+        default: "shadow-sm",
         flat: "shadow-none border-transparent bg-transparent",
-        monitor: "p-6 relative bg-slate-900 shadow-xl border-slate-800"
+        monitor: "p-6 relative bg-slate-900 shadow-sm border-slate-700"
     };
 
     if (variant === 'monitor') {
@@ -34,7 +34,7 @@ export const NeoCard: React.FC<NeoCardProps> = ({
                     {children}
                 </div>
                 {/* Monitor Base - Subtle */}
-                <div className="absolute -bottom-4 left-1/2 -translate-x-1/2 w-1/3 h-4 bg-slate-800 rounded-b-lg opacity-50"></div>
+                <div className="absolute -bottom-4 left-1/2 -translate-x-1/2 w-1/3 h-4 bg-slate-800 rounded-b-lg opacity-35"></div>
             </div>
         );
     }

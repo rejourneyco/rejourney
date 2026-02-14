@@ -26,7 +26,7 @@ export { SDK_VERSION };
 /** Default configuration values */
 export const DEFAULT_CONFIG = {
   enabled: true,
-  captureFPS: 0.5,
+  captureFPS: 1.0,
   captureOnEvents: true,
   maxSessionDuration: 10 * 60 * 1000,
   maxStorageSize: 50 * 1024 * 1024,
@@ -79,7 +79,7 @@ export const PLAYBACK_SPEEDS = [0.5, 1, 2, 4] as const;
 
 /** Capture settings */
 export const CAPTURE_SETTINGS = {
-  DEFAULT_FPS: 0.5,
+  DEFAULT_FPS: 1.0,
   MIN_FPS: 0.1,
   MAX_FPS: 2,
   CAPTURE_SCALE: 0.25,

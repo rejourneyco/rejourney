@@ -412,7 +412,31 @@ export async function getTeamSubscription(teamId: string): Promise<TeamSubscript
         }, 'Retrieved subscription from Stripe');
 
         if (subscription.status === 'canceled') {
-            // Subscription was canceled, revert to free
+            // Subscription was canceled. Reconcile stale DB fields so all usage paths
+            // consistently treat this team as free-tier.
+            try {
+                await db
+                    .update(teams)
+                    .set({
+                        stripeSubscriptionId: null,
+                        stripePriceId: null,
+                        updatedAt: new Date(),
+                    })
+                    .where(and(eq(teams.id, teamId), eq(teams.stripeSubscriptionId, subscription.id)));
+
+                try {
+                    const { invalidateSessionCache } = await import('./quotaCheck.js');
+                    await invalidateSessionCache(teamId);
+                } catch (cacheErr) {
+                    logger.warn({ err: cacheErr, teamId }, 'Failed to invalidate session cache after canceled subscription reconciliation');
+                }
+            } catch (dbErr) {
+                logger.warn(
+                    { err: dbErr, teamId, subscriptionId: subscription.id },
+                    'Failed to reconcile canceled subscription in database'
+                );
+            }
+
             logger.info({ teamId, subscriptionId: subscription.id }, 'Subscription is canceled, returning free plan');
             return result;
         }

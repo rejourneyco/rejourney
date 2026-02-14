@@ -2,6 +2,7 @@ import { eq, sql } from 'drizzle-orm';
 import { db, sessions, sessionMetrics, deviceUsage } from '../db/client.js';
 import { logger } from '../logger.js';
 import geoip from 'geoip-lite';
+import { lookupGeoIpFromMmdb } from './geoIpMmdb.js';
 
 /**
  * Update device usage metrics (atomic upsert for scalability)
@@ -56,8 +57,7 @@ export async function updateDeviceUsage(
 }
 
 /**
- * GeoIP lookup using local geoip-lite database
- * Fast, no rate limits, works offline
+ * GeoIP lookup using local MMDB (preferred) with geoip-lite fallback.
  */
 export async function lookupGeoIp(sessionId: string, ip: string): Promise<void> {
     if (!ip) return;
@@ -89,6 +89,33 @@ export async function lookupGeoIp(sessionId: string, ip: string): Promise<void> 
     logger.info({ sessionId, ip: normalizedIp }, 'Starting GeoIP lookup');
 
     try {
+        const mmdbGeo = await lookupGeoIpFromMmdb(normalizedIp);
+        if (mmdbGeo) {
+            // Keep existing normalization behavior for disputed/miscategorized regions.
+            const countryCode = mmdbGeo.countryCode === 'IL' ? 'PS/IL' : mmdbGeo.countryCode;
+
+            await db.update(sessions)
+                .set({
+                    geoCity: mmdbGeo.city || null,
+                    geoRegion: mmdbGeo.region || null,
+                    geoCountry: countryCode || null,
+                    geoCountryCode: countryCode || null,
+                    geoLatitude: mmdbGeo.latitude,
+                    geoLongitude: mmdbGeo.longitude,
+                    geoTimezone: mmdbGeo.timezone || null,
+                })
+                .where(eq(sessions.id, sessionId));
+
+            logger.debug({
+                sessionId,
+                ip,
+                city: mmdbGeo.city,
+                country: countryCode,
+                source: 'mmdb',
+            }, 'GeoIP lookup succeeded');
+            return;
+        }
+
         const geo = geoip.lookup(normalizedIp);
 
         if (!geo) {
@@ -112,7 +139,7 @@ export async function lookupGeoIp(sessionId: string, ip: string): Promise<void> 
             })
             .where(eq(sessions.id, sessionId));
 
-        logger.debug({ sessionId, ip, city: geo.city, country: countryCode }, 'GeoIP lookup succeeded');
+        logger.debug({ sessionId, ip, city: geo.city, country: countryCode, source: 'geoip-lite' }, 'GeoIP lookup succeeded');
     } catch (error) {
         logger.warn({ error, sessionId, ip }, 'GeoIP lookup failed');
     }

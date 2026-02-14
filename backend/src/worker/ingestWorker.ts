@@ -12,18 +12,22 @@ import { eq, and, or, isNull, lte, asc, sql } from 'drizzle-orm';
 import { db, pool, ingestJobs, sessions, sessionMetrics, projects, recordingArtifacts, crashes, anrs, errors, appDailyStats, apiEndpointDailyStats, screenTouchHeatmaps } from '../db/client.js';
 import { evaluateAndPromoteSession } from '../services/replayPromotion.js';
 import { analyzeProjectFunnel } from '../services/funnelAnalysis.js';
+import { updateDeviceUsage } from '../services/recording.js';
 import { createHash } from 'crypto';
 import { downloadFromS3ForProject } from '../db/s3.js';
 import { logger } from '../logger.js';
 import { pingWorker, checkQueueHealth } from '../services/monitoring.js';
 import { trackErrorAsIssue, trackCrashAsIssue, trackANRAsIssue } from '../services/issueTracker.js';
 import { getUniqueScreenCount, mergeScreenPaths, normalizeScreenPath } from '../utils/screenPaths.js';
+import { invalidateFrameCache } from '../services/screenshotFrames.js';
 
 const POLL_INTERVAL_MS = 500;
 const MAX_ATTEMPTS = 3;
 const BATCH_SIZE = 20;
 const MAX_SCREEN_PATH_LENGTH = 200;
 
+// Auto-finalization is a primary, critical session-closing path.
+// In real-world mobile lifecycle behavior, /session/end is often not delivered.
 const AUTO_FINALIZE_AFTER_MS = Number(process.env.RJ_AUTO_FINALIZE_AFTER_MS ?? 60_000);
 const AUTO_FINALIZE_INTERVAL_MS = Number(process.env.RJ_AUTO_FINALIZE_INTERVAL_MS ?? 10_000);
 
@@ -35,6 +39,7 @@ type StaleSessionRow = {
     sessionId: string;
     projectId: string;
     teamId: string;
+    sessionDeviceId: string | null;
     startedAt: Date;
     lastArtifactAt: Date;
     pendingJobs: number;
@@ -51,6 +56,7 @@ async function finalizeStaleSessions(): Promise<void> {
             s.id as "sessionId",
             s.project_id as "projectId",
             p.team_id as "teamId",
+            s.device_id as "sessionDeviceId",
             s.started_at as "startedAt",
             max(ra.created_at) as "lastArtifactAt",
             sum(case when ij.status in ('pending','processing') then 1 else 0 end) as "pendingJobs",
@@ -63,7 +69,7 @@ async function finalizeStaleSessions(): Promise<void> {
         where s.ended_at is null
           and s.status = 'processing'
           and s.started_at <= ${minStartedAt}
-        group by s.id, s.project_id, p.team_id, s.started_at, p.rejourney_enabled, p.deleted_at
+        group by s.id, s.project_id, p.team_id, s.device_id, s.started_at, p.rejourney_enabled, p.deleted_at
         having max(ra.created_at) is not null
            and max(ra.created_at) <= ${cutoff}
            and sum(case when ij.status in ('pending','processing') then 1 else 0 end) = 0
@@ -91,6 +97,13 @@ async function finalizeStaleSessions(): Promise<void> {
                 updatedAt: new Date(),
             })
             .where(eq(sessions.id, row.sessionId));
+
+        // Keep device usage aligned with /session/end behavior even when auto-finalized.
+        const minutesRecorded = Math.max(0, Math.ceil(durationSeconds / 60));
+        await updateDeviceUsage(row.sessionDeviceId, row.projectId, {
+            requestCount: 1,
+            minutesRecorded,
+        });
 
         // CRITICAL: Mark any pending artifacts as ready and create ingest jobs
         // This handles the case where app was terminated after S3 upload but before /batch/complete
@@ -140,7 +153,8 @@ async function finalizeStaleSessions(): Promise<void> {
 
         logger.info({ sessionId: row.sessionId, durationSeconds, endedAt }, 'Auto-finalized session');
 
-        // Evaluate session for promotion - same logic as /session/end
+        // Evaluate promotion with the same scoring path used by /session/end
+        // so replay decisions stay consistent across close paths.
         try {
             const result = await evaluateAndPromoteSession(row.sessionId, row.projectId, durationSeconds);
             logger.info({ sessionId: row.sessionId, promoted: result.promoted, reason: result.reason }, 'Auto-finalize promotion evaluated');
@@ -224,6 +238,10 @@ async function processArtifactJob(job: any): Promise<boolean> {
         } else if (job.kind === 'anrs') {
             log.info({ sessionId: session.id, kind: job.kind }, 'Processing ANRs artifact');
             await processAnrsArtifact(job, session, projectId, s3Key, data, log);
+        } else if (job.kind === 'screenshots' || job.kind === 'hierarchy') {
+            // These jobs can be created during auto-finalization when /segment/complete
+            // was never called. Re-apply the same counters as ingest route finalization.
+            await processRecoveredReplayArtifact(job, session, data, log);
         }
 
         // Mark artifact + job as done
@@ -295,7 +313,7 @@ async function processArtifactJob(job: any): Promise<boolean> {
 /**
  * Process events artifact - extract metrics, update session
  */
-async function processEventsArtifact(job: any, _session: any, metrics: any, projectId: string, data: Buffer, log: any) {
+async function processEventsArtifact(job: any, session: any, metrics: any, projectId: string, data: Buffer, log: any) {
     const payload = JSON.parse(data.toString());
     const eventsData = payload.events || [];
     const deviceInfo = payload.deviceInfo;
@@ -306,7 +324,7 @@ async function processEventsArtifact(job: any, _session: any, metrics: any, proj
         if (deviceInfo.appVersion) sessionUpdates.appVersion = deviceInfo.appVersion;
         if (deviceInfo.model) sessionUpdates.deviceModel = deviceInfo.model;
         if (deviceInfo.platform) sessionUpdates.platform = deviceInfo.platform;
-        if (deviceInfo.deviceId || deviceInfo.vendorId || deviceInfo.deviceHash) {
+        if ((!session.deviceId || session.deviceId === '') && (deviceInfo.deviceId || deviceInfo.vendorId || deviceInfo.deviceHash)) {
             sessionUpdates.deviceId = deviceInfo.deviceId || deviceInfo.vendorId || deviceInfo.deviceHash;
         }
         if (deviceInfo.systemVersion) sessionUpdates.osVersion = deviceInfo.systemVersion;
@@ -869,6 +887,72 @@ async function processEventsArtifact(job: any, _session: any, metrics: any, proj
     log.debug({ eventsCount: eventsData.length, touchCount, rageTapCount }, 'Events artifact processed');
 }
 
+async function processRecoveredReplayArtifact(
+    job: any,
+    session: any,
+    data: Buffer,
+    log: any
+) {
+    const [artifact] = await db
+        .select()
+        .from(recordingArtifacts)
+        .where(eq(recordingArtifacts.id, job.artifactId))
+        .limit(1);
+
+    if (!artifact) {
+        log.warn({ artifactId: job.artifactId, kind: job.kind }, 'Artifact missing while recovering replay counters');
+        return;
+    }
+
+    if (job.kind === 'screenshots') {
+        const sizeBytes = Number(data.length || artifact.sizeBytes || 0);
+
+        await db.update(sessions)
+            .set({
+                replaySegmentCount: sql`COALESCE(${sessions.replaySegmentCount}, 0) + 1`,
+                replayStorageBytes: sql`COALESCE(${sessions.replayStorageBytes}, 0) + ${sizeBytes}`,
+            })
+            .where(eq(sessions.id, job.sessionId));
+
+        await db.update(sessionMetrics)
+            .set({
+                screenshotSegmentCount: sql`COALESCE(${sessionMetrics.screenshotSegmentCount}, 0) + 1`,
+                screenshotTotalBytes: sql`COALESCE(${sessionMetrics.screenshotTotalBytes}, 0) + ${sizeBytes}`,
+            })
+            .where(eq(sessionMetrics.sessionId, job.sessionId));
+
+        if (artifact.endTime && session.endedAt) {
+            const segmentEndDate = new Date(artifact.endTime);
+            if (segmentEndDate > session.endedAt) {
+                const newDuration = Math.round((segmentEndDate.getTime() - session.startedAt.getTime()) / 1000);
+                await db.update(sessions)
+                    .set({
+                        endedAt: segmentEndDate,
+                        durationSeconds: newDuration > 0 ? newDuration : session.durationSeconds,
+                    })
+                    .where(eq(sessions.id, job.sessionId));
+            }
+        }
+
+        invalidateFrameCache(job.sessionId).catch(err => {
+            logger.warn({ err, sessionId: job.sessionId }, 'Failed to invalidate frame cache during replay artifact recovery');
+        });
+
+        log.info({ sessionId: job.sessionId, artifactId: artifact.id, sizeBytes }, 'Recovered screenshot artifact counters');
+        return;
+    }
+
+    if (job.kind === 'hierarchy') {
+        await db.update(sessionMetrics)
+            .set({
+                hierarchySnapshotCount: sql`COALESCE(${sessionMetrics.hierarchySnapshotCount}, 0) + 1`,
+            })
+            .where(eq(sessionMetrics.sessionId, job.sessionId));
+
+        log.info({ sessionId: job.sessionId, artifactId: artifact.id }, 'Recovered hierarchy artifact counters');
+    }
+}
+
 /**
  * Process crashes artifact - insert crash records
  */
@@ -1092,7 +1176,8 @@ async function pollJobs(): Promise<void> {
                 }
             }
 
-            // Finalize sessions that have uploads completed but never received /session/end
+            // Primary close path: finalize sessions that have uploads completed but never
+            // received /session/end from a clean app shutdown.
             await autoFinalizeIfDue();
 
             await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));

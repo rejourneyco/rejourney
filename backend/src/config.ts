@@ -116,6 +116,13 @@ const envSchema = z.object({
 
     // Limits
     MAX_RECORDING_MINUTES: z.string().transform(Number).default('10'),
+    INGEST_MAX_OBJECT_BYTES: z.string().transform(Number).default('26214400'), // 25 MB
+    INGEST_DEVICE_BYTES_PER_MINUTE: z.string().transform(Number).default('52428800'), // 50 MB/min per device
+    INGEST_DEVICE_BYTES_PER_DAY: z.string().transform(Number).default('2147483648'), // 2 GB/day per device
+    INGEST_PROJECT_BYTES_PER_MINUTE: z.string().transform(Number).default('536870912'), // 512 MB/min per project
+    INGEST_PROJECT_BYTES_PER_DAY: z.string().transform(Number).default('107374182400'), // 100 GB/day per project
+    INGEST_IP_BYTES_PER_MINUTE: z.string().transform(Number).default('104857600'), // 100 MB/min per IP
+    INGEST_IP_BYTES_PER_DAY: z.string().transform(Number).default('5368709120'), // 5 GB/day per IP
 
     // Storage encryption
     STORAGE_ENCRYPTION_KEY: z.string().length(64).optional(), // 32-byte hex key
@@ -153,6 +160,15 @@ export const rateLimits = {
         perProject: { windowMs: 60_000, max: 600 },
         perDevice: { windowMs: 60_000, max: 120 },
         maxBodyBytes: 5 * 1024 * 1024, // 5 MB
+        byteQuota: {
+            maxObjectBytes: config.INGEST_MAX_OBJECT_BYTES,
+            perDevicePerMinuteBytes: config.INGEST_DEVICE_BYTES_PER_MINUTE,
+            perDevicePerDayBytes: config.INGEST_DEVICE_BYTES_PER_DAY,
+            perProjectPerMinuteBytes: config.INGEST_PROJECT_BYTES_PER_MINUTE,
+            perProjectPerDayBytes: config.INGEST_PROJECT_BYTES_PER_DAY,
+            perIpPerMinuteBytes: config.INGEST_IP_BYTES_PER_MINUTE,
+            perIpPerDayBytes: config.INGEST_IP_BYTES_PER_DAY,
+        },
     },
     // Dashboard APIs (high limits needed for frames, heatmaps, etc.)
     dashboard: {

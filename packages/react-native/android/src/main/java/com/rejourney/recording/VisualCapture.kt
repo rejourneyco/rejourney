@@ -27,6 +27,7 @@ import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
 import android.view.View
+import android.view.ViewGroup
 import android.view.WindowManager
 import com.rejourney.engine.DiagnosticLog
 import com.rejourney.utility.gzipCompress
@@ -60,7 +61,7 @@ class VisualCapture private constructor(private val context: Context) {
             get() = instance
     }
     
-    var snapshotInterval: Double = 0.5
+    var snapshotInterval: Double = 1.0
     var quality: Float = 0.5f
     
     val isCapturing: Boolean
@@ -91,6 +92,7 @@ class VisualCapture private constructor(private val context: Context) {
     
     // Current activity reference
     private var currentActivity: WeakReference<Activity>? = null
+
     
     fun setCurrentActivity(activity: Activity?) {
         currentActivity = if (activity != null) WeakReference(activity) else null
@@ -138,6 +140,21 @@ class VisualCapture private constructor(private val context: Context) {
         flushBufferToDisk()
     }
     
+    /** Submit any buffered frames to the upload pipeline immediately
+     *  (regardless of batch size threshold). Packages synchronously to
+     *  avoid race conditions during backgrounding. */
+    fun flushBufferToNetwork() {
+        // Take frames from buffer synchronously (not via async sendScreenshots)
+        val images = stateLock.withLock {
+            val copy = screenshots.toList()
+            screenshots.clear()
+            copy
+        }
+        if (images.isEmpty()) return
+        // Package and submit synchronously on this thread
+        packageAndShip(images, sessionEpoch)
+    }
+    
     fun activateDeferredMode() {
         deferredUntilCommit = true
     }
@@ -165,14 +182,14 @@ class VisualCapture private constructor(private val context: Context) {
     }
     
     fun snapshotNow() {
-        mainHandler.post { captureFrame() }
+        mainHandler.post { captureFrame(force = true) }
     }
     
     private fun startCaptureTimer() {
         stopCaptureTimer()
         captureRunnable = object : Runnable {
             override fun run() {
-                captureFrame()
+                captureFrame(force = false)
                 mainHandler.postDelayed(this, (snapshotInterval * 1000).toLong())
             }
         }
@@ -184,7 +201,7 @@ class VisualCapture private constructor(private val context: Context) {
         captureRunnable = null
     }
     
-    private fun captureFrame() {
+    private fun captureFrame(force: Boolean = false) {
         val currentFrameNum = frameCounter.get()
         // Log first 3 frames at notice level
         if (currentFrameNum < 3) {
@@ -217,7 +234,6 @@ class VisualCapture private constructor(private val context: Context) {
             
             val redactRects = redactionMask.computeRects()
             
-            // Use lower scale to reduce encoding time significantly
             val screenScale = 1.25f
             val scaledWidth = (bounds.width() / screenScale).toInt()
             val scaledHeight = (bounds.height() / screenScale).toInt()
@@ -281,6 +297,8 @@ class VisualCapture private constructor(private val context: Context) {
             DiagnosticLog.fault("Frame capture failed: ${e.message}")
         }
     }
+    
+
     
     private fun enforceScreenshotCaps() {
         while (screenshots.size > maxBufferedScreenshots) {

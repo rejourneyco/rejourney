@@ -12,7 +12,7 @@
 
 import { Router } from 'express';
 import { randomBytes, createHmac } from 'crypto';
-import { eq, and, sql } from 'drizzle-orm';
+import { eq, and, sql, desc } from 'drizzle-orm';
 import { db, sessions, sessionMetrics, projects, recordingArtifacts, ingestJobs, crashes, anrs } from '../db/client.js';
 
 import { logger } from '../logger.js';
@@ -28,6 +28,7 @@ import { evaluateAndPromoteSession } from '../services/replayPromotion.js';
 import { checkAndEnforceSessionLimit, checkBillingStatus, incrementProjectSessionCount } from '../services/quotaCheck.js';
 import { invalidateFrameCache } from '../services/screenshotFrames.js';
 import { trackCrashAsIssue, trackANRAsIssue } from '../services/issueTracker.js';
+import { enforceIngestByteBudget } from '../services/ingestByteBudget.js';
 
 const router = Router();
 
@@ -48,6 +49,105 @@ function extractDeviceIdFromToken(req: any): string | null {
     } catch {
         return null;
     }
+}
+
+function parseRequestedSizeBytes(value: unknown): number {
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed) || parsed <= 0) {
+        throw ApiError.badRequest('sizeBytes must be a positive number');
+    }
+    return Math.floor(parsed);
+}
+
+type NormalizedSdkTelemetry = {
+    uploadSuccessCount?: number;
+    uploadFailureCount?: number;
+    retryAttemptCount?: number;
+    circuitBreakerOpenCount?: number;
+    memoryEvictionCount?: number;
+    offlinePersistCount?: number;
+    uploadSuccessRate?: number;
+    avgUploadDurationMs?: number;
+    totalBytesUploaded?: bigint;
+    totalBytesEvicted?: bigint;
+};
+
+function toNonNegativeInt(value: unknown): number | undefined {
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed)) return undefined;
+    return Math.max(0, Math.trunc(parsed));
+}
+
+function toFiniteNumber(value: unknown): number | undefined {
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed)) return undefined;
+    return parsed;
+}
+
+function toNonNegativeBigInt(value: unknown): bigint | undefined {
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed)) return undefined;
+    return BigInt(Math.max(0, Math.trunc(parsed)));
+}
+
+function normalizeSdkTelemetry(value: unknown): NormalizedSdkTelemetry | null {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+        return null;
+    }
+
+    const payload = value as Record<string, unknown>;
+    const normalized: NormalizedSdkTelemetry = {
+        uploadSuccessCount: toNonNegativeInt(payload.uploadSuccessCount),
+        uploadFailureCount: toNonNegativeInt(payload.uploadFailureCount),
+        retryAttemptCount: toNonNegativeInt(payload.retryAttemptCount),
+        circuitBreakerOpenCount: toNonNegativeInt(payload.circuitBreakerOpenCount),
+        memoryEvictionCount: toNonNegativeInt(payload.memoryEvictionCount),
+        offlinePersistCount: toNonNegativeInt(payload.offlinePersistCount),
+        uploadSuccessRate: toFiniteNumber(payload.uploadSuccessRate),
+        avgUploadDurationMs: toFiniteNumber(payload.avgUploadDurationMs),
+        totalBytesUploaded: toNonNegativeBigInt(payload.totalBytesUploaded),
+        totalBytesEvicted: toNonNegativeBigInt(payload.totalBytesEvicted),
+    };
+
+    const hasAnyValue = Object.values(normalized).some(v => v !== undefined);
+    return hasAnyValue ? normalized : null;
+}
+
+function buildSdkTelemetryMergeSet(sdk: NormalizedSdkTelemetry): Record<string, unknown> {
+    const updates: Record<string, unknown> = {};
+
+    if (sdk.uploadSuccessCount !== undefined) {
+        updates.sdkUploadSuccessCount = sql`GREATEST(COALESCE(${sessionMetrics.sdkUploadSuccessCount}, 0), ${sdk.uploadSuccessCount})`;
+    }
+    if (sdk.uploadFailureCount !== undefined) {
+        updates.sdkUploadFailureCount = sql`GREATEST(COALESCE(${sessionMetrics.sdkUploadFailureCount}, 0), ${sdk.uploadFailureCount})`;
+    }
+    if (sdk.retryAttemptCount !== undefined) {
+        updates.sdkRetryAttemptCount = sql`GREATEST(COALESCE(${sessionMetrics.sdkRetryAttemptCount}, 0), ${sdk.retryAttemptCount})`;
+    }
+    if (sdk.circuitBreakerOpenCount !== undefined) {
+        updates.sdkCircuitBreakerOpenCount = sql`GREATEST(COALESCE(${sessionMetrics.sdkCircuitBreakerOpenCount}, 0), ${sdk.circuitBreakerOpenCount})`;
+    }
+    if (sdk.memoryEvictionCount !== undefined) {
+        updates.sdkMemoryEvictionCount = sql`GREATEST(COALESCE(${sessionMetrics.sdkMemoryEvictionCount}, 0), ${sdk.memoryEvictionCount})`;
+    }
+    if (sdk.offlinePersistCount !== undefined) {
+        updates.sdkOfflinePersistCount = sql`GREATEST(COALESCE(${sessionMetrics.sdkOfflinePersistCount}, 0), ${sdk.offlinePersistCount})`;
+    }
+    if (sdk.uploadSuccessRate !== undefined) {
+        updates.sdkUploadSuccessRate = sdk.uploadSuccessRate;
+    }
+    if (sdk.avgUploadDurationMs !== undefined) {
+        updates.sdkAvgUploadDurationMs = sdk.avgUploadDurationMs;
+    }
+    if (sdk.totalBytesUploaded !== undefined) {
+        updates.sdkTotalBytesUploaded = sql`GREATEST(COALESCE(${sessionMetrics.sdkTotalBytesUploaded}, 0), ${sdk.totalBytesUploaded})`;
+    }
+    if (sdk.totalBytesEvicted !== undefined) {
+        updates.sdkTotalBytesEvicted = sql`GREATEST(COALESCE(${sessionMetrics.sdkTotalBytesEvicted}, 0), ${sdk.totalBytesEvicted})`;
+    }
+
+    return updates;
 }
 
 // NOTE: evaluateAndPromoteSession is now imported from ../services/replayPromotion.js
@@ -73,9 +173,10 @@ router.post(
         const teamId = req.project!.teamId;
 
         // Validate required fields
-        if (!data.contentType || data.batchNumber === undefined || !data.sizeBytes) {
+        if (!data.contentType || data.batchNumber === undefined || data.sizeBytes === undefined) {
             throw ApiError.badRequest('Missing required fields: contentType, batchNumber, sizeBytes');
         }
+        const requestedSizeBytes = parseRequestedSizeBytes(data.sizeBytes);
 
         // Check project exists and is enabled
         const [project] = await db.select().from(projects).where(eq(projects.id, projectId)).limit(1);
@@ -88,9 +189,9 @@ router.post(
             throw ApiError.forbidden('Rejourney is disabled for this project');
         }
 
-        // If recording is disabled and this is a video upload, tell SDK to skip
-        // Note: Video segments use /segment/presign endpoint which has similar check
-        if (!project.recordingEnabled && data.contentType === 'video') {
+        // If recording is disabled and this is a visual replay upload, tell SDK to skip.
+        // Segment uploads use /segment/presign with the same guard.
+        if (!project.recordingEnabled && data.contentType === 'screenshots') {
             res.json({
                 skipUpload: true,
                 sessionId: data.sessionId || null,
@@ -134,6 +235,15 @@ router.post(
             }
         }
 
+        const deviceAuthId = extractDeviceIdFromToken(req);
+        await enforceIngestByteBudget({
+            projectId,
+            deviceId: deviceAuthId,
+            clientIp: req.ip,
+            bytes: requestedSizeBytes,
+            endpoint: 'presign',
+        });
+
         // =====================================================
         // SESSION HANDLING
         // =====================================================
@@ -146,7 +256,7 @@ router.post(
 
         // CRITICAL: Extract deviceId BEFORE session creation so it's set on new sessions
         // This ensures fresh sessions get the funny anonymous name instead of "anon_xxx"
-        const deviceAuthId = extractDeviceIdFromToken(req);
+        // deviceAuthId extracted above for byte-budget enforcement and session creation
 
         // Pass any available metadata from the presign request for richer session creation
         const { session, created: isNewSession } = await ensureIngestSession(projectId, sessionId, req, {
@@ -174,6 +284,11 @@ router.post(
             // Increment session count for this project/team
             await incrementProjectSessionCount(projectId, teamId, 1);
             logger.debug({ projectId, teamId, sessionId: session.id }, 'Session counted for billing');
+
+            // Track session start per device for daily device usage analytics
+            updateDeviceUsage(deviceAuthId || session.deviceId || null, projectId, {
+                sessionsStarted: 1,
+            }).catch(() => { });
         }
 
         // =====================================================
@@ -214,7 +329,7 @@ router.post(
             sessionId: session.id,
             kind,
             s3ObjectKey: s3Key,
-            sizeBytes: data.sizeBytes,
+            sizeBytes: requestedSizeBytes,
             status: 'pending', // Will be marked 'ready' when /batch/complete is called
             timestamp: Date.now(),
         });
@@ -224,7 +339,7 @@ router.post(
             batchId,
             contentType: data.contentType,
             batchNumber: data.batchNumber,
-            sizeBytes: data.sizeBytes,
+            sizeBytes: requestedSizeBytes,
             isKeyframe: data.isKeyframe,
             deviceId: deviceAuthId,
         }, 'Presigned URL generated');
@@ -254,8 +369,9 @@ router.post(
     requireScope('ingest'),
     ingestProjectRateLimiter,
     asyncHandler(async (req, res) => {
-        const { batchId, actualSizeBytes, eventCount, frameCount } = req.body;
+        const { batchId, actualSizeBytes, eventCount, frameCount, sdkTelemetry } = req.body;
         const projectId = req.project!.id;
+        const normalizedSdkTelemetry = normalizeSdkTelemetry(sdkTelemetry);
 
         if (!batchId) {
             throw ApiError.badRequest('batchId is required');
@@ -307,6 +423,17 @@ router.post(
                 .where(eq(sessionMetrics.sessionId, sessionId));
         }
 
+        // Persist SDK telemetry continuously so sessions finalized by the worker
+        // still have retry/offline/upload observability.
+        if (normalizedSdkTelemetry) {
+            const sdkUpdates = buildSdkTelemetryMergeSet(normalizedSdkTelemetry);
+            if (Object.keys(sdkUpdates).length > 0) {
+                await db.update(sessionMetrics)
+                    .set(sdkUpdates)
+                    .where(eq(sessionMetrics.sessionId, sessionId));
+            }
+        }
+
         // Mark artifacts as ready (find by batch ID pattern in s3ObjectKey)
         // Since we store the batchNumber in the filename, we can match on it
         if (contentType && batchNumber) {
@@ -317,8 +444,10 @@ router.post(
                 .from(recordingArtifacts)
                 .where(and(
                     eq(recordingArtifacts.sessionId, sessionId),
+                    eq(recordingArtifacts.status, 'pending'),
                     sql`${recordingArtifacts.s3ObjectKey} LIKE ${`%${keyPattern}%`}`
                 ))
+                .orderBy(desc(recordingArtifacts.createdAt))
                 .limit(1);
 
             if (artifact) {
@@ -393,15 +522,14 @@ router.post(
 // used by iOS and Android SDKs for better scalability and offline support.
 
 // =============================================================================
-// VIDEO SEGMENT ENDPOINTS
+// REPLAY SEGMENT ENDPOINTS
 // =============================================================================
 
 /**
- * Get presigned URL for uploading video segment or hierarchy snapshot
+ * Get presigned URL for uploading replay screenshots or hierarchy snapshots
  * POST /api/ingest/segment/presign
- * 
- * Supports three artifact types:
- * - video: H.264 encoded video segment (.mp4)
+ *
+ * Supports two artifact types:
  * - screenshots: Batch of screenshots as tar.gz archive
  * - hierarchy: View hierarchy snapshot (.json.gz)
  */
@@ -420,10 +548,11 @@ router.post(
         if (!data.sessionId || !data.kind || data.startTime === undefined || data.sizeBytes === undefined) {
             throw ApiError.badRequest('Missing required fields: sessionId, kind, startTime, sizeBytes');
         }
+        const requestedSizeBytes = parseRequestedSizeBytes(data.sizeBytes);
 
-        // Validate kind is video, screenshots, or hierarchy
-        if (data.kind !== 'video' && data.kind !== 'screenshots' && data.kind !== 'hierarchy') {
-            throw ApiError.badRequest('kind must be "video", "screenshots", or "hierarchy"');
+        // Validate kind is screenshots or hierarchy.
+        if (data.kind !== 'screenshots' && data.kind !== 'hierarchy') {
+            throw ApiError.badRequest('kind must be "screenshots" or "hierarchy"');
         }
 
         // Check project exists and is enabled
@@ -437,8 +566,8 @@ router.post(
             throw ApiError.forbidden('Rejourney is disabled for this project');
         }
 
-        // Video/screenshot recording requires recordingEnabled
-        if (!project.recordingEnabled && (data.kind === 'video' || data.kind === 'screenshots')) {
+        // Screenshot replay recording requires recordingEnabled.
+        if (!project.recordingEnabled && data.kind === 'screenshots') {
             res.json({
                 skipUpload: true,
                 sessionId: data.sessionId,
@@ -476,6 +605,13 @@ router.post(
 
         // Extract deviceId for session creation
         const segmentDeviceId = extractDeviceIdFromToken(req);
+        await enforceIngestByteBudget({
+            projectId,
+            deviceId: segmentDeviceId,
+            clientIp: req.ip,
+            bytes: requestedSizeBytes,
+            endpoint: 'segment/presign',
+        });
 
         // Ensure session exists
         const { session, created: isNewSession } = await ensureIngestSession(projectId, data.sessionId, req, {
@@ -494,13 +630,18 @@ router.post(
         if (isNewSession && project.rejourneyEnabled) {
             await incrementProjectSessionCount(projectId, teamId, 1);
             logger.debug({ projectId, teamId, sessionId: session.id }, 'Session counted for billing');
+
+            // Track session start per device for daily device usage analytics
+            updateDeviceUsage(segmentDeviceId || session.deviceId || null, projectId, {
+                sessionsStarted: 1,
+            }).catch(() => { });
         }
 
         // =====================================================
         // SERVER-SIDE ENFORCEMENT: Sample Rate
-        // Reject video/screenshot uploads if session was sampled out by SDK
+        // Reject screenshot uploads if session was sampled out by SDK.
         // =====================================================
-        if ((data.kind === 'video' || data.kind === 'screenshots') && !session.isSampledIn) {
+        if (data.kind === 'screenshots' && !session.isSampledIn) {
             res.json({
                 skipUpload: true,
                 sessionId: data.sessionId,
@@ -513,7 +654,7 @@ router.post(
         // SERVER-SIDE ENFORCEMENT: Max Recording Duration
         // Reject segments that exceed maxRecordingMinutes from session start
         // =====================================================
-        if ((data.kind === 'video' || data.kind === 'screenshots') && project.maxRecordingMinutes) {
+        if (data.kind === 'screenshots' && project.maxRecordingMinutes) {
             const maxRecordingMs = project.maxRecordingMinutes * 60 * 1000;
             const sessionStartMs = session.startedAt.getTime();
             const segmentStartMs = Number(data.startTime);
@@ -539,17 +680,12 @@ router.post(
         }
 
         // Generate S3 key based on artifact type
-        // Pattern: sessions/{sessionId}/segments/{timestamp}.mp4 or screenshots/{timestamp}.tar.gz or hierarchy/{timestamp}.json
+        // Pattern: sessions/{sessionId}/screenshots/{timestamp}.tar.gz or hierarchy/{timestamp}.json(.gz)
         let extension: string;
         let contentType: string;
         let subFolder: string;
 
         switch (data.kind) {
-            case 'video':
-                extension = 'mp4';
-                contentType = 'video/mp4';
-                subFolder = 'segments';
-                break;
             case 'screenshots':
                 extension = 'tar.gz';
                 contentType = 'application/gzip';
@@ -589,7 +725,7 @@ router.post(
             sessionId: session.id,
             kind: data.kind,
             s3ObjectKey: s3Key,
-            sizeBytes: data.sizeBytes,
+            sizeBytes: requestedSizeBytes,
             status: 'pending',
             timestamp: startTimeInt,
             startTime: startTimeInt,
@@ -615,8 +751,8 @@ router.post(
             startTime: data.startTime,
             endTime: data.endTime,
             frameCount: data.frameCount,
-            sizeBytes: data.sizeBytes,
-        }, 'Video segment presigned URL generated');
+            sizeBytes: requestedSizeBytes,
+        }, 'Replay segment presigned URL generated');
 
         res.json({
             presignedUrl: presignResult.url,
@@ -629,7 +765,7 @@ router.post(
 );
 
 /**
- * Complete video segment upload
+ * Complete replay segment upload
  * POST /api/ingest/segment/complete
  */
 router.post(
@@ -638,8 +774,9 @@ router.post(
     requireScope('ingest'),
     ingestProjectRateLimiter,
     asyncHandler(async (req, res) => {
-        const { segmentId, actualSizeBytes, frameCount } = req.body;
+        const { segmentId, actualSizeBytes, frameCount, sdkTelemetry } = req.body;
         const projectId = req.project!.id;
+        const normalizedSdkTelemetry = normalizeSdkTelemetry(sdkTelemetry);
 
         if (!segmentId) {
             throw ApiError.badRequest('segmentId is required');
@@ -648,7 +785,7 @@ router.post(
         // Parse segment ID: seg_{sessionId}_{kind}_{startTime}_{random}
         // Supports two session ID formats:
         // 1. Legacy format: session_<timestamp>_<hex> (e.g., session_1767894620887_191A071A)
-        //    Example: seg_session_1767894620887_191A071A_video_1767894621000_abcd1234 (7 parts)
+        //    Example: seg_session_1767894620887_191A071A_screenshots_1767894621000_abcd1234 (7 parts)
         // 2. UUID format: 32-char hex string (e.g., 46f10074347c4eae968a0c6b50b4804b)
         //    Example: seg_46f10074347c4eae968a0c6b50b4804b_screenshots_1770243627922_b777da12 (5 parts)
         const parts = segmentId.split('_');
@@ -682,6 +819,15 @@ router.post(
             throw ApiError.notFound('Session not found');
         }
 
+        if (normalizedSdkTelemetry) {
+            const sdkUpdates = buildSdkTelemetryMergeSet(normalizedSdkTelemetry);
+            if (Object.keys(sdkUpdates).length > 0) {
+                await db.update(sessionMetrics)
+                    .set(sdkUpdates)
+                    .where(eq(sessionMetrics.sessionId, sessionId));
+            }
+        }
+
         // Find and update the artifact
         const [artifact] = await db.select()
             .from(recordingArtifacts)
@@ -708,50 +854,12 @@ router.post(
             .where(eq(recordingArtifacts.id, artifact.id));
 
         // Update session metrics based on artifact type
-        if (kind === 'video') {
-            await db.update(sessions)
-                .set({
-                    segmentCount: sql`COALESCE(${sessions.segmentCount}, 0) + 1`,
-                    videoStorageBytes: sql`COALESCE(${sessions.videoStorageBytes}, 0) + ${actualSizeBytes || artifact.sizeBytes || 0}`,
-                })
-                .where(eq(sessions.id, sessionId));
-
-            await db.update(sessionMetrics)
-                .set({
-                    videoSegmentCount: sql`COALESCE(${sessionMetrics.videoSegmentCount}, 0) + 1`,
-                    videoTotalBytes: sql`COALESCE(${sessionMetrics.videoTotalBytes}, 0) + ${actualSizeBytes || artifact.sizeBytes || 0}`,
-                })
-                .where(eq(sessionMetrics.sessionId, sessionId));
-
-
-            // Extend session's endedAt if this segment ends later than current endedAt
-            // This handles cases where video/screenshot segments are uploaded after session/end is called
-            const segmentEndTime = artifact.endTime;
-            if (segmentEndTime && session.endedAt) {
-                const segmentEndDate = new Date(segmentEndTime);
-                if (segmentEndDate > session.endedAt) {
-                    const newDuration = Math.round((segmentEndDate.getTime() - session.startedAt.getTime()) / 1000);
-                    await db.update(sessions)
-                        .set({
-                            endedAt: segmentEndDate,
-                            durationSeconds: newDuration > 0 ? newDuration : session.durationSeconds,
-                        })
-                        .where(eq(sessions.id, sessionId));
-
-                    logger.debug({
-                        sessionId,
-                        oldEndedAt: session.endedAt.getTime(),
-                        newEndedAt: segmentEndTime,
-                        newDuration,
-                    }, 'Extended session endedAt based on video segment');
-                }
-            }
-        } else if (kind === 'screenshots') {
+        if (kind === 'screenshots') {
             // Screenshot-based capture (iOS)
             await db.update(sessions)
                 .set({
-                    segmentCount: sql`COALESCE(${sessions.segmentCount}, 0) + 1`,
-                    videoStorageBytes: sql`COALESCE(${sessions.videoStorageBytes}, 0) + ${actualSizeBytes || artifact.sizeBytes || 0}`,
+                    replaySegmentCount: sql`COALESCE(${sessions.replaySegmentCount}, 0) + 1`,
+                    replayStorageBytes: sql`COALESCE(${sessions.replayStorageBytes}, 0) + ${actualSizeBytes || artifact.sizeBytes || 0}`,
                 })
                 .where(eq(sessions.id, sessionId));
 
@@ -809,8 +917,8 @@ router.post(
             await setIdempotencyStatus(projectId, idempotencyKey, 'done', segmentId);
         }
 
-        // Note: Promotion evaluation happens in /session/end via evaluateAndPromoteSession()
-        // This ensures all ingest jobs are processed before evaluation
+        // Promotion evaluation can be triggered by /session/end and by worker paths
+        // (auto-finalize and final-ingest-job completion) to keep behavior consistent.
 
         logger.debug({
             sessionId,
@@ -819,7 +927,7 @@ router.post(
             startTime,
             actualSizeBytes,
             frameCount,
-        }, 'Video segment completed');
+        }, 'Replay segment completed');
 
         res.json({ success: true });
     })
@@ -828,6 +936,9 @@ router.post(
 /**
  * End session
  * POST /api/ingest/session/end
+ *
+ * Opportunistic early-close endpoint used when app shutdown is graceful.
+ * Auto-finalizer remains a primary, critical close path and may finalize first.
  */
 router.post(
     '/session/end',
@@ -855,9 +966,46 @@ router.post(
 
         const session = sessionResult.session;
         const metrics = sessionResult.metrics;
+        const normalizedSdkTelemetry = normalizeSdkTelemetry(data.sdkTelemetry);
 
-        // Idempotency / safety: if the session was already finalized (e.g. auto-finalized after app kill),
-        // do not overwrite endedAt/duration or double-bill.
+        if (data.metrics && metrics) {
+            await db.update(sessionMetrics)
+                .set({
+                    touchCount: data.metrics.touchCount ?? metrics.touchCount,
+                    scrollCount: data.metrics.scrollCount ?? metrics.scrollCount,
+                    gestureCount: data.metrics.gestureCount ?? metrics.gestureCount,
+                    inputCount: data.metrics.inputCount ?? metrics.inputCount,
+                    errorCount: data.metrics.errorCount ?? metrics.errorCount,
+                    rageTapCount: data.metrics.rageTapCount ?? metrics.rageTapCount,
+                    apiSuccessCount: data.metrics.apiSuccessCount ?? metrics.apiSuccessCount,
+                    apiErrorCount: data.metrics.apiErrorCount ?? metrics.apiErrorCount,
+                    apiTotalCount: data.metrics.apiTotalCount ?? metrics.apiTotalCount,
+                    screensVisited: data.metrics.screensVisited ?? metrics.screensVisited,
+                    interactionScore: data.metrics.interactionScore ?? metrics.interactionScore,
+                    explorationScore: data.metrics.explorationScore ?? metrics.explorationScore,
+                    uxScore: data.metrics.uxScore ?? metrics.uxScore,
+                })
+                .where(eq(sessionMetrics.sessionId, session.id));
+        }
+
+        if (normalizedSdkTelemetry) {
+            const sdkUpdates = buildSdkTelemetryMergeSet(normalizedSdkTelemetry);
+            if (Object.keys(sdkUpdates).length > 0) {
+                await db.update(sessionMetrics)
+                    .set(sdkUpdates)
+                    .where(eq(sessionMetrics.sessionId, session.id));
+            }
+
+            logger.debug({
+                sessionId: session.id,
+                uploadSuccessRate: normalizedSdkTelemetry.uploadSuccessRate,
+                retryAttempts: normalizedSdkTelemetry.retryAttemptCount,
+                circuitBreakerOpens: normalizedSdkTelemetry.circuitBreakerOpenCount,
+            }, 'SDK telemetry saved');
+        }
+
+        // Idempotency / safety: if a primary close path already finalized this session
+        // (auto-finalizer or a prior /session/end), do not overwrite close metadata.
         if (session.endedAt) {
             res.json({
                 success: true,
@@ -901,57 +1049,16 @@ router.post(
             })
             .where(eq(sessions.id, session.id));
 
-        if (data.metrics && metrics) {
-            await db.update(sessionMetrics)
-                .set({
-                    touchCount: data.metrics.touchCount ?? metrics.touchCount,
-                    scrollCount: data.metrics.scrollCount ?? metrics.scrollCount,
-                    gestureCount: data.metrics.gestureCount ?? metrics.gestureCount,
-                    inputCount: data.metrics.inputCount ?? metrics.inputCount,
-                    errorCount: data.metrics.errorCount ?? metrics.errorCount,
-                    rageTapCount: data.metrics.rageTapCount ?? metrics.rageTapCount,
-                    apiSuccessCount: data.metrics.apiSuccessCount ?? metrics.apiSuccessCount,
-                    apiErrorCount: data.metrics.apiErrorCount ?? metrics.apiErrorCount,
-                    apiTotalCount: data.metrics.apiTotalCount ?? metrics.apiTotalCount,
-                    screensVisited: data.metrics.screensVisited ?? metrics.screensVisited,
-                    interactionScore: data.metrics.interactionScore ?? metrics.interactionScore,
-                    explorationScore: data.metrics.explorationScore ?? metrics.explorationScore,
-                    uxScore: data.metrics.uxScore ?? metrics.uxScore,
-                })
-                .where(eq(sessionMetrics.sessionId, session.id));
-        }
-
-        // Save SDK telemetry if provided
-        if (data.sdkTelemetry) {
-            await db.update(sessionMetrics)
-                .set({
-                    sdkUploadSuccessCount: data.sdkTelemetry.uploadSuccessCount ?? 0,
-                    sdkUploadFailureCount: data.sdkTelemetry.uploadFailureCount ?? 0,
-                    sdkRetryAttemptCount: data.sdkTelemetry.retryAttemptCount ?? 0,
-                    sdkCircuitBreakerOpenCount: data.sdkTelemetry.circuitBreakerOpenCount ?? 0,
-                    sdkMemoryEvictionCount: data.sdkTelemetry.memoryEvictionCount ?? 0,
-                    sdkOfflinePersistCount: data.sdkTelemetry.offlinePersistCount ?? 0,
-                    sdkUploadSuccessRate: data.sdkTelemetry.uploadSuccessRate ?? null,
-                    sdkAvgUploadDurationMs: data.sdkTelemetry.avgUploadDurationMs ?? null,
-                    sdkTotalBytesUploaded: data.sdkTelemetry.totalBytesUploaded ? BigInt(data.sdkTelemetry.totalBytesUploaded) : null,
-                    sdkTotalBytesEvicted: data.sdkTelemetry.totalBytesEvicted ? BigInt(data.sdkTelemetry.totalBytesEvicted) : null,
-                })
-                .where(eq(sessionMetrics.sessionId, session.id));
-
-            logger.debug({
-                sessionId: session.id,
-                uploadSuccessRate: data.sdkTelemetry.uploadSuccessRate,
-                retryAttempts: data.sdkTelemetry.retryAttemptCount,
-                circuitBreakerOpens: data.sdkTelemetry.circuitBreakerOpenCount,
-            }, 'SDK telemetry saved');
-        }
-
         // NOTE: Session counting has moved to first chunk upload (/presign endpoint)
         // No billing increment needed at session end - sessions are counted when they start uploading
 
-        // Track session duration for analytics (not billing)
-        const deviceAuthId = extractDeviceIdFromToken(req);
-        updateDeviceUsage(deviceAuthId, projectId, { requestCount: 1 }).catch(() => { });
+        // Track session duration per device for daily usage analytics (not billing)
+        const deviceAuthId = extractDeviceIdFromToken(req) || session.deviceId;
+        const minutesRecorded = Math.max(0, Math.ceil(durationSeconds / 60));
+        updateDeviceUsage(deviceAuthId, projectId, {
+            requestCount: 1,
+            minutesRecorded,
+        }).catch(() => { });
 
         // Evaluate session for promotion - this is THE single place where promotion is decided
         // Uses the unified function that waits for ingest jobs and evaluates with complete metrics

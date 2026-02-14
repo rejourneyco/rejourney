@@ -513,13 +513,12 @@ export async function evaluateAndPromoteSession(
         return { promoted: true, reason: session.replayPromotedReason || 'already_promoted' };
     }
 
-    // 4. No video segments AND no screenshot segments - nothing to promote
-    const videoSegmentCount = metrics?.videoSegmentCount ?? 0;
+    // 4. No screenshot segments - nothing to promote.
     const screenshotSegmentCount = metrics?.screenshotSegmentCount ?? 0;
-    const hasRecordingData = videoSegmentCount > 0 || screenshotSegmentCount > 0;
+    const hasRecordingData = screenshotSegmentCount > 0;
 
-    // RULE: Require video OR screenshot data for promotion
-    // Sessions without any visual recording data should not be promoted
+    // RULE: Require screenshot replay data for promotion.
+    // Sessions without any visual replay data should not be promoted.
     if (!hasRecordingData) {
         return { promoted: false, reason: 'no_recording_data' };
     }
@@ -592,7 +591,6 @@ export async function evaluateAndPromoteSession(
             sessionId,
             reason: result.reason,
             score: result.score,
-            videoSegmentCount,
             screenshotSegmentCount,
         }, 'Session promoted for replay');
     }

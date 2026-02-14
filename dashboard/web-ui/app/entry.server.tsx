@@ -21,7 +21,7 @@ const CSP_POLICY = [
     "font-src 'self' https://fonts.gstatic.com data:",
     // Session replay images/screenshots are served from MinIO/S3 (http for local dev)
     "img-src 'self' data: http: https: blob:",
-    // Session replay videos are served from MinIO/S3 in self-hosted/local setups
+    // Session replay media is served from MinIO/S3 in self-hosted/local setups
     "media-src 'self' blob: data: http: https:",
     "frame-src 'self' https://challenges.cloudflare.com https://js.stripe.com https://hooks.stripe.com",
     "connect-src 'self' https://challenges.cloudflare.com https://api.stripe.com https://m.stripe.network",

@@ -33,7 +33,7 @@ export const DemoDashboardLayout: React.FC = () => {
     };
 
     return (
-        <div className="flex h-screen bg-background">
+        <div className="dashboard-modern dashboard-shell flex h-screen">
             {/* Same Sidebar as real dashboard, with demo path prefix */}
             <Sidebar
                 currentProject={selectedProject}
@@ -50,7 +50,7 @@ export const DemoDashboardLayout: React.FC = () => {
             {/* Main Content */}
             <div className="flex-1 flex flex-col overflow-hidden">
                 {/* Demo Banner */}
-                <div className="text-white px-4 py-2 flex items-center justify-between z-10" style={{ background: 'linear-gradient(to right, #5dadec, #4ac5d8)' }}>
+                <div className="text-white px-4 py-2 flex items-center justify-between z-10" style={{ background: 'linear-gradient(90deg, #3f7cae 0%, #5dade2 55%, #7fc0ea 100%)' }}>
                     <div className="flex items-center gap-2">
                         <div className="w-2 h-2 bg-white rounded-full animate-pulse" />
                         <span className="text-sm font-medium">
@@ -62,8 +62,8 @@ export const DemoDashboardLayout: React.FC = () => {
                     </div>
                     <Link
                         to="/login"
-                        className="bg-white px-3 py-1 rounded text-xs font-bold uppercase tracking-wider transition-colors hover:bg-[rgba(93,173,236,0.1)]"
-                        style={{ color: '#5dadec' }}
+                        className="bg-white px-3 py-1 rounded text-xs font-semibold transition-colors hover:bg-slate-100"
+                        style={{ color: '#334155' }}
                     >
                         Sign Up
                     </Link>
@@ -73,7 +73,7 @@ export const DemoDashboardLayout: React.FC = () => {
                 <TopBar currentProject={selectedProject} />
 
                 {/* Page Content */}
-                <div className="flex-1 overflow-y-auto bg-background">
+                <div className="flex-1 overflow-y-auto dashboard-content">
                     <Outlet />
                 </div>
             </div>

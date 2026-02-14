@@ -58,11 +58,67 @@ class SegmentDispatcher private constructor() {
     private val circuitBreakerThreshold = 5
     private val circuitResetTime: Long = 60_000 // 60 seconds
     
-    // Metrics
-    var uploadSuccessCount = 0
-    var uploadFailureCount = 0
-    var totalBytesUploaded = 0L
-    var circuitBreakerOpenCount = 0
+    // Per-session SDK telemetry counters
+    private val metricsLock = ReentrantLock()
+    private var _uploadSuccessCount = 0
+    private var _uploadFailureCount = 0
+    private var _retryAttemptCount = 0
+    private var _circuitBreakerOpenCount = 0
+    private var _memoryEvictionCount = 0
+    private var _offlinePersistCount = 0
+    private var _sessionStartCount = 0
+    private var _crashCount = 0
+    private var _totalBytesUploaded = 0L
+    private var _totalBytesEvicted = 0L
+    private var _totalUploadDurationMs = 0.0
+    private var _uploadDurationSampleCount = 0
+    private var _lastUploadTime: Long? = null
+    private var _lastRetryTime: Long? = null
+    
+    val uploadSuccessCount: Int
+        get() = metricsLock.withLock { _uploadSuccessCount }
+    
+    val uploadFailureCount: Int
+        get() = metricsLock.withLock { _uploadFailureCount }
+    
+    val retryAttemptCount: Int
+        get() = metricsLock.withLock { _retryAttemptCount }
+    
+    val circuitBreakerOpenCount: Int
+        get() = metricsLock.withLock { _circuitBreakerOpenCount }
+    
+    val memoryEvictionCount: Int
+        get() = metricsLock.withLock { _memoryEvictionCount }
+    
+    val offlinePersistCount: Int
+        get() = metricsLock.withLock { _offlinePersistCount }
+    
+    val sessionStartCount: Int
+        get() = metricsLock.withLock { _sessionStartCount }
+    
+    val crashCount: Int
+        get() = metricsLock.withLock { _crashCount }
+    
+    val avgUploadDurationMs: Double
+        get() = metricsLock.withLock {
+            if (_uploadDurationSampleCount > 0) {
+                _totalUploadDurationMs / _uploadDurationSampleCount.toDouble()
+            } else {
+                0.0
+            }
+        }
+    
+    val lastUploadTime: Long?
+        get() = metricsLock.withLock { _lastUploadTime }
+    
+    val lastRetryTime: Long?
+        get() = metricsLock.withLock { _lastRetryTime }
+    
+    val totalBytesUploaded: Long
+        get() = metricsLock.withLock { _totalBytesUploaded }
+    
+    val totalBytesEvicted: Long
+        get() = metricsLock.withLock { _totalBytesEvicted }
     
     private val workerExecutor = Executors.newFixedThreadPool(2)
     private val scope = CoroutineScope(workerExecutor.asCoroutineDispatcher() + SupervisorJob())
@@ -86,6 +142,7 @@ class SegmentDispatcher private constructor() {
         batchSeqNumber = 0
         billingBlocked = false
         consecutiveFailures = 0
+        resetSessionTelemetry()
     }
     
     fun activate() {
@@ -201,15 +258,18 @@ class SegmentDispatcher private constructor() {
         concludedAt: Long,
         backgroundDurationMs: Long,
         metrics: Map<String, Any>?,
+        currentQueueDepth: Int = 0,
         completion: (Boolean) -> Unit
     ) {
         val url = "$endpoint/api/ingest/session/end"
+        ingestFinalizeMetrics(metrics)
         
         val body = JSONObject().apply {
             put("sessionId", replayId)
             put("endedAt", concludedAt)
             if (backgroundDurationMs > 0) put("totalBackgroundTimeMs", backgroundDurationMs)
             metrics?.let { put("metrics", JSONObject(it)) }
+            put("sdkTelemetry", buildSdkTelemetry(currentQueueDepth))
         }
         
         val request = buildRequest(url, body)
@@ -257,6 +317,7 @@ class SegmentDispatcher private constructor() {
         }
     }
     
+    @Synchronized
     private fun canUploadNow(): Boolean {
         if (billingBlocked) return false
         if (circuitOpen) {
@@ -269,19 +330,30 @@ class SegmentDispatcher private constructor() {
         return true
     }
     
+    @Synchronized
     private fun registerFailure() {
         consecutiveFailures++
-        uploadFailureCount++
+        metricsLock.withLock {
+            _uploadFailureCount++
+        }
         if (consecutiveFailures >= circuitBreakerThreshold) {
-            if (!circuitOpen) circuitBreakerOpenCount++
+            if (!circuitOpen) {
+                metricsLock.withLock {
+                    _circuitBreakerOpenCount++
+                }
+            }
             circuitOpen = true
             circuitOpenTime = System.currentTimeMillis()
         }
     }
     
+    @Synchronized
     private fun registerSuccess() {
         consecutiveFailures = 0
-        uploadSuccessCount++
+        metricsLock.withLock {
+            _uploadSuccessCount++
+            _lastUploadTime = System.currentTimeMillis()
+        }
     }
     
     private fun scheduleUpload(upload: PendingUpload, completion: ((Boolean) -> Unit)?) {
@@ -311,7 +383,7 @@ class SegmentDispatcher private constructor() {
             return
         }
         
-        val s3ok = uploadToS3(presignResponse.presignedUrl, upload.payload, upload.contentType)
+        val s3ok = uploadToS3(presignResponse.presignedUrl, upload.payload)
         if (!s3ok) {
             DiagnosticLog.notice("[SegmentDispatcher] ❌ uploadToS3 FAILED for ${upload.contentType}")
             DiagnosticLog.caution("[SegmentDispatcher] uploadToS3 FAILED for ${upload.contentType}")
@@ -336,6 +408,10 @@ class SegmentDispatcher private constructor() {
             val retry = upload.copy(attempt = upload.attempt + 1)
             retryLock.withLock {
                 retryQueue.add(retry)
+            }
+            metricsLock.withLock {
+                _retryAttemptCount++
+                _lastRetryTime = System.currentTimeMillis()
             }
         }
         completion?.invoke(false)
@@ -362,7 +438,7 @@ class SegmentDispatcher private constructor() {
             
             if (upload.contentType == "events") {
                 put("contentType", "events")
-                put("batchNumber", batchSeqNumber)
+                put("batchNumber", upload.batchNumber)
                 put("isSampledIn", isSampledIn)  // Server-side enforcement
             } else {
                 put("kind", upload.contentType)
@@ -416,11 +492,8 @@ class SegmentDispatcher private constructor() {
         }
     }
     
-    private suspend fun uploadToS3(url: String, payload: ByteArray, contentType: String): Boolean {
-        val mediaType = when (contentType) {
-            "video" -> "video/mp4".toMediaType()
-            else -> "application/gzip".toMediaType()
-        }
+    private suspend fun uploadToS3(url: String, payload: ByteArray): Boolean {
+        val mediaType = "application/gzip".toMediaType()
         
         val request = Request.Builder()
             .url(url)
@@ -435,14 +508,16 @@ class SegmentDispatcher private constructor() {
             DiagnosticLog.debugUploadComplete("", response.code, durationMs, 0.0)
             
             if (response.code in 200..299) {
-                totalBytesUploaded += payload.size
+                recordUploadStats(durationMs, true, payload.size.toLong())
                 true
             } else {
+                recordUploadStats(durationMs, false, payload.size.toLong())
                 false
             }
         } catch (e: Exception) {
             DiagnosticLog.notice("[SegmentDispatcher] ❌ S3 upload exception: ${e.message}")
             DiagnosticLog.fault("[SegmentDispatcher] S3 upload exception: ${e.message}")
+            recordUploadStats((System.currentTimeMillis() - startTime).toDouble(), false, payload.size.toLong())
             false
         }
     }
@@ -454,6 +529,7 @@ class SegmentDispatcher private constructor() {
         val body = JSONObject().apply {
             put("actualSizeBytes", upload.payload.size)
             put("timestamp", System.currentTimeMillis())
+            put("sdkTelemetry", buildSdkTelemetry(0))
             
             if (upload.contentType == "events") {
                 put("batchId", batchId)
@@ -488,7 +564,8 @@ class SegmentDispatcher private constructor() {
             rangeStart = 0,
             rangeEnd = 0,
             itemCount = eventCount,
-            attempt = 0
+            attempt = 0,
+            batchNumber = batchNum
         )
         
         val presignResponse = requestPresignedUrl(upload)
@@ -500,7 +577,7 @@ class SegmentDispatcher private constructor() {
             return
         }
         
-        val s3ok = uploadToS3(presignResponse.presignedUrl, upload.payload, upload.contentType)
+        val s3ok = uploadToS3(presignResponse.presignedUrl, upload.payload)
         if (!s3ok) {
             DiagnosticLog.notice("[SegmentDispatcher] ❌ uploadToS3 FAILED for ${upload.contentType}")
             DiagnosticLog.caution("[SegmentDispatcher] uploadToS3 FAILED for ${upload.contentType}")
@@ -541,6 +618,125 @@ class SegmentDispatcher private constructor() {
         DiagnosticLog.debugNetworkRequest("POST", url, request.headers.toMultimap().mapValues { it.value.first() })
         return request
     }
+    
+    private fun ingestFinalizeMetrics(metrics: Map<String, Any>?) {
+        val crashes = (metrics?.get("crashCount") as? Number)?.toInt() ?: return
+        metricsLock.withLock {
+            _crashCount = maxOf(_crashCount, crashes)
+        }
+    }
+    
+    private fun resetSessionTelemetry() {
+        metricsLock.withLock {
+            _uploadSuccessCount = 0
+            _uploadFailureCount = 0
+            _retryAttemptCount = 0
+            _circuitBreakerOpenCount = 0
+            _memoryEvictionCount = 0
+            _offlinePersistCount = 0
+            _sessionStartCount = 1
+            _crashCount = 0
+            _totalBytesUploaded = 0L
+            _totalBytesEvicted = 0L
+            _totalUploadDurationMs = 0.0
+            _uploadDurationSampleCount = 0
+            _lastUploadTime = null
+            _lastRetryTime = null
+        }
+    }
+    
+    private fun recordUploadStats(durationMs: Double, success: Boolean, bytes: Long) {
+        metricsLock.withLock {
+            _uploadDurationSampleCount++
+            _totalUploadDurationMs += durationMs
+            if (success) {
+                _totalBytesUploaded += bytes
+            }
+        }
+    }
+    
+    private fun buildSdkTelemetry(currentQueueDepth: Int): JSONObject {
+        val retryDepth = retryLock.withLock { retryQueue.size }
+        
+        val (
+            successCount,
+            failureCount,
+            retryCount,
+            breakerOpenCount,
+            memoryEvictions,
+            offlinePersists,
+            starts,
+            crashes,
+            avgDurationMs,
+            lastUpload,
+            lastRetry,
+            uploadedBytes,
+            evictedBytes,
+        ) = metricsLock.withLock {
+            val avg = if (_uploadDurationSampleCount > 0) {
+                _totalUploadDurationMs / _uploadDurationSampleCount.toDouble()
+            } else {
+                0.0
+            }
+            TelemetrySnapshot(
+                uploadSuccessCount = _uploadSuccessCount,
+                uploadFailureCount = _uploadFailureCount,
+                retryAttemptCount = _retryAttemptCount,
+                circuitBreakerOpenCount = _circuitBreakerOpenCount,
+                memoryEvictionCount = _memoryEvictionCount,
+                offlinePersistCount = _offlinePersistCount,
+                sessionStartCount = _sessionStartCount,
+                crashCount = _crashCount,
+                avgUploadDurationMs = avg,
+                lastUploadTime = _lastUploadTime,
+                lastRetryTime = _lastRetryTime,
+                totalBytesUploaded = _totalBytesUploaded,
+                totalBytesEvicted = _totalBytesEvicted,
+            )
+        }
+        
+        val totalUploads = successCount + failureCount
+        val successRate = if (totalUploads > 0) successCount.toDouble() / totalUploads.toDouble() else 1.0
+        
+        return JSONObject().apply {
+            put("uploadSuccessCount", successCount)
+            put("uploadFailureCount", failureCount)
+            put("retryAttemptCount", retryCount)
+            put("circuitBreakerOpenCount", breakerOpenCount)
+            put("memoryEvictionCount", memoryEvictions)
+            put("offlinePersistCount", offlinePersists)
+            put("sessionStartCount", starts)
+            put("crashCount", crashes)
+            put("uploadSuccessRate", successRate)
+            put("avgUploadDurationMs", avgDurationMs)
+            put("currentQueueDepth", currentQueueDepth + retryDepth)
+            put("lastUploadTime", lastUpload ?: JSONObject.NULL)
+            put("lastRetryTime", lastRetry ?: JSONObject.NULL)
+            put("totalBytesUploaded", uploadedBytes)
+            put("totalBytesEvicted", evictedBytes)
+        }
+    }
+    
+    fun sdkTelemetrySnapshot(currentQueueDepth: Int = 0): Map<String, Any?> {
+        val payload = buildSdkTelemetry(currentQueueDepth)
+        return mapOf(
+            "uploadSuccessCount" to payload.optInt("uploadSuccessCount", 0),
+            "uploadFailureCount" to payload.optInt("uploadFailureCount", 0),
+            "retryAttemptCount" to payload.optInt("retryAttemptCount", 0),
+            "circuitBreakerOpenCount" to payload.optInt("circuitBreakerOpenCount", 0),
+            "memoryEvictionCount" to payload.optInt("memoryEvictionCount", 0),
+            "offlinePersistCount" to payload.optInt("offlinePersistCount", 0),
+            "sessionStartCount" to payload.optInt("sessionStartCount", 0),
+            "crashCount" to payload.optInt("crashCount", 0),
+            "uploadSuccessRate" to payload.optDouble("uploadSuccessRate", 1.0),
+            "avgUploadDurationMs" to payload.optDouble("avgUploadDurationMs", 0.0),
+            "currentQueueDepth" to payload.optInt("currentQueueDepth", 0),
+            "lastUploadTime" to (payload.opt("lastUploadTime").takeUnless { it == JSONObject.NULL } as? Number)?.toLong(),
+            "lastRetryTime" to (payload.opt("lastRetryTime").takeUnless { it == JSONObject.NULL } as? Number)?.toLong(),
+            "totalBytesUploaded" to payload.optLong("totalBytesUploaded", 0),
+            "totalBytesEvicted" to payload.optLong("totalBytesEvicted", 0),
+        )
+    }
 }
 
 private data class PendingUpload(
@@ -550,10 +746,27 @@ private data class PendingUpload(
     val rangeStart: Long,
     val rangeEnd: Long,
     val itemCount: Int,
-    val attempt: Int
+    val attempt: Int,
+    val batchNumber: Int = 0
 )
 
 private data class PresignResponse(
     val presignedUrl: String,
     val batchId: String
+)
+
+private data class TelemetrySnapshot(
+    val uploadSuccessCount: Int,
+    val uploadFailureCount: Int,
+    val retryAttemptCount: Int,
+    val circuitBreakerOpenCount: Int,
+    val memoryEvictionCount: Int,
+    val offlinePersistCount: Int,
+    val sessionStartCount: Int,
+    val crashCount: Int,
+    val avgUploadDurationMs: Double,
+    val lastUploadTime: Long?,
+    val lastRetryTime: Long?,
+    val totalBytesUploaded: Long,
+    val totalBytesEvicted: Long,
 )

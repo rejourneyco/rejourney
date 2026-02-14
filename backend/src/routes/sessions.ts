@@ -276,10 +276,10 @@ router.get(
                 duration: String(s.durationSeconds ?? 0),
                 durationMinutes: String(((s.durationSeconds ?? 0) / 60).toFixed(2)),
                 eventCount: m?.totalEvents ?? 0,
-                videoSegmentCount: m?.videoSegmentCount ?? 0,
-                totalSizeKB: String(((m?.eventsSizeBytes ?? 0) + (m?.videoTotalBytes ?? 0)) / 1024),
+                screenshotSegmentCount: m?.screenshotSegmentCount ?? 0,
+                totalSizeKB: String(((m?.eventsSizeBytes ?? 0) + (m?.screenshotTotalBytes ?? 0)) / 1024),
                 eventsSizeKB: String((m?.eventsSizeBytes ?? 0) / 1024),
-                videoSizeKB: String((m?.videoTotalBytes ?? 0) / 1024),
+                screenshotSizeKB: String((m?.screenshotTotalBytes ?? 0) / 1024),
                 networkStats: {
                     total: m?.apiTotalCount ?? 0,
                     successful: m?.apiSuccessCount ?? 0,
@@ -363,19 +363,15 @@ router.get(
         const allEvents: any[] = [];
         const allNetwork: any[] = [];
 
-        // Video segment data (new video capture mode)
-        const videoSegments: { url: string; startTime: number; endTime: number | null; frameCount: number | null }[] = [];
         const hierarchySnapshots: { timestamp: number; screenName: string | null; rootElement: any }[] = [];
 
-        // Always load session data artifacts (events, hierarchy, network) - these are retained indefinitely
-        // Only skip video artifacts when recording is deleted (videos are deleted based on retention tier)
+        // Always load session data artifacts (events, hierarchy, network) - these are retained indefinitely.
         const eventsArtifacts = artifactsList.filter((a) => a.kind === 'events');
         const hierarchyArtifacts = artifactsList.filter((a) => a.kind === 'hierarchy');
         const networkArtifacts = artifactsList.filter((a) => a.kind === 'network');
-        // Video/screenshot artifacts only exist if recording not deleted
-        // iOS uses 'screenshots' kind, Android uses 'video' kind
-        const videoArtifacts = (!session.isReplayExpired && !session.recordingDeleted)
-            ? artifactsList.filter((a) => a.kind === 'video' || a.kind === 'screenshots')
+        // Screenshot artifacts only exist if recording is still retained.
+        const screenshotArtifacts = (!session.isReplayExpired && !session.recordingDeleted)
+            ? artifactsList.filter((a) => a.kind === 'screenshots')
             : [];
 
         // Compute total storage used in S3 for this session's artifacts.
@@ -394,7 +390,7 @@ router.get(
             }
         }
 
-        // Only HEAD objects for the ones missing size_bytes (avoid downloading videos).
+        // Only HEAD objects for the ones missing size_bytes (avoid downloading payloads).
         // Keep it sequential to avoid hammering MinIO in dev.
         for (const a of artifactsMissingSize) {
             const size = await getObjectSizeBytesForProject(session.projectId, a.s3ObjectKey);
@@ -439,37 +435,14 @@ router.get(
             }
         }
 
-        // Generate presigned URLs for video segments (only actual video files, not screenshots)
-        // Sort by startTime to ensure proper playback order
-        // Only include kind === 'video' in videoSegments - screenshots are handled separately
-        const pureVideoArtifacts = videoArtifacts.filter((a) => a.kind === 'video');
-        pureVideoArtifacts.sort((a, b) => (a.startTime || 0) - (b.startTime || 0));
-        for (const artifact of pureVideoArtifacts) {
-            try {
-                const url = await getSignedDownloadUrlForProject(session.projectId, artifact.s3ObjectKey);
-                if (url) {
-                    videoSegments.push({
-                        url,
-                        startTime: artifact.startTime || artifact.timestamp || 0,
-                        endTime: artifact.endTime || null,
-                        frameCount: artifact.frameCount || null,
-                    });
-                }
-            } catch {
-                // Silently skip failed artifacts - they may be corrupted or missing
-            }
-        }
-
         // Extract screenshot frames for image-based playback (iOS sessions)
-        // Screenshot frames take priority over video for playback
+        // Screenshots are the only supported visual replay mode.
         let screenshotFrames: Array<{ timestamp: number; url: string; index: number }> = [];
-        const screenshotArtifacts = videoArtifacts.filter((a) => a.kind === 'screenshots');
-        
+
         logger.info({
             sessionId: session.id,
-            totalVideoArtifacts: videoArtifacts.length,
+            totalScreenshotArtifacts: screenshotArtifacts.length,
             screenshotArtifactsCount: screenshotArtifacts.length,
-            videoArtifactKinds: videoArtifacts.map(a => a.kind),
             isReplayExpired: session.isReplayExpired,
             recordingDeleted: session.recordingDeleted,
         }, '[sessions] Screenshot extraction debug');
@@ -626,11 +599,10 @@ router.get(
         const mergedEvents = [...normalizedEvents, ...anrEvents]
             .sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
 
-        // Determine if this session has recording (video segments or screenshot frames)
+        // Determine if this session has replay data (screenshots only).
         // A session without segments may still have analytics data (events, metrics)
-        // Screenshot frames are primary, video segments are fallback
-        const hasRecording = screenshotFrames.length > 0 || videoSegments.length > 0;
-        const playbackMode = screenshotFrames.length > 0 ? 'screenshots' : (videoSegments.length > 0 ? 'video' : 'none');
+        const hasRecording = screenshotFrames.length > 0;
+        const playbackMode = screenshotFrames.length > 0 ? 'screenshots' : 'none';
 
         res.json({
             id: session.id,
@@ -641,7 +613,7 @@ router.get(
             platform: session.platform,
             appVersion: session.appVersion,
             hasRecording, // Indicates whether visual replay is available
-            playbackMode, // 'screenshots', 'video', or 'none' - determines which player to use
+            playbackMode, // 'screenshots' or 'none' - determines which player to use
             deviceInfo: {
                 model: session.deviceModel,
                 os: session.platform,
@@ -693,9 +665,8 @@ router.get(
                 events: eventsUrl,
                 eventsBatches: eventsUrls,
             },
-            // Visual capture data - screenshot frames are primary, video is fallback
+            // Visual capture data - screenshot frames only.
             screenshotFrames, // Array of { timestamp, url, index } for image-based playback
-            videoSegments,    // Array of { url, startTime, endTime, frameCount } for video playback
             hierarchySnapshots,
             metrics: metrics
                 ? {
@@ -732,10 +703,9 @@ router.get(
                 duration: String(session.durationSeconds ?? 0),
                 durationMinutes: String(((session.durationSeconds ?? 0) / 60).toFixed(2)),
                 eventCount: metrics?.totalEvents ?? 0,
-                videoSegmentCount: metrics?.videoSegmentCount ?? 0,
                 totalSizeKB: String(totalBytes / 1024),
                 eventsSizeKB: String((bytesByKind.events || 0) / 1024),
-                videoSizeKB: String((bytesByKind.video || 0) / 1024),
+                screenshotSizeKB: String((bytesByKind.screenshots || 0) / 1024),
                 hierarchySizeKB: String((bytesByKind.hierarchy || 0) / 1024),
                 networkSizeKB: String((bytesByKind.network || 0) / 1024),
                 networkStats: {
@@ -959,18 +929,18 @@ router.get(
 );
 
 /**
- * Get video thumbnail for a session
- * GET /api/session/video-thumbnail/:sessionId
- * 
- * Extracts a thumbnail from the session's video segment using FFmpeg.
+ * Get screenshot thumbnail for a session
+ * GET /api/session/thumbnail/:sessionId
+ *
+ * Extracts a thumbnail from screenshot archives.
  * Query params:
- *   - t: Time offset in seconds from start of session (default: 0.5)
+ *   - t: Kept for backwards compatibility (ignored for screenshot archives)
  *   - ts: Absolute timestamp in ms (epoch) - if provided, extracts frame at this time
  *   - w: Width in pixels (default: 375)
- *   - format: 'jpeg' | 'png' (default: 'jpeg')
+ *   - format: Ignored (responses are JPEG)
  */
 router.get(
-    '/video-thumbnail/:sessionId',
+    '/thumbnail/:sessionId',
     sessionAuth,
     dashboardRateLimiter,
     asyncHandler(async (req, res) => {
@@ -978,7 +948,7 @@ router.get(
         const timeOffset = parseFloat(req.query.t as string) || 0.5;
         const absoluteTimestampMs = req.query.ts ? parseInt(req.query.ts as string, 10) : null;
         const width = parseInt(req.query.w as string, 10) || 375;
-        const format = (req.query.format as 'jpeg' | 'png') || 'jpeg';
+        const format: 'jpeg' = 'jpeg';
 
         // Verify session access
         const [session] = await db
@@ -1015,8 +985,8 @@ router.get(
             throw ApiError.forbidden('Access denied');
         }
 
-        // Import video thumbnail service
-        const { getSessionThumbnail, getThumbnailAtTimestamp } = await import('../services/videoThumbnail.js');
+        // Import thumbnail service
+        const { getSessionThumbnail, getThumbnailAtTimestamp } = await import('../services/sessionThumbnail.js');
 
         let thumbnail: Buffer | null = null;
 
@@ -1028,7 +998,7 @@ router.get(
             });
         }
 
-        // Fallback to time offset based extraction
+        // Fallback to first available screenshot extraction
         if (!thumbnail) {
             thumbnail = await getSessionThumbnail(sessionId, {
                 timeOffset,
@@ -1038,21 +1008,21 @@ router.get(
         }
 
         if (!thumbnail) {
-            throw ApiError.notFound('No video thumbnail available for this session');
+            throw ApiError.notFound('No thumbnail available for this session');
         }
 
-        res.setHeader('Content-Type', `image/${format}`);
+        res.setHeader('Content-Type', 'image/jpeg');
         res.setHeader('Cache-Control', 'public, max-age=86400'); // 24 hours
         res.send(thumbnail);
     })
 );
 
 /**
- * Get cover photo for a session (alias for video-thumbnail)
+ * Get cover photo for a session (alias for thumbnail)
  * GET /api/session/cover/:sessionId
- * 
+ *
  * This is a convenience endpoint used by MiniSessionCard and other components.
- * Extracts a thumbnail from the session's first video segment using FFmpeg.
+ * Extracts a thumbnail from the session's first screenshot archive frame.
  */
 router.get(
     '/cover/:sessionId',
@@ -1096,8 +1066,8 @@ router.get(
             throw ApiError.forbidden('Access denied');
         }
 
-        // Import and use video thumbnail service
-        const { getSessionThumbnail } = await import('../services/videoThumbnail.js');
+        // Import and use thumbnail service
+        const { getSessionThumbnail } = await import('../services/sessionThumbnail.js');
 
         const thumbnail = await getSessionThumbnail(sessionId, {
             timeOffset: 0.5,
@@ -1160,4 +1130,3 @@ router.get(
 
 
 export default router;
-

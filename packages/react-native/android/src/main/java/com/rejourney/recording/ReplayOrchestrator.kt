@@ -87,7 +87,7 @@ class ReplayOrchestrator private constructor(private val context: Context) {
             DeviceRegistrar.shared?.endpoint = value
         }
     
-    var snapshotInterval: Double = 0.33
+    var snapshotInterval: Double = 1.0
     var compressionLevel: Double = 0.5
     var visualCaptureEnabled: Boolean = true
     var interactionCaptureEnabled: Boolean = true
@@ -217,7 +217,7 @@ class ReplayOrchestrator private constructor(private val context: Context) {
         initSession()
         TelemetryPipeline.shared?.activateDeferredMode()
         
-        val renderCfg = computeRender(3, "standard")
+        val renderCfg = computeRender(1, "standard")
         
         if (visualCaptureEnabled) {
             VisualCapture.shared?.configure(renderCfg.first, renderCfg.second)
@@ -267,6 +267,7 @@ class ReplayOrchestrator private constructor(private val context: Context) {
             "screensVisited" to visitedScreens.toList(),
             "screenCount" to visitedScreens.toSet().size
         )
+        val queueDepthAtFinalize = TelemetryPipeline.shared?.getQueueDepth() ?: 0
         
         SegmentDispatcher.shared.evaluateReplayRetention(sid, metrics) { retain, reason ->
             // UI operations MUST run on main thread
@@ -287,7 +288,7 @@ class ReplayOrchestrator private constructor(private val context: Context) {
             }
             finalized = true
             
-            SegmentDispatcher.shared.concludeReplay(sid, termMs, bgTimeMs, metrics) { ok ->
+            SegmentDispatcher.shared.concludeReplay(sid, termMs, bgTimeMs, metrics, queueDepthAtFinalize) { ok ->
                 if (ok) clearRecovery()
                 completion?.invoke(true, ok)
             }
@@ -387,8 +388,9 @@ class ReplayOrchestrator private constructor(private val context: Context) {
                 "crashCount" to 1,
                 "durationSeconds" to ((nowMs - origStart) / 1000).toInt()
             )
+            val queueDepthAtFinalize = TelemetryPipeline.shared?.getQueueDepth() ?: 0
             
-            SegmentDispatcher.shared.concludeReplay(recId, nowMs, 0, crashMetrics) { ok ->
+            SegmentDispatcher.shared.concludeReplay(recId, nowMs, 0, crashMetrics, queueDepthAtFinalize) { ok ->
                 clearRecovery()
                 completion(if (ok) recId else null)
             }
@@ -558,7 +560,7 @@ class ReplayOrchestrator private constructor(private val context: Context) {
         SegmentDispatcher.shared.activate()
         TelemetryPipeline.shared?.activate()
         
-        val renderCfg = computeRender(3, "high")
+        val renderCfg = computeRender(1, "high")
         DiagnosticLog.notice("[ReplayOrchestrator] VisualCapture.shared=${VisualCapture.shared != null}, visualCaptureEnabled=$visualCaptureEnabled")
         VisualCapture.shared?.configure(renderCfg.first, renderCfg.second)
         
@@ -733,7 +735,8 @@ private fun computeRender(fps: Int, tier: String): Pair<Double, Double> {
     val quality = when (tier.lowercase()) {
         "low" -> 0.4
         "standard" -> 0.5
-        "high" -> 0.6
+        // Slightly reduce default high-tier JPEG quality for lower storage without a major visual shift.
+        "high" -> 0.55
         else -> 0.5
     }
     return Pair(interval, quality)
