@@ -172,6 +172,38 @@ router.get(
             .limit(limit)
             .offset(offset);
 
+        // For sparkline release markers, fetch first-seen timestamps for the app versions
+        // represented in the current issue list (single grouped query, not per issue).
+        const issueAppVersions = Array.from(
+            new Set(
+                issueList
+                    .map((issue) => issue.sampleAppVersion)
+                    .filter((version): version is string => Boolean(version)),
+            ),
+        );
+
+        const versionFirstSeenByAppVersion = new Map<string, Date>();
+        if (issueAppVersions.length > 0) {
+            const versionFirstSeenRows = await db
+                .select({
+                    appVersion: sessions.appVersion,
+                    firstSeenAt: sql<Date>`min(${sessions.startedAt})`,
+                })
+                .from(sessions)
+                .where(
+                    and(
+                        eq(sessions.projectId, projectId),
+                        inArray(sessions.appVersion, issueAppVersions),
+                    ),
+                )
+                .groupBy(sessions.appVersion);
+
+            for (const row of versionFirstSeenRows) {
+                if (!row.appVersion || !row.firstSeenAt) continue;
+                versionFirstSeenByAppVersion.set(row.appVersion, new Date(row.firstSeenAt));
+            }
+        }
+
         // Get total count
         const [{ count }] = await db
             .select({ count: sql<number>`count(*)` })
@@ -192,6 +224,9 @@ router.get(
             issues: issueList.map(issue => ({
                 ...issue,
                 eventCount: Number(issue.eventCount),
+                sampleAppVersionFirstSeenAt: issue.sampleAppVersion
+                    ? (versionFirstSeenByAppVersion.get(issue.sampleAppVersion) ?? null)
+                    : null,
                 assignee: issue.assigneeId ? {
                     id: issue.assigneeId,
                     email: issue.assigneeEmail,

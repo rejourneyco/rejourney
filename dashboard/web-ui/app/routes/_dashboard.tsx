@@ -58,7 +58,6 @@ function DashboardLayoutContent() {
     return (
         <ProjectLayout pathPrefix="/dashboard">
             <div className="flex flex-col h-full min-h-0 bg-gray-50">
-                <TabBar pathPrefix="/dashboard" />
                 <TabWorkspace>
                     <Outlet />
                 </TabWorkspace>

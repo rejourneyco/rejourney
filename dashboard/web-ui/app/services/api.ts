@@ -2204,6 +2204,14 @@ export interface ObservabilityJourneySummary {
     health: 'healthy' | 'degraded';
     sampleSessionIds: string[];
   } | null;
+  configuredHappyPath: {
+    projectId: string;
+    path: string[];
+    targetScreen: string;
+    confidence: number;
+    sampleSize: number;
+    updatedAt: string | null;
+  } | null;
   exitAfterError: Array<{
     screen: string;
     exitCount: number;
@@ -2355,6 +2363,7 @@ export interface ObservabilityDeepMetrics {
     crashCount: number;
     anrCount: number;
     errorCount: number;
+    firstSeen?: string;
     latestSeen: string;
   }>;
   evidenceSessions: Array<{

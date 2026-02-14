@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useSessionData } from '../../context/SessionContext';
-import { getDeviceSummary, DeviceSummary } from '../../services/api';
+import { getDeviceSummary, getObservabilityDeepMetrics, DeviceSummary, ObservabilityDeepMetrics } from '../../services/api';
 import {
     Smartphone,
     Layers,
@@ -26,6 +26,7 @@ export const Devices: React.FC = () => {
     const { selectedProject } = useSessionData();
     const [timeRange, setTimeRange] = useState<TimeRange>(DEFAULT_TIME_RANGE);
     const [data, setData] = useState<DeviceSummary | null>(null);
+    const [deepMetrics, setDeepMetrics] = useState<ObservabilityDeepMetrics | null>(null);
     const [isLoading, setIsLoading] = useState(true);
 
     // Sorting state for each section
@@ -33,25 +34,41 @@ export const Devices: React.FC = () => {
     const [osSort, setOsSort] = useState<{ key: SortKey; dir: SortDirection }>({ key: 'count', dir: 'desc' });
     const [versionSort, setVersionSort] = useState<{ key: SortKey; dir: SortDirection }>({ key: 'count', dir: 'desc' });
 
+    const observabilityRange = timeRange === 'all' ? undefined : timeRange;
+
     useEffect(() => {
-        if (!selectedProject?.id) return;
+        if (!selectedProject?.id) {
+            setData(null);
+            setDeepMetrics(null);
+            setIsLoading(false);
+            return;
+        }
         let cancelled = false;
         setData(null); // Clear stale data from previous project
+        setDeepMetrics(null);
         setIsLoading(true);
 
-        getDeviceSummary(selectedProject.id, timeRange === 'all' ? 'max' : timeRange)
-            .then(result => {
+        Promise.all([
+            getDeviceSummary(selectedProject.id, timeRange === 'all' ? 'max' : timeRange),
+            getObservabilityDeepMetrics(selectedProject.id, observabilityRange),
+        ])
+            .then(([result, deep]) => {
                 if (!cancelled) {
                     setData(result);
+                    setDeepMetrics(deep);
                     setIsLoading(false);
                 }
             })
             .catch(() => {
-                if (!cancelled) setIsLoading(false);
+                if (!cancelled) {
+                    setData(null);
+                    setDeepMetrics(null);
+                    setIsLoading(false);
+                }
             });
 
         return () => { cancelled = true; };
-    }, [timeRange, selectedProject?.id]);
+    }, [timeRange, selectedProject?.id, observabilityRange]);
 
     // Sort helper
     const sortItems = <T extends { count: number; crashes: number; anrs: number; errors: number }>(
@@ -69,6 +86,7 @@ export const Devices: React.FC = () => {
     const sortedDevices = useMemo(() => data ? sortItems(data.devices, deviceSort) : [], [data, deviceSort]);
     const sortedOsVersions = useMemo(() => data ? sortItems(data.osVersions, osSort) : [], [data, osSort]);
     const sortedAppVersions = useMemo(() => data ? sortItems(data.appVersions, versionSort) : [], [data, versionSort]);
+    const networkRows = useMemo(() => deepMetrics?.networkBreakdown?.slice(0, 8) || [], [deepMetrics]);
 
     // Sort toggle helper
     const toggleSort = (
@@ -331,6 +349,66 @@ export const Devices: React.FC = () => {
                                     <span className="font-mono font-black text-indigo-500 text-xl">{count.toLocaleString()}</span>
                                 </div>
                             ))}
+                        </div>
+                    </div>
+                )}
+
+                {/* Network Quality moved from Growth */}
+                {networkRows.length > 0 && (
+                    <div className="pt-12 border-t-4 border-black space-y-6">
+                        <h2 className="text-2xl font-black text-black uppercase tracking-tighter flex items-center gap-3">
+                            <Activity className="w-8 h-8 text-indigo-500" /> Network Quality
+                        </h2>
+
+                        <div className="bg-white border-4 border-black shadow-[12px_12px_0px_0px_rgba(0,0,0,1)] overflow-hidden">
+                            <div className="overflow-x-auto">
+                                <table className="w-full text-left font-mono text-xs">
+                                    <thead className="bg-slate-50 border-b-4 border-black font-black uppercase text-black">
+                                        <tr>
+                                            <th className="p-4 tracking-wider">Network</th>
+                                            <th className="p-4 tracking-wider text-right">Sessions</th>
+                                            <th className="p-4 tracking-wider text-right">API Calls</th>
+                                            <th className="p-4 tracking-wider text-right">API Fail Rate</th>
+                                            <th className="p-4 tracking-wider text-right">Avg Latency</th>
+                                            <th className="p-4 tracking-wider text-right">Status</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y-2 divide-slate-100">
+                                        {networkRows.map((network) => {
+                                            const isCritical = network.apiErrorRate > 3 || network.avgLatencyMs > 800;
+                                            const isWarning = !isCritical && (network.apiErrorRate > 1.5 || network.avgLatencyMs > 450);
+                                            return (
+                                                <tr key={network.networkType} className="hover:bg-indigo-50/30 transition-colors group">
+                                                    <td className="p-4 font-black text-black uppercase tracking-tight">
+                                                        {network.networkType}
+                                                    </td>
+                                                    <td className="p-4 text-right font-black text-slate-500">
+                                                        {network.sessions.toLocaleString()}
+                                                    </td>
+                                                    <td className="p-4 text-right font-black text-slate-500">
+                                                        {network.apiCalls.toLocaleString()}
+                                                    </td>
+                                                    <td className="p-4 text-right font-black text-slate-500">
+                                                        {network.apiErrorRate.toFixed(2)}%
+                                                    </td>
+                                                    <td className="p-4 text-right font-black text-slate-500">
+                                                        {network.avgLatencyMs} ms
+                                                    </td>
+                                                    <td className="p-4 text-right">
+                                                        {isCritical ? (
+                                                            <NeoBadge variant="danger" size="sm" className="border border-black shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]">CRITICAL</NeoBadge>
+                                                        ) : isWarning ? (
+                                                            <NeoBadge variant="warning" size="sm" className="border border-black shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]">WATCH</NeoBadge>
+                                                        ) : (
+                                                            <NeoBadge variant="success" size="sm" className="border border-black shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]">HEALTHY</NeoBadge>
+                                                        )}
+                                                    </td>
+                                                </tr>
+                                            );
+                                        })}
+                                    </tbody>
+                                </table>
+                            </div>
                         </div>
                     </div>
                 )}

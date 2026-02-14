@@ -418,6 +418,14 @@ export const demoJourneyObservability: ObservabilityJourneySummary = {
         health: 'healthy',
         sampleSessionIds: ['demo-happy-001', 'demo-happy-002', 'demo-happy-003'],
     },
+    configuredHappyPath: {
+        projectId: 'demo-project',
+        path: ['Home', 'Products', 'Product Detail', 'Cart', 'Checkout', 'Order Confirmation'],
+        targetScreen: 'Order Confirmation',
+        confidence: 0.71,
+        sampleSize: 750,
+        updatedAt: new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString(),
+    },
     exitAfterError: [
         { screen: 'Checkout', exitCount: 456, errorTypes: { api: 312, crash: 45, rage: 234 }, sampleSessionIds: ['demo-err-001', 'demo-err-002'] },
         { screen: 'Cart', exitCount: 234, errorTypes: { api: 145, crash: 23, rage: 156 }, sampleSessionIds: ['demo-err-003', 'demo-err-004'] },
@@ -620,6 +628,7 @@ export const demoObservabilityDeepMetrics: ObservabilityDeepMetrics = {
             crashCount: 51,
             anrCount: 19,
             errorCount: 514,
+            firstSeen: new Date(Date.now() - 18 * day).toISOString(),
             latestSeen: new Date(Date.now() - 2 * day).toISOString(),
         },
         {
@@ -631,6 +640,7 @@ export const demoObservabilityDeepMetrics: ObservabilityDeepMetrics = {
             crashCount: 32,
             anrCount: 11,
             errorCount: 376,
+            firstSeen: new Date(Date.now() - 31 * day).toISOString(),
             latestSeen: new Date(Date.now() - 5 * day).toISOString(),
         },
         {
@@ -642,6 +652,7 @@ export const demoObservabilityDeepMetrics: ObservabilityDeepMetrics = {
             crashCount: 19,
             anrCount: 7,
             errorCount: 292,
+            firstSeen: new Date(Date.now() - 54 * day).toISOString(),
             latestSeen: new Date(Date.now() - 9 * day).toISOString(),
         },
     ],

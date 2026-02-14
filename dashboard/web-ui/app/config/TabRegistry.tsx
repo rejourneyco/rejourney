@@ -1,5 +1,24 @@
 import React from 'react';
 import { matchPath } from 'react-router';
+import {
+    MessageSquareWarning,
+    Database,
+    Activity,
+    LineChart,
+    Map,
+    Smartphone,
+    Globe,
+    AlertOctagon,
+    Clock,
+    Terminal,
+    Mail,
+    Play,
+    Settings,
+    Users,
+    CreditCard,
+    User,
+    Search as SearchIcon
+} from 'lucide-react';
 import { IssuesFeed } from '../pages/IssuesFeed';
 import { Growth } from '../pages/analytics/Growth';
 import { RecordingsList } from '../pages/recordings/RecordingsList';
@@ -25,6 +44,7 @@ import { AlertEmails } from '../pages/analytics/AlertEmails';
 export interface TabInfo {
     id: string;
     title: string;
+    icon?: React.ElementType;
 }
 
 export interface TabDefinition extends TabInfo {
@@ -39,55 +59,55 @@ const routes: Array<{
     Component: React.ComponentType<any>;
     getProps?: (params: Record<string, string>) => Record<string, any>;
 }> = [
-        { pattern: '/issues', getInfo: () => ({ id: 'issues', title: 'Issues' }), Component: IssuesFeed },
+        { pattern: '/issues', getInfo: () => ({ id: 'issues', title: 'Issues', icon: MessageSquareWarning }), Component: IssuesFeed },
         // Analytics routes
-        { pattern: '/analytics/api', getInfo: () => ({ id: 'analytics-api', title: 'API Insights' }), Component: ApiAnalytics },
-        { pattern: '/analytics/growth', getInfo: () => ({ id: 'analytics-growth', title: 'Growth' }), Component: Growth },
-        { pattern: '/analytics/journeys', getInfo: () => ({ id: 'analytics-journeys', title: 'User Journeys' }), Component: Journeys },
-        { pattern: '/analytics/devices', getInfo: () => ({ id: 'analytics-devices', title: 'Devices' }), Component: Devices },
-        { pattern: '/analytics/geo', getInfo: () => ({ id: 'analytics-geo', title: 'Geographic' }), Component: Geo },
+        { pattern: '/analytics/api', getInfo: () => ({ id: 'analytics-api', title: 'API Insights', icon: Activity }), Component: ApiAnalytics },
+        { pattern: '/analytics/growth', getInfo: () => ({ id: 'analytics-growth', title: 'Growth', icon: LineChart }), Component: Growth },
+        { pattern: '/analytics/journeys', getInfo: () => ({ id: 'analytics-journeys', title: 'User Journeys', icon: Map }), Component: Journeys },
+        { pattern: '/analytics/devices', getInfo: () => ({ id: 'analytics-devices', title: 'Devices', icon: Smartphone }), Component: Devices },
+        { pattern: '/analytics/geo', getInfo: () => ({ id: 'analytics-geo', title: 'Geographic', icon: Globe }), Component: Geo },
         // Stability routes
-        { pattern: '/stability/crashes', getInfo: () => ({ id: 'stability-crashes', title: 'Crashes' }), Component: CrashesList },
-        { pattern: '/stability/anrs', getInfo: () => ({ id: 'stability-anrs', title: 'ANRs' }), Component: ANRsList },
-        { pattern: '/stability/errors', getInfo: () => ({ id: 'stability-errors', title: 'Errors' }), Component: ErrorsList },
+        { pattern: '/stability/crashes', getInfo: () => ({ id: 'stability-crashes', title: 'Crashes', icon: AlertOctagon }), Component: CrashesList },
+        { pattern: '/stability/anrs', getInfo: () => ({ id: 'stability-anrs', title: 'ANRs', icon: Clock }), Component: ANRsList },
+        { pattern: '/stability/errors', getInfo: () => ({ id: 'stability-errors', title: 'Errors', icon: Terminal }), Component: ErrorsList },
         // Sessions routes
-        { pattern: '/sessions', getInfo: () => ({ id: 'sessions', title: 'Replays' }), Component: RecordingsList },
+        { pattern: '/sessions', getInfo: () => ({ id: 'sessions', title: 'Replays', icon: Database }), Component: RecordingsList },
         // Alerts
-        { pattern: '/alerts/emails', getInfo: () => ({ id: 'alerts-emails', title: 'Email Alerts' }), Component: AlertEmails },
+        { pattern: '/alerts/emails', getInfo: () => ({ id: 'alerts-emails', title: 'Email Alerts', icon: Mail }), Component: AlertEmails },
         {
             pattern: '/sessions/:sessionId',
-            getInfo: (p) => ({ id: `session-${p.sessionId}`, title: `Replay ${(p.sessionId || '').replace('session_', '').substring(0, 8)}...` }),
+            getInfo: (p) => ({ id: `session-${p.sessionId}`, title: `Replay ${(p.sessionId || '').replace('session_', '').substring(0, 8)}...`, icon: Play }),
             Component: RecordingDetail,
             getProps: (p) => ({ sessionId: p.sessionId })
         },
         {
             pattern: '/stability/crashes/:projectId/:crashId',
-            getInfo: (p) => ({ id: `crash-${p.crashId}`, title: `Crash ${(p.crashId || '').substring(0, 8)}...` }),
+            getInfo: (p) => ({ id: `crash-${p.crashId}`, title: `Crash ${(p.crashId || '').substring(0, 8)}...`, icon: AlertOctagon }),
             Component: CrashDetail,
             getProps: (p) => ({ crashId: p.crashId, projectId: p.projectId })
         },
         {
             pattern: '/stability/errors/:projectId/:errorId',
-            getInfo: (p) => ({ id: `error-${p.errorId}`, title: `Error ${(p.errorId || '').substring(0, 8)}...` }),
+            getInfo: (p) => ({ id: `error-${p.errorId}`, title: `Error ${(p.errorId || '').substring(0, 8)}...`, icon: Terminal }),
             Component: ErrorDetail,
             getProps: (p) => ({ errorId: p.errorId, projectId: p.projectId })
         },
 
-        { pattern: '/team', getInfo: () => ({ id: 'team', title: 'Team' }), Component: TeamSettings },
-        { pattern: '/billing', getInfo: () => ({ id: 'billing', title: 'Billing' }), Component: BillingSettings },
-        { pattern: '/account', getInfo: () => ({ id: 'account', title: 'Account' }), Component: AccountSettings },
+        { pattern: '/team', getInfo: () => ({ id: 'team', title: 'Team', icon: Users }), Component: TeamSettings },
+        { pattern: '/billing', getInfo: () => ({ id: 'billing', title: 'Billing', icon: CreditCard }), Component: BillingSettings },
+        { pattern: '/account', getInfo: () => ({ id: 'account', title: 'Account', icon: User }), Component: AccountSettings },
         // Settings with projectId
         {
             pattern: '/settings/:projectId',
-            getInfo: (p) => ({ id: `settings-${p.projectId}`, title: 'Project Settings' }),
+            getInfo: (p) => ({ id: `settings-${p.projectId}`, title: 'Project Settings', icon: Settings }),
             Component: ProjectSettings,
             getProps: (p) => ({ projectId: p.projectId })
         },
-        { pattern: '/search', getInfo: () => ({ id: 'search', title: 'New Tab' }), Component: Search },
+        { pattern: '/search', getInfo: () => ({ id: 'search', title: 'New Tab', icon: SearchIcon }), Component: Search },
     ];
 
 export const TabRegistry = {
-    // Get just the tab info (id, title) for a path - used by TabContext
+    // Get just the tab info (id, title, icon) for a path - used by TabContext
     getTabInfo: (pathname: string): TabInfo | null => {
         // Strip /dashboard/ or /demo/ prefix before matching
         const pathWithoutPrefix = pathname.replace(/^\/(dashboard|demo)/, '');

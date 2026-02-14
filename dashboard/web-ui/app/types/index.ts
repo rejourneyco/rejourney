@@ -172,6 +172,8 @@ export interface Issue {
   events24h: number;
   events90d: number;
   sampleSessionId?: string | null;
+  sampleAppVersion?: string | null;
+  sampleAppVersionFirstSeenAt?: string | null;
   dailyEvents?: Record<string, number>;
   affectedDevices?: Record<string, number>;
   affectedVersions?: Record<string, number>;

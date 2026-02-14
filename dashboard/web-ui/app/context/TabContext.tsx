@@ -17,6 +17,8 @@ export interface Tab {
     projectName?: string;
     teamId?: string;
     teamName?: string;
+    group: 'primary' | 'secondary';
+    icon?: React.ElementType;
 }
 
 interface TabContextType {
@@ -26,16 +28,17 @@ interface TabContextType {
     isSplitView: boolean;
     secondaryTabId: string | null;
     splitRatio: number;
-    openTab: (tab: Omit<Tab, 'isClosable'> & { isClosable?: boolean }) => void;
+    openTab: (tab: Omit<Tab, 'isClosable' | 'group'> & { isClosable?: boolean; group?: 'primary' | 'secondary' }) => void;
     closeTab: (id: string, event?: React.MouseEvent) => void;
     closeAllTabs: () => void;
     closeOtherTabs: (id: string) => void;
     closeStaleTabs: () => void;
     openTabInSplit: (id: string) => void;
+    moveTabToGroup: (id: string, group: 'primary' | 'secondary') => void;
     closeSplitView: () => void;
     setSplitRatio: (ratio: number) => void;
     setActiveTabId: (id: string) => void;
-    reorderTabs: (startIndex: number, endIndex: number) => void;
+    reorderTabs: (startIndex: number, endIndex: number, group: 'primary' | 'secondary') => void;
     reopenTab: () => void;
     maxTabs: number;
 }
@@ -49,6 +52,10 @@ const RECENTLY_CLOSED_LIMIT = 10;
 
 function isDetailTab(tabId: string): boolean {
     return tabId.startsWith('session-') || tabId.startsWith('crash-') || tabId.startsWith('error-');
+}
+
+function stripPathPrefix(pathname: string): string {
+    return pathname.replace(/^\/(dashboard|demo)/, '') || '/issues';
 }
 
 function trimTabsForLimits(
@@ -143,6 +150,8 @@ export const TabProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         projectName: tab.projectName ?? selectedProject?.name,
         teamId: tab.teamId ?? selectedProject?.teamId ?? currentTeam?.id,
         teamName: tab.teamName ?? currentTeam?.name,
+        group: tab.group ?? 'primary',
+        icon: tab.icon ?? TabRegistry.getTabInfo(stripPathPrefix(tab.path))?.icon,
     }), [selectedProject?.id, selectedProject?.name, selectedProject?.teamId, currentTeam?.id, currentTeam?.name]);
 
     // Save workspace state to backend (debounced using refs to avoid stale closures)
@@ -323,6 +332,7 @@ export const TabProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                             title: canonicalTabInfo?.title || t.title,
                             path: normalizedPath,
                             isClosable: true,
+                            group: 'primary',
                         });
                     });
                     const loadedClosed: Tab[] = (workspace.recentlyClosed || []).map(t => {
@@ -334,6 +344,7 @@ export const TabProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                             title: canonicalTabInfo?.title || t.title,
                             path: normalizedPath,
                             isClosable: true,
+                            group: 'primary',
                         });
                     });
                     const resolveSavedActiveTabId = (): string | null => {
@@ -380,12 +391,14 @@ export const TabProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                             // Add current route as a new tab
                             const currentTabs = tabsRef.current;
                             const merged = [...currentTabs, annotateTabWithScope({
-                                    id: currentRouteInfo.id,
-                                    type: 'page' as const,
-                                    title: currentRouteInfo.title,
-                                    path: location.pathname,
-                                    isClosable: true,
-                                })];
+                                id: currentRouteInfo.id,
+                                type: 'page' as const,
+                                title: currentRouteInfo.title,
+                                path: location.pathname,
+                                isClosable: true,
+                                group: 'primary',
+                                icon: currentRouteInfo.icon,
+                            })];
                             const mergedTrimmed = trimTabsForLimits(merged, recentlyClosedRef.current, new Set([currentRouteInfo.id]));
                             setTabs(mergedTrimmed.tabs);
                             setRecentlyClosed(mergedTrimmed.recentlyClosed);
@@ -466,6 +479,8 @@ export const TabProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             title: info.title,
             path: location.pathname,
             isClosable: true,
+            group: 'primary',
+            icon: info.icon,
         })];
         const trimmed = trimTabsForLimits(merged, recentlyClosedRef.current, new Set([info.id]));
         setTabs(trimmed.tabs);
@@ -474,22 +489,41 @@ export const TabProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }, [location.pathname, hasLoaded, setActiveTabId, annotateTabWithScope]);
 
 
-    const openTab = useCallback((newTab: Omit<Tab, 'isClosable'> & { isClosable?: boolean }) => {
+    const openTab = useCallback((newTab: Omit<Tab, 'isClosable' | 'group'> & { isClosable?: boolean; group?: 'primary' | 'secondary' }) => {
         const currentTabs = tabsRef.current;
-        const normalizedNewTab = annotateTabWithScope({ ...newTab, isClosable: newTab.isClosable ?? true });
+        const normalizedNewTab = annotateTabWithScope({
+            ...newTab,
+            isClosable: newTab.isClosable ?? true,
+            group: newTab.group ?? 'primary',
+        });
         const existingTab = currentTabs.find((t) => t.id === newTab.id);
         if (existingTab) {
-            if (existingTab.path !== newTab.path || existingTab.title !== newTab.title) {
-                setTabs(currentTabs.map(t => t.id === newTab.id ? normalizedNewTab : t));
+            // Update path/title/group if needed
+            let updatedTabs = currentTabs;
+            if (existingTab.path !== newTab.path || existingTab.title !== newTab.title || (newTab.group && existingTab.group !== newTab.group)) {
+                updatedTabs = currentTabs.map(t => t.id === newTab.id ? { ...normalizedNewTab, group: newTab.group || existingTab.group } : t);
+                setTabs(updatedTabs);
             }
-            setActiveTabId(newTab.id);
+
+            if (normalizedNewTab.group === 'secondary') {
+                setSecondaryTabId(newTab.id);
+                setIsSplitView(true);
+            } else {
+                setActiveTabId(newTab.id);
+            }
             return;
         }
         const merged = [...currentTabs, normalizedNewTab];
         const trimmed = trimTabsForLimits(merged, recentlyClosedRef.current, new Set([newTab.id]));
         setTabs(trimmed.tabs);
         setRecentlyClosed(trimmed.recentlyClosed);
-        setActiveTabId(newTab.id);
+
+        if (normalizedNewTab.group === 'secondary') {
+            setSecondaryTabId(newTab.id);
+            setIsSplitView(true);
+        } else {
+            setActiveTabId(newTab.id);
+        }
     }, [setActiveTabId, annotateTabWithScope]);
 
     const closeTab = useCallback((id: string, event?: React.MouseEvent) => {
@@ -503,8 +537,8 @@ export const TabProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         if (tabIndex === -1) return;
 
         const closedTab = currentTabs[tabIndex];
+        const sameGroupTabs = currentTabs.filter(t => t.group === closedTab.group && t.id !== id);
         const newTabs = currentTabs.filter((t) => t.id !== id);
-        const currentActiveId = activeTabIdRef.current;
 
         // Update tabs first
         setTabs(newTabs);
@@ -512,25 +546,32 @@ export const TabProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         // Then add to recently closed (keep last 10)
         setRecentlyClosed(prev => appendRecentlyClosed(prev, [closedTab]));
 
-        // Close split pane if its tab is closed.
-        if (secondaryTabId === id) {
-            setSecondaryTabId(null);
-            setIsSplitView(false);
+        // Handle focus changes
+        if (closedTab.group === 'primary') {
+            if (activeTabIdRef.current === id) {
+                const nextTab = sameGroupTabs[Math.min(tabIndex, sameGroupTabs.length - 1)] || sameGroupTabs[sameGroupTabs.length - 1];
+                if (nextTab) {
+                    setActiveTabId(nextTab.id);
+                    navigate(nextTab.path, { replace: true });
+                } else {
+                    setActiveTabId('');
+                    const prefix = getPathPrefix();
+                    navigate(`${prefix}/issues`, { replace: true });
+                }
+            }
+        } else {
+            // Secondary group
+            if (secondaryTabId === id) {
+                const nextTab = sameGroupTabs[Math.min(tabIndex, sameGroupTabs.length - 1)] || sameGroupTabs[sameGroupTabs.length - 1];
+                if (nextTab) {
+                    setSecondaryTabId(nextTab.id);
+                } else {
+                    setSecondaryTabId(null);
+                    setIsSplitView(false);
+                }
+            }
         }
 
-        // If closing active tab, switch to adjacent tab
-        if (id === currentActiveId && newTabs.length > 0) {
-            const nextTab = newTabs[Math.min(tabIndex, newTabs.length - 1)];
-            if (nextTab) {
-                setActiveTabId(nextTab.id);
-                navigate(nextTab.path, { replace: true });
-            }
-        } else if (newTabs.length === 0) {
-            // No tabs left - navigate to issues (default page)
-            setActiveTabId('');
-            const prefix = getPathPrefix();
-            navigate(`${prefix}/issues`, { replace: true });
-        }
     }, [navigate, setActiveTabId, getPathPrefix, secondaryTabId]);
 
     const closeAllTabs = useCallback(() => {
@@ -545,16 +586,35 @@ export const TabProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     const closeOtherTabs = useCallback((id: string) => {
         const currentTabs = tabsRef.current;
+        const keepTab = currentTabs.find(t => t.id === id);
+        if (!keepTab) return;
+
         const closedTabs = currentTabs.filter((t) => t.id !== id && t.isClosable);
         const remainingTabs = currentTabs.filter((t) => t.id === id || !t.isClosable);
+
         setRecentlyClosed(prev => appendRecentlyClosed(prev, closedTabs));
         setTabs(remainingTabs);
-        setActiveTabId(id);
+
         if (secondaryTabId && secondaryTabId !== id && !remainingTabs.some(t => t.id === secondaryTabId)) {
             setSecondaryTabId(null);
             setIsSplitView(false);
         }
-    }, [setActiveTabId, secondaryTabId]);
+
+        if (keepTab.group === 'secondary') {
+            if (remainingTabs.length === 1) {
+                const updatedParams = { ...keepTab, group: 'primary' as const };
+                setTabs([updatedParams]);
+                setSecondaryTabId(null);
+                setIsSplitView(false);
+                setActiveTabId(updatedParams.id);
+                navigate(updatedParams.path, { replace: true });
+                return;
+            }
+        } else {
+            setActiveTabId(id);
+        }
+
+    }, [setActiveTabId, secondaryTabId, navigate]);
 
     const closeStaleTabs = useCallback(() => {
         const currentTabs = tabsRef.current;
@@ -564,8 +624,9 @@ export const TabProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         const closable = currentTabs.filter(t => t.isClosable);
         if (closable.length <= STALE_TAB_KEEP_COUNT) return;
 
-        // Keep the newest tabs plus current active tab.
         const keepIds = new Set<string>([currentActiveId]);
+        if (secondaryTabId) keepIds.add(secondaryTabId);
+
         for (let i = currentTabs.length - 1; i >= 0 && keepIds.size < STALE_TAB_KEEP_COUNT; i--) {
             keepIds.add(currentTabs[i].id);
         }
@@ -576,25 +637,43 @@ export const TabProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
         setTabs(remainingTabs);
         setRecentlyClosed(prev => appendRecentlyClosed(prev, closedTabs));
+
         if (secondaryTabId && !remainingTabs.some(t => t.id === secondaryTabId)) {
             setSecondaryTabId(null);
             setIsSplitView(false);
         }
     }, [secondaryTabId]);
 
-    const reorderTabs = useCallback((startIndex: number, endIndex: number) => {
+    const reorderTabs = useCallback((startIndex: number, endIndex: number, group: 'primary' | 'secondary') => {
         setTabs((prev) => {
-            const result = Array.from(prev);
-            const [removed] = result.splice(startIndex, 1);
-            result.splice(endIndex, 0, removed);
-            return result;
+            const groupTabs = prev.filter(t => t.group === group);
+            const otherTabs = prev.filter(t => t.group !== group);
+
+            if (startIndex < 0 || startIndex >= groupTabs.length || endIndex < 0 || endIndex >= groupTabs.length) {
+                return prev;
+            }
+
+            const newGroupOrder = [...groupTabs];
+            const [removed] = newGroupOrder.splice(startIndex, 1);
+            newGroupOrder.splice(endIndex, 0, removed);
+
+            if (group === 'primary') {
+                return [...newGroupOrder, ...otherTabs];
+            } else {
+                return [...otherTabs, ...newGroupOrder];
+            }
         });
     }, []);
 
     const reopenTab = useCallback(() => {
         const currentClosed = recentlyClosedRef.current;
         if (currentClosed.length === 0) return;
-        const tabToReopen = annotateTabWithScope(currentClosed[currentClosed.length - 1]);
+
+        const tabToReopen = annotateTabWithScope({
+            ...currentClosed[currentClosed.length - 1],
+            group: 'primary'
+        });
+
         const remainingClosed = currentClosed.slice(0, -1);
         const reopened = [...tabsRef.current, tabToReopen];
         const trimmed = trimTabsForLimits(reopened, remainingClosed, new Set([tabToReopen.id]));
@@ -606,34 +685,79 @@ export const TabProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     const openTabInSplit = useCallback((id: string) => {
         const currentTabs = tabsRef.current;
-        if (!currentTabs.some(t => t.id === id)) return;
+        const tab = currentTabs.find(t => t.id === id);
+        if (!tab) return;
 
-        let nextSecondaryId = id;
-        const currentActiveId = activeTabIdRef.current;
-        if (id === currentActiveId) {
-            const alternative = [...currentTabs].reverse().find(t => t.id !== currentActiveId);
-            if (!alternative) return;
-            nextSecondaryId = alternative.id;
-        }
+        const updatedTabs = currentTabs.map(t => t.id === id ? { ...t, group: 'secondary' as const } : t);
+        setTabs(updatedTabs);
 
-        setSecondaryTabId(nextSecondaryId);
+        setSecondaryTabId(id);
         setIsSplitView(true);
-    }, []);
+
+        if (activeTabIdRef.current === id) {
+            const primaryTabs = updatedTabs.filter(t => t.group === 'primary');
+            if (primaryTabs.length > 0) {
+                const nextPrimary = primaryTabs[primaryTabs.length - 1];
+                setActiveTabId(nextPrimary.id);
+                navigate(nextPrimary.path, { replace: true });
+            }
+        }
+    }, [navigate, setActiveTabId]);
+
+    const moveTabToGroup = useCallback((id: string, group: 'primary' | 'secondary') => {
+        const currentTabs = tabsRef.current;
+        const tab = currentTabs.find(t => t.id === id);
+        if (!tab || tab.group === group) return;
+
+        const updatedTabs = currentTabs.map(t => t.id === id ? { ...t, group } : t);
+        setTabs(updatedTabs);
+
+        if (group === 'secondary') {
+            setSecondaryTabId(id);
+            setIsSplitView(true);
+            if (activeTabIdRef.current === id) {
+                const primaryTabs = updatedTabs.filter(t => t.group === 'primary');
+                if (primaryTabs.length > 0) {
+                    const nextPrimary = primaryTabs[primaryTabs.length - 1];
+                    setActiveTabId(nextPrimary.id);
+                    navigate(nextPrimary.path, { replace: true });
+                }
+            }
+        } else {
+            setActiveTabId(id);
+            navigate(tab.path, { replace: true });
+
+            if (secondaryTabId === id) {
+                const secondaryTabs = updatedTabs.filter(t => t.group === 'secondary');
+                if (secondaryTabs.length > 0) {
+                    setSecondaryTabId(secondaryTabs[secondaryTabs.length - 1].id);
+                } else {
+                    setSecondaryTabId(null);
+                    setIsSplitView(false);
+                }
+            }
+        }
+    }, [navigate, setActiveTabId, secondaryTabId]);
 
     const closeSplitView = useCallback(() => {
+        const currentTabs = tabsRef.current;
+        const updatedTabs = currentTabs.map(t => t.group === 'secondary' ? { ...t, group: 'primary' as const } : t);
+        setTabs(updatedTabs);
+
         setSecondaryTabId(null);
         setIsSplitView(false);
     }, []);
 
     // Ensure split view stays valid when tabs change.
     useEffect(() => {
-        if (!secondaryTabId) return;
-        const exists = tabs.some(t => t.id === secondaryTabId);
-        if (!exists) {
-            setSecondaryTabId(null);
-            setIsSplitView(false);
+        if (isSplitView) {
+            const hasSecondary = tabs.some(t => t.group === 'secondary');
+            if (!hasSecondary) {
+                setSecondaryTabId(null);
+                setIsSplitView(false);
+            }
         }
-    }, [tabs, secondaryTabId]);
+    }, [tabs, isSplitView]);
 
     return (
         <TabContext.Provider value={{
@@ -649,6 +773,7 @@ export const TabProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             closeOtherTabs,
             closeStaleTabs,
             openTabInSplit,
+            moveTabToGroup,
             closeSplitView,
             setSplitRatio,
             setActiveTabId,

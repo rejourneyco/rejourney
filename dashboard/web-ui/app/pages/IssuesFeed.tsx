@@ -63,54 +63,131 @@ function formatAge(date: string): string {
   return `${Math.floor(diffDays / 365)}y`;
 }
 
-// Simple sparkline component
-// Sparkline component (kept local as it's simple)
-const Sparkline: React.FC<{ data?: Record<string, number>; color?: string }> = ({ data, color = '#6366f1' }) => {
-  if (!data || Object.keys(data).length === 0) {
-    // Generate simple placeholder line
-    return (
-      <div className="h-8 w-24 flex items-center justify-center opacity-20">
-        <svg width="100%" height="100%" viewBox="0 0 100 24" preserveAspectRatio="none">
-          <path
-            d="M0 12 Q 25 24, 50 12 T 100 12"
-            fill="none"
-            stroke={color}
-            strokeWidth="2"
-            vectorEffect="non-scaling-stroke"
-          />
-        </svg>
-      </div>
-    );
+const SPARKLINE_POINTS_BY_RANGE: Record<TimeRange, number> = {
+  '24h': 14,
+  '7d': 14,
+  '30d': 30,
+  '90d': 90,
+  'all': 90,
+};
+
+const ONE_DAY_MS = 24 * 60 * 60 * 1000;
+
+const toUtcDayStart = (date: Date): Date =>
+  new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+
+const toUtcDateKey = (date: Date): string =>
+  date.toISOString().slice(0, 10);
+
+const parseDailyCount = (value: unknown): number => {
+  const parsed = typeof value === 'number' ? value : Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+};
+
+const buildSparklineSeries = (
+  data: Record<string, number> | undefined,
+  timeRange: TimeRange,
+): { series: number[]; start: Date; end: Date } => {
+  const pointCount = SPARKLINE_POINTS_BY_RANGE[timeRange] ?? 30;
+  const today = toUtcDayStart(new Date());
+  const start = new Date(today.getTime() - (pointCount - 1) * ONE_DAY_MS);
+
+  const counts = new Map<string, number>();
+  if (data) {
+    for (const [date, rawCount] of Object.entries(data)) {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) continue;
+      const count = parseDailyCount(rawCount);
+      if (count > 0) counts.set(date, count);
+    }
   }
 
-  const values = Object.entries(data)
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([, v]) => v);
+  const series: number[] = [];
+  for (let i = 0; i < pointCount; i++) {
+    const date = new Date(start.getTime() + i * ONE_DAY_MS);
+    series.push(counts.get(toUtcDateKey(date)) ?? 0);
+  }
 
-  // Pad with zeros if we don't have enough data points for a nice line
-  const neededPoints = 14;
-  const displayValues = values.length < neededPoints
-    ? [...Array(neededPoints - values.length).fill(0), ...values]
-    : values.slice(-30);
+  return { series, start, end: today };
+};
 
-  const max = Math.max(...displayValues, 1);
-  const min = 0;
-  const range = max - min;
+// Sparkline component (kept local as it's simple)
+const Sparkline: React.FC<{
+  data?: Record<string, number>;
+  color?: string;
+  timeRange: TimeRange;
+  releaseMarkerDate?: string | null;
+  releaseLabel?: string | null;
+}> = ({
+  data,
+  color = '#6366f1',
+  timeRange,
+  releaseMarkerDate,
+  releaseLabel,
+}) => {
+  const { series: rawValues, start, end } = buildSparklineSeries(data, timeRange);
+  const values = rawValues.map((value) => Math.sqrt(value));
+  const max = Math.max(...values, 1);
+  const range = max;
 
-  // Create path
-  const points = displayValues.map((val, i) => {
-    const x = (i / (displayValues.length - 1)) * 100;
-    // Invert Y because SVG coordinates go down
-    const normalizedY = ((val - min) / range);
-    // Use 80% of height to leave some padding
+  const pointTuples = values.map((val, i) => {
+    const x = (i / Math.max(values.length - 1, 1)) * 100;
+    const normalizedY = val / range;
     const y = 24 - (normalizedY * 20 + 2);
-    return `${x},${y}`;
-  }).join(' ');
+    return { x, y };
+  });
+
+  const points = pointTuples.map((point) => `${point.x},${point.y}`).join(' ');
+  const firstX = pointTuples[0]?.x ?? 0;
+  const lastX = pointTuples[pointTuples.length - 1]?.x ?? 100;
+  const areaLine = pointTuples.map((point) => `${point.x},${point.y}`).join(' L');
+  const areaPath = `M${firstX},24 L${areaLine} L${lastX},24 Z`;
+  const hasSignal = rawValues.some((value) => value > 0);
+
+  let releaseMarkerX: number | null = null;
+  let releaseMarkerHint: 'before' | 'after' | 'within' | null = null;
+  if (releaseMarkerDate) {
+    const parsed = new Date(releaseMarkerDate);
+    if (!Number.isNaN(parsed.getTime())) {
+      const markerDay = toUtcDayStart(parsed);
+      const markerIndex = Math.round((markerDay.getTime() - start.getTime()) / ONE_DAY_MS);
+      const clampedIndex = Math.max(0, Math.min(values.length - 1, markerIndex));
+      releaseMarkerX = (clampedIndex / Math.max(values.length - 1, 1)) * 100;
+      // Keep marker slightly inset so it doesn't get clipped at chart edges.
+      releaseMarkerX = Math.max(1, Math.min(99, releaseMarkerX));
+
+      if (markerDay < start) releaseMarkerHint = 'before';
+      else if (markerDay > end) releaseMarkerHint = 'after';
+      else releaseMarkerHint = 'within';
+    }
+  }
 
   return (
     <div className="h-8 w-24">
       <svg width="100%" height="100%" viewBox="0 0 100 24" preserveAspectRatio="none" className="overflow-visible">
-        {/* Gradient defs could go here if we wanted fill */}
+        {releaseMarkerX !== null && (
+          <g>
+            <line
+              x1={releaseMarkerX}
+              y1={2}
+              x2={releaseMarkerX}
+              y2={22}
+              stroke="#0f172a"
+              strokeWidth="1.2"
+              strokeDasharray="2 2"
+              opacity={0.65}
+            />
+            <circle cx={releaseMarkerX} cy={3} r={1.3} fill="#0f172a" opacity={0.75} />
+            {releaseLabel && (
+              <title>
+                {releaseMarkerHint === 'before'
+                  ? `${releaseLabel} released before selected window`
+                  : releaseMarkerHint === 'after'
+                    ? `${releaseLabel} released after selected window`
+                    : `${releaseLabel} first seen`}
+              </title>
+            )}
+          </g>
+        )}
         <polyline
           points={points}
           fill="none"
@@ -119,12 +196,12 @@ const Sparkline: React.FC<{ data?: Record<string, number>; color?: string }> = (
           strokeLinecap="round"
           strokeLinejoin="round"
           vectorEffect="non-scaling-stroke"
+          opacity={hasSignal ? 1 : 0.35}
         />
-        {/* Simple area fill */}
         <path
-          d={`M0,24 L${points.split(' ')[0].split(',')[0]},${points.split(' ')[0].split(',')[1]} ${points.replace(/,/g, ' ')} L100,24 Z`}
+          d={areaPath}
           fill={color}
-          fillOpacity="0.1"
+          fillOpacity={hasSignal ? 0.1 : 0.04}
           stroke="none"
         />
       </svg>
@@ -640,7 +717,13 @@ export const IssuesFeed: React.FC = () => {
 
                   {/* Trend Sparkline */}
                   <div className="hidden md:flex w-24 h-6 items-center justify-center">
-                    <Sparkline data={issue.dailyEvents} color={sparklineColor} />
+                    <Sparkline
+                      data={issue.dailyEvents}
+                      color={sparklineColor}
+                      timeRange={timeRange}
+                      releaseMarkerDate={issue.sampleAppVersionFirstSeenAt ?? (issue.sampleAppVersion ? issue.firstSeen : null)}
+                      releaseLabel={issue.sampleAppVersion ? `v${issue.sampleAppVersion}` : null}
+                    />
                   </div>
 
                   {/* Events */}

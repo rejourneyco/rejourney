@@ -248,6 +248,31 @@ const formatBytesToHuman = (bytes: number): string => {
   return `${kb.toFixed(1)} KB`;
 };
 
+type InsightLevel = 'good' | 'warning' | 'critical' | 'neutral';
+
+const INSIGHT_LEVEL_STYLES: Record<InsightLevel, { badge: string; value: string; bar: string }> = {
+  good: {
+    badge: 'border-emerald-200 bg-emerald-50 text-emerald-700',
+    value: 'text-emerald-700',
+    bar: 'bg-emerald-500',
+  },
+  warning: {
+    badge: 'border-amber-200 bg-amber-50 text-amber-700',
+    value: 'text-amber-700',
+    bar: 'bg-amber-500',
+  },
+  critical: {
+    badge: 'border-red-200 bg-red-50 text-red-700',
+    value: 'text-red-700',
+    bar: 'bg-red-500',
+  },
+  neutral: {
+    badge: 'border-slate-200 bg-slate-100 text-slate-600',
+    value: 'text-slate-800',
+    bar: 'bg-slate-500',
+  },
+};
+
 // ============================================================================
 // Main Component
 // ============================================================================
@@ -1248,6 +1273,34 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
     )
   );
 
+  const stabilityLevel: InsightLevel = stabilityScore < 60 ? 'critical' : stabilityScore < 80 ? 'warning' : 'good';
+  const apiErrorLevel: InsightLevel = apiErrorRate > 8 ? 'critical' : apiErrorRate > 3 ? 'warning' : 'good';
+  const apiLatencyLevel: InsightLevel = apiP95LatencyMs <= 0 ? 'neutral' : apiP95LatencyMs > 1000 ? 'critical' : apiP95LatencyMs > 500 ? 'warning' : 'good';
+  const firstIssueLevel: InsightLevel = timeToFirstIssueMs === null
+    ? 'good'
+    : timeToFirstIssueMs < 10000
+      ? 'critical'
+      : timeToFirstIssueMs < 30000
+        ? 'warning'
+        : 'good';
+
+  const stabilityGauge = Math.max(6, Math.min(100, stabilityScore));
+  const apiErrorGauge = Math.max(6, Math.min(100, apiErrorRate * 12));
+  const apiLatencyGauge = apiP95LatencyMs > 0 ? Math.max(6, Math.min(100, apiP95LatencyMs / 12)) : 0;
+  const issueTimingGauge = timeToFirstIssueMs === null || durationSeconds <= 0
+    ? 100
+    : Math.max(6, Math.min(100, (timeToFirstIssueMs / (durationSeconds * 1000)) * 100));
+
+  const stabilityInsightStyle = INSIGHT_LEVEL_STYLES[stabilityLevel];
+  const apiErrorInsightStyle = INSIGHT_LEVEL_STYLES[apiErrorLevel];
+  const apiLatencyInsightStyle = INSIGHT_LEVEL_STYLES[apiLatencyLevel];
+  const firstIssueInsightStyle = INSIGHT_LEVEL_STYLES[firstIssueLevel];
+
+  const stabilityStatusLabel = stabilityLevel === 'critical' ? 'High Risk' : stabilityLevel === 'warning' ? 'Watch' : 'Healthy';
+  const apiErrorStatusLabel = apiErrorLevel === 'critical' ? 'High' : apiErrorLevel === 'warning' ? 'Moderate' : 'Low';
+  const apiLatencyStatusLabel = apiLatencyLevel === 'critical' ? 'Slow' : apiLatencyLevel === 'warning' ? 'Variable' : apiLatencyLevel === 'neutral' ? 'N/A' : 'Fast';
+  const firstIssueStatusLabel = timeToFirstIssueMs === null ? 'Clean' : firstIssueLevel === 'critical' ? 'Early' : firstIssueLevel === 'warning' ? 'Mid' : 'Late';
+
   // User visit count
   const userIdentifier = session?.deviceId || session?.userId || session?.anonymousId || fullSession?.userId;
   const userSessions = userIdentifier
@@ -1408,111 +1461,6 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
                   {rageTapCount} Rage Taps
                 </span>
               )}
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Inferred Session Metrics */}
-      <div className="max-w-[1920px] mx-auto px-4 pt-4">
-        <div className="rounded-xl border border-slate-200 bg-white shadow-sm p-4">
-          <div className="flex flex-col gap-1.5 md:flex-row md:items-end md:justify-between">
-            <div>
-              <h2 className="text-sm font-semibold text-slate-900">Session Insights (Inferred)</h2>
-              <p className="text-xs text-slate-500">
-                Computed directly from this replay&apos;s events, network requests, crashes, and ANRs.
-              </p>
-            </div>
-            <div className="text-[11px] text-slate-500">
-              Better triage: understand reliability, responsiveness, and user friction at a glance.
-            </div>
-          </div>
-
-          <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
-            <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
-              <div className="flex items-center justify-between text-xs text-slate-500">
-                <span>Stability Score</span>
-                <AlertCircle className="w-3.5 h-3.5" />
-              </div>
-              <div className={`mt-1 text-2xl font-semibold ${stabilityScore < 60 ? 'text-red-600' : stabilityScore < 80 ? 'text-amber-600' : 'text-emerald-600'}`}>
-                {stabilityScore.toFixed(0)}
-              </div>
-              <p className="mt-1 text-[11px] text-slate-500">Blend of issue intensity, API failure rate, and p95 latency.</p>
-            </div>
-
-            <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
-              <div className="flex items-center justify-between text-xs text-slate-500">
-                <span>API Error Rate</span>
-                <Globe className="w-3.5 h-3.5" />
-              </div>
-              <div className={`mt-1 text-2xl font-semibold ${apiErrorRate > 8 ? 'text-red-600' : apiErrorRate > 3 ? 'text-amber-600' : 'text-emerald-600'}`}>
-                {apiErrorRate.toFixed(1)}%
-              </div>
-              <p className="mt-1 text-[11px] text-slate-500">
-                {failedRequestCount.toLocaleString()} failed of {networkRequests.length.toLocaleString()} requests.
-              </p>
-            </div>
-
-            <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
-              <div className="flex items-center justify-between text-xs text-slate-500">
-                <span>API p95 Latency</span>
-                <Clock className="w-3.5 h-3.5" />
-              </div>
-              <div className={`mt-1 text-2xl font-semibold ${apiP95LatencyMs > 1000 ? 'text-red-600' : apiP95LatencyMs > 500 ? 'text-amber-600' : 'text-slate-900'}`}>
-                {apiP95LatencyMs > 0 ? `${Math.round(apiP95LatencyMs)} ms` : 'N/A'}
-              </div>
-              <p className="mt-1 text-[11px] text-slate-500">Latency experienced by the slowest 5% of API calls.</p>
-            </div>
-
-            <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
-              <div className="flex items-center justify-between text-xs text-slate-500">
-                <span>Time To First Issue</span>
-                <AlertTriangle className="w-3.5 h-3.5" />
-              </div>
-              <div className={`mt-1 text-2xl font-semibold ${timeToFirstIssueMs !== null && timeToFirstIssueMs < 10000 ? 'text-red-600' : 'text-slate-900'}`}>
-                {timeToFirstIssueMs === null ? 'No issue' : formatPlaybackTime(timeToFirstIssueMs / 1000)}
-              </div>
-              <p className="mt-1 text-[11px] text-slate-500">Time from replay start to first failure signal or API error.</p>
-            </div>
-
-            <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
-              <div className="flex items-center justify-between text-xs text-slate-500">
-                <span>Interaction Rate</span>
-                <MousePointer2 className="w-3.5 h-3.5" />
-              </div>
-              <div className="mt-1 text-2xl font-semibold text-slate-900">{interactionsPerMinute.toFixed(1)}/min</div>
-              <p className="mt-1 text-[11px] text-slate-500">
-                {interactionCount.toLocaleString()} touches, scrolls, and gestures captured.
-              </p>
-            </div>
-
-            <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
-              <div className="flex items-center justify-between text-xs text-slate-500">
-                <span>Screen Pace</span>
-                <Monitor className="w-3.5 h-3.5" />
-              </div>
-              <div className="mt-1 text-2xl font-semibold text-slate-900">{screensPerMinute.toFixed(2)}/min</div>
-              <p className="mt-1 text-[11px] text-slate-500">{screensVisited.length.toLocaleString()} unique screens visited.</p>
-            </div>
-
-            <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
-              <div className="flex items-center justify-between text-xs text-slate-500">
-                <span>Startup Latency</span>
-                <Smartphone className="w-3.5 h-3.5" />
-              </div>
-              <div className={`mt-1 text-2xl font-semibold ${inferredStartupMs !== null && inferredStartupMs > 2000 ? 'text-amber-600' : 'text-slate-900'}`}>
-                {inferredStartupMs !== null ? `${Math.round(inferredStartupMs)} ms` : 'N/A'}
-              </div>
-              <p className="mt-1 text-[11px] text-slate-500">App startup metric or first meaningful interaction fallback.</p>
-            </div>
-
-            <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
-              <div className="flex items-center justify-between text-xs text-slate-500">
-                <span>Network Payload</span>
-                <Layers className="w-3.5 h-3.5" />
-              </div>
-              <div className="mt-1 text-2xl font-semibold text-slate-900">{formatBytesToHuman(totalPayloadBytes)}</div>
-              <p className="mt-1 text-[11px] text-slate-500">Approximate request + response bytes in this replay.</p>
             </div>
           </div>
         </div>
@@ -2108,6 +2056,154 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
                           </div>
                         </>
                       )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Session Insights */}
+              <div className="mt-4 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+                <div className="border-b border-slate-200 bg-gradient-to-r from-slate-900 to-slate-700 px-4 py-3 text-white">
+                  <div className="flex flex-wrap items-start justify-between gap-2">
+                    <div>
+                      <h2 className="text-sm font-semibold">Session Insights (Inferred)</h2>
+                      <p className="mt-0.5 text-[11px] text-slate-200">
+                        Computed from replay events, API traffic, crashes, and ANRs.
+                      </p>
+                    </div>
+                    <span className="inline-flex items-center rounded-full border border-white/30 bg-white/10 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-white">
+                      Replay-Derived
+                    </span>
+                  </div>
+                </div>
+
+                <div className="p-4">
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <div className="rounded-lg border border-slate-200 bg-slate-50/80 p-3">
+                      <div className="flex items-start justify-between">
+                        <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Stability Score</div>
+                        <div className="flex items-center gap-1">
+                          <AlertCircle className="h-3.5 w-3.5 text-slate-400" />
+                          <span className={`rounded-full border px-1.5 py-0.5 text-[10px] font-semibold ${stabilityInsightStyle.badge}`}>
+                            {stabilityStatusLabel}
+                          </span>
+                        </div>
+                      </div>
+                      <div className={`mt-1 text-2xl font-semibold tabular-nums ${stabilityInsightStyle.value}`}>
+                        {stabilityScore.toFixed(0)}
+                      </div>
+                      <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-200">
+                        <div className={`h-full rounded-full ${stabilityInsightStyle.bar}`} style={{ width: `${stabilityGauge}%` }} />
+                      </div>
+                      <p className="mt-2 text-[11px] text-slate-500">
+                        Blend of issue intensity, API error rate, and p95 latency.
+                      </p>
+                    </div>
+
+                    <div className="rounded-lg border border-slate-200 bg-slate-50/80 p-3">
+                      <div className="flex items-start justify-between">
+                        <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">API Error Rate</div>
+                        <div className="flex items-center gap-1">
+                          <Globe className="h-3.5 w-3.5 text-slate-400" />
+                          <span className={`rounded-full border px-1.5 py-0.5 text-[10px] font-semibold ${apiErrorInsightStyle.badge}`}>
+                            {apiErrorStatusLabel}
+                          </span>
+                        </div>
+                      </div>
+                      <div className={`mt-1 text-2xl font-semibold tabular-nums ${apiErrorInsightStyle.value}`}>
+                        {apiErrorRate.toFixed(1)}%
+                      </div>
+                      <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-200">
+                        <div className={`h-full rounded-full ${apiErrorInsightStyle.bar}`} style={{ width: `${apiErrorGauge}%` }} />
+                      </div>
+                      <p className="mt-2 text-[11px] text-slate-500">
+                        {failedRequestCount.toLocaleString()} failed of {networkRequests.length.toLocaleString()} requests.
+                      </p>
+                    </div>
+
+                    <div className="rounded-lg border border-slate-200 bg-slate-50/80 p-3">
+                      <div className="flex items-start justify-between">
+                        <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">API p95 Latency</div>
+                        <div className="flex items-center gap-1">
+                          <Clock className="h-3.5 w-3.5 text-slate-400" />
+                          <span className={`rounded-full border px-1.5 py-0.5 text-[10px] font-semibold ${apiLatencyInsightStyle.badge}`}>
+                            {apiLatencyStatusLabel}
+                          </span>
+                        </div>
+                      </div>
+                      <div className={`mt-1 text-2xl font-semibold tabular-nums ${apiLatencyInsightStyle.value}`}>
+                        {apiP95LatencyMs > 0 ? `${Math.round(apiP95LatencyMs)} ms` : 'N/A'}
+                      </div>
+                      <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-200">
+                        <div
+                          className={`h-full rounded-full ${apiLatencyInsightStyle.bar}`}
+                          style={{ width: apiP95LatencyMs > 0 ? `${apiLatencyGauge}%` : '0%' }}
+                        />
+                      </div>
+                      <p className="mt-2 text-[11px] text-slate-500">
+                        Latency seen by the slowest 5% of API calls.
+                      </p>
+                    </div>
+
+                    <div className="rounded-lg border border-slate-200 bg-slate-50/80 p-3">
+                      <div className="flex items-start justify-between">
+                        <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Time To First Issue</div>
+                        <div className="flex items-center gap-1">
+                          <AlertTriangle className="h-3.5 w-3.5 text-slate-400" />
+                          <span className={`rounded-full border px-1.5 py-0.5 text-[10px] font-semibold ${firstIssueInsightStyle.badge}`}>
+                            {firstIssueStatusLabel}
+                          </span>
+                        </div>
+                      </div>
+                      <div className={`mt-1 text-2xl font-semibold tabular-nums ${firstIssueInsightStyle.value}`}>
+                        {timeToFirstIssueMs === null ? 'No issue' : formatPlaybackTime(timeToFirstIssueMs / 1000)}
+                      </div>
+                      <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-200">
+                        <div className={`h-full rounded-full ${firstIssueInsightStyle.bar}`} style={{ width: `${issueTimingGauge}%` }} />
+                      </div>
+                      <p className="mt-2 text-[11px] text-slate-500">
+                        Later is healthier. Shows when the first failure signal appeared.
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                    <div className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2">
+                      <MousePointer2 className="h-4 w-4 text-blue-600" />
+                      <div>
+                        <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Interaction Rate</p>
+                        <p className="text-sm font-semibold text-slate-900">
+                          {interactionsPerMinute.toFixed(1)}/min <span className="text-xs font-medium text-slate-500">({interactionCount.toLocaleString()} total)</span>
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2">
+                      <Monitor className="h-4 w-4 text-violet-600" />
+                      <div>
+                        <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Screen Pace</p>
+                        <p className="text-sm font-semibold text-slate-900">
+                          {screensPerMinute.toFixed(2)}/min <span className="text-xs font-medium text-slate-500">({screensVisited.length.toLocaleString()} unique)</span>
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2">
+                      <Smartphone className="h-4 w-4 text-cyan-700" />
+                      <div>
+                        <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Startup Latency</p>
+                        <p className="text-sm font-semibold text-slate-900">
+                          {inferredStartupMs !== null ? `${Math.round(inferredStartupMs)} ms` : 'N/A'}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2">
+                      <Layers className="h-4 w-4 text-indigo-700" />
+                      <div>
+                        <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Network Payload</p>
+                        <p className="text-sm font-semibold text-slate-900">{formatBytesToHuman(totalPayloadBytes)}</p>
+                      </div>
                     </div>
                   </div>
                 </div>

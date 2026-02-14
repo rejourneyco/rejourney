@@ -7,7 +7,7 @@
 
 import { Router } from 'express';
 import { eq, gte, lte, and, asc, inArray, sql, desc, isNotNull } from 'drizzle-orm';
-import { db, appDailyStats, projects, teamMembers, appAllTimeStats, sessions, sessionMetrics, crashes, anrs, errors } from '../db/client.js';
+import { db, appDailyStats, projects, teamMembers, appAllTimeStats, sessions, sessionMetrics, crashes, anrs, errors, projectFunnelStats } from '../db/client.js';
 import { getRedis } from '../db/redis.js';
 import { logger } from '../logger.js';
 import { asyncHandler, ApiError } from '../middleware/index.js';
@@ -2035,7 +2035,7 @@ router.get(
                 .where(eq(teamMembers.userId, req.user!.id));
             const teamIds = membership.map(m => m.teamId);
             if (teamIds.length === 0) {
-                res.json({ healthSummary: { healthy: 0, degraded: 0, problematic: 0 }, flows: [], problematicJourneys: [], happyPathJourney: null, exitAfterError: [], timeToFailure: {}, screenHealth: [], topScreens: [], entryPoints: [], exitPoints: [] });
+                res.json({ healthSummary: { healthy: 0, degraded: 0, problematic: 0 }, flows: [], problematicJourneys: [], happyPathJourney: null, configuredHappyPath: null, exitAfterError: [], timeToFailure: {}, screenHealth: [], topScreens: [], entryPoints: [], exitPoints: [] });
                 return;
             }
             const userProjects = await db
@@ -2046,7 +2046,7 @@ router.get(
         }
 
         if (projectIds.length === 0) {
-            res.json({ healthSummary: { healthy: 0, degraded: 0, problematic: 0 }, flows: [], problematicJourneys: [], happyPathJourney: null, exitAfterError: [], timeToFailure: {}, screenHealth: [], topScreens: [], entryPoints: [], exitPoints: [] });
+            res.json({ healthSummary: { healthy: 0, degraded: 0, problematic: 0 }, flows: [], problematicJourneys: [], happyPathJourney: null, configuredHappyPath: null, exitAfterError: [], timeToFailure: {}, screenHealth: [], topScreens: [], entryPoints: [], exitPoints: [] });
             return;
         }
 
@@ -2066,6 +2066,32 @@ router.get(
                 startedAfter.setDate(startedAfter.getDate() - days);
             }
         }
+
+        // Read configured happy path from schema-backed funnel stats.
+        const [configuredFunnel] = await db
+            .select({
+                projectId: projectFunnelStats.projectId,
+                path: projectFunnelStats.funnelPath,
+                targetScreen: projectFunnelStats.targetScreen,
+                confidence: projectFunnelStats.confidence,
+                sampleSize: projectFunnelStats.sampleSize,
+                updatedAt: projectFunnelStats.updatedAt,
+            })
+            .from(projectFunnelStats)
+            .where(inArray(projectFunnelStats.projectId, projectIds))
+            .orderBy(desc(projectFunnelStats.confidence), desc(projectFunnelStats.updatedAt))
+            .limit(1);
+
+        const configuredHappyPath = configuredFunnel
+            ? {
+                projectId: configuredFunnel.projectId,
+                path: configuredFunnel.path,
+                targetScreen: configuredFunnel.targetScreen,
+                confidence: Number(configuredFunnel.confidence || 0),
+                sampleSize: Number(configuredFunnel.sampleSize || 0),
+                updatedAt: configuredFunnel.updatedAt?.toISOString?.() || null,
+            }
+            : null;
 
         // Get sessions with their metrics for observability analysis
 
@@ -2426,6 +2452,7 @@ router.get(
             flows,
             problematicJourneys,
             happyPathJourney,
+            configuredHappyPath,
             exitAfterError,
             timeToFailure,
             screenHealth,
@@ -2963,7 +2990,7 @@ router.get(
         const allUsers = new Set<string>();
         const affectedUsers = new Set<string>();
         const networkMap: Record<string, { sessions: number; apiCalls: number; apiErrors: number; latencySum: number; latencySamples: number }> = {};
-        const versionMap: Record<string, { sessions: number; degradedSessions: number; crashCount: number; anrCount: number; errorCount: number; latestSeen: Date }> = {};
+        const versionMap: Record<string, { sessions: number; degradedSessions: number; crashCount: number; anrCount: number; errorCount: number; latestSeen: Date; firstSeen: Date }> = {};
 
         for (const row of sessionsWithMetrics) {
             const crashCount = toNumber(row.crashCount);
@@ -3059,6 +3086,7 @@ router.get(
                     anrCount: 0,
                     errorCount: 0,
                     latestSeen: row.startedAt,
+                    firstSeen: row.startedAt,
                 };
             }
             versionMap[appVersion].sessions++;
@@ -3068,6 +3096,9 @@ router.get(
             versionMap[appVersion].errorCount += errorCount;
             if (row.startedAt > versionMap[appVersion].latestSeen) {
                 versionMap[appVersion].latestSeen = row.startedAt;
+            }
+            if (row.startedAt < versionMap[appVersion].firstSeen) {
+                versionMap[appVersion].firstSeen = row.startedAt;
             }
         }
 
@@ -3130,6 +3161,7 @@ router.get(
                     crashCount: stats.crashCount,
                     anrCount: stats.anrCount,
                     errorCount: stats.errorCount,
+                    firstSeen: stats.firstSeen.toISOString(),
                     latestSeen: stats.latestSeen.toISOString(),
                 };
             })
