@@ -33,6 +33,16 @@ init() {
     
     echo ""
     log "Namespace 'rejourney' created."
+    
+    # Label the current node as the storage node (prevent DB from moving)
+    log "Configuring storage affinity..."
+    NODE_NAME=$(kubectl get nodes -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
+    if [ -n "$NODE_NAME" ]; then
+        log "Labeling node '$NODE_NAME' as storage host (rejourney.co/storage-node=true)..."
+        kubectl label node "$NODE_NAME" rejourney.co/storage-node=true --overwrite 2>/dev/null || true
+    else
+        warn "Could not detect node name. Verify kubectl connection."
+    fi
     echo ""
     warn "Next steps:"
     echo ""

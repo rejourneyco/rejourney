@@ -81,38 +81,48 @@ export const UserTypeTrends: React.FC<UserTypeTrendsProps> = ({ className }) => 
         return versionReleases.filter(v => chartDates.has(v.date));
     }, [chartData, versionReleases]);
 
-    // Custom label component for version markers
-    const VersionLabel = ({ viewBox, version }: { viewBox?: any; version: string }) => {
-        if (!viewBox) return null;
-        const { x } = viewBox;
+    type ReleaseLabelViewBox = {
+        x?: number;
+        y?: number;
+        width?: number;
+    };
+
+    const buildReleaseLineLabel = (version: string, index: number) => ({ viewBox }: { viewBox?: ReleaseLabelViewBox }) => {
+        const x = typeof viewBox?.x === 'number' ? viewBox.x : NaN;
+        const y = typeof viewBox?.y === 'number' ? viewBox.y : NaN;
+        const width = typeof viewBox?.width === 'number' ? viewBox.width : NaN;
+        if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+
+        const text = `v${version}`;
+        const rowOffset = (index % 3) * 11;
+        const textWidth = text.length * 6;
+        const placeLabelOnRight = Number.isFinite(width) ? x + textWidth + 12 <= width : true;
+        const textY = y + 9 + rowOffset;
+        const rectX = placeLabelOnRight ? x + 1 : x - textWidth - 7;
+        const textX = placeLabelOnRight ? x + 4 : x - textWidth - 4;
+
         return (
             <g>
-                {/* Arrow pointer */}
-                <polygon
-                    points={`${x},40 ${x - 6},25 ${x + 6},25`}
-                    fill="#000"
-                />
-                {/* Version badge */}
                 <rect
-                    x={x - 28}
-                    y={4}
-                    width={56}
-                    height={20}
+                    x={rectX}
+                    y={textY - 8}
+                    width={textWidth + 6}
+                    height={10}
                     rx={2}
-                    fill="#000"
+                    fill="#ffffff"
+                    fillOpacity={0.9}
                     stroke="#000"
-                    strokeWidth={2}
+                    strokeWidth={0.8}
                 />
                 <text
-                    x={x}
-                    y={18}
-                    textAnchor="middle"
-                    fill="#fff"
+                    x={textX}
+                    y={textY}
+                    fill="#000"
                     fontSize={9}
-                    fontWeight="bold"
+                    fontWeight={700}
                     fontFamily="monospace"
                 >
-                    v{version}
+                    {text}
                 </text>
             </g>
         );
@@ -185,14 +195,14 @@ export const UserTypeTrends: React.FC<UserTypeTrendsProps> = ({ className }) => 
                         />
 
                         {/* Version release markers */}
-                        {versionMarkersOnChart.map((release) => (
+                        {versionMarkersOnChart.map((release, index) => (
                             <ReferenceLine
                                 key={release.version}
                                 x={release.date}
                                 stroke="#000"
                                 strokeWidth={2}
                                 strokeDasharray="4 4"
-                                label={<VersionLabel version={release.version} />}
+                                label={buildReleaseLineLabel(release.version, index)}
                             />
                         ))}
 

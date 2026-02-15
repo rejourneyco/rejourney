@@ -51,11 +51,19 @@ const STALE_TAB_KEEP_COUNT = 6;
 const RECENTLY_CLOSED_LIMIT = 10;
 
 function isDetailTab(tabId: string): boolean {
-    return tabId.startsWith('session-') || tabId.startsWith('crash-') || tabId.startsWith('error-');
+    return tabId.startsWith('session-')
+        || tabId.startsWith('crash-')
+        || tabId.startsWith('error-')
+        || tabId.startsWith('anr-')
+        || tabId.startsWith('issue-');
 }
 
 function stripPathPrefix(pathname: string): string {
     return pathname.replace(/^\/(dashboard|demo)/, '') || '/issues';
+}
+
+function isWarehousePath(pathname: string): boolean {
+    return stripPathPrefix(pathname).startsWith('/warehouse');
 }
 
 function trimTabsForLimits(
@@ -118,8 +126,12 @@ export const TabProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const activeTabIdRef = useRef(activeTabId);
     const tabsRef = useRef(tabs);
     const recentlyClosedRef = useRef(recentlyClosed);
+    const hasLoadedRef = useRef(hasLoaded);
+    const locationPathRef = useRef(location.pathname);
     const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const isSavingRef = useRef(false);
+    const isScopeTransitionRef = useRef(false);
+    const skipRestoreForNextScopeRef = useRef(false);
 
     // Keep refs in sync with state
     useEffect(() => {
@@ -133,6 +145,14 @@ export const TabProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     useEffect(() => {
         recentlyClosedRef.current = recentlyClosed;
     }, [recentlyClosed]);
+
+    useEffect(() => {
+        hasLoadedRef.current = hasLoaded;
+    }, [hasLoaded]);
+
+    useEffect(() => {
+        locationPathRef.current = location.pathname;
+    }, [location.pathname]);
 
     const setActiveTabId = useCallback((id: string) => {
         activeTabIdRef.current = id;
@@ -157,6 +177,7 @@ export const TabProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     // Save workspace state to backend (debounced using refs to avoid stale closures)
     const saveToBackend = useCallback(() => {
         if (!selectedProject?.teamId || !selectedProject?.id) return;
+        if (isScopeTransitionRef.current || !hasLoadedRef.current || isWarehousePath(locationPathRef.current)) return;
 
         // Clear any pending save
         if (saveTimeoutRef.current) {
@@ -165,6 +186,7 @@ export const TabProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
         // Debounce: wait 1 second before saving
         saveTimeoutRef.current = setTimeout(async () => {
+            if (isScopeTransitionRef.current || !hasLoadedRef.current || isWarehousePath(locationPathRef.current)) return;
             if (isSavingRef.current) return;
             isSavingRef.current = true;
 
@@ -201,10 +223,10 @@ export const TabProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     // Persist whenever tabs change (but only after initial load completes)
     useEffect(() => {
-        if (hasLoaded && selectedProject) {
+        if (hasLoaded && selectedProject && !isWarehousePath(location.pathname)) {
             saveToBackend();
         }
-    }, [tabs, activeTabId, recentlyClosed, hasLoaded, selectedProject, saveToBackend]);
+    }, [tabs, activeTabId, recentlyClosed, hasLoaded, selectedProject, location.pathname, saveToBackend]);
 
     // Cleanup save timeout on unmount
     useEffect(() => {
@@ -285,19 +307,37 @@ export const TabProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     useEffect(() => {
         if (previousScopeKeyRef.current === workspaceScopeKey) return;
         previousScopeKeyRef.current = workspaceScopeKey;
+        isScopeTransitionRef.current = true;
+        skipRestoreForNextScopeRef.current = true;
+
+        if (saveTimeoutRef.current) {
+            clearTimeout(saveTimeoutRef.current);
+            saveTimeoutRef.current = null;
+        }
 
         loadedProjectIdRef.current = null;
         tabsRef.current = [];
         recentlyClosedRef.current = [];
         activeTabIdRef.current = '';
 
-        setTabs([]);
+        const currentRouteInfo = isWarehousePath(location.pathname) ? null : TabRegistry.getTabInfo(location.pathname);
+        const seededTab = currentRouteInfo ? annotateTabWithScope({
+            id: currentRouteInfo.id,
+            type: 'page',
+            title: currentRouteInfo.title,
+            path: location.pathname,
+            isClosable: true,
+            group: 'primary',
+            icon: currentRouteInfo.icon,
+        }) : null;
+
+        setTabs(seededTab ? [seededTab] : []);
         setRecentlyClosed([]);
-        setActiveTabId('');
+        setActiveTabId(seededTab ? seededTab.id : '');
         setSecondaryTabId(null);
         setIsSplitView(false);
         setHasLoaded(false);
-    }, [workspaceScopeKey, setActiveTabId]);
+    }, [workspaceScopeKey, location.pathname, annotateTabWithScope, setActiveTabId]);
 
     // Load workspace from backend on initial mount - wait for project to be ready
     useEffect(() => {
@@ -306,6 +346,8 @@ export const TabProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
         // Skip if no project
         if (!selectedProject?.teamId || !selectedProject?.id) {
+            isScopeTransitionRef.current = false;
+            skipRestoreForNextScopeRef.current = false;
             setHasLoaded(true);
             return;
         }
@@ -315,10 +357,21 @@ export const TabProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             return;
         }
 
+        if (skipRestoreForNextScopeRef.current || isWarehousePath(location.pathname)) {
+            loadedProjectIdRef.current = selectedProject.id;
+            skipRestoreForNextScopeRef.current = false;
+            isScopeTransitionRef.current = false;
+            setHasLoaded(true);
+            return;
+        }
+
+        let isCancelled = false;
+
         async function loadWorkspace() {
             try {
                 loadedProjectIdRef.current = selectedProject!.id;
                 const workspace = await getWorkspace(selectedProject!.teamId || '', selectedProject!.id || '');
+                if (isCancelled) return;
                 const prefix = getPathPrefix();
 
                 if (workspace.tabs && workspace.tabs.length > 0) {
@@ -446,14 +499,36 @@ export const TabProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                             }
                         }
                     }
+                } else {
+                    // No persisted workspace yet for this project; seed from current route.
+                    const currentRouteInfo = TabRegistry.getTabInfo(location.pathname);
+                    if (currentRouteInfo) {
+                        setTabs([annotateTabWithScope({
+                            id: currentRouteInfo.id,
+                            type: 'page',
+                            title: currentRouteInfo.title,
+                            path: location.pathname,
+                            isClosable: true,
+                            group: 'primary',
+                            icon: currentRouteInfo.icon,
+                        })]);
+                        setRecentlyClosed([]);
+                        setActiveTabId(currentRouteInfo.id);
+                    }
                 }
             } catch (err) {
                 console.warn('Failed to load workspace:', err);
             } finally {
-                setHasLoaded(true);
+                if (!isCancelled) {
+                    isScopeTransitionRef.current = false;
+                    setHasLoaded(true);
+                }
             }
         }
         loadWorkspace();
+        return () => {
+            isCancelled = true;
+        };
     }, [selectedProject?.id, isProjectLoading, getPathPrefix, normalizePath, location.pathname, navigate, setActiveTabId, annotateTabWithScope]); // Wait for project loading AND id
 
     // Auto-open tabs when URL changes based on TabRegistry

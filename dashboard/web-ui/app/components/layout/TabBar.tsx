@@ -4,16 +4,16 @@ import { useTabs } from '../../context/TabContext';
 import { useSessionData } from '../../context/SessionContext';
 import { useSafeTeam } from '../../context/TeamContext';
 import {
-        Plus,
-        X,
-        Trash2,
-        Layers,
-        Undo2,
-        PanelRightClose,
-        SplitSquareVertical,
-        LayoutTemplate,
-        FileText
-    } from 'lucide-react';
+    Plus,
+    X,
+    Trash2,
+    Layers,
+    Undo2,
+    PanelRightClose,
+    SplitSquareVertical,
+    LayoutTemplate,
+    FileText
+} from 'lucide-react';
 
 interface TabBarProps {
     pathPrefix?: string;
@@ -218,9 +218,9 @@ export const TabBar: React.FC<TabBarProps> = ({ pathPrefix = '', group = 'primar
                             className={`${baseClasses} ${stateClasses} flex-1 max-w-[240px]`}
                             title={`Project: ${projectLabel}\n${tab.title}`}
                         >
-                            {/* Active Indicator Line */}
+
                             {isActive && (
-                                <div className={`absolute left-0 right-0 top-0 h-[2px] rounded-t-md ${group === 'primary' ? 'bg-blue-600' : 'bg-purple-600'}`} />
+                                <div className={`absolute left-0 right-0 top-0 h-[2px] rounded-t-sm ${group === 'primary' ? 'bg-blue-500' : 'bg-purple-500'}`} />
                             )}
 
                             <div className="min-w-0 flex-1 flex items-center gap-2">
@@ -261,23 +261,19 @@ export const TabBar: React.FC<TabBarProps> = ({ pathPrefix = '', group = 'primar
                 {groupTabs.length === 0 && (
                     <div className="px-4 py-2 text-sm text-slate-500 italic">No open tabs</div>
                 )}
+                {group === 'primary' && (
+                    <button
+                        onClick={handleNewTab}
+                        className="flex h-[35px] shrink-0 items-center justify-center rounded-t-md border border-b-0 border-transparent px-2 text-slate-500 transition-colors hover:bg-slate-200/60 hover:text-slate-800"
+                        title="New tab"
+                    >
+                        <Plus className="h-4 w-4" />
+                    </button>
+                )}
             </div>
 
             {/* Controls Area */}
             <div className="flex items-center gap-1 border-l border-slate-300 pl-2 ml-1 shrink-0 pb-1">
-                {group === 'primary' && (
-                    <>
-                        <button
-                            onClick={handleNewTab}
-                            className="flex h-7 w-7 items-center justify-center rounded hover:bg-slate-200 text-slate-500 hover:text-slate-800 transition-colors"
-                            title="New tab"
-                        >
-                            <Plus className="h-4 w-4" />
-                        </button>
-                        <div className="h-4 w-px bg-slate-300 mx-1" />
-                    </>
-                )}
-
                 {group === 'primary' && (
                     <>
                         <button

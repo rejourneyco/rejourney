@@ -37,6 +37,7 @@ import {
     ObservabilityDeepMetrics,
     UserEngagementTrends,
 } from '../../services/api';
+import { DashboardPageHeader } from '../../components/ui/DashboardPageHeader';
 import { TimeFilter, TimeRange, DEFAULT_TIME_RANGE } from '../../components/ui/TimeFilter';
 import { usePathPrefix } from '../../hooks/usePathPrefix';
 import { TouchHeatmapSection } from '../../components/dashboard/TouchHeatmapSection';
@@ -140,6 +141,46 @@ const alignReleaseMarkersToChart = (
     return Array.from(deduped.values())
         .sort((a, b) => a.timestamp - b.timestamp)
         .slice(-MAX_RELEASE_MARKERS);
+};
+
+type ReleaseLabelViewBox = {
+    x?: number;
+    y?: number;
+    width?: number;
+};
+
+const buildReleaseLineLabel = (version: string, index: number) => ({ viewBox }: { viewBox?: ReleaseLabelViewBox }) => {
+    const x = typeof viewBox?.x === 'number' ? viewBox.x : NaN;
+    const y = typeof viewBox?.y === 'number' ? viewBox.y : NaN;
+    const width = typeof viewBox?.width === 'number' ? viewBox.width : NaN;
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+
+    const text = `v${version}`;
+    const rowOffset = (index % 3) * 12;
+    const textWidth = text.length * 6.2;
+    const placeLabelOnRight = Number.isFinite(width) ? x + textWidth + 12 <= width : true;
+    const textY = y + 10 + rowOffset;
+    const rectX = placeLabelOnRight ? x + 2 : x - textWidth - 8;
+    const textX = placeLabelOnRight ? x + 5 : x - textWidth - 5;
+
+    return (
+        <g>
+            <rect
+                x={rectX}
+                y={textY - 8.5}
+                width={textWidth + 6}
+                height={11}
+                rx={2}
+                fill="#ffffff"
+                fillOpacity={0.9}
+                stroke="#0f172a"
+                strokeWidth={0.85}
+            />
+            <text x={textX} y={textY} fill="#0f172a" fontSize={9.5} fontWeight={700}>
+                {text}
+            </text>
+        </g>
+    );
 };
 
 const pct = (value: number | null | undefined, digits: number = 1): string => {
@@ -465,18 +506,16 @@ export const Growth: React.FC = () => {
     const releaseRows = useMemo(() => deepMetrics?.releaseRisk?.slice(0, 5) || [], [deepMetrics]);
 
     return (
-        <div className="min-h-screen bg-gradient-to-b from-slate-50 via-white to-slate-100/70">
-            <div className="sticky top-0 z-30 border-b border-slate-200 bg-white/95 backdrop-blur">
-                <div className="mx-auto flex w-full max-w-[1600px] flex-col gap-4 px-6 py-4 md:flex-row md:items-center md:justify-between">
-                    <div>
-                        <div className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Growth</div>
-                        <h1 className="mt-1 text-2xl font-semibold text-slate-900">Growth Intelligence Control Room</h1>
-                        <p className="mt-1 text-sm text-slate-600">
-                            Connect acquisition and retention metrics to reliability signals so teams can prioritize fixes with revenue impact.
-                        </p>
-                    </div>
+        <div className="min-h-screen bg-slate-50 font-sans text-slate-900">
+            <div className="sticky top-0 z-30 bg-white">
+                <DashboardPageHeader
+                    title="Growth Intelligence"
+                    subtitle="Connect acquisition metrics to reliability"
+                    icon={<TrendingUp className="w-6 h-6" />}
+                    iconColor="bg-lime-500"
+                >
                     <TimeFilter value={timeRange} onChange={setTimeRange} />
-                </div>
+                </DashboardPageHeader>
             </div>
 
             <div className="mx-auto w-full max-w-[1600px] space-y-6 px-6 py-6">
@@ -549,15 +588,6 @@ export const Growth: React.FC = () => {
                                     <h2 className="text-lg font-semibold text-slate-900">DAU vs MAU vs Sessions</h2>
                                     <LineChartIcon className="h-5 w-5 text-blue-600" />
                                 </div>
-                                {trendReleaseMarkers.length > 0 && (
-                                    <div className="mb-2 flex flex-wrap gap-1.5">
-                                        {trendReleaseMarkers.map((marker) => (
-                                            <span key={`trend-marker-chip-${marker.version}-${marker.dateKey}`} className="rounded border border-slate-300 bg-slate-50 px-1.5 py-0.5 text-[10px] font-semibold text-slate-700">
-                                                v{marker.version} • {formatDateLabel(marker.dateKey)}
-                                            </span>
-                                        ))}
-                                    </div>
-                                )}
                                 <div className="h-[310px]">
                                     <ResponsiveContainer width="100%" height="100%">
                                         <AreaChart data={trendChartData} margin={{ top: 26, right: 8, left: 0, bottom: 0 }}>
@@ -567,15 +597,15 @@ export const Growth: React.FC = () => {
                                             <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 11 }} domain={mauDomain} />
                                             <Tooltip labelFormatter={(value) => formatDateLabel(String(value))} />
                                             <Legend />
-                                            {trendReleaseMarkers.map((marker) => (
+                                            {trendReleaseMarkers.map((marker, index) => (
                                                 <ReferenceLine
                                                     key={`trend-release-${marker.version}-${marker.dateKey}`}
                                                     x={marker.dateKey}
                                                     stroke="#0f172a"
-                                                    strokeDasharray="5 3"
+                                                    strokeDasharray="4 3"
                                                     strokeWidth={1.9}
                                                     ifOverflow="extendDomain"
-                                                    label={{ value: `v${marker.version}`, fill: '#0f172a', fontSize: 11, fontWeight: 700, position: 'top' }}
+                                                    label={buildReleaseLineLabel(marker.version, index)}
                                                 />
                                             ))}
                                             <Area yAxisId="left" type="monotone" dataKey="sessions" name="Sessions" stroke="#2563eb" fill="#bfdbfe" fillOpacity={0.45} />
@@ -626,7 +656,7 @@ export const Growth: React.FC = () => {
                                             <YAxis tick={{ fontSize: 11 }} />
                                             <Tooltip labelFormatter={(value) => formatDateLabel(String(value))} />
                                             <Legend />
-                                            {healthReleaseMarkers.map((marker) => (
+                                            {healthReleaseMarkers.map((marker, index) => (
                                                 <ReferenceLine
                                                     key={`health-release-${marker.version}-${marker.dateKey}`}
                                                     x={marker.dateKey}
@@ -634,7 +664,7 @@ export const Growth: React.FC = () => {
                                                     strokeDasharray="4 3"
                                                     strokeWidth={1.4}
                                                     ifOverflow="extendDomain"
-                                                    label={{ value: `v${marker.version}`, fill: '#0f172a', fontSize: 10, position: 'top' }}
+                                                    label={buildReleaseLineLabel(marker.version, index)}
                                                 />
                                             ))}
                                             <Area type="monotone" dataKey="clean" stackId="a" stroke="#059669" fill="#6ee7b7" />
@@ -660,7 +690,7 @@ export const Growth: React.FC = () => {
                                             <YAxis tick={{ fontSize: 11 }} />
                                             <Tooltip labelFormatter={(value) => formatDateLabel(String(value))} />
                                             <Legend />
-                                            {engagementReleaseMarkers.map((marker) => (
+                                            {engagementReleaseMarkers.map((marker, index) => (
                                                 <ReferenceLine
                                                     key={`engagement-release-${marker.version}-${marker.dateKey}`}
                                                     x={marker.dateKey}
@@ -668,7 +698,7 @@ export const Growth: React.FC = () => {
                                                     strokeDasharray="4 3"
                                                     strokeWidth={1.4}
                                                     ifOverflow="extendDomain"
-                                                    label={{ value: `v${marker.version}`, fill: '#0f172a', fontSize: 10, position: 'top' }}
+                                                    label={buildReleaseLineLabel(marker.version, index)}
                                                 />
                                             ))}
                                             <Bar dataKey="loyalists" stackId="eng" fill="#10b981" />

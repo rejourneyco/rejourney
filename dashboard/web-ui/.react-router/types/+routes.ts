@@ -118,6 +118,9 @@ type Pages = {
   "/demo/team": {
     params: {};
   };
+  "/demo/warehouse": {
+    params: {};
+  };
   "/demo/billing": {
     params: {};
   };
@@ -202,6 +205,9 @@ type Pages = {
   "/dashboard/team": {
     params: {};
   };
+  "/dashboard/warehouse": {
+    params: {};
+  };
   "/dashboard/billing": {
     params: {};
   };
@@ -224,7 +230,7 @@ type Pages = {
 type RouteFiles = {
   "root.tsx": {
     id: "root";
-    page: "/" | "/docs" | "/docs/*" | "/contribute" | "/pricing" | "/terms-of-service" | "/privacy-policy" | "/dpa" | "/engineering" | "/feed.xml" | "/login" | "/invite/accept/:token" | "/demo" | "/demo/issues" | "/demo/issues/:issueId" | "/demo/sessions" | "/demo/sessions/:sessionId" | "/demo/analytics/api" | "/demo/stability/crashes" | "/demo/stability/crashes/:projectId/:crashId" | "/demo/stability/anrs" | "/demo/stability/anrs/:projectId/:anrId" | "/demo/stability/errors" | "/demo/stability/errors/:projectId/:errorId" | "/demo/analytics/growth" | "/demo/analytics/journeys" | "/demo/analytics/devices" | "/demo/analytics/geo" | "/demo/alerts/emails" | "/demo/team" | "/demo/billing" | "/demo/billing/return" | "/demo/account" | "/demo/settings/:projectId" | "/demo/search" | "/dashboard" | "/dashboard/issues" | "/dashboard/issues/:issueId" | "/dashboard/sessions" | "/dashboard/sessions/:sessionId" | "/dashboard/analytics/api" | "/dashboard/stability/crashes" | "/dashboard/stability/crashes/:projectId/:crashId" | "/dashboard/stability/anrs" | "/dashboard/stability/anrs/:projectId/:anrId" | "/dashboard/stability/errors" | "/dashboard/stability/errors/:projectId/:errorId" | "/dashboard/analytics/growth" | "/dashboard/analytics/journeys" | "/dashboard/analytics/devices" | "/dashboard/analytics/geo" | "/dashboard/alerts/emails" | "/dashboard/team" | "/dashboard/billing" | "/dashboard/billing/return" | "/dashboard/account" | "/dashboard/settings/:projectId" | "/dashboard/search";
+    page: "/" | "/docs" | "/docs/*" | "/contribute" | "/pricing" | "/terms-of-service" | "/privacy-policy" | "/dpa" | "/engineering" | "/feed.xml" | "/login" | "/invite/accept/:token" | "/demo" | "/demo/issues" | "/demo/issues/:issueId" | "/demo/sessions" | "/demo/sessions/:sessionId" | "/demo/analytics/api" | "/demo/stability/crashes" | "/demo/stability/crashes/:projectId/:crashId" | "/demo/stability/anrs" | "/demo/stability/anrs/:projectId/:anrId" | "/demo/stability/errors" | "/demo/stability/errors/:projectId/:errorId" | "/demo/analytics/growth" | "/demo/analytics/journeys" | "/demo/analytics/devices" | "/demo/analytics/geo" | "/demo/alerts/emails" | "/demo/team" | "/demo/warehouse" | "/demo/billing" | "/demo/billing/return" | "/demo/account" | "/demo/settings/:projectId" | "/demo/search" | "/dashboard" | "/dashboard/issues" | "/dashboard/issues/:issueId" | "/dashboard/sessions" | "/dashboard/sessions/:sessionId" | "/dashboard/analytics/api" | "/dashboard/stability/crashes" | "/dashboard/stability/crashes/:projectId/:crashId" | "/dashboard/stability/anrs" | "/dashboard/stability/anrs/:projectId/:anrId" | "/dashboard/stability/errors" | "/dashboard/stability/errors/:projectId/:errorId" | "/dashboard/analytics/growth" | "/dashboard/analytics/journeys" | "/dashboard/analytics/devices" | "/dashboard/analytics/geo" | "/dashboard/alerts/emails" | "/dashboard/team" | "/dashboard/warehouse" | "/dashboard/billing" | "/dashboard/billing/return" | "/dashboard/account" | "/dashboard/settings/:projectId" | "/dashboard/search";
   };
   "routes/_index.tsx": {
     id: "routes/_index";
@@ -276,7 +282,7 @@ type RouteFiles = {
   };
   "routes/_demo.tsx": {
     id: "routes/_demo";
-    page: "/demo" | "/demo/issues" | "/demo/issues/:issueId" | "/demo/sessions" | "/demo/sessions/:sessionId" | "/demo/analytics/api" | "/demo/stability/crashes" | "/demo/stability/crashes/:projectId/:crashId" | "/demo/stability/anrs" | "/demo/stability/anrs/:projectId/:anrId" | "/demo/stability/errors" | "/demo/stability/errors/:projectId/:errorId" | "/demo/analytics/growth" | "/demo/analytics/journeys" | "/demo/analytics/devices" | "/demo/analytics/geo" | "/demo/alerts/emails" | "/demo/team" | "/demo/billing" | "/demo/billing/return" | "/demo/account" | "/demo/settings/:projectId" | "/demo/search";
+    page: "/demo" | "/demo/issues" | "/demo/issues/:issueId" | "/demo/sessions" | "/demo/sessions/:sessionId" | "/demo/analytics/api" | "/demo/stability/crashes" | "/demo/stability/crashes/:projectId/:crashId" | "/demo/stability/anrs" | "/demo/stability/anrs/:projectId/:anrId" | "/demo/stability/errors" | "/demo/stability/errors/:projectId/:errorId" | "/demo/analytics/growth" | "/demo/analytics/journeys" | "/demo/analytics/devices" | "/demo/analytics/geo" | "/demo/alerts/emails" | "/demo/team" | "/demo/warehouse" | "/demo/billing" | "/demo/billing/return" | "/demo/account" | "/demo/settings/:projectId" | "/demo/search";
   };
   "routes/_demo._index.tsx": {
     id: "routes/_demo._index";
@@ -350,6 +356,10 @@ type RouteFiles = {
     id: "routes/_demo.team";
     page: "/demo/team";
   };
+  "routes/_demo.warehouse.tsx": {
+    id: "routes/_demo.warehouse";
+    page: "/demo/warehouse";
+  };
   "routes/_demo.billing.tsx": {
     id: "routes/_demo.billing";
     page: "/demo/billing";
@@ -372,7 +382,7 @@ type RouteFiles = {
   };
   "routes/_dashboard.tsx": {
     id: "routes/_dashboard";
-    page: "/dashboard" | "/dashboard/issues" | "/dashboard/issues/:issueId" | "/dashboard/sessions" | "/dashboard/sessions/:sessionId" | "/dashboard/analytics/api" | "/dashboard/stability/crashes" | "/dashboard/stability/crashes/:projectId/:crashId" | "/dashboard/stability/anrs" | "/dashboard/stability/anrs/:projectId/:anrId" | "/dashboard/stability/errors" | "/dashboard/stability/errors/:projectId/:errorId" | "/dashboard/analytics/growth" | "/dashboard/analytics/journeys" | "/dashboard/analytics/devices" | "/dashboard/analytics/geo" | "/dashboard/alerts/emails" | "/dashboard/team" | "/dashboard/billing" | "/dashboard/billing/return" | "/dashboard/account" | "/dashboard/settings/:projectId" | "/dashboard/search";
+    page: "/dashboard" | "/dashboard/issues" | "/dashboard/issues/:issueId" | "/dashboard/sessions" | "/dashboard/sessions/:sessionId" | "/dashboard/analytics/api" | "/dashboard/stability/crashes" | "/dashboard/stability/crashes/:projectId/:crashId" | "/dashboard/stability/anrs" | "/dashboard/stability/anrs/:projectId/:anrId" | "/dashboard/stability/errors" | "/dashboard/stability/errors/:projectId/:errorId" | "/dashboard/analytics/growth" | "/dashboard/analytics/journeys" | "/dashboard/analytics/devices" | "/dashboard/analytics/geo" | "/dashboard/alerts/emails" | "/dashboard/team" | "/dashboard/warehouse" | "/dashboard/billing" | "/dashboard/billing/return" | "/dashboard/account" | "/dashboard/settings/:projectId" | "/dashboard/search";
   };
   "routes/_dashboard._index.tsx": {
     id: "routes/_dashboard._index";
@@ -446,6 +456,10 @@ type RouteFiles = {
     id: "routes/_dashboard.team";
     page: "/dashboard/team";
   };
+  "routes/_dashboard.warehouse.tsx": {
+    id: "routes/_dashboard.warehouse";
+    page: "/dashboard/warehouse";
+  };
   "routes/_dashboard.billing.tsx": {
     id: "routes/_dashboard.billing";
     page: "/dashboard/billing";
@@ -501,6 +515,7 @@ type RouteModules = {
   "routes/_demo.analytics.geo": typeof import("./app/routes/_demo.analytics.geo.tsx");
   "routes/_demo.alerts.emails": typeof import("./app/routes/_demo.alerts.emails.tsx");
   "routes/_demo.team": typeof import("./app/routes/_demo.team.tsx");
+  "routes/_demo.warehouse": typeof import("./app/routes/_demo.warehouse.tsx");
   "routes/_demo.billing": typeof import("./app/routes/_demo.billing.tsx");
   "routes/_demo.billing.return": typeof import("./app/routes/_demo.billing.return.tsx");
   "routes/_demo.account": typeof import("./app/routes/_demo.account.tsx");
@@ -525,6 +540,7 @@ type RouteModules = {
   "routes/_dashboard.analytics.geo": typeof import("./app/routes/_dashboard.analytics.geo.tsx");
   "routes/_dashboard.alerts.emails": typeof import("./app/routes/_dashboard.alerts.emails.tsx");
   "routes/_dashboard.team": typeof import("./app/routes/_dashboard.team.tsx");
+  "routes/_dashboard.warehouse": typeof import("./app/routes/_dashboard.warehouse.tsx");
   "routes/_dashboard.billing": typeof import("./app/routes/_dashboard.billing.tsx");
   "routes/_dashboard.billing.return": typeof import("./app/routes/_dashboard.billing.return.tsx");
   "routes/_dashboard.account": typeof import("./app/routes/_dashboard.account.tsx");

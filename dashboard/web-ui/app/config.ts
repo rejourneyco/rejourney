@@ -31,10 +31,6 @@ export const isProduction = import.meta.env.PROD;
 // Force empty string for relative URLs in production/docker to avoid CORS/SameSite issues
 export const API_BASE_URL = isProduction || typeof window !== 'undefined' ? '' : (config.apiUrl || '');
 
-// Debug config
-if (typeof window !== 'undefined') {
-    // console.log('[Config] API_BASE_URL:', API_BASE_URL, 'IsProd:', isProduction);
-}
 
 // Centralized CSRF token getter - use this instead of duplicating
 export function getCsrfToken(): string | null {

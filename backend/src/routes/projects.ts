@@ -6,7 +6,7 @@
 
 import { Router } from 'express';
 import { randomBytes } from 'crypto';
-import { eq, and, inArray, gte, isNull, sql, sum, desc, ne } from 'drizzle-orm';
+import { eq, and, inArray, gte, isNull, sql, desc, ne } from 'drizzle-orm';
 import { db, projects, teamMembers, sessions, sessionMetrics, teams } from '../db/client.js';
 import { getRedis } from '../db/redis.js';
 import { logger } from '../logger.js';
@@ -29,6 +29,63 @@ import {
 } from '../services/abuseDetection.js';
 
 const router = Router();
+
+function clamp(value: number, min: number, max: number): number {
+    return Math.min(max, Math.max(min, value));
+}
+
+function computeHealthScore(input: {
+    sessionsTotal: number;
+    errorsTotal: number;
+    crashesTotal: number;
+    anrsTotal: number;
+    avgUxScoreAllTime: number;
+    apiErrorsTotal: number;
+    apiTotalCount: number;
+    rageTapTotal: number;
+}): number {
+    if (input.sessionsTotal <= 0) return 60;
+    const hasAnyMetricSignal = (
+        input.avgUxScoreAllTime > 0
+        || input.errorsTotal > 0
+        || input.crashesTotal > 0
+        || input.anrsTotal > 0
+        || input.apiTotalCount > 0
+        || input.rageTapTotal > 0
+    );
+    if (!hasAnyMetricSignal) return 65;
+
+    const sessionsCount = Math.max(1, input.sessionsTotal);
+    const errorRate = input.errorsTotal / sessionsCount;
+    const crashAnrRate = (input.crashesTotal + input.anrsTotal) / sessionsCount;
+    const rageTapRate = input.rageTapTotal / sessionsCount;
+    const apiErrorRate = input.apiTotalCount > 0 ? input.apiErrorsTotal / input.apiTotalCount : 0;
+
+    const uxScore = input.avgUxScoreAllTime > 0 ? input.avgUxScoreAllTime : 70;
+    const reliabilityScore = clamp(100 - (errorRate * 120), 0, 100);
+    const stabilityScore = clamp(100 - (crashAnrRate * 250), 0, 100);
+    const apiReliabilityScore = input.apiTotalCount > 0
+        ? clamp(100 - (apiErrorRate * 140), 0, 100)
+        : 85;
+    const interactionStabilityScore = clamp(100 - (rageTapRate * 160), 0, 100);
+
+    const score = (
+        (uxScore * 0.35)
+        + (reliabilityScore * 0.2)
+        + (stabilityScore * 0.25)
+        + (apiReliabilityScore * 0.15)
+        + (interactionStabilityScore * 0.05)
+    );
+
+    return Math.round(clamp(score, 0, 100));
+}
+
+function getHealthLevel(score: number): 'excellent' | 'good' | 'fair' | 'critical' {
+    if (score >= 85) return 'excellent';
+    if (score >= 70) return 'good';
+    if (score >= 50) return 'fair';
+    return 'critical';
+}
 
 /**
  * Get all projects for user
@@ -59,38 +116,105 @@ router.get(
             .where(and(inArray(projects.teamId, teamIds), isNull(projects.deletedAt)))
             .orderBy(desc(projects.createdAt));
 
-        // Get session stats for each project (last 7 days)
+        if (projectsList.length === 0) {
+            res.json({ projects: [] });
+            return;
+        }
+
+        const projectIds = projectsList.map((project) => project.id);
+
+        // Get session stats for each project
         const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
-        const projectStats = await Promise.all(
-            projectsList.map(async (project) => {
-                // Total sessions
-                const [totalResult] = await db
-                    .select({ count: sql<number>`count(*)::int` })
-                    .from(sessions)
-                    .where(eq(sessions.projectId, project.id));
+        const [totalSessionsRows, last7SessionsRows, last7ErrorsRows, allTimeMetricsRows] = await Promise.all([
+            db
+                .select({
+                    projectId: sessions.projectId,
+                    count: sql<number>`count(*)::int`,
+                })
+                .from(sessions)
+                .where(inArray(sessions.projectId, projectIds))
+                .groupBy(sessions.projectId),
+            db
+                .select({
+                    projectId: sessions.projectId,
+                    count: sql<number>`count(*)::int`,
+                })
+                .from(sessions)
+                .where(and(inArray(sessions.projectId, projectIds), gte(sessions.startedAt, sevenDaysAgo)))
+                .groupBy(sessions.projectId),
+            db
+                .select({
+                    projectId: sessions.projectId,
+                    total: sql<number>`coalesce(sum(${sessionMetrics.errorCount}), 0)::int`,
+                })
+                .from(sessions)
+                .leftJoin(sessionMetrics, eq(sessionMetrics.sessionId, sessions.id))
+                .where(and(inArray(sessions.projectId, projectIds), gte(sessions.startedAt, sevenDaysAgo)))
+                .groupBy(sessions.projectId),
+            db
+                .select({
+                    projectId: sessions.projectId,
+                    errorsTotal: sql<number>`coalesce(sum(${sessionMetrics.errorCount}), 0)::int`,
+                    crashesTotal: sql<number>`coalesce(sum(${sessionMetrics.crashCount}), 0)::int`,
+                    anrsTotal: sql<number>`coalesce(sum(${sessionMetrics.anrCount}), 0)::int`,
+                    avgUxScoreAllTime: sql<number>`coalesce(avg(${sessionMetrics.uxScore}), 0)::float`,
+                    apiErrorsTotal: sql<number>`coalesce(sum(${sessionMetrics.apiErrorCount}), 0)::int`,
+                    apiTotalCount: sql<number>`coalesce(sum(${sessionMetrics.apiTotalCount}), 0)::int`,
+                    rageTapTotal: sql<number>`coalesce(sum(${sessionMetrics.rageTapCount}), 0)::int`,
+                })
+                .from(sessions)
+                .leftJoin(sessionMetrics, eq(sessionMetrics.sessionId, sessions.id))
+                .where(inArray(sessions.projectId, projectIds))
+                .groupBy(sessions.projectId),
+        ]);
 
-                // Sessions last 7 days
-                const [last7DaysResult] = await db
-                    .select({ count: sql<number>`count(*)::int` })
-                    .from(sessions)
-                    .where(and(eq(sessions.projectId, project.id), gte(sessions.startedAt, sevenDaysAgo)));
+        const totalSessionsByProject = new Map(totalSessionsRows.map((row) => [row.projectId, row.count]));
+        const last7SessionsByProject = new Map(last7SessionsRows.map((row) => [row.projectId, row.count]));
+        const last7ErrorsByProject = new Map(last7ErrorsRows.map((row) => [row.projectId, Number(row.total ?? 0)]));
+        const allTimeMetricsByProject = new Map(allTimeMetricsRows.map((row) => [row.projectId, row]));
 
-                // Errors last 7 days
-                const [errorsResult] = await db
-                    .select({ total: sum(sessionMetrics.errorCount) })
-                    .from(sessionMetrics)
-                    .innerJoin(sessions, eq(sessionMetrics.sessionId, sessions.id))
-                    .where(and(eq(sessions.projectId, project.id), gte(sessions.startedAt, sevenDaysAgo)));
+        const projectStats = projectsList.map((project) => {
+            const sessionsTotal = totalSessionsByProject.get(project.id) ?? 0;
+            const sessionsLast7Days = last7SessionsByProject.get(project.id) ?? 0;
+            const errorsLast7Days = last7ErrorsByProject.get(project.id) ?? 0;
+            const allTimeMetrics = allTimeMetricsByProject.get(project.id);
 
-                return {
-                    ...project,
-                    platforms: project.platform ? [project.platform] : [],
-                    sessionsTotal: totalResult?.count ?? 0,
-                    sessionsLast7Days: last7DaysResult?.count ?? 0,
-                    errorsLast7Days: Number(errorsResult?.total ?? 0),
-                };
-            })
-        );
+            const errorsTotal = Number(allTimeMetrics?.errorsTotal ?? 0);
+            const crashesTotal = Number(allTimeMetrics?.crashesTotal ?? 0);
+            const anrsTotal = Number(allTimeMetrics?.anrsTotal ?? 0);
+            const avgUxScoreAllTime = Number(allTimeMetrics?.avgUxScoreAllTime ?? 0);
+            const apiErrorsTotal = Number(allTimeMetrics?.apiErrorsTotal ?? 0);
+            const apiTotalCount = Number(allTimeMetrics?.apiTotalCount ?? 0);
+            const rageTapTotal = Number(allTimeMetrics?.rageTapTotal ?? 0);
+            const healthScore = computeHealthScore({
+                sessionsTotal,
+                errorsTotal,
+                crashesTotal,
+                anrsTotal,
+                avgUxScoreAllTime,
+                apiErrorsTotal,
+                apiTotalCount,
+                rageTapTotal,
+            });
+            const healthLevel = getHealthLevel(healthScore);
+
+            return {
+                ...project,
+                platforms: project.platform ? [project.platform] : [],
+                sessionsTotal,
+                sessionsLast7Days,
+                errorsLast7Days,
+                errorsTotal,
+                crashesTotal,
+                anrsTotal,
+                avgUxScoreAllTime,
+                apiErrorsTotal,
+                apiTotalCount,
+                rageTapTotal,
+                healthScore,
+                healthLevel,
+            };
+        });
 
         res.json({ projects: projectStats });
     })

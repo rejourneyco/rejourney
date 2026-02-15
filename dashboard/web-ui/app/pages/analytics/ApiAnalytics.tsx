@@ -43,6 +43,7 @@ import {
     ObservabilityDeepMetrics,
     RegionPerformance,
 } from '../../services/api';
+import { DashboardPageHeader } from '../../components/ui/DashboardPageHeader';
 import { TimeFilter, TimeRange, DEFAULT_TIME_RANGE } from '../../components/ui/TimeFilter';
 import { usePathPrefix } from '../../hooks/usePathPrefix';
 
@@ -158,6 +159,46 @@ const alignReleaseMarkersToChart = (
         .slice(-MAX_RELEASE_MARKERS);
 };
 
+type ReleaseLabelViewBox = {
+    x?: number;
+    y?: number;
+    width?: number;
+};
+
+const buildReleaseLineLabel = (version: string, index: number) => ({ viewBox }: { viewBox?: ReleaseLabelViewBox }) => {
+    const x = typeof viewBox?.x === 'number' ? viewBox.x : NaN;
+    const y = typeof viewBox?.y === 'number' ? viewBox.y : NaN;
+    const width = typeof viewBox?.width === 'number' ? viewBox.width : NaN;
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+
+    const text = `v${version}`;
+    const rowOffset = (index % 3) * 12;
+    const textWidth = text.length * 6.2;
+    const placeLabelOnRight = Number.isFinite(width) ? x + textWidth + 12 <= width : true;
+    const textY = y + 10 + rowOffset;
+    const rectX = placeLabelOnRight ? x + 2 : x - textWidth - 8;
+    const textX = placeLabelOnRight ? x + 5 : x - textWidth - 5;
+
+    return (
+        <g>
+            <rect
+                x={rectX}
+                y={textY - 8.5}
+                width={textWidth + 6}
+                height={11}
+                rx={2}
+                fill="#ffffff"
+                fillOpacity={0.9}
+                stroke="#0f172a"
+                strokeWidth={0.85}
+            />
+            <text x={textX} y={textY} fill="#0f172a" fontSize={9.5} fontWeight={700}>
+                {text}
+            </text>
+        </g>
+    );
+};
+
 const pct = (value: number | null | undefined, digits: number = 2): string => {
     if (value === null || value === undefined || Number.isNaN(value)) return 'N/A';
     return `${value.toFixed(digits)}%`;
@@ -256,7 +297,7 @@ export const ApiAnalytics: React.FC = () => {
 
         const range = toApiRange(timeRange);
 
-        Promise.all([
+        Promise.allSettled([
             getApiEndpointStats(selectedProject.id, range),
             getRegionPerformance(selectedProject.id, toRegionRange(timeRange)),
             getObservabilityDeepMetrics(selectedProject.id, range),
@@ -265,19 +306,47 @@ export const ApiAnalytics: React.FC = () => {
         ])
             .then(([endpointData, regionData, deepData, geoLatencyData, trendData]) => {
                 if (isCancelled) return;
-                setEndpointStats(endpointData);
-                setRegionStats(regionData);
-                setDeepMetrics(deepData);
-                setLatencyByLocation(geoLatencyData);
-                setTrends(trendData);
-            })
-            .catch(() => {
-                if (isCancelled) return;
-                setEndpointStats(null);
-                setRegionStats(null);
-                setDeepMetrics(null);
-                setLatencyByLocation(null);
-                setTrends(null);
+
+                const failedSections: string[] = [];
+
+                if (endpointData.status === 'fulfilled') {
+                    setEndpointStats(endpointData.value);
+                } else {
+                    failedSections.push('endpointStats');
+                    setEndpointStats(null);
+                }
+
+                if (regionData.status === 'fulfilled') {
+                    setRegionStats(regionData.value);
+                } else {
+                    failedSections.push('regionPerformance');
+                    setRegionStats(null);
+                }
+
+                if (deepData.status === 'fulfilled') {
+                    setDeepMetrics(deepData.value);
+                } else {
+                    failedSections.push('deepMetrics');
+                    setDeepMetrics(null);
+                }
+
+                if (geoLatencyData.status === 'fulfilled') {
+                    setLatencyByLocation(geoLatencyData.value);
+                } else {
+                    failedSections.push('geoLatency');
+                    setLatencyByLocation(null);
+                }
+
+                if (trendData.status === 'fulfilled') {
+                    setTrends(trendData.value);
+                } else {
+                    failedSections.push('trends');
+                    setTrends(null);
+                }
+
+                if (failedSections.length > 0) {
+                    console.error('ApiAnalytics partial data fetch failures:', failedSections);
+                }
             })
             .finally(() => {
                 if (!isCancelled) setIsLoading(false);
@@ -476,18 +545,16 @@ export const ApiAnalytics: React.FC = () => {
     }, [deepMetrics]);
 
     return (
-        <div className="min-h-screen bg-gradient-to-b from-slate-50 via-white to-slate-100/70">
-            <div className="sticky top-0 z-30 border-b border-slate-200 bg-white/95 backdrop-blur">
-                <div className="mx-auto flex w-full max-w-[1600px] flex-col gap-4 px-6 py-4 md:flex-row md:items-center md:justify-between">
-                    <div>
-                        <div className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">API Insights</div>
-                        <h1 className="mt-1 text-2xl font-semibold text-slate-900">API Reliability & Performance Command Center</h1>
-                        <p className="mt-1 text-sm text-slate-600">
-                            Prioritize the endpoints, regions, and network conditions creating the most user-visible API degradation.
-                        </p>
-                    </div>
+        <div className="min-h-screen bg-slate-50 font-sans text-slate-900">
+            <div className="sticky top-0 z-30 bg-white">
+                <DashboardPageHeader
+                    title="API Reliability & Performance"
+                    subtitle="Monitor endpoints, regions, and network conditions"
+                    icon={<Activity className="w-6 h-6" />}
+                    iconColor="bg-emerald-500"
+                >
                     <TimeFilter value={timeRange} onChange={setTimeRange} />
-                </div>
+                </DashboardPageHeader>
             </div>
 
             <div className="mx-auto w-full max-w-[1600px] space-y-6 px-6 py-6">
@@ -558,15 +625,6 @@ export const ApiAnalytics: React.FC = () => {
                                     <h2 className="text-lg font-semibold text-slate-900">Traffic vs Errors vs Latency</h2>
                                     <Activity className="h-5 w-5 text-blue-600" />
                                 </div>
-                                {trendReleaseMarkers.length > 0 && (
-                                    <div className="mb-2 flex flex-wrap gap-1.5">
-                                        {trendReleaseMarkers.map((marker) => (
-                                            <span key={`api-trend-marker-chip-${marker.version}-${marker.dateKey}`} className="rounded border border-slate-300 bg-slate-50 px-1.5 py-0.5 text-[10px] font-semibold text-slate-700">
-                                                v{marker.version} • {formatDateLabel(marker.dateKey)}
-                                            </span>
-                                        ))}
-                                    </div>
-                                )}
                                 {trendChartData.length > 0 ? (
                                     <div className="h-[300px]">
                                         <ResponsiveContainer width="100%" height="100%">
@@ -577,15 +635,15 @@ export const ApiAnalytics: React.FC = () => {
                                                 <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 11 }} />
                                                 <Tooltip labelFormatter={(value) => formatDateLabel(String(value))} />
                                                 <Legend />
-                                                {trendReleaseMarkers.map((marker) => (
+                                                {trendReleaseMarkers.map((marker, index) => (
                                                     <ReferenceLine
                                                         key={`api-trend-release-${marker.version}-${marker.dateKey}`}
                                                         x={marker.dateKey}
                                                         stroke="#0f172a"
-                                                        strokeDasharray="5 3"
+                                                        strokeDasharray="4 3"
                                                         strokeWidth={1.9}
                                                         ifOverflow="extendDomain"
-                                                        label={{ value: `v${marker.version}`, fill: '#0f172a', fontSize: 11, fontWeight: 700, position: 'top' }}
+                                                        label={buildReleaseLineLabel(marker.version, index)}
                                                     />
                                                 ))}
                                                 <Area yAxisId="left" type="monotone" dataKey="sessions" name="Sessions" stroke="#2563eb" fill="#bfdbfe" fillOpacity={0.45} />
@@ -698,11 +756,12 @@ export const ApiAnalytics: React.FC = () => {
                                                 <YAxis yAxisId="left" tick={{ fontSize: 11 }} />
                                                 <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 11 }} />
                                                 <Tooltip
-                                                    formatter={(value: number | string | undefined, name: string) => {
-                                                        if (name === 'Failure rate %' || name === 'Delta vs Overall (pts)') {
-                                                            return [`${Number(value || 0).toFixed(2)}%`, name];
+                                                    formatter={(value: number | string | undefined, name?: string) => {
+                                                        const metricName = name || 'Metric';
+                                                        if (metricName === 'Failure rate %' || metricName === 'Delta vs Overall (pts)') {
+                                                            return [`${Number(value || 0).toFixed(2)}%`, metricName];
                                                         }
-                                                        return [formatCompact(Number(value || 0)), name];
+                                                        return [formatCompact(Number(value || 0)), metricName];
                                                     }}
                                                 />
                                                 <Legend />

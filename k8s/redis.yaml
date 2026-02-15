@@ -36,6 +36,8 @@ spec:
       labels:
         app: redis
     spec:
+      nodeSelector:
+        rejourney.co/storage-node: "true"
       securityContext:
         runAsUser: 999
         runAsGroup: 999

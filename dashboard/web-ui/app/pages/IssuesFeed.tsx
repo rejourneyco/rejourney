@@ -25,6 +25,7 @@ import { TimeRange, TimeFilter } from '../components/ui/TimeFilter';
 import { NeoButton } from '../components/ui/neo/NeoButton';
 import { NeoCard } from '../components/ui/neo/NeoCard';
 import { NeoBadge } from '../components/ui/neo/NeoBadge';
+import { DashboardPageHeader } from '../components/ui/DashboardPageHeader';
 import { ModernPhoneFrame } from '../components/ui/ModernPhoneFrame';
 import { MiniSessionCard } from '../components/ui/MiniSessionCard';
 
@@ -124,90 +125,129 @@ const Sparkline: React.FC<{
   releaseMarkerDate,
   releaseLabel,
 }) => {
-  const { series: rawValues, start, end } = buildSparklineSeries(data, timeRange);
-  const values = rawValues.map((value) => Math.sqrt(value));
-  const max = Math.max(...values, 1);
-  const range = max;
+    const { series: rawValues, start, end } = buildSparklineSeries(data, timeRange);
+    const values = rawValues.map((value) => Math.sqrt(value));
+    const max = Math.max(...values, 1);
+    const range = max;
 
-  const pointTuples = values.map((val, i) => {
-    const x = (i / Math.max(values.length - 1, 1)) * 100;
-    const normalizedY = val / range;
-    const y = 24 - (normalizedY * 20 + 2);
-    return { x, y };
-  });
+    const pointTuples = values.map((val, i) => {
+      const x = (i / Math.max(values.length - 1, 1)) * 100;
+      const normalizedY = val / range;
+      const y = 24 - (normalizedY * 20 + 2);
+      return { x, y };
+    });
 
-  const points = pointTuples.map((point) => `${point.x},${point.y}`).join(' ');
-  const firstX = pointTuples[0]?.x ?? 0;
-  const lastX = pointTuples[pointTuples.length - 1]?.x ?? 100;
-  const areaLine = pointTuples.map((point) => `${point.x},${point.y}`).join(' L');
-  const areaPath = `M${firstX},24 L${areaLine} L${lastX},24 Z`;
-  const hasSignal = rawValues.some((value) => value > 0);
+    const points = pointTuples.map((point) => `${point.x},${point.y}`).join(' ');
+    const firstX = pointTuples[0]?.x ?? 0;
+    const lastX = pointTuples[pointTuples.length - 1]?.x ?? 100;
+    const areaLine = pointTuples.map((point) => `${point.x},${point.y}`).join(' L');
+    const areaPath = `M${firstX},24 L${areaLine} L${lastX},24 Z`;
+    const hasSignal = rawValues.some((value) => value > 0);
 
-  let releaseMarkerX: number | null = null;
-  let releaseMarkerHint: 'before' | 'after' | 'within' | null = null;
-  if (releaseMarkerDate) {
-    const parsed = new Date(releaseMarkerDate);
-    if (!Number.isNaN(parsed.getTime())) {
-      const markerDay = toUtcDayStart(parsed);
-      const markerIndex = Math.round((markerDay.getTime() - start.getTime()) / ONE_DAY_MS);
-      const clampedIndex = Math.max(0, Math.min(values.length - 1, markerIndex));
-      releaseMarkerX = (clampedIndex / Math.max(values.length - 1, 1)) * 100;
-      // Keep marker slightly inset so it doesn't get clipped at chart edges.
-      releaseMarkerX = Math.max(1, Math.min(99, releaseMarkerX));
+    let releaseMarkerX: number | null = null;
+    let releaseMarkerHint: 'before' | 'after' | 'within' | null = null;
+    if (releaseMarkerDate) {
+      const parsed = new Date(releaseMarkerDate);
+      if (!Number.isNaN(parsed.getTime())) {
+        const markerDay = toUtcDayStart(parsed);
+        const markerIndex = Math.round((markerDay.getTime() - start.getTime()) / ONE_DAY_MS);
+        const clampedIndex = Math.max(0, Math.min(values.length - 1, markerIndex));
+        releaseMarkerX = (clampedIndex / Math.max(values.length - 1, 1)) * 100;
+        // Keep marker slightly inset so it doesn't get clipped at chart edges.
+        releaseMarkerX = Math.max(1, Math.min(99, releaseMarkerX));
 
-      if (markerDay < start) releaseMarkerHint = 'before';
-      else if (markerDay > end) releaseMarkerHint = 'after';
-      else releaseMarkerHint = 'within';
+        if (markerDay < start) releaseMarkerHint = 'before';
+        else if (markerDay > end) releaseMarkerHint = 'after';
+        else releaseMarkerHint = 'within';
+      }
     }
-  }
 
-  return (
-    <div className="h-8 w-24">
-      <svg width="100%" height="100%" viewBox="0 0 100 24" preserveAspectRatio="none" className="overflow-visible">
-        {releaseMarkerX !== null && (
-          <g>
-            <line
-              x1={releaseMarkerX}
-              y1={2}
-              x2={releaseMarkerX}
-              y2={22}
-              stroke="#0f172a"
-              strokeWidth="1.2"
-              strokeDasharray="2 2"
-              opacity={0.65}
-            />
-            <circle cx={releaseMarkerX} cy={3} r={1.3} fill="#0f172a" opacity={0.75} />
-            {releaseLabel && (
-              <title>
-                {releaseMarkerHint === 'before'
-                  ? `${releaseLabel} released before selected window`
-                  : releaseMarkerHint === 'after'
-                    ? `${releaseLabel} released after selected window`
-                    : `${releaseLabel} first seen`}
-              </title>
-            )}
-          </g>
-        )}
-        <polyline
-          points={points}
-          fill="none"
-          stroke={color}
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          vectorEffect="non-scaling-stroke"
-          opacity={hasSignal ? 1 : 0.35}
-        />
-        <path
-          d={areaPath}
-          fill={color}
-          fillOpacity={hasSignal ? 0.1 : 0.04}
-          stroke="none"
-        />
-      </svg>
-    </div>
-  );
-};
+    const releaseTag = releaseLabel?.trim() ? releaseLabel.trim() : null;
+    const releaseTagText = releaseTag && releaseTag.length > 10 ? `${releaseTag.slice(0, 9)}…` : releaseTag;
+    const releaseTagWidth = releaseTagText ? releaseTagText.length * 2.8 + 4 : 0;
+    const placeTagOnRight = releaseMarkerX !== null && releaseTagText
+      ? releaseMarkerX + releaseTagWidth + 1 <= 99
+      : true;
+    const releaseTagRectX = releaseMarkerX !== null
+      ? (placeTagOnRight ? releaseMarkerX + 1 : releaseMarkerX - releaseTagWidth - 1)
+      : 0;
+    const releaseTagTextX = releaseMarkerX !== null
+      ? (placeTagOnRight ? releaseMarkerX + 2.2 : releaseMarkerX - 2.2)
+      : 0;
+    const releaseTagAnchor: 'start' | 'end' = placeTagOnRight ? 'start' : 'end';
+
+    return (
+      <div className="h-8 w-24">
+        <svg width="100%" height="100%" viewBox="0 0 100 24" preserveAspectRatio="none" className="overflow-visible">
+          {releaseMarkerX !== null && (
+            <g>
+              <line
+                x1={releaseMarkerX}
+                y1={2}
+                x2={releaseMarkerX}
+                y2={22}
+                stroke="#0f172a"
+                strokeWidth="1.2"
+                strokeDasharray="2 2"
+                opacity={0.65}
+              />
+              <circle cx={releaseMarkerX} cy={3} r={1.3} fill="#0f172a" opacity={0.75} />
+              {releaseTagText && (
+                <>
+                  <rect
+                    x={releaseTagRectX}
+                    y={2}
+                    width={releaseTagWidth}
+                    height={5.8}
+                    rx={1}
+                    fill="#ffffff"
+                    fillOpacity={0.9}
+                    stroke="#0f172a"
+                    strokeWidth={0.35}
+                  />
+                  <text
+                    x={releaseTagTextX}
+                    y={6.3}
+                    textAnchor={releaseTagAnchor}
+                    fill="#0f172a"
+                    fontSize={3.8}
+                    fontWeight={700}
+                  >
+                    {releaseTagText}
+                  </text>
+                </>
+              )}
+              {releaseLabel && (
+                <title>
+                  {releaseMarkerHint === 'before'
+                    ? `${releaseLabel} released before selected window`
+                    : releaseMarkerHint === 'after'
+                      ? `${releaseLabel} released after selected window`
+                      : `${releaseLabel} first seen`}
+                </title>
+              )}
+            </g>
+          )}
+          <polyline
+            points={points}
+            fill="none"
+            stroke={color}
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            vectorEffect="non-scaling-stroke"
+            opacity={hasSignal ? 1 : 0.35}
+          />
+          <path
+            d={areaPath}
+            fill={color}
+            fillOpacity={hasSignal ? 0.1 : 0.04}
+            stroke="none"
+          />
+        </svg>
+      </div>
+    );
+  };
 
 export const IssuesFeed: React.FC = () => {
   const { selectedProject, projects, isLoading: projectsLoading } = useSessionData();
@@ -458,41 +498,28 @@ export const IssuesFeed: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-white flex flex-col font-sans text-black">
+    <div className="min-h-screen bg-slate-50 flex flex-col font-sans text-black">
       {/* Unified Sticky Header Container */}
       <div className="sticky top-0 z-50 bg-white border-b-2 border-black">
         {/* Main Header */}
-        <div className="bg-white/95 backdrop-blur-sm border-b border-slate-200">
-          <div className="px-6 py-4 flex flex-col md:flex-row md:items-center justify-between gap-4 max-w-[1800px] mx-auto w-full">
-            <div className="flex items-center gap-4">
-              <div className="p-3 bg-white border-2 border-black shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] rounded-lg">
-                <AlertTriangle className="w-6 h-6 text-black" />
-              </div>
-              <div>
-                <h1 className="text-2xl md:text-3xl font-black text-black tracking-tighter uppercase mb-0.5">
-                  Issues Feed
-                </h1>
-                <div className="flex items-center gap-2 text-slate-500 font-bold uppercase text-[10px] tracking-widest pl-0.5">
-                  <div className="h-3 w-1 bg-black"></div>
-                  Live stream of detected anomalies
-                </div>
-              </div>
-            </div>
-            <div className="flex items-center gap-4">
-              <div className="relative max-w-xs w-full hidden md:block group">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-black group-focus-within:text-indigo-600 transition-colors" />
-                <input
-                  type="text"
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="SEARCH ISSUES..."
-                  className="w-full pl-10 pr-4 py-2 bg-white border-2 border-black shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] rounded-lg font-bold text-sm uppercase placeholder:text-slate-400 focus:outline-none focus:translate-x-[2px] focus:translate-y-[2px] focus:shadow-none transition-all"
-                />
-              </div>
-              <TimeFilter value={timeRange} onChange={setTimeRange} />
-            </div>
+        <DashboardPageHeader
+          title="Issues Feed"
+          subtitle="Live stream of detected anomalies"
+          icon={<AlertTriangle className="w-6 h-6" />}
+          iconColor="bg-amber-400"
+        >
+          <div className="relative max-w-xs w-full hidden md:block group">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-black group-focus-within:text-indigo-600 transition-colors" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="SEARCH ISSUES..."
+              className="w-full pl-10 pr-4 py-2 bg-white border-2 border-black shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] rounded-lg font-bold text-sm uppercase placeholder:text-slate-400 focus:outline-none focus:translate-x-[1px] focus:translate-y-[1px] focus:shadow-none transition-all"
+            />
           </div>
-        </div>
+          <TimeFilter value={timeRange} onChange={setTimeRange} />
+        </DashboardPageHeader>
 
         {/* Secondary Filter Bar */}
         <div className="bg-white border-b-2 border-slate-100 px-6 py-3 flex flex-wrap items-center justify-between gap-4">

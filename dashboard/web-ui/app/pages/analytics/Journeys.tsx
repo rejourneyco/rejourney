@@ -14,6 +14,7 @@ import {
     Timer,
     TrendingDown,
 } from 'lucide-react';
+import { DashboardPageHeader } from '../../components/ui/DashboardPageHeader';
 import { useSessionData } from '../../context/SessionContext';
 import { TimeFilter, TimeRange, DEFAULT_TIME_RANGE } from '../../components/ui/TimeFilter';
 import { SankeyJourney } from '../../components/analytics/SankeyJourney';
@@ -208,18 +209,16 @@ export const Journeys: React.FC = () => {
     const hasData = Boolean(data && totalSessions > 0);
 
     return (
-        <div className="min-h-screen bg-gradient-to-b from-slate-50 via-white to-slate-100/70">
-            <div className="sticky top-0 z-30 border-b border-slate-200 bg-white/95 backdrop-blur">
-                <div className="mx-auto flex w-full max-w-[1600px] flex-col gap-4 px-6 py-4 md:flex-row md:items-center md:justify-between">
-                    <div>
-                        <div className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">User Journeys</div>
-                        <h1 className="mt-1 text-2xl font-semibold text-slate-900">Actionable Journey Diagnostics</h1>
-                        <p className="mt-1 text-sm text-slate-600">
-                            Understand where users diverge, fail, and exit so product and engineering can fix the highest-impact path first.
-                        </p>
-                    </div>
+        <div className="min-h-screen bg-slate-50 font-sans text-slate-900">
+            <div className="sticky top-0 z-30 bg-white">
+                <DashboardPageHeader
+                    title="User Journeys"
+                    subtitle="Diagnostics for user divergence and failure"
+                    icon={<Route className="w-6 h-6" />}
+                    iconColor="bg-fuchsia-500"
+                >
                     <TimeFilter value={timeRange} onChange={setTimeRange} />
-                </div>
+                </DashboardPageHeader>
             </div>
 
             <div className="mx-auto w-full max-w-[1600px] space-y-6 px-6 py-6">

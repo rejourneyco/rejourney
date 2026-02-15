@@ -55,6 +55,9 @@ export default {
       boxShadow: {
         'subtle': '0 1px 2px 0 rgb(0 0 0 / 0.05)',
         'subtle-lg': '0 4px 6px -1px rgb(0 0 0 / 0.05), 0 2px 4px -2px rgb(0 0 0 / 0.05)',
+        'neo': '4px 4px 0px 0px rgba(0,0,0,1)',
+        'neo-sm': '2px 2px 0px 0px rgba(0,0,0,1)',
+        'neo-lg': '8px 8px 0px 0px rgba(0,0,0,1)',
       },
       keyframes: {
         float: {

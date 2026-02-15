@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect, useCallback } from 'react';
+import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router';
 import { usePathPrefix } from '../../hooks/usePathPrefix';
 import {
@@ -28,6 +28,7 @@ import {
   Timer,
   MousePointerClick
 } from 'lucide-react';
+import { DashboardPageHeader } from '../../components/ui/DashboardPageHeader';
 import { TimeFilter, TimeRange, DEFAULT_TIME_RANGE } from '../../components/ui/TimeFilter';
 import { NeoBadge } from '../../components/ui/neo/NeoBadge';
 import { NeoButton } from '../../components/ui/neo/NeoButton';
@@ -35,6 +36,7 @@ import { NeoCard } from '../../components/ui/neo/NeoCard';
 import { getSessionsPaginated } from '../../services/api';
 import { useDemoMode } from '../../context/DemoModeContext';
 import { useSessionData } from '../../context/SessionContext';
+import { useSafeTeam } from '../../context/TeamContext';
 import { PromotionLogicGraphic } from '../../components/recordings/PromotionLogicGraphic';
 
 const ROWS_PER_PAGE = 50;
@@ -73,7 +75,8 @@ export const RecordingsList: React.FC = () => {
   const navigate = useNavigate();
   const pathPrefix = usePathPrefix();
   const { isDemoMode, demoSessions } = useDemoMode();
-  const { selectedProject } = useSessionData();
+  const { selectedProject, projects, isLoading: isContextLoading } = useSessionData();
+  const { currentTeam } = useSafeTeam();
   const [sessions, setSessions] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
@@ -86,16 +89,42 @@ export const RecordingsList: React.FC = () => {
   const [currentPage, setCurrentPage] = useState(1);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [expandedSessionId, setExpandedSessionId] = useState<string | null>(null);
+  const activeRequestIdRef = useRef(0);
+
+  const selectedProjectId = selectedProject?.id;
+  const selectedProjectTeamId = selectedProject?.teamId;
+  const isProjectFromCurrentTeam = !selectedProjectId || !currentTeam?.id || selectedProjectTeamId === currentTeam.id;
 
   // Fetch sessions with pagination
-  const fetchSessions = useCallback(async (cursor?: string | null) => {
+  const fetchSessions = useCallback(async (cursor?: string | null, requestId: number = activeRequestIdRef.current) => {
     // Demo mode: use static demo sessions
     if (isDemoMode) {
+      if (requestId !== activeRequestIdRef.current) return;
       setSessions(demoSessions);
       setNextCursor(null);
       setHasMore(false);
       setIsLoading(false);
       return;
+    }
+
+    // On team/project switches, wait until context resolves to avoid cross-team bleed-through.
+    if (!cursor) {
+      if (isContextLoading || !isProjectFromCurrentTeam) {
+        setSessions([]);
+        setNextCursor(null);
+        setHasMore(false);
+        setIsLoading(true);
+        return;
+      }
+
+      if (!selectedProjectId) {
+        // Team has no selected project yet (or no projects): don't fetch global sessions.
+        setSessions([]);
+        setNextCursor(null);
+        setHasMore(false);
+        setIsLoading(false);
+        return;
+      }
     }
 
     try {
@@ -110,8 +139,10 @@ export const RecordingsList: React.FC = () => {
         cursor,
         limit: 100, // Fetch 100 at a time for better UX
         timeRange: timeRange === 'all' ? undefined : timeRange,
-        projectId: selectedProject?.id,
+        projectId: selectedProjectId,
       });
+
+      if (requestId !== activeRequestIdRef.current) return;
 
       if (cursor) {
         // Append to existing sessions
@@ -124,22 +155,33 @@ export const RecordingsList: React.FC = () => {
       setNextCursor(result.nextCursor);
       setHasMore(result.hasMore);
     } catch (err) {
+      if (requestId !== activeRequestIdRef.current) return;
       console.error('Failed to fetch sessions:', err);
     } finally {
-      setIsLoading(false);
-      setIsLoadingMore(false);
+      if (requestId === activeRequestIdRef.current) {
+        setIsLoading(false);
+        setIsLoadingMore(false);
+      }
     }
-  }, [timeRange, isDemoMode, demoSessions, selectedProject?.id]);
+  }, [timeRange, isDemoMode, demoSessions, selectedProjectId, isContextLoading, isProjectFromCurrentTeam]);
 
   // Initial fetch and refetch when time range or project changes
+  const fetchScopeKey = `${isDemoMode ? 'demo' : 'live'}:${timeRange}:${currentTeam?.id || 'no-team'}:${selectedProjectId || 'no-project'}:${isContextLoading ? 'loading' : 'ready'}:${projects.length}:${isProjectFromCurrentTeam ? 'valid' : 'invalid'}`;
+
   useEffect(() => {
-    fetchSessions();
+    const requestId = ++activeRequestIdRef.current;
+    setCurrentPage(1);
+    setExpandedSessionId(null);
+    setNextCursor(null);
+    setHasMore(false);
+    setIsLoadingMore(false);
+    fetchSessions(undefined, requestId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [timeRange, isDemoMode, selectedProject?.id]);
+  }, [fetchScopeKey]);
 
   const handleLoadMore = useCallback(async () => {
     if (nextCursor && !isLoadingMore) {
-      await fetchSessions(nextCursor);
+      await fetchSessions(nextCursor, activeRequestIdRef.current);
     }
   }, [nextCursor, isLoadingMore, fetchSessions]);
 
@@ -302,60 +344,47 @@ export const RecordingsList: React.FC = () => {
   }
 
   return (
-    <div className="min-h-screen bg-white flex flex-col font-sans text-black">
+    <div className="min-h-screen bg-slate-50 flex flex-col font-sans text-black">
       {/* Sticky Header Group */}
       <div className="sticky top-0 z-50 bg-white">
 
         {/* Main Header */}
-        <div className="bg-white border-b-4 border-black">
-          <div className="px-6 py-4 flex flex-col md:flex-row md:items-center justify-between gap-4 max-w-[1800px] mx-auto w-full">
-            <div className="flex items-center gap-4">
-              <div className="p-3 bg-indigo-500 border-2 border-black shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] rounded-lg">
-                <Layers className="w-6 h-6 text-white" />
-              </div>
-              <div className="flex-1">
-                <h1 className="text-2xl md:text-3xl font-black text-black tracking-tighter uppercase mb-0.5">
-                  Session Archive
-                </h1>
-                <div className="flex items-center gap-2 text-slate-500 font-bold uppercase text-[10px] tracking-widest pl-0.5">
-                  <div className="h-3 w-1 bg-indigo-500"></div>
-                  Browse, filter & replay user sessions
-                </div>
-              </div>
-              <div className="hidden lg:block">
-                <PromotionLogicGraphic />
-              </div>
-            </div>
-
-            <div className="flex items-center gap-4">
-              {/* Search */}
-              <div className="relative max-w-xs w-full hidden md:block group">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-black group-focus-within:text-indigo-600 transition-colors" />
-                <input
-                  type="text"
-                  placeholder="SEARCH SESSION..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="w-full pl-10 pr-4 py-2 bg-white border-2 border-black shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] rounded-lg font-bold text-sm uppercase placeholder:text-slate-400 focus:outline-none focus:translate-x-[2px] focus:translate-y-[2px] focus:shadow-none transition-all"
-                />
-              </div>
-
-              <TimeFilter value={timeRange} onChange={setTimeRange} />
-
-              <button
-                onClick={() => {
-                  const params = new URLSearchParams();
-                  if (timeRange && timeRange !== 'all') params.append('timeRange', timeRange);
-                  window.location.href = `/api/sessions/export?${params.toString()}`;
-                }}
-                className="bg-black text-white p-2 border-2 border-black shadow-[2px_2px_0px_0px_rgba(100,100,100,1)] hover:bg-slate-800 active:shadow-none active:translate-x-[2px] active:translate-y-[2px] transition-all rounded-md"
-                title="Export CSV"
-              >
-                <Download className="w-4 h-4" />
-              </button>
-            </div>
+        <DashboardPageHeader
+          title="Session Archive"
+          subtitle="Browse, filter & replay user sessions"
+          icon={<Layers className="w-6 h-6" />}
+          iconColor="bg-indigo-500"
+        >
+          <div className="hidden lg:block mr-2">
+            <PromotionLogicGraphic />
           </div>
-        </div>
+
+          <div className="relative max-w-xs w-full hidden md:block group">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-black group-focus-within:text-indigo-600 transition-colors" />
+            <input
+              type="text"
+              placeholder="SEARCH SESSION..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full pl-10 pr-4 py-2 bg-white border-2 border-black shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] rounded-lg font-bold text-sm uppercase placeholder:text-slate-400 focus:outline-none focus:translate-x-[1px] focus:translate-y-[1px] focus:shadow-none transition-all"
+            />
+          </div>
+
+          <TimeFilter value={timeRange} onChange={setTimeRange} />
+
+          <button
+            onClick={() => {
+              const params = new URLSearchParams();
+              if (timeRange && timeRange !== 'all') params.append('timeRange', timeRange);
+              if (selectedProjectId) params.append('projectId', selectedProjectId);
+              window.location.href = `/api/sessions/export?${params.toString()}`;
+            }}
+            className="bg-black text-white p-2 border-2 border-black shadow-[2px_2px_0px_0px_rgba(100,100,100,1)] hover:bg-slate-800 active:shadow-none active:translate-x-[1px] active:translate-y-[1px] transition-all rounded-md"
+            title="Export CSV"
+          >
+            <Download className="w-4 h-4" />
+          </button>
+        </DashboardPageHeader>
 
         {/* Filter Bar */}
         <div className="bg-slate-50 border-b-2 border-black px-6 py-3 overflow-x-auto scrollbar-hide">
@@ -425,8 +454,14 @@ export const RecordingsList: React.FC = () => {
               <div className="inline-flex items-center justify-center p-4 bg-slate-50 rounded-full mb-4">
                 <Smartphone className="w-8 h-8 text-slate-300" />
               </div>
-              <h3 className="text-lg font-black uppercase text-slate-900 mb-1">No Sessions Found</h3>
-              <p className="text-slate-500 text-sm">Adjust your filters or search query</p>
+              <h3 className="text-lg font-black uppercase text-slate-900 mb-1">
+                {selectedProjectId ? 'No Sessions Found' : 'No Project Selected'}
+              </h3>
+              <p className="text-slate-500 text-sm">
+                {selectedProjectId
+                  ? 'Adjust your filters or search query'
+                  : 'Select or create a project to view replay data.'}
+              </p>
             </div>
           )}
 
@@ -700,6 +735,3 @@ export const RecordingsList: React.FC = () => {
     </div>
   );
 };
-
-
-

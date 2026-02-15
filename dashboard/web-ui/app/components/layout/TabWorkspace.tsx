@@ -31,6 +31,8 @@ export const TabWorkspace: React.FC<TabWorkspaceProps> = ({ children }) => {
 
     const navigate = useNavigate();
     const location = useLocation();
+    const routeWithoutPrefix = useMemo(() => stripPathPrefix(location.pathname), [location.pathname]);
+    const hideTabChrome = routeWithoutPrefix.startsWith('/warehouse');
     const splitContainerRef = useRef<HTMLDivElement | null>(null);
     const primaryScrollRef = useRef<HTMLDivElement | null>(null);
     const secondaryScrollRef = useRef<HTMLDivElement | null>(null);
@@ -88,6 +90,14 @@ export const TabWorkspace: React.FC<TabWorkspaceProps> = ({ children }) => {
         openTabInSplit(tabId);
         setIsSplitDropActive(false);
     };
+
+    if (hideTabChrome) {
+        return (
+            <div className="flex h-full min-h-0 flex-col bg-background">
+                <div className="flex-1 min-h-0 overflow-hidden">{children}</div>
+            </div>
+        );
+    }
 
     if (!isSplitView || !secondaryTab) {
         return (

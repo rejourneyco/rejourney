@@ -20,16 +20,16 @@ export const NeoButton: React.FC<NeoButtonProps> = ({
     disabled,
     ...props
 }) => {
-    // Modern Base Styles: Rounded, font-medium, focus rings
-    const baseStyles = "inline-flex items-center justify-center font-medium transition-all duration-200 active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed rounded-lg focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary/50";
+    // Neo-Brutalism: Sharp corners, thick borders, hard shadows
+    const baseStyles = "inline-flex items-center justify-center font-bold uppercase tracking-wide transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed border-2 border-black focus:outline-none focus:ring-2 focus:ring-black focus:ring-offset-2 rounded-lg";
 
     const variants = {
-        primary: "bg-primary text-primary-foreground hover:bg-primary/90 shadow-sm hover:shadow-md",
-        secondary: "bg-white text-slate-700 border border-slate-200 hover:bg-slate-50 hover:text-slate-900 shadow-sm",
-        danger: "bg-red-500 text-white hover:bg-red-600 shadow-sm hover:shadow-md border border-red-600",
-        success: "bg-emerald-500 text-white hover:bg-emerald-600 shadow-sm hover:shadow-md border border-emerald-600",
-        warning: "bg-amber-400 text-black hover:bg-amber-500 shadow-sm hover:shadow-md border border-amber-400",
-        ghost: "bg-transparent text-slate-600 hover:bg-slate-100 hover:text-slate-900"
+        primary: "bg-black text-white hover:bg-slate-800 shadow-[2px_2px_0_0_rgba(0,0,0,1)] active:shadow-none active:translate-x-[2px] active:translate-y-[2px]",
+        secondary: "bg-white text-black hover:bg-slate-100 shadow-[2px_2px_0_0_rgba(0,0,0,1)] active:shadow-none active:translate-x-[2px] active:translate-y-[2px]",
+        danger: "bg-red-500 text-white hover:bg-red-600 shadow-[2px_2px_0_0_rgba(0,0,0,1)] active:shadow-none active:translate-x-[2px] active:translate-y-[2px]",
+        success: "bg-emerald-400 text-black hover:bg-emerald-500 shadow-[2px_2px_0_0_rgba(0,0,0,1)] active:shadow-none active:translate-x-[2px] active:translate-y-[2px]",
+        warning: "bg-yellow-400 text-black hover:bg-yellow-500 shadow-[2px_2px_0_0_rgba(0,0,0,1)] active:shadow-none active:translate-x-[2px] active:translate-y-[2px]",
+        ghost: "bg-transparent text-black border-transparent hover:bg-slate-100 hover:border-slate-200 shadow-none active:translate-x-[1px] active:translate-y-[1px]"
     };
 
     const sizes = {

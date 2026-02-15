@@ -19,19 +19,24 @@ interface TimeFilterProps {
 
 export const TimeFilter: React.FC<TimeFilterProps> = ({ value, onChange, className = '' }) => {
     return (
-        <div className={`flex rounded-lg border border-slate-200 bg-slate-100/85 p-1 ${className}`}>
-            {TIME_RANGE_OPTIONS.map((option) => (
-                <button
-                    key={option.value}
-                    onClick={() => onChange(option.value)}
-                    className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${value === option.value
-                        ? 'bg-white text-slate-900 shadow-sm'
-                        : 'text-slate-600 hover:bg-slate-200/70 hover:text-slate-800'
-                        }`}
-                >
-                    {option.label}
-                </button>
-            ))}
+        <div className={`flex items-center p-0.5 ${className}`}>
+            <div className="flex items-center border border-slate-200 rounded-lg bg-white shadow-sm overflow-hidden">
+                {TIME_RANGE_OPTIONS.map((option, index) => (
+                    <button
+                        key={option.value}
+                        onClick={() => onChange(option.value)}
+                        className={`px-3 py-1 text-[10px] font-bold uppercase tracking-wider transition-colors 
+                        ${value === option.value
+                                ? 'bg-slate-900 text-white'
+                                : 'bg-white text-slate-600 hover:bg-slate-50'
+                            }
+                        ${index !== TIME_RANGE_OPTIONS.length - 1 ? 'border-r border-slate-100' : ''}
+                        `}
+                    >
+                        {option.label}
+                    </button>
+                ))}
+            </div>
         </div>
     );
 };

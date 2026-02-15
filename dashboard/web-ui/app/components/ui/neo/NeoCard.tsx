@@ -18,19 +18,19 @@ export const NeoCard: React.FC<NeoCardProps> = ({
     disablePadding = false,
     ...props
 }) => {
-    // Premium Base Styles: Subtle borders, soft transitions, no hard shadows
-    const baseStyles = "bg-white border border-slate-200 transition-all duration-200 rounded-xl";
+    // Neo-Brutalism: High contrast, hard edges
+    const baseStyles = "bg-white border border-slate-200 transition-all duration-200 rounded-2xl";
     const variants = {
-        default: "shadow-sm",
-        flat: "shadow-none border-transparent bg-transparent",
-        monitor: "p-6 relative bg-slate-900 shadow-sm border-slate-700"
+        default: "shadow-sm hover:shadow-md",
+        flat: "shadow-none bg-white",
+        monitor: "p-6 relative bg-slate-900 shadow-[4px_4px_0_0_rgba(0,0,0,0.2)] border-black"
     };
 
     if (variant === 'monitor') {
         return (
             <div className={`${baseStyles} ${variants.monitor} ${className}`} {...props}>
                 {/* Monitor Screen Effect - Modernized */}
-                <div className="bg-white border border-slate-700 h-full relative overflow-hidden shadow-inner rounded-lg">
+                <div className="bg-white border border-slate-700 h-full relative overflow-hidden shadow-inner rounded-xl">
                     {children}
                 </div>
                 {/* Monitor Base - Subtle */}

@@ -27,6 +27,7 @@ import { CrashDetail } from '../pages/crashes/CrashDetail';
 import { CrashesList } from '../pages/crashes/CrashesList';
 
 import { ANRsList } from '../pages/anrs/ANRsList';
+import { ANRDetail } from '../pages/anrs/ANRDetail';
 import { ErrorsList } from '../pages/errors/ErrorsList';
 import { ErrorDetail } from '../pages/errors/ErrorDetail';
 
@@ -40,6 +41,7 @@ import { Devices } from '../pages/analytics/Devices';
 import { Search } from '../pages/Search';
 import { Journeys } from '../pages/analytics/Journeys';
 import { AlertEmails } from '../pages/analytics/AlertEmails';
+import { IssueDetail } from '../pages/issues/IssueDetail';
 
 export interface TabInfo {
     id: string;
@@ -60,6 +62,12 @@ const routes: Array<{
     getProps?: (params: Record<string, string>) => Record<string, any>;
 }> = [
         { pattern: '/issues', getInfo: () => ({ id: 'issues', title: 'Issues', icon: MessageSquareWarning }), Component: IssuesFeed },
+        {
+            pattern: '/issues/:issueId',
+            getInfo: (p) => ({ id: `issue-${p.issueId}`, title: `Issue ${(p.issueId || '').substring(0, 8)}...`, icon: MessageSquareWarning }),
+            Component: IssueDetail,
+            getProps: (p) => ({ issueId: p.issueId })
+        },
         // Analytics routes
         { pattern: '/analytics/api', getInfo: () => ({ id: 'analytics-api', title: 'API Insights', icon: Activity }), Component: ApiAnalytics },
         { pattern: '/analytics/growth', getInfo: () => ({ id: 'analytics-growth', title: 'Growth', icon: LineChart }), Component: Growth },
@@ -85,6 +93,12 @@ const routes: Array<{
             getInfo: (p) => ({ id: `crash-${p.crashId}`, title: `Crash ${(p.crashId || '').substring(0, 8)}...`, icon: AlertOctagon }),
             Component: CrashDetail,
             getProps: (p) => ({ crashId: p.crashId, projectId: p.projectId })
+        },
+        {
+            pattern: '/stability/anrs/:projectId/:anrId',
+            getInfo: (p) => ({ id: `anr-${p.anrId}`, title: `ANR ${(p.anrId || '').substring(0, 8)}...`, icon: Clock }),
+            Component: ANRDetail,
+            getProps: (p) => ({ anrId: p.anrId, projectId: p.projectId })
         },
         {
             pattern: '/stability/errors/:projectId/:errorId',

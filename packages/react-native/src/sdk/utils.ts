@@ -324,7 +324,7 @@ class Logger {
   }
 
   notice(...args: any[]): void {
-    if (typeof __DEV__ !== 'undefined' && __DEV__) {
+    if (this.minimumLogLevel <= LogLevel.INFO) {
       console.info(this.prefix, ...args);
     }
   }
