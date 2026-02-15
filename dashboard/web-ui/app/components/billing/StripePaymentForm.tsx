@@ -46,10 +46,6 @@ function PaymentFormInner({ teamId, onSuccess, onCancel }: PaymentFormProps) {
   const [isReady, setIsReady] = useState(false);
   const [elementError, setElementError] = useState<string | null>(null);
 
-  // Debug logging
-  useEffect(() => {
-    console.log('PaymentFormInner - Stripe:', !!stripe, 'Elements:', !!elements);
-  }, [stripe, elements]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -127,7 +123,6 @@ function PaymentFormInner({ teamId, onSuccess, onCancel }: PaymentFormProps) {
             onReady={() => {
               setIsReady(true);
               setElementError(null);
-              console.log('PaymentElement ready');
             }}
             onChange={(e) => {
               if (e.complete) {
@@ -194,24 +189,17 @@ export function StripePaymentForm({ teamId, onSuccess, onCancel }: PaymentFormPr
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    // Debug: Log key info (without exposing full key)
-    if (config.stripePublishableKey) {
-      const keyPreview = config.stripePublishableKey.substring(0, 7) + '...' + config.stripePublishableKey.substring(config.stripePublishableKey.length - 4);
-      console.log('[Stripe] Using publishable key:', keyPreview);
-      if (config.stripePublishableKey.startsWith('sk_')) {
-        console.error('[Stripe] ERROR: Key starts with sk_ (secret key). Must use pk_ (publishable key)');
+    if (!config.stripePublishableKey) {
+      if (import.meta.env.DEV) {
+        console.warn('[Stripe] No publishable key configured');
       }
-    } else {
-      console.warn('[Stripe] No publishable key configured');
     }
 
     const fetchSetupIntent = async () => {
       try {
         setIsLoading(true);
         setError(null);
-        console.log('Creating setup intent for team:', teamId);
         const { clientSecret } = await createSetupIntent(teamId);
-        console.log('Setup intent created, clientSecret received:', !!clientSecret);
         if (!clientSecret) {
           throw new Error('No client secret returned from server');
         }

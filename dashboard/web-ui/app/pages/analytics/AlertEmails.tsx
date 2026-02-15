@@ -4,6 +4,7 @@ import { Bell, UserPlus, X, Check, AlertTriangle, Clock, Mail, Info, AlertOctago
 import { NeoButton } from '../../components/ui/neo/NeoButton';
 import { NeoCard } from '../../components/ui/neo/NeoCard';
 import { NeoBadge } from '../../components/ui/neo/NeoBadge';
+import { DashboardPageHeader } from '../../components/ui/DashboardPageHeader';
 import { Link } from 'react-router';
 
 // Alert settings types
@@ -131,7 +132,7 @@ async function removeAlertRecipient(projectId: string, userId: string): Promise<
 }
 
 async function getEmailLogs(
-    projectId: string, 
+    projectId: string,
     options: { search?: string; alertType?: string; page?: number; limit?: number } = {}
 ): Promise<{ logs: EmailLog[]; pagination: EmailLogPagination }> {
     const params = new URLSearchParams();
@@ -139,7 +140,7 @@ async function getEmailLogs(
     if (options.alertType && options.alertType !== 'all') params.set('alertType', options.alertType);
     if (options.page) params.set('page', String(options.page));
     if (options.limit) params.set('limit', String(options.limit));
-    
+
     const res = await fetch(`${API_BASE_URL}/api/projects/${projectId}/email-logs?${params}`, {
         credentials: 'include',
         headers: getHeaders(),
@@ -158,15 +159,15 @@ const Toggle: React.FC<{
         onClick={() => !disabled && onChange(!enabled)}
         disabled={disabled}
         className={`
-      relative w-12 h-6 border-2 border-black rounded-full transition-colors duration-200
-      ${enabled ? 'bg-green-400 shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]' : 'bg-slate-200'}
-      ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer active:translate-y-px active:shadow-none'}
+      relative w-11 h-6 border border-slate-300 rounded-full transition-colors duration-200
+      ${enabled ? 'bg-emerald-400' : 'bg-slate-200'}
+      ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer hover:border-slate-400'}
     `}
     >
         <div
             className={`
-        absolute top-0.5 left-0.5 w-4 h-4 bg-white border-2 border-black rounded-full transition-transform duration-200
-        ${enabled ? 'translate-x-6' : 'translate-x-0'}
+        absolute top-0.5 left-0.5 w-[18px] h-[18px] bg-white border border-slate-300 rounded-full transition-transform duration-200 shadow-sm
+        ${enabled ? 'translate-x-[20px]' : 'translate-x-0'}
       `}
         />
     </button>
@@ -193,22 +194,22 @@ const AlertTypeCard: React.FC<{
 
     return (
         <NeoCard
-            className={`transition-all ${enabled ? 'border-2 border-black shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]' : 'opacity-70 grayscale-[0.5] border-slate-200 hover:opacity-100 hover:grayscale-0'}`}
+            className={`transition-all ${enabled ? 'border-slate-300 shadow-sm' : 'opacity-70 grayscale-[0.5] border-slate-200 hover:opacity-100 hover:grayscale-0'}`}
             disablePadding
         >
-            <div className={`p-4 ${enabled ? 'bg-white' : 'bg-slate-50/50'}`}>
+            <div className={`p-5 ${enabled ? 'bg-white' : 'bg-slate-50/50'}`}>
                 <div className="flex items-start justify-between mb-4">
-                    <div className={`p-3 border-2 border-black rounded-xl bg-white shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] ${variant.icon}`}>
+                    <div className={`p-2.5 bg-slate-50 rounded-xl border border-slate-100 ${variant.icon}`}>
                         {icon}
                     </div>
                     <Toggle enabled={enabled} onChange={onChange} />
                 </div>
                 <div className="space-y-1">
                     <div className="flex items-center gap-2">
-                        <h4 className="font-black text-black text-sm uppercase tracking-tight">{title}</h4>
+                        <h4 className="font-bold text-slate-900 text-sm tracking-tight">{title}</h4>
                         {recommended && (
-                            <NeoBadge variant="success" size="sm" className="px-1 py-0 border border-black transform -rotate-1">
-                                TOP
+                            <NeoBadge variant="success" size="sm" className="px-1.5 py-0 border-none rounded-full text-[9px]">
+                                RECOMMENDED
                             </NeoBadge>
                         )}
                     </div>
@@ -342,36 +343,26 @@ export const AlertEmails: React.FC = () => {
     const nonRecipientMembers = availableMembers.filter(m => !m.isRecipient);
 
     return (
-        <div className="p-8 space-y-8 animate-fade-in max-w-[1200px] mx-auto pb-12 font-sans bg-white">
+        <div className="p-8 space-y-8 animate-fade-in max-w-[1200px] mx-auto pb-12 font-sans bg-slate-50">
             {/* Header */}
-            <div className="sticky top-0 z-50 bg-white border-b-4 border-black">
-                <div className="px-6 py-4 flex flex-col md:flex-row md:items-center justify-between gap-4 max-w-[1800px] mx-auto w-full">
-                    <div className="flex items-center gap-4">
-                        <div className="p-3 bg-red-500 border-2 border-black shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] rounded-lg">
-                            <Mail className="w-6 h-6 text-white" />
-                        </div>
-                        <div>
-                            <h1 className="text-2xl md:text-3xl font-black text-black tracking-tighter uppercase mb-0.5">
-                                Alert Settings
-                            </h1>
-                            <div className="flex items-center gap-2 text-slate-500 font-bold uppercase text-[10px] tracking-widest pl-0.5">
-                                <div className="h-3 w-1 bg-red-500"></div>
-                                Configure real-time notifications for critical events
-                            </div>
-                        </div>
+            <div className="sticky top-0 z-50 bg-white">
+                <DashboardPageHeader
+                    title="Alert Settings"
+                    subtitle="Configure real-time notifications for critical events"
+                    icon={<Mail className="w-6 h-6" />}
+                    iconColor="bg-red-500"
+                >
+                    <div className="hidden lg:flex items-center gap-2 mr-4 bg-slate-50 border-2 border-slate-200 px-3 py-1 rounded-md">
+                        <div className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse shadow-[0_0_8px_rgba(16,185,129,0.6)]"></div>
+                        <span className="text-[10px] font-bold uppercase text-slate-400">System Ready</span>
                     </div>
-                    <div className="flex items-center gap-4">
-                        <div className="hidden lg:flex items-center gap-2 mr-4 bg-slate-50 border-2 border-slate-200 px-3 py-1 rounded-md">
-                            <div className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse shadow-[0_0_8px_rgba(16,185,129,0.6)]"></div>
-                            <span className="text-[10px] font-black uppercase text-slate-400">System Ready</span>
-                        </div>
-                    </div>
-                </div>
-            </div>{error && (
-                <div className="bg-red-400 border-4 border-black p-4 text-sm text-black font-bold shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] flex items-center gap-3">
-                    <AlertTriangle className="w-5 h-5" />
+                </DashboardPageHeader>
+            </div>
+            {error && (
+                <div className="bg-red-50 border border-red-200 p-4 text-sm text-red-900 rounded-xl flex items-center gap-3">
+                    <AlertTriangle className="w-5 h-5 text-red-500" />
                     {error}
-                    <button onClick={() => setError(null)} className="ml-auto hover:scale-110 transition-transform">
+                    <button onClick={() => setError(null)} className="ml-auto hover:opacity-70 transition-opacity">
                         <X className="w-5 h-5" />
                     </button>
                 </div>
@@ -379,13 +370,13 @@ export const AlertEmails: React.FC = () => {
 
             {/* Recipients Section */}
             <NeoCard
-                className="border-2 border-black shadow-[8px_8px_0px_0px_rgba(0,0,0,1)]"
+                className="border border-slate-200 shadow-sm"
                 disablePadding
             >
-                <div className="px-6 py-5 border-b-2 border-black flex items-center justify-between bg-slate-50">
+                <div className="px-6 py-5 border-b border-slate-100 flex items-center justify-between">
                     <div>
-                        <h2 className="font-black text-black text-xl uppercase tracking-tight">Alert Recipients</h2>
-                        <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mt-1">Up to 5 team members can receive alerts</p>
+                        <h2 className="font-bold text-slate-900 text-lg tracking-tight">Alert Recipients</h2>
+                        <p className="text-xs font-medium text-slate-500 mt-1">Designate who receives real-time notifications</p>
                     </div>
                     {recipients.length < 5 && (
                         <NeoButton
@@ -393,7 +384,6 @@ export const AlertEmails: React.FC = () => {
                             variant="primary"
                             size="sm"
                             leftIcon={<UserPlus className="w-4 h-4" />}
-                            className="shadow-[4px_4px_0px_0px_rgba(255,255,255,0.2)]"
                         >
                             ADD RECIPIENT
                         </NeoButton>
@@ -406,7 +396,7 @@ export const AlertEmails: React.FC = () => {
                             <div className="w-16 h-16 bg-slate-100 border-2 border-slate-200 border-dashed rounded-full flex items-center justify-center mx-auto mb-4">
                                 <Mail className="w-8 h-8 text-slate-300" />
                             </div>
-                            <p className="font-black text-slate-400 uppercase tracking-tighter text-xl">No recipients configured</p>
+                            <p className="font-bold text-slate-400 uppercase tracking-tighter text-xl">No recipients configured</p>
                             <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Add team members to receive email alerts</p>
                         </div>
                     ) : (
@@ -414,26 +404,26 @@ export const AlertEmails: React.FC = () => {
                             {recipients.map((recipient) => (
                                 <div
                                     key={recipient.id}
-                                    className="flex items-center justify-between p-4 bg-white border-2 border-black shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] group"
+                                    className="flex items-center justify-between p-4 bg-white border border-slate-200 rounded-xl hover:border-slate-300 transition-colors group"
                                 >
                                     <div className="flex items-center gap-4">
                                         {recipient.avatarUrl ? (
-                                            <img src={recipient.avatarUrl} alt="" className="w-12 h-12 border-2 border-black rounded-full" />
+                                            <img src={recipient.avatarUrl} alt="" className="w-12 h-12 border border-slate-200 rounded-full" />
                                         ) : (
-                                            <div className="w-12 h-12 border-2 border-black rounded-full bg-indigo-500 flex items-center justify-center text-white font-black text-xl shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]">
+                                            <div className="w-12 h-12 border border-slate-200 rounded-full bg-slate-50 flex items-center justify-center text-slate-600 font-bold text-lg">
                                                 {(recipient.displayName || recipient.email)[0].toUpperCase()}
                                             </div>
                                         )}
                                         <div>
-                                            <p className="font-black text-black uppercase text-sm leading-tight">
+                                            <p className="font-bold text-slate-900 text-sm leading-tight">
                                                 {recipient.displayName || recipient.email}
                                             </p>
-                                            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">{recipient.email}</p>
+                                            <p className="text-xs font-medium text-slate-400">{recipient.email}</p>
                                         </div>
                                     </div>
                                     <button
                                         onClick={() => handleRemoveRecipient(recipient.userId)}
-                                        className="p-2 border-2 border-transparent hover:border-black hover:bg-red-500 hover:text-white transition-all group-hover:block"
+                                        className="p-2 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all"
                                     >
                                         <X className="w-5 h-5" />
                                     </button>
@@ -445,11 +435,11 @@ export const AlertEmails: React.FC = () => {
 
                 {/* Add recipient modal */}
                 {showAddRecipient && (
-                    <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-                        <NeoCard className="w-full max-w-md border-4 border-black shadow-[12px_12px_0px_0px_rgba(0,0,0,1)]" disablePadding>
-                            <div className="px-6 py-5 border-b-4 border-black flex items-center justify-between bg-yellow-400">
-                                <h3 className="font-black text-black uppercase tracking-tight text-lg">Add Alert Recipient</h3>
-                                <button onClick={() => setShowAddRecipient(false)} className="p-1 border-2 border-black bg-white hover:bg-red-500 hover:text-white transition-colors">
+                    <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center z-[100] p-4">
+                        <NeoCard className="w-full max-w-md border border-slate-200 shadow-xl overflow-hidden" disablePadding>
+                            <div className="px-6 py-5 border-b border-slate-100 flex items-center justify-between bg-white text-slate-900">
+                                <h3 className="font-bold tracking-tight text-lg">Add Alert Recipient</h3>
+                                <button onClick={() => setShowAddRecipient(false)} className="p-1 hover:bg-slate-100 rounded-lg transition-colors">
                                     <X className="w-5 h-5" />
                                 </button>
                             </div>
@@ -461,29 +451,29 @@ export const AlertEmails: React.FC = () => {
                                         <p className="text-xs text-slate-500 uppercase font-bold tracking-widest">All team members are already recipients</p>
                                     </div>
                                 ) : (
-                                    <div className="space-y-3">
+                                    <div className="space-y-2">
                                         {nonRecipientMembers.map((member) => (
                                             <button
                                                 key={member.userId}
                                                 onClick={() => handleAddRecipient(member.userId)}
-                                                className="w-full flex items-center justify-between p-4 border-2 border-black hover:bg-indigo-50 transition-all hover:-translate-y-1 hover:shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] group"
+                                                className="w-full flex items-center justify-between p-3 border border-slate-100 rounded-xl hover:bg-slate-50 transition-all group"
                                             >
-                                                <div className="flex items-center gap-4">
+                                                <div className="flex items-center gap-3">
                                                     {member.avatarUrl ? (
-                                                        <img src={member.avatarUrl} alt="" className="w-10 h-10 border-2 border-black rounded-full" />
+                                                        <img src={member.avatarUrl} alt="" className="w-10 h-10 border border-slate-200 rounded-full" />
                                                     ) : (
-                                                        <div className="w-10 h-10 border-2 border-black rounded-full bg-slate-100 flex items-center justify-center text-slate-600 font-black text-sm">
+                                                        <div className="w-10 h-10 border border-slate-200 rounded-full bg-slate-50 flex items-center justify-center text-slate-500 font-bold text-sm">
                                                             {(member.displayName || member.email)[0].toUpperCase()}
                                                         </div>
                                                     )}
                                                     <div className="text-left font-sans">
-                                                        <p className="font-black text-black text-sm uppercase">
+                                                        <p className="font-bold text-slate-900 text-sm">
                                                             {member.displayName || member.email}
                                                         </p>
-                                                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{member.role}</p>
+                                                        <p className="text-[11px] font-medium text-slate-400">{member.role}</p>
                                                     </div>
                                                 </div>
-                                                <div className="p-2 border-2 border-black bg-white group-hover:bg-indigo-500 group-hover:text-white transition-colors">
+                                                <div className="p-2 text-slate-400 group-hover:text-indigo-600 transition-colors">
                                                     <UserPlus className="w-4 h-4" />
                                                 </div>
                                             </button>
@@ -499,8 +489,8 @@ export const AlertEmails: React.FC = () => {
             {/* Alert Types Section */}
             <div className="space-y-6">
                 <div className="flex items-center gap-4">
-                    <h2 className="font-black text-black text-2xl uppercase tracking-tighter">Alert Triggers</h2>
-                    <div className="h-[2px] flex-1 bg-black"></div>
+                    <h2 className="font-bold text-slate-900 text-lg tracking-tight">Alert Triggers</h2>
+                    <div className="h-px flex-1 bg-slate-200"></div>
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
@@ -544,20 +534,20 @@ export const AlertEmails: React.FC = () => {
             </div>
 
             {/* Rate Limiting Info */}
-            <div className="bg-white border-4 border-black p-6 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] flex items-start gap-4">
-                <div className="p-2 border-2 border-black bg-indigo-500 rounded-lg shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]">
-                    <Info className="w-6 h-6 text-white" />
+            <div className="bg-white border border-slate-200 p-6 rounded-2xl shadow-sm flex items-start gap-5">
+                <div className="p-2.5 bg-indigo-50 text-indigo-600 rounded-xl">
+                    <Info className="w-6 h-6" />
                 </div>
                 <div>
-                    <h3 className="font-black text-black uppercase tracking-tight text-lg mb-2">Sync & Rate Limits</h3>
+                    <h3 className="font-bold text-slate-900 tracking-tight text-base mb-1.5">Notification Policies</h3>
                     <div className="grid md:grid-cols-2 gap-4">
-                        <div className="flex items-start gap-3">
-                            <ChevronRight className="w-4 h-4 text-indigo-500 mt-0.5" />
-                            <p className="text-xs font-bold text-slate-600 uppercase">Duplicate alerts suppressed for 1hr</p>
+                        <div className="flex items-start gap-2.5">
+                            <ChevronRight className="w-3.5 h-3.5 text-indigo-500 mt-1" />
+                            <p className="text-xs font-medium text-slate-600">Duplicate alerts suppressed for 1 hour window</p>
                         </div>
-                        <div className="flex items-start gap-3">
-                            <ChevronRight className="w-4 h-4 text-indigo-500 mt-0.5" />
-                            <p className="text-xs font-bold text-slate-600 uppercase">Max 20 emails per project / day</p>
+                        <div className="flex items-start gap-2.5">
+                            <ChevronRight className="w-3.5 h-3.5 text-indigo-500 mt-1" />
+                            <p className="text-xs font-medium text-slate-600">Daily limit: 20 alert emails per project</p>
                         </div>
                     </div>
                 </div>
@@ -566,29 +556,29 @@ export const AlertEmails: React.FC = () => {
             {/* Email Log Section */}
             <div className="space-y-6">
                 <div className="flex items-center gap-4">
-                    <h2 className="font-black text-black text-2xl uppercase tracking-tighter">Email Log</h2>
-                    <div className="h-[2px] flex-1 bg-black"></div>
+                    <h2 className="font-bold text-slate-900 text-lg tracking-tight">Delivery Logs</h2>
+                    <div className="h-px flex-1 bg-slate-200"></div>
                 </div>
 
-                <NeoCard className="border-2 border-black shadow-[8px_8px_0px_0px_rgba(0,0,0,1)]" disablePadding>
+                <NeoCard className="border border-slate-200 shadow-sm" disablePadding>
                     {/* Search & Filter Bar */}
-                    <div className="px-6 py-4 border-b-2 border-black bg-slate-50 flex flex-col md:flex-row gap-4 items-start md:items-center justify-between">
+                    <div className="px-6 py-4 border-b border-slate-100 flex flex-col md:flex-row gap-4 items-start md:items-center justify-between">
                         <div className="relative flex-1 max-w-md group">
-                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-black group-focus-within:text-indigo-600 transition-colors" />
+                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 group-focus-within:text-indigo-600 transition-colors" />
                             <input
                                 type="text"
                                 value={emailLogSearch}
                                 onChange={(e) => setEmailLogSearch(e.target.value)}
-                                placeholder="SEARCH EMAILS..."
-                                className="w-full pl-10 pr-4 py-2 bg-white border-2 border-black shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] rounded-lg font-bold text-sm uppercase placeholder:text-slate-400 focus:outline-none focus:translate-x-[2px] focus:translate-y-[2px] focus:shadow-none transition-all"
+                                placeholder="Filter logs..."
+                                className="w-full pl-10 pr-4 py-2 bg-white border border-slate-200 rounded-xl text-sm font-medium placeholder:text-slate-400 focus:outline-none focus:ring-1 focus:ring-indigo-200 focus:border-indigo-400 transition-all shadow-sm"
                             />
                         </div>
                         <div className="flex items-center gap-3">
-                            <span className="text-[10px] font-black uppercase text-slate-400 tracking-wider">Type:</span>
+                            <span className="text-xs font-semibold text-slate-400">Type:</span>
                             <select
                                 value={emailLogTypeFilter}
                                 onChange={(e) => setEmailLogTypeFilter(e.target.value)}
-                                className="text-xs font-bold uppercase px-3 py-2 border-2 border-black rounded bg-white cursor-pointer hover:bg-slate-50 shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] focus:translate-x-[1px] focus:translate-y-[1px] focus:shadow-none transition-all"
+                                className="text-xs font-bold uppercase px-3 py-2 border border-slate-200 rounded-lg bg-white cursor-pointer hover:bg-slate-50 transition-all outline-none focus:ring-1 focus:ring-indigo-200"
                             >
                                 <option value="all">All Types</option>
                                 <option value="crash">Crashes</option>
@@ -601,14 +591,14 @@ export const AlertEmails: React.FC = () => {
 
                     {/* Log Table */}
                     <div className="overflow-x-auto">
-                        <table className="w-full text-left font-mono text-xs">
-                            <thead className="bg-slate-100 border-b-2 border-black font-black uppercase text-black">
+                        <table className="w-full text-left text-sm">
+                            <thead className="bg-slate-50 border-b border-slate-100 font-bold uppercase text-slate-500 text-[10px] tracking-wider">
                                 <tr>
-                                    <th className="p-4">Sent At</th>
-                                    <th className="p-4">Type</th>
+                                    <th className="p-4">Timestamp</th>
+                                    <th className="p-4">Alert Class</th>
                                     <th className="p-4">Recipient</th>
-                                    <th className="p-4">Subject</th>
-                                    <th className="p-4 text-center">Status</th>
+                                    <th className="p-4">Information</th>
+                                    <th className="p-4 text-right">Delivery</th>
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-slate-100">
@@ -622,7 +612,7 @@ export const AlertEmails: React.FC = () => {
                                     <tr>
                                         <td colSpan={5} className="p-12 text-center">
                                             <Mail className="w-12 h-12 text-slate-200 mx-auto mb-4" />
-                                            <p className="font-black text-slate-400 uppercase tracking-tighter text-lg">No emails sent yet</p>
+                                            <p className="font-bold text-slate-400 uppercase tracking-tighter text-lg">No emails sent yet</p>
                                             <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Emails will appear here when alerts are triggered</p>
                                         </td>
                                     </tr>
@@ -641,57 +631,57 @@ export const AlertEmails: React.FC = () => {
                                             api_degradation: 'API',
                                         };
                                         return (
-                                            <tr key={log.id} className="hover:bg-slate-50 transition-colors group">
+                                            <tr key={log.id} className="hover:bg-slate-50/50 transition-colors group text-sm">
                                                 <td className="p-4 whitespace-nowrap">
-                                                    <div className="font-bold text-black">
+                                                    <div className="font-bold text-slate-900">
                                                         {new Date(log.sentAt).toLocaleDateString()}
                                                     </div>
-                                                    <div className="text-[10px] text-slate-500">
+                                                    <div className="text-[10px] font-medium text-slate-400">
                                                         {new Date(log.sentAt).toLocaleTimeString()}
                                                     </div>
                                                 </td>
                                                 <td className="p-4">
                                                     <div className="flex items-center gap-2">
-                                                        <div className={`w-2.5 h-2.5 rounded-full ${typeColors[log.alertType] || 'bg-slate-400'} border border-black`} />
-                                                        <span className="font-bold uppercase text-black">
+                                                        <div className={`w-2 h-2 rounded-full ${typeColors[log.alertType] || 'bg-slate-300'}`} />
+                                                        <span className="font-bold text-slate-700">
                                                             {typeLabels[log.alertType] || log.alertType}
                                                         </span>
                                                     </div>
                                                 </td>
                                                 <td className="p-4">
-                                                    <div className="font-bold text-black">
+                                                    <div className="font-bold text-slate-900">
                                                         {log.recipientName || log.recipientEmail}
                                                     </div>
                                                     {log.recipientName && (
-                                                        <div className="text-[10px] text-slate-500">{log.recipientEmail}</div>
+                                                        <div className="text-[10px] font-medium text-slate-400">{log.recipientEmail}</div>
                                                     )}
                                                 </td>
                                                 <td className="p-4 max-w-xs">
-                                                    <div className="font-bold text-black truncate" title={log.subject}>
+                                                    <div className="font-bold text-slate-700 truncate" title={log.subject}>
                                                         {log.subject}
                                                     </div>
                                                     {log.issueId && (
-                                                        <Link 
+                                                        <Link
                                                             to={`/issues/${log.issueId}`}
-                                                            className="text-[10px] text-indigo-600 hover:underline font-bold uppercase"
+                                                            className="text-[10px] text-blue-600 hover:text-blue-700 font-bold uppercase tracking-wider"
                                                         >
                                                             View Issue →
                                                         </Link>
                                                     )}
                                                 </td>
-                                                <td className="p-4 text-center">
+                                                <td className="p-4 text-right">
                                                     {log.status === 'sent' ? (
-                                                        <NeoBadge variant="success" size="sm" className="border border-black">
-                                                            Sent
+                                                        <NeoBadge variant="success" size="sm" className="border-none shadow-none rounded-full px-2.5">
+                                                            Delivered
                                                         </NeoBadge>
                                                     ) : log.status === 'failed' ? (
                                                         <span title={log.errorMessage || 'Email delivery failed'}>
-                                                            <NeoBadge variant="danger" size="sm" className="border border-black">
+                                                            <NeoBadge variant="danger" size="sm" className="border-none shadow-none rounded-full px-2.5">
                                                                 Failed
                                                             </NeoBadge>
                                                         </span>
                                                     ) : (
-                                                        <NeoBadge variant="warning" size="sm" className="border border-black">
+                                                        <NeoBadge variant="warning" size="sm" className="border-none shadow-none rounded-full px-2.5">
                                                             Bounced
                                                         </NeoBadge>
                                                     )}
@@ -706,9 +696,9 @@ export const AlertEmails: React.FC = () => {
 
                     {/* Pagination */}
                     {emailLogPagination.totalPages > 1 && (
-                        <div className="px-6 py-4 border-t-2 border-black bg-slate-50 flex items-center justify-between">
-                            <div className="text-xs font-bold text-slate-500 uppercase">
-                                Page {emailLogPagination.page} of {emailLogPagination.totalPages} • {emailLogPagination.total} total emails
+                        <div className="px-6 py-4 border-t border-slate-100 flex items-center justify-between">
+                            <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                                Page {emailLogPagination.page} / {emailLogPagination.totalPages} • Total: {emailLogPagination.total}
                             </div>
                             <div className="flex items-center gap-2">
                                 <NeoButton
@@ -716,16 +706,18 @@ export const AlertEmails: React.FC = () => {
                                     variant="secondary"
                                     onClick={() => loadEmailLogs(emailLogPagination.page - 1)}
                                     disabled={emailLogPagination.page <= 1}
-                                    leftIcon={<ChevronLeft className="w-4 h-4" />}
+                                    leftIcon={<ChevronLeft className="w-3.5 h-3.5" />}
+                                    className="h-8 text-[10px] rounded-lg border-slate-200 shadow-none px-3"
                                 >
-                                    Prev
+                                    Previous
                                 </NeoButton>
                                 <NeoButton
                                     size="sm"
                                     variant="secondary"
                                     onClick={() => loadEmailLogs(emailLogPagination.page + 1)}
                                     disabled={emailLogPagination.page >= emailLogPagination.totalPages}
-                                    rightIcon={<ChevronRight className="w-4 h-4" />}
+                                    rightIcon={<ChevronRight className="w-3.5 h-3.5" />}
+                                    className="h-8 text-[10px] rounded-lg border-slate-200 shadow-none px-3"
                                 >
                                     Next
                                 </NeoButton>

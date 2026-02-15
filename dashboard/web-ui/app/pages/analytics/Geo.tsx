@@ -9,6 +9,7 @@ import {
     Zap,
 } from 'lucide-react';
 import { useSessionData } from '../../context/SessionContext';
+import { DashboardPageHeader } from '../../components/ui/DashboardPageHeader';
 import {
     getApiLatencyByLocation,
     getGeoIssues,
@@ -412,18 +413,16 @@ export const Geo: React.FC = () => {
     }, [issues, selectedRegion, selectedIssueType]);
 
     return (
-        <div className="min-h-screen bg-gradient-to-b from-slate-50 via-white to-slate-100/70">
-            <div className="sticky top-0 z-30 border-b border-slate-200 bg-white/95 backdrop-blur">
-                <div className="mx-auto flex w-full max-w-[1600px] flex-col gap-4 px-6 py-4 md:flex-row md:items-center md:justify-between">
-                    <div>
-                        <div className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Geographic</div>
-                        <h1 className="mt-1 text-2xl font-semibold text-slate-900">Geographic Reliability Intelligence</h1>
-                        <p className="mt-1 text-sm text-slate-600">
-                            Color shows issue rate, bubble size shows active users, and the impact list ranks where fixes matter most.
-                        </p>
-                    </div>
+        <div className="min-h-screen bg-slate-50 font-sans text-slate-900">
+            <div className="sticky top-0 z-30 bg-white">
+                <DashboardPageHeader
+                    title="Geographic Reliability Intelligence"
+                    subtitle="Visualize regional performance and user impact"
+                    icon={<Globe className="w-6 h-6" />}
+                    iconColor="bg-blue-600"
+                >
                     <TimeFilter value={timeRange} onChange={setTimeRange} />
-                </div>
+                </DashboardPageHeader>
             </div>
 
             <div className="mx-auto w-full max-w-[1600px] space-y-6 px-6 py-6">

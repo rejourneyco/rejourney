@@ -639,6 +639,15 @@ export interface ApiProject {
   sessionsTotal?: number;
   sessionsLast7Days?: number;
   errorsLast7Days?: number;
+  errorsTotal?: number;
+  crashesTotal?: number;
+  anrsTotal?: number;
+  avgUxScoreAllTime?: number;
+  apiErrorsTotal?: number;
+  apiTotalCount?: number;
+  rageTapTotal?: number;
+  healthScore?: number;
+  healthLevel?: 'excellent' | 'good' | 'fair' | 'critical';
   createdAt: string;
   updatedAt?: string;
 }
@@ -788,6 +797,32 @@ export interface TeamBillingDashboard {
     selfHosted: boolean;
   };
   projectCount: number;
+}
+
+// =============================================================================
+// Warehouse Alerting API
+// =============================================================================
+
+export interface AlertRecipient {
+  id: string;
+  email: string;
+  displayName: string | null;
+  avatarUrl: string | null;
+}
+
+export interface AlertConnection {
+  projectId: string;
+  recipientId: string;
+}
+
+export interface WarehouseAlertingData {
+  recipients: AlertRecipient[];
+  connections: AlertConnection[];
+  projectStatuses: Record<string, { enabled: boolean; hasActiveAlert: boolean }>;
+}
+
+export async function getWarehouseAlerting(): Promise<WarehouseAlertingData> {
+  return fetchJson<WarehouseAlertingData>('/api/analytics/warehouse-alerting');
 }
 
 /**
@@ -1493,7 +1528,7 @@ export async function getFrictionHeatmap(projectId?: string, timeRange?: string)
   const params = new URLSearchParams();
   if (projectId) params.set('projectId', projectId);
   if (timeRange) params.set('timeRange', timeRange);
-  
+
   return fetchWithCache<FrictionHeatmap>(`/api/insights/friction-heatmap?${params.toString()}`);
 }
 
@@ -1518,6 +1553,11 @@ export interface ApiLatencyByLocationResponse {
  * Get API latency aggregated by geographic location
  */
 export async function getApiLatencyByLocation(projectId?: string, timeRange?: string): Promise<ApiLatencyByLocationResponse> {
+  // Demo mode: return mock data
+  if (isDemoMode()) {
+    return demoApiData.demoApiLatencyByLocation;
+  }
+
   const params = new URLSearchParams();
   if (projectId) params.set('projectId', projectId);
   if (timeRange) params.set('timeRange', timeRange);
@@ -1591,7 +1631,7 @@ export interface IssueDetail extends Issue {
 export async function getIssue(issueId: string): Promise<IssueDetail> {
   if (isDemoMode()) {
     // Return a mock issue detail from demo data
-    const issue = demoApiData.demoIssuesResponse.issues.find(i => i.id === issueId) 
+    const issue = demoApiData.demoIssuesResponse.issues.find(i => i.id === issueId)
       || demoApiData.demoIssuesResponse.issues[0];
     return {
       ...issue,
@@ -2023,21 +2063,21 @@ export interface GeoIssueCountry {
   issueRate: number;
 }
 
- export interface GeoIssuesSummary {
-   locations: GeoIssueLocation[];
-   countries: GeoIssueCountry[];
-   summary: {
-     totalIssues: number;
-     byType: {
-       crashes: number;
-       anrs: number;
-       errors: number;
-       rageTaps: number;
-       apiErrors: number;
-     };
-   };
- }
- 
+export interface GeoIssuesSummary {
+  locations: GeoIssueLocation[];
+  countries: GeoIssueCountry[];
+  summary: {
+    totalIssues: number;
+    byType: {
+      crashes: number;
+      anrs: number;
+      errors: number;
+      rageTaps: number;
+      apiErrors: number;
+    };
+  };
+}
+
 /**
  * Get geo issues summary
  */

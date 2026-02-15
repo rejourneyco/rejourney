@@ -286,10 +286,9 @@
 
 /* Unified dashboard shell theme */
 .dashboard-shell {
-  background:
-    radial-gradient(1100px 560px at 88% -10%, rgba(148, 163, 184, 0.08), transparent 70%),
-    radial-gradient(920px 460px at -8% 108%, rgba(148, 163, 184, 0.06), transparent 64%),
-    #f3f5f9;
+  background-color: #f8fafc;
+  background-image: radial-gradient(#cbd5e1 1px, transparent 1px);
+  background-size: 24px 24px;
 }
 
 .dashboard-content {
@@ -297,15 +296,19 @@
 }
 
 .dashboard-sidebar {
-  background:
-    linear-gradient(180deg, #1d2735 0%, #243448 50%, #2a3d53 100%);
-  color: #cbd5e1;
-  border-right: 1px solid #334155;
-  box-shadow: inset -1px 0 0 rgba(148, 163, 184, 0.14), 8px 0 20px rgba(2, 6, 23, 0.24);
+  border-right: 1px solid #1e293b;
+  background: #0f172a !important;
+  /* Premium Dark Background (Slate-900) */
+  color: #f8fafc !important;
+}
+
+.dashboard-sidebar a {
+  transition: all 0.2s ease;
 }
 
 .dashboard-topbar {
-  box-shadow: 0 1px 0 rgba(203, 225, 245, 0.85), 0 5px 14px rgba(30, 64, 175, 0.03);
+  border-bottom: 1px solid #e2e8f0 !important;
+  background: #fff !important;
 }
 
 /* Logo-aligned blue accents for a lightweight premium feel */
@@ -340,54 +343,82 @@
 /* Dashboard-wide style normalization:
    Softens older neo-brutal utility styling without rewriting every page. */
 .dashboard-modern {
-  --dashboard-border-soft: rgb(203 213 225);
-  --dashboard-shadow-soft: 0 1px 2px rgba(15, 23, 42, 0.08), 0 8px 20px rgba(15, 23, 42, 0.04);
+  --dashboard-border-soft: #000000;
+  --dashboard-shadow-soft: 4px 4px 0px 0px rgba(0, 0, 0, 1);
 }
 
 .dashboard-modern .rounded-xl.border.bg-white,
-.dashboard-modern .rounded-lg.border.bg-white {
-  border-color: #e2e8f0 !important;
-  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06), 0 6px 14px rgba(15, 23, 42, 0.03) !important;
+.dashboard-modern .rounded-lg.border.bg-white,
+.dashboard-modern .rounded-md.border.bg-white,
+.dashboard-modern .card {
+  border: 2px solid #000 !important;
+  box-shadow: 4px 4px 0px 0px rgba(0, 0, 0, 1) !important;
+  border-radius: 8px !important;
+  transition: all 0.2s ease-in-out;
 }
 
-.dashboard-modern .rounded-xl.border.bg-emerald-50,
-.dashboard-modern .rounded-xl.border.bg-emerald-50\/70,
-.dashboard-modern .rounded-xl.border.bg-blue-50,
-.dashboard-modern .rounded-xl.border.bg-blue-50\/60,
-.dashboard-modern .rounded-lg.border.bg-slate-50,
-.dashboard-modern .rounded-lg.border.bg-slate-50\/60,
-.dashboard-modern .rounded-lg.border.bg-slate-50\/70 {
-  background-color: #ffffff !important;
+.dashboard-modern .rounded-xl.border.bg-white:hover,
+.dashboard-modern .rounded-lg.border.bg-white:hover,
+.dashboard-modern .card:hover {
+  transform: translate(-2px, -2px);
+  box-shadow: 6px 6px 0px 0px rgba(0, 0, 0, 1) !important;
 }
 
-.dashboard-modern [class*="border-black"] {
-  border-color: var(--dashboard-border-soft) !important;
+.dashboard-modern [class*="bg-blue-600"] {
+  background-color: #3b82f6 !important;
+  /* Revert to standard vibrant blue or custom */
+  border: 2px solid #000 !important;
+  box-shadow: 2px 2px 0px 0px rgba(0, 0, 0, 1);
 }
 
-.dashboard-modern [class*="border-4"],
-.dashboard-modern [class*="border-2"] {
-  border-width: 1px !important;
+.dashboard-modern [class*="bg-blue-600"]:hover {
+  background-color: #2563eb !important;
+  box-shadow: 4px 4px 0px 0px rgba(0, 0, 0, 1);
+  transform: translate(-1px, -1px);
 }
 
-.dashboard-modern [class*="shadow-["],
-.dashboard-modern [class*="shadow-sm"],
-.dashboard-modern [class*="shadow-md"],
-.dashboard-modern [class*="shadow-lg"],
-.dashboard-modern [class*="shadow-xl"] {
-  box-shadow: var(--dashboard-shadow-soft) !important;
+/* Force borders on inputs */
+.dashboard-modern input,
+.dashboard-modern select,
+.dashboard-modern textarea {
+  border: 2px solid #000 !important;
+  border-radius: 6px !important;
+  box-shadow: 2px 2px 0px 0px rgba(0, 0, 0, 0.1);
 }
 
-.dashboard-modern [class*="font-black"] {
+.dashboard-modern input:focus,
+.dashboard-modern select:focus,
+.dashboard-modern textarea:focus {
+  outline: none;
+  box-shadow: 4px 4px 0px 0px rgba(0, 0, 0, 1) !important;
+  transform: translate(-1px, -1px);
+}
+
+/* Buttons inside dashboard */
+.dashboard-modern button.bg-primary,
+.dashboard-modern button.bg-black,
+.dashboard-modern button.text-white {
+  border: 2px solid #000 !important;
+  box-shadow: 3px 3px 0px 0px rgba(0, 0, 0, 1);
   font-weight: 700 !important;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
 }
 
-.dashboard-modern [class*="uppercase"] {
-  text-transform: none !important;
+.dashboard-modern button:active {
+  transform: translate(2px, 2px);
+  box-shadow: 1px 1px 0px 0px rgba(0, 0, 0, 1) !important;
 }
 
-.dashboard-modern [class*="tracking-widest"],
-.dashboard-modern [class*="tracking-wide"],
-.dashboard-modern [class*="tracking-tighter"],
-.dashboard-modern [class*="tracking-tight"] {
-  letter-spacing: normal !important;
+.dashboard-modern [class*="border"] {
+  border-color: #000;
+}
+
+/* Ensure shadows are hard */
+.dashboard-modern .shadow-sm,
+.dashboard-modern .shadow-md,
+.dashboard-modern .shadow-lg,
+.dashboard-modern .shadow-xl,
+.dashboard-modern .shadow-2xl {
+  box-shadow: 4px 4px 0px 0px rgba(0, 0, 0, 1) !important;
 }

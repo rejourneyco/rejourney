@@ -9,11 +9,11 @@ import { Hero } from "~/components/landing/Hero";
 import { TrustBanners } from "~/components/landing/TrustBanners";
 import { Header } from "~/components/layout/Header";
 import { Footer } from "~/components/layout/Footer";
-import { ComparisonTable } from "~/components/landing/ComparisonTable";
 import { EngineeringCTA } from "~/components/landing/EngineeringCTA";
 import { EmbeddedDemoWindow } from "~/components/landing/EmbeddedDemoWindow";
 import { PerformanceMetrics } from "~/components/landing/PerformanceMetrics";
 import { Features } from "~/components/landing/Features";
+import { PromotionLogicGraphic } from "~/components/recordings/PromotionLogicGraphic";
 
 export const meta: Route.MetaFunction = () => [
     { title: "Rejourney: Open Source React Native Sentry Alternative" },
@@ -36,7 +36,7 @@ export default function LandingPage() {
                 <EmbeddedDemoWindow />
                 <Features />
                 <PerformanceMetrics />
-                <ComparisonTable />
+                <PromotionLogicGraphic mode="inline" />
                 <EngineeringCTA />
             </main>
             <Footer />

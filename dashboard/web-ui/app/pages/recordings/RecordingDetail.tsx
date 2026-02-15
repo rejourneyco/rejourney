@@ -338,44 +338,13 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
       const data = await api.getSession(id);
       setFullSession(data as any);
 
-      // Log S3 size information for debugging
-      const stats = (data as any).stats;
-      if (stats) {
-        const totalMB = (parseFloat(stats.totalSizeKB || '0') / 1024).toFixed(2);
-        const eventsMB = (parseFloat(stats.eventsSizeKB || '0') / 1024).toFixed(2);
-        const screenshotMB = (parseFloat(stats.screenshotSizeKB || '0') / 1024).toFixed(2);
-        const hierarchyMB = (parseFloat(stats.hierarchySizeKB || '0') / 1024).toFixed(2);
-        const networkMB = (parseFloat(stats.networkSizeKB || '0') / 1024).toFixed(2);
 
-        console.log(
-          `[SESSION S3 SIZE] Session ${id}: Total=${totalMB}MB ` +
-          `(events=${eventsMB}MB, network=${networkMB}MB, hierarchy=${hierarchyMB}MB, screenshots=${screenshotMB}MB)`
-        );
-      }
 
-      // DEBUG: Log events received from backend to diagnose Android touch overlay issues
+      // Process events for playback
       const allEvents = (data as any).events || [];
       const gestureEvents = allEvents.filter((e: any) => e.type === 'touch' || e.type === 'gesture');
-      console.log('[SESSION FETCH DEBUG] Total events:', allEvents.length);
-      console.log('[SESSION FETCH DEBUG] Gesture/touch events:', gestureEvents.length);
-      console.log('[SESSION FETCH DEBUG] Platform:', (data as any).platform, '| Device:', (data as any).deviceInfo);
-      console.log('[SESSION FETCH DEBUG] Hierarchy snapshots:', ((data as any).hierarchySnapshots || []).length);
 
-      // DEBUG: Log screenshot frames and playback mode for iOS replay debugging
-      console.log('[SESSION FETCH DEBUG] Playback mode:', (data as any).playbackMode);
-      console.log('[SESSION FETCH DEBUG] Screenshot frames:', ((data as any).screenshotFrames || []).length);
-      if ((data as any).screenshotFrames?.length > 0) {
-        console.log('[SESSION FETCH DEBUG] First screenshot frame:', (data as any).screenshotFrames[0]);
-      }
 
-      if (gestureEvents.length > 0) {
-        console.log('[SESSION FETCH DEBUG] First gesture event:', JSON.stringify(gestureEvents[0], null, 2));
-        // Check if touches array exists
-        const withTouches = gestureEvents.filter((e: any) => (e.touches?.length > 0 || e.properties?.touches?.length > 0));
-        console.log('[SESSION FETCH DEBUG] Gesture events with touches array:', withTouches.length, 'of', gestureEvents.length);
-      } else {
-        console.log('[SESSION FETCH DEBUG] NO gesture events found! Event types present:', [...new Set(allEvents.map((e: any) => e.type))]);
-      }
 
       // Transform hierarchy snapshots for DOM Inspector
       // Data structure: hierarchySnapshots[].rootElement is an array, rootElement[0] contains { root, screen, screenName }
@@ -608,17 +577,7 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
       }
     });
 
-    // Log distribution for debugging
-    console.log('[DENSITY DEBUG]', {
-      durationSeconds,
-      bucketSize: bucketSize / 1000,
-      touchEventCount: touchEventTimes.length,
-      apiEventCount: apiEventTimes.length,
-      touchEventTimes: touchEventTimes.slice(0, 10),
-      apiEventTimes: apiEventTimes.slice(0, 10),
-      touchBucketDistribution: touchBuckets.map((v, i) => v > 0 ? `[${i}]:${v}` : null).filter(Boolean),
-      apiBucketDistribution: apiBuckets.map((v, i) => v > 0 ? `[${i}]:${v}` : null).filter(Boolean),
-    });
+    // Density buckets for visualization
 
     const maxTouch = Math.max(...touchBuckets, 1);
     const maxApi = Math.max(...apiBuckets, 1);
@@ -629,24 +588,6 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
     };
   }, [allTimelineEvents, durationSeconds, replayBaseTime]);
 
-  // DEBUG: Log timeline calculation values
-  useEffect(() => {
-    if (fullSession && allTimelineEvents.length > 0) {
-      const firstEvent = allTimelineEvents[0];
-      const lastEvent = allTimelineEvents[allTimelineEvents.length - 1];
-      console.log('[TIMELINE DEBUG]', {
-        durationSeconds,
-        replayBaseTime,
-        startTime: fullSession.startTime,
-        endTime: fullSession.endTime,
-        statsDuration: fullSession.stats?.duration,
-        firstEventTime: firstEvent?.timestamp,
-        lastEventTime: lastEvent?.timestamp,
-        firstEventRelative: firstEvent ? (firstEvent.timestamp - replayBaseTime) / 1000 : null,
-        lastEventRelative: lastEvent ? (lastEvent.timestamp - replayBaseTime) / 1000 : null,
-      });
-    }
-  }, [fullSession, allTimelineEvents, durationSeconds, replayBaseTime]);
 
   // Screenshot frames (primary playback mode for iOS)
   // Normalize timestamps to be relative to session start time
@@ -668,14 +609,11 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
   // Determine playback mode
   const playbackMode = useMemo(() => {
     if (fullSession?.playbackMode === 'screenshots' && screenshotFrames.length > 0) {
-      console.log('[PLAYBACK] Mode: screenshots (from server)', screenshotFrames.length, 'frames');
       return 'screenshots' as const;
     }
     if (screenshotFrames.length > 0) {
-      console.log('[PLAYBACK] Mode: screenshots (auto-detect)', screenshotFrames.length, 'frames');
       return 'screenshots' as const;
     }
-    console.log('[PLAYBACK] Mode: none (no recording data)');
     return 'none' as const;
   }, [fullSession?.playbackMode, screenshotFrames]);
 
@@ -723,7 +661,6 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
       if (maxX > 100 && maxY > 100) {
         const estimatedWidth = Math.ceil(maxX * 1.1);
         const estimatedHeight = Math.ceil(maxY * 1.1);
-        console.log(`[TOUCH OVERLAY] Estimated screen size from touch coords: ${estimatedWidth}x${estimatedHeight}`);
         return { width: estimatedWidth, height: estimatedHeight };
       }
     }
@@ -856,7 +793,7 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
     const firstFrameRelativeTime = (screenshotFrames[0].timestamp - fullSession.startTime) / 1000;
     // Only initialize if we haven't moved from the default 0 yet
     if (currentPlaybackTime === 0 && currentFrameIndex === 0) {
-      console.log('[SCREENSHOT] Initializing playback time to first frame:', firstFrameRelativeTime);
+
       setCurrentPlaybackTime(Math.max(0, firstFrameRelativeTime));
     }
   }, [playbackMode, screenshotFrames, fullSession?.startTime, currentPlaybackTime, currentFrameIndex]);
@@ -869,7 +806,7 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
 
     // Preload first 20 frames immediately
     const preloadCount = Math.min(20, screenshotFrames.length);
-    console.log('[SCREENSHOT] Preloading first', preloadCount, 'frames');
+
     for (let i = 0; i < preloadCount; i++) {
       const frame = screenshotFrames[i];
       if (!cache.has(frame.url)) {
@@ -1058,7 +995,7 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
       const img = new Image();
       img.crossOrigin = 'anonymous'; // Enable CORS for S3 presigned URLs
       img.onload = () => {
-        console.log('[SCREENSHOT] Frame loaded:', currentFrameIndex, 'size:', img.naturalWidth, 'x', img.naturalHeight);
+
         ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
         cache.set(frame.url, img);
       };

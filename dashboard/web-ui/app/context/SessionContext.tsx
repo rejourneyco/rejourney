@@ -145,8 +145,8 @@ export function SessionDataProvider({ children }: Props) {
     }
   }, [demoMode.isDemoMode, demoMode.demoSessions, demoMode.demoProjects, demoMode.demoDailyStats, demoMode.demoDashboardStats]);
 
-  // Track if we're currently fetching to prevent duplicate calls
-  const isFetchingRef = React.useRef(false);
+  // Request guard to avoid stale responses overwriting state after team/project switches.
+  const latestRequestIdRef = React.useRef(0);
 
   // Fetch sessions from API (skip in demo mode)
   const fetchSessions = useCallback(async (options: { silent?: boolean } = {}) => {
@@ -155,11 +155,8 @@ export function SessionDataProvider({ children }: Props) {
       return;
     }
 
-    // Prevent duplicate concurrent fetches
-    if (isFetchingRef.current && !options.silent) {
-      return;
-    }
-    isFetchingRef.current = true;
+    const requestId = ++latestRequestIdRef.current;
+    const isStale = () => latestRequestIdRef.current !== requestId;
 
     try {
       if (!options.silent) {
@@ -176,6 +173,8 @@ export function SessionDataProvider({ children }: Props) {
         getProjects(),
         api.getInsightsTrends(undefined, timeRange)
       ]);
+
+      if (isStale()) return;
 
       // Collect partial errors for display without blocking what succeeded
       const partialErrors: string[] = [];
@@ -205,8 +204,6 @@ export function SessionDataProvider({ children }: Props) {
         ? apiSessions.filter(s => teamProjectIds.has((s as any).projectId || (s as any).appId))
         : apiSessions;
 
-
-
       // Convert trends to ProjectDailyStats
       const convertedDailyStats: ProjectDailyStats[] = (trends.daily || []).map(day => ({
         projectId: 'aggregate', // Trends are often aggregated
@@ -224,6 +221,8 @@ export function SessionDataProvider({ children }: Props) {
       }));
 
       setSessions(filteredSessions);
+      setDailyStats(convertedDailyStats);
+
       const convertedProjects = teamProjects.map(apiProjectToProject);
       setProjects(convertedProjects);
       setDashboardStats({
@@ -249,12 +248,12 @@ export function SessionDataProvider({ children }: Props) {
         localStorage.removeItem(selectedProjectStorageKey(currentTeam?.id));
       }
     } catch (err) {
+      if (isStale()) return;
       console.error('Failed to fetch sessions:', err);
       setError(err instanceof Error ? err.message : 'Failed to load sessions');
       // Don't clear sessions/projects on error - keep showing stale data
     } finally {
-      isFetchingRef.current = false;
-      if (!options.silent) {
+      if (!options.silent && !isStale()) {
         setIsLoading(false);
       }
     }

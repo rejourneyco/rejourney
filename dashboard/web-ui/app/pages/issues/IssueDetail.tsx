@@ -20,6 +20,7 @@ import {
     ExternalLink,
     Download
 } from 'lucide-react';
+import { PageHeader } from '../../components/layout/PageHeader';
 import { api, IssueDetail as IssueDetailType } from '../../services/api';
 import { IssueSession } from '../../types';
 import { NeoButton } from '../../components/ui/neo/NeoButton';
@@ -147,45 +148,41 @@ export const IssueDetail: React.FC = () => {
                     <ArrowLeft className="w-4 h-4" /> Back to Issues
                 </button>
 
-                {/* Header */}
-                <div className="bg-white border-2 border-black p-8 shadow-[8px_8px_0_0_rgba(0,0,0,1)]">
-                    <div className="flex flex-col md:flex-row md:items-start justify-between gap-6">
-                        <div className="flex items-start gap-6">
-                            <div className={`w-16 h-16 ${getIssueTypeColor(issue.issueType)} text-white border-2 border-black flex items-center justify-center shrink-0 shadow-[4px_4px_0_0_rgba(0,0,0,1)]`}>
-                                {getIssueTypeIcon(issue.issueType)}
-                            </div>
-                            <div>
-                                <div className="flex items-center gap-3 mb-2 flex-wrap">
-                                    <h1 className="text-3xl md:text-4xl font-black uppercase text-slate-900 tracking-tight leading-none">
-                                        {issue.title}
-                                    </h1>
-                                    <NeoBadge variant={issue.status === 'resolved' ? 'success' : issue.status === 'ongoing' ? 'warning' : 'danger'}>
-                                        {issue.status}
-                                    </NeoBadge>
-                                </div>
-                                {issue.subtitle && (
-                                    <p className="text-lg md:text-xl font-bold text-slate-600 font-mono border-l-4 border-slate-200 pl-4 py-1">
-                                        {issue.subtitle}
-                                    </p>
-                                )}
-                                {issue.shortId && (
-                                    <p className="text-sm font-mono text-slate-500 mt-2">{issue.shortId}</p>
-                                )}
-                            </div>
-                        </div>
 
-                        {issue.sampleSessionId && (
-                            <div className="flex flex-col items-end gap-3 shrink-0">
-                                <button
-                                    onClick={() => navigate(`${pathPrefix}/sessions/${issue.sampleSessionId}`)}
-                                    className="flex items-center gap-2 px-6 py-3 bg-black text-white font-black uppercase hover:bg-slate-800 transition-colors shadow-[4px_4px_0_0_rgba(200,200,200,1)] hover:shadow-[4px_4px_0_0_rgba(0,0,0,0)] hover:translate-x-[2px] hover:translate-y-[2px]"
-                                >
-                                    <Play className="w-4 h-4" /> Replay Session
-                                </button>
-                            </div>
-                        )}
-                    </div>
-                </div>
+
+                {/* Header - Standardized */}
+                <PageHeader
+                    icon={
+                        issue.issueType === 'error' ? Bug :
+                            issue.issueType === 'crash' ? AlertOctagon :
+                                issue.issueType === 'anr' ? Clock :
+                                    issue.issueType === 'rage_tap' ? Activity :
+                                        AlertTriangle
+                    }
+                    title={issue.title}
+                    subtitle={issue.subtitle || issue.shortId || undefined}
+                    badge={{
+                        label: issue.status,
+                        variant: issue.status === 'resolved' ? 'success' : issue.status === 'ongoing' ? 'warning' : 'danger'
+                    }}
+                    actions={
+                        issue.sampleSessionId && (
+                            <button
+                                onClick={() => navigate(`${pathPrefix}/sessions/${issue.sampleSessionId}`)}
+                                className="flex items-center gap-2 px-4 py-2 bg-slate-900 text-white font-semibold rounded-md hover:bg-slate-800 transition-colors shadow-sm text-sm"
+                            >
+                                <Play className="w-4 h-4" /> Replay Session
+                            </button>
+                        )
+                    }
+                    iconClassName={
+                        issue.issueType === 'error' ? 'text-amber-500' :
+                            issue.issueType === 'crash' ? 'text-red-500' :
+                                issue.issueType === 'anr' ? 'text-purple-500' :
+                                    issue.issueType === 'rage_tap' ? 'text-pink-500' :
+                                        'text-slate-500'
+                    }
+                />
 
                 {/* Stats Grid */}
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
@@ -254,8 +251,8 @@ export const IssueDetail: React.FC = () => {
                             </div>
 
                             <div className={`mt-4 p-4 border-2 text-sm font-bold flex items-start gap-3 ${issue.issueType === 'crash' ? 'bg-amber-50 border-amber-200 text-amber-900' :
-                                    issue.issueType === 'error' ? 'bg-amber-50 border-amber-200 text-amber-900' :
-                                        'bg-purple-50 border-purple-200 text-purple-900'
+                                issue.issueType === 'error' ? 'bg-amber-50 border-amber-200 text-amber-900' :
+                                    'bg-purple-50 border-purple-200 text-purple-900'
                                 }`}>
                                 <AlertOctagon className="w-5 h-5 shrink-0 mt-0.5" />
                                 <p>

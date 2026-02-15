@@ -161,6 +161,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
 import { AuthProvider } from "./context/AuthContext";
 import { TeamProvider } from "./context/TeamContext";
 import { ToastProvider } from "./context/ToastContext";
+import { ClarityConsentBanner } from "~/components/compliance/ClarityConsentBanner";
 
 export default function App() {
     return (
@@ -168,6 +169,7 @@ export default function App() {
             <TeamProvider>
                 <ToastProvider>
                     <Outlet />
+                    <ClarityConsentBanner />
                 </ToastProvider>
             </TeamProvider>
         </AuthProvider>

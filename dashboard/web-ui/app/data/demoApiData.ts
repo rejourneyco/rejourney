@@ -14,6 +14,7 @@ import {
     JourneySummary,
     UserSegmentsSummary,
     RegionPerformance,
+    ApiLatencyByLocationResponse,
     TeamUsage,
     FrictionHeatmap,
     ObservabilityJourneySummary,
@@ -90,6 +91,23 @@ export const demoApiEndpointStats: ApiEndpointStats = {
         totalCalls: 191844,
         avgLatency: 312,
         errorRate: 1.8,
+    },
+};
+
+export const demoApiLatencyByLocation: ApiLatencyByLocationResponse = {
+    regions: [
+        { country: 'United States', totalRequests: 156789, avgLatencyMs: 134, successRate: 98.8, errorCount: 1881 },
+        { country: 'United Kingdom', totalRequests: 45678, avgLatencyMs: 178, successRate: 98.2, errorCount: 822 },
+        { country: 'Germany', totalRequests: 34567, avgLatencyMs: 156, successRate: 98.6, errorCount: 484 },
+        { country: 'Japan', totalRequests: 23456, avgLatencyMs: 89, successRate: 99.2, errorCount: 188 },
+        { country: 'Canada', totalRequests: 23456, avgLatencyMs: 189, successRate: 98.1, errorCount: 446 },
+        { country: 'Australia', totalRequests: 18765, avgLatencyMs: 298, successRate: 97.4, errorCount: 488 },
+        { country: 'Brazil', totalRequests: 15678, avgLatencyMs: 387, successRate: 96.8, errorCount: 502 },
+        { country: 'India', totalRequests: 12345, avgLatencyMs: 456, successRate: 95.9, errorCount: 506 },
+    ],
+    summary: {
+        avgLatency: 221,
+        totalRequests: 330734,
     },
 };
 
