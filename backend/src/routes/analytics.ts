@@ -6,8 +6,8 @@
  */
 
 import { Router } from 'express';
-import { eq, gte, lte, and, asc, inArray, sql, desc, isNotNull } from 'drizzle-orm';
-import { db, appDailyStats, projects, teamMembers, appAllTimeStats, sessions, sessionMetrics, crashes, anrs, errors, projectFunnelStats } from '../db/client.js';
+import { eq, gte, lte, and, asc, inArray, sql, desc, isNotNull, gt, isNull } from 'drizzle-orm';
+import { db, appDailyStats, projects, teamMembers, appAllTimeStats, sessions, sessionMetrics, crashes, anrs, errors, projectFunnelStats, alertSettings, alertRecipients, users } from '../db/client.js';
 import { getRedis } from '../db/redis.js';
 import { logger } from '../logger.js';
 import { asyncHandler, ApiError } from '../middleware/index.js';
@@ -33,6 +33,96 @@ function percentile(values: number[], p: number): number | null {
     const normalizedIndex = Math.max(0, Math.min(index, sorted.length - 1));
     return Math.round(sorted[normalizedIndex]);
 }
+
+/**
+ * Get warehouse alerting data (recipients, connections, project statuses) for the data warehouse UI
+ * GET /api/analytics/warehouse-alerting
+ */
+router.get(
+    '/warehouse-alerting',
+    sessionAuth,
+    asyncHandler(async (req, res) => {
+        const userId = req.user!.id;
+
+        const membership = await db
+            .select({ teamId: teamMembers.teamId })
+            .from(teamMembers)
+            .where(eq(teamMembers.userId, userId));
+
+        const teamIds = membership.map((m) => m.teamId);
+        if (teamIds.length === 0) {
+            res.json({ recipients: [], connections: [], projectStatuses: {} });
+            return;
+        }
+
+        const accessibleProjects = await db
+            .select({ id: projects.id })
+            .from(projects)
+            .where(and(inArray(projects.teamId, teamIds), isNull(projects.deletedAt)));
+
+        const projectIds = accessibleProjects.map((p) => p.id);
+        if (projectIds.length === 0) {
+            res.json({ recipients: [], connections: [], projectStatuses: {} });
+            return;
+        }
+
+        const recipientsRows = await db
+            .select({
+                userId: alertRecipients.userId,
+                projectId: alertRecipients.projectId,
+                email: users.email,
+                displayName: users.displayName,
+                avatarUrl: users.avatarUrl,
+            })
+            .from(alertRecipients)
+            .innerJoin(users, eq(alertRecipients.userId, users.id))
+            .where(inArray(alertRecipients.projectId, projectIds));
+
+        const recipientMap = new Map<string, { id: string; email: string; displayName: string | null; avatarUrl: string | null }>();
+        const connections: { projectId: string; recipientId: string }[] = [];
+
+        for (const row of recipientsRows) {
+            recipientMap.set(row.userId, {
+                id: row.userId,
+                email: row.email ?? '',
+                displayName: row.displayName ?? null,
+                avatarUrl: row.avatarUrl ?? null,
+            });
+            connections.push({ projectId: row.projectId, recipientId: row.userId });
+        }
+
+        const recipients = Array.from(recipientMap.values());
+
+        const settingsRows = await db
+            .select({
+                projectId: alertSettings.projectId,
+                crashAlertsEnabled: alertSettings.crashAlertsEnabled,
+                anrAlertsEnabled: alertSettings.anrAlertsEnabled,
+                errorSpikeAlertsEnabled: alertSettings.errorSpikeAlertsEnabled,
+                apiDegradationAlertsEnabled: alertSettings.apiDegradationAlertsEnabled,
+            })
+            .from(alertSettings)
+            .where(inArray(alertSettings.projectId, projectIds));
+
+        const projectStatuses: Record<string, { enabled: boolean; hasActiveAlert: boolean }> = {};
+        const connectedProjectIds = new Set(connections.map((c) => c.projectId));
+
+        for (const projectId of projectIds) {
+            const settings = settingsRows.find((s) => s.projectId === projectId);
+            const hasRecipients = connectedProjectIds.has(projectId);
+            const anyAlertEnabled = settings
+                ? (settings.crashAlertsEnabled ?? false) ||
+                  (settings.anrAlertsEnabled ?? false) ||
+                  (settings.errorSpikeAlertsEnabled ?? false) ||
+                  (settings.apiDegradationAlertsEnabled ?? false)
+                : false;
+            const enabled = hasRecipients || anyAlertEnabled;
+            projectStatuses[projectId] = { enabled, hasActiveAlert: enabled };
+        }
+
+        res.json({ recipients, connections, projectStatuses });
+    })
+);
 
 /**
  * Get daily stats for a project
@@ -1172,14 +1262,14 @@ router.get(
         const platformCounts: Record<string, number> = {};
         let totalSessions = 0;
 
-        type IssueBreakdown = { crashes: number; anrs: number; errors: number };
+        type IssueBreakdown = { crashes: number; anrs: number; errors: number; rageTaps: number };
         const deviceIssues: Record<string, IssueBreakdown> = {};
         const osIssues: Record<string, IssueBreakdown> = {};
         const versionIssues: Record<string, IssueBreakdown> = {};
 
         const ensureIssueBucket = (map: Record<string, IssueBreakdown>, key: string): IssueBreakdown => {
             if (!map[key]) {
-                map[key] = { crashes: 0, anrs: 0, errors: 0 };
+                map[key] = { crashes: 0, anrs: 0, errors: 0, rageTaps: 0 };
             }
             return map[key];
         };
@@ -1296,6 +1386,29 @@ router.get(
             addIssueCount(row.appVersion, 'errors', c, versionIssues);
         }
 
+        // Aggregate Rage Taps
+        const rageWhere = [inArray(sessions.projectId, projectIds), gt(sessionMetrics.rageTapCount, 0)];
+        if (startTime) rageWhere.push(gte(sessions.startedAt, startTime));
+
+        const rageRows = await db
+            .select({
+                model: sql<string>`COALESCE(NULLIF(TRIM(${sessions.deviceModel}), ''), 'UNKNOWN')`,
+                osVersion: sql<string>`COALESCE(NULLIF(TRIM(${sessions.osVersion}), ''), 'UNKNOWN')`,
+                appVersion: sql<string>`COALESCE(NULLIF(TRIM(${sessions.appVersion}), ''), 'UNKNOWN')`,
+                count: sql<number>`sum(${sessionMetrics.rageTapCount})::int`,
+            })
+            .from(sessions)
+            .innerJoin(sessionMetrics, eq(sessions.id, sessionMetrics.sessionId))
+            .where(and(...rageWhere))
+            .groupBy(sessions.deviceModel, sessions.osVersion, sessions.appVersion);
+
+        for (const row of rageRows) {
+            const c = Number(row.count) || 0;
+            addIssueCount(row.model, 'rageTaps', c, deviceIssues);
+            addIssueCount(row.osVersion, 'rageTaps', c, osIssues);
+            addIssueCount(row.appVersion, 'rageTaps', c, versionIssues);
+        }
+
         // Transform to arrays. Session counts come from rollups, issue counts from raw tables.
         const deviceKeys = new Set([...Object.keys(deviceCounts), ...Object.keys(deviceIssues)]);
         const osKeys = new Set([...Object.keys(osCounts), ...Object.keys(osIssues)]);
@@ -1308,6 +1421,7 @@ router.get(
                 crashes: deviceIssues[model]?.crashes || 0,
                 anrs: deviceIssues[model]?.anrs || 0,
                 errors: deviceIssues[model]?.errors || 0,
+                rageTaps: deviceIssues[model]?.rageTaps || 0,
             }))
             .sort((a, b) => b.count - a.count)
             .slice(0, 50);
@@ -1319,6 +1433,7 @@ router.get(
                 crashes: versionIssues[version]?.crashes || 0,
                 anrs: versionIssues[version]?.anrs || 0,
                 errors: versionIssues[version]?.errors || 0,
+                rageTaps: versionIssues[version]?.rageTaps || 0,
             }))
             .sort((a, b) => b.count - a.count)
             .slice(0, 20);
@@ -1330,6 +1445,7 @@ router.get(
                 crashes: osIssues[version]?.crashes || 0,
                 anrs: osIssues[version]?.anrs || 0,
                 errors: osIssues[version]?.errors || 0,
+                rageTaps: osIssues[version]?.rageTaps || 0,
             }))
             .sort((a, b) => b.count - a.count)
             .slice(0, 20);
@@ -1344,6 +1460,135 @@ router.get(
 
         await redis.set(cacheKey, JSON.stringify(result), 'EX', CACHE_TTL);
         res.json(result);
+    })
+);
+
+/**
+ * Get device issues matrix (Device x Version impact)
+ * GET /api/analytics/device-issues-matrix
+ */
+router.get(
+    '/device-issues-matrix',
+    sessionAuth,
+    asyncHandler(async (req, res) => {
+        const { projectId, timeRange } = req.query;
+
+        if (!projectId || typeof projectId !== 'string') {
+            throw ApiError.badRequest('projectId is required');
+        }
+
+        // Verify access
+        const [project] = await db
+            .select({ teamId: projects.teamId })
+            .from(projects)
+            .where(eq(projects.id, projectId))
+            .limit(1);
+
+        if (!project) throw ApiError.notFound('Project not found');
+
+        const [membership] = await db
+            .select({ id: teamMembers.id })
+            .from(teamMembers)
+            .where(and(eq(teamMembers.teamId, project.teamId), eq(teamMembers.userId, req.user!.id)))
+            .limit(1);
+
+        if (!membership) throw ApiError.forbidden('Access denied');
+
+        // Check cache
+        const cacheKey = `analytics:device-matrix:${projectId}:${timeRange || 'all'}`;
+        const cached = await redis.get(cacheKey);
+        if (cached) {
+            res.json(JSON.parse(cached));
+            return;
+        }
+
+        // Date filter
+        let startDate: Date | undefined;
+        if (timeRange && timeRange !== 'all') {
+            const days = timeRange === '24h' ? 1 : timeRange === '7d' ? 7 : timeRange === '30d' ? 30 : timeRange === '90d' ? 90 : undefined;
+            if (days) {
+                startDate = new Date();
+                startDate.setDate(startDate.getDate() - days);
+            }
+        }
+
+        const conditions = [eq(sessions.projectId, projectId)];
+        if (startDate) {
+            conditions.push(gte(sessions.startedAt, startDate));
+        }
+
+        // Group by Device + AppVersion and sum up issues from sessionMetrics
+        // Limiting to meaningful sessions (e.g. at least 1)
+        const matrixData = await db
+            .select({
+                device: sql<string>`COALESCE(NULLIF(TRIM(${sessions.deviceModel}), ''), 'UNKNOWN')`,
+                version: sql<string>`COALESCE(NULLIF(TRIM(${sessions.appVersion}), ''), 'UNKNOWN')`,
+                sessions: sql<number>`count(*)::int`,
+                crashCount: sql<number>`sum(${sessionMetrics.crashCount})::int`,
+                anrCount: sql<number>`sum(${sessionMetrics.anrCount})::int`,
+                errorCount: sql<number>`sum(${sessionMetrics.errorCount})::int`,
+                rageTapCount: sql<number>`sum(${sessionMetrics.rageTapCount})::int`,
+            })
+            .from(sessions)
+            .innerJoin(sessionMetrics, eq(sessions.id, sessionMetrics.sessionId))
+            .where(and(...conditions))
+            .groupBy(sessions.deviceModel, sessions.appVersion)
+            .having(sql`count(*) > 0`);
+
+        // Post-process to find top devices and versions to prevent huge matrix
+        // We want Top 10-15 recent versions and Top 20-30 devices
+        const deviceTotals: Record<string, number> = {};
+        const versionTotals: Record<string, number> = {};
+
+        matrixData.forEach(row => {
+            const d = row.device;
+            const v = row.version;
+            deviceTotals[d] = (deviceTotals[d] || 0) + row.sessions;
+            versionTotals[v] = (versionTotals[v] || 0) + row.sessions;
+        });
+
+        const topDevices = Object.entries(deviceTotals)
+            .sort((a, b) => b[1] - a[1])
+            .slice(0, 30)
+            .map(e => e[0]);
+
+        const topVersions = Object.entries(versionTotals)
+            .sort((a, b) => b[1] - a[1]) // Sort by volume for now, ideally version semver
+            .slice(0, 15)
+            .map(e => e[0]);
+        // Re-sort versions alphanumerically or semantically if possible
+        topVersions.sort((a, b) => b.localeCompare(a, undefined, { numeric: true, sensitivity: 'base' }));
+
+        const topDevicesSet = new Set(topDevices);
+        const topVersionsSet = new Set(topVersions);
+
+        const filteredMatrix = matrixData
+            .filter(row => topDevicesSet.has(row.device) && topVersionsSet.has(row.version))
+            .map(row => {
+                const totalIssues = (row.crashCount || 0) + (row.anrCount || 0) + (row.errorCount || 0);
+                const issueRate = row.sessions > 0 ? totalIssues / row.sessions : 0;
+                return {
+                    device: row.device,
+                    version: row.version,
+                    sessions: row.sessions,
+                    issues: {
+                        crashes: row.crashCount || 0,
+                        anrs: row.anrCount || 0,
+                        errors: row.errorCount || 0,
+                        rageTaps: row.rageTapCount || 0,
+                    },
+                    issueRate: Number(issueRate.toFixed(4)),
+                };
+            });
+
+        const response = {
+            matrix: filteredMatrix,
+            devices: topDevices,
+            versions: topVersions,
+        };
+
+        await redis.set(cacheKey, JSON.stringify(response), 'EX', CACHE_TTL);
+        res.json(response);
     })
 );
 

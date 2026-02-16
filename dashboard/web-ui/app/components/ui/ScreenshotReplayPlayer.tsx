@@ -719,7 +719,7 @@ export const ScreenshotReplayPlayer = forwardRef<
         {/* Progress bar */}
         <div
           ref={progressRef}
-          className="relative h-2 bg-white/20 rounded cursor-pointer mb-3"
+          className="relative h-2 bg-white/50 rounded cursor-pointer mb-3"
           onMouseDown={handleProgressMouseDown}
         >
           {/* Progress fill */}

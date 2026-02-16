@@ -174,7 +174,7 @@ export const rateLimits = {
     dashboard: {
         perUser: { windowMs: 60_000, max: 1200 },
         perProject: { windowMs: 60_000, max: 2400 },
-        stats: { windowMs: 60_000, max: 300 },
+        stats: { windowMs: 120_000, max: 80 },
     },
     // Auth/OTP
     auth: {

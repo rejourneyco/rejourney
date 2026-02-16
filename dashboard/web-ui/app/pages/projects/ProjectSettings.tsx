@@ -308,7 +308,7 @@ export const ProjectSettings: React.FC<SettingsProps> = ({ projectId: propProjec
       setIsDeleting(true);
       setDeleteError(null);
 
-      await deleteProject(project.id);
+      await deleteProject(project.id, { confirmText: deleteConfirmText, otpCode: '' });
 
       // Refresh projects list
       await refreshSessions();

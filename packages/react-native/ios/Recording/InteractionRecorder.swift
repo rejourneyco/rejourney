@@ -311,6 +311,13 @@ private final class GestureAggregator: NSObject {
     }
     
     private func _resolveTarget(at point: CGPoint, in window: UIWindow) -> (label: String, isInteractive: Bool) {
+        // When a map view is visible, skip hitTest entirely — performing
+        // hitTest on a deep Metal/OpenGL map hierarchy is expensive and
+        // causes micro-stutter during pan/zoom gestures.
+        if SpecialCases.shared.mapVisible {
+            return ("map", false)
+        }
+        
         guard let hit = window.hitTest(point, with: nil) else { return ("window", false) }
         
         let label = hit.accessibilityIdentifier ?? hit.accessibilityLabel ?? String(describing: type(of: hit))

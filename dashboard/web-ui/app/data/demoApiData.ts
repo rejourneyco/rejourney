@@ -146,6 +146,7 @@ export const demoInsightsTrends: InsightsTrends = {
                 '2.2.8': Math.round(15 - i * 0.4 + Math.random() * 3), // Even older
                 '2.2.5': Math.round(5 + Math.random() * 2), // Long-tail users
             },
+            totalApiCalls: Math.round(baseSessions * (15 + Math.random() * 5)),
         };
     }),
 };
@@ -318,35 +319,35 @@ export const demoGeoIssues: GeoIssuesSummary = {
 
 export const demoDeviceSummary: DeviceSummary = {
     devices: [
-        { model: 'iPhone 15 Pro', count: 2341, crashes: 5, anrs: 2, errors: 12 },
-        { model: 'iPhone 14', count: 1876, crashes: 3, anrs: 1, errors: 8 },
-        { model: 'Samsung Galaxy S24', count: 1654, crashes: 12, anrs: 8, errors: 23 },
-        { model: 'Pixel 8 Pro', count: 987, crashes: 4, anrs: 3, errors: 9 },
-        { model: 'iPhone 15', count: 876, crashes: 2, anrs: 0, errors: 5 },
-        { model: 'iPhone 13', count: 765, crashes: 6, anrs: 2, errors: 11 },
-        { model: 'Samsung Galaxy S23', count: 654, crashes: 8, anrs: 5, errors: 15 },
-        { model: 'OnePlus 12', count: 543, crashes: 3, anrs: 2, errors: 7 },
-        { model: 'iPad Pro 12.9"', count: 432, crashes: 1, anrs: 0, errors: 3 },
-        { model: 'Pixel 7', count: 321, crashes: 2, anrs: 1, errors: 4 },
+        { model: 'iPhone 15 Pro', count: 2341, crashes: 5, anrs: 2, errors: 12, rageTaps: 45 },
+        { model: 'iPhone 14', count: 1876, crashes: 3, anrs: 1, errors: 8, rageTaps: 32 },
+        { model: 'Samsung Galaxy S24', count: 1654, crashes: 12, anrs: 8, errors: 23, rageTaps: 56 },
+        { model: 'Pixel 8 Pro', count: 987, crashes: 4, anrs: 3, errors: 9, rageTaps: 21 },
+        { model: 'iPhone 15', count: 876, crashes: 2, anrs: 0, errors: 5, rageTaps: 12 },
+        { model: 'iPhone 13', count: 765, crashes: 6, anrs: 2, errors: 11, rageTaps: 23 },
+        { model: 'Samsung Galaxy S23', count: 654, crashes: 8, anrs: 5, errors: 15, rageTaps: 34 },
+        { model: 'OnePlus 12', count: 543, crashes: 3, anrs: 2, errors: 7, rageTaps: 15 },
+        { model: 'iPad Pro 12.9"', count: 432, crashes: 1, anrs: 0, errors: 3, rageTaps: 5 },
+        { model: 'Pixel 7', count: 321, crashes: 2, anrs: 1, errors: 4, rageTaps: 8 },
     ],
     platforms: {
         ios: 7234,
         android: 5613,
     },
     appVersions: [
-        { version: '2.3.1', count: 5678, crashes: 8, anrs: 3, errors: 18 },
-        { version: '2.3.0', count: 4567, crashes: 15, anrs: 8, errors: 32 },
-        { version: '2.2.9', count: 1876, crashes: 12, anrs: 6, errors: 28 },
-        { version: '2.2.8', count: 543, crashes: 8, anrs: 4, errors: 15 },
-        { version: '2.2.5', count: 183, crashes: 3, anrs: 3, errors: 7 },
+        { version: '2.3.1', count: 5678, crashes: 8, anrs: 3, errors: 18, rageTaps: 45 },
+        { version: '2.3.0', count: 4567, crashes: 15, anrs: 8, errors: 32, rageTaps: 89 },
+        { version: '2.2.9', count: 1876, crashes: 12, anrs: 6, errors: 28, rageTaps: 34 },
+        { version: '2.2.8', count: 543, crashes: 8, anrs: 4, errors: 15, rageTaps: 12 },
+        { version: '2.2.5', count: 183, crashes: 3, anrs: 3, errors: 7, rageTaps: 5 },
     ],
     osVersions: [
-        { version: 'iOS 17.2', count: 3456, crashes: 4, anrs: 1, errors: 12 },
-        { version: 'iOS 17.1', count: 2345, crashes: 6, anrs: 2, errors: 15 },
-        { version: 'Android 14', count: 3987, crashes: 18, anrs: 12, errors: 35 },
-        { version: 'iOS 16.7', count: 1234, crashes: 8, anrs: 3, errors: 18 },
-        { version: 'Android 13', count: 1456, crashes: 10, anrs: 6, errors: 20 },
-        { version: 'iOS 17.0', count: 456, crashes: 2, anrs: 0, errors: 5 },
+        { version: 'iOS 17.2', count: 3456, crashes: 4, anrs: 1, errors: 12, rageTaps: 23 },
+        { version: 'iOS 17.1', count: 2345, crashes: 6, anrs: 2, errors: 15, rageTaps: 45 },
+        { version: 'Android 14', count: 3987, crashes: 18, anrs: 12, errors: 35, rageTaps: 89 },
+        { version: 'iOS 16.7', count: 1234, crashes: 8, anrs: 3, errors: 18, rageTaps: 34 },
+        { version: 'Android 13', count: 1456, crashes: 10, anrs: 6, errors: 20, rageTaps: 45 },
+        { version: 'iOS 17.0', count: 456, crashes: 2, anrs: 0, errors: 5, rageTaps: 12 },
     ],
     totalSessions: 12847,
 };

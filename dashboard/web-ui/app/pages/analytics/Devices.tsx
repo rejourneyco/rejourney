@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useSessionData } from '../../context/SessionContext';
-import { getDeviceSummary, getObservabilityDeepMetrics, DeviceSummary, ObservabilityDeepMetrics } from '../../services/api';
+import { getDeviceSummary, getObservabilityDeepMetrics, getDeviceIssueMatrix, DeviceSummary, ObservabilityDeepMetrics, DeviceIssueMatrix } from '../../services/api';
 import {
     Smartphone,
     Layers,
@@ -12,7 +12,8 @@ import {
     Hash,
     RefreshCw,
     Activity,
-    Terminal
+    Terminal,
+    LayoutGrid
 } from 'lucide-react';
 import { DashboardPageHeader } from '../../components/ui/DashboardPageHeader';
 import { TimeFilter, TimeRange, DEFAULT_TIME_RANGE } from '../../components/ui/TimeFilter';
@@ -20,7 +21,7 @@ import { NeoBadge } from '../../components/ui/neo/NeoBadge';
 import { NeoCard } from '../../components/ui/neo/NeoCard';
 import { NeoButton } from '../../components/ui/neo/NeoButton';
 
-type SortKey = 'count' | 'crashes' | 'anrs' | 'errors';
+type SortKey = 'count' | 'crashes' | 'anrs' | 'errors' | 'rageTaps';
 type SortDirection = 'asc' | 'desc';
 
 export const Devices: React.FC = () => {
@@ -28,6 +29,7 @@ export const Devices: React.FC = () => {
     const [timeRange, setTimeRange] = useState<TimeRange>(DEFAULT_TIME_RANGE);
     const [data, setData] = useState<DeviceSummary | null>(null);
     const [deepMetrics, setDeepMetrics] = useState<ObservabilityDeepMetrics | null>(null);
+    const [matrixData, setMatrixData] = useState<DeviceIssueMatrix | null>(null);
     const [isLoading, setIsLoading] = useState(true);
 
     // Sorting state for each section
@@ -52,11 +54,13 @@ export const Devices: React.FC = () => {
         Promise.all([
             getDeviceSummary(selectedProject.id, timeRange === 'all' ? 'max' : timeRange),
             getObservabilityDeepMetrics(selectedProject.id, observabilityRange),
+            getDeviceIssueMatrix(selectedProject.id, timeRange === 'all' ? 'max' : timeRange),
         ])
-            .then(([result, deep]) => {
+            .then(([result, deep, matrix]) => {
                 if (!cancelled) {
                     setData(result);
                     setDeepMetrics(deep);
+                    setMatrixData(matrix);
                     setIsLoading(false);
                 }
             })
@@ -64,6 +68,7 @@ export const Devices: React.FC = () => {
                 if (!cancelled) {
                     setData(null);
                     setDeepMetrics(null);
+                    setMatrixData(null);
                     setIsLoading(false);
                 }
             });
@@ -72,7 +77,7 @@ export const Devices: React.FC = () => {
     }, [timeRange, selectedProject?.id, observabilityRange]);
 
     // Sort helper
-    const sortItems = <T extends { count: number; crashes: number; anrs: number; errors: number }>(
+    const sortItems = <T extends { count: number; crashes: number; anrs: number; errors: number; rageTaps?: number }>(
         items: T[],
         { key, dir }: { key: SortKey; dir: SortDirection }
     ): T[] => {
@@ -174,6 +179,7 @@ export const Devices: React.FC = () => {
                                         <SortHead label="Crashes" sortKey="crashes" current={deviceSort} onToggle={(k) => toggleSort(deviceSort, k, setDeviceSort)} />
                                         <SortHead label="ANRs" sortKey="anrs" current={deviceSort} onToggle={(k) => toggleSort(deviceSort, k, setDeviceSort)} />
                                         <SortHead label="Errors" sortKey="errors" current={deviceSort} onToggle={(k) => toggleSort(deviceSort, k, setDeviceSort)} />
+                                        <SortHead label="Rage Taps" sortKey="rageTaps" current={deviceSort} onToggle={(k) => toggleSort(deviceSort, k, setDeviceSort)} />
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-slate-100">
@@ -211,6 +217,13 @@ export const Devices: React.FC = () => {
                                                         </NeoBadge>
                                                     ) : <span className="opacity-20 font-medium">-</span>}
                                                 </td>
+                                                <td className="p-4 text-right">
+                                                    {device.rageTaps > 0 ? (
+                                                        <NeoBadge variant="neutral" size="sm">
+                                                            {device.rageTaps}
+                                                        </NeoBadge>
+                                                    ) : <span className="opacity-20 font-medium">-</span>}
+                                                </td>
                                             </tr>
                                         );
                                     })}
@@ -219,6 +232,65 @@ export const Devices: React.FC = () => {
                         </div>
                     </div>
                 </div>
+
+                {/* Device Impact Matrix */}
+                {matrixData && matrixData.versions.length > 0 && (
+                    <div className="space-y-4">
+                        <h2 className="text-xl font-bold text-slate-900 tracking-tight flex items-center gap-2">
+                            <LayoutGrid className="w-6 h-6 text-indigo-500" /> Device Impact Matrix
+                        </h2>
+                        <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden p-1">
+                            <div className="overflow-x-auto">
+                                <table className="w-full text-center text-xs border-collapse">
+                                    <thead>
+                                        <tr>
+                                            <th className="p-3 text-left font-bold text-slate-500 bg-slate-50 sticky left-0 z-10 border-b border-r border-slate-200 min-w-[150px]">
+                                                Device \ Version
+                                            </th>
+                                            {matrixData.versions.map((ver) => (
+                                                <th key={ver} className="p-3 font-bold text-slate-700 bg-slate-50 border-b border-slate-200 min-w-[80px]">
+                                                    v{ver}
+                                                </th>
+                                            ))}
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {matrixData.devices.map((deviceModel) => (
+                                            <tr key={deviceModel} className="hover:bg-slate-50">
+                                                <td className="p-3 text-left font-semibold text-slate-900 bg-slate-50 sticky left-0 z-10 border-r border-slate-200">
+                                                    {deviceModel}
+                                                </td>
+                                                {matrixData.versions.map((ver) => {
+                                                    const cell = matrixData.matrix.find(m => m.device === deviceModel && m.version === ver);
+                                                    if (!cell) {
+                                                        return <td key={ver} className="p-3 text-slate-300">-</td>;
+                                                    }
+
+                                                    // Determine color based on issue rate
+                                                    let bgColor = 'bg-slate-50 text-slate-400';
+                                                    if (cell.issueRate > 0.05) bgColor = 'bg-rose-500 text-white font-bold';
+                                                    else if (cell.issueRate > 0.02) bgColor = 'bg-orange-400 text-white font-bold';
+                                                    else if (cell.issueRate > 0.01) bgColor = 'bg-amber-300 text-amber-900 font-semibold';
+                                                    else if (cell.issueRate > 0) bgColor = 'bg-emerald-100 text-emerald-700';
+                                                    else if (cell.sessions > 0) bgColor = 'bg-slate-100 text-slate-500';
+
+                                                    return (
+                                                        <td key={ver} className="p-0 border border-slate-100">
+                                                            <div className={`w-full h-full p-3 flex flex-col items-center justify-center ${bgColor}`} title={`${cell.sessions} sessions, ${(cell.issueRate * 100).toFixed(1)}% issues`}>
+                                                                <span>{(cell.issueRate * 100).toFixed(1)}%</span>
+                                                            </div>
+                                                        </td>
+                                                    );
+                                                })}
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
 
                 {/* OS & App Versions Row */}
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-12">

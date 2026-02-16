@@ -166,7 +166,7 @@ export const TabBar: React.FC<TabBarProps> = ({ pathPrefix = '', group = 'primar
 
     return (
         <div
-            className="dashboard-tabbar flex items-end gap-1 overflow-x-auto no-scrollbar border-b border-slate-200 bg-slate-50/80 px-2 pt-2"
+            className="dashboard-tabbar flex items-end gap-[1px] overflow-x-auto no-scrollbar border-b-2 border-slate-950 bg-white px-2 pt-2"
             onClick={() => setContextMenu(null)}
             onDragOver={(e) => e.preventDefault()}
             onDrop={(e) => {
@@ -186,19 +186,13 @@ export const TabBar: React.FC<TabBarProps> = ({ pathPrefix = '', group = 'primar
                     const TabIcon = tab.icon || FileText;
 
                     // Style logic
-                    let baseClasses = "group relative flex items-center gap-2 rounded-t-md border border-b-0 px-3 py-2 text-xs transition-all select-none min-w-0";
-                    // Shrinking behavior: allow shrinking but clamp at a minimum usable width if possible, 
-                    // or just let flex handle it with text-overflow.
-                    // We use flex-1 to allow equal growth, but shrink-1 to allow fitting.
-                    // min-w-0 allows it to shrink below content size if needed, but we probably want a visual min-w.
-                    // Let's use a dynamic width approach: flex-1 but with a max-width constraint.
-
+                    let baseClasses = "group relative flex items-center gap-2 border border-b-0 px-4 py-2 text-xs transition-all select-none min-w-0 font-mono uppercase tracking-wider";
                     let stateClasses = "";
 
                     if (isActive) {
-                        stateClasses = "z-10 -mb-px border-slate-300 bg-white text-slate-900 font-medium shadow-sm";
+                        stateClasses = "z-10 -mb-px border-slate-950 border-2 border-b-0 bg-white text-slate-950 font-bold";
                     } else {
-                        stateClasses = "border-transparent text-slate-500 hover:text-slate-800 hover:bg-slate-200/50";
+                        stateClasses = "border-transparent bg-[#e9eff6] text-slate-500 hover:text-slate-800 hover:bg-[#dfe7f0]";
                     }
 
                     if (isDraggingOver) {
@@ -218,37 +212,20 @@ export const TabBar: React.FC<TabBarProps> = ({ pathPrefix = '', group = 'primar
                             className={`${baseClasses} ${stateClasses} flex-1 max-w-[240px]`}
                             title={`Project: ${projectLabel}\n${tab.title}`}
                         >
-
-                            {isActive && (
-                                <div className={`absolute left-0 right-0 top-0 h-[2px] rounded-t-sm ${group === 'primary' ? 'bg-blue-500' : 'bg-purple-500'}`} />
-                            )}
-
                             <div className="min-w-0 flex-1 flex items-center gap-2">
-                                <TabIcon className={`h-3.5 w-3.5 shrink-0 ${isActive ? 'text-slate-600' : 'text-slate-400'}`} />
-                                <div className="truncate text-[13px] leading-tight">{tab.title}</div>
+                                {/* Hiding icons to match screenshot more closely, but keeping the space if needed */}
+                                {/* <TabIcon className={`h-3.5 w-3.5 shrink-0 ${isActive ? 'text-slate-600' : 'text-slate-400'}`} /> */}
+                                <div className="truncate text-[12px] leading-tight font-bold">{tab.title}</div>
                             </div>
 
                             <div className={`flex items-center gap-0.5 shrink-0 ${isActive ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'} transition-opacity`}>
-                                {group === 'primary' && (
-                                    <button
-                                        onClick={(e) => {
-                                            e.stopPropagation();
-                                            openTabInSplit(tab.id);
-                                        }}
-                                        className="flex h-5 w-5 items-center justify-center rounded text-slate-400 transition-colors hover:bg-sky-100 hover:text-sky-600"
-                                        title="Open in split pane"
-                                    >
-                                        <LayoutTemplate className="h-3 w-3" />
-                                    </button>
-                                )}
-
-                                {tab.isClosable && (
+                                {tab.id === activeId && tab.isClosable && (
                                     <button
                                         onClick={(e) => {
                                             e.stopPropagation();
                                             closeTab(tab.id, e);
                                         }}
-                                        className="flex h-5 w-5 items-center justify-center rounded text-slate-400 hover:bg-red-100 hover:text-red-600 transition-colors"
+                                        className="flex h-4 w-4 items-center justify-center rounded-none text-slate-400 hover:bg-red-50 hover:text-red-600 transition-colors"
                                         title="Close tab"
                                     >
                                         <X className="h-3 w-3" />
@@ -264,7 +241,7 @@ export const TabBar: React.FC<TabBarProps> = ({ pathPrefix = '', group = 'primar
                 {group === 'primary' && (
                     <button
                         onClick={handleNewTab}
-                        className="flex h-[35px] shrink-0 items-center justify-center rounded-t-md border border-b-0 border-transparent px-2 text-slate-500 transition-colors hover:bg-slate-200/60 hover:text-slate-800"
+                        className="flex h-[34px] shrink-0 items-center justify-center border border-b-0 border-transparent px-3 text-slate-500 transition-colors hover:bg-[#e9eff6] hover:text-slate-800"
                         title="New tab"
                     >
                         <Plus className="h-4 w-4" />

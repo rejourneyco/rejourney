@@ -497,7 +497,7 @@ public final class ReplayOrchestrator: NSObject {
         SegmentDispatcher.shared.activate()
         TelemetryPipeline.shared.activate()
         
-        let renderCfg = _computeRender(fps: 1, tier: "high")
+        let renderCfg = _computeRender(fps: 1, tier: "standard")
         VisualCapture.shared.configure(snapshotInterval: renderCfg.interval, jpegQuality: renderCfg.quality)
         
         if visualCaptureEnabled { VisualCapture.shared.beginCapture(sessionOrigin: replayStartMs) }
@@ -599,6 +599,13 @@ public final class ReplayOrchestrator: NSObject {
             return
         }
         
+        // Throttle hierarchy capture when map is visible and animating —
+        // hierarchy scanning traverses the full view tree including the
+        // map's deep Metal/GL subviews, adding main-thread pressure.
+        if SpecialCases.shared.mapVisible && !SpecialCases.shared.mapIdle {
+            return
+        }
+        
         guard let hierarchy = ViewHierarchyScanner.shared.captureHierarchy() else { return }
         
         let hash = _hierarchyHash(hierarchy)
@@ -622,14 +629,25 @@ public final class ReplayOrchestrator: NSObject {
 }
 
 private func _computeRender(fps: Int, tier: String) -> (interval: Double, quality: Double) {
-    let interval = 1.0 / Double(max(1, min(fps, 99)))
+    let tierLower = tier.lowercased()
+    let interval: Double
     let quality: Double
-    switch tier.lowercased() {
-    case "low": quality = 0.4
-    case "standard": quality = 0.5
-    // Slightly reduce default high-tier JPEG quality for lower storage without a major visual shift.
-    case "high": quality = 0.55
-    default: quality = 0.5
+    switch tierLower {
+    case "minimal":
+        interval = 2.0  // 0.5 fps for maximum size reduction
+        quality = 0.4
+    case "low":
+        interval = 1.0 / Double(max(1, min(fps, 99)))
+        quality = 0.4
+    case "standard":
+        interval = 1.0 / Double(max(1, min(fps, 99)))
+        quality = 0.5
+    case "high":
+        interval = 1.0 / Double(max(1, min(fps, 99)))
+        quality = 0.55
+    default:
+        interval = 1.0 / Double(max(1, min(fps, 99)))
+        quality = 0.5
     }
     return (interval, quality)
 }

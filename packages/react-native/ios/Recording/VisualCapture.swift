@@ -27,6 +27,8 @@ public final class VisualCapture: NSObject {
     
     @objc public var snapshotInterval: Double = 1.0
     @objc public var quality: CGFloat = 0.5
+    /// Capture scale (e.g. 1.25 = capture at 80% linear size). Matches Android for parity; reduces JPEG size.
+    @objc public var captureScale: CGFloat = 1.25
     
     @objc public var isCapturing: Bool {
         _stateMachine.currentState == .capturing
@@ -160,9 +162,10 @@ public final class VisualCapture: NSObject {
         _redactionMask.remove(view)
     }
     
-    @objc public func configure(snapshotInterval: Double, jpegQuality: Double) {
+    @objc public func configure(snapshotInterval: Double, jpegQuality: Double, captureScale: CGFloat = 1.25) {
         self.snapshotInterval = snapshotInterval
         self.quality = CGFloat(jpegQuality)
+        self.captureScale = max(1.0, captureScale)
         if _stateMachine.currentState == .capturing {
             _stopCaptureTimer()
             _startCaptureTimer()
@@ -195,6 +198,18 @@ public final class VisualCapture: NSObject {
         
         let frameStart = CFAbsoluteTimeGetCurrent()
         
+        // Refresh map detection state (very cheap shallow walk)
+        SpecialCases.shared.refreshMapState()
+        
+        // Map stutter prevention: when a map view is visible and its camera
+        // is still moving (user gesture or animation), skip drawHierarchy
+        // entirely — this is the call that causes GPU readback stutter on
+        // Metal/OpenGL-backed map tiles.  We resume capture at 1 FPS once
+        // the map SDK reports idle.
+        if !forced && SpecialCases.shared.mapVisible && !SpecialCases.shared.mapIdle {
+            return
+        }
+        
         // Capture the pixel buffer on the main thread (required by UIKit),
         // then move JPEG compression to the encode queue to reduce main-thread blocking.
         autoreleasepool {
@@ -206,13 +221,18 @@ public final class VisualCapture: NSObject {
             guard bounds.width.isFinite && bounds.height.isFinite else { return }
             
             let redactRects = _redactionMask.computeRects()
+            let scale = max(1.0, captureScale)
+            let scaledSize = CGSize(width: bounds.width / scale, height: bounds.height / scale)
+            guard scaledSize.width >= 1, scaledSize.height >= 1 else {
+                return
+            }
             
-            UIGraphicsBeginImageContextWithOptions(bounds.size, false, 1.0)
+            UIGraphicsBeginImageContextWithOptions(scaledSize, false, 1.0)
             guard let context = UIGraphicsGetCurrentContext() else {
                 UIGraphicsEndImageContext()
                 return
             }
-            
+            context.scaleBy(x: 1.0 / scale, y: 1.0 / scale)
             window.drawHierarchy(in: bounds, afterScreenUpdates: false)
             
             // Apply redactions inline while context is open
