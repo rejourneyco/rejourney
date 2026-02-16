@@ -560,7 +560,7 @@ class ReplayOrchestrator private constructor(private val context: Context) {
         SegmentDispatcher.shared.activate()
         TelemetryPipeline.shared?.activate()
         
-        val renderCfg = computeRender(1, "high")
+        val renderCfg = computeRender(1, "standard")
         DiagnosticLog.notice("[ReplayOrchestrator] VisualCapture.shared=${VisualCapture.shared != null}, visualCaptureEnabled=$visualCaptureEnabled")
         VisualCapture.shared?.configure(renderCfg.first, renderCfg.second)
         
@@ -706,6 +706,13 @@ class ReplayOrchestrator private constructor(private val context: Context) {
             return
         }
         
+        // Throttle hierarchy capture when map is visible and animating —
+        // ViewHierarchyScanner traverses the full view tree including map's
+        // deep SurfaceView/TextureView children, adding main-thread pressure.
+        if (SpecialCases.shared.mapVisible && !SpecialCases.shared.mapIdle) {
+            return
+        }
+        
         val hierarchy = ViewHierarchyScanner.shared?.captureHierarchy() ?: return
         
         val hash = hierarchyHash(hierarchy)
@@ -731,13 +738,12 @@ class ReplayOrchestrator private constructor(private val context: Context) {
 }
 
 private fun computeRender(fps: Int, tier: String): Pair<Double, Double> {
-    val interval = 1.0 / fps.coerceIn(1, 99)
-    val quality = when (tier.lowercase()) {
-        "low" -> 0.4
-        "standard" -> 0.5
-        // Slightly reduce default high-tier JPEG quality for lower storage without a major visual shift.
-        "high" -> 0.55
-        else -> 0.5
+    val tierLower = tier.lowercase()
+    return when (tierLower) {
+        "minimal" -> Pair(2.0, 0.4)  // 0.5 fps for maximum size reduction
+        "low" -> Pair(1.0 / fps.coerceIn(1, 99), 0.4)
+        "standard" -> Pair(1.0 / fps.coerceIn(1, 99), 0.5)
+        "high" -> Pair(1.0 / fps.coerceIn(1, 99), 0.55)
+        else -> Pair(1.0 / fps.coerceIn(1, 99), 0.5)
     }
-    return Pair(interval, quality)
 }

@@ -21,16 +21,14 @@ import {
   getProjects,
   getWarehouseAlerting,
   WarehouseAlertingData,
-  AlertRecipient,
-  AlertConnection
 } from '../../services/api';
 import { Project } from '../../types';
 import TeamNode, { TEAM_NODE_MAX_VISIBLE_ROWS, TEAM_NODE_WIDTH, TeamNodeData } from './TeamNode';
-import RecipientNode, { RecipientNodeData } from './RecipientNode';
+import AlertingNode, { AlertingNodeData } from './AlertingNode';
 
 const nodeTypes = {
   teamNode: TeamNode,
-  recipientNode: RecipientNode,
+  alertingNode: AlertingNode,
 };
 
 type HealthLevel = 'excellent' | 'good' | 'fair' | 'critical';
@@ -64,13 +62,16 @@ const TEAM_NODE_EMPTY_HEIGHT = 56;
 const TEAM_NODE_FOOTER_HEIGHT = 28;
 const HORIZONTAL_GAP = 80;
 const VERTICAL_GAP = 56;
-const CANVAS_PADDING = 80;
-const RECIPIENT_COLUMN_WIDTH = 300;
-const RECIPIENT_NODE_HEIGHT = 48; // Estimate
+const CANVAS_PADDING = 100;
 const MAX_COLUMNS = 4;
+// When alert nodes exist, reserve space so they don't overlap the next column
+const ALERT_NODE_WIDTH = 200;
+const GAP_TEAM_TO_ALERT = 40;
+const GAP_AFTER_ALERT = 48;
+const HORIZONTAL_GAP_WITH_ALERT = GAP_TEAM_TO_ALERT + ALERT_NODE_WIDTH + GAP_AFTER_ALERT; // 288
 
 let warehouseProjectsCache: { projects: WarehouseProject[]; cachedAt: number } | null = null;
-let warehouseProjectsInFlight: Promise<WarehouseProject[]> | null = null;
+let warehouseProjectsInFlight: Promise<[WarehouseProject[], WarehouseAlertingData | { recipients: any[]; connections: any[]; projectStatuses: {} }]> | null = null;
 let warehouseAlertingCache: { data: WarehouseAlertingData; cachedAt: number } | null = null;
 
 function clamp(value: number, min: number, max: number): number {
@@ -140,18 +141,13 @@ function estimateNodeHeight(projectCount: number): number {
   return TEAM_NODE_HEADER_HEIGHT + (visibleRows * TEAM_NODE_ROW_HEIGHT) + footerHeight;
 }
 
-function getColumnCount(totalNodes: number, viewportWidth: number, hasRecipients: boolean): number {
+function getColumnCount(totalNodes: number, viewportWidth: number, hasAlertNodes: boolean): number {
   if (totalNodes <= 1) return 1;
 
-  const offset = hasRecipients ? RECIPIENT_COLUMN_WIDTH : 0;
-  const usableWidth = Math.max(
-    TEAM_NODE_WIDTH,
-    viewportWidth - (CANVAS_PADDING * 2) - offset,
-  );
-  const maxByWidth = Math.max(
-    1,
-    Math.floor((usableWidth + HORIZONTAL_GAP) / (TEAM_NODE_WIDTH + HORIZONTAL_GAP)),
-  );
+  const horizontalGap = hasAlertNodes ? HORIZONTAL_GAP_WITH_ALERT : HORIZONTAL_GAP;
+  const columnStep = TEAM_NODE_WIDTH + horizontalGap;
+  const usableWidth = Math.max(TEAM_NODE_WIDTH, viewportWidth - (CANVAS_PADDING * 2));
+  const maxByWidth = Math.max(1, Math.floor((usableWidth + horizontalGap) / columnStep));
 
   return Math.max(1, Math.min(MAX_COLUMNS, maxByWidth, totalNodes));
 }
@@ -206,18 +202,6 @@ function normalizeWarehouseProjects(projects: ApiProject[]): WarehouseProject[] 
   });
 }
 
-async function fetchWarehouseProjects(): Promise<WarehouseProject[]> {
-  if (warehouseProjectsInFlight) return warehouseProjectsInFlight;
-
-  warehouseProjectsInFlight = getProjects()
-    .then((projects) => normalizeWarehouseProjects(projects))
-    .finally(() => {
-      warehouseProjectsInFlight = null;
-    });
-
-  return warehouseProjectsInFlight;
-}
-
 const WarehouseContent: React.FC = () => {
   const demoMode = useDemoMode();
   const { teams, currentTeam, setCurrentTeam } = useTeam();
@@ -235,6 +219,7 @@ const WarehouseContent: React.FC = () => {
 
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
+  const [isInitialized, setIsInitialized] = useState(false);
   const pathPrefix = useMemo(
     () => (location.pathname.startsWith('/demo') ? '/demo' : '/dashboard'),
     [location.pathname],
@@ -248,67 +233,82 @@ const WarehouseContent: React.FC = () => {
     return () => window.removeEventListener('resize', onResize);
   }, []);
 
+  // SWR Pattern: Render cache immediately, then fetch fresh data
   const loadProjects = useCallback(async (options?: { force?: boolean }) => {
     const force = options?.force ?? false;
 
+    if (demoMode.isDemoMode) {
+      const demoProjects: WarehouseProject[] = demoMode.demoProjects.map((project) => ({
+        ...project,
+        id: project.id,
+        name: project.name,
+        bundleId: project.bundleId || undefined,
+        packageName: project.packageName,
+        teamId: project.teamId,
+        platforms: project.platforms,
+        publicKey: project.publicKey,
+        rejourneyEnabled: project.rejourneyEnabled ?? true,
+        recordingEnabled: project.recordingEnabled,
+        sampleRate: 1,
+        maxRecordingMinutes: project.maxRecordingMinutes,
+        sessionsTotal: project.sessionsLast7Days ?? 0,
+        sessionsLast7Days: project.sessionsLast7Days ?? 0,
+        errorsLast7Days: project.errorsLast7Days ?? 0,
+        errorsTotal: project.errorsLast7Days ?? 0,
+        crashesTotal: 0,
+        anrsTotal: 0,
+        avgUxScoreAllTime: 70,
+        apiErrorsTotal: 0,
+        apiTotalCount: 0,
+        rageTapTotal: 0,
+        healthScore: 70,
+        healthLevel: 'good',
+        createdAt: project.createdAt,
+        updatedAt: project.createdAt,
+      }));
+
+      setWarehouseProjects(demoProjects);
+      setAlertingData({ recipients: [], connections: [], projectStatuses: {} });
+      return;
+    }
+
+    // 1. Render from cache immediately if available
+    if (!force && warehouseProjectsCache) {
+      setWarehouseProjects(warehouseProjectsCache.projects);
+      if (warehouseAlertingCache) setAlertingData(warehouseAlertingCache.data);
+    }
+
+    // 2. Fetch fresh data (Revalidate) unless an equivalent request is already in flight
+    if (warehouseProjectsInFlight) return;
+
+    // Determine if we should skip fetch (only if we have cache AND it's very fresh, < 5s)
+    const isCacheFresh = warehouseProjectsCache && (Date.now() - warehouseProjectsCache.cachedAt < 5000);
+    if (!force && isCacheFresh) {
+      return;
+    }
+
+    warehouseProjectsInFlight = Promise.all([
+      getProjects().then(normalizeWarehouseProjects),
+      getWarehouseAlerting().catch(() => ({ recipients: [], connections: [], projectStatuses: {} })),
+    ]).finally(() => {
+      warehouseProjectsInFlight = null;
+    });
+
     try {
-      if (demoMode.isDemoMode) {
-        // ... demo mode logic (simplified for brevity, keeping existing)
-        const demoProjects: WarehouseProject[] = demoMode.demoProjects.map((project) => ({
-          ...project,
-          id: project.id,
-          name: project.name,
-          bundleId: project.bundleId || undefined,
-          packageName: project.packageName,
-          teamId: project.teamId,
-          platforms: project.platforms,
-          publicKey: project.publicKey,
-          rejourneyEnabled: project.rejourneyEnabled ?? true,
-          recordingEnabled: project.recordingEnabled,
-          sampleRate: 1,
-          maxRecordingMinutes: project.maxRecordingMinutes,
-          sessionsTotal: project.sessionsLast7Days ?? 0,
-          sessionsLast7Days: project.sessionsLast7Days ?? 0,
-          errorsLast7Days: project.errorsLast7Days ?? 0,
-          errorsTotal: project.errorsLast7Days ?? 0,
-          crashesTotal: 0,
-          anrsTotal: 0,
-          avgUxScoreAllTime: 70,
-          apiErrorsTotal: 0,
-          apiTotalCount: 0,
-          rageTapTotal: 0,
-          healthScore: 70,
-          healthLevel: 'good',
-          createdAt: project.createdAt,
-          updatedAt: project.createdAt,
-        }));
+      const [normalizedProjects, alertData] = await warehouseProjectsInFlight;
 
-        setWarehouseProjects(demoProjects);
-        setAlertingData({ recipients: [], connections: [], projectStatuses: {} }); // No alerts in demo for now
-        return;
-      }
+      warehouseProjectsCache = { projects: normalizedProjects, cachedAt: Date.now() };
+      warehouseAlertingCache = { data: alertData, cachedAt: Date.now() };
 
-      if (!force && warehouseProjectsCache && Date.now() - warehouseProjectsCache.cachedAt < WAREHOUSE_CACHE_TTL_MS) {
-        setWarehouseProjects(warehouseProjectsCache.projects);
-        // Also load alerting if available
-        if (warehouseAlertingCache) setAlertingData(warehouseAlertingCache.data);
-      } else {
-        const [normalizedProjects, alertData] = await Promise.all([
-          fetchWarehouseProjects(),
-          getWarehouseAlerting().catch(() => ({ recipients: [], connections: [], projectStatuses: {} })),
-        ]);
-
-        warehouseProjectsCache = { projects: normalizedProjects, cachedAt: Date.now() };
-        setWarehouseProjects(normalizedProjects);
-        setAlertingData(alertData);
-      }
+      setWarehouseProjects(normalizedProjects);
+      setAlertingData(alertData);
     } catch (err) {
       console.error('Failed to load warehouse projects:', err);
     }
   }, [demoMode.isDemoMode, demoMode.demoProjects]);
 
   useEffect(() => {
-    loadProjects();
+    loadProjects({ force: true });
   }, [loadProjects]);
 
   useEffect(() => {
@@ -433,41 +433,11 @@ const WarehouseContent: React.FC = () => {
       return;
     }
 
-    // --- Recipient Nodes Logic ---
-    const recipients = alertingData?.recipients || [];
-    const connections = alertingData?.connections || [];
-    const hasRecipients = recipients.length > 0;
-
-    // Sort recipients by connection count
-    const recipientConnectionCounts = new Map<string, number>();
-    connections.forEach(c => {
-      recipientConnectionCounts.set(c.recipientId, (recipientConnectionCounts.get(c.recipientId) || 0) + 1);
-    });
-
-    const sortedRecipients = [...recipients].sort((a, b) => {
-      const countA = recipientConnectionCounts.get(a.id) || 0;
-      const countB = recipientConnectionCounts.get(b.id) || 0;
-      return countB - countA;
-    });
-
-    const recipientNodes: Node<RecipientNodeData>[] = sortedRecipients.map((recipient, index) => ({
-      id: recipient.id,
-      type: 'recipientNode',
-      position: {
-        x: CANVAS_PADDING,
-        y: CANVAS_PADDING + (index * (RECIPIENT_NODE_HEIGHT + 12)),
-      },
-      data: {
-        userId: recipient.id,
-        email: recipient.email,
-        displayName: recipient.displayName,
-        avatarUrl: recipient.avatarUrl,
-        connectionCount: recipientConnectionCounts.get(recipient.id) || 0,
-      },
-    }));
-
     // --- Team Nodes Logic ---
-    const columns = getColumnCount(allNodesData.length, viewportWidth, hasRecipients);
+    const connectedProjectIds = new Set(alertingData?.connections?.map(c => c.projectId) || []);
+    const hasAlertNodes = connectedProjectIds.size > 0;
+    const horizontalGap = hasAlertNodes ? HORIZONTAL_GAP_WITH_ALERT : HORIZONTAL_GAP;
+    const columns = getColumnCount(allNodesData.length, viewportWidth, hasAlertNodes);
     const rowHeights: number[] = [];
 
     allNodesData.forEach((data, index) => {
@@ -487,13 +457,11 @@ const WarehouseContent: React.FC = () => {
       const col = index % columns;
       const row = Math.floor(index / columns);
 
-      const xOffset = hasRecipients ? RECIPIENT_COLUMN_WIDTH : 0;
-
       return {
         id: data.id,
         type: 'teamNode',
         position: {
-          x: CANVAS_PADDING + xOffset + (col * (TEAM_NODE_WIDTH + HORIZONTAL_GAP)),
+          x: CANVAS_PADDING + (col * (TEAM_NODE_WIDTH + horizontalGap)),
           y: rowStarts[row] ?? CANVAS_PADDING,
         },
         data: {
@@ -503,30 +471,77 @@ const WarehouseContent: React.FC = () => {
           selectedProjectId: selectedWarehouseProjectId,
           onSelectProject: syncProjectContext,
         },
+        draggable: true,
       };
     });
 
-    // --- Edges Logic ---
-    const newEdges = connections.map(conn => ({
-      id: `edge-${conn.recipientId}-${conn.projectId}`,
-      source: conn.recipientId,
-      target: allNodesData.find(d => d.projects.some(p => p.id === conn.projectId))?.id || '',
-      targetHandle: `project-handle-${conn.projectId}`,
-      type: 'default',
-      animated: true,
-      style: { stroke: '#94a3b8', strokeWidth: 1.5, strokeDasharray: '5,5', strokeOpacity: 0.4 },
-    })).filter(e => e.target !== '');
+    // --- Alerting Nodes ---
+    const alertingNodes: Node<AlertingNodeData>[] = [];
+    const alertingEdges: any[] = [];
 
-    setNodes([...recipientNodes, ...teamNodes]);
-    setEdges(newEdges);
+    if (alertingData) {
+      allNodesData.forEach((teamNodeData, index) => {
+        const col = index % columns;
+        const row = Math.floor(index / columns);
+        const baseX = CANVAS_PADDING + (col * (TEAM_NODE_WIDTH + horizontalGap));
+        const baseY = rowStarts[row] ?? CANVAS_PADDING;
 
-    // Initial fit view only - subsequent updates shouldn't jolt camera
-    // We can use a ref to track if initial fit happened
-    if (nodes.length === 0) {
-      const frame = window.requestAnimationFrame(() => {
-        fitView({ padding: 0.12, duration: 350 });
+        teamNodeData.projects.forEach((proj, projIndex) => {
+          if (projIndex >= TEAM_NODE_MAX_VISIBLE_ROWS) return;
+          // Only show alert node when this project has alert recipients configured
+          if (!connectedProjectIds.has(proj.id)) return;
+
+          const projectY = baseY + TEAM_NODE_HEADER_HEIGHT + (projIndex * TEAM_NODE_ROW_HEIGHT) + (TEAM_NODE_ROW_HEIGHT / 2);
+          const alertingNodeId = `alerting-${proj.id}`;
+          alertingNodes.push({
+            id: alertingNodeId,
+            type: 'alertingNode',
+            position: {
+              x: baseX + TEAM_NODE_WIDTH + GAP_TEAM_TO_ALERT,
+              y: projectY - 24,
+            },
+            data: {
+              projectId: proj.id,
+              onNavigate: (pid) => {
+                syncProjectContext({ id: pid } as ApiProject);
+                navigate(`${pathPrefix}/alerts/emails`);
+              },
+            },
+            draggable: true,
+          });
+          alertingEdges.push({
+            id: `edge-project-${proj.id}-alerting`,
+            source: teamNodeData.id,
+            sourceHandle: `project-source-${proj.id}`,
+            target: alertingNodeId,
+            type: 'default',
+            animated: true,
+            style: { stroke: '#fb7185', strokeWidth: 1.5, strokeDasharray: '4,4' },
+          });
+        });
       });
-      return () => window.cancelAnimationFrame(frame);
+    }
+
+    const nextNodes = [...teamNodes, ...alertingNodes];
+
+    setNodes((prevNodes) => {
+      if (prevNodes.length === 0) return nextNodes;
+
+      const prevNodesMap = new Map(prevNodes.map(n => [n.id, n]));
+      return nextNodes.map(node => {
+        const existing = prevNodesMap.get(node.id);
+        return existing ? { ...node, position: existing.position } : node;
+      });
+    });
+
+    setEdges([...alertingEdges]);
+
+    if (!isInitialized) {
+      const timeoutId = setTimeout(() => {
+        fitView({ padding: 0.2, minZoom: 0.25, maxZoom: 1.25, duration: 400 });
+      }, 200);
+      setIsInitialized(true);
+      return () => clearTimeout(timeoutId);
     }
   }, [
     enrichedProjects,
@@ -538,13 +553,14 @@ const WarehouseContent: React.FC = () => {
     setNodes,
     setEdges,
     fitView,
-    alertingData, // Add alertingData dependency
+    alertingData,
+    isInitialized,
   ]);
 
   return (
     <div className="relative h-full w-full bg-[#f8fafc]">
       <div className="pointer-events-none absolute left-4 top-4 z-20">
-        <div className="pointer-events-auto inline-flex items-center gap-2 rounded-md border border-slate-300 bg-white/95 p-1 shadow-sm backdrop-blur">
+        <div className="pointer-events-auto inline-flex items-center gap-1 rounded-full border border-slate-200/60 bg-white/50 p-1 shadow-sm backdrop-blur-sm transition-opacity hover:bg-white/80">
           <button
             onClick={() => {
               if (window.history.length > 1) {
@@ -553,19 +569,18 @@ const WarehouseContent: React.FC = () => {
               }
               navigate(`${pathPrefix}/issues`);
             }}
-            className="inline-flex items-center gap-1 rounded px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100"
+            className="inline-flex h-8 w-8 items-center justify-center rounded-full text-slate-500 hover:bg-white hover:text-slate-900"
             title="Back"
           >
-            <ArrowLeft className="h-3.5 w-3.5" />
-            Back
+            <ArrowLeft className="h-4 w-4" />
           </button>
+          <div className="h-4 w-[1px] bg-slate-200/60" />
           <button
             onClick={() => navigate(`${pathPrefix}/issues`)}
-            className="inline-flex items-center gap-1 rounded px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100"
+            className="inline-flex h-8 w-8 items-center justify-center rounded-full text-slate-500 hover:bg-white hover:text-slate-900"
             title="Home"
           >
-            <Home className="h-3.5 w-3.5" />
-            Home
+            <Home className="h-4 w-4" />
           </button>
         </div>
       </div>
@@ -576,18 +591,24 @@ const WarehouseContent: React.FC = () => {
         onEdgesChange={onEdgesChange}
         nodeTypes={nodeTypes}
         panOnScroll
-        panOnDrag={[1, 2]}
-        zoomOnPinch
-        zoomOnScroll
+        panOnDrag={true}
+        zoomOnPinch={true}
+        zoomOnScroll={true}
         zoomOnDoubleClick={false}
-        nodesDraggable={false}
+        nodesDraggable={true}
         nodesConnectable={false}
         selectNodesOnDrag={false}
-        minZoom={0.2}
-        maxZoom={2}
+        minZoom={0.1}
+        maxZoom={4}
         proOptions={{ hideAttribution: true }}
       >
-        <Background color="#94a3b8" variant={BackgroundVariant.Dots} gap={24} size={2} />
+        <Background
+          color="#cbd5e1"
+          variant={BackgroundVariant.Lines}
+          gap={40}
+          size={1}
+          style={{ opacity: 0.4 }}
+        />
       </ReactFlow>
     </div>
   );

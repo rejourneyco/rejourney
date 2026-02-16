@@ -3,6 +3,8 @@ import {
     Activity,
     AlertTriangle,
     ArrowRight,
+    ChevronDown,
+    ChevronUp,
     Gauge,
     Globe,
     Search,
@@ -274,6 +276,8 @@ export const ApiAnalytics: React.FC = () => {
     const [timeRange, setTimeRange] = useState<TimeRange>(DEFAULT_TIME_RANGE);
     const [isLoading, setIsLoading] = useState(true);
     const [searchQuery, setSearchQuery] = useState('');
+    const [sortKey, setSortKey] = useState<keyof EndpointRisk>('riskScore');
+    const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
 
     const [endpointStats, setEndpointStats] = useState<ApiEndpointStats | null>(null);
     const [regionStats, setRegionStats] = useState<RegionPerformance | null>(null);
@@ -361,7 +365,7 @@ export const ApiAnalytics: React.FC = () => {
 
     const endpointRisks = useMemo<EndpointRisk[]>(() => {
         if (!endpointStats?.allEndpoints) return [];
-        return endpointStats.allEndpoints
+        const base = endpointStats.allEndpoints
             .map((endpoint) => {
                 const riskScore =
                     endpoint.errorRate * 10 +
@@ -373,9 +377,22 @@ export const ApiAnalytics: React.FC = () => {
                     riskScore,
                     recommendation: getEndpointRecommendation(endpoint),
                 };
-            })
-            .sort((a, b) => b.riskScore - a.riskScore);
-    }, [endpointStats]);
+            });
+
+        return [...base].sort((a, b) => {
+            const aVal = a[sortKey];
+            const bVal = b[sortKey];
+
+            if (typeof aVal === 'string' && typeof bVal === 'string') {
+                return sortOrder === 'asc' ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal);
+            }
+
+            const aNum = Number(aVal) || 0;
+            const bNum = Number(bVal) || 0;
+
+            return sortOrder === 'asc' ? aNum - bNum : bNum - aNum;
+        });
+    }, [endpointStats, sortKey, sortOrder]);
 
     const filteredEndpoints = useMemo(() => {
         const q = searchQuery.trim().toLowerCase();
@@ -525,24 +542,14 @@ export const ApiAnalytics: React.FC = () => {
         );
     }, [mergedReleaseMarkers, trendChartData]);
 
-    const releaseRiskChartData = useMemo(() => {
-        if (!deepMetrics?.releaseRisk?.length) return [];
-        return deepMetrics.releaseRisk
-            .map((release) => {
-                const anchorDate = release.firstSeen || release.latestSeen;
-                const timestamp = anchorDate ? new Date(anchorDate).getTime() : NaN;
-                return {
-                    version: `v${release.version}`,
-                    sessions: release.sessions,
-                    failureRate: Number(release.failureRate.toFixed(2)),
-                    deltaVsOverall: Number(release.deltaVsOverall.toFixed(2)),
-                    timestamp,
-                };
-            })
-            .filter((release) => Number.isFinite(release.timestamp))
-            .sort((a, b) => a.timestamp - b.timestamp)
-            .slice(-6);
-    }, [deepMetrics]);
+    const apiCallsChartData = useMemo(() => {
+        if (!trends?.daily) return [];
+        return trends.daily.map((day) => ({
+            date: formatDateLabel(day.date),
+            callsPerSession: day.sessions > 0 ? Number((day.totalApiCalls / day.sessions).toFixed(2)) : 0,
+            totalApiCalls: day.totalApiCalls,
+        }));
+    }, [trends]);
 
     return (
         <div className="min-h-screen bg-slate-50 font-sans text-slate-900">
@@ -746,46 +753,25 @@ export const ApiAnalytics: React.FC = () => {
 
                         <section className="grid grid-cols-1 gap-6 xl:grid-cols-2">
                             <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-                                <h2 className="mb-4 text-lg font-semibold text-slate-900">Release Risk by Version</h2>
-                                {releaseRiskChartData.length > 0 ? (
+                                <h2 className="mb-4 text-lg font-semibold text-slate-900">API Usage Intensity</h2>
+                                {apiCallsChartData.length > 0 ? (
                                     <div className="h-[260px]">
                                         <ResponsiveContainer width="100%" height="100%">
-                                            <ComposedChart data={releaseRiskChartData}>
+                                            <ComposedChart data={apiCallsChartData}>
                                                 <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                                                <XAxis dataKey="version" tick={{ fontSize: 11 }} />
+                                                <XAxis dataKey="date" tick={{ fontSize: 11 }} />
                                                 <YAxis yAxisId="left" tick={{ fontSize: 11 }} />
                                                 <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 11 }} />
-                                                <Tooltip
-                                                    formatter={(value: number | string | undefined, name?: string) => {
-                                                        const metricName = name || 'Metric';
-                                                        if (metricName === 'Failure rate %' || metricName === 'Delta vs Overall (pts)') {
-                                                            return [`${Number(value || 0).toFixed(2)}%`, metricName];
-                                                        }
-                                                        return [formatCompact(Number(value || 0)), metricName];
-                                                    }}
-                                                />
+                                                <Tooltip />
                                                 <Legend />
-                                                <Bar yAxisId="left" dataKey="sessions" name="Sessions" fill="#93c5fd" radius={[4, 4, 0, 0]} />
-                                                <Line yAxisId="right" type="monotone" dataKey="failureRate" name="Failure rate %" stroke="#dc2626" strokeWidth={2} />
-                                                <Line yAxisId="right" type="monotone" dataKey="deltaVsOverall" name="Delta vs Overall (pts)" stroke="#7c3aed" strokeWidth={2} />
+                                                <Bar yAxisId="right" dataKey="totalApiCalls" name="Total Calls" fill="#93c5fd" radius={[4, 4, 0, 0]} />
+                                                <Line yAxisId="left" type="monotone" dataKey="callsPerSession" name="Calls / Session" stroke="#2563eb" strokeWidth={2} />
                                             </ComposedChart>
                                         </ResponsiveContainer>
                                     </div>
                                 ) : (
-                                    <p className="text-sm text-slate-500">No release-risk trend data available.</p>
+                                    <p className="text-sm text-slate-500">No API usage trend data available.</p>
                                 )}
-                                <div className="mt-4 space-y-2">
-                                    {releaseRiskRows.map((release) => (
-                                        <div key={release.version} className="flex items-center justify-between rounded-xl border border-slate-200 px-3 py-2 text-xs">
-                                            <span className="font-semibold text-slate-700">v{release.version}</span>
-                                            <span className="text-slate-500">{formatCompact(release.sessions)} sessions</span>
-                                            <span className={release.deltaVsOverall > 0 ? 'font-semibold text-rose-600' : 'font-semibold text-emerald-600'}>
-                                                {release.deltaVsOverall > 0 ? '+' : ''}
-                                                {release.deltaVsOverall.toFixed(2)} pts
-                                            </span>
-                                        </div>
-                                    ))}
-                                </div>
                             </div>
 
                             <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
@@ -888,7 +874,7 @@ export const ApiAnalytics: React.FC = () => {
 
                         <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
                             <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                                <h2 className="text-lg font-semibold text-slate-900">Endpoint Risk Ranking</h2>
+                                <h2 className="text-lg font-semibold text-slate-900">Endpoint Activity Database</h2>
                                 <div className="relative w-full md:w-[360px]">
                                     <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
                                     <input
@@ -904,12 +890,78 @@ export const ApiAnalytics: React.FC = () => {
                                 <table className="w-full min-w-[860px] text-left text-sm">
                                     <thead className="text-xs uppercase tracking-wide text-slate-500">
                                         <tr>
-                                            <th className="pb-2 pr-4">Endpoint</th>
-                                            <th className="pb-2 pr-4 text-right">Calls</th>
-                                            <th className="pb-2 pr-4 text-right">Errors</th>
-                                            <th className="pb-2 pr-4 text-right">Fail Rate</th>
-                                            <th className="pb-2 pr-4 text-right">Latency</th>
-                                            <th className="pb-2 pr-4">Recommended Action</th>
+                                            <th
+                                                className="cursor-pointer pb-2 pr-4 hover:text-slate-900"
+                                                onClick={() => {
+                                                    if (sortKey === 'endpoint') setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
+                                                    else { setSortKey('endpoint'); setSortOrder('asc'); }
+                                                }}
+                                            >
+                                                <div className="flex items-center gap-1">
+                                                    Endpoint
+                                                    {sortKey === 'endpoint' && (sortOrder === 'asc' ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />)}
+                                                </div>
+                                            </th>
+                                            <th
+                                                className="cursor-pointer pb-2 pr-4 text-right hover:text-slate-900"
+                                                onClick={() => {
+                                                    if (sortKey === 'totalCalls') setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
+                                                    else { setSortKey('totalCalls'); setSortOrder('desc'); }
+                                                }}
+                                            >
+                                                <div className="flex items-center justify-end gap-1">
+                                                    Calls
+                                                    {sortKey === 'totalCalls' && (sortOrder === 'asc' ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />)}
+                                                </div>
+                                            </th>
+                                            <th
+                                                className="cursor-pointer pb-2 pr-4 text-right hover:text-slate-900"
+                                                onClick={() => {
+                                                    if (sortKey === 'totalErrors') setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
+                                                    else { setSortKey('totalErrors'); setSortOrder('desc'); }
+                                                }}
+                                            >
+                                                <div className="flex items-center justify-end gap-1">
+                                                    Errors
+                                                    {sortKey === 'totalErrors' && (sortOrder === 'asc' ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />)}
+                                                </div>
+                                            </th>
+                                            <th
+                                                className="cursor-pointer pb-2 pr-4 text-right hover:text-slate-900"
+                                                onClick={() => {
+                                                    if (sortKey === 'errorRate') setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
+                                                    else { setSortKey('errorRate'); setSortOrder('desc'); }
+                                                }}
+                                            >
+                                                <div className="flex items-center justify-end gap-1">
+                                                    Fail Rate
+                                                    {sortKey === 'errorRate' && (sortOrder === 'asc' ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />)}
+                                                </div>
+                                            </th>
+                                            <th
+                                                className="cursor-pointer pb-2 pr-4 text-right hover:text-slate-900"
+                                                onClick={() => {
+                                                    if (sortKey === 'avgLatencyMs') setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
+                                                    else { setSortKey('avgLatencyMs'); setSortOrder('desc'); }
+                                                }}
+                                            >
+                                                <div className="flex items-center justify-end gap-1">
+                                                    Latency
+                                                    {sortKey === 'avgLatencyMs' && (sortOrder === 'asc' ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />)}
+                                                </div>
+                                            </th>
+                                            <th
+                                                className="cursor-pointer pb-2 pr-4 text-right hover:text-slate-900"
+                                                onClick={() => {
+                                                    if (sortKey === 'riskScore') setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
+                                                    else { setSortKey('riskScore'); setSortOrder('desc'); }
+                                                }}
+                                            >
+                                                <div className="flex items-center justify-end gap-1">
+                                                    Risk Index
+                                                    {sortKey === 'riskScore' && (sortOrder === 'asc' ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />)}
+                                                </div>
+                                            </th>
                                         </tr>
                                     </thead>
                                     <tbody className="divide-y divide-slate-100">
@@ -920,7 +972,7 @@ export const ApiAnalytics: React.FC = () => {
                                                 <td className="py-3 pr-4 text-right text-slate-700">{formatCompact(endpoint.totalErrors)}</td>
                                                 <td className="py-3 pr-4 text-right text-slate-700">{endpoint.errorRate.toFixed(2)}%</td>
                                                 <td className="py-3 pr-4 text-right text-slate-700">{endpoint.avgLatencyMs} ms</td>
-                                                <td className="py-3 pr-4 text-xs text-slate-600">{endpoint.recommendation}</td>
+                                                <td className="py-3 pr-4 text-right text-slate-700 font-semibold">{endpoint.riskScore.toFixed(1)}</td>
                                             </tr>
                                         ))}
                                     </tbody>

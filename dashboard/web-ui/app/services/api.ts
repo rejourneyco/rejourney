@@ -1494,6 +1494,7 @@ export interface InsightsTrends {
     avgDurationSeconds: number;
     errorCount: number;
     appVersionBreakdown: Record<string, number>;
+    totalApiCalls: number;
   }>;
 }
 
@@ -2156,10 +2157,10 @@ export async function getApiEndpointStats(projectId: string, timeRange?: string)
 // =============================================================================
 
 export interface DeviceSummary {
-  devices: Array<{ model: string; count: number; crashes: number; anrs: number; errors: number }>;
+  devices: Array<{ model: string; count: number; crashes: number; anrs: number; errors: number; rageTaps: number }>;
   platforms: Record<string, number>;
-  appVersions: Array<{ version: string; count: number; crashes: number; anrs: number; errors: number }>;
-  osVersions: Array<{ version: string; count: number; crashes: number; anrs: number; errors: number }>;
+  appVersions: Array<{ version: string; count: number; crashes: number; anrs: number; errors: number; rageTaps: number }>;
+  osVersions: Array<{ version: string; count: number; crashes: number; anrs: number; errors: number; rageTaps: number }>;
   totalSessions: number;
 }
 
@@ -2174,6 +2175,32 @@ export async function getDeviceSummary(projectId?: string, timeRange?: string): 
   if (timeRange) params.set('timeRange', timeRange);
   const qs = params.toString() ? `?${params.toString()}` : '';
   return fetchJson<DeviceSummary>(`/api/analytics/device-summary${qs}`);
+}
+
+export interface DeviceIssueMatrix {
+  matrix: Array<{
+    device: string;
+    version: string;
+    sessions: number;
+    issues: { crashes: number; anrs: number; errors: number; rageTaps: number };
+    issueRate: number;
+  }>;
+  devices: string[];
+  versions: string[];
+}
+
+export async function getDeviceIssueMatrix(projectId?: string, timeRange?: string): Promise<DeviceIssueMatrix> {
+  // Demo mode: return mock data
+  if (isDemoMode()) {
+    // Basic mock
+    return { matrix: [], devices: [], versions: [] };
+  }
+
+  const params = new URLSearchParams();
+  if (projectId) params.set('projectId', projectId);
+  if (timeRange) params.set('timeRange', timeRange);
+  const qs = params.toString() ? `?${params.toString()}` : '';
+  return fetchJson<DeviceIssueMatrix>(`/api/analytics/device-issues-matrix${qs}`);
 }
 
 // =============================================================================

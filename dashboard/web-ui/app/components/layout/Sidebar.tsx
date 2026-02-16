@@ -129,12 +129,17 @@ export const Sidebar: React.FC<SidebarProps> = ({
       ],
     },
     {
+      section: 'Alerts',
+      items: [
+        { path: p('/alerts/emails'), label: 'Emails', icon: Mail },
+      ],
+    },
+    {
       section: 'Workspace',
       items: [
         ...(currentProject ? [{ path: p(`/settings/${currentProject.id}`), label: 'Project', icon: Settings }] : []),
         { path: p('/team'), label: 'Team', icon: Users },
         { path: p('/billing'), label: 'Plan & Billing', icon: CreditCard },
-        { path: p('/alerts/emails'), label: 'Alerts', icon: Mail },
       ],
     },
     {

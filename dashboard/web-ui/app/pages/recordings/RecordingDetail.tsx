@@ -1580,6 +1580,72 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
                 )}
               </div>
             </div>
+
+            {/* Left Insights */}
+            <div className="mt-4 grid grid-cols-1 gap-3">
+              {/* Stability & Interactions */}
+              <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+                <div className="flex items-start justify-between mb-3">
+                  <div className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Stability & Usage</div>
+                  <Zap className="h-3.5 w-3.5 text-slate-400" />
+                </div>
+
+                <div className="space-y-4">
+                  {/* Stability Score */}
+                  <div className="rounded-lg border border-slate-100 bg-slate-50/50 p-3">
+                    <div className="flex items-center justify-between">
+                      <div className="text-[10px] font-semibold uppercase text-slate-500">Stability Score</div>
+                      <span className={`rounded-full border px-1.5 py-0.5 text-[9px] font-bold ${stabilityInsightStyle.badge}`}>
+                        {stabilityStatusLabel}
+                      </span>
+                    </div>
+                    <div className={`mt-1 text-xl font-bold tabular-nums ${stabilityInsightStyle.value}`}>
+                      {stabilityScore.toFixed(0)}
+                    </div>
+                    <div className="mt-2 h-1 overflow-hidden rounded-full bg-slate-200">
+                      <div className={`h-full rounded-full ${stabilityInsightStyle.bar}`} style={{ width: `${stabilityGauge}%` }} />
+                    </div>
+                  </div>
+
+                  {/* Interaction Rate */}
+                  <div className="flex items-center gap-3">
+                    <div className="w-8 h-8 rounded-lg bg-blue-50 flex items-center justify-center border border-blue-100">
+                      <MousePointer2 className="h-4 w-4 text-blue-600" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-[10px] font-semibold uppercase text-slate-500">Interaction Rate</p>
+                      <p className="text-sm font-bold text-slate-900 truncate">
+                        {interactionsPerMinute.toFixed(1)}/min <span className="text-[10px] font-medium text-slate-400">({interactionCount})</span>
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Startup Latency */}
+                  <div className="flex items-center gap-3">
+                    <div className="w-8 h-8 rounded-lg bg-cyan-50 flex items-center justify-center border border-cyan-100">
+                      <Smartphone className="h-4 w-4 text-cyan-700" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-[10px] font-semibold uppercase text-slate-500">Startup Latency</p>
+                      <p className="text-sm font-bold text-slate-900 truncate">
+                        {inferredStartupMs !== null ? `${Math.round(inferredStartupMs)} ms` : 'N/A'}
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Network Payload */}
+                  <div className="flex items-center gap-3">
+                    <div className="w-8 h-8 rounded-lg bg-indigo-50 flex items-center justify-center border border-indigo-100">
+                      <Layers className="h-4 w-4 text-indigo-700" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-[10px] font-semibold uppercase text-slate-500">Network Payload</p>
+                      <p className="text-sm font-bold text-slate-900 truncate">{formatBytesToHuman(totalPayloadBytes)}</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
 
           {/* Center Column: Replay Player */}
@@ -1829,7 +1895,7 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
                   onMouseDown={handleProgressMouseDown}
                 >
                   {/* Track */}
-                  <div className="absolute left-0 right-0 top-1/2 -translate-y-1/2 h-1.5 bg-slate-200 rounded-full">
+                  <div className="absolute left-0 right-0 top-1/2 -translate-y-1/2 h-1.5 bg-slate-400 rounded-full">
                     {/* Progress Fill */}
                     <div
                       className="absolute h-full bg-blue-500 rounded-full transition-all duration-75"
@@ -1997,155 +2063,6 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
                   </div>
                 </div>
               </div>
-
-              {/* Session Insights */}
-              <div className="mt-4 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
-                <div className="border-b border-slate-200 bg-gradient-to-r from-slate-900 to-slate-700 px-4 py-3 text-white">
-                  <div className="flex flex-wrap items-start justify-between gap-2">
-                    <div>
-                      <h2 className="text-sm font-semibold">Session Insights (Inferred)</h2>
-                      <p className="mt-0.5 text-[11px] text-slate-200">
-                        Computed from replay events, API traffic, crashes, and ANRs.
-                      </p>
-                    </div>
-                    <span className="inline-flex items-center rounded-full border border-white/30 bg-white/10 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-white">
-                      Replay-Derived
-                    </span>
-                  </div>
-                </div>
-
-                <div className="p-4">
-                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                    <div className="rounded-lg border border-slate-200 bg-slate-50/80 p-3">
-                      <div className="flex items-start justify-between">
-                        <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Stability Score</div>
-                        <div className="flex items-center gap-1">
-                          <AlertCircle className="h-3.5 w-3.5 text-slate-400" />
-                          <span className={`rounded-full border px-1.5 py-0.5 text-[10px] font-semibold ${stabilityInsightStyle.badge}`}>
-                            {stabilityStatusLabel}
-                          </span>
-                        </div>
-                      </div>
-                      <div className={`mt-1 text-2xl font-semibold tabular-nums ${stabilityInsightStyle.value}`}>
-                        {stabilityScore.toFixed(0)}
-                      </div>
-                      <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-200">
-                        <div className={`h-full rounded-full ${stabilityInsightStyle.bar}`} style={{ width: `${stabilityGauge}%` }} />
-                      </div>
-                      <p className="mt-2 text-[11px] text-slate-500">
-                        Blend of issue intensity, API error rate, and p95 latency.
-                      </p>
-                    </div>
-
-                    <div className="rounded-lg border border-slate-200 bg-slate-50/80 p-3">
-                      <div className="flex items-start justify-between">
-                        <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">API Error Rate</div>
-                        <div className="flex items-center gap-1">
-                          <Globe className="h-3.5 w-3.5 text-slate-400" />
-                          <span className={`rounded-full border px-1.5 py-0.5 text-[10px] font-semibold ${apiErrorInsightStyle.badge}`}>
-                            {apiErrorStatusLabel}
-                          </span>
-                        </div>
-                      </div>
-                      <div className={`mt-1 text-2xl font-semibold tabular-nums ${apiErrorInsightStyle.value}`}>
-                        {apiErrorRate.toFixed(1)}%
-                      </div>
-                      <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-200">
-                        <div className={`h-full rounded-full ${apiErrorInsightStyle.bar}`} style={{ width: `${apiErrorGauge}%` }} />
-                      </div>
-                      <p className="mt-2 text-[11px] text-slate-500">
-                        {failedRequestCount.toLocaleString()} failed of {networkRequests.length.toLocaleString()} requests.
-                      </p>
-                    </div>
-
-                    <div className="rounded-lg border border-slate-200 bg-slate-50/80 p-3">
-                      <div className="flex items-start justify-between">
-                        <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">API p95 Latency</div>
-                        <div className="flex items-center gap-1">
-                          <Clock className="h-3.5 w-3.5 text-slate-400" />
-                          <span className={`rounded-full border px-1.5 py-0.5 text-[10px] font-semibold ${apiLatencyInsightStyle.badge}`}>
-                            {apiLatencyStatusLabel}
-                          </span>
-                        </div>
-                      </div>
-                      <div className={`mt-1 text-2xl font-semibold tabular-nums ${apiLatencyInsightStyle.value}`}>
-                        {apiP95LatencyMs > 0 ? `${Math.round(apiP95LatencyMs)} ms` : 'N/A'}
-                      </div>
-                      <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-200">
-                        <div
-                          className={`h-full rounded-full ${apiLatencyInsightStyle.bar}`}
-                          style={{ width: apiP95LatencyMs > 0 ? `${apiLatencyGauge}%` : '0%' }}
-                        />
-                      </div>
-                      <p className="mt-2 text-[11px] text-slate-500">
-                        Latency seen by the slowest 5% of API calls.
-                      </p>
-                    </div>
-
-                    <div className="rounded-lg border border-slate-200 bg-slate-50/80 p-3">
-                      <div className="flex items-start justify-between">
-                        <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Time To First Issue</div>
-                        <div className="flex items-center gap-1">
-                          <AlertTriangle className="h-3.5 w-3.5 text-slate-400" />
-                          <span className={`rounded-full border px-1.5 py-0.5 text-[10px] font-semibold ${firstIssueInsightStyle.badge}`}>
-                            {firstIssueStatusLabel}
-                          </span>
-                        </div>
-                      </div>
-                      <div className={`mt-1 text-2xl font-semibold tabular-nums ${firstIssueInsightStyle.value}`}>
-                        {timeToFirstIssueMs === null ? 'No issue' : formatPlaybackTime(timeToFirstIssueMs / 1000)}
-                      </div>
-                      <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-200">
-                        <div className={`h-full rounded-full ${firstIssueInsightStyle.bar}`} style={{ width: `${issueTimingGauge}%` }} />
-                      </div>
-                      <p className="mt-2 text-[11px] text-slate-500">
-                        Later is healthier. Shows when the first failure signal appeared.
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
-                    <div className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2">
-                      <MousePointer2 className="h-4 w-4 text-blue-600" />
-                      <div>
-                        <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Interaction Rate</p>
-                        <p className="text-sm font-semibold text-slate-900">
-                          {interactionsPerMinute.toFixed(1)}/min <span className="text-xs font-medium text-slate-500">({interactionCount.toLocaleString()} total)</span>
-                        </p>
-                      </div>
-                    </div>
-
-                    <div className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2">
-                      <Monitor className="h-4 w-4 text-violet-600" />
-                      <div>
-                        <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Screen Pace</p>
-                        <p className="text-sm font-semibold text-slate-900">
-                          {screensPerMinute.toFixed(2)}/min <span className="text-xs font-medium text-slate-500">({screensVisited.length.toLocaleString()} unique)</span>
-                        </p>
-                      </div>
-                    </div>
-
-                    <div className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2">
-                      <Smartphone className="h-4 w-4 text-cyan-700" />
-                      <div>
-                        <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Startup Latency</p>
-                        <p className="text-sm font-semibold text-slate-900">
-                          {inferredStartupMs !== null ? `${Math.round(inferredStartupMs)} ms` : 'N/A'}
-                        </p>
-                      </div>
-                    </div>
-
-                    <div className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2">
-                      <Layers className="h-4 w-4 text-indigo-700" />
-                      <div>
-                        <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Network Payload</p>
-                        <p className="text-sm font-semibold text-slate-900">{formatBytesToHuman(totalPayloadBytes)}</p>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
             </div>
           </div>
 
@@ -2173,10 +2090,80 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
                 </div>
               )}
             </div>
+
+            {/* Right Insights */}
+            <div className="mt-4 grid grid-cols-1 gap-3">
+              <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+                <div className="flex items-start justify-between mb-3">
+                  <div className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Network & Quality</div>
+                  <Globe className="h-3.5 w-3.5 text-slate-400" />
+                </div>
+
+                <div className="space-y-4">
+                  {/* API Error Rate */}
+                  <div className="rounded-lg border border-slate-100 bg-slate-50/50 p-3">
+                    <div className="flex items-center justify-between">
+                      <div className="text-[10px] font-semibold uppercase text-slate-500">API Error Rate</div>
+                      <span className={`rounded-full border px-1.5 py-0.5 text-[9px] font-bold ${apiErrorInsightStyle.badge}`}>
+                        {apiErrorStatusLabel}
+                      </span>
+                    </div>
+                    <div className={`mt-1 text-xl font-bold tabular-nums ${apiErrorInsightStyle.value}`}>
+                      {apiErrorRate.toFixed(1)}%
+                    </div>
+                    <div className="mt-2 h-1 overflow-hidden rounded-full bg-slate-200">
+                      <div className={`h-full rounded-full ${apiErrorInsightStyle.bar}`} style={{ width: `${apiErrorGauge}%` }} />
+                    </div>
+                  </div>
+
+                  {/* API Latency */}
+                  <div className="rounded-lg border border-slate-100 bg-slate-50/50 p-3">
+                    <div className="flex items-center justify-between">
+                      <div className="text-[10px] font-semibold uppercase text-slate-500">p95 Latency</div>
+                      <span className={`rounded-full border px-1.5 py-0.5 text-[9px] font-bold ${apiLatencyInsightStyle.badge}`}>
+                        {apiLatencyStatusLabel}
+                      </span>
+                    </div>
+                    <div className={`mt-1 text-xl font-bold tabular-nums ${apiLatencyInsightStyle.value}`}>
+                      {apiP95LatencyMs > 0 ? `${Math.round(apiP95LatencyMs)} ms` : 'N/A'}
+                    </div>
+                    <div className="mt-2 h-1 overflow-hidden rounded-full bg-slate-200">
+                      <div className={`h-full rounded-full ${apiLatencyInsightStyle.bar}`} style={{ width: `${apiLatencyGauge}%` }} />
+                    </div>
+                  </div>
+
+                  {/* First Issue Timing */}
+                  <div className="flex items-center gap-3">
+                    <div className="w-8 h-8 rounded-lg bg-red-50 flex items-center justify-center border border-red-100">
+                      <AlertTriangle className="h-4 w-4 text-red-600" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-[10px] font-semibold uppercase text-slate-500">Time To First Issue</p>
+                      <p className="text-sm font-bold text-slate-900 truncate">
+                        {timeToFirstIssueMs === null ? 'No issue' : formatPlaybackTime(timeToFirstIssueMs / 1000)}
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Screen Pace */}
+                  <div className="flex items-center gap-3">
+                    <div className="w-8 h-8 rounded-lg bg-violet-50 flex items-center justify-center border border-violet-100">
+                      <Monitor className="h-4 w-4 text-violet-600" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-[10px] font-semibold uppercase text-slate-500">Screen Pace</p>
+                      <p className="text-sm font-bold text-slate-900 truncate">
+                        {screensPerMinute.toFixed(2)}/min <span className="text-[10px] font-medium text-slate-400">({screensVisited.length} screens)</span>
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       </div>
-    </div >
+    </div>
   );
 };
 

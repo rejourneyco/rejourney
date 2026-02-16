@@ -460,6 +460,11 @@ private class GestureAggregator(
     }
     
     private fun resolveTarget(location: PointF): String {
+        // When a map view is visible, skip the expensive hit-test walk
+        // through the deep SurfaceView/TextureView hierarchy.
+        if (SpecialCases.shared.mapVisible) {
+            return "map"
+        }
         return "view_${location.x.toInt()}_${location.y.toInt()}"
     }
     
@@ -472,6 +477,10 @@ private class GestureAggregator(
      * (e.g. TextView inside a Pressable), not the clickable Pressable itself.
      */
     private fun isViewInteractive(location: PointF): Boolean {
+        // Skip the expensive hierarchy walk when a map is visible to
+        // prevent micro-stutter during pan/zoom gestures.
+        if (SpecialCases.shared.mapVisible) return false
+        
         val activity = recorder.currentActivity?.get() ?: return false
         val decorView = activity.window?.decorView ?: return false
         val hit = findViewAt(decorView, location.x.toInt(), location.y.toInt()) ?: return false

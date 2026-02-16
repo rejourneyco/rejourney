@@ -7,7 +7,7 @@
 
 import { Router } from 'express';
 import { eq, gte, and, desc, asc, inArray } from 'drizzle-orm';
-import { db, sessions, sessionMetrics, projects, teamMembers, appDailyStats, recordingArtifacts, screenTouchHeatmaps } from '../db/client.js';
+import { db, sessions, sessionMetrics, projects, teamMembers, appDailyStats, recordingArtifacts, screenTouchHeatmaps, apiEndpointDailyStats } from '../db/client.js';
 import { getRedis } from '../db/redis.js';
 import { asyncHandler, ApiError } from '../middleware/index.js';
 import { logger } from '../logger.js';
@@ -724,6 +724,7 @@ router.get(
             avgDurationSeconds: number;
             errorCount: number;
             appVersionBreakdown: Record<string, number>;
+            totalApiCalls: number; // NEW: Total API calls for the day
         }> = {};
 
         // First pass: Aggregate stats per day
@@ -745,6 +746,7 @@ router.get(
                     avgDurationSeconds: 0,
                     errorCount: 0,
                     appVersionBreakdown: {} as Record<string, number>,
+                    totalApiCalls: 0,
                 };
             }
             dailyMap[date].sessions += s.totalSessions;
@@ -770,6 +772,43 @@ router.get(
             if (s.uniqueUserIds && Array.isArray(s.uniqueUserIds)) {
                 (s.uniqueUserIds as string[]).forEach((uid: string) => dailyMap[date].uniqueUserIds.add(uid));
             }
+        }
+
+        // Fetch API endpoint stats for total calls
+        const apiStats = await db
+            .select({
+                date: apiEndpointDailyStats.date,
+                totalCalls: apiEndpointDailyStats.totalCalls,
+            })
+            .from(apiEndpointDailyStats)
+            .where(and(
+                inArray(apiEndpointDailyStats.projectId, projectIds),
+                gte(apiEndpointDailyStats.date, startStr)
+            ));
+
+        // Merge API stats into dailyMap
+        for (const s of apiStats) {
+            const date = s.date;
+            // Initialize day if it doesn't exist (e.g. only API calls, no sessions)
+            if (!dailyMap[date]) {
+                dailyMap[date] = {
+                    sessions: 0,
+                    crashes: 0,
+                    rageTaps: 0,
+                    deadTaps: 0,
+                    avgUxScore: 0,
+                    count: 0,
+                    uniqueUserIds: new Set<string>(),
+                    dau: 0,
+                    avgApiResponseMs: 0,
+                    apiErrorRate: 0,
+                    avgDurationSeconds: 0,
+                    errorCount: 0,
+                    appVersionBreakdown: {} as Record<string, number>,
+                    totalApiCalls: 0,
+                };
+            }
+            dailyMap[date].totalApiCalls += Number(s.totalCalls);
         }
 
         // Calculate DAU for each day
@@ -798,12 +837,22 @@ router.get(
                     const lookbackDate = allDates[i];
                     const daysDiff = (new Date(date).getTime() - new Date(lookbackDate).getTime()) / (1000 * 60 * 60 * 24);
 
-                    if (daysDiff >= 30) break;
-
-                    if (dailyMap[lookbackDate]?.uniqueUserIds) {
-                        dailyMap[lookbackDate].uniqueUserIds.forEach(uid => mauSet.add(uid));
+                    if (daysDiff <= 30) {
+                        // Add IDs from this past day
+                        dailyMap[lookbackDate]?.uniqueUserIds.forEach(uid => mauSet.add(uid));
+                    } else {
+                        break;
                     }
                 }
+
+                // Weighted averages
+                const totalSessions = Math.max(1, data.sessions);
+                const avgApiResponseMs = Math.round(data.avgApiResponseMs / totalSessions);
+                const apiErrorRate = data.apiErrorRate / totalSessions;
+                const avgDurationSeconds = Math.round(data.avgDurationSeconds / totalSessions);
+
+                // Calculate average UX score properly
+                const avgUxScore = data.count > 0 ? Math.round(data.avgUxScore / data.count) : 0;
 
                 return {
                     date,
@@ -811,20 +860,27 @@ router.get(
                     crashes: data.crashes,
                     rageTaps: data.rageTaps,
                     deadTaps: data.deadTaps,
-                    avgUxScore: data.count > 0 ? Math.round(data.avgUxScore / data.count) : 0,
+                    avgUxScore: avgUxScore,
                     dau: data.dau,
                     mau: mauSet.size,
-                    // NEW: Additional metrics for overview graphs
-                    avgApiResponseMs: data.sessions > 0 ? Math.round(data.avgApiResponseMs / data.sessions) : 0,
-                    apiErrorRate: data.sessions > 0 ? Math.round((data.apiErrorRate / data.sessions) * 100) / 100 : 0,
-                    avgDurationSeconds: data.sessions > 0 ? Math.round(data.avgDurationSeconds / data.sessions) : 0,
+                    // NEW fields
+                    avgApiResponseMs,
+                    apiErrorRate,
+                    avgDurationSeconds,
                     errorCount: data.errorCount,
                     appVersionBreakdown: data.appVersionBreakdown,
+                    totalApiCalls: data.totalApiCalls, // Pass through
                 };
             });
 
         const response = { daily };
         await redis.set(cacheKey, JSON.stringify(response), 'EX', CACHE_TTL);
+
+        // Force browser to bypass cache
+        res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+        res.setHeader('Pragma', 'no-cache');
+        res.setHeader('Expires', '0');
+
         res.json(response);
     })
 );

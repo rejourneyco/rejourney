@@ -117,7 +117,8 @@ final class SegmentDispatcher {
             rangeStart: startMs,
             rangeEnd: endMs,
             itemCount: frameCount,
-            attempt: 0
+            attempt: 0,
+            batchNumber: 0
         )
         scheduleUpload(upload, completion: completion)
     }
@@ -135,7 +136,8 @@ final class SegmentDispatcher {
             rangeStart: timestampMs,
             rangeEnd: timestampMs,
             itemCount: 1,
-            attempt: 0
+            attempt: 0,
+            batchNumber: 0
         )
         scheduleUpload(upload, completion: completion)
     }
@@ -615,7 +617,7 @@ private struct PendingUpload {
     let rangeEnd: UInt64
     let itemCount: Int
     var attempt: Int
-    let batchNumber: Int = 0
+    let batchNumber: Int
 }
 
 private struct PresignResponse {

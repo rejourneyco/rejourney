@@ -10,6 +10,10 @@ if [[ "$1" == "--no-cache" ]]; then
     NO_CACHE="--no-cache"
 fi
 
+
+# Update IP addresses using the helper script
+./scripts/local/update-ips.sh
+
 echo "🧹 Cleaning and rebuilding Rejourney LOCAL Docker environment..."
 
 # Check for .env.local

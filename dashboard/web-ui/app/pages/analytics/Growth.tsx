@@ -17,6 +17,7 @@ import {
     Bar,
     BarChart,
     CartesianGrid,
+    ComposedChart,
     Legend,
     Line,
     ReferenceLine,
@@ -505,6 +506,28 @@ export const Growth: React.FC = () => {
     const killerRows = useMemo(() => growthObs?.growthKillers?.slice(0, 6) || [], [growthObs]);
     const releaseRows = useMemo(() => deepMetrics?.releaseRisk?.slice(0, 5) || [], [deepMetrics]);
 
+    const releaseRiskChartData = useMemo(() => {
+        if (!deepMetrics?.releaseRisk?.length) return [];
+        return deepMetrics.releaseRisk
+            .map((release) => {
+                const anchorDate = release.firstSeen || release.latestSeen;
+                const timestamp = anchorDate ? new Date(anchorDate).getTime() : NaN;
+                const generalIssueRate = release.sessions > 0
+                    ? ((release.errorCount + release.crashCount + release.anrCount) / release.sessions) * 100
+                    : 0;
+                return {
+                    version: `v${release.version}`,
+                    sessions: release.sessions,
+                    generalIssueRate: Number(generalIssueRate.toFixed(2)),
+                    deltaVsOverall: Number(release.deltaVsOverall.toFixed(2)),
+                    timestamp,
+                };
+            })
+            .filter((release) => Number.isFinite(release.timestamp))
+            .sort((a, b) => a.timestamp - b.timestamp)
+            .slice(-6);
+    }, [deepMetrics]);
+
     return (
         <div className="min-h-screen bg-slate-50 font-sans text-slate-900">
             <div className="sticky top-0 z-30 bg-white">
@@ -781,25 +804,43 @@ export const Growth: React.FC = () => {
 
                         <section className="grid grid-cols-1 gap-6 xl:grid-cols-2">
                             <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-                                <h2 className="mb-4 text-lg font-semibold text-slate-900">Release Risk</h2>
-                                <div className="space-y-3">
+                                <h2 className="mb-4 text-lg font-semibold text-slate-900">Release Risk by Version</h2>
+                                {releaseRiskChartData.length > 0 ? (
+                                    <div className="h-[260px]">
+                                        <ResponsiveContainer width="100%" height="100%">
+                                            <ComposedChart data={releaseRiskChartData}>
+                                                <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                                                <XAxis dataKey="version" tick={{ fontSize: 11 }} />
+                                                <YAxis yAxisId="left" tick={{ fontSize: 11 }} />
+                                                <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 11 }} />
+                                                <Tooltip
+                                                    formatter={(value: number | string | undefined, name?: string) => {
+                                                        const metricName = name || 'Metric';
+                                                        if (metricName === 'General Issue Rate %' || metricName === 'Delta vs Overall (pts)') {
+                                                            return [`${Number(value || 0).toFixed(2)}%`, metricName];
+                                                        }
+                                                        return [formatCompact(Number(value || 0)), metricName];
+                                                    }}
+                                                />
+                                                <Legend />
+                                                <Bar yAxisId="left" dataKey="sessions" name="Sessions" fill="#93c5fd" radius={[4, 4, 0, 0]} />
+                                                <Line yAxisId="right" type="monotone" dataKey="generalIssueRate" name="General Issue Rate %" stroke="#dc2626" strokeWidth={2} />
+                                                <Line yAxisId="right" type="monotone" dataKey="deltaVsOverall" name="Delta vs Overall (pts)" stroke="#7c3aed" strokeWidth={2} />
+                                            </ComposedChart>
+                                        </ResponsiveContainer>
+                                    </div>
+                                ) : (
+                                    <p className="text-sm text-slate-500">No release-risk trend data available.</p>
+                                )}
+                                <div className="mt-4 space-y-2">
                                     {releaseRows.map((release) => (
-                                        <div key={release.version} className="rounded-xl border border-slate-200 p-3">
-                                            <div className="flex items-center justify-between">
-                                                <div>
-                                                    <div className="text-sm font-medium text-slate-900">v{release.version}</div>
-                                                    <div className="text-xs text-slate-500">{release.sessions.toLocaleString()} sessions</div>
-                                                </div>
-                                                <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${release.deltaVsOverall > 0 ? 'bg-rose-100 text-rose-700' : 'bg-emerald-100 text-emerald-700'}`}>
-                                                    {release.deltaVsOverall > 0 ? '+' : ''}{release.deltaVsOverall.toFixed(2)} pts
-                                                </span>
-                                            </div>
-                                            <div className="mt-2 flex flex-wrap gap-3 text-xs text-slate-600">
-                                                <span>Failure {release.failureRate.toFixed(2)}%</span>
-                                                <span>Crash {release.crashCount}</span>
-                                                <span>ANR {release.anrCount}</span>
-                                                <span>Error {release.errorCount}</span>
-                                            </div>
+                                        <div key={release.version} className="flex items-center justify-between rounded-xl border border-slate-200 px-3 py-2 text-xs">
+                                            <span className="font-semibold text-slate-700">v{release.version}</span>
+                                            <span className="text-slate-500">{formatCompact(release.sessions)} sessions</span>
+                                            <span className={release.deltaVsOverall > 0 ? 'font-semibold text-rose-600' : 'font-semibold text-emerald-600'}>
+                                                {release.deltaVsOverall > 0 ? '+' : ''}
+                                                {release.deltaVsOverall.toFixed(2)} pts
+                                            </span>
                                         </div>
                                     ))}
                                 </div>

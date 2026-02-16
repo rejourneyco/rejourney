@@ -33,10 +33,10 @@ function healthBadgeClasses(level: WarehouseProject['healthLevel']): string {
 
 export default memo(({ data }: NodeProps<TeamNodeData>) => {
     return (
-        <div className="w-[360px] overflow-hidden rounded-[2px] border-2 border-slate-900 bg-white shadow-[4px_4px_0_0_rgba(15,23,42,1)] transition-shadow hover:shadow-[6px_6px_0_0_rgba(15,23,42,1)]">
+        <div className="w-[360px] overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl shadow-slate-200/50 transition-all hover:shadow-2xl hover:shadow-slate-300/50">
             <Handle type="target" position={Position.Top} className="!bg-slate-900 opacity-0" />
 
-            <header className="flex items-center justify-between border-b-2 border-slate-900 bg-slate-50 px-3 py-2">
+            <header className="flex items-center justify-between border-b border-slate-100 bg-slate-50/50 px-4 py-3">
                 <div className="flex items-center gap-2">
                     <Database className="h-4 w-4 text-slate-700" />
                     <span className="max-w-[212px] truncate text-sm font-bold text-slate-900">{data.name}</span>
@@ -82,6 +82,13 @@ export default memo(({ data }: NodeProps<TeamNodeData>) => {
                                     className="!bg-slate-300 opacity-0 transition-opacity group-hover:opacity-100"
                                     style={{ left: -6, top: '50%' }}
                                 />
+                                <Handle
+                                    type="source"
+                                    position={Position.Right}
+                                    id={`project-source-${project.id}`}
+                                    className="!bg-slate-300 opacity-0 transition-opacity group-hover:opacity-100"
+                                    style={{ right: -6, top: '50%' }}
+                                />
                             </button>
                         );
                     })
@@ -89,7 +96,7 @@ export default memo(({ data }: NodeProps<TeamNodeData>) => {
             </div>
 
             {data.projects.length > TEAM_NODE_MAX_VISIBLE_ROWS && (
-                <footer className="border-t-2 border-slate-900 bg-slate-50 px-3 py-1.5 text-right text-[10px] font-bold text-slate-500">
+                <footer className="border-t border-slate-100 bg-slate-50/30 px-4 py-2 text-right text-[10px] font-bold text-slate-400">
                     +{data.projects.length - TEAM_NODE_MAX_VISIBLE_ROWS}
                 </footer>
             )}

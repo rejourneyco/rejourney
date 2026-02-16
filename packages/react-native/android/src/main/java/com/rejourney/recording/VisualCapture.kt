@@ -223,6 +223,18 @@ class VisualCapture private constructor(private val context: Context) {
             return
         }
         
+        // Refresh map detection state (very cheap shallow walk)
+        SpecialCases.shared.refreshMapState(activity)
+        
+        // Map stutter prevention: when a map view is visible and its camera
+        // is still moving (user gesture or animation), skip decorView.draw()
+        // entirely — this call triggers GPU readback on SurfaceView/TextureView
+        // map tiles which causes visible stutter.  We resume capture at 1 FPS
+        // once the map SDK reports idle.
+        if (!force && SpecialCases.shared.mapVisible && !SpecialCases.shared.mapIdle) {
+            return
+        }
+        
         val frameStart = SystemClock.elapsedRealtime()
         
         try {
