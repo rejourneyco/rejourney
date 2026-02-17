@@ -22,6 +22,14 @@
       "image": "./assets/images/logo-lg.png",
       "resizeMode": "contain"
     },
+    "plugins": [
+      [
+        "@rnmapbox/maps",
+        {
+          "accessToken": ""
+        }
+      ]
+    ],
     "ios": {
       "supportsTablet": true
     },

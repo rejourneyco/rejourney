@@ -61,6 +61,14 @@ class SpecialCases private constructor() {
         )
         private val MAPBOX_V10_CLASS = "com.mapbox.maps.MapView"
         private val MAPBOX_V9_CLASS = "com.mapbox.mapboxsdk.maps.MapView"
+
+        // @rnmapbox/maps React Native wrapper (FrameLayout, not a MapView subclass)
+        private val RNMBX_MAPVIEW_CLASS = "com.rnmapbox.rnmbx.components.mapview.RNMBXMapView"
+
+        // Touch-based idle debounce delay (ms).
+        // Mapbox uses UIScrollView.DecelerationRate.normal (0.998/ms).
+        // At 2s after a 500pt/s flick, residual velocity is ~9pt/s (barely visible).
+        private const val TOUCH_DEBOUNCE_MS = 2000L
     }
 
     // -- Public state --------------------------------------------------------
@@ -80,6 +88,7 @@ class SpecialCases private constructor() {
     private fun setMapIdle(idle: Boolean) {
         val wasIdle = mapIdle
         mapIdle = idle
+        DiagnosticLog.trace("[SpecialCases] mapIdle=$idle (was $wasIdle)")
         if (idle && !wasIdle) {
             // Map just settled — capture a frame immediately instead of
             // waiting up to 1s for the next timer tick.
@@ -96,6 +105,15 @@ class SpecialCases private constructor() {
 
     private val mainHandler = Handler(Looper.getMainLooper())
     private var hookedMapView: WeakReference<View>? = null
+
+    /** When true, idle detection is driven by touch events from
+     *  InteractionRecorder rather than SDK listener hooks.
+     *  Used as a fallback when reflection-based hooking fails. */
+    @Volatile
+    private var usesTouchBasedIdle = false
+
+    /** Runnable posted with TOUCH_DEBOUNCE_MS delay for touch-based idle. */
+    private var touchDebounceRunnable: Runnable? = null
 
     // -- Map detection (shallow walk) ----------------------------------------
 
@@ -179,6 +197,8 @@ class SpecialCases private constructor() {
             if (name in GOOGLE_MAP_VIEW_CLASSES) return MapSDKType.GOOGLE_MAPS
             if (name == MAPBOX_V10_CLASS) return MapSDKType.MAPBOX
             if (name == MAPBOX_V9_CLASS) return MapSDKType.MAPBOX
+            // @rnmapbox/maps wrapper (FrameLayout subclass, not a MapView subclass)
+            if (name == RNMBX_MAPVIEW_CLASS) return MapSDKType.MAPBOX
             cls = cls.superclass
         }
         return null
@@ -274,10 +294,68 @@ class SpecialCases private constructor() {
     // v9:   MapboxMap.addOnMapIdleListener / addOnCameraMoveStartedListener
 
     private fun hookMapbox(mapView: View) {
-        // Try v10 first, then fall back to v9
-        if (!tryHookMapboxV10(mapView)) {
-            tryHookMapboxV9(mapView)
+        // The detected view might be the RNMBXMapView wrapper (FrameLayout),
+        // not the actual com.mapbox.maps.MapView.  Find the real MapView child.
+        val actualMapView = findActualMapboxMapView(mapView) ?: mapView
+
+        // Try v10 first, then v9, then fall back to touch-based
+        if (!tryHookMapboxV10(actualMapView)) {
+            if (!tryHookMapboxV9(actualMapView)) {
+                // All reflection-based hooking failed — fall back to touch-based
+                usesTouchBasedIdle = true
+                DiagnosticLog.trace("[SpecialCases] Mapbox: using touch-based idle detection")
+            }
         }
+    }
+
+    /**
+     * Returns the actual Mapbox MapView for snapshot capture, or null.
+     * Used by VisualCapture to call MapView.snapshot() and composite the result
+     * (decorView.draw() renders SurfaceView as black).
+     */
+    fun getMapboxMapViewForSnapshot(root: View): View? {
+        val result = findMapView(root, depth = 0) ?: return null
+        if (result.second != MapSDKType.MAPBOX) return null
+        return findActualMapboxMapView(result.first)
+    }
+
+    /**
+     * If the detected view is the RNMBXMapView wrapper, find the actual
+     * com.mapbox.maps.MapView inside it (immediate children).
+     */
+    private fun findActualMapboxMapView(view: View): View? {
+        // If this view itself is a com.mapbox.maps.MapView, use it directly
+        var cls: Class<*>? = view.javaClass
+        while (cls != null && cls != View::class.java) {
+            if (cls.name == MAPBOX_V10_CLASS || cls.name == MAPBOX_V9_CLASS) return view
+            cls = cls.superclass
+        }
+        // Search immediate children
+        if (view is ViewGroup) {
+            for (i in 0 until view.childCount) {
+                val child = try { view.getChildAt(i) } catch (_: Exception) { null } ?: continue
+                var childCls: Class<*>? = child.javaClass
+                while (childCls != null && childCls != View::class.java) {
+                    if (childCls.name == MAPBOX_V10_CLASS || childCls.name == MAPBOX_V9_CLASS) return child
+                    childCls = childCls.superclass
+                }
+            }
+            // One more level deep
+            for (i in 0 until view.childCount) {
+                val child = try { view.getChildAt(i) } catch (_: Exception) { null } ?: continue
+                if (child is ViewGroup) {
+                    for (j in 0 until child.childCount) {
+                        val grandchild = try { child.getChildAt(j) } catch (_: Exception) { null } ?: continue
+                        var gcCls: Class<*>? = grandchild.javaClass
+                        while (gcCls != null && gcCls != View::class.java) {
+                            if (gcCls.name == MAPBOX_V10_CLASS || gcCls.name == MAPBOX_V9_CLASS) return grandchild
+                            gcCls = gcCls.superclass
+                        }
+                    }
+                }
+            }
+        }
+        return null
     }
 
     /**
@@ -379,8 +457,8 @@ class SpecialCases private constructor() {
      * MapboxMap.addOnMapIdleListener(...)
      * MapboxMap.addOnCameraMoveStartedListener(...)
      */
-    private fun tryHookMapboxV9(mapView: View) {
-        try {
+    private fun tryHookMapboxV9(mapView: View): Boolean {
+        return try {
             val callbackClassName = "com.mapbox.mapboxsdk.maps.OnMapReadyCallback"
             val callbackClass = Class.forName(callbackClassName)
             val getMapAsync = mapView.javaClass.getMethod("getMapAsync", callbackClass)
@@ -397,8 +475,10 @@ class SpecialCases private constructor() {
             }
             getMapAsync.invoke(mapView, proxy)
             DiagnosticLog.trace("[SpecialCases] Mapbox v9 getMapAsync invoked")
+            true
         } catch (e: Exception) {
             DiagnosticLog.trace("[SpecialCases] Mapbox v9 hook failed: ${e.message}")
+            false
         }
     }
 
@@ -443,6 +523,41 @@ class SpecialCases private constructor() {
         }
     }
 
+    // -- Touch-based idle detection (fallback) --------------------------------
+
+    /**
+     * Called by InteractionRecorder when a touch begins while a map is visible.
+     * Sets mapIdle to false immediately.  Always used for "map moving" detection
+     * because SDK camera-change hooks (subscribeCameraChanged etc.) often fail
+     * or use different APIs across Mapbox v10/v11.
+     */
+    fun notifyTouchBegan() {
+        if (!mapVisible) return
+        touchDebounceRunnable?.let { mainHandler.removeCallbacks(it) }
+        touchDebounceRunnable = null
+        if (mapIdle) {
+            setMapIdle(false)
+        }
+    }
+
+    /**
+     * Called by InteractionRecorder when a touch ends/cancels while a map is visible.
+     * Starts a debounce timer; when it fires, mapIdle becomes true (accounting
+     * for momentum scrolling/deceleration after the finger lifts).
+     */
+    fun notifyTouchEnded() {
+        if (!usesTouchBasedIdle || !mapVisible) return
+        touchDebounceRunnable?.let { mainHandler.removeCallbacks(it) }
+        val runnable = Runnable {
+            touchDebounceRunnable = null
+            if (!mapIdle) {
+                setMapIdle(true)
+            }
+        }
+        touchDebounceRunnable = runnable
+        mainHandler.postDelayed(runnable, TOUCH_DEBOUNCE_MS)
+    }
+
     // -- Cleanup -------------------------------------------------------------
 
     private fun clearMapState() {
@@ -450,5 +565,8 @@ class SpecialCases private constructor() {
         mapIdle = true
         detectedSDK = null
         hookedMapView = null
+        usesTouchBasedIdle = false
+        touchDebounceRunnable?.let { mainHandler.removeCallbacks(it) }
+        touchDebounceRunnable = null
     }
 }

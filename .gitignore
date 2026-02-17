@@ -50,3 +50,4 @@ local.properties
 api_logs.txt
 temp_env.txt
 .DS_Store
+examples/react-native-boilerplate/.env.dev.example

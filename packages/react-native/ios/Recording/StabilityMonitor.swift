@@ -143,7 +143,7 @@ public final class StabilityMonitor: NSObject {
             let data = try JSONEncoder().encode(incident)
             try data.write(to: _incidentStore, options: .atomic)
         } catch {
-            print("[Rejourney] Incident persist failed: \(error)")
+            DiagnosticLog.fault("[StabilityMonitor] Incident persist failed: \(error)")
         }
     }
     
@@ -164,7 +164,7 @@ public final class StabilityMonitor: NSObject {
             let data = try JSONEncoder().encode(incident)
             try data.write(to: _incidentStore, options: .atomic)
         } catch {
-            print("[Rejourney] Incident persist failed: \(error)")
+            DiagnosticLog.fault("[StabilityMonitor] Incident persist failed: \(error)")
         }
     }
     

@@ -169,20 +169,20 @@ class ReplayOrchestrator private constructor(private val context: Context) {
     }
     
     fun beginReplay(apiToken: String, serverEndpoint: String, captureSettings: Map<String, Any>? = null) {
-        DiagnosticLog.notice("[ReplayOrchestrator] ★★★ beginReplay v2 ★★★")
+        DiagnosticLog.trace("[ReplayOrchestrator] beginReplay v2")
         val perf = PerformanceSnapshot.capture()
         DiagnosticLog.debugSessionCreate("ORCHESTRATOR_INIT", "beginReplay", perf)
-        DiagnosticLog.notice("[ReplayOrchestrator] beginReplay called, endpoint=$serverEndpoint")
+        DiagnosticLog.trace("[ReplayOrchestrator] beginReplay called, endpoint=$serverEndpoint")
         
         this.apiToken = apiToken
         this.serverEndpoint = serverEndpoint
         applySettings(captureSettings)
         
         DiagnosticLog.debugSessionCreate("CREDENTIAL_START", "Requesting device credential")
-        DiagnosticLog.notice("[ReplayOrchestrator] Requesting credential from DeviceRegistrar.shared=${DeviceRegistrar.shared != null}")
+        DiagnosticLog.trace("[ReplayOrchestrator] Requesting credential from DeviceRegistrar.shared=${DeviceRegistrar.shared != null}")
         
         DeviceRegistrar.shared?.obtainCredential(apiToken) { ok, cred ->
-            DiagnosticLog.notice("[ReplayOrchestrator] Credential callback: ok=$ok, cred=${cred?.take(20) ?: "null"}...")
+            DiagnosticLog.trace("[ReplayOrchestrator] Credential callback: ok=$ok, cred=${cred?.take(20) ?: "null"}...")
             if (!ok) {
                 DiagnosticLog.debugSessionCreate("CREDENTIAL_FAIL", "Failed")
                 DiagnosticLog.caution("[ReplayOrchestrator] Credential fetch FAILED - recording cannot start")
@@ -194,7 +194,7 @@ class ReplayOrchestrator private constructor(private val context: Context) {
             SegmentDispatcher.shared.apiToken = apiToken
             SegmentDispatcher.shared.credential = cred
             
-            DiagnosticLog.notice("[ReplayOrchestrator] Credential OK, calling monitorNetwork")
+            DiagnosticLog.trace("[ReplayOrchestrator] Credential OK, calling monitorNetwork")
             monitorNetwork(apiToken)
         }
     }
@@ -325,7 +325,7 @@ class ReplayOrchestrator private constructor(private val context: Context) {
         // If recording is disabled, disable visual capture
         if (!recordingEnabled) {
             visualCaptureEnabled = false
-            DiagnosticLog.notice("[ReplayOrchestrator] Visual capture disabled by remote config (recordingEnabled=false)")
+            DiagnosticLog.trace("[ReplayOrchestrator] Visual capture disabled by remote config (recordingEnabled=false)")
         }
         
         // If already recording, restart the duration limit timer with updated config
@@ -333,7 +333,7 @@ class ReplayOrchestrator private constructor(private val context: Context) {
             startDurationLimitTimer()
         }
         
-        DiagnosticLog.notice("[ReplayOrchestrator] Remote config applied: rejourneyEnabled=$rejourneyEnabled, recordingEnabled=$recordingEnabled, sampleRate=$sampleRate%, maxRecording=${maxRecordingMinutes}min, isSampledIn=$recordingEnabled")
+        DiagnosticLog.trace("[ReplayOrchestrator] Remote config applied: rejourneyEnabled=$rejourneyEnabled, recordingEnabled=$recordingEnabled, sampleRate=$sampleRate%, maxRecording=${maxRecordingMinutes}min, isSampledIn=$recordingEnabled")
     }
     
     fun unredactView(view: View) {
@@ -469,10 +469,10 @@ class ReplayOrchestrator private constructor(private val context: Context) {
     }
     
     private fun monitorNetwork(token: String) {
-        DiagnosticLog.notice("[ReplayOrchestrator] monitorNetwork called")
+        DiagnosticLog.trace("[ReplayOrchestrator] monitorNetwork called")
         val connectivityManager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
         if (connectivityManager == null) {
-            DiagnosticLog.notice("[ReplayOrchestrator] No ConnectivityManager, starting recording directly")
+            DiagnosticLog.trace("[ReplayOrchestrator] No ConnectivityManager, starting recording directly")
             beginRecording(token)
             return
         }
@@ -498,12 +498,12 @@ class ReplayOrchestrator private constructor(private val context: Context) {
             // Check current network state immediately (callback only fires on CHANGES)
             val activeNetwork = connectivityManager.activeNetwork
             val capabilities = activeNetwork?.let { connectivityManager.getNetworkCapabilities(it) }
-            DiagnosticLog.notice("[ReplayOrchestrator] Network check: activeNetwork=${activeNetwork != null}, capabilities=${capabilities != null}")
+            DiagnosticLog.trace("[ReplayOrchestrator] Network check: activeNetwork=${activeNetwork != null}, capabilities=${capabilities != null}")
             if (capabilities != null) {
                 handleNetworkChange(capabilities, token)
             } else {
                 // No active network - start recording anyway, uploads will retry when network available
-                DiagnosticLog.notice("[ReplayOrchestrator] No active network, starting recording anyway")
+                DiagnosticLog.trace("[ReplayOrchestrator] No active network, starting recording anyway")
                 mainHandler.post { beginRecording(token) }
             }
         } catch (e: Exception) {
@@ -545,27 +545,27 @@ class ReplayOrchestrator private constructor(private val context: Context) {
     }
     
     private fun beginRecording(token: String) {
-        DiagnosticLog.notice("[ReplayOrchestrator] beginRecording called, live=$live")
+        DiagnosticLog.trace("[ReplayOrchestrator] beginRecording called, live=$live")
         if (live) {
-            DiagnosticLog.notice("[ReplayOrchestrator] Already live, skipping")
+            DiagnosticLog.trace("[ReplayOrchestrator] Already live, skipping")
             return
         }
         live = true
         
         this.apiToken = token
         initSession()
-        DiagnosticLog.notice("[ReplayOrchestrator] Session initialized: replayId=$replayId")
+        DiagnosticLog.trace("[ReplayOrchestrator] Session initialized: replayId=$replayId")
         
         // Reactivate the dispatcher in case it was halted from a previous session
         SegmentDispatcher.shared.activate()
         TelemetryPipeline.shared?.activate()
         
         val renderCfg = computeRender(1, "standard")
-        DiagnosticLog.notice("[ReplayOrchestrator] VisualCapture.shared=${VisualCapture.shared != null}, visualCaptureEnabled=$visualCaptureEnabled")
+        DiagnosticLog.trace("[ReplayOrchestrator] VisualCapture.shared=${VisualCapture.shared != null}, visualCaptureEnabled=$visualCaptureEnabled")
         VisualCapture.shared?.configure(renderCfg.first, renderCfg.second)
         
         if (visualCaptureEnabled) {
-            DiagnosticLog.notice("[ReplayOrchestrator] Starting VisualCapture")
+            DiagnosticLog.trace("[ReplayOrchestrator] Starting VisualCapture")
             VisualCapture.shared?.beginCapture(replayStartMs)
         }
         if (interactionCaptureEnabled) InteractionRecorder.shared?.activate()
@@ -576,7 +576,7 @@ class ReplayOrchestrator private constructor(private val context: Context) {
         // Start duration limit timer based on remote config
         startDurationLimitTimer()
         
-        DiagnosticLog.notice("[ReplayOrchestrator] beginRecording completed")
+        DiagnosticLog.trace("[ReplayOrchestrator] beginRecording completed")
     }
     
     // MARK: - Duration Limit Timer
@@ -593,19 +593,19 @@ class ReplayOrchestrator private constructor(private val context: Context) {
         val remaining = if (maxMs > elapsed) maxMs - elapsed else 0L
         
         if (remaining <= 0) {
-            DiagnosticLog.notice("[ReplayOrchestrator] Duration limit already exceeded, stopping session")
+            DiagnosticLog.trace("[ReplayOrchestrator] Duration limit already exceeded, stopping session")
             endReplay()
             return
         }
         
         durationLimitRunnable = Runnable {
             if (!live) return@Runnable
-            DiagnosticLog.notice("[ReplayOrchestrator] Recording duration limit reached (${maxMinutes}min), stopping session")
+            DiagnosticLog.trace("[ReplayOrchestrator] Recording duration limit reached (${maxMinutes}min), stopping session")
             endReplay()
         }
         mainHandler.postDelayed(durationLimitRunnable!!, remaining)
         
-        DiagnosticLog.notice("[ReplayOrchestrator] Duration limit timer set: ${remaining / 1000}s remaining (max ${maxMinutes}min)")
+        DiagnosticLog.trace("[ReplayOrchestrator] Duration limit timer set: ${remaining / 1000}s remaining (max ${maxMinutes}min)")
     }
     
     private fun stopDurationLimitTimer() {

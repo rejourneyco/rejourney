@@ -155,7 +155,7 @@ class TelemetryPipeline private constructor(private val context: Context) {
     }
     
     fun submitFrameBundle(payload: ByteArray, filename: String, startMs: Long, endMs: Long, frameCount: Int) {
-        DiagnosticLog.notice("[TelemetryPipeline] submitFrameBundle: $frameCount frames, ${payload.size} bytes, deferredMode=$deferredMode")
+        DiagnosticLog.trace("[TelemetryPipeline] submitFrameBundle: $frameCount frames, ${payload.size} bytes, deferredMode=$deferredMode")
         serialWorker.execute {
             val bundle = PendingFrameBundle(filename, payload, startMs, endMs, frameCount)
             frameQueue.enqueue(bundle)
@@ -213,7 +213,7 @@ class TelemetryPipeline private constructor(private val context: Context) {
             return
         }
         
-        DiagnosticLog.notice("[TelemetryPipeline] shipPendingFrames: transmitting ${next.count} frames to SegmentDispatcher")
+        DiagnosticLog.trace("[TelemetryPipeline] shipPendingFrames: transmitting ${next.count} frames to SegmentDispatcher")
         
         SegmentDispatcher.shared.transmitFrameBundle(
             payload = next.payload,

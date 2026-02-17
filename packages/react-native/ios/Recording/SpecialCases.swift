@@ -69,11 +69,32 @@ public final class SpecialCases: NSObject {
     private var _originalIdleAtCamera: IMP?
     private var _originalWillMove: IMP?
 
+    /// When true, idle detection is driven by gesture recognizer observation
+    /// rather than SDK delegate callbacks.  Used for Mapbox v10+/v11 whose
+    /// Swift closure-based event API cannot be hooked from the ObjC runtime.
+    private var _usesGestureBasedIdle = false
+
+    /// Debounce timer for gesture-based idle detection.
+    /// Fires after the last gesture end to account for momentum/deceleration.
+    /// Mapbox uses UIScrollView.DecelerationRate.normal (0.998/ms).
+    /// At 2s after a 500pt/s flick, residual velocity is ~9pt/s (barely visible).
+    private var _gestureDebounceTimer: Timer?
+    private static let _gestureDebounceDelay: TimeInterval = 2.0
+
+    /// Number of gesture recognizers currently in .began/.changed state.
+    private var _activeGestureCount = 0
+
+    /// Gesture recognizers we've added ourselves as targets to.
+    private var _observedGestureRecognizers: [UIGestureRecognizer] = []
+
     private override init() {
         super.init()
     }
 
     // MARK: - Map detection (shallow hierarchy walk)
+
+    /// One-time diagnostic scan counter for debug logging.
+    private var _diagScanCount = 0
 
     /// Scan the key window for a known map view.
     /// Call this from the capture timer (main thread, ~1 Hz).
@@ -85,14 +106,28 @@ public final class SpecialCases: NSObject {
         }
 
         guard let window = _keyWindow() else {
+            if _diagScanCount == 0 {
+                DiagnosticLog.trace("[SpecialCases] refreshMapState: no key window found")
+            }
             _clearMapState()
             return
+        }
+
+        _diagScanCount += 1
+
+        if _diagScanCount == 1 {
+            DiagnosticLog.trace("[SpecialCases] refreshMapState running (scan #1)")
         }
 
         if let (mapView, sdk) = _findMapView(in: window, depth: 0) {
             let wasAlreadyVisible = mapVisible
             mapVisible = true
             detectedSDK = sdk
+
+            if !wasAlreadyVisible {
+                let className = NSStringFromClass(type(of: mapView))
+                DiagnosticLog.trace("[SpecialCases] Map DETECTED: class=\(className) sdk=\(sdk)")
+            }
 
             // Only hook once per map view instance
             if _hookedMapView == nil || _hookedMapView !== mapView {
@@ -101,12 +136,50 @@ public final class SpecialCases: NSObject {
             }
 
             if !wasAlreadyVisible {
-                // Capture an initial frame the moment we detect the map so
-                // the replay always has a starting frame of the map screen.
                 VisualCapture.shared.snapshotNow()
             }
         } else {
+            // Print diagnostic view tree dump on first 3 scans and every 10th
+            if _diagScanCount <= 3 || _diagScanCount % 10 == 0 {
+                _logViewTreeDiagnostic(window)
+            }
             _clearMapState()
+        }
+    }
+
+    /// Log the first few levels of the view tree to help diagnose detection failures.
+    /// Debug-only (DiagnosticLog.trace).
+    private func _logViewTreeDiagnostic(_ window: UIView) {
+        var lines: [String] = ["[SpecialCases] scan #\(_diagScanCount) — no map found. Map-like classes:"]
+        var deepMatches: [String] = []
+        _findMapLikeClassNames(view: window, depth: 0, maxDepth: 40, matches: &deepMatches)
+        if deepMatches.isEmpty {
+            lines.append("  (none found in \(_countViews(window)) views)")
+        } else {
+            for match in deepMatches {
+                lines.append("  \(match)")
+            }
+        }
+        DiagnosticLog.trace(lines.joined(separator: "\n"))
+    }
+
+    /// Count total views in hierarchy (for diagnostic context).
+    private func _countViews(_ view: UIView) -> Int {
+        var count = 1
+        for sub in view.subviews { count += _countViews(sub) }
+        return count
+    }
+
+    private func _findMapLikeClassNames(view: UIView, depth: Int, maxDepth: Int, matches: inout [String]) {
+        guard depth <= maxDepth else { return }
+        let name = NSStringFromClass(type(of: view))
+        let nameLC = name.lowercased()
+        if nameLC.contains("map") || nameLC.contains("mbx") || nameLC.contains("mapbox") ||
+           nameLC.contains("metal") || nameLC.contains("opengl") {
+            matches.append("\(name) @depth=\(depth)")
+        }
+        for sub in view.subviews {
+            _findMapLikeClassNames(view: sub, depth: depth + 1, maxDepth: maxDepth, matches: &matches)
         }
     }
 
@@ -140,17 +213,39 @@ public final class SpecialCases: NSObject {
 
     /// Walk the superclass chain and return the map SDK type if any
     /// ancestor is a known map base class.
+    ///
+    /// NSStringFromClass for Swift classes includes the module prefix, e.g.:
+    ///   "MapboxMaps.MapView", "rnmapbox_maps.RNMBXMapView"
+    /// The module prefix varies by build config (static lib, framework, etc.)
+    /// so we use .contains() checks rather than strict prefix matching.
     private func _classifyByInheritance(_ view: UIView) -> MapSDKType? {
         var cls: AnyClass? = type(of: view)
         while let c = cls {
             let name = NSStringFromClass(c)
-            // NSStringFromClass returns the fully-qualified ObjC name.
-            // MKMapView, GMSMapView, MGLMapView are all top-level ObjC classes.
-            if name == "MKMapView"  { return .appleMapKit }
+
+            // Apple MapKit (ObjC class — no module prefix)
+            if name == "MKMapView" { return .appleMapKit }
+
+            // Google Maps iOS SDK (ObjC class)
             if name == "GMSMapView" { return .googleMaps }
+
+            // Mapbox GL Native v5/v6 (ObjC class)
             if name == "MGLMapView" { return .mapbox }
+
+            // Mapbox Maps SDK v10+/v11 (Swift class, used by @rnmapbox/maps)
+            // NSStringFromClass returns: "MapboxMaps.MapView"
+            // Use .contains to handle any module prefix variations.
+            if name.contains("MapboxMaps") && name.contains("MapView") { return .mapbox }
+
             cls = class_getSuperclass(c)
         }
+
+        // Also check the runtime class name directly for the RN wrapper.
+        // CocoaPods may compile it as "rnmapbox_maps.RNMBXMapView" or
+        // "RNMBX.RNMBXMapView" depending on the pod name.
+        let runtimeName = NSStringFromClass(type(of: view))
+        if runtimeName.contains("RNMBXMap") { return .mapbox }
+
         return nil
     }
 
@@ -202,18 +297,167 @@ public final class SpecialCases: NSObject {
     }
 
     // ---- Mapbox ----
-    // MGLMapViewDelegate: mapView(_:regionWillChangeAnimated:) -> not idle
-    //                     mapView(_:regionDidChangeAnimated:)  -> idle
+    // Supports both old MGLMapView (v5/v6) and new MapboxMaps.MapView (v10+/v11).
     private func _hookMapbox(_ mapView: UIView) {
-        guard mapView.responds(to: NSSelectorFromString("delegate")) else {
-            DiagnosticLog.trace("[SpecialCases] MGLMapView has no delegate property")
+        // Old MGLMapView (v5/v6) — delegate-based, same pattern as Apple MapKit
+        if _superclassChainContains(mapView, name: "MGLMapView") {
+            guard mapView.responds(to: NSSelectorFromString("delegate")) else { return }
+            guard let delegate = mapView.value(forKey: "delegate") as? NSObject else { return }
+            _swizzleDelegateForAppleOrMapbox(delegate: delegate, isMapbox: true)
             return
         }
-        guard let delegate = mapView.value(forKey: "delegate") as? NSObject else {
-            DiagnosticLog.trace("[SpecialCases] MGLMapView delegate is nil")
+
+        // @rnmapbox/maps v10+/v11 — the SDK's event API uses Swift generics
+        // and closures that can't be hooked from the ObjC runtime.
+        // Instead, we observe the map's UIGestureRecognizers directly.
+        // The MapboxMaps.MapView has pan/pinch/rotate/pitch recognizers
+        // exposed via its `gestures` GestureManager.  These are standard
+        // UIGestureRecognizers added to the view hierarchy, so we can use
+        // addTarget(_:action:) without importing the framework.
+        _hookMapboxV10GestureRecognizers(mapView)
+    }
+
+    /// Check if any superclass has the given name.
+    private func _superclassChainContains(_ view: UIView, name: String) -> Bool {
+        var cls: AnyClass? = type(of: view)
+        while let c = cls {
+            if NSStringFromClass(c) == name { return true }
+            cls = class_getSuperclass(c)
+        }
+        return false
+    }
+
+    // MARK: - Mapbox v10+ gesture recognizer observation
+
+    /// Find the actual MapboxMaps.MapView and observe its gesture recognizers.
+    private func _hookMapboxV10GestureRecognizers(_ mapView: UIView) {
+        // The detected view might be the RNMBX wrapper.  Find the actual
+        // MapboxMaps.MapView which holds the gesture recognizers.
+        let target = _findMapboxMapsView(in: mapView) ?? mapView
+        let targetClass = NSStringFromClass(type(of: target))
+        let mapViewClass = NSStringFromClass(type(of: mapView))
+        DiagnosticLog.trace("[SpecialCases] Mapbox v10+ hook: detected=\(mapViewClass), target=\(targetClass)")
+
+        // Collect all gesture recognizers on the map view.
+        // The MapboxMaps.MapView has pan, pinch, rotate, pitch, double-tap,
+        // quick-zoom, and single-tap recognizers.
+        guard let recognizers = target.gestureRecognizers, !recognizers.isEmpty else {
+            DiagnosticLog.trace("[SpecialCases] Mapbox v10+: no gesture recognizers on \(NSStringFromClass(type(of: target))), falling back to touch-based")
+            _usesGestureBasedIdle = true
             return
         }
-        _swizzleDelegateForAppleOrMapbox(delegate: delegate, isMapbox: true)
+
+        // Only observe continuous gestures that produce map motion
+        // (pan, pinch, rotate, pitch — typically UIPanGestureRecognizer,
+        // UIPinchGestureRecognizer, UIRotationGestureRecognizer, and
+        // Mapbox's custom pitch handler which is also a pan recognizer).
+        for gr in recognizers {
+            if gr is UIPanGestureRecognizer ||
+               gr is UIPinchGestureRecognizer ||
+               gr is UIRotationGestureRecognizer {
+                gr.addTarget(self, action: #selector(_handleMapGesture(_:)))
+                _observedGestureRecognizers.append(gr)
+            }
+        }
+
+        if _observedGestureRecognizers.isEmpty {
+            DiagnosticLog.trace("[SpecialCases] Mapbox v10+: no continuous gesture recognizers found, falling back to touch-based")
+            _usesGestureBasedIdle = true
+            return
+        }
+
+        _usesGestureBasedIdle = true
+        DiagnosticLog.trace("[SpecialCases] Mapbox v10+: observing \(_observedGestureRecognizers.count) gesture recognizers")
+    }
+
+    /// Find the actual MapboxMaps.MapView in a view and its near children.
+    /// Uses .contains() for class name matching to handle module prefix variations.
+    private func _findMapboxMapsView(in view: UIView) -> UIView? {
+        if _isMapboxMapsViewClass(view) { return view }
+        for sub in view.subviews {
+            if _isMapboxMapsViewClass(sub) { return sub }
+        }
+        for sub in view.subviews {
+            for subsub in sub.subviews {
+                if _isMapboxMapsViewClass(subsub) { return subsub }
+            }
+        }
+        // Go one more level — some wrappers add intermediate containers
+        for sub in view.subviews {
+            for subsub in sub.subviews {
+                for subsubsub in subsub.subviews {
+                    if _isMapboxMapsViewClass(subsubsub) { return subsubsub }
+                }
+            }
+        }
+        return nil
+    }
+
+    /// Check if a view is the actual MapboxMaps.MapView (not the RN wrapper).
+    private func _isMapboxMapsViewClass(_ view: UIView) -> Bool {
+        let name = NSStringFromClass(type(of: view))
+        return name.contains("MapboxMaps") && name.contains("MapView")
+    }
+
+    /// Target-action handler for map gesture recognizers.
+    @objc private func _handleMapGesture(_ gr: UIGestureRecognizer) {
+        switch gr.state {
+        case .began:
+            _activeGestureCount += 1
+            _gestureDebounceTimer?.invalidate()
+            _gestureDebounceTimer = nil
+            if mapIdle {
+                mapIdle = false
+            }
+
+        case .ended, .cancelled, .failed:
+            _activeGestureCount = max(0, _activeGestureCount - 1)
+            if _activeGestureCount == 0 {
+                // All gestures ended — start the deceleration debounce timer.
+                _gestureDebounceTimer?.invalidate()
+                _gestureDebounceTimer = Timer.scheduledTimer(
+                    withTimeInterval: SpecialCases._gestureDebounceDelay,
+                    repeats: false
+                ) { [weak self] _ in
+                    guard let self = self else { return }
+                    self._gestureDebounceTimer = nil
+                    if !self.mapIdle {
+                        self.mapIdle = true
+                    }
+                }
+            }
+
+        default:
+            break
+        }
+    }
+
+    // MARK: - Touch-based idle detection (fallback for when gesture observation fails)
+
+    /// Called by InteractionRecorder when a touch begins while a map is visible.
+    @objc public func notifyTouchBegan() {
+        guard _usesGestureBasedIdle, _observedGestureRecognizers.isEmpty, mapVisible else { return }
+        _gestureDebounceTimer?.invalidate()
+        _gestureDebounceTimer = nil
+        if mapIdle {
+            mapIdle = false
+        }
+    }
+
+    /// Called by InteractionRecorder when a touch ends/cancels while a map is visible.
+    @objc public func notifyTouchEnded() {
+        guard _usesGestureBasedIdle, _observedGestureRecognizers.isEmpty, mapVisible else { return }
+        _gestureDebounceTimer?.invalidate()
+        _gestureDebounceTimer = Timer.scheduledTimer(
+            withTimeInterval: SpecialCases._gestureDebounceDelay,
+            repeats: false
+        ) { [weak self] _ in
+            guard let self = self else { return }
+            self._gestureDebounceTimer = nil
+            if !self.mapIdle {
+                self.mapIdle = true
+            }
+        }
     }
 
     // MARK: - Apple / Mapbox delegate swizzle
@@ -334,6 +578,13 @@ public final class SpecialCases: NSObject {
         _originalRegionWillChange = nil
         _originalIdleAtCamera = nil
         _originalWillMove = nil
+
+        // Remove gesture recognizer targets
+        for gr in _observedGestureRecognizers {
+            gr.removeTarget(self, action: #selector(_handleMapGesture(_:)))
+        }
+        _observedGestureRecognizers.removeAll()
+        _activeGestureCount = 0
     }
 
     private func _clearMapState() {
@@ -343,6 +594,9 @@ public final class SpecialCases: NSObject {
         mapVisible = false
         mapIdle = true
         detectedSDK = nil
+        _usesGestureBasedIdle = false
+        _gestureDebounceTimer?.invalidate()
+        _gestureDebounceTimer = nil
     }
 
     // MARK: - Helpers

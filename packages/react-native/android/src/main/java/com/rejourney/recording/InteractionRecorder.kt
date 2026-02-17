@@ -129,6 +129,15 @@ class InteractionRecorder private constructor(private val context: Context) {
                 if (event != null) {
                     markInteractionNow()
                     agg.processTouchEvent(event)
+
+                    // Notify SpecialCases about touch phases for touch-based
+                    // map idle detection (Mapbox v10+ fallback).
+                    when (event.actionMasked) {
+                        MotionEvent.ACTION_DOWN ->
+                            SpecialCases.shared.notifyTouchBegan()
+                        MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL ->
+                            SpecialCases.shared.notifyTouchEnded()
+                    }
                 }
                 return original.dispatchTouchEvent(event)
             }

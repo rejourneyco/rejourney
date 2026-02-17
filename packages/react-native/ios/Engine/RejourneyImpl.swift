@@ -609,7 +609,7 @@ public final class RejourneyImpl: NSObject {
         resolve: @escaping RCTPromiseResolveBlock,
         reject: @escaping RCTPromiseRejectBlock
     ) {
-        DiagnosticLog.notice("[Rejourney] setRemoteConfig: rejourneyEnabled=\(rejourneyEnabled), recordingEnabled=\(recordingEnabled), sampleRate=\(sampleRate), maxRecording=\(maxRecordingMinutes)min")
+        DiagnosticLog.trace("[Rejourney] setRemoteConfig: rejourneyEnabled=\(rejourneyEnabled), recordingEnabled=\(recordingEnabled), sampleRate=\(sampleRate), maxRecording=\(maxRecordingMinutes)min")
         
         ReplayOrchestrator.shared.setRemoteConfig(
             rejourneyEnabled: rejourneyEnabled,

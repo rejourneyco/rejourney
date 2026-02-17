@@ -29,8 +29,10 @@ yarn-error.*
 .DS_Store
 *.pem
 
-# local env files
-.env*
+# local env files (contain secrets e.g. MAPBOX_ACCESS_TOKEN)
+.env
+.env.dev
+.env.*
 !.env.dev.example
 !.env.prod.example
 

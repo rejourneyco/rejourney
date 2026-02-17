@@ -44,6 +44,10 @@ target 'ReactNativeBoilerplate' do
   use_frameworks! :linkage => podfile_properties['ios.useFrameworks'].to_sym if podfile_properties['ios.useFrameworks']
   use_frameworks! :linkage => ENV['USE_FRAMEWORKS'].to_sym if ENV['USE_FRAMEWORKS']
 
+  pre_install do |installer|
+    $RNMapboxMaps.pre_install(installer)
+  end
+
   use_react_native!(
     :path => config[:reactNativePath],
     :hermes_enabled => podfile_properties['expo.jsEngine'] == nil || podfile_properties['expo.jsEngine'] == 'hermes',
@@ -53,6 +57,7 @@ target 'ReactNativeBoilerplate' do
   )
 
   post_install do |installer|
+    $RNMapboxMaps.post_install(installer)
     react_native_post_install(
       installer,
       config[:reactNativePath],

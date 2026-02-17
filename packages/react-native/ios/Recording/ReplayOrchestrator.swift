@@ -292,7 +292,7 @@ public final class ReplayOrchestrator: NSObject {
         // If recording is disabled, disable visual capture
         if !recordingEnabled {
             visualCaptureEnabled = false
-            DiagnosticLog.notice("[ReplayOrchestrator] Visual capture disabled by remote config (recordingEnabled=false)")
+            DiagnosticLog.trace("[ReplayOrchestrator] Visual capture disabled by remote config (recordingEnabled=false)")
         }
         
         // If already recording, restart the duration limit timer with updated config
@@ -300,7 +300,7 @@ public final class ReplayOrchestrator: NSObject {
             _startDurationLimitTimer()
         }
         
-        DiagnosticLog.notice("[ReplayOrchestrator] Remote config applied: rejourneyEnabled=\(rejourneyEnabled), recordingEnabled=\(recordingEnabled), sampleRate=\(sampleRate)%, maxRecording=\(maxRecordingMinutes)min, isSampledIn=\(recordingEnabled)")
+        DiagnosticLog.trace("[ReplayOrchestrator] Remote config applied: rejourneyEnabled=\(rejourneyEnabled), recordingEnabled=\(recordingEnabled), sampleRate=\(sampleRate)%, maxRecording=\(maxRecordingMinutes)min, isSampledIn=\(recordingEnabled)")
     }
     
     @objc public func attachAttribute(key: String, value: String) {
@@ -524,20 +524,20 @@ public final class ReplayOrchestrator: NSObject {
         let remaining = maxMs > elapsed ? maxMs - elapsed : 0
         
         guard remaining > 0 else {
-            DiagnosticLog.notice("[ReplayOrchestrator] Duration limit already exceeded, stopping session")
+            DiagnosticLog.trace("[ReplayOrchestrator] Duration limit already exceeded, stopping session")
             endReplay()
             return
         }
         
         let workItem = DispatchWorkItem { [weak self] in
             guard let self, self._live else { return }
-            DiagnosticLog.notice("[ReplayOrchestrator] Recording duration limit reached (\(maxMinutes)min), stopping session")
+            DiagnosticLog.trace("[ReplayOrchestrator] Recording duration limit reached (\(maxMinutes)min), stopping session")
             self.endReplay()
         }
         _durationLimitTimer = workItem
         DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(Int(remaining)), execute: workItem)
         
-        DiagnosticLog.notice("[ReplayOrchestrator] Duration limit timer set: \(remaining / 1000)s remaining (max \(maxMinutes)min)")
+        DiagnosticLog.trace("[ReplayOrchestrator] Duration limit timer set: \(remaining / 1000)s remaining (max \(maxMinutes)min)")
     }
     
     private func _stopDurationLimitTimer() {

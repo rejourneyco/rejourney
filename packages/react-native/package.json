@@ -1,6 +1,6 @@
 {
     "name": "@rejourneyco/react-native",
-"version": "1.0.7",
+    "version": "1.0.7",
     "description": "Rejourney Session Recording SDK for React Native",
     "main": "lib/commonjs/index.js",
     "module": "lib/module/index.js",
@@ -84,7 +84,7 @@
         "react-native": "*",
         "react-native-builder-bob": "^0.23.0",
         "typescript": "^5.0.0",
-        "vitest": "^2.1.0"
+        "vitest": "^3.2.4"
     },
     "peerDependencies": {
         "react": "*",

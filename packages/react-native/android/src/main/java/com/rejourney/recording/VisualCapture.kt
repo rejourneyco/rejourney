@@ -26,6 +26,7 @@ import android.graphics.Rect
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
+import android.view.TextureView
 import android.view.View
 import android.view.ViewGroup
 import android.view.WindowManager
@@ -96,15 +97,13 @@ class VisualCapture private constructor(private val context: Context) {
     
     fun setCurrentActivity(activity: Activity?) {
         currentActivity = if (activity != null) WeakReference(activity) else null
-        DiagnosticLog.notice("[VisualCapture] setCurrentActivity: ${activity?.javaClass?.simpleName ?: "null"}")
+        DiagnosticLog.trace("[VisualCapture] setCurrentActivity: ${activity?.javaClass?.simpleName ?: "null"}")
     }
     
     fun beginCapture(sessionOrigin: Long) {
-        DiagnosticLog.notice("[VisualCapture] beginCapture called, currentActivity=${currentActivity?.get()?.javaClass?.simpleName ?: "null"}, state=${stateMachine.currentState}")
-        DiagnosticLog.trace("[VisualCapture] beginCapture called, currentActivity=${currentActivity?.get()?.javaClass?.simpleName ?: "null"}")
+        DiagnosticLog.trace("[VisualCapture] beginCapture called, currentActivity=${currentActivity?.get()?.javaClass?.simpleName ?: "null"}, state=${stateMachine.currentState}")
         if (!stateMachine.transition(CaptureState.CAPTURING)) {
-            DiagnosticLog.notice("[VisualCapture] beginCapture REJECTED - state transition failed from ${stateMachine.currentState}")
-            DiagnosticLog.trace("[VisualCapture] beginCapture failed - state transition rejected")
+            DiagnosticLog.trace("[VisualCapture] beginCapture REJECTED - state transition failed from ${stateMachine.currentState}")
             return
         }
         sessionEpoch = sessionOrigin
@@ -118,7 +117,6 @@ class VisualCapture private constructor(private val context: Context) {
             }
         }
         
-        DiagnosticLog.notice("[VisualCapture] Starting capture timer with interval=${snapshotInterval}s")
         DiagnosticLog.trace("[VisualCapture] Starting capture timer with interval=${snapshotInterval}s")
         startCaptureTimer()
     }
@@ -203,22 +201,17 @@ class VisualCapture private constructor(private val context: Context) {
     
     private fun captureFrame(force: Boolean = false) {
         val currentFrameNum = frameCounter.get()
-        // Log first 3 frames at notice level
         if (currentFrameNum < 3) {
-            DiagnosticLog.notice("[VisualCapture] captureFrame #$currentFrameNum, state=${stateMachine.currentState}, activity=${currentActivity?.get()?.javaClass?.simpleName ?: "null"}")
+            DiagnosticLog.trace("[VisualCapture] captureFrame #$currentFrameNum, state=${stateMachine.currentState}, activity=${currentActivity?.get()?.javaClass?.simpleName ?: "null"}")
         }
         
         if (stateMachine.currentState != CaptureState.CAPTURING) {
-            DiagnosticLog.notice("[VisualCapture] captureFrame skipped - state=${stateMachine.currentState}")
             DiagnosticLog.trace("[VisualCapture] captureFrame skipped - state=${stateMachine.currentState}")
             return
         }
         
         val activity = currentActivity?.get()
         if (activity == null) {
-            if (currentFrameNum < 3) {
-                DiagnosticLog.notice("[VisualCapture] captureFrame skipped - NO ACTIVITY")
-            }
             DiagnosticLog.trace("[VisualCapture] captureFrame skipped - no activity")
             return
         }
@@ -232,13 +225,17 @@ class VisualCapture private constructor(private val context: Context) {
         // map tiles which causes visible stutter.  We resume capture at 1 FPS
         // once the map SDK reports idle.
         if (!force && SpecialCases.shared.mapVisible && !SpecialCases.shared.mapIdle) {
+            if (currentFrameNum < 3 || currentFrameNum % 30 == 0L) {
+                DiagnosticLog.trace("[VisualCapture] SKIPPING capture - map moving (mapIdle=false)")
+            }
             return
         }
         
         val frameStart = SystemClock.elapsedRealtime()
         
         try {
-            val decorView = activity.window?.decorView ?: return
+            val window = activity.window ?: return
+            val decorView = window.decorView
             val bounds = Rect()
             decorView.getWindowVisibleDisplayFrame(bounds)
             
@@ -250,67 +247,132 @@ class VisualCapture private constructor(private val context: Context) {
             val scaledWidth = (bounds.width() / screenScale).toInt()
             val scaledHeight = (bounds.height() / screenScale).toInt()
             
+            // 1. Draw the View tree (captures everything except GPU surfaces)
             val bitmap = Bitmap.createBitmap(scaledWidth, scaledHeight, Bitmap.Config.ARGB_8888)
             val canvas = Canvas(bitmap)
             canvas.scale(1f / screenScale, 1f / screenScale)
-            
             decorView.draw(canvas)
             
-            // Apply redactions
-            if (redactRects.isNotEmpty()) {
-                val paint = Paint().apply {
-                    color = Color.BLACK
-                    style = Paint.Style.FILL
-                }
-                for (rect in redactRects) {
-                    if (rect.width() > 0 && rect.height() > 0) {
-                        canvas.drawRect(
-                            rect.left / screenScale,
-                            rect.top / screenScale,
-                            rect.right / screenScale,
-                            rect.bottom / screenScale,
-                            paint
-                        )
-                    }
-                }
-            }
+            // 2. Composite GPU surfaces (TextureView/SurfaceView) on top.
+            //    decorView.draw() renders these as black; we grab their pixels
+            //    directly and paint them at the correct position.
+            compositeGpuSurfaces(decorView, canvas, screenScale)
             
-            // Compress to JPEG
-            val stream = ByteArrayOutputStream()
-            bitmap.compress(Bitmap.CompressFormat.JPEG, (quality * 100).toInt(), stream)
-            bitmap.recycle()
-            
-            val data = stream.toByteArray()
-            val captureTs = System.currentTimeMillis()
-            val frameNum = frameCounter.incrementAndGet()
-            
-            // Log first frame and every 30 frames
-            if (frameNum == 1L) {
-                DiagnosticLog.notice("[VisualCapture] First frame captured! size=${data.size} bytes")
-            }
-            if (frameNum % 30 == 0L) {
-                val frameDurationMs = (SystemClock.elapsedRealtime() - frameStart).toDouble()
-                val isMainThread = Looper.myLooper() == Looper.getMainLooper()
-                DiagnosticLog.perfFrame("screenshot", frameDurationMs, frameNum.toInt(), isMainThread)
-            }
-            
-            // Store in buffer
-            stateLock.withLock {
-                screenshots.add(Pair(data, captureTs))
-                enforceScreenshotCaps()
-                val shouldSend = !deferredUntilCommit && screenshots.size >= batchSize
-                
-                if (shouldSend) {
-                    sendScreenshots()
-                }
-            }
+            processCapture(bitmap, redactRects, screenScale, frameStart, force)
             
         } catch (e: Exception) {
             DiagnosticLog.fault("Frame capture failed: ${e.message}")
         }
     }
     
+    /**
+     * Find all TextureView instances in the hierarchy and draw their GPU-rendered
+     * content onto the capture canvas at the correct position.  decorView.draw()
+     * renders TextureView/SurfaceView as black; this fills in the actual pixels.
+     *
+     * Mapbox uses SurfaceView by default, so we use MapView.snapshot() to capture
+     * the map and composite it at the correct position.
+     */
+    private fun compositeGpuSurfaces(root: View, canvas: Canvas, screenScale: Float) {
+        findTextureViews(root) { tv ->
+            try {
+                val tvBitmap = tv.bitmap ?: return@findTextureViews
+                val loc = IntArray(2)
+                tv.getLocationInWindow(loc)
+                canvas.drawBitmap(tvBitmap, loc[0].toFloat(), loc[1].toFloat(), null)
+                tvBitmap.recycle()
+            } catch (_: Exception) {
+                // Safety: never crash if TextureView.getBitmap() fails
+            }
+        }
+        compositeMapboxSnapshot(root, canvas)
+    }
 
+    /**
+     * Mapbox MapView uses SurfaceView; decorView.draw() renders it black.
+     * Use MapView.snapshot() (Mapbox SDK API) to capture the map and composite it.
+     */
+    private fun compositeMapboxSnapshot(root: View, canvas: Canvas) {
+        val mapView = SpecialCases.shared.getMapboxMapViewForSnapshot(root) ?: return
+        try {
+            val snapshot = mapView.javaClass.getMethod("snapshot").invoke(mapView)
+            val bitmap = snapshot as? Bitmap ?: return
+            val loc = IntArray(2)
+            mapView.getLocationInWindow(loc)
+            canvas.drawBitmap(bitmap, loc[0].toFloat(), loc[1].toFloat(), null)
+            bitmap.recycle()
+        } catch (e: Exception) {
+            DiagnosticLog.trace("[VisualCapture] Mapbox snapshot failed: ${e.message}")
+        }
+    }
+    
+    private fun findTextureViews(view: View, action: (TextureView) -> Unit) {
+        if (view is TextureView && view.isAvailable) {
+            action(view)
+        }
+        if (view is ViewGroup) {
+            for (i in 0 until view.childCount) {
+                findTextureViews(view.getChildAt(i), action)
+            }
+        }
+    }
+    
+    private fun processCapture(
+        bitmap: Bitmap,
+        redactRects: List<Rect>,
+        screenScale: Float,
+        frameStart: Long,
+        force: Boolean
+    ) {
+        // Apply redactions
+        if (redactRects.isNotEmpty()) {
+            val canvas = Canvas(bitmap)
+            val paint = Paint().apply {
+                color = Color.BLACK
+                style = Paint.Style.FILL
+            }
+            for (rect in redactRects) {
+                if (rect.width() > 0 && rect.height() > 0) {
+                    canvas.drawRect(
+                        rect.left / screenScale,
+                        rect.top / screenScale,
+                        rect.right / screenScale,
+                        rect.bottom / screenScale,
+                        paint
+                    )
+                }
+            }
+        }
+        
+        // Compress to JPEG
+        val stream = ByteArrayOutputStream()
+        bitmap.compress(Bitmap.CompressFormat.JPEG, (quality * 100).toInt(), stream)
+        bitmap.recycle()
+        
+        val data = stream.toByteArray()
+        val captureTs = System.currentTimeMillis()
+        val frameNum = frameCounter.incrementAndGet()
+        
+        if (frameNum == 1L) {
+            DiagnosticLog.trace("[VisualCapture] First frame captured! size=${data.size} bytes")
+        }
+        if (frameNum % 30 == 0L) {
+            val frameDurationMs = (SystemClock.elapsedRealtime() - frameStart).toDouble()
+            val isMainThread = Looper.myLooper() == Looper.getMainLooper()
+            DiagnosticLog.perfFrame("screenshot", frameDurationMs, frameNum.toInt(), isMainThread)
+        }
+        
+        // Store in buffer
+        stateLock.withLock {
+            screenshots.add(Pair(data, captureTs))
+            enforceScreenshotCaps()
+            val shouldSend = !deferredUntilCommit && screenshots.size >= batchSize
+            
+            if (shouldSend) {
+                sendScreenshots()
+            }
+        }
+    }
     
     private fun enforceScreenshotCaps() {
         while (screenshots.size > maxBufferedScreenshots) {
@@ -332,7 +394,7 @@ class VisualCapture private constructor(private val context: Context) {
             return
         }
         
-        DiagnosticLog.notice("[VisualCapture] sendScreenshots: sending ${images.size} frames")
+        DiagnosticLog.trace("[VisualCapture] sendScreenshots: sending ${images.size} frames")
         
         // All heavy work happens in background
         encodeExecutor.execute {

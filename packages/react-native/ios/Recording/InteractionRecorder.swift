@@ -95,6 +95,20 @@ public final class InteractionRecorder: NSObject {
         guard isTracking, let agg = _gestureAggregator else { return }
         guard let touches = event.allTouches else { return }
         _lastInteractionTimestampMs = UInt64(Date().timeIntervalSince1970 * 1000)
+
+        // Notify SpecialCases about touch phases for touch-based map idle detection
+        // (used by Mapbox v10+ where SDK idle callbacks can't be hooked).
+        for touch in touches {
+            switch touch.phase {
+            case .began:
+                SpecialCases.shared.notifyTouchBegan()
+            case .ended, .cancelled:
+                SpecialCases.shared.notifyTouchEnded()
+            default:
+                break
+            }
+        }
+
         for touch in touches {
             agg.processTouch(touch, in: window)
         }

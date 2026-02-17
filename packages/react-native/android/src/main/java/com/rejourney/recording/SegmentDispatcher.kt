@@ -170,14 +170,14 @@ class SegmentDispatcher private constructor() {
     ) {
         val sid = currentReplayId
         val canUpload = canUploadNow()
-        DiagnosticLog.notice("[SegmentDispatcher] transmitFrameBundle: sid=${sid?.take(12) ?: "null"}, canUpload=$canUpload, frames=$frameCount, bytes=${payload.size}")
+        DiagnosticLog.trace("[SegmentDispatcher] transmitFrameBundle: sid=${sid?.take(12) ?: "null"}, canUpload=$canUpload, frames=$frameCount, bytes=${payload.size}")
         
         if (sid != null) {
             DiagnosticLog.debugPresignRequest(endpoint, sid, "screenshots", payload.size)
         }
         
         if (sid == null || !canUpload) {
-            DiagnosticLog.caution("[SegmentDispatcher] transmitFrameBundle: rejected - sid=${sid != null}, canUpload=$canUpload")
+            DiagnosticLog.trace("[SegmentDispatcher] transmitFrameBundle: rejected - sid=${sid != null}, canUpload=$canUpload")
             completion?.invoke(false)
             return
         }
@@ -357,9 +357,9 @@ class SegmentDispatcher private constructor() {
     }
     
     private fun scheduleUpload(upload: PendingUpload, completion: ((Boolean) -> Unit)?) {
-        DiagnosticLog.notice("[SegmentDispatcher] scheduleUpload: active=$active, type=${upload.contentType}, items=${upload.itemCount}")
+        DiagnosticLog.trace("[SegmentDispatcher] scheduleUpload: active=$active, type=${upload.contentType}, items=${upload.itemCount}")
         if (!active) {
-            DiagnosticLog.caution("[SegmentDispatcher] scheduleUpload: rejected - not active")
+            DiagnosticLog.trace("[SegmentDispatcher] scheduleUpload: rejected - not active")
             completion?.invoke(false)
             return
         }
@@ -376,7 +376,6 @@ class SegmentDispatcher private constructor() {
         
         val presignResponse = requestPresignedUrl(upload)
         if (presignResponse == null) {
-            DiagnosticLog.notice("[SegmentDispatcher] ❌ requestPresignedUrl FAILED for ${upload.contentType}")
             DiagnosticLog.caution("[SegmentDispatcher] requestPresignedUrl FAILED for ${upload.contentType}")
             registerFailure()
             scheduleRetryIfNeeded(upload, completion)
@@ -385,7 +384,6 @@ class SegmentDispatcher private constructor() {
         
         val s3ok = uploadToS3(presignResponse.presignedUrl, upload.payload)
         if (!s3ok) {
-            DiagnosticLog.notice("[SegmentDispatcher] ❌ uploadToS3 FAILED for ${upload.contentType}")
             DiagnosticLog.caution("[SegmentDispatcher] uploadToS3 FAILED for ${upload.contentType}")
             registerFailure()
             scheduleRetryIfNeeded(upload, completion)
@@ -396,7 +394,6 @@ class SegmentDispatcher private constructor() {
         if (confirmOk) {
             registerSuccess()
         } else {
-            DiagnosticLog.notice("[SegmentDispatcher] ❌ confirmBatchComplete FAILED for ${upload.contentType}")
             DiagnosticLog.caution("[SegmentDispatcher] confirmBatchComplete FAILED for ${upload.contentType}")
             registerFailure()
         }
@@ -460,14 +457,14 @@ class SegmentDispatcher private constructor() {
             DiagnosticLog.debugPresignResponse(response.code, null, null, durationMs)
             
             if (response.code == 402) {
-                DiagnosticLog.notice("[SegmentDispatcher] ❌ presign: 402 Payment Required - billing blocked")
+                DiagnosticLog.caution("[SegmentDispatcher] presign: 402 Payment Required - billing blocked")
                 billingBlocked = true
                 return null
             }
             
             if (response.code != 200 || responseBody == null) {
                 val bodyPreview = responseBody?.take(300) ?: "null"
-                DiagnosticLog.notice("[SegmentDispatcher] ❌ presign failed: status=${response.code} body=$bodyPreview")
+                DiagnosticLog.caution("[SegmentDispatcher] presign failed: status=${response.code} body=$bodyPreview")
                 return null
             }
             
@@ -486,7 +483,7 @@ class SegmentDispatcher private constructor() {
             PresignResponse(presignedUrl, batchId)
         } catch (e: Exception) {
             val durationMs = (System.currentTimeMillis() - startTime).toDouble()
-            DiagnosticLog.notice("[SegmentDispatcher] ❌ presign exception (${durationMs.toLong()}ms): ${e.javaClass.simpleName}: ${e.message}")
+            DiagnosticLog.trace("[SegmentDispatcher] presign exception (${durationMs.toLong()}ms): ${e.javaClass.simpleName}: ${e.message}")
             DiagnosticLog.fault("[SegmentDispatcher] presign exception: ${e.message}")
             null
         }
@@ -515,7 +512,7 @@ class SegmentDispatcher private constructor() {
                 false
             }
         } catch (e: Exception) {
-            DiagnosticLog.notice("[SegmentDispatcher] ❌ S3 upload exception: ${e.message}")
+            DiagnosticLog.trace("[SegmentDispatcher] S3 upload exception: ${e.message}")
             DiagnosticLog.fault("[SegmentDispatcher] S3 upload exception: ${e.message}")
             recordUploadStats((System.currentTimeMillis() - startTime).toDouble(), false, payload.size.toLong())
             false
@@ -570,7 +567,6 @@ class SegmentDispatcher private constructor() {
         
         val presignResponse = requestPresignedUrl(upload)
         if (presignResponse == null) {
-            DiagnosticLog.notice("[SegmentDispatcher] ❌ requestPresignedUrl FAILED for ${upload.contentType}")
             DiagnosticLog.caution("[SegmentDispatcher] requestPresignedUrl FAILED for ${upload.contentType}")
             registerFailure()
             scheduleRetryIfNeeded(upload, completion)
@@ -579,7 +575,6 @@ class SegmentDispatcher private constructor() {
         
         val s3ok = uploadToS3(presignResponse.presignedUrl, upload.payload)
         if (!s3ok) {
-            DiagnosticLog.notice("[SegmentDispatcher] ❌ uploadToS3 FAILED for ${upload.contentType}")
             DiagnosticLog.caution("[SegmentDispatcher] uploadToS3 FAILED for ${upload.contentType}")
             registerFailure()
             scheduleRetryIfNeeded(upload, completion)
@@ -590,7 +585,7 @@ class SegmentDispatcher private constructor() {
         if (confirmOk) {
             registerSuccess()
         } else {
-            DiagnosticLog.caution("[SegmentDispatcher] confirmBatchComplete FAILED for ${upload.contentType} (batchId=${presignResponse.batchId})")
+            DiagnosticLog.caution("[SegmentDispatcher] confirmBatchComplete FAILED for ${upload.contentType}")
             registerFailure()
         }
         completion?.invoke(confirmOk)
@@ -598,7 +593,7 @@ class SegmentDispatcher private constructor() {
     
     private fun buildRequest(url: String, body: JSONObject): Request {
         // Log auth state before building request
-        DiagnosticLog.notice("[SegmentDispatcher] buildRequest: apiToken=${apiToken?.take(15) ?: "NULL"}, credential=${credential?.take(15) ?: "NULL"}, replayId=${currentReplayId?.take(20) ?: "NULL"}")
+        DiagnosticLog.trace("[SegmentDispatcher] buildRequest: apiToken=${apiToken?.take(15) ?: "NULL"}, credential=${credential?.take(15) ?: "NULL"}, replayId=${currentReplayId?.take(20) ?: "NULL"}")
         
         val requestBody = body.toString().toRequestBody("application/json".toMediaType())
         

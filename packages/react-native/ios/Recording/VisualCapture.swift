@@ -201,19 +201,28 @@ public final class VisualCapture: NSObject {
         // Refresh map detection state (very cheap shallow walk)
         SpecialCases.shared.refreshMapState()
         
+        // Debug-only: confirm capture is running and map state
+        if _frameCounter < 5 || _frameCounter % 30 == 0 {
+            DiagnosticLog.trace("[VisualCapture] frame#\(_frameCounter) mapVisible=\(SpecialCases.shared.mapVisible) mapIdle=\(SpecialCases.shared.mapIdle) forced=\(forced)")
+        }
+        
         // Map stutter prevention: when a map view is visible and its camera
         // is still moving (user gesture or animation), skip drawHierarchy
         // entirely — this is the call that causes GPU readback stutter on
         // Metal/OpenGL-backed map tiles.  We resume capture at 1 FPS once
         // the map SDK reports idle.
         if !forced && SpecialCases.shared.mapVisible && !SpecialCases.shared.mapIdle {
+            DiagnosticLog.trace("[VisualCapture] SKIPPING frame (map moving)")
             return
         }
         
         // Capture the pixel buffer on the main thread (required by UIKit),
         // then move JPEG compression to the encode queue to reduce main-thread blocking.
         autoreleasepool {
-            guard let window = UIApplication.shared.windows.first(where: \.isKeyWindow) else { return }
+            guard let window = UIApplication.shared.connectedScenes
+                .compactMap({ $0 as? UIWindowScene })
+                .flatMap({ $0.windows })
+                .first(where: { $0.isKeyWindow }) else { return }
             let bounds = window.bounds
             // Guard against NaN and invalid bounds that cause CoreGraphics errors
             guard bounds.width > 0, bounds.height > 0 else { return }
@@ -619,14 +628,10 @@ private final class RedactionMask {
     }
     
     private func _keyWindow() -> UIWindow? {
-        if #available(iOS 15.0, *) {
-            return UIApplication.shared.connectedScenes
-                .compactMap { $0 as? UIWindowScene }
-                .flatMap { $0.windows }
-                .first { $0.isKeyWindow }
-        } else {
-            return UIApplication.shared.windows.first { $0.isKeyWindow }
-        }
+        return UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .flatMap { $0.windows }
+            .first { $0.isKeyWindow }
     }
     
     private func _scanForSensitiveViews(in view: UIView, rects: inout [CGRect], depth: Int = 0) {

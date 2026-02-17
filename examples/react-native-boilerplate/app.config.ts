@@ -14,6 +14,11 @@ export default ({ config }: ConfigContext): ExpoConfig => {
     android: {
       ...config.android,
       package: process.env.EXPO_ANDROID_PACKAGE ?? 'com.watarumaeda.react_native_boilerplate',
+      config: {
+        googleMaps: {
+          apiKey: process.env.GOOGLE_MAPS_API_KEY,
+        },
+      },
     },
     web: {
       ...config.web,
@@ -29,7 +34,7 @@ export default ({ config }: ConfigContext): ExpoConfig => {
       eas: { projectId: expoProjectId },
       env: process.env.ENV ?? 'development',
       apiUrl: process.env.API_URL ?? 'https://example.com',
-      // add more env variables here...
+      mapboxAccessToken: process.env.MAPBOX_ACCESS_TOKEN ?? '',
     },
     plugins: [
       'expo-router',
@@ -57,6 +62,12 @@ export default ({ config }: ConfigContext): ExpoConfig => {
             './assets/fonts/OpenSans-Semibold.ttf',
             './assets/fonts/OpenSans-SemiboldItalic.ttf',
           ],
+        },
+      ],
+      [
+        '@rnmapbox/maps',
+        {
+          accessToken: process.env.MAPBOX_ACCESS_TOKEN ?? '',
         },
       ],
     ],

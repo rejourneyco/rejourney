@@ -6,7 +6,7 @@ PODS:
   - EXJSONUtils (0.15.0)
   - EXManifests (1.0.10):
     - ExpoModulesCore
-  - Expo (54.0.32):
+  - Expo (54.0.33):
     - ExpoModulesCore
     - hermes-engine
     - RCTRequired
@@ -41,7 +41,7 @@ PODS:
     - ExpoModulesCore
   - ExpoHaptics (15.0.8):
     - ExpoModulesCore
-  - ExpoHead (6.0.22):
+  - ExpoHead (6.0.23):
     - ExpoModulesCore
     - RNScreens
   - ExpoImage (3.0.11):
@@ -123,8 +123,8 @@ PODS:
   - hermes-engine (0.81.5):
     - hermes-engine/Pre-built (= 0.81.5)
   - hermes-engine/Pre-built (0.81.5)
-  - libavif/core (0.11.1)
-  - libavif/libdav1d (0.11.1):
+  - libavif/core (1.0.0)
+  - libavif/libdav1d (1.0.0):
     - libavif/core
     - libdav1d (>= 0.6.0)
   - libdav1d (1.2.0)
@@ -140,6 +140,14 @@ PODS:
   - libwebp/sharpyuv (1.5.0)
   - libwebp/webp (1.5.0):
     - libwebp/sharpyuv
+  - MapboxCommon (24.15.4):
+    - Turf (= 4.0.0)
+  - MapboxCoreMaps (11.15.4):
+    - MapboxCommon (= 24.15.4)
+  - MapboxMaps (11.15.4):
+    - MapboxCommon (= 24.15.4)
+    - MapboxCoreMaps (= 11.15.4)
+    - Turf (= 4.0.0)
   - RCTDeprecation (0.81.5)
   - RCTRequired (0.81.5)
   - RCTTypeSafety (0.81.5):
@@ -1929,6 +1937,33 @@ PODS:
     - ReactCommon/turbomodule/core
     - ReactNativeDependencies
     - Yoga
+  - rnmapbox-maps (10.2.6):
+    - MapboxMaps (~> 11.15.2)
+    - React
+    - React-Core
+    - rnmapbox-maps/DynamicLibrary (= 10.2.6)
+    - Turf
+  - rnmapbox-maps/DynamicLibrary (10.2.6):
+    - hermes-engine
+    - MapboxMaps (~> 11.15.2)
+    - RCTRequired
+    - RCTTypeSafety
+    - React
+    - React-Core
+    - React-Core-prebuilt
+    - React-featureflags
+    - React-ImageManager
+    - React-jsi
+    - React-NativeModulesApple
+    - React-RCTFabric
+    - React-renderercss
+    - React-rendererdebug
+    - ReactCodegen
+    - ReactCommon/turbomodule/bridging
+    - ReactCommon/turbomodule/core
+    - ReactNativeDependencies
+    - Turf
+    - Yoga
   - RNReanimated (4.1.6):
     - hermes-engine
     - RCTRequired
@@ -2121,9 +2156,9 @@ PODS:
     - ReactCommon/turbomodule/core
     - ReactNativeDependencies
     - Yoga
-  - SDWebImage (5.21.5):
-    - SDWebImage/Core (= 5.21.5)
-  - SDWebImage/Core (5.21.5)
+  - SDWebImage (5.21.6):
+    - SDWebImage/Core (= 5.21.6)
+  - SDWebImage/Core (5.21.6)
   - SDWebImageAVIFCoder (0.11.1):
     - libavif/core (>= 0.11.0)
     - SDWebImage (~> 5.10)
@@ -2132,13 +2167,14 @@ PODS:
   - SDWebImageWebPCoder (0.14.6):
     - libwebp (~> 1.0)
     - SDWebImage/Core (~> 5.17)
+  - Turf (4.0.0)
   - Yoga (0.0.0)
 
 DEPENDENCIES:
   - EASClient (from `../node_modules/expo-eas-client/ios`)
   - EXConstants (from `../node_modules/expo-constants/ios`)
-  - EXJSONUtils (from `../node_modules/expo-manifests/node_modules/expo-json-utils/ios`)
-  - EXManifests (from `../node_modules/expo-manifests/ios`)
+  - EXJSONUtils (from `../node_modules/expo-json-utils/ios`)
+  - EXManifests (from `../node_modules/expo-updates/node_modules/expo-manifests/ios`)
   - Expo (from `../node_modules/expo`)
   - ExpoAsset (from `../node_modules/expo-asset/ios`)
   - ExpoBlur (from `../node_modules/expo-blur/ios`)
@@ -2155,7 +2191,7 @@ DEPENDENCIES:
   - ExpoSymbols (from `../node_modules/expo-symbols/ios`)
   - ExpoSystemUI (from `../node_modules/expo-system-ui/ios`)
   - ExpoWebBrowser (from `../node_modules/expo-web-browser/ios`)
-  - EXStructuredHeaders (from `../node_modules/expo-structured-headers/ios`)
+  - EXStructuredHeaders (from `../node_modules/expo-updates/node_modules/expo-structured-headers/ios`)
   - EXUpdates (from `../node_modules/expo-updates/ios`)
   - EXUpdatesInterface (from `../node_modules/expo-updates-interface/ios`)
   - FBLazyVector (from `../node_modules/react-native/Libraries/FBLazyVector`)
@@ -2231,6 +2267,7 @@ DEPENDENCIES:
   - rejourney (from `../../../packages/react-native`)
   - "RNCAsyncStorage (from `../node_modules/@react-native-async-storage/async-storage`)"
   - RNGestureHandler (from `../node_modules/react-native-gesture-handler`)
+  - "rnmapbox-maps (from `../node_modules/@rnmapbox/maps`)"
   - RNReanimated (from `../node_modules/react-native-reanimated`)
   - RNScreens (from `../node_modules/react-native-screens`)
   - RNWorklets (from `../node_modules/react-native-worklets`)
@@ -2241,11 +2278,15 @@ SPEC REPOS:
     - libavif
     - libdav1d
     - libwebp
+    - MapboxCommon
+    - MapboxCoreMaps
+    - MapboxMaps
     - ReachabilitySwift
     - SDWebImage
     - SDWebImageAVIFCoder
     - SDWebImageSVGCoder
     - SDWebImageWebPCoder
+    - Turf
 
 EXTERNAL SOURCES:
   EASClient:
@@ -2253,9 +2294,9 @@ EXTERNAL SOURCES:
   EXConstants:
     :path: "../node_modules/expo-constants/ios"
   EXJSONUtils:
-    :path: "../node_modules/expo-manifests/node_modules/expo-json-utils/ios"
+    :path: "../node_modules/expo-json-utils/ios"
   EXManifests:
-    :path: "../node_modules/expo-manifests/ios"
+    :path: "../node_modules/expo-updates/node_modules/expo-manifests/ios"
   Expo:
     :path: "../node_modules/expo"
   ExpoAsset:
@@ -2289,7 +2330,7 @@ EXTERNAL SOURCES:
   ExpoWebBrowser:
     :path: "../node_modules/expo-web-browser/ios"
   EXStructuredHeaders:
-    :path: "../node_modules/expo-structured-headers/ios"
+    :path: "../node_modules/expo-updates/node_modules/expo-structured-headers/ios"
   EXUpdates:
     :path: "../node_modules/expo-updates/ios"
   EXUpdatesInterface:
@@ -2439,6 +2480,8 @@ EXTERNAL SOURCES:
     :path: "../node_modules/@react-native-async-storage/async-storage"
   RNGestureHandler:
     :path: "../node_modules/react-native-gesture-handler"
+  rnmapbox-maps:
+    :path: "../node_modules/@rnmapbox/maps"
   RNReanimated:
     :path: "../node_modules/react-native-reanimated"
   RNScreens:
@@ -2453,13 +2496,13 @@ SPEC CHECKSUMS:
   EXConstants: fce59a631a06c4151602843667f7cfe35f81e271
   EXJSONUtils: 1d3e4590438c3ee593684186007028a14b3686cd
   EXManifests: a8d97683e5c7a3b026ffbd58559c64dc655b747b
-  Expo: 4e503a041c59c4e34c8be262a135848ad5cd3710
+  Expo: aadbcc8c6c14ff3105a9154f1683cb1424ff0d2a
   ExpoAsset: f867e55ceb428aab99e1e8c082b5aee7c159ea18
   ExpoBlur: b90747a3f22a8b6ceffd9cb0dc41a4184efdc656
   ExpoFileSystem: 858a44267a3e6e9057e0888ad7c7cfbf55d52063
   ExpoFont: f543ce20a228dd702813668b1a07b46f51878d47
   ExpoHaptics: d3a6375d8dcc3a1083d003bc2298ff654fafb536
-  ExpoHead: 4425246bc93411f0fe7f6945f95f698e91db8780
+  ExpoHead: 7e19b2272edf492262acf8afb391a295198a6b23
   ExpoImage: 686f972bff29525733aa13357f6691dc90aa03d8
   ExpoKeepAwake: 55f75eca6499bb9e4231ebad6f3e9cb8f99c0296
   ExpoLinearGradient: 809102bdb979f590083af49f7fa4805cd931bd58
@@ -2474,9 +2517,12 @@ SPEC CHECKSUMS:
   EXUpdatesInterface: 5adf50cb41e079c861da6d9b4b954c3db9a50734
   FBLazyVector: e95a291ad2dadb88e42b06e0c5fb8262de53ec12
   hermes-engine: 9f4dfe93326146a1c99eb535b1cb0b857a3cd172
-  libavif: 84bbb62fb232c3018d6f1bab79beea87e35de7b7
+  libavif: 5f8e715bea24debec477006f21ef9e95432e254d
   libdav1d: 23581a4d8ec811ff171ed5e2e05cd27bad64c39f
   libwebp: 02b23773aedb6ff1fd38cec7a77b81414c6842a8
+  MapboxCommon: 975faa94b893bb64a1d28b09d9d6d820e1030a26
+  MapboxCoreMaps: 105af9894d850290fbb466e9f9a133f5d175abf1
+  MapboxMaps: e97e59d6ba48bb6f695a4c1dc2f174cb24743cd4
   RCTDeprecation: 943572d4be82d480a48f4884f670135ae30bf990
   RCTRequired: 8f3cfc90cc25cf6e420ddb3e7caaaabc57df6043
   RCTTypeSafety: 16a4144ca3f959583ab019b57d5633df10b5e97c
@@ -2548,15 +2594,17 @@ SPEC CHECKSUMS:
   rejourney: 466af15e398177de4324ace7328ca153f1d8eda0
   RNCAsyncStorage: 3a4f5e2777dae1688b781a487923a08569e27fe4
   RNGestureHandler: 2914750df066d89bf9d8f48a10ad5f0051108ac3
+  rnmapbox-maps: 650f04a562ac9e51a08ba86059ad49b009221498
   RNReanimated: e5c702a3e24cc1c68b2de67671713f35461678f4
   RNScreens: d8d6f1792f6e7ac12b0190d33d8d390efc0c1845
   RNWorklets: 76fce72926e28e304afb44f0da23b2d24f2c1fa0
-  SDWebImage: e9c98383c7572d713c1a0d7dd2783b10599b9838
+  SDWebImage: 1bb6a1b84b6fe87b972a102bdc77dd589df33477
   SDWebImageAVIFCoder: afe194a084e851f70228e4be35ef651df0fc5c57
   SDWebImageSVGCoder: 15a300a97ec1c8ac958f009c02220ac0402e936c
   SDWebImageWebPCoder: e38c0a70396191361d60c092933e22c20d5b1380
+  Turf: c9eb11a65d96af58cac523460fd40fec5061b081
   Yoga: 5934998fbeaef7845dbf698f698518695ab4cd1a
 
-PODFILE CHECKSUM: 37d26bf11bb687d10364b123137d841c6c80bf41
+PODFILE CHECKSUM: 4490ccd4ee7c90f2f8e1737b5eda30c5988ceee7
 
 COCOAPODS: 1.16.2
