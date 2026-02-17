@@ -314,10 +314,10 @@ spec:
       containers:
         - name: setup
           image: ghcr.io/rejourneyco/rejourney/migration:latest
-          # Run push instead of migrate to handle schema initialization more robustly
+          # Run migrate to apply migration SQL files (push does not run migrations)
           # Then run seed to ensure basic data (policies, test user/project) exists
           command: ["/bin/sh", "-c"]
-          args: ["./node_modules/.bin/drizzle-kit push && ./node_modules/.bin/tsx src/db/seed.ts"]
+          args: ["./node_modules/.bin/drizzle-kit migrate && ./node_modules/.bin/tsx src/db/seed.ts"]
           env:
             - name: NODE_ENV
               value: production
