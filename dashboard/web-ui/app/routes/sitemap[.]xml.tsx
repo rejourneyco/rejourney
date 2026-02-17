@@ -4,6 +4,7 @@
  */
 
 import { DOCS_MAP } from "~/utils/docsConfig";
+import { ARTICLES } from "~/data/engineering";
 
 export async function loader() {
     const baseUrl = "https://rejourney.co";
@@ -22,10 +23,16 @@ export async function loader() {
         changefreq: "weekly"
     }));
 
+    const engineeringRoutes = ARTICLES.map(article => ({
+        path: `/engineering/${article.urlDate}/${article.id}`,
+        priority: "0.8",
+        changefreq: "weekly"
+    }));
+
     // Generate XML content
     const sitemap = `<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
-${[...staticRoutes, ...docRoutes].map(route => `
+${[...staticRoutes, ...docRoutes, ...engineeringRoutes].map(route => `
   <url>
     <loc>${baseUrl}${route.path}</loc>
     <lastmod>${lastModified}</lastmod>

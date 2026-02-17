@@ -14,7 +14,7 @@ import { User } from '@/types';
 import { initRejourney, startRejourney } from 'rejourney';
 
 initRejourney('rj_b6075c32a139fac7d444f86054e3dd25', {
-  apiUrl: 'http://10.43.80.190:3000', // Update this to your local backend IP
+  apiUrl: 'http://10.43.80.188:3000', // Update this to your local backend IP
   debug: true,
 });
 startRejourney();
