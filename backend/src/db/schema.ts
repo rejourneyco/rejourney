@@ -419,6 +419,7 @@ export const recordingArtifacts = pgTable(
         sessionId: varchar('session_id', { length: 64 }).notNull().references(() => sessions.id, { onDelete: 'cascade' }),
         kind: varchar('kind', { length: 50 }).notNull(), // 'events', 'screenshots', 'hierarchy', 'crashes', 'anrs'
         s3ObjectKey: text('s3_object_key').notNull(),
+        endpointId: varchar('endpoint_id', { length: 255 }), // Pins artifact to upload endpoint for correct worker download (k3s load balancing)
         sizeBytes: integer('size_bytes'),
         status: varchar('status', { length: 20 }).default('pending').notNull(),
         readyAt: timestamp('ready_at'),

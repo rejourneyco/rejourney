@@ -10,6 +10,10 @@ Rejourney supports **multiple S3 endpoints** per project with **weighted load ba
 
 **Key concept:** In Production (Distributed Cloud), S3 credentials are **never** in environment variables. They're encrypted and stored in the database, managed via the [manage-s3-endpoints.mjs](/scripts/k8s/manage-s3-endpoints.mjs) script. In Self-Hosted mode, the system gracefully falls back to `.env` variables if the table is empty.
 
+**Deployment modes:**
+- **Self-hosted Docker / dev Docker:** Typically a single S3 endpoint (MinIO or external). No load balancing.
+- **K3s (production):** May use multiple storage endpoints with weighted load balancing. Each artifact stores `endpoint_id` at upload so the ingest worker downloads from the same endpoint.
+
 ---
 
 ## Architecture Overview
@@ -68,7 +72,7 @@ const signedUrl = await getSignedUploadUrl(
 return { url: signedUrl, endpointId: endpoint.id };
 ```
 
-**Important:** The `endpointId` is returned to the SDK (in response headers or metadata), so the SDK can later request downloads from the **same endpoint**.
+**Important:** The `endpointId` is stored on the `recording_artifacts` row when the artifact is created. The ingest worker uses this to download from the **same endpoint** the SDK uploaded to. This enables weighted load balancing in k3s (multiple endpoints) without NoSuchKey errors.
 
 ---
 
@@ -166,6 +170,16 @@ function selectWeightedRandom(endpoints: StorageEndpoint[]): StorageEndpoint {
 ```
 
 **Example:** Two endpoints with priority 0 and priority 9 will be selected ~1:10 ratio.
+
+### Artifact Endpoint Pinning (K3s Load Balancing)
+
+When multiple endpoints exist, the API selects one at random for each presign. The chosen `endpointId` is stored on `recording_artifacts.endpoint_id`. The ingest worker reads this and downloads from that specific endpoint via `downloadFromS3ForArtifact()`. Legacy artifacts (created before this column existed) have `endpoint_id = null`; the worker falls back to `getEndpointForProject()` for those.
+
+```sql
+-- recording_artifacts.endpoint_id (nullable)
+-- Pins artifact to upload endpoint. Worker uses for download.
+ALTER TABLE recording_artifacts ADD COLUMN endpoint_id varchar(255);
+```
 
 ### Caching
 

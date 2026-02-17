@@ -125,14 +125,15 @@ export async function getEndpointForProject(projectId: string): Promise<StorageE
         return endpoints[0] as StorageEndpoint;
     }
 
-    // Multiple endpoints - weighted random selection
-    // Higher priority = higher weight = more likely to be selected
+    // Multiple endpoints (k3s) - weighted random for load balancing
+    // Artifacts store endpointId at creation, so worker downloads from same endpoint.
+    // Self-hosted Docker / dev Docker typically have single endpoint.
     const selected = selectWeightedRandom(endpoints as StorageEndpoint[]);
     return selected;
 }
 
 /**
- * Weighted random selection based on priority
+ * Weighted random selection based on priority (k3s multi-endpoint load balancing)
  * Priority 0 = weight 1, Priority 10 = weight 11, etc.
  */
 function selectWeightedRandom(endpoints: StorageEndpoint[]): StorageEndpoint {
@@ -146,14 +147,30 @@ function selectWeightedRandom(endpoints: StorageEndpoint[]): StorageEndpoint {
         }
     }
 
-    // Fallback to first (shouldn't happen)
     return endpoints[0];
 }
 
 /**
  * Get storage endpoint by ID (for downloads from specific location)
+ * Handles 'env-fallback' for self-hosted when no storage_endpoints rows exist.
  */
 export async function getEndpointById(endpointId: string): Promise<StorageEndpoint | null> {
+    // env-fallback is a virtual endpoint (self-hosted .env fallback)
+    if (endpointId === 'env-fallback' && config.SELF_HOSTED_MODE && config.S3_ENDPOINT && config.S3_BUCKET) {
+        return {
+            id: 'env-fallback',
+            projectId: null,
+            endpointUrl: config.S3_ENDPOINT,
+            bucket: config.S3_BUCKET,
+            region: config.S3_REGION,
+            accessKeyId: config.S3_ACCESS_KEY_ID || null,
+            keyRef: config.S3_SECRET_ACCESS_KEY || null,
+            priority: 100,
+            active: true,
+            shadow: false,
+        } as StorageEndpoint;
+    }
+
     // Check all caches first
     for (const [, cached] of endpointCache) {
         if (cached.endpoint.id === endpointId && cached.expiresAt > Date.now()) {
@@ -521,6 +538,25 @@ export async function downloadFromS3ForProject(
 ): Promise<Buffer | null> {
     const endpoint = await getEndpointForProject(projectId);
     return downloadFromS3(endpoint.id, key);
+}
+
+/**
+ * Download from specific endpoint (when artifact has endpointId) or project default.
+ * Use for ingest worker: artifacts store endpointId at upload so worker downloads from
+ * the same endpoint (enables k3s load balancing across multiple S3 endpoints).
+ */
+export async function downloadFromS3ForArtifact(
+    projectId: string,
+    key: string,
+    endpointId: string | null | undefined
+): Promise<Buffer | null> {
+    if (endpointId) {
+        const endpoint = await getEndpointById(endpointId);
+        if (endpoint) {
+            return downloadFromS3(endpoint.id, key);
+        }
+    }
+    return downloadFromS3ForProject(projectId, key);
 }
 
 /**

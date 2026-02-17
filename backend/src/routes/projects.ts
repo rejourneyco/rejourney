@@ -7,7 +7,7 @@
 import { Router } from 'express';
 import { randomBytes } from 'crypto';
 import { eq, and, inArray, gte, isNull, sql, desc, ne } from 'drizzle-orm';
-import { db, projects, teamMembers, sessions, sessionMetrics, teams } from '../db/client.js';
+import { db, projects, teamMembers, sessions, sessionMetrics, teams, alertSettings, alertRecipients } from '../db/client.js';
 import { getRedis } from '../db/redis.js';
 import { logger } from '../logger.js';
 import { sessionAuth, requireProjectAccess, asyncHandler, ApiError } from '../middleware/index.js';
@@ -330,6 +330,36 @@ router.post(
         }).returning();
 
         logger.info({ projectId: project.id, userId: req.user!.id }, 'Project created');
+
+        // Create default alert settings for the project
+        await db.insert(alertSettings).values({
+            projectId: project.id,
+            crashAlertsEnabled: true,
+            anrAlertsEnabled: true,
+            errorSpikeAlertsEnabled: true,
+            apiDegradationAlertsEnabled: true,
+            errorSpikeThresholdPercent: 50,
+            apiDegradationThresholdPercent: 100,
+            apiLatencyThresholdMs: 3000,
+        });
+
+        // Add team owners as default alert recipients (max 5)
+        const owners = await db
+            .select({ userId: teamMembers.userId })
+            .from(teamMembers)
+            .where(and(eq(teamMembers.teamId, teamId), eq(teamMembers.role, 'owner')))
+            .limit(5);
+
+        for (const { userId } of owners) {
+            await db.insert(alertRecipients).values({
+                projectId: project.id,
+                userId,
+            });
+        }
+
+        if (owners.length > 0) {
+            logger.info({ projectId: project.id, ownerCount: owners.length }, 'Added team owners as default alert recipients');
+        }
 
         // Audit log
         await auditFromRequest(req, 'project_created', {

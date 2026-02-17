@@ -14,7 +14,7 @@ import { evaluateAndPromoteSession } from '../services/replayPromotion.js';
 import { analyzeProjectFunnel } from '../services/funnelAnalysis.js';
 import { updateDeviceUsage } from '../services/recording.js';
 import { createHash } from 'crypto';
-import { downloadFromS3ForProject } from '../db/s3.js';
+import { downloadFromS3ForArtifact } from '../db/s3.js';
 import { logger } from '../logger.js';
 import { pingWorker, checkQueueHealth } from '../services/monitoring.js';
 import { trackErrorAsIssue, trackCrashAsIssue, trackANRAsIssue } from '../services/issueTracker.js';
@@ -217,8 +217,15 @@ async function processArtifactJob(job: any): Promise<boolean> {
         const projectId = project?.id || session.projectId;
         const s3Key = job.payloadRef;
 
-        // Download artifact from S3 using project's endpoint
-        const data = await downloadFromS3ForProject(projectId, s3Key);
+        // Fetch artifact for endpointId (pins download to same endpoint as upload for k3s load balancing)
+        const [artifact] = await db
+            .select({ endpointId: recordingArtifacts.endpointId })
+            .from(recordingArtifacts)
+            .where(eq(recordingArtifacts.id, job.artifactId))
+            .limit(1);
+
+        // Download from artifact's endpoint (or project default for legacy artifacts)
+        const data = await downloadFromS3ForArtifact(projectId, s3Key, artifact?.endpointId);
         if (!data) {
             log.warn('No data found in S3');
             await db.update(recordingArtifacts)

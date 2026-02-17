@@ -325,10 +325,12 @@ router.post(
         }
 
         // Store pending batch info in database for /batch/complete to finalize
+        // endpointId pins artifact to upload endpoint so worker downloads from same place (k3s load balancing)
         await db.insert(recordingArtifacts).values({
             sessionId: session.id,
             kind,
             s3ObjectKey: s3Key,
+            endpointId: presignResult.endpointId,
             sizeBytes: requestedSizeBytes,
             status: 'pending', // Will be marked 'ready' when /batch/complete is called
             timestamp: Date.now(),
@@ -704,7 +706,7 @@ router.post(
 
         const timestampInt = Math.floor(Number(data.startTime));
         const filename = `${timestampInt}.${extension}`;
-        const s3Key = `sessions/${session.id}/${subFolder}/${filename}`;
+        const s3Key = generateS3Key(teamId, projectId, session.id, subFolder, filename);
 
         // Get presigned upload URL (1 hour expiry)
         const presignResult = await getSignedUploadUrl(projectId, s3Key, contentType, 3600);
@@ -721,10 +723,12 @@ router.post(
         const endTimeInt = data.endTime ? Math.floor(Number(data.endTime)) : null;
 
         // Store pending artifact in database
+        // endpointId pins artifact to upload endpoint so worker downloads from same place (k3s load balancing)
         await db.insert(recordingArtifacts).values({
             sessionId: session.id,
             kind: data.kind,
             s3ObjectKey: s3Key,
+            endpointId: presignResult.endpointId,
             sizeBytes: requestedSizeBytes,
             status: 'pending',
             timestamp: startTimeInt,

@@ -489,14 +489,14 @@ export const Geo: React.FC = () => {
 
                         <section className="grid grid-cols-1 gap-6 xl:grid-cols-3">
                             <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm xl:col-span-2">
-                                <div className="mb-4 flex flex-wrap gap-2">
+                                <div className="mb-6 flex flex-wrap gap-3">
                                     {ISSUE_TYPES.map((item) => (
                                         <button
                                             key={item.value}
                                             onClick={() => setSelectedIssueType(item.value)}
-                                            className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition ${selectedIssueType === item.value
-                                                ? 'border-blue-300 bg-blue-50 text-blue-700'
-                                                : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+                                            className={`rounded-xl border-2 px-4 py-2 text-xs font-black uppercase tracking-wider transition-all duration-200 ${selectedIssueType === item.value
+                                                ? 'border-slate-900 bg-blue-500 text-white shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] -translate-x-1 -translate-y-1'
+                                                : 'border-slate-900 bg-white text-slate-600 hover:bg-slate-50 shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] hover:shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] hover:-translate-x-0.5 hover:-translate-y-0.5'
                                                 }`}
                                         >
                                             {item.label}
