@@ -1,6 +1,6 @@
 {
   "name": "rejourney-dashboard",
-  "version": "2.0.0",
+  "version": "3.0.0",
   "description": "Rejourney Dashboard Server - New Engine Edition with HEIC keyframes and WebP tile deltas",
   "main": "server.js",
   "scripts": {
