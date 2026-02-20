@@ -11,6 +11,7 @@ export const createTeamSchema = z.object({
 export const updateTeamSchema = z.object({
     name: z.string().min(1).max(100).optional(),
     billingPlan: z.string().optional(),
+    retentionTier: z.number().int().min(0).max(6).optional(),
 });
 
 export const addTeamMemberSchema = z.object({

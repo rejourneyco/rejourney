@@ -200,5 +200,6 @@ export const retentionTiers = [
     { tier: 2, days: 30 },
     { tier: 3, days: 90 },
     { tier: 4, days: 365 },
-    { tier: 5, days: null }, // Unlimited
+    { tier: 5, days: 3650 },
+    { tier: 6, days: null }, // Unlimited
 ];

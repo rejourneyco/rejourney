@@ -1,5 +1,5 @@
 import { eq, sql } from 'drizzle-orm';
-import { db, sessions, sessionMetrics, deviceUsage } from '../db/client.js';
+import { db, sessions, sessionMetrics, deviceUsage, projects, teams } from '../db/client.js';
 import { logger } from '../logger.js';
 import geoip from 'geoip-lite';
 import { lookupGeoIpFromMmdb } from './geoIpMmdb.js';
@@ -221,6 +221,19 @@ export async function ensureIngestSession(
             }
         }
 
+        // Get the project and team to inherit the team's retention tier
+        let teamRetentionTier = 0; // default 0 implies using the global/plan defaults
+        const [projectInfo] = await db
+            .select({ retentionTier: teams.retentionTier })
+            .from(projects)
+            .innerJoin(teams, eq(projects.teamId, teams.id))
+            .where(eq(projects.id, projectId))
+            .limit(1);
+
+        if (projectInfo && projectInfo.retentionTier !== undefined) {
+            teamRetentionTier = projectInfo.retentionTier;
+        }
+
         [session] = await db.insert(sessions).values({
             id: sessionId,
             projectId,
@@ -233,6 +246,7 @@ export async function ensureIngestSession(
             anonymousDisplayId,
             deviceId: metadata?.deviceId || null,  // Set deviceId on session creation for funny anonymous names
             startedAt,
+            retentionTier: teamRetentionTier,
             isSampledIn: metadata?.isSampledIn ?? true,  // Default to true for backward compatibility
         }).returning();
 

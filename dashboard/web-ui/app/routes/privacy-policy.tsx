@@ -50,6 +50,9 @@ export default function PrivacyPolicy() {
                             <p>
                                 When you visit rejourney.co, we collect standard log data and use first-party cookies to understand how you interact with our site. This may include your IP address, browser type, and pages visited. We use this information to improve our website and marketing efforts.
                             </p>
+                            <p className="mt-4">
+                                We use Microsoft Clarity to capture how you use and interact with our website through behavioral metrics, heatmaps, and session replay to improve and market our products/services. Website usage data is captured using first and third-party cookies and other tracking technologies to determine the popularity of products/services and online activity. Additionally, we use this information for site optimization, fraud/security purposes, and advertising. For more information about how Microsoft collects and uses your data, visit the <a href="https://privacy.microsoft.com/en-US/privacystatement" className="text-primary hover:underline" target="_blank" rel="noopener noreferrer">Microsoft Privacy Statement</a>.
+                            </p>
 
                             <h3 id="customers" className="text-base font-semibold mt-6 mb-2">2. Information for Customers</h3>
                             <p>

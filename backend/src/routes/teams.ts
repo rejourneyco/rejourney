@@ -6,8 +6,8 @@
 
 import { Router } from 'express';
 import { randomBytes } from 'crypto';
-import { eq, and, count, sql, isNull } from 'drizzle-orm';
-import { db, teams, teamMembers, teamInvitations, users, projects } from '../db/client.js';
+import { eq, and, count, sql, isNull, inArray } from 'drizzle-orm';
+import { db, teams, teamMembers, teamInvitations, users, projects, sessions } from '../db/client.js';
 import { logger } from '../logger.js';
 import { sessionAuth, requireTeamAccess, requireTeamAdmin, requireTeamOwner, asyncHandler, ApiError } from '../middleware/index.js';
 import { validate } from '../middleware/validation.js';
@@ -170,13 +170,34 @@ router.put(
             });
         }
 
+        const setParams: any = {
+            updatedAt: new Date(),
+        };
+        if (req.body.name !== undefined) setParams.name = req.body.name;
+        if (req.body.retentionTier !== undefined) setParams.retentionTier = req.body.retentionTier;
+
         const [team] = await db.update(teams)
-            .set({
-                name: req.body.name,
-                updatedAt: new Date(),
-            })
+            .set(setParams)
             .where(eq(teams.id, req.params.teamId))
             .returning();
+
+        // Retroactively apply retention tier to all existing un-deleted sessions for this team's projects
+        if (req.body.retentionTier !== undefined) {
+            const teamProjects = await db.select({ id: projects.id }).from(projects).where(eq(projects.teamId, team.id));
+            const projectIds = teamProjects.map((p: any) => p.id);
+
+            if (projectIds.length > 0) {
+                await db.update(sessions)
+                    .set({ retentionTier: req.body.retentionTier })
+                    .where(
+                        and(
+                            inArray(sessions.projectId, projectIds),
+                            eq(sessions.recordingDeleted, false)
+                        )
+                    );
+                logger.info({ teamId: team.id, projectCount: projectIds.length, retentionTier: req.body.retentionTier }, 'Retroactively updated retention tier for existing team sessions');
+            }
+        }
 
         logger.info({ teamId: team.id, userId: req.user!.id }, 'Team updated');
 
@@ -184,7 +205,7 @@ router.put(
         await auditFromRequest(req, 'project_updated', {
             targetType: 'team',
             targetId: team.id,
-            newValue: { name: team.name },
+            newValue: { name: team.name, retentionTier: team.retentionTier },
         });
 
         res.json({ team });
