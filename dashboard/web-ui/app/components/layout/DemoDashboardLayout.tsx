@@ -50,8 +50,8 @@ export const DemoDashboardLayout: React.FC = () => {
             {/* Main Content */}
             <div className="flex-1 flex flex-col overflow-hidden">
                 {/* Demo Banner */}
-                <div className="text-white px-4 py-2 flex items-center justify-between z-10" style={{ background: 'linear-gradient(90deg, #3f7cae 0%, #5dade2 55%, #7fc0ea 100%)' }}>
-                    <div className="flex items-center gap-2">
+                <div className="z-10 flex flex-wrap items-center justify-between gap-2 px-4 py-2 text-white" style={{ background: 'linear-gradient(90deg, #3f7cae 0%, #5dade2 55%, #7fc0ea 100%)' }}>
+                    <div className="flex min-w-0 items-center gap-2">
                         <div className="w-2 h-2 bg-white rounded-full animate-pulse" />
                         <span className="text-sm font-medium">
                             You're viewing a demo with sample data.
@@ -62,7 +62,7 @@ export const DemoDashboardLayout: React.FC = () => {
                     </div>
                     <Link
                         to="/login"
-                        className="bg-white px-3 py-1 rounded text-xs font-semibold transition-colors hover:bg-slate-100"
+                        className="rounded bg-white px-3 py-1 text-xs font-semibold transition-colors hover:bg-slate-100"
                         style={{ color: '#334155' }}
                     >
                         Sign Up

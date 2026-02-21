@@ -1,61 +1,67 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
     Activity,
-    AlertTriangle,
-    Clock,
+    Clock3,
     Globe,
-    Radar,
     ShieldAlert,
-    Zap,
+    Sparkles,
 } from 'lucide-react';
 import { useSessionData } from '../../context/SessionContext';
 import { DashboardPageHeader } from '../../components/ui/DashboardPageHeader';
 import {
-    getApiLatencyByLocation,
-    getGeoIssues,
-    getGeoSummary,
     ApiLatencyByLocationResponse,
     GeoIssueCountry,
     GeoIssueLocation,
     GeoIssuesSummary,
-    GeoSummary,
+    GeoRegionalValue,
+    getApiLatencyByLocation,
+    getGeoIssues,
+    getGeoValueByRegion,
 } from '../../services/api';
 import { GeoIssueMapRegion, IssuesWorldMap } from '../../components/ui/IssuesWorldMap';
 import { TimeFilter, TimeRange, DEFAULT_TIME_RANGE } from '../../components/ui/TimeFilter';
 
 type IssueType = 'all' | 'crashes' | 'anrs' | 'errors' | 'rageTaps' | 'apiErrors';
 
-type ActionItem = {
-    title: string;
-    impact: string;
-    recommendation: string;
-};
-
-type CountryInsight = {
+type RegionalValueRow = {
     country: string;
     sessions: number;
-    issueCount: number;
-    selectedIssueRate: number;
-    dominantIssue: string;
-    impactScore: number;
-    sampleQualified: boolean;
-    lat: number;
-    lng: number;
+    valueSessions: number;
+    valueShare: number;
+    avgUxScore: number;
+    avgDurationSeconds: number;
     avgLatencyMs?: number;
+    issueCount: number;
+    issueRate: number;
+    engagementSegments: {
+        bouncers: number;
+        casuals: number;
+        explorers: number;
+        loyalists: number;
+    };
 };
 
 const ISSUE_TYPES: Array<{ value: IssueType; label: string }> = [
     { value: 'all', label: 'All Issues' },
+    { value: 'apiErrors', label: 'API Errors' },
     { value: 'crashes', label: 'Crashes' },
     { value: 'anrs', label: 'ANRs' },
     { value: 'errors', label: 'Errors' },
     { value: 'rageTaps', label: 'Rage Taps' },
-    { value: 'apiErrors', label: 'API Errors' },
+];
+
+const SEGMENT_ORDER: Array<{
+    key: keyof GeoRegionalValue['regions'][number]['engagementSegments'];
+    label: string;
+    color: string;
+}> = [
+    { key: 'loyalists', label: 'Loyalists', color: 'bg-emerald-500' },
+    { key: 'explorers', label: 'Explorers', color: 'bg-blue-500' },
+    { key: 'casuals', label: 'Casuals', color: 'bg-amber-500' },
+    { key: 'bouncers', label: 'Bouncers', color: 'bg-rose-500' },
 ];
 
 const MIN_SAMPLE_SESSIONS = 50;
-const IMPACT_RATE_WEIGHT = 0.65;
-const IMPACT_SCALE_WEIGHT = 0.35;
 
 const toApiRange = (value: TimeRange): string | undefined => {
     if (value === 'all') return undefined;
@@ -75,96 +81,26 @@ const formatCompact = (value: number): string => {
     return value.toLocaleString();
 };
 
-const formatRate = (value: number): string => `${(value * 100).toFixed(1)}%`;
-
-const pickDominantIssue = (country: GeoIssueCountry): string => {
-    const issueTypes: Array<{ label: string; value: number }> = [
-        { label: 'Crash', value: country.crashes },
-        { label: 'ANR', value: country.anrs },
-        { label: 'Error', value: country.errors },
-        { label: 'Rage Tap', value: country.rageTaps },
-        { label: 'API Error', value: country.apiErrors },
-    ];
-    issueTypes.sort((a, b) => b.value - a.value);
-    return issueTypes[0]?.label || 'None';
-};
-
-const buildActionQueue = (
-    issues: GeoIssuesSummary | null,
-    latency: ApiLatencyByLocationResponse | null,
-    geoSummary: GeoSummary | null,
-): ActionItem[] => {
-    if (!issues) return [];
-
-    const actions: ActionItem[] = [];
-
-    const topIssueRate = [...issues.countries]
-        .filter((country) => country.sessions >= MIN_SAMPLE_SESSIONS)
-        .sort((a, b) => b.issueRate - a.issueRate)[0];
-
-    if (topIssueRate && topIssueRate.issueRate > 0.12) {
-        actions.push({
-            title: 'Country-level issue concentration is elevated',
-            impact: `${topIssueRate.country} has ${(topIssueRate.issueRate * 100).toFixed(1)}% issue density over ${topIssueRate.sessions.toLocaleString()} sessions.`,
-            recommendation: `Create targeted QA and support workflow for ${topIssueRate.country}.`,
-        });
-    }
-
-    const apiHeavyLocation = [...issues.locations]
-        .sort((a, b) => b.issues.apiErrors - a.issues.apiErrors)[0];
-
-    if (apiHeavyLocation && apiHeavyLocation.issues.apiErrors > 0) {
-        actions.push({
-            title: 'City hotspot indicates backend/API instability',
-            impact: `${apiHeavyLocation.city}, ${apiHeavyLocation.country} recorded ${apiHeavyLocation.issues.apiErrors.toLocaleString()} API errors.`,
-            recommendation: 'Correlate with regional backend logs and edge routing.',
-        });
-    }
-
-    const slowRegion = latency?.regions
-        ? [...latency.regions].sort((a, b) => b.avgLatencyMs - a.avgLatencyMs)[0]
-        : null;
-
-    if (slowRegion && slowRegion.avgLatencyMs > 450) {
-        actions.push({
-            title: 'Regional latency likely contributes to UX friction',
-            impact: `${slowRegion.country} averages ${slowRegion.avgLatencyMs}ms API latency.`,
-            recommendation: 'Shift traffic closer to users or enable regional caching.',
-        });
-    }
-
-    if (geoSummary && geoSummary.totalWithGeo > 0) {
-        const densityPerThousand = (issues.summary.totalIssues / geoSummary.totalWithGeo) * 1000;
-        if (densityPerThousand > 80) {
-            actions.push({
-                title: 'Global issue density is high relative to geo traffic',
-                impact: `${densityPerThousand.toFixed(1)} issues per 1k geo-tagged sessions.`,
-                recommendation: 'Run focused reliability sprint before broad rollout expansion.',
-            });
-        }
-    }
-
-    return actions.slice(0, 4);
-};
+const formatRate = (ratio: number): string => `${(ratio * 100).toFixed(1)}%`;
 
 export const Geo: React.FC = () => {
     const { selectedProject } = useSessionData();
 
     const [timeRange, setTimeRange] = useState<TimeRange>(DEFAULT_TIME_RANGE);
     const [selectedIssueType, setSelectedIssueType] = useState<IssueType>('all');
-    const [selectedRegion, setSelectedRegion] = useState<GeoIssueMapRegion | null>(null);
+    const [selectedCountry, setSelectedCountry] = useState<string | null>(null);
 
     const [issues, setIssues] = useState<GeoIssuesSummary | null>(null);
-    const [geoSummary, setGeoSummary] = useState<GeoSummary | null>(null);
+    const [regionalValue, setRegionalValue] = useState<GeoRegionalValue | null>(null);
     const [latencyByLocation, setLatencyByLocation] = useState<ApiLatencyByLocationResponse | null>(null);
     const [isLoading, setIsLoading] = useState(true);
 
     useEffect(() => {
         if (!selectedProject?.id) {
-            setIsLoading(false);
             setIssues(null);
-            setGeoSummary(null);
+            setRegionalValue(null);
             setLatencyByLocation(null);
+            setIsLoading(false);
             return;
         }
 
@@ -175,19 +111,19 @@ export const Geo: React.FC = () => {
 
         Promise.all([
             getGeoIssues(selectedProject.id, range),
-            getGeoSummary(selectedProject.id, range),
+            getGeoValueByRegion(selectedProject.id, range),
             getApiLatencyByLocation(selectedProject.id, range),
         ])
-            .then(([issuesData, summaryData, latencyData]) => {
+            .then(([issueData, valueData, latencyData]) => {
                 if (isCancelled) return;
-                setIssues(issuesData);
-                setGeoSummary(summaryData);
+                setIssues(issueData);
+                setRegionalValue(valueData);
                 setLatencyByLocation(latencyData);
             })
             .catch(() => {
                 if (isCancelled) return;
                 setIssues(null);
-                setGeoSummary(null);
+                setRegionalValue(null);
                 setLatencyByLocation(null);
             })
             .finally(() => {
@@ -199,19 +135,20 @@ export const Geo: React.FC = () => {
         };
     }, [selectedProject?.id, timeRange]);
 
-    const hasData = Boolean(issues && geoSummary);
-
     const selectedIssueLabel = useMemo(
         () => ISSUE_TYPES.find((item) => item.value === selectedIssueType)?.label ?? 'All Issues',
         [selectedIssueType]
     );
 
-    const topLatencyRegions = useMemo(() => {
-        if (!latencyByLocation?.regions) return [];
-        return [...latencyByLocation.regions]
-            .sort((a, b) => b.avgLatencyMs - a.avgLatencyMs)
-            .slice(0, 8);
-    }, [latencyByLocation]);
+    const hasData = Boolean(issues && regionalValue);
+
+    const issueByCountry = useMemo(() => {
+        const map = new Map<string, GeoIssueCountry>();
+        for (const country of issues?.countries ?? []) {
+            map.set(country.country, country);
+        }
+        return map;
+    }, [issues]);
 
     const latencyByCountry = useMemo(() => {
         const map = new Map<string, number>();
@@ -221,203 +158,193 @@ export const Geo: React.FC = () => {
         return map;
     }, [latencyByLocation]);
 
-    const countryCoordinateIndex = useMemo(() => {
-        type WeightedCoord = {
-            latSum: number;
-            lngSum: number;
-            weight: number;
-            fallbackLat?: number;
-            fallbackLng?: number;
-        };
+    const regionalRows = useMemo<RegionalValueRow[]>(() => {
+        if (!regionalValue) return [];
 
-        const weighted = new Map<string, WeightedCoord>();
-
-        for (const country of geoSummary?.countries ?? []) {
-            if (!Number.isFinite(country.latitude) || !Number.isFinite(country.longitude)) continue;
-            weighted.set(country.country, {
-                latSum: 0,
-                lngSum: 0,
-                weight: 0,
-                fallbackLat: country.latitude,
-                fallbackLng: country.longitude,
-            });
-        }
-
-        for (const location of issues?.locations ?? []) {
-            if (!Number.isFinite(location.lat) || !Number.isFinite(location.lng)) continue;
-
-            const current = weighted.get(location.country) ?? {
-                latSum: 0,
-                lngSum: 0,
-                weight: 0,
-            };
-            const pointWeight = Math.max(location.sessions, 1);
-
-            current.latSum += location.lat * pointWeight;
-            current.lngSum += location.lng * pointWeight;
-            current.weight += pointWeight;
-            weighted.set(location.country, current);
-        }
-
-        const coordinates = new Map<string, { lat: number; lng: number }>();
-        for (const [country, value] of weighted.entries()) {
-            if (value.weight > 0) {
-                coordinates.set(country, {
-                    lat: value.latSum / value.weight,
-                    lng: value.lngSum / value.weight,
-                });
-                continue;
-            }
-
-            if (
-                Number.isFinite(value.fallbackLat) &&
-                Number.isFinite(value.fallbackLng)
-            ) {
-                coordinates.set(country, {
-                    lat: value.fallbackLat!,
-                    lng: value.fallbackLng!,
-                });
-            }
-        }
-
-        return coordinates;
-    }, [geoSummary, issues]);
-
-    const countryInsights = useMemo<CountryInsight[]>(() => {
-        if (!issues?.countries.length) return [];
-
-        const maxSessions = Math.max(...issues.countries.map((country) => country.sessions), 1);
-        const rows = issues.countries
-            .map((country) => {
-                const issueCount = getIssueCount(country, selectedIssueType);
-                const selectedIssueRate = country.sessions > 0 ? issueCount / country.sessions : 0;
-                const coordinates = countryCoordinateIndex.get(country.country);
-                if (!coordinates) return null;
+        return regionalValue.regions
+            .map((region) => {
+                const countryIssue = issueByCountry.get(region.country);
+                const issueCount = countryIssue ? getIssueCount(countryIssue, selectedIssueType) : 0;
+                const issueRate = region.sessions > 0 ? issueCount / region.sessions : 0;
 
                 return {
-                    country: country.country,
-                    sessions: country.sessions,
+                    country: region.country,
+                    sessions: region.sessions,
+                    valueSessions: region.valueSessions,
+                    valueShare: region.valueShare / 100,
+                    avgUxScore: region.avgUxScore,
+                    avgDurationSeconds: region.avgDurationSeconds,
+                    avgLatencyMs: latencyByCountry.get(region.country),
                     issueCount,
-                    selectedIssueRate,
-                    dominantIssue: pickDominantIssue(country),
-                    sampleQualified: country.sessions >= MIN_SAMPLE_SESSIONS,
-                    lat: coordinates.lat,
-                    lng: coordinates.lng,
-                    avgLatencyMs: latencyByCountry.get(country.country),
+                    issueRate,
+                    engagementSegments: region.engagementSegments,
+                };
+            })
+            .sort((a, b) => b.valueSessions - a.valueSessions || b.sessions - a.sessions);
+    }, [regionalValue, issueByCountry, selectedIssueType, latencyByCountry]);
+
+    const topIssueRows = useMemo(() => {
+        return [...regionalRows]
+            .filter((row) => row.issueCount > 0)
+            .sort((a, b) => b.issueCount - a.issueCount || b.issueRate - a.issueRate)
+            .slice(0, 10);
+    }, [regionalRows]);
+
+    const mapRegions = useMemo<GeoIssueMapRegion[]>(() => {
+        if (!issues?.locations?.length) return [];
+        const regionByCountry = new Map(regionalRows.map((row) => [row.country, row] as const));
+
+        const rows = issues.locations
+            .map((location) => {
+                if (!Number.isFinite(location.lat) || !Number.isFinite(location.lng)) return null;
+
+                const issueCount = getIssueCount(location, selectedIssueType);
+                const issueRate = location.sessions > 0 ? issueCount / location.sessions : 0;
+                const valueRow = regionByCountry.get(location.country);
+
+                const dominantIssue = [
+                    { label: 'Crash', value: location.issues.crashes },
+                    { label: 'ANR', value: location.issues.anrs },
+                    { label: 'Error', value: location.issues.errors },
+                    { label: 'Rage Tap', value: location.issues.rageTaps },
+                    { label: 'API Error', value: location.issues.apiErrors },
+                ].sort((a, b) => b.value - a.value)[0]?.label ?? 'None';
+
+                return {
+                    id: `${location.country}-${location.city || 'unknown'}-${location.lat}-${location.lng}`,
+                    city: location.city,
+                    country: location.country,
+                    lat: location.lat,
+                    lng: location.lng,
+                    sessions: location.sessions,
+                    issueCount,
+                    issueRate,
+                    dominantIssue,
+                    sampleQualified: location.sessions >= MIN_SAMPLE_SESSIONS,
+                    avgLatencyMs: latencyByCountry.get(location.country),
+                    engagementSegments: valueRow?.engagementSegments,
                 };
             })
             .filter((row): row is NonNullable<typeof row> => row !== null);
 
-        const maxQualifiedRate = Math.max(
-            ...rows
-                .filter((row) => row.sampleQualified)
-                .map((row) => row.selectedIssueRate),
-            0
-        );
-        const maxObservedRate = Math.max(...rows.map((row) => row.selectedIssueRate), 0.0001);
-        const rateDenominator = maxQualifiedRate > 0 ? maxQualifiedRate : maxObservedRate;
-
-        return rows
-            .map((row) => {
-                const sessionScale = Math.sqrt(row.sessions / maxSessions);
-                const rateScale = Math.min(row.selectedIssueRate / rateDenominator, 1);
-                const impactScore = Math.round(
-                    (rateScale * IMPACT_RATE_WEIGHT + sessionScale * IMPACT_SCALE_WEIGHT) * 100
-                );
-
-                return {
-                    ...row,
-                    impactScore,
-                };
-            })
-            .sort(
-                (a, b) =>
-                    b.impactScore - a.impactScore ||
-                    b.selectedIssueRate - a.selectedIssueRate ||
-                    b.sessions - a.sessions
-            );
-    }, [issues, selectedIssueType, countryCoordinateIndex, latencyByCountry]);
-
-    const mapRegions = useMemo<GeoIssueMapRegion[]>(
-        () =>
-            countryInsights.map((country) => ({
-                id: country.country,
-                country: country.country,
-                lat: country.lat,
-                lng: country.lng,
-                activeUsers: country.sessions,
-                issueCount: country.issueCount,
-                issueRate: country.selectedIssueRate,
-                impactScore: country.impactScore,
-                dominantIssue: country.dominantIssue,
-                confidence: country.sampleQualified ? 'high' : 'low',
-                avgLatencyMs: country.avgLatencyMs,
-            })),
-        [countryInsights]
-    );
+        return rows.map((row) => ({
+            id: row.id,
+            city: row.city,
+            country: row.country,
+            lat: row.lat,
+            lng: row.lng,
+            activeUsers: row.sessions,
+            issueCount: row.issueCount,
+            issueRate: row.issueRate,
+            dominantIssue: row.dominantIssue,
+            confidence: row.sampleQualified ? 'high' : 'low',
+            avgLatencyMs: row.avgLatencyMs,
+            engagementSegments: row.engagementSegments,
+        }));
+    }, [issues, selectedIssueType, latencyByCountry, regionalRows]);
 
     useEffect(() => {
-        if (!selectedRegion) return;
-        const refreshedSelection = mapRegions.find((region) => region.id === selectedRegion.id);
-        if (!refreshedSelection) {
-            setSelectedRegion(null);
-            return;
-        }
-        if (refreshedSelection !== selectedRegion) {
-            setSelectedRegion(refreshedSelection);
-        }
-    }, [mapRegions, selectedRegion]);
+        if (!selectedCountry) return;
+        const exists = regionalRows.some((row) => row.country === selectedCountry)
+            || mapRegions.some((region) => region.country === selectedCountry);
+        if (!exists) setSelectedCountry(null);
+    }, [selectedCountry, regionalRows, mapRegions]);
 
-    const issueTotals = useMemo(() => {
-        if (!issues) return { total: 0, affectedRegions: 0 };
-        const total =
-            selectedIssueType === 'all'
-                ? issues.summary.totalIssues
-                : issues.summary.byType[selectedIssueType];
-        const affectedRegions = countryInsights.filter((country) => country.issueCount > 0).length;
-        return { total, affectedRegions };
-    }, [issues, selectedIssueType, countryInsights]);
+    useEffect(() => {
+        if (selectedCountry || regionalRows.length === 0) return;
+        setSelectedCountry(regionalRows[0].country);
+    }, [selectedCountry, regionalRows]);
 
-    const selectedIssueDensityPerThousand = useMemo(() => {
-        if (!issues || !geoSummary || geoSummary.totalWithGeo <= 0) return 0;
-        const total =
-            selectedIssueType === 'all'
-                ? issues.summary.totalIssues
-                : issues.summary.byType[selectedIssueType];
-        return (total / geoSummary.totalWithGeo) * 1000;
-    }, [issues, geoSummary, selectedIssueType]);
+    const selectedMarket = useMemo(() => {
+        if (!selectedCountry) return null;
+        const valueRow = regionalRows.find((row) => row.country === selectedCountry) || null;
+        const countryIssue = issueByCountry.get(selectedCountry);
+        const issueCount = countryIssue ? getIssueCount(countryIssue, selectedIssueType) : 0;
+        const sessions = valueRow?.sessions ?? countryIssue?.sessions ?? 0;
 
-    const topImpactCountries = useMemo(() => countryInsights.slice(0, 8), [countryInsights]);
-
-    const actionQueue = useMemo(
-        () => buildActionQueue(issues, latencyByLocation, geoSummary),
-        [issues, latencyByLocation, geoSummary],
-    );
+        return {
+            country: selectedCountry,
+            valueRow,
+            issueCount,
+            issueRate: sessions > 0 ? issueCount / sessions : 0,
+        };
+    }, [selectedCountry, regionalRows, issueByCountry, selectedIssueType]);
 
     const selectedCountryCities = useMemo(() => {
-        if (!issues || !selectedRegion) return [];
+        if (!selectedCountry || !issues) return [];
 
         return issues.locations
-            .filter((location) => location.country === selectedRegion.country)
+            .filter((location) => location.country === selectedCountry)
             .map((location) => {
                 const issueCount = getIssueCount(location, selectedIssueType);
                 const issueRate = location.sessions > 0 ? issueCount / location.sessions : 0;
                 return {
-                    ...location,
+                    city: location.city,
+                    sessions: location.sessions,
                     issueCount,
                     issueRate,
                 };
             })
             .sort((a, b) => b.issueCount - a.issueCount)
             .slice(0, 5);
-    }, [issues, selectedRegion, selectedIssueType]);
+    }, [selectedCountry, issues, selectedIssueType]);
+
+    const issueTotals = useMemo(() => {
+        if (!issues) return { total: 0, affectedRegions: 0 };
+        const total = selectedIssueType === 'all'
+            ? issues.summary.totalIssues
+            : issues.summary.byType[selectedIssueType];
+
+        const affectedRegions = issues.countries.filter((country) => getIssueCount(country, selectedIssueType) > 0).length;
+        return { total, affectedRegions };
+    }, [issues, selectedIssueType]);
+
+    const topValueMarkets = useMemo(() => regionalRows.slice(0, 8), [regionalRows]);
+
+    const slowestLatencyMarkets = useMemo(() => (
+        [...regionalRows]
+            .filter((row) => row.avgLatencyMs !== undefined)
+            .sort((a, b) => (b.avgLatencyMs || 0) - (a.avgLatencyMs || 0))
+            .slice(0, 8)
+    ), [regionalRows]);
+
+    const segmentTotals = useMemo(() => {
+        return regionalRows.reduce(
+            (totals, row) => ({
+                loyalists: totals.loyalists + row.engagementSegments.loyalists,
+                explorers: totals.explorers + row.engagementSegments.explorers,
+                casuals: totals.casuals + row.engagementSegments.casuals,
+                bouncers: totals.bouncers + row.engagementSegments.bouncers,
+            }),
+            { loyalists: 0, explorers: 0, casuals: 0, bouncers: 0 }
+        );
+    }, [regionalRows]);
+
+    const totalSegmentUsers = useMemo(
+        () => Object.values(segmentTotals).reduce((total, value) => total + value, 0),
+        [segmentTotals]
+    );
+
+    const avgLatencyMs = latencyByLocation?.summary?.avgLatency;
+    const valueSharePct = regionalValue?.summary
+        ? (regionalValue.summary.valueShare > 1
+            ? regionalValue.summary.valueShare
+            : regionalValue.summary.valueShare * 100)
+        : 0;
+    const loyalistSharePct = totalSegmentUsers > 0
+        ? (segmentTotals.loyalists / totalSegmentUsers) * 100
+        : 0;
+    const slowestMarketLatencyMs = slowestLatencyMarkets[0]?.avgLatencyMs;
+    const latencySpreadMs = avgLatencyMs !== undefined && slowestMarketLatencyMs !== undefined
+        ? Math.max(0, slowestMarketLatencyMs - avgLatencyMs)
+        : undefined;
 
     return (
         <div className="min-h-screen bg-slate-50 font-sans text-slate-900">
             <div className="sticky top-0 z-30 bg-white">
                 <DashboardPageHeader
-                    title="Geographic Reliability Intelligence"
-                    subtitle="Visualize regional performance and user impact"
+                    title="Regional Value & Reliability"
+                    subtitle="Prioritize markets by engagement value, then track issue hotspots"
                     icon={<Globe className="w-6 h-6" />}
                     iconColor="bg-blue-600"
                 >
@@ -436,7 +363,7 @@ export const Geo: React.FC = () => {
                     <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
                         <div className="flex items-center gap-3 text-sm text-slate-600">
                             <Activity className="h-4 w-4 animate-pulse text-blue-600" />
-                            Correlating geo traffic, issue density, and regional API behavior...
+                            Analyzing regional value, engagement mix, and issue hotspots...
                         </div>
                     </div>
                 )}
@@ -447,242 +374,248 @@ export const Geo: React.FC = () => {
                     </div>
                 )}
 
-                {!isLoading && hasData && issues && geoSummary && (
+                {!isLoading && hasData && issues && regionalValue && (
                     <>
-                        <section className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
-                            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-                                <div className="flex items-center justify-between text-xs font-semibold uppercase tracking-wide text-slate-500">
-                                    Geo-tagged Sessions
-                                    <Globe className="h-4 w-4 text-blue-600" />
+                        <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+                            <div className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-200 px-5 py-4">
+                                <div>
+                                    <h2 className="text-lg font-semibold text-slate-900">Global Issue Map</h2>
+                                    <p className="mt-1 text-sm text-slate-600">Map-first view of reliability, API latency, and user-type mix by market.</p>
                                 </div>
-                                <div className="mt-2 text-3xl font-semibold text-slate-900">{formatCompact(geoSummary.totalWithGeo)}</div>
-                                <p className="mt-1 text-sm text-slate-600">Across {geoSummary.countries.length.toLocaleString()} countries.</p>
-                            </div>
 
-                            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-                                <div className="flex items-center justify-between text-xs font-semibold uppercase tracking-wide text-slate-500">
-                                    Issues In View
-                                    <ShieldAlert className="h-4 w-4 text-rose-600" />
-                                </div>
-                                <div className="mt-2 text-3xl font-semibold text-slate-900">{formatCompact(issueTotals.total)}</div>
-                                <p className="mt-1 text-sm text-slate-600">{issueTotals.affectedRegions.toLocaleString()} affected regions.</p>
-                            </div>
-
-                            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-                                <div className="flex items-center justify-between text-xs font-semibold uppercase tracking-wide text-slate-500">
-                                    Issue Density
-                                    <Radar className="h-4 w-4 text-amber-600" />
-                                </div>
-                                <div className="mt-2 text-3xl font-semibold text-slate-900">{selectedIssueDensityPerThousand.toFixed(1)}</div>
-                                <p className="mt-1 text-sm text-slate-600">{selectedIssueLabel} per 1k geo-tagged sessions.</p>
-                            </div>
-
-                            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-                                <div className="flex items-center justify-between text-xs font-semibold uppercase tracking-wide text-slate-500">
-                                    Highest Latency Region
-                                    <Clock className="h-4 w-4 text-indigo-600" />
-                                </div>
-                                <div className="mt-2 text-3xl font-semibold text-slate-900">{topLatencyRegions[0]?.avgLatencyMs ?? 'N/A'} ms</div>
-                                <p className="mt-1 text-sm text-slate-600">{topLatencyRegions[0]?.country || 'No latency data'}.</p>
-                            </div>
-                        </section>
-
-                        <section className="grid grid-cols-1 gap-6 xl:grid-cols-3">
-                            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm xl:col-span-2">
-                                <div className="mb-6 flex flex-wrap gap-3">
+                                <div className="flex flex-wrap gap-2">
                                     {ISSUE_TYPES.map((item) => (
                                         <button
                                             key={item.value}
                                             onClick={() => setSelectedIssueType(item.value)}
-                                            className={`rounded-xl border-2 px-4 py-2 text-xs font-black uppercase tracking-wider transition-all duration-200 ${selectedIssueType === item.value
-                                                ? 'border-slate-900 bg-blue-500 text-white shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] -translate-x-1 -translate-y-1'
-                                                : 'border-slate-900 bg-white text-slate-600 hover:bg-slate-50 shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] hover:shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] hover:-translate-x-0.5 hover:-translate-y-0.5'
+                                            className={`rounded-xl border px-3 py-1.5 text-xs font-semibold uppercase tracking-wide transition ${selectedIssueType === item.value
+                                                ? 'border-slate-900 bg-slate-900 text-white'
+                                                : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50'
                                                 }`}
                                         >
                                             {item.label}
                                         </button>
                                     ))}
                                 </div>
-
-                                <IssuesWorldMap
-                                    regions={mapRegions}
-                                    issueLabel={selectedIssueLabel}
-                                    minSampleSize={MIN_SAMPLE_SESSIONS}
-                                    onRegionClick={setSelectedRegion}
-                                />
-
-                                <p className="mt-3 text-xs text-slate-500">
-                                    Color is {selectedIssueLabel.toLowerCase()} rate. Bubble size is active users. Regions with fewer than {MIN_SAMPLE_SESSIONS} users are muted for reliability.
-                                </p>
                             </div>
 
-                            <div className="space-y-3 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-                                <div className="flex items-center justify-between">
-                                    <h2 className="text-lg font-semibold text-slate-900">Top Impact Regions</h2>
-                                    <AlertTriangle className="h-5 w-5 text-amber-600" />
+                            <div className="grid grid-cols-1 gap-6 p-5 xl:grid-cols-[minmax(0,1fr)_360px]">
+                                <div>
+                                    <IssuesWorldMap
+                                        regions={mapRegions}
+                                        issueLabel={selectedIssueLabel}
+                                        minSampleSize={MIN_SAMPLE_SESSIONS}
+                                        onRegionClick={(region) => setSelectedCountry(region.country)}
+                                        className="h-[580px] max-h-[72vh] min-h-[420px]"
+                                    />
+                                    <p className="mt-3 text-xs text-slate-500">
+                                        Color = {selectedIssueLabel.toLowerCase()} rate. Bubble size = session volume. Regions with fewer than {MIN_SAMPLE_SESSIONS} sessions are confidence-muted.
+                                    </p>
                                 </div>
-                                {topImpactCountries.length === 0 && (
-                                    <p className="text-sm text-slate-500">No impact data available.</p>
-                                )}
-                                {topImpactCountries.map((country) => (
-                                    <button
-                                        key={country.country}
-                                        type="button"
-                                        className="w-full rounded-xl border border-slate-200 p-3 text-left transition hover:border-blue-200 hover:bg-blue-50/40"
-                                        onClick={() => {
-                                            const region = mapRegions.find((entry) => entry.country === country.country);
-                                            if (region) setSelectedRegion(region);
-                                        }}
-                                    >
-                                        <div className="flex items-start justify-between gap-2">
-                                            <div>
-                                                <div className="text-sm font-semibold text-slate-900">{country.country}</div>
-                                                <div className="text-xs text-slate-500">
-                                                    {formatCompact(country.sessions)} users • {country.issueCount.toLocaleString()} {selectedIssueLabel.toLowerCase()}
+
+                                <div className="space-y-4">
+                                    <div className="rounded-xl border border-slate-200 p-4">
+                                        <div className="flex items-center justify-between">
+                                            <h3 className="text-base font-semibold text-slate-900">{selectedMarket?.country || 'Selected market'}</h3>
+                                            <Globe className="h-4 w-4 text-blue-600" />
+                                        </div>
+                                        {selectedMarket?.valueRow ? (
+                                            <>
+                                                <div className="mt-3 grid grid-cols-2 gap-2 text-xs text-slate-600">
+                                                    <div className="rounded-lg border border-slate-200 bg-slate-50 p-2">Sessions: {formatCompact(selectedMarket.valueRow.sessions)}</div>
+                                                    <div className="rounded-lg border border-slate-200 bg-slate-50 p-2">Value share: {formatRate(selectedMarket.valueRow.valueShare)}</div>
+                                                    <div className="rounded-lg border border-slate-200 bg-slate-50 p-2">Issue rate: {formatRate(selectedMarket.issueRate)}</div>
+                                                    <div className="rounded-lg border border-slate-200 bg-slate-50 p-2">API latency: {selectedMarket.valueRow.avgLatencyMs !== undefined ? `${selectedMarket.valueRow.avgLatencyMs} ms` : 'N/A'}</div>
                                                 </div>
-                                            </div>
-                                            <span className="rounded-full border border-rose-200 bg-rose-50 px-2 py-0.5 text-xs font-semibold text-rose-700">
-                                                {country.impactScore}
-                                            </span>
-                                        </div>
-                                        <div className="mt-2 text-xs text-slate-600">
-                                            {formatRate(country.selectedIssueRate)} issue rate
-                                            {country.sampleQualified ? '' : ` • low sample (<${MIN_SAMPLE_SESSIONS})`}
-                                        </div>
-                                    </button>
-                                ))}
-                            </div>
-                        </section>
 
-                        <section className="grid grid-cols-1 gap-6 xl:grid-cols-3">
-                            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm xl:col-span-2">
-                                <div className="mb-4 flex items-center justify-between">
-                                    <h2 className="text-lg font-semibold text-slate-900">Country Diagnostics</h2>
-                                    <Radar className="h-5 w-5 text-blue-600" />
-                                </div>
-                                <div className="overflow-x-auto">
-                                    <table className="w-full min-w-[860px] text-left text-sm">
-                                        <thead className="text-xs uppercase tracking-wide text-slate-500">
-                                            <tr>
-                                                <th className="pb-2 pr-4">Country</th>
-                                                <th className="pb-2 pr-4 text-right">Impact</th>
-                                                <th className="pb-2 pr-4 text-right">Active Users</th>
-                                                <th className="pb-2 pr-4 text-right">{selectedIssueLabel}</th>
-                                                <th className="pb-2 pr-4 text-right">Issue Rate</th>
-                                                <th className="pb-2 pr-4 text-right">Avg API Latency</th>
-                                                <th className="pb-2 pr-4">Dominant Issue</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody className="divide-y divide-slate-100">
-                                            {countryInsights.slice(0, 12).map((country) => (
-                                                <tr
-                                                    key={country.country}
-                                                    className="cursor-pointer hover:bg-slate-50"
-                                                    onClick={() => {
-                                                        const region = mapRegions.find((entry) => entry.country === country.country);
-                                                        if (region) setSelectedRegion(region);
-                                                    }}
-                                                >
-                                                    <td className="py-3 pr-4 font-medium text-slate-900">{country.country}</td>
-                                                    <td className="py-3 pr-4 text-right text-slate-700">{country.impactScore}</td>
-                                                    <td className="py-3 pr-4 text-right text-slate-700">{formatCompact(country.sessions)}</td>
-                                                    <td className="py-3 pr-4 text-right text-slate-700">{formatCompact(country.issueCount)}</td>
-                                                    <td className="py-3 pr-4 text-right text-slate-700">
-                                                        {country.sampleQualified ? formatRate(country.selectedIssueRate) : `Low sample (<${MIN_SAMPLE_SESSIONS})`}
-                                                    </td>
-                                                    <td className="py-3 pr-4 text-right text-slate-700">
-                                                        {country.avgLatencyMs !== undefined ? `${country.avgLatencyMs} ms` : 'N/A'}
-                                                    </td>
-                                                    <td className="py-3 pr-4 text-xs text-slate-600">{country.dominantIssue}</td>
-                                                </tr>
-                                            ))}
-                                        </tbody>
-                                    </table>
-                                </div>
-                            </div>
-
-                            <div className="space-y-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-                                <div className="flex items-center justify-between">
-                                    <h2 className="text-lg font-semibold text-slate-900">Priority Actions</h2>
-                                    <Zap className="h-5 w-5 text-rose-600" />
-                                </div>
-                                {actionQueue.length === 0 && (
-                                    <p className="text-sm text-slate-500">No urgent geo actions identified.</p>
-                                )}
-                                {actionQueue.map((action, index) => (
-                                    <div key={`${action.title}-${index}`} className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-                                        <div className="text-sm font-semibold text-slate-900">{action.title}</div>
-                                        <p className="mt-1 text-sm text-slate-600">{action.impact}</p>
-                                        <p className="mt-2 text-xs text-slate-500">{action.recommendation}</p>
+                                                <div className="mt-4">
+                                                    <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">User Types</div>
+                                                    <div className="h-2 overflow-hidden rounded-full bg-slate-100">
+                                                        {SEGMENT_ORDER.map((segment) => {
+                                                            const count = selectedMarket.valueRow!.engagementSegments[segment.key];
+                                                            const width = (count / Math.max(selectedMarket.valueRow!.sessions, 1)) * 100;
+                                                            return (
+                                                                <div
+                                                                    key={segment.key}
+                                                                    className={`inline-block h-full ${segment.color}`}
+                                                                    style={{ width: `${width}%` }}
+                                                                />
+                                                            );
+                                                        })}
+                                                    </div>
+                                                    <div className="mt-2 space-y-1.5">
+                                                        {SEGMENT_ORDER.map((segment) => {
+                                                            const count = selectedMarket.valueRow!.engagementSegments[segment.key];
+                                                            const rate = count / Math.max(selectedMarket.valueRow!.sessions, 1);
+                                                            return (
+                                                                <div key={segment.key} className="flex items-center justify-between text-xs text-slate-600">
+                                                                    <span>{segment.label}</span>
+                                                                    <span className="font-medium text-slate-900">{formatCompact(count)} ({formatRate(rate)})</span>
+                                                                </div>
+                                                            );
+                                                        })}
+                                                    </div>
+                                                </div>
+                                            </>
+                                        ) : (
+                                            <p className="mt-3 text-sm text-slate-500">Select a map bubble to inspect region details.</p>
+                                        )}
                                     </div>
-                                ))}
+
+                                    <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                                        <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Geo Snapshot</div>
+                                        <div className="grid grid-cols-2 gap-2 text-xs text-slate-700">
+                                            <div className="rounded-lg border border-slate-200 bg-white p-2">
+                                                Value session share: <span className="font-semibold text-slate-900">{valueSharePct.toFixed(1)}%</span>
+                                            </div>
+                                            <div className="rounded-lg border border-slate-200 bg-white p-2">
+                                                Loyal user share: <span className="font-semibold text-emerald-700">{loyalistSharePct.toFixed(1)}%</span>
+                                            </div>
+                                            <div className="rounded-lg border border-slate-200 bg-white p-2">
+                                                Affected regions: <span className="font-semibold text-rose-700">{issueTotals.affectedRegions.toLocaleString()}</span>
+                                            </div>
+                                            <div className="rounded-lg border border-slate-200 bg-white p-2">
+                                                Latency spread: <span className="font-semibold text-blue-700">{latencySpreadMs !== undefined ? `${Math.round(latencySpreadMs)} ms` : 'N/A'}</span>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div className="rounded-xl border border-slate-200 p-4">
+                                        <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                                            Top Regions by {selectedIssueLabel}
+                                        </div>
+                                        <div className="space-y-1.5">
+                                            {topIssueRows.length > 0 ? topIssueRows.slice(0, 7).map((row) => (
+                                                <button
+                                                    key={`issue-row-${row.country}`}
+                                                    onClick={() => setSelectedCountry(row.country)}
+                                                    className={`flex w-full items-center justify-between rounded-lg px-2 py-1.5 text-left text-sm hover:bg-slate-50 ${selectedCountry === row.country ? 'bg-blue-50' : ''}`}
+                                                >
+                                                    <span className="text-slate-700">{row.country}</span>
+                                                    <span className="font-semibold text-rose-700">{formatCompact(row.issueCount)}</span>
+                                                </button>
+                                            )) : (
+                                                <p className="text-sm text-slate-500">No issues recorded for this filter.</p>
+                                            )}
+                                        </div>
+                                    </div>
+
+                                    <div className="rounded-xl border border-slate-200 p-4">
+                                        <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                                            <Clock3 className="h-3.5 w-3.5 text-sky-600" />
+                                            API Latency Hotspots
+                                        </div>
+                                        <div className="space-y-1.5">
+                                            {slowestLatencyMarkets.length > 0 ? slowestLatencyMarkets.slice(0, 6).map((row) => (
+                                                <button
+                                                    key={`latency-${row.country}`}
+                                                    onClick={() => setSelectedCountry(row.country)}
+                                                    className={`flex w-full items-center justify-between rounded-lg px-2 py-1.5 text-left text-sm hover:bg-slate-50 ${selectedCountry === row.country ? 'bg-blue-50' : ''}`}
+                                                >
+                                                    <span className="text-slate-700">{row.country}</span>
+                                                    <span className="font-semibold text-blue-700">{row.avgLatencyMs} ms</span>
+                                                </button>
+                                            )) : (
+                                                <p className="text-sm text-slate-500">No latency data available for this filter.</p>
+                                            )}
+                                        </div>
+                                    </div>
+                                </div>
                             </div>
                         </section>
 
                         <section className="grid grid-cols-1 gap-6 xl:grid-cols-2">
                             <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-                                <h2 className="mb-4 text-lg font-semibold text-slate-900">Regional API Latency Ranking</h2>
-                                <div className="space-y-3">
-                                    {topLatencyRegions.length > 0 ? topLatencyRegions.map((region) => (
-                                        <div key={region.country} className="rounded-xl border border-slate-200 p-3">
-                                            <div className="flex items-center justify-between">
-                                                <div className="text-sm font-medium text-slate-900">{region.country}</div>
-                                                <span className="text-sm font-semibold text-slate-700">{region.avgLatencyMs} ms</span>
+                                <div className="mb-4 flex items-center justify-between">
+                                    <h2 className="text-lg font-semibold text-slate-900">User Type Mix by Top Markets</h2>
+                                    <Sparkles className="h-5 w-5 text-emerald-600" />
+                                </div>
+
+                                <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                                    <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Global User-Type Mix</div>
+                                    <div className="h-2 overflow-hidden rounded-full bg-slate-200">
+                                        {SEGMENT_ORDER.map((segment) => {
+                                            const count = segmentTotals[segment.key];
+                                            const width = totalSegmentUsers > 0 ? (count / totalSegmentUsers) * 100 : 0;
+                                            return (
+                                                <div
+                                                    key={`overall-${segment.key}`}
+                                                    className={`inline-block h-full ${segment.color}`}
+                                                    style={{ width: `${width}%` }}
+                                                />
+                                            );
+                                        })}
+                                    </div>
+                                    <div className="mt-2 grid grid-cols-2 gap-2 text-xs text-slate-600">
+                                        {SEGMENT_ORDER.map((segment) => {
+                                            const count = segmentTotals[segment.key];
+                                            const rate = totalSegmentUsers > 0 ? count / totalSegmentUsers : 0;
+                                            return (
+                                                <div key={`overall-text-${segment.key}`}>
+                                                    <span className="text-slate-500">{segment.label}:</span>{' '}
+                                                    <span className="font-semibold text-slate-900">{formatCompact(count)} ({formatRate(rate)})</span>
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                </div>
+
+                                <div className="mt-4 space-y-3">
+                                    {topValueMarkets.map((row) => (
+                                        <button
+                                            key={`segments-${row.country}`}
+                                            onClick={() => setSelectedCountry(row.country)}
+                                            className={`w-full rounded-xl border p-3 text-left hover:bg-slate-50 ${selectedCountry === row.country ? 'border-blue-300 bg-blue-50/60' : 'border-slate-200'}`}
+                                        >
+                                            <div className="mb-2 flex items-center justify-between">
+                                                <span className="font-medium text-slate-900">{row.country}</span>
+                                                <span className="text-xs text-slate-600">{formatCompact(row.valueSessions)} value sessions</span>
                                             </div>
-                                            <div className="mt-1 flex items-center justify-between text-xs text-slate-500">
-                                                <span>{formatCompact(region.totalRequests)} requests</span>
-                                                <span>{region.successRate}% success</span>
+                                            <div className="h-2 overflow-hidden rounded-full bg-slate-100">
+                                                {SEGMENT_ORDER.map((segment) => {
+                                                    const count = row.engagementSegments[segment.key];
+                                                    const width = (count / Math.max(row.sessions, 1)) * 100;
+                                                    return (
+                                                        <div
+                                                            key={`${row.country}-${segment.key}`}
+                                                            className={`inline-block h-full ${segment.color}`}
+                                                            style={{ width: `${width}%` }}
+                                                        />
+                                                    );
+                                                })}
                                             </div>
-                                        </div>
-                                    )) : (
-                                        <p className="text-sm text-slate-500">No regional API latency data available.</p>
-                                    )}
+                                        </button>
+                                    ))}
                                 </div>
                             </div>
 
                             <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-                                <h2 className="mb-4 text-lg font-semibold text-slate-900">Selected Region Snapshot</h2>
-                                {selectedRegion ? (
-                                    <div className="space-y-3">
-                                        <div className="rounded-xl border border-slate-200 p-3">
-                                            <div className="text-base font-semibold text-slate-900">{selectedRegion.country}</div>
-                                            <div className="mt-3 grid grid-cols-2 gap-2 text-xs text-slate-600">
-                                                <div className="rounded-lg border border-slate-200 p-2">Active Users: {formatCompact(selectedRegion.activeUsers)}</div>
-                                                <div className="rounded-lg border border-slate-200 p-2">{selectedIssueLabel}: {formatCompact(selectedRegion.issueCount)}</div>
-                                                <div className="rounded-lg border border-slate-200 p-2">Issue Rate: {formatRate(selectedRegion.issueRate)}</div>
-                                                <div className="rounded-lg border border-slate-200 p-2">Impact Score: {selectedRegion.impactScore}/100</div>
-                                                <div className="rounded-lg border border-slate-200 p-2">Dominant Issue: {selectedRegion.dominantIssue}</div>
-                                                <div className="rounded-lg border border-slate-200 p-2">
-                                                    Avg API Latency: {selectedRegion.avgLatencyMs !== undefined ? `${selectedRegion.avgLatencyMs} ms` : 'N/A'}
-                                                </div>
-                                            </div>
-                                        </div>
+                                <div className="mb-4 flex items-center justify-between">
+                                    <h2 className="text-lg font-semibold text-slate-900">Top Cities in {selectedCountry || 'Selected Region'}</h2>
+                                    <ShieldAlert className="h-5 w-5 text-rose-600" />
+                                </div>
 
-                                        <div>
-                                            <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
-                                                Top Cities ({selectedIssueLabel})
+                                <div className="space-y-2">
+                                    {selectedCountryCities.length > 0 ? selectedCountryCities.map((city) => (
+                                        <div key={`${selectedCountry}-${city.city}`} className="rounded-xl border border-slate-200 px-3 py-2.5 text-sm">
+                                            <div className="flex items-center justify-between text-slate-900">
+                                                <span className="font-medium">{city.city || 'Unknown City'}</span>
+                                                <span className="font-semibold text-rose-700">{formatCompact(city.issueCount)} issues</span>
                                             </div>
-                                            <div className="space-y-2">
-                                                {selectedCountryCities.length > 0 ? selectedCountryCities.map((city) => (
-                                                    <div key={`${city.country}-${city.city}`} className="rounded-lg border border-slate-200 px-3 py-2 text-xs">
-                                                        <div className="flex items-center justify-between text-slate-900">
-                                                            <span className="font-medium">{city.city}</span>
-                                                            <span>{formatCompact(city.issueCount)} issues</span>
-                                                        </div>
-                                                        <div className="mt-1 flex items-center justify-between text-slate-500">
-                                                            <span>{formatCompact(city.sessions)} users</span>
-                                                            <span>{formatRate(city.issueRate)} rate</span>
-                                                        </div>
-                                                    </div>
-                                                )) : (
-                                                    <p className="text-sm text-slate-500">No city-level data for this region.</p>
-                                                )}
+                                            <div className="mt-1 flex items-center justify-between text-xs text-slate-500">
+                                                <span>{formatCompact(city.sessions)} sessions</span>
+                                                <span>{formatRate(city.issueRate)} rate</span>
                                             </div>
                                         </div>
-                                    </div>
-                                ) : (
-                                    <p className="text-sm text-slate-500">Click a country bubble or impact row to inspect a region snapshot.</p>
-                                )}
+                                    )) : (
+                                        <p className="text-sm text-slate-500">Select a region on the map to inspect city-level distribution.</p>
+                                    )}
+                                </div>
+
+                                <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm text-slate-600">
+                                    <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">Coverage</div>
+                                    <div>{formatCompact(issueTotals.total)} {selectedIssueLabel.toLowerCase()} across {issueTotals.affectedRegions} affected regions.</div>
+                                </div>
                             </div>
                         </section>
                     </>

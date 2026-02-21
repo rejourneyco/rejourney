@@ -313,6 +313,70 @@ export async function getSession(sessionId: string): Promise<ApiSession> {
   return fetchWithCache<ApiSession>(`/api/session/${sessionId}`);
 }
 
+export interface ApiSessionTimeline {
+  events: any[];
+  networkRequests: any[];
+  crashes: any[];
+  anrs: any[];
+}
+
+export interface ApiSessionHierarchy {
+  hierarchySnapshots: any[];
+}
+
+export interface ApiSessionStats {
+  stats: ApiSession['stats'];
+}
+
+export async function getSessionCore(
+  sessionId: string,
+  options?: { frameUrlMode?: 'signed' | 'proxy' | 'none' }
+): Promise<ApiSession> {
+  if (isDemoMode()) {
+    if (sessionId === demoApiData.demoFullSession.id) {
+      return await getDemoSessionWithRealHierarchy(sessionId);
+    }
+    return demoApiData.demoFullSession as unknown as ApiSession;
+  }
+  const params = new URLSearchParams();
+  if (options?.frameUrlMode) params.set('frameUrlMode', options.frameUrlMode);
+  const suffix = params.toString() ? `?${params.toString()}` : '';
+  return fetchWithCache<ApiSession>(`/api/session/${sessionId}/core${suffix}`);
+}
+
+export async function getSessionTimeline(sessionId: string): Promise<ApiSessionTimeline> {
+  if (isDemoMode()) {
+    const demo = (await getSessionCore(sessionId)) as any;
+    return {
+      events: demo.events || [],
+      networkRequests: demo.networkRequests || [],
+      crashes: demo.crashes || [],
+      anrs: demo.anrs || [],
+    };
+  }
+  return fetchWithCache<ApiSessionTimeline>(`/api/session/${sessionId}/timeline`);
+}
+
+export async function getSessionHierarchy(sessionId: string): Promise<ApiSessionHierarchy> {
+  if (isDemoMode()) {
+    const demo = (await getSessionCore(sessionId)) as any;
+    return {
+      hierarchySnapshots: demo.hierarchySnapshots || [],
+    };
+  }
+  return fetchWithCache<ApiSessionHierarchy>(`/api/session/${sessionId}/hierarchy`);
+}
+
+export async function getSessionStats(sessionId: string): Promise<ApiSessionStats> {
+  if (isDemoMode()) {
+    const demo = (await getSessionCore(sessionId)) as any;
+    return {
+      stats: demo.stats,
+    };
+  }
+  return fetchWithCache<ApiSessionStats>(`/api/session/${sessionId}/stats`);
+}
+
 /**
  * Load real hierarchy data for demo session
  */
@@ -1506,6 +1570,14 @@ export interface FrictionHeatmap {
     errors: number;
     exitRate: number;
     frictionScore: number;
+    // New actionable friction metrics
+    impactScore?: number;
+    rageTapRatePer100?: number;
+    errorRatePer100?: number;
+    estimatedAffectedSessions?: number;
+    primarySignal?: 'rage_taps' | 'errors' | 'exits' | 'mixed';
+    recommendedAction?: string;
+    confidence?: 'high' | 'medium' | 'low';
     sessionIds: string[];
     screenshotUrl: string | null;
     // Real touch coordinate hotspots for heatmap visualization
@@ -2015,6 +2087,31 @@ export interface GeoSummary {
   totalWithGeo: number;
 }
 
+export interface GeoRegionalValue {
+  regions: Array<{
+    country: string;
+    sessions: number;
+    valueSessions: number;
+    valueShare: number;
+    avgUxScore: number;
+    avgDurationSeconds: number;
+    engagementSegments: {
+      bouncers: number;
+      casuals: number;
+      explorers: number;
+      loyalists: number;
+    };
+  }>;
+  summary: {
+    totalSessions: number;
+    totalValueSessions: number;
+    valueShare: number;
+    avgUxScore: number;
+    avgDurationSeconds: number;
+    regionCount: number;
+  };
+}
+
 /**
  * Get geographic summary for map
  */
@@ -2030,6 +2127,21 @@ export async function getGeoSummary(projectId?: string, timeRange?: string): Pro
   const qs = params.toString() ? `?${params.toString()}` : '';
   const data = await fetchJson<GeoSummary>(`/api/analytics/geo-summary${qs}`);
   return data;
+}
+
+/**
+ * Get value + engagement segment mix by region
+ */
+export async function getGeoValueByRegion(projectId?: string, timeRange?: string): Promise<GeoRegionalValue> {
+  if (isDemoMode()) {
+    return demoApiData.demoGeoRegionalValue;
+  }
+
+  const params = new URLSearchParams();
+  if (projectId) params.set('projectId', projectId);
+  if (timeRange) params.set('timeRange', timeRange);
+  const qs = params.toString() ? `?${params.toString()}` : '';
+  return fetchJson<GeoRegionalValue>(`/api/analytics/geo-value${qs}`);
 }
 
 // =============================================================================
@@ -2338,6 +2450,13 @@ export interface GrowthObservability {
     withAnr: number;
     withRageTaps: number;
     withSlowApi: number;
+  };
+  newUserGrowth?: {
+    acquiredUsers: number;
+    activeUsers: number;
+    acquisitionRate: number;
+    returnedUsers: number;
+    returnRate: number;
   };
   growthKillers: Array<{
     reason: string;
@@ -2657,6 +2776,10 @@ export async function saveWorkspace(
 export const api = {
   getSessions,
   getSession,
+  getSessionCore,
+  getSessionTimeline,
+  getSessionHierarchy,
+  getSessionStats,
   getSessionNetworkRequests,
   getSessionEvents,
   getDashboardStats,

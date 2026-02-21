@@ -11,7 +11,7 @@ import { db, sessions, sessionMetrics, recordingArtifacts, projects, teamMembers
 import { gunzipSync } from 'zlib';
 
 import { getSignedDownloadUrlForProject, downloadFromS3ForProject, getObjectSizeBytesForProject } from '../db/s3.js';
-import { getSessionScreenshotFrames } from '../services/screenshotFrames.js';
+import { getSessionScreenshotFrames, type ScreenshotFrameUrlMode } from '../services/screenshotFrames.js';
 import { sessionAuth, asyncHandler, ApiError } from '../middleware/index.js';
 import { validate } from '../middleware/validation.js';
 import { dashboardRateLimiter, networkRateLimiter } from '../middleware/rateLimit.js';
@@ -38,6 +38,483 @@ function getTimeRangeFilter(timeRange?: string): Date | undefined {
 
     const ms = ranges[timeRange];
     return ms ? new Date(now - ms) : undefined;
+}
+
+const DETAIL_FETCH_CONCURRENCY = Number(process.env.RJ_REPLAY_DETAIL_FETCH_CONCURRENCY ?? 6);
+const frameModeFromEnv = (process.env.RJ_REPLAY_FRAME_URL_MODE || 'signed').toLowerCase();
+const DEFAULT_FRAME_URL_MODE: ScreenshotFrameUrlMode = frameModeFromEnv === 'proxy' ? 'proxy' : 'signed';
+
+function resolveFrameUrlMode(raw: unknown): ScreenshotFrameUrlMode {
+    if (typeof raw !== 'string') return DEFAULT_FRAME_URL_MODE;
+    const mode = raw.toLowerCase();
+    if (mode === 'signed' || mode === 'proxy' || mode === 'none') return mode;
+    return DEFAULT_FRAME_URL_MODE;
+}
+
+async function mapWithConcurrency<T, R>(
+    items: readonly T[],
+    concurrency: number,
+    mapper: (item: T, index: number) => Promise<R>
+): Promise<R[]> {
+    if (items.length === 0) return [];
+    const output: R[] = new Array(items.length);
+    let cursor = 0;
+    const workers = Math.max(1, Math.min(concurrency, items.length));
+
+    async function worker(): Promise<void> {
+        while (cursor < items.length) {
+            const index = cursor++;
+            output[index] = await mapper(items[index], index);
+        }
+    }
+
+    await Promise.all(Array.from({ length: workers }, () => worker()));
+    return output;
+}
+
+async function getAuthorizedSession(userId: string, sessionId: string) {
+    const [sessionResult] = await db
+        .select({
+            session: sessions,
+            metrics: sessionMetrics,
+            teamId: projects.teamId,
+        })
+        .from(sessions)
+        .leftJoin(sessionMetrics, eq(sessions.id, sessionMetrics.sessionId))
+        .innerJoin(projects, eq(sessions.projectId, projects.id))
+        .where(eq(sessions.id, sessionId))
+        .limit(1);
+
+    if (!sessionResult) {
+        throw ApiError.notFound('Session not found');
+    }
+
+    const [membership] = await db
+        .select()
+        .from(teamMembers)
+        .where(and(eq(teamMembers.teamId, sessionResult.teamId), eq(teamMembers.userId, userId)))
+        .limit(1);
+
+    if (!membership) {
+        throw ApiError.forbidden('No access to this session');
+    }
+
+    return sessionResult;
+}
+
+async function getReadyArtifacts(sessionId: string) {
+    return db
+        .select()
+        .from(recordingArtifacts)
+        .where(and(eq(recordingArtifacts.sessionId, sessionId), eq(recordingArtifacts.status, 'ready')));
+}
+
+function buildMetricsPayload(metrics: any) {
+    const screensVisited: string[] = Array.isArray(metrics?.screensVisited) ? metrics.screensVisited : [];
+    return metrics
+        ? {
+            totalEvents: metrics.totalEvents,
+            touchCount: metrics.touchCount,
+            scrollCount: metrics.scrollCount,
+            gestureCount: metrics.gestureCount,
+            inputCount: metrics.inputCount,
+            navigationCount: screensVisited.length,
+            errorCount: metrics.errorCount,
+            rageTapCount: metrics.rageTapCount,
+            deadTapCount: metrics.deadTapCount ?? 0,
+            apiSuccessCount: metrics.apiSuccessCount,
+            apiErrorCount: metrics.apiErrorCount,
+            apiTotalCount: metrics.apiTotalCount,
+            screensVisited,
+            uniqueScreensCount: new Set(screensVisited).size,
+            interactionScore: metrics.interactionScore,
+            explorationScore: metrics.explorationScore,
+            uxScore: metrics.uxScore,
+            customEventCount: metrics.customEventCount ?? 0,
+            crashCount: metrics.crashCount || 0,
+        }
+        : null;
+}
+
+function buildSessionBasePayload(
+    session: any,
+    metrics: any,
+    screenshotFrames: Array<{ timestamp: number; url: string; index: number }>
+) {
+    const hasRecording = screenshotFrames.length > 0;
+    const playbackMode = hasRecording ? 'screenshots' : 'none';
+
+    return {
+        id: session.id,
+        projectId: session.projectId,
+        userId: session.userDisplayId || null,
+        anonymousId: session.anonymousDisplayId || session.anonymousHash,
+        anonymousDisplayName: session.deviceId && !session.userDisplayId ? generateAnonymousName(session.deviceId) : null,
+        platform: session.platform,
+        appVersion: session.appVersion,
+        hasRecording,
+        playbackMode,
+        deviceInfo: {
+            model: session.deviceModel,
+            os: session.platform,
+            systemVersion: session.osVersion,
+            appVersion: session.appVersion,
+        },
+        osVersion: session.osVersion,
+        geoLocation: session.geoCity
+            ? {
+                city: session.geoCity,
+                region: session.geoRegion,
+                country: session.geoCountry,
+                countryCode: session.geoCountryCode,
+                latitude: session.geoLatitude,
+                longitude: session.geoLongitude,
+                timezone: session.geoTimezone,
+            }
+            : null,
+        startTime: session.startedAt.getTime(),
+        endTime: session.endedAt?.getTime(),
+        duration: session.durationSeconds,
+        backgroundTime: session.backgroundTimeSeconds ?? 0,
+        playableDuration: session.durationSeconds ?? 0,
+        status: session.status,
+        events: [] as any[],
+        networkRequests: [] as any[],
+        batches: [] as any[],
+        artifactUrls: {
+            events: null as string | null,
+            eventsBatches: [] as string[],
+        },
+        screenshotFrames,
+        hierarchySnapshots: [] as Array<{ timestamp: number; screenName: string | null; rootElement: any }>,
+        metrics: buildMetricsPayload(metrics),
+        crashes: [] as any[],
+        anrs: [] as any[],
+        retentionTier: session.retentionTier,
+        retentionDays: session.retentionDays,
+        recordingDeleted: session.recordingDeleted,
+        recordingDeletedAt: session.recordingDeletedAt?.toISOString() ?? null,
+        isReplayExpired: session.isReplayExpired,
+        replayPromoted: session.replayPromoted,
+        replayPromotedReason: session.replayPromotedReason ?? null,
+        replayPromotionScore: session.replayPromotionScore ?? 0,
+    };
+}
+
+async function computeSessionStats(
+    session: any,
+    metrics: any,
+    artifactsList: any[],
+    includeMissingHead: boolean
+) {
+    const bytesByKind: Record<string, number> = {};
+    let totalBytes = 0;
+    const addBytes = (kind: string, bytes: number) => {
+        bytesByKind[kind] = (bytesByKind[kind] || 0) + bytes;
+        totalBytes += bytes;
+    };
+
+    const artifactsMissingSize: any[] = [];
+    for (const artifact of artifactsList) {
+        if (typeof artifact.sizeBytes === 'number' && Number.isFinite(artifact.sizeBytes)) {
+            addBytes(artifact.kind, artifact.sizeBytes);
+        } else {
+            artifactsMissingSize.push(artifact);
+        }
+    }
+
+    if (includeMissingHead && artifactsMissingSize.length > 0) {
+        const headSizes = await mapWithConcurrency(
+            artifactsMissingSize,
+            DETAIL_FETCH_CONCURRENCY,
+            async (artifact) => {
+                const size = await getObjectSizeBytesForProject(session.projectId, artifact.s3ObjectKey);
+                return {
+                    kind: artifact.kind,
+                    size,
+                };
+            }
+        );
+
+        for (const head of headSizes) {
+            if (typeof head.size === 'number' && Number.isFinite(head.size)) {
+                addBytes(head.kind, head.size);
+            }
+        }
+    }
+
+    return {
+        duration: String(session.durationSeconds ?? 0),
+        durationMinutes: String(((session.durationSeconds ?? 0) / 60).toFixed(2)),
+        eventCount: metrics?.totalEvents ?? 0,
+        totalSizeKB: String(totalBytes / 1024),
+        eventsSizeKB: String((bytesByKind.events || 0) / 1024),
+        screenshotSizeKB: String((bytesByKind.screenshots || 0) / 1024),
+        hierarchySizeKB: String((bytesByKind.hierarchy || 0) / 1024),
+        networkSizeKB: String((bytesByKind.network || 0) / 1024),
+        networkStats: {
+            total: metrics?.apiTotalCount ?? 0,
+            successful: metrics?.apiSuccessCount ?? 0,
+            failed: metrics?.apiErrorCount ?? 0,
+            avgDuration: metrics?.apiAvgResponseMs ?? 0,
+        },
+    };
+}
+
+function normalizeEventsForTimeline(
+    allEvents: any[],
+    sessionStartMs: number,
+    sessionEndMs: number
+) {
+    const coerceToEpochMs = (raw: unknown, fallbackMs: number): number => {
+        const n = typeof raw === 'string' ? Number(raw) : (typeof raw === 'number' ? raw : NaN);
+        if (!Number.isFinite(n) || n <= 0) return fallbackMs;
+
+        if (n >= 10_000_000_000) return Math.round(n);
+
+        const candidates = [
+            Math.round(n * 1000),
+            Math.round(sessionStartMs + n),
+            Math.round(sessionStartMs + n * 1000),
+        ];
+
+        const minOk = sessionStartMs - 60_000;
+        const maxOk = sessionEndMs + 60_000;
+        for (const c of candidates) {
+            if (c >= minOk && c <= maxOk) return c;
+        }
+
+        return Math.round(n * 1000);
+    };
+
+    const normalizedEvents = allEvents
+        .map((e, idx) => {
+            const rawType = (e?.type ?? e?.name ?? '').toString();
+            const type = rawType.length > 0 ? rawType.toLowerCase() : 'unknown';
+            const rawTs = e?.timestamp ?? e?.ts ?? e?.time;
+            const timestamp = coerceToEpochMs(rawTs, sessionStartMs);
+            const payload = e?.payload ?? e?.payloadInline ?? e?.details ?? e?.properties ?? null;
+            const properties = payload && typeof payload === 'object' ? payload : (e?.details ?? e?.properties ?? null);
+
+            return {
+                ...e,
+                id: e?.id || `evt_${idx}_${Math.random().toString(16).slice(2)}`,
+                type,
+                timestamp,
+                payload,
+                properties,
+                gestureType: e?.gestureType || properties?.gestureType || payload?.gestureType || null,
+                targetLabel: e?.targetLabel || properties?.targetLabel || payload?.targetLabel || null,
+                touches: e?.touches || properties?.touches || payload?.touches || null,
+                frustrationKind: e?.frustrationKind || properties?.frustrationKind || payload?.frustrationKind || null,
+                screen:
+                    e?.screen ||
+                    properties?.screen ||
+                    payload?.screen ||
+                    properties?.screenName ||
+                    payload?.screenName ||
+                    e?.screenName ||
+                    null,
+            };
+        })
+        .sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
+
+    return { normalizedEvents, coerceToEpochMs };
+}
+
+async function loadTimelinePayload(session: any, artifactsList: any[]) {
+    const eventsArtifacts = artifactsList.filter((a) => a.kind === 'events');
+    const networkArtifacts = artifactsList.filter((a) => a.kind === 'network');
+
+    const [sessionCrashes, sessionAnrs, parsedEventsBatches, parsedNetworkBatches] = await Promise.all([
+        db.select().from(crashes).where(eq(crashes.sessionId, session.id)).orderBy(desc(crashes.timestamp)),
+        db.select().from(anrs).where(eq(anrs.sessionId, session.id)).orderBy(desc(anrs.timestamp)),
+        mapWithConcurrency(eventsArtifacts, DETAIL_FETCH_CONCURRENCY, async (artifact) => {
+            try {
+                const data = await downloadFromS3ForProject(session.projectId, artifact.s3ObjectKey);
+                if (!data) return [] as any[];
+                const parsed = JSON.parse(data.toString());
+                if (Array.isArray(parsed)) return parsed;
+                if (Array.isArray(parsed?.events)) return parsed.events;
+                return [] as any[];
+            } catch {
+                return [] as any[];
+            }
+        }),
+        mapWithConcurrency(networkArtifacts, DETAIL_FETCH_CONCURRENCY, async (artifact) => {
+            try {
+                const data = await downloadFromS3ForProject(session.projectId, artifact.s3ObjectKey);
+                if (!data) return [] as any[];
+                const parsed = JSON.parse(data.toString());
+                if (Array.isArray(parsed)) return parsed;
+                if (Array.isArray(parsed?.networkRequests)) return parsed.networkRequests;
+                return [] as any[];
+            } catch {
+                return [] as any[];
+            }
+        }),
+    ]);
+
+    const allEvents = parsedEventsBatches.flat();
+    const allNetwork = parsedNetworkBatches.flat();
+
+    const sessionStartMs = session.startedAt.getTime();
+    const sessionEndMs = session.endedAt?.getTime()
+        ?? (sessionStartMs + ((session.durationSeconds ?? 0) * 1000));
+
+    const { normalizedEvents, coerceToEpochMs } = normalizeEventsForTimeline(allEvents, sessionStartMs, sessionEndMs);
+
+    const anrEvents = sessionAnrs.map((a) => {
+        const timestamp = coerceToEpochMs(a.timestamp?.getTime?.() ?? a.timestamp, sessionStartMs);
+        const properties: any = {
+            durationMs: a.durationMs,
+            threadState: a.threadState,
+        };
+        return {
+            id: a.id,
+            type: 'anr',
+            timestamp,
+            durationMs: a.durationMs,
+            threadState: a.threadState,
+            properties,
+            payload: properties,
+        };
+    });
+
+    const mergedEvents = [...normalizedEvents, ...anrEvents]
+        .sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
+
+    const networkRequests = [
+        ...allNetwork.map((n) => ({ ...n, timestamp: n.timestamp || Date.now() })),
+        ...mergedEvents.filter((e) => e.type === 'network_request' || e.type === 'api_request'),
+    ]
+        .map((e) => {
+            const payload = e.payload || e.payloadInline || e;
+            const rawUrl = payload.url || e.url || '';
+            const safeUrl = (() => {
+                if (!rawUrl) return null;
+                try {
+                    return new URL(rawUrl);
+                } catch {
+                    try {
+                        return new URL(rawUrl, 'http://localhost');
+                    } catch {
+                        return null;
+                    }
+                }
+            })();
+            const requestBodySize =
+                payload.requestBodySize ??
+                payload.requestSize ??
+                e.requestBodySize ??
+                e.requestSize ??
+                0;
+            const responseBodySize =
+                payload.responseBodySize ??
+                payload.responseSize ??
+                e.responseBodySize ??
+                e.responseSize ??
+                0;
+            return {
+                id: e.id || `net_${Math.random()}`,
+                url: rawUrl,
+                method: payload.method || e.method || 'GET',
+                statusCode: payload.statusCode || e.statusCode,
+                duration: payload.duration || e.duration || 0,
+                success: (payload.success ?? e.success) ?? ((payload.statusCode || e.statusCode) < 400),
+                timestamp: (e.timestamp || payload.timestamp) || 0,
+                host: payload.urlHost || payload.host || safeUrl?.hostname || '',
+                path: payload.urlPath || payload.path || safeUrl?.pathname || rawUrl,
+                urlHost: payload.urlHost || payload.host || safeUrl?.hostname || '',
+                urlPath: payload.urlPath || payload.path || safeUrl?.pathname || rawUrl,
+                requestBodySize,
+                responseBodySize,
+                requestSize: requestBodySize,
+                responseSize: responseBodySize,
+                error: payload.error || e.error,
+            };
+        })
+        .sort((a, b) => a.timestamp - b.timestamp);
+
+    return {
+        events: mergedEvents,
+        networkRequests,
+        crashes: sessionCrashes.map((c) => ({
+            id: c.id,
+            timestamp: c.timestamp.getTime(),
+            exceptionName: c.exceptionName,
+            reason: c.reason,
+            status: c.status,
+            deviceMetadata: c.deviceMetadata,
+        })),
+        anrs: sessionAnrs.map((a) => ({
+            id: a.id,
+            timestamp: a.timestamp.getTime(),
+            durationMs: a.durationMs,
+            threadState: a.threadState,
+            status: a.status,
+        })),
+    };
+}
+
+async function loadHierarchyPayload(session: any, artifactsList: any[]) {
+    const hierarchyArtifacts = artifactsList
+        .filter((a) => a.kind === 'hierarchy')
+        .sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
+
+    const snapshots = await mapWithConcurrency(
+        hierarchyArtifacts,
+        DETAIL_FETCH_CONCURRENCY,
+        async (artifact) => {
+            try {
+                const data = await downloadFromS3ForProject(session.projectId, artifact.s3ObjectKey);
+                if (!data) return null;
+                const parsed = JSON.parse(data.toString());
+                const rootElement = parsed.rootElement || parsed.root || parsed;
+                return {
+                    timestamp: artifact.timestamp || parsed.timestamp || 0,
+                    screenName: parsed.screenName || null,
+                    rootElement,
+                };
+            } catch {
+                return null;
+            }
+        }
+    );
+
+    return snapshots
+        .filter((snapshot): snapshot is { timestamp: number; screenName: string | null; rootElement: any } => Boolean(snapshot))
+        .sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
+}
+
+type FrameProxyCacheEntry = {
+    data: Buffer;
+    expiresAt: number;
+};
+
+const FRAME_PROXY_CACHE_TTL_MS = Number(process.env.RJ_FRAME_PROXY_CACHE_TTL_MS ?? 5 * 60 * 1000);
+const FRAME_PROXY_CACHE_MAX_ENTRIES = Number(process.env.RJ_FRAME_PROXY_CACHE_MAX_ENTRIES ?? 400);
+const frameProxyCache = new Map<string, FrameProxyCacheEntry>();
+
+function getFrameFromProxyCache(cacheKey: string): Buffer | null {
+    const entry = frameProxyCache.get(cacheKey);
+    if (!entry) return null;
+    if (entry.expiresAt < Date.now()) {
+        frameProxyCache.delete(cacheKey);
+        return null;
+    }
+    return entry.data;
+}
+
+function setFrameProxyCache(cacheKey: string, data: Buffer) {
+    if (frameProxyCache.size >= FRAME_PROXY_CACHE_MAX_ENTRIES) {
+        const oldestKey = frameProxyCache.keys().next().value;
+        if (oldestKey) frameProxyCache.delete(oldestKey);
+    }
+    frameProxyCache.set(cacheKey, {
+        data,
+        expiresAt: Date.now() + FRAME_PROXY_CACHE_TTL_MS,
+    });
 }
 
 /**
@@ -450,7 +927,7 @@ router.get(
         if (screenshotArtifacts.length > 0 && !session.isReplayExpired && !session.recordingDeleted) {
             // Extract frames from screenshot archives
             logger.info({ sessionId: session.id }, '[sessions] Attempting to extract screenshot frames');
-            const framesResult = await getSessionScreenshotFrames(session.id);
+            const framesResult = await getSessionScreenshotFrames(session.id, { urlMode: 'none' });
             logger.info({
                 sessionId: session.id,
                 framesResult: framesResult ? { totalFrames: framesResult.totalFrames, cached: framesResult.cached } : null,
@@ -645,18 +1122,48 @@ router.get(
                 ...mergedEvents.filter((e) => e.type === 'network_request' || e.type === 'api_request')
             ].map((e) => {
                 const payload = e.payload || e.payloadInline || e; // S3 network artifacts might be flat
+                const rawUrl = payload.url || e.url || '';
+                const safeUrl = (() => {
+                    if (!rawUrl) return null;
+                    try {
+                        return new URL(rawUrl);
+                    } catch {
+                        try {
+                            return new URL(rawUrl, 'http://localhost');
+                        } catch {
+                            return null;
+                        }
+                    }
+                })();
+                const requestBodySize =
+                    payload.requestBodySize ??
+                    payload.requestSize ??
+                    e.requestBodySize ??
+                    e.requestSize ??
+                    0;
+                const responseBodySize =
+                    payload.responseBodySize ??
+                    payload.responseSize ??
+                    e.responseBodySize ??
+                    e.responseSize ??
+                    0;
                 return {
                     id: e.id || `net_${Math.random()}`,
-                    url: payload.url || e.url || '',
+                    url: rawUrl,
                     method: payload.method || e.method || 'GET',
                     statusCode: payload.statusCode || e.statusCode,
                     duration: payload.duration || e.duration || 0,
                     success: (payload.success ?? e.success) ?? ((payload.statusCode || e.statusCode) < 400),
                     timestamp: (e.timestamp || payload.timestamp) || 0,
-                    host: payload.urlHost || new URL(payload.url || e.url || 'http://unknown').hostname,
-                    path: payload.urlPath || new URL(payload.url || e.url || 'http://unknown').pathname,
-                    requestSize: payload.requestSize || e.requestSize,
-                    responseSize: payload.responseSize || e.responseSize,
+                    host: payload.urlHost || payload.host || safeUrl?.hostname || '',
+                    path: payload.urlPath || payload.path || safeUrl?.pathname || rawUrl,
+                    urlHost: payload.urlHost || payload.host || safeUrl?.hostname || '',
+                    urlPath: payload.urlPath || payload.path || safeUrl?.pathname || rawUrl,
+                    requestBodySize,
+                    responseBodySize,
+                    // Keep legacy fields for existing clients.
+                    requestSize: requestBodySize,
+                    responseSize: responseBodySize,
                     error: payload.error || e.error,
                 };
             }).sort((a, b) => a.timestamp - b.timestamp),
@@ -725,6 +1232,89 @@ router.get(
             replayPromotedReason: session.replayPromotedReason ?? null,
             replayPromotionScore: session.replayPromotionScore ?? 0,
         });
+    })
+);
+
+/**
+ * Get lightweight session payload for replay bootstrap
+ * GET /api/session/:id/core
+ */
+router.get(
+    '/:id/core',
+    sessionAuth,
+    validate(sessionIdParamSchema, 'params'),
+    dashboardRateLimiter,
+    asyncHandler(async (req, res) => {
+        const { session, metrics } = await getAuthorizedSession(req.user!.id, req.params.id);
+        const artifactsList = await getReadyArtifacts(session.id);
+        const screenshotArtifacts = artifactsList.filter((a) => a.kind === 'screenshots');
+
+        let screenshotFrames: Array<{ timestamp: number; url: string; index: number }> = [];
+        if (screenshotArtifacts.length > 0 && !session.isReplayExpired && !session.recordingDeleted) {
+            const frameUrlMode = resolveFrameUrlMode(req.query.frameUrlMode);
+            const framesResult = await getSessionScreenshotFrames(session.id, { urlMode: frameUrlMode });
+            if (framesResult) {
+                screenshotFrames = framesResult.frames;
+            }
+        }
+
+        const basePayload = buildSessionBasePayload(session, metrics, screenshotFrames);
+        const stats = await computeSessionStats(session, metrics, artifactsList, false);
+        res.json({
+            ...basePayload,
+            stats,
+        });
+    })
+);
+
+/**
+ * Get session timeline payload (events, network, crashes, ANRs)
+ * GET /api/session/:id/timeline
+ */
+router.get(
+    '/:id/timeline',
+    sessionAuth,
+    validate(sessionIdParamSchema, 'params'),
+    dashboardRateLimiter,
+    asyncHandler(async (req, res) => {
+        const { session } = await getAuthorizedSession(req.user!.id, req.params.id);
+        const artifactsList = await getReadyArtifacts(session.id);
+        const timeline = await loadTimelinePayload(session, artifactsList);
+        res.json(timeline);
+    })
+);
+
+/**
+ * Get view hierarchy payload
+ * GET /api/session/:id/hierarchy
+ */
+router.get(
+    '/:id/hierarchy',
+    sessionAuth,
+    validate(sessionIdParamSchema, 'params'),
+    dashboardRateLimiter,
+    asyncHandler(async (req, res) => {
+        const { session } = await getAuthorizedSession(req.user!.id, req.params.id);
+        const artifactsList = await getReadyArtifacts(session.id);
+        const hierarchySnapshots = await loadHierarchyPayload(session, artifactsList);
+        res.json({ hierarchySnapshots });
+    })
+);
+
+/**
+ * Get detailed session stats (includes S3 HEAD fallback for legacy artifacts missing size_bytes)
+ * GET /api/session/:id/stats
+ */
+router.get(
+    '/:id/stats',
+    sessionAuth,
+    validate(sessionIdParamSchema, 'params'),
+    dashboardRateLimiter,
+    asyncHandler(async (req, res) => {
+        const { session, metrics } = await getAuthorizedSession(req.user!.id, req.params.id);
+        const artifactsList = await getReadyArtifacts(session.id);
+        const stats = await computeSessionStats(session, metrics, artifactsList, true);
+        res.json({ stats });
     })
 );
 
@@ -1097,33 +1687,21 @@ router.get(
     asyncHandler(async (req, res) => {
         const sessionId = req.params.id;
         const frameTimestamp = req.params.frameTimestamp;
-        
-        // Get session to verify access and get projectId
-        const [session] = await db
-            .select({
-                id: sessions.id,
-                projectId: sessions.projectId,
-            })
-            .from(sessions)
-            .where(eq(sessions.id, sessionId))
-            .limit(1);
-        
-        if (!session) {
-            throw ApiError.notFound('Session not found');
-        }
-        
+
+        // Verify session access before serving frame bytes.
+        const { session } = await getAuthorizedSession(req.user!.id, sessionId);
+
         // Construct frame S3 key
         const frameKey = `sessions/${sessionId}/frames/${frameTimestamp}.jpg`;
-        
-        // Download frame from S3
-        const frameData = await downloadFromS3ForProject(session.projectId, frameKey);
-        
-        if (!frameData) {
-            throw ApiError.notFound('Frame not found');
-        }
-        
+
+        const cacheKey = `${session.projectId}:${frameKey}`;
+        const cached = getFrameFromProxyCache(cacheKey);
+        const frameData = cached ?? await downloadFromS3ForProject(session.projectId, frameKey);
+        if (!frameData) throw ApiError.notFound('Frame not found');
+        if (!cached) setFrameProxyCache(cacheKey, frameData);
+
         res.setHeader('Content-Type', 'image/jpeg');
-        res.setHeader('Cache-Control', 'public, max-age=3600'); // 1 hour
+        res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
         res.send(frameData);
     })
 );

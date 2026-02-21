@@ -179,28 +179,28 @@ export const TopBar: React.FC<TopBarProps> = ({ currentProject }) => {
     : `Refresh data (last: ${lastRefreshTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })})`;
 
   return (
-    <div className="dashboard-topbar h-16 border-b border-slate-200 bg-white flex items-center justify-between px-6 font-sans">
-      <div className="flex items-center gap-6">
+    <div className="dashboard-topbar flex flex-wrap items-start justify-between gap-x-4 gap-y-2 border-b border-slate-200 bg-white px-4 py-2 font-sans sm:px-6">
+      <div className="flex min-w-0 flex-1 items-center gap-3 sm:gap-6">
         {/* Logo */}
-        <Link to="/" className="hover:opacity-80 transition-opacity">
+        <Link to="/" className="shrink-0 hover:opacity-80 transition-opacity">
           <img src="/rejourneyIcon-removebg-preview.png" alt="Rejourney" className="w-8 h-8 object-contain" />
         </Link>
-        <div className="h-8 w-px bg-slate-200"></div>
+        <div className="hidden h-8 w-px bg-slate-200 sm:block"></div>
 
         {currentProject ? (
           <>
-            <div>
-              <h1 className="text-sm font-bold text-slate-800 tracking-tight">{currentProject.name}</h1>
-              <div className="flex items-center gap-2 mt-0.5">
+            <div className="min-w-0">
+              <h1 className="truncate text-sm font-bold tracking-tight text-slate-800">{currentProject.name}</h1>
+              <div className="mt-0.5 flex flex-wrap items-center gap-2">
                 {currentProject.platforms.map((platform) => (
-                  <span key={platform} className="text-[10px] font-semibold text-slate-500 flex items-center gap-1 border border-slate-200 px-1.5 py-0 bg-slate-50 uppercase rounded-sm">
+                  <span key={platform} className="flex items-center gap-1 rounded-sm border border-slate-200 bg-slate-50 px-1.5 py-0 text-[10px] font-semibold uppercase text-slate-500">
                     {platform}
                   </span>
                 ))}
                 {(currentProject.sessionsLast7Days > 0 || currentProject.errorsLast7Days > 0) && (
                   <>
                     <span className="text-slate-300 mx-1">•</span>
-                    <span className="text-[10px] text-slate-500 font-bold font-mono">
+                    <span className="font-mono text-[10px] font-bold text-slate-500">
                       {currentProject.sessionsLast7Days} sessions
                     </span>
                   </>
@@ -213,12 +213,12 @@ export const TopBar: React.FC<TopBarProps> = ({ currentProject }) => {
         )}
       </div>
 
-      <div className="flex items-center gap-3">
+      <div className="flex w-full flex-wrap items-center justify-end gap-2 sm:w-auto sm:flex-nowrap sm:gap-3">
         {/* Public Key - Truncated & Copyable */}
         {currentProject?.publicKey && (
           <button
             onClick={handleCopyPublicKey}
-            className="hidden md:flex items-center gap-1.5 px-3 py-1.5 h-8 bg-white hover:bg-slate-50 border border-slate-200 rounded text-xs transition-all group"
+            className="group hidden h-8 items-center gap-1.5 rounded border border-slate-200 bg-white px-3 py-1.5 text-xs transition-all hover:bg-slate-50 md:flex"
             title={`Copy Public Key: ${currentProject.publicKey}`}
           >
             <span className="font-mono text-slate-500 font-medium text-[11px]">{truncatedKey}</span>
@@ -233,11 +233,11 @@ export const TopBar: React.FC<TopBarProps> = ({ currentProject }) => {
         {/* AI Docs Button */}
         <button
           onClick={handleCopyDocsUrl}
-          className="flex items-center gap-1.5 px-3 py-1.5 h-8 bg-purple-50 hover:bg-purple-100 border border-purple-200 rounded text-xs transition-all group"
+          className="group flex h-8 items-center gap-1.5 rounded border border-purple-200 bg-purple-50 px-2.5 py-1.5 text-xs transition-all hover:bg-purple-100 sm:px-3"
           title="Copy AI Integration Prompt"
         >
           <BookOpen className="w-3.5 h-3.5 text-purple-600" />
-          <span className="font-semibold text-purple-700 uppercase text-[10px]">AI Docs</span>
+          <span className="hidden text-[10px] font-semibold uppercase text-purple-700 sm:inline">AI Docs</span>
           {copiedDocs ? (
             <Check className="w-3 h-3 text-purple-600" />
           ) : (
@@ -264,7 +264,7 @@ export const TopBar: React.FC<TopBarProps> = ({ currentProject }) => {
         {user && currentTeam && (
           <Link
             to={`${pathPrefix}/team`}
-            className="flex items-center gap-2 px-3 py-1.5 h-8 bg-white rounded-md text-xs border border-slate-200 shadow-sm hover:border-slate-300 transition-colors"
+            className="hidden h-8 items-center gap-2 rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs shadow-sm transition-colors hover:border-slate-300 xl:flex"
             title={`${currentTeam.name} - Usage this month`}
           >
             <span className="font-semibold text-slate-700 uppercase">{planLabel}</span>
@@ -277,7 +277,7 @@ export const TopBar: React.FC<TopBarProps> = ({ currentProject }) => {
         <div className="relative">
           <button
             onClick={() => setShowUserMenu(!showUserMenu)}
-            className="flex items-center gap-2 px-2 py-1.5 hover:bg-slate-50 border border-transparent hover:border-slate-200 rounded-md transition-colors text-left focus:outline-none group"
+            className="group flex items-center gap-2 rounded-md border border-transparent px-2 py-1.5 text-left transition-colors hover:border-slate-200 hover:bg-slate-50 focus:outline-none"
           >
             <div className="w-8 h-8 bg-purple-100 rounded-md flex items-center justify-center text-purple-600 border border-purple-200">
               <UserIcon className="w-4 h-4" />

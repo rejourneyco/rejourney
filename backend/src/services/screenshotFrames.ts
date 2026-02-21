@@ -83,6 +83,47 @@ export interface SessionScreenshotFrames {
     cached: boolean;
 }
 
+export type ScreenshotFrameUrlMode = 'signed' | 'proxy' | 'none';
+
+interface ScreenshotFrameResponse {
+    timestamp: number;
+    url: string;
+    index: number;
+}
+
+interface SessionScreenshotFrameOptions {
+    /** Skip cache lookup */
+    skipCache?: boolean;
+    /** Max frames to return (for pagination) */
+    limit?: number;
+    /** Offset for pagination */
+    offset?: number;
+    /** How frame URLs should be generated */
+    urlMode?: ScreenshotFrameUrlMode;
+}
+
+async function mapWithConcurrency<T, R>(
+    items: readonly T[],
+    concurrency: number,
+    mapper: (item: T, index: number) => Promise<R>
+): Promise<R[]> {
+    if (items.length === 0) return [];
+
+    const output: R[] = new Array(items.length);
+    let cursor = 0;
+    const workerCount = Math.max(1, Math.min(concurrency, items.length));
+
+    async function worker(): Promise<void> {
+        while (cursor < items.length) {
+            const index = cursor++;
+            output[index] = await mapper(items[index], index);
+        }
+    }
+
+    await Promise.all(Array.from({ length: workerCount }, () => worker()));
+    return output;
+}
+
 // ============================================================================
 // Archive Format Detection & Parsing
 // ============================================================================
@@ -353,7 +394,9 @@ export async function extractFramesFromArchive(
 // ============================================================================
 
 const FRAME_CACHE_PREFIX = 'screenshot_frames:';
-const FRAME_CACHE_TTL = 3600; // 1 hour
+const FRAME_CACHE_TTL = Number(process.env.RJ_SCREENSHOT_FRAME_CACHE_TTL_SECONDS ?? 86_400); // 24h default
+const URL_SIGN_CONCURRENCY = Number(process.env.RJ_SCREENSHOT_URL_SIGN_CONCURRENCY ?? 16);
+const FRAME_UPLOAD_CONCURRENCY = Number(process.env.RJ_SCREENSHOT_FRAME_UPLOAD_CONCURRENCY ?? 8);
 
 interface CachedFrameIndex {
     sessionId: string;
@@ -445,6 +488,39 @@ export async function getScreenshotSegments(sessionId: string): Promise<Screensh
     }));
 }
 
+async function buildFrameResponses(
+    projectId: string,
+    sessionId: string,
+    frames: Array<{ timestamp: number; s3Key: string; index: number }>,
+    urlMode: ScreenshotFrameUrlMode
+): Promise<ScreenshotFrameResponse[]> {
+    if (urlMode === 'none') {
+        return frames.map((f) => ({ timestamp: f.timestamp, url: '', index: f.index }));
+    }
+
+    if (urlMode === 'proxy') {
+        return frames.map((f) => ({
+            timestamp: f.timestamp,
+            url: `/api/sessions/${sessionId}/frame/${f.timestamp}`,
+            index: f.index,
+        }));
+    }
+
+    const signed = await mapWithConcurrency(
+        frames,
+        URL_SIGN_CONCURRENCY,
+        async (f) => {
+            const url = await getSignedDownloadUrlForProject(projectId, f.s3Key);
+            return {
+                timestamp: f.timestamp,
+                url: url || '',
+                index: f.index,
+            };
+        }
+    );
+    return signed.filter((f) => Boolean(f.url));
+}
+
 /**
  * Get all screenshot frames for a session with presigned URLs
  * 
@@ -459,16 +535,14 @@ export async function getScreenshotSegments(sessionId: string): Promise<Screensh
  */
 export async function getSessionScreenshotFrames(
     sessionId: string,
-    options?: {
-        /** Skip cache lookup */
-        skipCache?: boolean;
-        /** Max frames to return (for pagination) */
-        limit?: number;
-        /** Offset for pagination */
-        offset?: number;
-    }
+    options?: SessionScreenshotFrameOptions
 ): Promise<SessionScreenshotFrames | null> {
-    const { skipCache = false, limit, offset = 0 } = options || {};
+    const {
+        skipCache = false,
+        limit,
+        offset = 0,
+        urlMode = 'signed',
+    } = options || {};
     
     // Get session info
     const [session] = await db
@@ -491,7 +565,6 @@ export async function getSessionScreenshotFrames(
     if (!skipCache) {
         const cached = await getCachedFrameIndex(sessionId);
         if (cached) {
-            // Generate presigned URLs for cached frame keys
             let framesToReturn = cached.frames;
             if (offset > 0) {
                 framesToReturn = framesToReturn.slice(offset);
@@ -499,22 +572,18 @@ export async function getSessionScreenshotFrames(
             if (limit) {
                 framesToReturn = framesToReturn.slice(0, limit);
             }
-            
-            const framesWithUrls = await Promise.all(
-                framesToReturn.map(async (f) => {
-                    const url = await getSignedDownloadUrlForProject(session.projectId, f.s3Key);
-                    return {
-                        timestamp: f.timestamp,
-                        url: url || '',
-                        index: f.index,
-                    };
-                })
+
+            const framesWithUrls = await buildFrameResponses(
+                session.projectId,
+                sessionId,
+                framesToReturn,
+                urlMode
             );
-            
+
             return {
                 totalFrames: cached.totalFrames,
                 sessionStartTime: cached.sessionStartTime,
-                frames: framesWithUrls.filter(f => f.url),
+                frames: framesWithUrls,
                 cached: true,
             };
         }
@@ -549,27 +618,37 @@ export async function getSessionScreenshotFrames(
         // Extract frames (pass sessionStartTime for Android binary format)
         const frames = await extractFramesFromArchive(archiveData, sessionStartTime);
         
-        // Upload individual frames to S3 for direct access
-        for (const frame of frames) {
-            const frameS3Key = `sessions/${sessionId}/frames/${frame.timestamp}.jpg`;
-            
-            // Upload frame to S3
-            const uploadResult = await uploadToS3(
-                session.projectId,
-                frameS3Key,
-                frame.data,
-                'image/jpeg'
-            );
-            
-            if (uploadResult.success) {
-                allFrames.push({
+        // Upload individual frames to S3 for direct access (bounded concurrency).
+        const uploadedFrames = await mapWithConcurrency(
+            frames,
+            FRAME_UPLOAD_CONCURRENCY,
+            async (frame) => {
+                const frameS3Key = `sessions/${sessionId}/frames/${frame.timestamp}.jpg`;
+                const uploadResult = await uploadToS3(
+                    session.projectId,
+                    frameS3Key,
+                    frame.data,
+                    'image/jpeg'
+                );
+
+                if (!uploadResult.success) {
+                    return null;
+                }
+
+                return {
                     timestamp: frame.timestamp,
                     s3Key: frameS3Key,
-                    index: globalIndex,
+                    index: 0,
                     sizeBytes: frame.data.length,
-                });
-                globalIndex++;
+                };
             }
+        );
+
+        for (const uploaded of uploadedFrames) {
+            if (!uploaded) continue;
+            uploaded.index = globalIndex;
+            allFrames.push(uploaded);
+            globalIndex++;
         }
     }
     
@@ -603,28 +682,24 @@ export async function getSessionScreenshotFrames(
         framesToReturn = framesToReturn.slice(0, limit);
     }
     
-    // Generate presigned URLs
-    const framesWithUrls = await Promise.all(
-        framesToReturn.map(async (f) => {
-            const url = await getSignedDownloadUrlForProject(session.projectId, f.s3Key);
-            return {
-                timestamp: f.timestamp,
-                url: url || '',
-                index: f.index,
-            };
-        })
+    const framesWithUrls = await buildFrameResponses(
+        session.projectId,
+        sessionId,
+        framesToReturn,
+        urlMode
     );
     
     logger.info({
         sessionId,
         totalFrames: allFrames.length,
         returnedFrames: framesWithUrls.length,
+        urlMode,
     }, '[screenshotFrames] Extracted and cached session frames');
     
     return {
         totalFrames: allFrames.length,
         sessionStartTime,
-        frames: framesWithUrls.filter(f => f.url),
+        frames: framesWithUrls,
         cached: false,
     };
 }
@@ -683,4 +758,21 @@ export async function getScreenshotFrameCount(sessionId: string): Promise<number
     }
     
     return total;
+}
+
+/**
+ * Ensure a session's screenshot frame index and extracted frame objects exist.
+ * Used by ingest worker so replay open path avoids cold extraction work.
+ */
+export async function prewarmSessionScreenshotFrames(sessionId: string): Promise<boolean> {
+    try {
+        const result = await getSessionScreenshotFrames(sessionId, {
+            skipCache: false,
+            urlMode: 'none',
+        });
+        return Boolean(result && result.totalFrames > 0);
+    } catch (err) {
+        logger.warn({ err, sessionId }, '[screenshotFrames] Failed to prewarm screenshot frames');
+        return false;
+    }
 }

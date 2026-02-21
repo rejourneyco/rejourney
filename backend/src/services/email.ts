@@ -664,7 +664,7 @@ export async function sendCrashAlertEmail(
         url: issueLink
       },
       projectName: data.projectName,
-      projectUrl: `${baseUrl}/dashboard/projects/${data.projectId}`,
+      projectUrl: `${baseUrl}/dashboard/settings/${data.projectId}`,
       alertType: 'crash',
       metaBadges,
       timestamp: data.lastSeen || new Date()
@@ -749,7 +749,7 @@ export async function sendAnrAlertEmail(
       sections,
       action: { label: 'View Issue', url: issueLink },
       projectName: data.projectName,
-      projectUrl: `${baseUrl}/dashboard/projects/${data.projectId}`,
+      projectUrl: `${baseUrl}/dashboard/settings/${data.projectId}`,
       alertType: 'anr',
       metaBadges,
       timestamp: data.lastSeen || new Date()
@@ -823,7 +823,7 @@ export async function sendErrorSpikeAlertEmail(
       sections,
       action: { label: 'View Issues', url: issueLink },
       projectName: data.projectName,
-      projectUrl: `${baseUrl}/app/projects/${data.projectId}`,
+      projectUrl: `${baseUrl}/dashboard/settings/${data.projectId}`,
       alertType: 'error_spike',
       metaBadges,
       timestamp: data.detectedAt || new Date()
@@ -855,7 +855,7 @@ export async function sendApiDegradationAlertEmail(
   if (!transport) return;
 
   const baseUrl = config.PUBLIC_DASHBOARD_URL || 'http://localhost:8080';
-  const insightsLink = data.issueUrl || `${baseUrl}/app/insights/api`;
+  const insightsLink = data.issueUrl || `${baseUrl}/dashboard/analytics/api`;
 
   const metaBadges: EmailMetaBadge[] = [
     { label: 'LATENCY', value: `${data.currentLatencyMs}ms` },
@@ -896,7 +896,7 @@ export async function sendApiDegradationAlertEmail(
       sections,
       action: { label: 'View API Insights', url: insightsLink },
       projectName: data.projectName,
-      projectUrl: `${baseUrl}/app/projects/${data.projectId}`,
+      projectUrl: `${baseUrl}/dashboard/settings/${data.projectId}`,
       alertType: 'api_degradation',
       metaBadges,
       timestamp: data.detectedAt || new Date()

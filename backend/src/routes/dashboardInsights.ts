@@ -132,14 +132,13 @@ router.get(
             .where(and(...conditions))
             .limit(5000);
 
-        // Aggregate by screen
+        // Aggregate per-screen exposure from observed session paths.
         const screenStats: Record<string, {
             visits: number;
-            rageTaps: number;
+            approxRageTaps: number;
             errors: number;
             exits: number;
             sessionIds: string[];
-            firstSessionId: string | null;
         }> = {};
 
         for (const s of sessionData) {
@@ -148,24 +147,20 @@ router.get(
 
             for (const screen of screensVisited) {
                 if (!screenStats[screen]) {
-                    screenStats[screen] = { visits: 0, rageTaps: 0, errors: 0, exits: 0, sessionIds: [], firstSessionId: null };
+                    screenStats[screen] = { visits: 0, approxRageTaps: 0, errors: 0, exits: 0, sessionIds: [] };
                 }
                 screenStats[screen].visits++;
 
-                // Approximate distribution (real implementation would track per-screen)
+                // Error/rage are tracked per session. Use proportional distribution as fallback,
+                // but prefer real per-screen rage from touch heatmap rows below.
                 const perScreenRage = Math.ceil((s.metrics?.rageTapCount || 0) / Math.max(screensVisited.length, 1));
                 const perScreenErrors = Math.ceil((s.metrics?.errorCount || 0) / Math.max(screensVisited.length, 1));
 
-                screenStats[screen].rageTaps += perScreenRage;
+                screenStats[screen].approxRageTaps += perScreenRage;
                 screenStats[screen].errors += perScreenErrors;
 
                 if (screenStats[screen].sessionIds.length < 20) {
                     screenStats[screen].sessionIds.push(s.id);
-                }
-
-                // Track first session for this screen
-                if (!screenStats[screen].firstSessionId) {
-                    screenStats[screen].firstSessionId = s.id;
                 }
             }
 
@@ -175,28 +170,18 @@ router.get(
             }
         }
 
-        // Get the first 15 screens by friction
-        const sortedScreens = Object.entries(screenStats)
-            .map(([name, stats]) => ({
-                name,
-                visits: stats.visits,
-                rageTaps: stats.rageTaps,
-                errors: stats.errors,
-                exitRate: stats.visits > 0 ? Math.round((stats.exits / stats.visits) * 100) : 0,
-                frictionScore: stats.rageTaps * 3 + stats.errors * 2 + (stats.exits / Math.max(stats.visits, 1)) * 10,
-                sessionIds: stats.sessionIds.slice(0, 10),
-                firstSessionId: stats.firstSessionId,
-            }))
-            .sort((a, b) => b.frictionScore - a.frictionScore)
-            .slice(0, 15);
+        // Keep the candidate set bounded before joining with heatmap rows.
+        const candidateScreens = Object.entries(screenStats)
+            .sort((a, b) => b[1].visits - a[1].visits)
+            .slice(0, 60);
 
         // Batch query to find screenshot artifacts for any of the sessions in the top screens
         // Collect all candidate session IDs (flattened)
-        const allSessionIds = sortedScreens.flatMap(s => s.sessionIds);
+        const allSessionIds = candidateScreens.flatMap(([, s]) => s.sessionIds);
         const uniqueSessionIds = [...new Set(allSessionIds)];
 
         logger.info({
-            screenCount: sortedScreens.length,
+            screenCount: candidateScreens.length,
             uniqueSessionCount: uniqueSessionIds.length
         }, 'Searching for screenshot artifacts for heatmap screens');
 
@@ -231,8 +216,8 @@ router.get(
             }
         }
 
-        // Query touch heatmap data for these screens
-        const screenNames = sortedScreens.map(s => s.name);
+        // Query touch heatmap data for candidate screens.
+        const screenNames = candidateScreens.map(([name]) => name);
         const heatmapData = screenNames.length > 0
             ? await db
                 .select({
@@ -285,6 +270,67 @@ router.get(
             }
         }
 
+        const scoredScreens = candidateScreens
+            .map(([name, stats]) => {
+                const heatmap = screenHeatmapMap.get(name);
+                const rageTaps = Math.max(stats.approxRageTaps, heatmap?.totalRageTaps || 0);
+                const visits = stats.visits;
+                const exitRate = visits > 0 ? (stats.exits / visits) * 100 : 0;
+                const rageTapRatePer100 = visits > 0 ? (rageTaps / visits) * 100 : 0;
+                const errorRatePer100 = visits > 0 ? (stats.errors / visits) * 100 : 0;
+                const incidentRatePer100 = rageTapRatePer100 + errorRatePer100;
+                const impactScore = Number(
+                    ((incidentRatePer100 * 0.7 + exitRate * 0.3) * Math.log10(visits + 9)).toFixed(1)
+                );
+                const estimatedAffectedSessions = Math.min(
+                    visits,
+                    Math.round(
+                        visits * Math.min(0.95, (incidentRatePer100 / 100) + ((exitRate / 100) * 0.35))
+                    )
+                );
+
+                const signalStats = [
+                    { key: 'rage_taps', value: rageTapRatePer100 },
+                    { key: 'errors', value: errorRatePer100 },
+                    { key: 'exits', value: exitRate },
+                ].sort((a, b) => b.value - a.value);
+
+                const topSignal = signalStats[0];
+                const runnerUpSignal = signalStats[1];
+                const primarySignal = topSignal.value - runnerUpSignal.value < 2
+                    ? 'mixed'
+                    : topSignal.key;
+
+                const recommendedAction = primarySignal === 'rage_taps'
+                    ? 'Review hotspot taps for blocked CTAs and disabled controls on this screen.'
+                    : primarySignal === 'errors'
+                        ? 'Audit validation/API failures and add clearer recovery states here.'
+                        : primarySignal === 'exits'
+                            ? 'Reduce drop-off by clarifying next step and improving load responsiveness.'
+                            : 'Replay affected sessions and prioritize the first visible blocker.';
+
+                const confidence = visits >= 150 ? 'high' : visits >= 50 ? 'medium' : 'low';
+
+                return {
+                    name,
+                    visits,
+                    rageTaps,
+                    errors: stats.errors,
+                    exitRate: Number(exitRate.toFixed(1)),
+                    frictionScore: impactScore,
+                    impactScore,
+                    rageTapRatePer100: Number(rageTapRatePer100.toFixed(1)),
+                    errorRatePer100: Number(errorRatePer100.toFixed(1)),
+                    estimatedAffectedSessions,
+                    primarySignal,
+                    recommendedAction,
+                    confidence,
+                    sessionIds: stats.sessionIds.slice(0, 10),
+                };
+            })
+            .sort((a, b) => b.impactScore - a.impactScore)
+            .slice(0, 15);
+
         // Helper to convert bucket data to hotspot array
         const bucketsToHotspots = (
             touchBuckets: Record<string, number>,
@@ -312,7 +358,7 @@ router.get(
         };
 
         // Build final response with frame URLs and touch hotspots
-        const screens = sortedScreens.map((screen, screenIndex) => {
+        const screens = scoredScreens.map((screen) => {
             let screenshotUrl: string | null = null;
 
             // Find a session that has screenshot artifacts for getting screen screenshot
@@ -338,22 +384,20 @@ router.get(
                 }
             }
 
-            // Real Heatmap Heuristic:
-            // Instead of even distribution, we focus friction on specific screens
-            // to avoid every screen looking identical.
-            // A screen only shows "Intense" rage if it's in the top 3 friction-heavy screens
-            // or if it has a high enough raw score.
-            const isTopFriction = screenIndex < 3;
-            const distributedRage = isTopFriction ? screen.rageTaps : Math.floor(screen.rageTaps / 2);
-            const distributedErrors = isTopFriction ? screen.errors : Math.floor(screen.errors / 2);
-
             return {
                 name: screen.name,
                 visits: screen.visits,
-                rageTaps: distributedRage,
-                errors: distributedErrors,
+                rageTaps: screen.rageTaps,
+                errors: screen.errors,
                 exitRate: screen.exitRate,
                 frictionScore: screen.frictionScore,
+                impactScore: screen.impactScore,
+                rageTapRatePer100: screen.rageTapRatePer100,
+                errorRatePer100: screen.errorRatePer100,
+                estimatedAffectedSessions: screen.estimatedAffectedSessions,
+                primarySignal: screen.primarySignal,
+                recommendedAction: screen.recommendedAction,
+                confidence: screen.confidence,
                 sessionIds: screen.sessionIds,
                 screenshotUrl,
                 touchHotspots,

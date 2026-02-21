@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router';
-import { usePathPrefix } from '../hooks/usePathPrefix';
 import { useAuth } from '../context/AuthContext';
 import { useTeam } from '../context/TeamContext';
 import { Button } from '../components/ui/Button';
@@ -9,7 +8,6 @@ import { getInvitationByToken, acceptInvitation, ApiTeamInvitation } from '../se
 export const InviteAccept: React.FC = () => {
     const { token } = useParams<{ token: string }>();
     const navigate = useNavigate();
-    const pathPrefix = usePathPrefix();
     const { user, isLoading: authLoading } = useAuth();
     const { refreshTeams } = useTeam();
 
@@ -18,6 +16,22 @@ export const InviteAccept: React.FC = () => {
     const [isAccepting, setIsAccepting] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [success, setSuccess] = useState(false);
+    const [alreadyAccepted, setAlreadyAccepted] = useState(false);
+
+    const navigateToTeamDashboard = async (teamId?: string, delayMs: number = 0) => {
+        if (typeof window !== 'undefined' && teamId) {
+            localStorage.setItem('selectedTeamId', teamId);
+        }
+
+        await refreshTeams();
+
+        const go = () => navigate('/dashboard/issues');
+        if (delayMs > 0) {
+            window.setTimeout(go, delayMs);
+        } else {
+            go();
+        }
+    };
 
     // Load invitation details
     useEffect(() => {
@@ -54,15 +68,34 @@ export const InviteAccept: React.FC = () => {
 
             if (result.success) {
                 setSuccess(true);
-                // Refresh teams to include the new team
-                await refreshTeams();
-                // Redirect to dashboard after a short delay
-                setTimeout(() => {
-                    navigate(`${pathPrefix}/issues`);
-                }, 1500);
+                await navigateToTeamDashboard(result.team?.id || invitation?.teamId, 1500);
             }
         } catch (err) {
-            setError(err instanceof Error ? err.message : 'Failed to accept invitation');
+            const message = err instanceof Error ? err.message : 'Failed to accept invitation';
+            const isAlreadyAcceptedError = /already accepted|already a member/i.test(message);
+
+            if (isAlreadyAcceptedError && invitation?.teamId) {
+                setAlreadyAccepted(true);
+                setSuccess(true);
+                await navigateToTeamDashboard(invitation.teamId, 1500);
+                return;
+            }
+
+            setError(message);
+        } finally {
+            setIsAccepting(false);
+        }
+    };
+
+    const handleOpenTeam = async () => {
+        if (!invitation?.teamId) return;
+
+        try {
+            setIsAccepting(true);
+            setError(null);
+            await navigateToTeamDashboard(invitation.teamId);
+        } catch (err) {
+            setError(err instanceof Error ? err.message : 'Failed to open team dashboard');
         } finally {
             setIsAccepting(false);
         }
@@ -123,7 +156,9 @@ export const InviteAccept: React.FC = () => {
                         </div>
                         <h1 className="text-xl font-black uppercase mb-2">Welcome to the Team!</h1>
                         <p className="text-sm text-gray-600 mb-4">
-                            You've successfully joined <strong>{invitation?.teamName}</strong>.
+                            {alreadyAccepted || invitation?.accepted
+                                ? <>You're already a member of <strong>{invitation?.teamName}</strong>.</>
+                                : <>You've successfully joined <strong>{invitation?.teamName}</strong>.</>}
                         </p>
                         <p className="text-xs text-gray-400 font-mono">Redirecting to overview...</p>
                     </div>
@@ -216,6 +251,41 @@ export const InviteAccept: React.FC = () => {
                                     </p>
                                     <Button onClick={handleLogin} variant="primary" className="w-full">
                                         Log in to Accept
+                                    </Button>
+                                </>
+                            )}
+                        </div>
+                    )}
+
+                    {invitation?.accepted && (
+                        <div className="space-y-4">
+                            {user ? (
+                                user.email.toLowerCase() === invitation?.email.toLowerCase() ? (
+                                    <Button
+                                        onClick={handleOpenTeam}
+                                        disabled={isAccepting}
+                                        className="w-full"
+                                        variant="primary"
+                                    >
+                                        {isAccepting ? 'Opening...' : 'Open Team Dashboard'}
+                                    </Button>
+                                ) : (
+                                    <div className="space-y-4">
+                                        <div className="p-4 bg-yellow-50 border-2 border-yellow-500 text-yellow-700 text-sm">
+                                            <strong>Email mismatch:</strong> You're logged in as <strong>{user.email}</strong>, but this invitation was sent to <strong>{invitation?.email}</strong>.
+                                        </div>
+                                        <Button onClick={handleLogin} variant="secondary" className="w-full">
+                                            Log in with a different account
+                                        </Button>
+                                    </div>
+                                )
+                            ) : (
+                                <>
+                                    <p className="text-sm text-gray-600 text-center mb-4">
+                                        Please log in to open the invited team dashboard.
+                                    </p>
+                                    <Button onClick={handleLogin} variant="primary" className="w-full">
+                                        Log in
                                     </Button>
                                 </>
                             )}

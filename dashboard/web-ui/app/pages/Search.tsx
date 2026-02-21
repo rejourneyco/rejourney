@@ -48,7 +48,7 @@ export const Search: React.FC = () => {
         { id: 'growth', title: 'Growth', path: '/analytics/growth', icon: LineChart, description: 'Growth metrics, retention cohorts, and user trends', section: 'Analytics', keywords: ['metrics', 'retention', 'dau', 'mau', 'users', 'analytics'] },
         { id: 'journeys', title: 'User Journeys', path: '/analytics/journeys', icon: MapIcon, description: 'User flows and navigation paths', section: 'Analytics', keywords: ['flows', 'navigation', 'screens', 'paths', 'funnels'] },
         { id: 'devices', title: 'Devices', path: '/analytics/devices', icon: Smartphone, description: 'Device models and OS version breakdown', section: 'Analytics', keywords: ['device', 'os', 'model', 'android', 'ios', 'version'] },
-        { id: 'geo', title: 'Geographic', path: '/analytics/geo', icon: Globe, description: 'Geographic distribution of issues', section: 'Analytics', keywords: ['location', 'country', 'region', 'map', 'world'] },
+        { id: 'geo', title: 'Geographic', path: '/analytics/geo', icon: Globe, description: 'Regional value, engagement segments, and issue hotspots', section: 'Analytics', keywords: ['location', 'country', 'region', 'map', 'world'] },
         // Stability
         { id: 'crashes', title: 'Crashes', path: '/stability/crashes', icon: AlertOctagon, description: 'Monitor and debug app crashes', section: 'Stability', keywords: ['crash', 'fatal', 'exception', 'native'] },
         { id: 'anrs', title: 'ANRs', path: '/stability/anrs', icon: Clock, description: 'Application Not Responding issues', section: 'Stability', keywords: ['freeze', 'hang', 'unresponsive', 'blocked'] },

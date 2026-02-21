@@ -27,6 +27,9 @@ import {
   Maximize2,
   RefreshCw,
   GripHorizontal,
+  MapPin,
+  Download,
+  FileText,
 } from 'lucide-react';
 import { useSessionData } from '../../context/SessionContext';
 import { usePathPrefix } from '../../hooks/usePathPrefix';
@@ -35,6 +38,7 @@ import DOMInspector, { HierarchySnapshot } from '../../components/ui/DOMInspecto
 import { TouchOverlay, TouchEvent } from '../../components/ui/TouchOverlay';
 import { MarkerTooltip } from '../../components/ui/MarkerTooltip';
 import { SessionLoadingOverlay } from '../../components/recordings/SessionLoadingOverlay';
+import { formatGeoDisplay } from '../../utils/geoDisplay';
 
 // ============================================================================
 // Types
@@ -50,6 +54,9 @@ interface SessionEvent {
   frustrationKind?: string;
   targetLabel?: string;
   touches?: Array<{ x: number; y: number; force?: number }>;
+  level?: 'log' | 'warn' | 'error' | string;
+  message?: string;
+  rating?: number;
 }
 
 interface NetworkRequest {
@@ -64,6 +71,10 @@ interface NetworkRequest {
   success: boolean;
   requestBodySize?: number;
   responseBodySize?: number;
+  requestSize?: number;
+  responseSize?: number;
+  host?: string;
+  path?: string;
   errorMessage?: string;
 }
 
@@ -85,6 +96,13 @@ interface FullSession {
     city?: string;
     country?: string;
     region?: string;
+  };
+  geoLocation?: {
+    city?: string;
+    country?: string;
+    region?: string;
+    countryCode?: string;
+    timezone?: string;
   };
   startTime: number;
   endTime?: number;
@@ -176,6 +194,7 @@ const EVENT_COLORS = {
   sessionStart: '#06b6d4',
   navigation: '#8b5cf6',
   deviceInfo: '#64748b',
+  log: '#2563eb',
   default: '#6b7280',
 } as const;
 
@@ -192,6 +211,7 @@ const getEventColor = (event: SessionEvent): string => {
     const success = event.properties?.success ?? (event.properties?.statusCode < 400);
     return success ? EVENT_COLORS.apiSuccess : EVENT_COLORS.apiError;
   }
+  if (isLogEvent(event)) return EVENT_COLORS.log;
   if (type === 'app_foreground' || type === 'session_start') return EVENT_COLORS.appForeground;
   if (type === 'app_background') return EVENT_COLORS.appBackground;
   if (type === 'navigation' || type === 'screen_view') return EVENT_COLORS.navigation;
@@ -214,6 +234,7 @@ const getEventIcon = (event: SessionEvent) => {
 
   if (type === 'crash' || type === 'error' || type === 'anr') return AlertCircle;
   if (type === 'network_request') return Globe;
+  if (isLogEvent(event)) return FileText;
   if (type === 'navigation' || type === 'screen_view') return Navigation;
   if (type === 'app_foreground' || type === 'app_background') return Play;
   if (type === 'device_info') return Smartphone;
@@ -246,6 +267,59 @@ const formatBytesToHuman = (bytes: number): string => {
   const kb = bytes / 1024;
   if (kb >= 1024) return `${(kb / 1024).toFixed(1)} MB`;
   return `${kb.toFixed(1)} KB`;
+};
+
+const formatCountCompact = (count: number): string => {
+  if (!Number.isFinite(count)) return '0';
+  if (count >= 1_000_000) return `${(count / 1_000_000).toFixed(1)}M`;
+  if (count >= 1_000) return `${(count / 1_000).toFixed(1)}K`;
+  return String(Math.round(count));
+};
+
+const formatPlaybackClock = (seconds: number): string => {
+  if (!isFinite(seconds) || isNaN(seconds)) return '00:00';
+  const mins = Math.floor(seconds / 60);
+  const secs = Math.floor(seconds % 60);
+  return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+};
+
+const escapeRegExp = (value: string): string =>
+  value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+const getLogLevel = (event: SessionEvent): string => {
+  const level =
+    event.level ||
+    event.properties?.level ||
+    event.properties?.severity ||
+    event.properties?.logLevel ||
+    'log';
+  return String(level).toLowerCase();
+};
+
+const isLogEvent = (event: SessionEvent): boolean => {
+  const type = (event.type || '').toLowerCase();
+  return (
+    type === 'log' ||
+    type === 'console_log' ||
+    type === 'console' ||
+    type === 'console.warn' ||
+    type === 'console.error'
+  );
+};
+
+const isFeedbackType = (type: string): boolean =>
+  type === 'feedback' || type === 'user_feedback';
+
+const getLogBadgeStyles = (level: string): string => {
+  if (level === 'error') return 'bg-red-50 text-red-700 border-red-200';
+  if (level === 'warn' || level === 'warning') return 'bg-amber-50 text-amber-700 border-amber-200';
+  return 'bg-blue-50 text-blue-700 border-blue-200';
+};
+
+const getTerminalLevelClass = (level: string): string => {
+  if (level === 'error') return 'text-red-300';
+  if (level === 'warn' || level === 'warning') return 'text-amber-300';
+  return 'text-emerald-300';
 };
 
 type InsightLevel = 'good' | 'warning' | 'critical' | 'neutral';
@@ -300,6 +374,7 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
   const [isSearching, setIsSearching] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const [hoveredMarker, setHoveredMarker] = useState<any>(null);
+  const [terminalCopied, setTerminalCopied] = useState(false);
 
   // DOM Inspector state
   const [hierarchySnapshots, setHierarchySnapshots] = useState<HierarchySnapshot[]>([]);
@@ -313,6 +388,7 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
   // Refs
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const progressRef = useRef<HTMLDivElement>(null);
+  const terminalViewportRef = useRef<HTMLDivElement>(null);
 
   // Ref-based playback state to avoid stale closures in animation loop
   const currentPlaybackTimeRef = useRef<number>(0);
@@ -335,41 +411,25 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
     if (!id) return;
     try {
       setIsLoading(true);
-      const data = await api.getSession(id);
-      setFullSession(data as any);
+      setHierarchySnapshots([]);
+      const coreData = await api.getSessionCore(id, { frameUrlMode: 'signed' });
+      setFullSession(coreData as any);
+      setIsLoading(false);
 
-
-
-      // Process events for playback
-      const allEvents = (data as any).events || [];
-      const gestureEvents = allEvents.filter((e: any) => e.type === 'touch' || e.type === 'gesture');
-
-
-
-      // Transform hierarchy snapshots for DOM Inspector
-      // Data structure: hierarchySnapshots[].rootElement is an array, rootElement[0] contains { root, screen, screenName }
-      if ((data as any).hierarchySnapshots && (data as any).hierarchySnapshots.length > 0) {
-        const transformed: HierarchySnapshot[] = (data as any).hierarchySnapshots
+      const transformHierarchySnapshots = (rawSnapshots: any[], sessionLike: any): HierarchySnapshot[] => {
+        if (!Array.isArray(rawSnapshots) || rawSnapshots.length === 0) return [];
+        return rawSnapshots
           .map((snap: any) => {
-            // rootElement can be an array (from S3 JSON) or an object
             const rootData = Array.isArray(snap.rootElement)
               ? snap.rootElement[0]
               : snap.rootElement;
-
-            // Android sends the root node directly, while iOS wraps it in a 'root' property
-            // We check for 'root' property first, then 'rootElement' (Android), 
-            // then fallback to treating rootData as the root node if it looks like a valid node
             const rootNode = rootData?.root || rootData?.rootElement || (rootData && (rootData.class || rootData.type || rootData.children) ? rootData : null);
-
-            if (!rootNode) {
-              return null; // Skip invalid snapshots
-            }
-
+            if (!rootNode) return null;
             return {
               timestamp: snap.timestamp || rootData.timestamp || 0,
               screen: rootData.screen || {
-                width: (data as any).deviceInfo?.screenWidth || 375,
-                height: (data as any).deviceInfo?.screenHeight || 812,
+                width: sessionLike?.deviceInfo?.screenWidth || 375,
+                height: sessionLike?.deviceInfo?.screenHeight || 812,
                 scale: 3
               },
               root: rootNode,
@@ -377,9 +437,37 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
           })
           .filter((snap: any): snap is HierarchySnapshot => snap !== null)
           .sort((a: HierarchySnapshot, b: HierarchySnapshot) => a.timestamp - b.timestamp);
+      };
 
-        setHierarchySnapshots(transformed);
-      }
+      // Load heavier replay data after first paint.
+      const [timelineResult, hierarchyResult, statsResult] = await Promise.allSettled([
+        api.getSessionTimeline(id),
+        api.getSessionHierarchy(id),
+        api.getSessionStats(id),
+      ]);
+
+      setFullSession((prev) => {
+        if (!prev || prev.id !== id) return prev;
+        const next: any = { ...prev };
+
+        if (timelineResult.status === 'fulfilled') {
+          next.events = timelineResult.value.events || [];
+          next.networkRequests = timelineResult.value.networkRequests || [];
+          next.crashes = timelineResult.value.crashes || [];
+          next.anrs = timelineResult.value.anrs || [];
+        }
+
+        if (hierarchyResult.status === 'fulfilled') {
+          next.hierarchySnapshots = hierarchyResult.value.hierarchySnapshots || [];
+          setHierarchySnapshots(transformHierarchySnapshots(next.hierarchySnapshots, next));
+        }
+
+        if (statsResult.status === 'fulfilled') {
+          next.stats = statsResult.value.stats || next.stats;
+        }
+
+        return next;
+      });
     } catch (err) {
       console.error('Failed to fetch session:', err);
     } finally {
@@ -456,7 +544,8 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
           statusCode: req.statusCode,
           success: req.success ?? (req.statusCode < 400),
           duration: req.duration || 0,
-          responseBodySize: req.responseBodySize,
+          responseBodySize: req.responseBodySize ?? req.responseSize,
+          requestBodySize: req.requestBodySize ?? req.requestSize,
         },
       }));
   }, [networkRequests]);
@@ -478,6 +567,59 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
     return [...events, ...networkEventsForTimeline, ...detectedRageTaps, ...crashEvents]
       .sort((a, b) => a.timestamp - b.timestamp);
   }, [events, networkEventsForTimeline, detectedRageTaps, crashEvents]);
+
+  const replayBaseTime = fullSession?.startTime || (session?.startedAt ? new Date(session.startedAt).getTime() : Date.now());
+  const startTime = replayBaseTime;
+
+  const logEvents = useMemo(() => allTimelineEvents.filter((event) => isLogEvent(event)), [allTimelineEvents]);
+
+  const terminalLogRows = useMemo(() => {
+    return logEvents
+      .map((event, index) => {
+        const relativeSeconds = Math.max(0, (event.timestamp - replayBaseTime) / 1000);
+        const level = getLogLevel(event);
+        const rawMessage = event.message || event.properties?.message || event.name;
+        const message = rawMessage
+          ? String(rawMessage)
+          : JSON.stringify(event.properties || {});
+        return {
+          id: `${event.timestamp}-${index}`,
+          timestamp: event.timestamp,
+          relativeSeconds,
+          level,
+          message,
+          line: `[${formatPlaybackClock(relativeSeconds)}] [${level.toUpperCase()}] ${message}`,
+        };
+      })
+      .sort((a, b) => a.timestamp - b.timestamp);
+  }, [logEvents, replayBaseTime]);
+
+  const visibleTerminalLogRows = useMemo(
+    () => terminalLogRows.filter((entry) => entry.relativeSeconds <= currentPlaybackTime + 0.05),
+    [terminalLogRows, currentPlaybackTime]
+  );
+
+  const terminalVisibleRows = useMemo(
+    () => visibleTerminalLogRows.slice(-250),
+    [visibleTerminalLogRows]
+  );
+
+  const visibleTerminalLogText = useMemo(
+    () => visibleTerminalLogRows.map((entry) => entry.line).join('\n'),
+    [visibleTerminalLogRows]
+  );
+
+  useEffect(() => {
+    const viewport = terminalViewportRef.current;
+    if (!viewport) return;
+    viewport.scrollTop = viewport.scrollHeight;
+  }, [terminalVisibleRows.length]);
+
+  useEffect(() => {
+    if (!terminalCopied) return;
+    const timer = window.setTimeout(() => setTerminalCopied(false), 1500);
+    return () => window.clearTimeout(timer);
+  }, [terminalCopied]);
 
   // Session metadata
   // Calculate duration for the timeline:
@@ -539,9 +681,6 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
     // Use the maximum so all events fit on the timeline
     return Math.max(...candidates);
   }, [fullSession, session, allTimelineEvents]);
-
-  const startTime = fullSession?.startTime || (session?.startedAt ? new Date(session.startedAt).getTime() : Date.now());
-  const replayBaseTime = startTime;
 
   // Density chart data - MUST be before early returns
   const densityData = useMemo(() => {
@@ -804,8 +943,8 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
 
     const cache = screenshotFrameCacheRef.current;
 
-    // Preload first 20 frames immediately
-    const preloadCount = Math.min(20, screenshotFrames.length);
+    // Preload only a small startup window to reduce open latency.
+    const preloadCount = Math.min(8, screenshotFrames.length);
 
     for (let i = 0; i < preloadCount; i++) {
       const frame = screenshotFrames[i];
@@ -817,9 +956,10 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
       }
     }
 
-    // Preload rest in background
+    // Preload a bounded background window for smoother scrubbing without flooding the network.
     const preloadRest = () => {
-      for (let i = preloadCount; i < screenshotFrames.length; i++) {
+      const maxBackgroundPreload = Math.min(screenshotFrames.length, 120);
+      for (let i = preloadCount; i < maxBackgroundPreload; i++) {
         const frame = screenshotFrames[i];
         if (!cache.has(frame.url)) {
           const img = new Image();
@@ -1032,13 +1172,7 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
     seekToScreenshotFrame(time);
   }, [seekToScreenshotFrame]);
 
-  // Format time as MM:SS
-  const formatPlaybackTime = (seconds: number): string => {
-    if (!isFinite(seconds) || isNaN(seconds)) return '00:00';
-    const mins = Math.floor(seconds / 60);
-    const secs = Math.floor(seconds % 60);
-    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
-  };
+  const formatPlaybackTime = formatPlaybackClock;
 
   // Progress percentage
   const effectiveDuration = durationSeconds;
@@ -1074,6 +1208,9 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
   const deviceModel = fullSession?.deviceInfo?.model || session?.deviceModel || 'Unknown';
   const platform = fullSession?.deviceInfo?.systemName?.toLowerCase() || session?.platform || 'ios';
   const appVersion = fullSession?.deviceInfo?.appVersion || session?.appVersion || '';
+  const geoLocation = fullSession?.geoLocation || fullSession?.geoInfo || session?.geoLocation || null;
+  const geoDisplay = formatGeoDisplay(geoLocation);
+  const sessionLocationWithFlag = `${geoDisplay.flagEmoji} ${geoDisplay.fullLabel}`;
 
   // Calculate metrics
   const metrics = fullSession?.metrics || {};
@@ -1134,8 +1271,6 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
     );
   }).length;
   const interactionCount = metricsDerivedInteractionCount > 0 ? metricsDerivedInteractionCount : inferredInteractionCount;
-  const interactionsPerMinute = durationSeconds > 0 ? interactionCount / Math.max(1, durationSeconds / 60) : 0;
-  const screensPerMinute = durationSeconds > 0 ? screensVisited.length / Math.max(1, durationSeconds / 60) : 0;
 
   const failedRequestCount = networkRequests.filter((request) => {
     const success = request.success ?? request.statusCode < 400;
@@ -1151,23 +1286,6 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
 
   const issueSignals = crashCount + anrCount + explicitErrorCount + rageTapCount + failedRequestCount;
   const issueSignalsPerMinute = durationSeconds > 0 ? issueSignals / Math.max(1, durationSeconds / 60) : 0;
-
-  const issueEventTimestamps = allTimelineEvents
-    .filter((event) => {
-      const type = (event.type || '').toLowerCase();
-      const gestureType = (event.gestureType || event.properties?.gestureType || '').toLowerCase();
-      if (type === 'crash' || type === 'anr' || type === 'error' || type === 'rage_tap' || type === 'dead_tap') return true;
-      if (gestureType === 'rage_tap' || gestureType === 'dead_tap') return true;
-      if (type === 'network_request') {
-        return !(event.properties?.success ?? (event.properties?.statusCode < 400));
-      }
-      return false;
-    })
-    .map((event) => event.timestamp)
-    .filter((timestamp) => Number.isFinite(timestamp) && timestamp >= replayBaseTime);
-
-  const firstIssueTimestamp = issueEventTimestamps.length > 0 ? Math.min(...issueEventTimestamps) : null;
-  const timeToFirstIssueMs = firstIssueTimestamp !== null ? Math.max(0, firstIssueTimestamp - replayBaseTime) : null;
 
   const firstInteractionTimestamp = allTimelineEvents
     .filter((event) => {
@@ -1195,48 +1313,60 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
     (firstInteractionTimestamp ? Math.max(0, firstInteractionTimestamp - replayBaseTime) : null);
 
   const totalPayloadBytes = networkRequests.reduce((sum, request) => {
-    return sum + (request.requestBodySize || 0) + (request.responseBodySize || 0);
+    const requestBytes = request.requestBodySize ?? request.requestSize ?? 0;
+    const responseBytes = request.responseBodySize ?? request.responseSize ?? 0;
+    return sum + requestBytes + responseBytes;
   }, 0);
+  const apiVolumePerMinute = durationSeconds > 0 ? networkRequests.length / Math.max(1, durationSeconds / 60) : 0;
 
-  const stabilityScore = Math.max(
-    0,
-    Math.min(
-      100,
-      100 - (
-        issueSignalsPerMinute * 20 +
-        apiErrorRate * 1.1 +
-        Math.max(0, (apiP95LatencyMs - 400) / 35)
-      )
-    )
-  );
+  const endpointPerfRows = networkRequests
+    .map((request) => {
+      const endpointPath =
+        request.urlPath ||
+        request.path ||
+        (() => {
+          try {
+            return new URL(request.url).pathname || request.url;
+          } catch {
+            return request.url || 'unknown';
+          }
+        })();
+      return {
+        key: `${(request.method || 'GET').toUpperCase()} ${endpointPath}`,
+        duration: request.duration || 0,
+        isError: !(request.success ?? request.statusCode < 400),
+      };
+    })
+    .filter((row) => row.duration > 0);
 
-  const stabilityLevel: InsightLevel = stabilityScore < 60 ? 'critical' : stabilityScore < 80 ? 'warning' : 'good';
+  const endpointSummary = Array.from(
+    endpointPerfRows.reduce((map, row) => {
+      const existing = map.get(row.key) || { key: row.key, count: 0, errors: 0, durations: [] as number[] };
+      existing.count += 1;
+      if (row.isError) existing.errors += 1;
+      existing.durations.push(row.duration);
+      map.set(row.key, existing);
+      return map;
+    }, new Map<string, { key: string; count: number; errors: number; durations: number[] }>())
+      .values()
+  )
+    .map((row) => ({
+      key: row.key,
+      count: row.count,
+      errors: row.errors,
+      p95: percentile(row.durations, 95),
+      avg: row.durations.reduce((sum, duration) => sum + duration, 0) / row.durations.length,
+    }))
+    .sort((a, b) => b.p95 - a.p95);
+  const topSlowEndpoints = endpointSummary.slice(0, 3);
   const apiErrorLevel: InsightLevel = apiErrorRate > 8 ? 'critical' : apiErrorRate > 3 ? 'warning' : 'good';
   const apiLatencyLevel: InsightLevel = apiP95LatencyMs <= 0 ? 'neutral' : apiP95LatencyMs > 1000 ? 'critical' : apiP95LatencyMs > 500 ? 'warning' : 'good';
-  const firstIssueLevel: InsightLevel = timeToFirstIssueMs === null
-    ? 'good'
-    : timeToFirstIssueMs < 10000
-      ? 'critical'
-      : timeToFirstIssueMs < 30000
-        ? 'warning'
-        : 'good';
-
-  const stabilityGauge = Math.max(6, Math.min(100, stabilityScore));
   const apiErrorGauge = Math.max(6, Math.min(100, apiErrorRate * 12));
   const apiLatencyGauge = apiP95LatencyMs > 0 ? Math.max(6, Math.min(100, apiP95LatencyMs / 12)) : 0;
-  const issueTimingGauge = timeToFirstIssueMs === null || durationSeconds <= 0
-    ? 100
-    : Math.max(6, Math.min(100, (timeToFirstIssueMs / (durationSeconds * 1000)) * 100));
-
-  const stabilityInsightStyle = INSIGHT_LEVEL_STYLES[stabilityLevel];
   const apiErrorInsightStyle = INSIGHT_LEVEL_STYLES[apiErrorLevel];
   const apiLatencyInsightStyle = INSIGHT_LEVEL_STYLES[apiLatencyLevel];
-  const firstIssueInsightStyle = INSIGHT_LEVEL_STYLES[firstIssueLevel];
-
-  const stabilityStatusLabel = stabilityLevel === 'critical' ? 'High Risk' : stabilityLevel === 'warning' ? 'Watch' : 'Healthy';
   const apiErrorStatusLabel = apiErrorLevel === 'critical' ? 'High' : apiErrorLevel === 'warning' ? 'Moderate' : 'Low';
   const apiLatencyStatusLabel = apiLatencyLevel === 'critical' ? 'Slow' : apiLatencyLevel === 'warning' ? 'Variable' : apiLatencyLevel === 'neutral' ? 'N/A' : 'Fast';
-  const firstIssueStatusLabel = timeToFirstIssueMs === null ? 'Clean' : firstIssueLevel === 'critical' ? 'Early' : firstIssueLevel === 'warning' ? 'Mid' : 'Late';
 
   // User visit count
   const userIdentifier = session?.deviceId || session?.userId || session?.anonymousId || fullSession?.userId;
@@ -1263,9 +1393,55 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
       !replayPromoted ? 'not_promoted' :
         null;
 
+  const activityTabs = [
+    {
+      id: 'all',
+      label: 'All',
+      count: allTimelineEvents.filter((event) => !isFeedbackType((event.type || '').toLowerCase())).length,
+    },
+    {
+      id: 'navigation',
+      label: 'Navigation',
+      count: allTimelineEvents.filter((event) => {
+        const type = (event.type || '').toLowerCase();
+        return type === 'navigation' || type === 'screen_view' || type === 'app_foreground' || type === 'app_background';
+      }).length,
+    },
+    {
+      id: 'touches',
+      label: 'Touches',
+      count: allTimelineEvents.filter((event) => {
+        const type = (event.type || '').toLowerCase();
+        const gestureType = (event.gestureType || event.properties?.gestureType || '').toLowerCase();
+        return type === 'tap' || type === 'touch' || type === 'gesture' || gestureType.includes('tap');
+      }).length,
+    },
+    { id: 'network', label: 'Network', count: allTimelineEvents.filter((event) => (event.type || '').toLowerCase() === 'network_request').length },
+    { id: 'logs', label: 'Logs', count: logEvents.length },
+    {
+      id: 'issues',
+      label: 'Issues',
+      count: allTimelineEvents.filter((event) => {
+        const type = (event.type || '').toLowerCase();
+        const gestureType = (event.gestureType || event.properties?.gestureType || '').toLowerCase();
+        return (
+          type === 'crash' ||
+          type === 'error' ||
+          type === 'anr' ||
+          type === 'rage_tap' ||
+          type === 'dead_tap' ||
+          gestureType === 'rage_tap' ||
+          gestureType === 'dead_tap'
+        );
+      }).length,
+    },
+  ];
+
   // Filter activity feed - also filter out empty/invalid events and apply search
   const filteredActivity = allTimelineEvents.filter((e) => {
     const type = e.type?.toLowerCase() || '';
+
+    if (isFeedbackType(type)) return false;
 
     // Filter out empty error events that have no useful information
     if (type === 'error') {
@@ -1289,10 +1465,10 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
       matchesFilter = type === 'tap' || type === 'touch' || type === 'gesture' || gestureType.includes('tap');
     } else if (activityFilter === 'network') {
       matchesFilter = type === 'network_request';
+    } else if (activityFilter === 'logs') {
+      matchesFilter = isLogEvent(e);
     } else if (activityFilter === 'issues') {
       matchesFilter = type === 'crash' || type === 'error' || type === 'anr' || type === 'rage_tap' || type === 'dead_tap' || gestureType === 'rage_tap' || gestureType === 'dead_tap';
-    } else if (activityFilter === 'dead_taps') {
-      matchesFilter = type === 'dead_tap' || gestureType === 'dead_tap' || e.frustrationKind === 'dead_tap';
     }
 
     if (!matchesFilter) return false;
@@ -1305,6 +1481,7 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
       const url = (e.properties?.url || e.properties?.urlPath || '').toLowerCase();
       const props = JSON.stringify(e.properties || {}).toLowerCase();
       const gesture = gestureType.toLowerCase();
+      const message = (e.message || e.properties?.message || '').toLowerCase();
 
       return (
         type.includes(search) ||
@@ -1312,7 +1489,8 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
         target.includes(search) ||
         url.includes(search) ||
         props.includes(search) ||
-        gesture.includes(search)
+        gesture.includes(search) ||
+        message.includes(search)
       );
     }
 
@@ -1321,11 +1499,13 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
 
   const HighlightedText: React.FC<{ text: string; search: string }> = ({ text, search }) => {
     if (!search.trim() || !text) return <>{text}</>;
-    const parts = text.split(new RegExp(`(${search})`, 'gi'));
+    const normalizedSearch = search.trim().toLowerCase();
+    const escaped = escapeRegExp(search.trim());
+    const parts = text.split(new RegExp(`(${escaped})`, 'gi'));
     return (
       <>
         {parts.map((part, i) =>
-          part.toLowerCase() === search.toLowerCase() ? (
+          part.toLowerCase() === normalizedSearch ? (
             <mark key={i} className="bg-yellow-200 text-black px-0.5 rounded-sm">{part}</mark>
           ) : (
             part
@@ -1333,6 +1513,41 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
         )}
       </>
     );
+  };
+
+  const downloadSessionLogs = () => {
+    if (logEvents.length === 0) return;
+
+    const lines = logEvents.map((event) => {
+      const isoTime = new Date(event.timestamp).toISOString();
+      const level = getLogLevel(event).toUpperCase();
+      const message =
+        event.message ||
+        event.properties?.message ||
+        event.name ||
+        JSON.stringify(event.properties || {});
+      return `[${isoTime}] [${level}] ${message}`;
+    });
+
+    const file = new Blob([lines.join('\n')], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(file);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = `session-${(id || 'unknown').slice(0, 16)}-logs.txt`;
+    document.body.appendChild(anchor);
+    anchor.click();
+    document.body.removeChild(anchor);
+    URL.revokeObjectURL(url);
+  };
+
+  const copyVisibleTerminalLogs = async () => {
+    if (!visibleTerminalLogText.trim()) return;
+    try {
+      await navigator.clipboard.writeText(visibleTerminalLogText);
+      setTerminalCopied(true);
+    } catch {
+      setTerminalCopied(false);
+    }
   };
 
   return (
@@ -1362,13 +1577,18 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
                     <span className="text-sm font-medium text-slate-600">v{appVersion}</span>
                   )}
                 </div>
-                <div className="flex items-center gap-3 mt-1 text-xs text-slate-500">
+                <div className="mt-1 flex flex-wrap items-center gap-3 text-xs text-slate-500">
                   <div className="flex items-center gap-1.5">
                     <Clock className="w-3.5 h-3.5" />
                     <span>{new Date(startTime).toLocaleString()}</span>
                   </div>
                   <span className="text-slate-300">•</span>
                   <span>{durationMinutes}m {durationSecs}s</span>
+                  <span className="text-slate-300">•</span>
+                  <div className="flex items-center gap-1">
+                    <MapPin className="h-3.5 w-3.5" />
+                    <span>{sessionLocationWithFlag}</span>
+                  </div>
                   <span className="text-slate-300">•</span>
                   <span>{deviceModel}</span>
                 </div>
@@ -1416,17 +1636,27 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
                   <h3 className="font-semibold text-sm text-slate-900">
                     Session Activity
                   </h3>
-                  <button
-                    onClick={() => {
-                      setIsSearching(!isSearching);
-                      if (isSearching) setActivitySearch('');
-                    }}
-                    className={`p-1 rounded transition-colors ${isSearching ? 'bg-slate-900 text-white' : 'hover:bg-slate-200 text-slate-500'}`}
-                  >
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                    </svg>
-                  </button>
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      onClick={downloadSessionLogs}
+                      disabled={logEvents.length === 0}
+                      className={`p-1 rounded transition-colors ${logEvents.length === 0 ? 'text-slate-300 cursor-not-allowed' : 'hover:bg-slate-200 text-slate-500'}`}
+                      title={logEvents.length > 0 ? 'Download session logs (.txt)' : 'No logs available'}
+                    >
+                      <Download className="h-4 w-4" />
+                    </button>
+                    <button
+                      onClick={() => {
+                        setIsSearching(!isSearching);
+                        if (isSearching) setActivitySearch('');
+                      }}
+                      className={`p-1 rounded transition-colors ${isSearching ? 'bg-slate-900 text-white' : 'hover:bg-slate-200 text-slate-500'}`}
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                      </svg>
+                    </button>
+                  </div>
                 </div>
 
                 {isSearching && (
@@ -1434,7 +1664,7 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
                     <input
                       type="text"
                       autoFocus
-                      placeholder="Search events, labels, values..."
+                      placeholder="Search events, logs, endpoints..."
                       className="w-full px-3 py-1.5 text-xs border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500 placeholder:text-slate-400"
                       value={activitySearch}
                       onChange={(e) => setActivitySearch(e.target.value)}
@@ -1454,14 +1684,7 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
 
                 {/* Filter Tabs */}
                 <div className="flex flex-wrap gap-1.5">
-                  {[
-                    { id: 'all', label: 'All' },
-                    { id: 'navigation', label: 'Nav' },
-                    { id: 'touches', label: 'Taps' },
-                    { id: 'network', label: 'API' },
-                    { id: 'dead_taps', label: 'Dead' },
-                    { id: 'issues', label: 'Issues' },
-                  ].map((filter) => (
+                  {activityTabs.map((filter) => (
                     <button
                       key={filter.id}
                       onClick={() => setActivityFilter(filter.id)}
@@ -1473,7 +1696,10 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
                         }
                       `}
                     >
-                      {filter.label}
+                      <span>{filter.label}</span>
+                      <span className="ml-1.5 rounded bg-black/10 px-1 py-0.5 text-[10px] font-bold tabular-nums">
+                        {formatCountCompact(filter.count)}
+                      </span>
                     </button>
                   ))}
                 </div>
@@ -1490,10 +1716,22 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
                   <div>
                     {filteredActivity.map((event, i) => {
                       const isNetwork = event.type === 'network_request';
+                      const isLog = isLogEvent(event);
+                      const logLevel = getLogLevel(event);
                       const color = getEventColor(event);
                       const Icon = getEventIcon(event);
                       const timeStr = formatEventTime(event.timestamp);
                       const isHighlighted = Math.abs((event.timestamp - replayBaseTime) / 1000 - currentPlaybackTime) < 1;
+                      const activityTitle = isNetwork
+                        ? `${event.name || event.properties?.method || 'API'}`
+                        : isLog
+                          ? `Console ${logLevel}`
+                          : (event.type === 'gesture' || event.type === 'touch')
+                              ? (event.gestureType || event.properties?.gestureType || event.type).replace(/_/g, ' ')
+                              : event.type.replace(/_/g, ' ');
+                      const activityDetail = isLog
+                        ? (event.message || event.properties?.message || event.name || 'Log event')
+                        : (event.targetLabel || event.properties?.targetLabel || event.name || (event as any).screen || (event.gestureType && event.type === 'gesture' ? event.gestureType.replace(/_/g, ' ') : event.type));
 
                       return (
                         <div
@@ -1516,6 +1754,10 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
                                 >
                                   {event.properties?.statusCode || 'ERR'}
                                 </div>
+                              ) : isLog ? (
+                                <div className={`rounded border px-1 py-0.5 text-[8px] font-bold uppercase ${getLogBadgeStyles(logLevel)}`}>
+                                  {logLevel}
+                                </div>
                               ) : (
                                 <div
                                   className="w-4 h-4 rounded flex items-center justify-center border border-slate-200"
@@ -1530,11 +1772,7 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
                             <div className="flex-1 min-w-0">
                               <div className="flex items-center justify-between mb-0.5">
                                 <span className="text-[10px] font-semibold text-slate-700">
-                                  {isNetwork
-                                    ? event.name
-                                    : (event.type === 'gesture' || event.type === 'touch')
-                                      ? (event.gestureType || event.properties?.gestureType || event.type).replace(/_/g, ' ')
-                                      : event.type.replace(/_/g, ' ')}
+                                  {activityTitle}
                                 </span>
                                 {(event.frustrationKind === 'dead_tap' || event.gestureType === 'dead_tap') && (
                                   <span className="text-[9px] font-medium px-1 py-0.5 bg-stone-100 text-stone-700 border border-stone-300 rounded">Dead Tap</span>
@@ -1547,7 +1785,7 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
                               <div className="mt-1 flex flex-col gap-0.5">
                                 <div className="text-xs font-medium text-slate-800 break-words leading-tight">
                                   <HighlightedText
-                                    text={event.targetLabel || event.properties?.targetLabel || event.name || (event as any).screen || (event.gestureType && event.type === 'gesture' ? event.gestureType.replace(/_/g, ' ') : event.type)}
+                                    text={activityDetail}
                                     search={activitySearch}
                                   />
                                 </div>
@@ -1583,68 +1821,43 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
 
             {/* Left Insights */}
             <div className="mt-4 grid grid-cols-1 gap-3">
-              {/* Stability & Interactions */}
               <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
                 <div className="flex items-start justify-between mb-3">
-                  <div className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Stability & Usage</div>
-                  <Zap className="h-3.5 w-3.5 text-slate-400" />
+                  <div className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Session Snapshot</div>
+                  <AlertCircle className="h-3.5 w-3.5 text-slate-400" />
                 </div>
-
-                <div className="space-y-4">
-                  {/* Stability Score */}
+                <div className="grid grid-cols-2 gap-3">
                   <div className="rounded-lg border border-slate-100 bg-slate-50/50 p-3">
-                    <div className="flex items-center justify-between">
-                      <div className="text-[10px] font-semibold uppercase text-slate-500">Stability Score</div>
-                      <span className={`rounded-full border px-1.5 py-0.5 text-[9px] font-bold ${stabilityInsightStyle.badge}`}>
-                        {stabilityStatusLabel}
-                      </span>
-                    </div>
-                    <div className={`mt-1 text-xl font-bold tabular-nums ${stabilityInsightStyle.value}`}>
-                      {stabilityScore.toFixed(0)}
-                    </div>
-                    <div className="mt-2 h-1 overflow-hidden rounded-full bg-slate-200">
-                      <div className={`h-full rounded-full ${stabilityInsightStyle.bar}`} style={{ width: `${stabilityGauge}%` }} />
+                    <div className="text-[10px] font-semibold uppercase text-slate-500">Startup Latency</div>
+                    <div className="mt-1 text-base font-bold text-slate-900">
+                      {inferredStartupMs !== null ? `${Math.round(inferredStartupMs)} ms` : 'N/A'}
                     </div>
                   </div>
 
-                  {/* Interaction Rate */}
-                  <div className="flex items-center gap-3">
-                    <div className="w-8 h-8 rounded-lg bg-blue-50 flex items-center justify-center border border-blue-100">
-                      <MousePointer2 className="h-4 w-4 text-blue-600" />
+                  <div className="rounded-lg border border-slate-100 bg-slate-50/50 p-3">
+                    <div className="text-[10px] font-semibold uppercase text-slate-500">Issue Signals</div>
+                    <div className="mt-1 text-base font-bold text-slate-900">
+                      {issueSignals.toLocaleString()}
                     </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-[10px] font-semibold uppercase text-slate-500">Interaction Rate</p>
-                      <p className="text-sm font-bold text-slate-900 truncate">
-                        {interactionsPerMinute.toFixed(1)}/min <span className="text-[10px] font-medium text-slate-400">({interactionCount})</span>
-                      </p>
+                    <div className="text-[10px] text-slate-500">{issueSignalsPerMinute.toFixed(1)} / min</div>
+                  </div>
+
+                  <div className="rounded-lg border border-slate-100 bg-slate-50/50 p-3">
+                    <div className="text-[10px] font-semibold uppercase text-slate-500">Interactions Captured</div>
+                    <div className="mt-1 text-base font-bold text-slate-900">
+                      {formatCountCompact(interactionCount)}
                     </div>
                   </div>
 
-                  {/* Startup Latency */}
-                  <div className="flex items-center gap-3">
-                    <div className="w-8 h-8 rounded-lg bg-cyan-50 flex items-center justify-center border border-cyan-100">
-                      <Smartphone className="h-4 w-4 text-cyan-700" />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-[10px] font-semibold uppercase text-slate-500">Startup Latency</p>
-                      <p className="text-sm font-bold text-slate-900 truncate">
-                        {inferredStartupMs !== null ? `${Math.round(inferredStartupMs)} ms` : 'N/A'}
-                      </p>
-                    </div>
-                  </div>
-
-                  {/* Network Payload */}
-                  <div className="flex items-center gap-3">
-                    <div className="w-8 h-8 rounded-lg bg-indigo-50 flex items-center justify-center border border-indigo-100">
-                      <Layers className="h-4 w-4 text-indigo-700" />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-[10px] font-semibold uppercase text-slate-500">Network Payload</p>
-                      <p className="text-sm font-bold text-slate-900 truncate">{formatBytesToHuman(totalPayloadBytes)}</p>
+                  <div className="rounded-lg border border-slate-100 bg-slate-50/50 p-3">
+                    <div className="text-[10px] font-semibold uppercase text-slate-500">Screens Seen</div>
+                    <div className="mt-1 text-base font-bold text-slate-900">
+                      {formatCountCompact(screensVisited.length)}
                     </div>
                   </div>
                 </div>
               </div>
+
             </div>
           </div>
 
@@ -2063,6 +2276,81 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
                   </div>
                 </div>
               </div>
+
+              {/* Synced Console Terminal */}
+              <div className="border-t border-slate-200 bg-slate-950">
+                <div className="flex items-center justify-between border-b border-slate-800 px-4 py-2">
+                  <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-300">
+                    Console Logs (Synced to Replay)
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] font-mono text-slate-400">
+                      {terminalVisibleRows.length}/{terminalLogRows.length}
+                    </span>
+                    <button
+                      onClick={copyVisibleTerminalLogs}
+                      disabled={!visibleTerminalLogText.trim()}
+                      className={`rounded border px-2 py-1 text-[10px] font-semibold transition-colors ${
+                        visibleTerminalLogText.trim()
+                          ? terminalCopied
+                            ? 'border-emerald-600 bg-emerald-600 text-white'
+                            : 'border-slate-600 bg-slate-900 text-slate-200 hover:bg-slate-800'
+                          : 'cursor-not-allowed border-slate-700 bg-slate-900 text-slate-500'
+                      }`}
+                    >
+                      {terminalCopied ? 'Copied' : 'Copy visible'}
+                    </button>
+                  </div>
+                </div>
+                <div
+                  ref={terminalViewportRef}
+                  className="max-h-56 overflow-y-auto px-4 py-3 font-mono text-[11px] leading-5 select-text"
+                >
+                  {terminalVisibleRows.length === 0 ? (
+                    <div className="text-slate-500">No console logs at this playback timestamp.</div>
+                  ) : (
+                    <div className="space-y-0.5">
+                      {terminalVisibleRows.map((row) => (
+                        <div key={row.id} className="whitespace-pre-wrap break-words">
+                          <span className="text-slate-500">[{formatPlaybackTime(row.relativeSeconds)}]</span>{' '}
+                          <span className={`font-semibold ${getTerminalLevelClass(row.level)}`}>[{row.level.toUpperCase()}]</span>{' '}
+                          <span className="text-slate-100">{row.message}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Replay Context Footer */}
+              <div className="border-t border-slate-200 bg-white px-4 py-3">
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                  <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+                    <div className="text-[10px] font-semibold uppercase text-slate-500">Replay Location</div>
+                    <div className="mt-1 flex items-center gap-1.5 text-xs font-semibold text-slate-800">
+                      <MapPin className="h-3.5 w-3.5 text-slate-500" />
+                      <span className="truncate">{sessionLocationWithFlag}</span>
+                    </div>
+                  </div>
+
+                  <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+                    <div className="text-[10px] font-semibold uppercase text-slate-500">Startup</div>
+                    <div className="mt-1 text-xs font-semibold text-slate-800">
+                      {inferredStartupMs !== null ? `${Math.round(inferredStartupMs)} ms` : 'N/A'}
+                    </div>
+                  </div>
+
+                  <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+                    <div className="text-[10px] font-semibold uppercase text-slate-500">API Snapshot</div>
+                    <div className="mt-1 text-xs font-semibold text-slate-800">
+                      {failedRequestCount}/{networkRequests.length} failed
+                    </div>
+                    <div className="text-[10px] text-slate-500">
+                      p95 {apiP95LatencyMs > 0 ? `${Math.round(apiP95LatencyMs)} ms` : 'N/A'}
+                    </div>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
 
@@ -2095,11 +2383,32 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
             <div className="mt-4 grid grid-cols-1 gap-3">
               <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
                 <div className="flex items-start justify-between mb-3">
-                  <div className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Network & Quality</div>
+                  <div className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Network & API</div>
                   <Globe className="h-3.5 w-3.5 text-slate-400" />
                 </div>
 
-                <div className="space-y-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="rounded-lg border border-slate-100 bg-slate-50/50 p-3">
+                    <div className="text-[10px] font-semibold uppercase text-slate-500">API Volume</div>
+                    <div className="mt-1 text-xl font-bold tabular-nums text-slate-900">
+                      {formatCountCompact(networkRequests.length)}
+                    </div>
+                    <div className="text-[10px] font-medium text-slate-500">
+                      {apiVolumePerMinute.toFixed(1)} req/min
+                    </div>
+                  </div>
+                  <div className="rounded-lg border border-slate-100 bg-slate-50/50 p-3">
+                    <div className="text-[10px] font-semibold uppercase text-slate-500">Network Payload</div>
+                    <div className="mt-1 text-xl font-bold tabular-nums text-slate-900">
+                      {formatBytesToHuman(totalPayloadBytes)}
+                    </div>
+                    <div className="text-[10px] font-medium text-slate-500">
+                      Combined request + response bytes
+                    </div>
+                  </div>
+                </div>
+
+                <div className="mt-4 space-y-4">
                   {/* API Error Rate */}
                   <div className="rounded-lg border border-slate-100 bg-slate-50/50 p-3">
                     <div className="flex items-center justify-between">
@@ -2132,29 +2441,77 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
                     </div>
                   </div>
 
-                  {/* First Issue Timing */}
+                  {/* Slow Endpoints */}
+                  <div className="rounded-lg border border-slate-100 bg-slate-50/50 p-3">
+                    <div className="mb-2 text-[10px] font-semibold uppercase text-slate-500">Slowest Endpoints (p95)</div>
+                    {topSlowEndpoints.length > 0 ? (
+                      <div className="space-y-1.5">
+                        {topSlowEndpoints.map((endpoint) => (
+                          <div key={endpoint.key} className="rounded border border-slate-200 bg-white px-2 py-1.5 text-[11px]">
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="truncate font-mono text-slate-700">{endpoint.key}</span>
+                              <span className={`shrink-0 rounded px-1.5 py-0.5 font-bold ${endpoint.p95 > 1000 ? 'bg-amber-100 text-amber-700' : endpoint.p95 > 500 ? 'bg-yellow-100 text-yellow-700' : 'bg-emerald-100 text-emerald-700'}`}>
+                                {Math.round(endpoint.p95)} ms
+                              </span>
+                            </div>
+                            <div className="mt-1 text-[10px] text-slate-500">
+                              {endpoint.count} calls • {endpoint.errors} errors
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="rounded border border-slate-200 bg-white px-2 py-1.5 text-[11px] text-slate-500">
+                        No network timing data available.
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+                <div className="mb-3 flex items-start justify-between">
+                  <div className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Session Coverage</div>
+                  <FileText className="h-3.5 w-3.5 text-slate-400" />
+                </div>
+                <div className="space-y-3">
                   <div className="flex items-center gap-3">
-                    <div className="w-8 h-8 rounded-lg bg-red-50 flex items-center justify-center border border-red-100">
-                      <AlertTriangle className="h-4 w-4 text-red-600" />
+                    <div className="w-8 h-8 rounded-lg bg-blue-50 flex items-center justify-center border border-blue-100">
+                      <FileText className="h-4 w-4 text-blue-600" />
                     </div>
                     <div className="flex-1 min-w-0">
-                      <p className="text-[10px] font-semibold uppercase text-slate-500">Time To First Issue</p>
-                      <p className="text-sm font-bold text-slate-900 truncate">
-                        {timeToFirstIssueMs === null ? 'No issue' : formatPlaybackTime(timeToFirstIssueMs / 1000)}
-                      </p>
+                      <p className="text-[10px] font-semibold uppercase text-slate-500">Log Events</p>
+                      <p className="text-sm font-bold text-slate-900 truncate">{formatCountCompact(logEvents.length)}</p>
                     </div>
                   </div>
 
-                  {/* Screen Pace */}
+                  <div className="flex items-center gap-3">
+                    <div className="w-8 h-8 rounded-lg bg-cyan-50 flex items-center justify-center border border-cyan-100">
+                      <Layers className="h-4 w-4 text-cyan-700" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-[10px] font-semibold uppercase text-slate-500">Hierarchy Snapshots</p>
+                      <p className="text-sm font-bold text-slate-900 truncate">{formatCountCompact(hierarchySnapshots.length)}</p>
+                    </div>
+                  </div>
+
                   <div className="flex items-center gap-3">
                     <div className="w-8 h-8 rounded-lg bg-violet-50 flex items-center justify-center border border-violet-100">
                       <Monitor className="h-4 w-4 text-violet-600" />
                     </div>
                     <div className="flex-1 min-w-0">
-                      <p className="text-[10px] font-semibold uppercase text-slate-500">Screen Pace</p>
-                      <p className="text-sm font-bold text-slate-900 truncate">
-                        {screensPerMinute.toFixed(2)}/min <span className="text-[10px] font-medium text-slate-400">({screensVisited.length} screens)</span>
-                      </p>
+                      <p className="text-[10px] font-semibold uppercase text-slate-500">Screens Seen</p>
+                      <p className="text-sm font-bold text-slate-900 truncate">{formatCountCompact(screensVisited.length)}</p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-3">
+                    <div className="w-8 h-8 rounded-lg bg-slate-100 flex items-center justify-center border border-slate-200">
+                      <MapPin className="h-4 w-4 text-slate-700" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-[10px] font-semibold uppercase text-slate-500">Location</p>
+                      <p className="text-sm font-bold text-slate-900 truncate">{sessionLocationWithFlag}</p>
                     </div>
                   </div>
                 </div>

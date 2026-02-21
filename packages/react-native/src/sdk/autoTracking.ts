@@ -142,6 +142,7 @@ export interface AutoTrackingConfig {
   trackJSErrors?: boolean;
   trackPromiseRejections?: boolean;
   trackReactNativeErrors?: boolean;
+  trackConsoleLogs?: boolean;
   collectDeviceInfo?: boolean;
   maxSessionDurationMs?: number;
   detectDeadTaps?: boolean;
@@ -205,6 +206,7 @@ export function initAutoTracking(
     trackJSErrors: true,
     trackPromiseRejections: true,
     trackReactNativeErrors: true,
+    trackConsoleLogs: false,
     collectDeviceInfo: true,
     maxSessionDurationMs: trackingConfig.maxSessionDurationMs,
     ...trackingConfig,
@@ -221,6 +223,9 @@ export function initAutoTracking(
   onErrorCaptured = callbacks.onError || null;
   onScreenChange = callbacks.onScreen || null;
   setupErrorTracking();
+  if (config.trackConsoleLogs) {
+    setupConsoleTracking();
+  }
   setupNavigationTracking();
   loadAnonymousId().then(id => {
     anonymousId = id;
@@ -236,6 +241,7 @@ export function cleanupAutoTracking(): void {
   if (!isInitialized) return;
 
   restoreErrorHandlers();
+  restoreConsoleHandlers();
   cleanupNavigationTracking();
 
   // Reset state
@@ -585,6 +591,77 @@ export function captureError(
     stack,
     name: name || 'Error',
   });
+}
+
+let originalConsoleLog: ((...args: any[]) => void) | null = null;
+let originalConsoleWarn: ((...args: any[]) => void) | null = null;
+
+/**
+ * Setup console tracking to capture log statements
+ */
+function setupConsoleTracking(): void {
+  if (typeof console === 'undefined') return;
+
+  if (!originalConsoleLog) originalConsoleLog = console.log;
+  if (!originalConsoleWarn) originalConsoleWarn = console.warn;
+
+  const createConsoleInterceptor = (level: 'log' | 'warn' | 'error', originalFn: (...args: any[]) => void) => {
+    return (...args: any[]) => {
+      try {
+        const message = args.map(arg => {
+          if (typeof arg === 'string') return arg;
+          if (arg instanceof Error) return `${arg.name}: ${arg.message}${arg.stack ? `\n...` : ''}`;
+          try {
+            return JSON.stringify(arg);
+          } catch {
+            return String(arg);
+          }
+        }).join(' ');
+
+        // Prevent infinite loops and ignore common internal noise
+        if (!message.includes('[Rejourney]') && !message.includes('Possible Unhandled Promise Rejection')) {
+          const nativeModule = getRejourneyNativeModule();
+          if (nativeModule) {
+            const logEvent = {
+              type: 'log',
+              timestamp: Date.now(),
+              level,
+              message: message.length > 2000 ? message.substring(0, 2000) + '...' : message,
+            };
+            nativeModule.logEvent('log', logEvent).catch(() => { });
+          }
+        }
+      } catch {
+        // Ignore any errors during interception
+      }
+
+      if (originalFn) {
+        originalFn.apply(console, args);
+      }
+    };
+  };
+
+  console.log = createConsoleInterceptor('log', originalConsoleLog!);
+  console.warn = createConsoleInterceptor('warn', originalConsoleWarn!);
+
+  const currentConsoleError = console.error;
+  if (!originalConsoleError) originalConsoleError = currentConsoleError;
+  console.error = createConsoleInterceptor('error', currentConsoleError);
+}
+
+/**
+ * Restore console standard functions
+ */
+function restoreConsoleHandlers(): void {
+  if (originalConsoleLog) {
+    console.log = originalConsoleLog;
+    originalConsoleLog = null;
+  }
+  if (originalConsoleWarn) {
+    console.warn = originalConsoleWarn;
+    originalConsoleWarn = null;
+  }
+  // Note: console.error is restored in restoreErrorHandlers via originalConsoleError
 }
 
 let navigationPollingInterval: ReturnType<typeof setInterval> | null = null;

@@ -713,7 +713,13 @@ export default function ProfileScreen() {
                                     'This will crash the native app immediately.',
                                     [
                                         { text: 'Cancel', style: 'cancel' },
-                                        { text: 'CRASH', style: 'destructive', onPress: () => NativeModules.Rejourney.debugCrash() }
+                                        {
+                                            text: 'CRASH', style: 'destructive', onPress: () => {
+                                                const { TurboModuleRegistry, NativeModules } = require('react-native');
+                                                const mod = TurboModuleRegistry?.get?.('Rejourney') ?? NativeModules?.Rejourney;
+                                                mod?.debugCrash();
+                                            }
+                                        }
                                     ]
                                 );
                             }}
@@ -733,7 +739,13 @@ export default function ProfileScreen() {
                                     'This will freeze the app for 5 seconds.',
                                     [
                                         { text: 'Cancel', style: 'cancel' },
-                                        { text: 'FREEZE', style: 'destructive', onPress: () => (Rejourney as any).debugTriggerANR(5000) }
+                                        {
+                                            text: 'FREEZE', style: 'destructive', onPress: () => {
+                                                const { TurboModuleRegistry, NativeModules } = require('react-native');
+                                                const mod = TurboModuleRegistry?.get?.('Rejourney') ?? NativeModules?.Rejourney;
+                                                mod?.debugTriggerANR(5000);
+                                            }
+                                        }
                                     ]
                                 );
                             }}

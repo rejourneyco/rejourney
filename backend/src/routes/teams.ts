@@ -813,24 +813,21 @@ router.post(
         const [invitation] = await db
             .select()
             .from(teamInvitations)
-            .where(and(
-                eq(teamInvitations.token, token),
-                isNull(teamInvitations.acceptedAt)
-            ))
+            .where(eq(teamInvitations.token, token))
             .limit(1);
 
         if (!invitation) {
-            throw ApiError.notFound('Invitation not found or already accepted');
-        }
-
-        // Check if expired
-        if (invitation.expiresAt < new Date()) {
-            throw ApiError.badRequest('Invitation has expired');
+            throw ApiError.notFound('Invitation not found');
         }
 
         // Check email matches (must match the invited email)
         if (invitation.email.toLowerCase() !== userEmail) {
             throw ApiError.forbidden('This invitation was sent to a different email address');
+        }
+
+        const [team] = await db.select().from(teams).where(eq(teams.id, invitation.teamId)).limit(1);
+        if (!team) {
+            throw ApiError.notFound('Team not found');
         }
 
         // Check if already a member
@@ -840,13 +837,42 @@ router.post(
             .where(and(eq(teamMembers.teamId, invitation.teamId), eq(teamMembers.userId, userId)))
             .limit(1);
 
+        // Idempotent behavior: if this invite was already accepted and the user is already in the team,
+        // treat repeated accept clicks as success so invite links remain safe to re-open.
+        if (invitation.acceptedAt) {
+            if (!existingMember) {
+                throw ApiError.conflict('Invitation has already been accepted');
+            }
+
+            res.json({
+                success: true,
+                team: {
+                    id: team.id,
+                    name: team.name,
+                },
+            });
+            return;
+        }
+
+        // Check if expired
+        if (invitation.expiresAt < new Date()) {
+            throw ApiError.badRequest('Invitation has expired');
+        }
+
         if (existingMember) {
-            // Mark invitation as accepted anyway
+            // Mark invitation as accepted if membership already exists, then return success.
             await db.update(teamInvitations)
                 .set({ acceptedAt: new Date() })
                 .where(eq(teamInvitations.id, invitation.id));
 
-            throw ApiError.conflict('You are already a member of this team');
+            res.json({
+                success: true,
+                team: {
+                    id: team.id,
+                    name: team.name,
+                },
+            });
+            return;
         }
 
         // Add user to team
@@ -861,17 +887,14 @@ router.post(
             .set({ acceptedAt: new Date() })
             .where(eq(teamInvitations.id, invitation.id));
 
-        // Get team info for response
-        const [team] = await db.select().from(teams).where(eq(teams.id, invitation.teamId)).limit(1);
-
         logger.info({ teamId: invitation.teamId, userId, role: invitation.role }, 'Team invitation accepted');
 
         res.json({
             success: true,
-            team: team ? {
+            team: {
                 id: team.id,
                 name: team.name,
-            } : null,
+            },
         });
     })
 );

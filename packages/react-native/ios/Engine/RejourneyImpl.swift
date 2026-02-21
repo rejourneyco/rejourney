@@ -324,6 +324,9 @@ public final class RejourneyImpl: NSObject {
             SegmentDispatcher.shared.endpoint = apiUrl
             DeviceRegistrar.shared.endpoint = apiUrl
             
+            // Activate native network interception
+            RejourneyURLProtocol.enable()
+            
             ReplayOrchestrator.shared.beginReplay(apiToken: publicKey, serverEndpoint: apiUrl, captureSettings: config)
             
             // Allow orchestrator time to spin up
@@ -363,6 +366,9 @@ public final class RejourneyImpl: NSObject {
             }
             self.state = .idle
             self.stateLock.unlock()
+            
+            // Disable native network interception
+            RejourneyURLProtocol.disable()
             
             guard !targetSid.isEmpty else {
                 resolve(["success": true, "sessionId": "", "uploadSuccess": true])
@@ -646,7 +652,7 @@ public final class RejourneyImpl: NSObject {
         resolve([
             "platform": "ios",
             "osVersion": device.systemVersion,
-            "model": device.model,
+            "model": (DeviceRegistrar.shared.gatherDeviceProfile()["hwModel"] as? String) ?? device.model,
             "deviceName": device.name,
             "screenWidth": Int(screen.bounds.width * screen.scale),
             "screenHeight": Int(screen.bounds.height * screen.scale),

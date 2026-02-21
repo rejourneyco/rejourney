@@ -203,6 +203,14 @@ class ViewHierarchyScanner private constructor() {
     }
     
     private fun isSensitive(view: View): Boolean {
+        if (view.contentDescription?.toString() == "rejourney_occlude") return true
+        
+        try {
+            // Check for React Native accessibility hint tag
+            val hint = view.getTag(com.facebook.react.R.id.accessibility_hint) as? String
+            if (hint == "rejourney_occlude") return true
+        } catch (_: Exception) { }
+
         if (view is EditText) {
             val inputType = view.inputType
             // Check for password input types

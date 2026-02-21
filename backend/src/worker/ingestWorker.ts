@@ -19,12 +19,13 @@ import { logger } from '../logger.js';
 import { pingWorker, checkQueueHealth } from '../services/monitoring.js';
 import { trackErrorAsIssue, trackCrashAsIssue, trackANRAsIssue } from '../services/issueTracker.js';
 import { getUniqueScreenCount, mergeScreenPaths, normalizeScreenPath } from '../utils/screenPaths.js';
-import { invalidateFrameCache } from '../services/screenshotFrames.js';
+import { invalidateFrameCache, prewarmSessionScreenshotFrames } from '../services/screenshotFrames.js';
 
 const POLL_INTERVAL_MS = 500;
 const MAX_ATTEMPTS = 3;
 const BATCH_SIZE = 20;
 const MAX_SCREEN_PATH_LENGTH = 200;
+const JOB_PROCESS_CONCURRENCY = Number(process.env.RJ_INGEST_JOB_CONCURRENCY ?? 4);
 
 // Auto-finalization is a primary, critical session-closing path.
 // In real-world mobile lifecycle behavior, /session/end is often not delivered.
@@ -281,6 +282,17 @@ async function processArtifactJob(job: any): Promise<boolean> {
             evaluateAndPromoteSession(session.id, projectId, session.durationSeconds || 0).catch(err => {
                 logger.error({ err, sessionId: session.id }, 'Promotion evaluation failed after final job');
             });
+
+            // Pre-extract screenshot frames in worker path so replay open stays fast.
+            prewarmSessionScreenshotFrames(session.id)
+                .then((ok) => {
+                    if (ok) {
+                        logger.info({ sessionId: session.id }, 'Prewarmed screenshot frames after ingest completion');
+                    }
+                })
+                .catch((err) => {
+                    logger.warn({ err, sessionId: session.id }, 'Failed to prewarm screenshot frames');
+                });
 
             // LAZY FUNNEL LEARNING
             // Randomly trigger funnel analysis (5% chance) to keep the "Happy Path" up to date
@@ -1177,10 +1189,25 @@ async function pollJobs(): Promise<void> {
 
             if (jobs.length > 0) {
                 logger.info({ count: jobs.length }, 'Processing ingest jobs');
-                for (const job of jobs) {
-                    if (!isRunning) break;
-                    await processArtifactJob(job);
+                const seenSessionIds = new Set<string>();
+                const runnableJobs = jobs.filter((job) => {
+                    const key = job.sessionId || `job:${job.id}`;
+                    if (seenSessionIds.has(key)) return false;
+                    seenSessionIds.add(key);
+                    return true;
+                });
+
+                let cursor = 0;
+                const workerCount = Math.max(1, Math.min(JOB_PROCESS_CONCURRENCY, runnableJobs.length));
+
+                async function workerLoop() {
+                    while (isRunning && cursor < runnableJobs.length) {
+                        const idx = cursor++;
+                        await processArtifactJob(runnableJobs[idx]);
+                    }
                 }
+
+                await Promise.all(Array.from({ length: workerCount }, () => workerLoop()));
             }
 
             // Primary close path: finalize sessions that have uploads completed but never

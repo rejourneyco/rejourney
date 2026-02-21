@@ -133,8 +133,10 @@ class InteractionRecorder private constructor(private val context: Context) {
                     // Notify SpecialCases about touch phases for touch-based
                     // map idle detection (Mapbox v10+ fallback).
                     when (event.actionMasked) {
-                        MotionEvent.ACTION_DOWN ->
+                        MotionEvent.ACTION_DOWN -> {
+                            VisualCapture.shared?.invalidateMaskCache()
                             SpecialCases.shared.notifyTouchBegan()
+                        }
                         MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL ->
                             SpecialCases.shared.notifyTouchEnded()
                     }

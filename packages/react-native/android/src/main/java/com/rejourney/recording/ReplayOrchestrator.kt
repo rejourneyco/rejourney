@@ -652,10 +652,15 @@ class ReplayOrchestrator private constructor(private val context: Context) {
                 bgTimeMs += (now - start)
             }
             bgStartMs = null
+            
+            if (responsivenessCaptureEnabled) {
+                AnrSentinel.shared.activate()
+            }
         }
         
         override fun onActivityPaused(activity: Activity) {
             bgStartMs = System.currentTimeMillis()
+            AnrSentinel.shared.deactivate()
         }
         
         override fun onActivityCreated(activity: Activity, savedInstanceState: Bundle?) {}

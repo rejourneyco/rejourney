@@ -2,16 +2,22 @@ import React, { useMemo, useState } from 'react';
 
 export interface GeoIssueMapRegion {
     id: string;
+    city?: string;
     country: string;
     lat: number;
     lng: number;
     activeUsers: number;
     issueCount: number;
     issueRate: number;
-    impactScore: number;
     dominantIssue: string;
     confidence: 'high' | 'low';
     avgLatencyMs?: number;
+    engagementSegments?: {
+        loyalists: number;
+        explorers: number;
+        casuals: number;
+        bouncers: number;
+    };
 }
 
 interface IssuesWorldMapProps {
@@ -121,19 +127,8 @@ export const IssuesWorldMap: React.FC<IssuesWorldMapProps> = ({
         [regions]
     );
 
-    const highRiskCount = useMemo(
-        () =>
-            regions.filter(
-                (region) =>
-                    region.activeUsers >= minSampleSize &&
-                    region.issueRate >= 0.1 &&
-                    region.issueCount > 0
-            ).length,
-        [regions, minSampleSize]
-    );
-
     return (
-        <div className={`relative w-full aspect-[2/1] rounded-xl border border-slate-200 bg-slate-50 shadow-sm ${className || ''}`}>
+        <div className={`relative h-[520px] max-h-[72vh] min-h-[360px] w-full rounded-xl border border-slate-200 bg-slate-50 shadow-sm ${className || ''}`}>
             <img
                 src="/Eckert4-optimized.jpg"
                 alt="World Map (Eckert IV)"
@@ -156,12 +151,6 @@ export const IssuesWorldMap: React.FC<IssuesWorldMapProps> = ({
                 </div>
             </div>
 
-            <div className="absolute top-6 right-6 z-20 rounded-xl border-2 border-slate-900 bg-white p-4 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]">
-                <div className="text-[10px] font-bold uppercase tracking-wider text-slate-500 text-right">High-Risk Regions</div>
-                <div className="text-3xl font-black text-slate-900 text-right leading-none my-1">{highRiskCount}</div>
-                <div className="text-[10px] font-medium text-slate-500 text-right">Rate &gt;= 10%</div>
-            </div>
-
             <div className="absolute inset-0">
                 {regions.map((region) => {
                     const { x, y } = projectEckert4(region.lat, region.lng, 100, 100);
@@ -174,6 +163,24 @@ export const IssuesWorldMap: React.FC<IssuesWorldMapProps> = ({
                     const isNearTop = y < 45;
                     const isNearLeft = x < 25;
                     const isNearRight = x > 75;
+                    const segmentMix = region.engagementSegments
+                        ? [
+                            { label: 'Loyalists', value: region.engagementSegments.loyalists },
+                            { label: 'Explorers', value: region.engagementSegments.explorers },
+                            { label: 'Casuals', value: region.engagementSegments.casuals },
+                            { label: 'Bouncers', value: region.engagementSegments.bouncers },
+                        ]
+                        : [];
+                    const totalSegments = segmentMix.reduce((sum, segment) => sum + segment.value, 0);
+                    const topSegments = totalSegments > 0
+                        ? segmentMix
+                            .map((segment) => ({
+                                ...segment,
+                                share: Math.round((segment.value / totalSegments) * 100),
+                            }))
+                            .sort((a, b) => b.share - a.share)
+                            .slice(0, 2)
+                        : [];
 
                     return (
                         <div
@@ -208,7 +215,7 @@ export const IssuesWorldMap: React.FC<IssuesWorldMapProps> = ({
                                     } ${isNearLeft ? 'left-0' : isNearRight ? 'right-0' : 'left-1/2 -translate-x-1/2'
                                     } ${isHovered ? 'opacity-100 scale-100 translate-y-0' : 'opacity-0 scale-95 translate-y-2'}`}
                             >
-                                <div className="mb-1 text-sm font-black tracking-tight">{region.country}</div>
+                                <div className="mb-1 text-sm font-black tracking-tight">{region.city ? `${region.city}, ${region.country}` : region.country}</div>
                                 <div className="mb-3 text-[10px] font-bold uppercase tracking-widest text-slate-400">
                                     {region.activeUsers.toLocaleString()} active users
                                 </div>
@@ -222,10 +229,6 @@ export const IssuesWorldMap: React.FC<IssuesWorldMapProps> = ({
                                         <span className="font-bold text-amber-400">{formatRate(region.issueRate)}</span>
                                     </div>
                                     <div className="flex justify-between">
-                                        <span className="font-medium text-slate-400">Impact score</span>
-                                        <span className="font-bold text-rose-400">{region.impactScore}/100</span>
-                                    </div>
-                                    <div className="flex justify-between">
                                         <span className="font-medium text-slate-400">Top issue</span>
                                         <span className="font-bold">{region.dominantIssue}</span>
                                     </div>
@@ -233,6 +236,14 @@ export const IssuesWorldMap: React.FC<IssuesWorldMapProps> = ({
                                         <div className="flex justify-between">
                                             <span className="font-medium text-slate-400">Avg API latency</span>
                                             <span className="font-bold text-blue-400">{region.avgLatencyMs} ms</span>
+                                        </div>
+                                    )}
+                                    {topSegments.length > 0 && (
+                                        <div className="flex justify-between">
+                                            <span className="font-medium text-slate-400">Top user types</span>
+                                            <span className="font-bold text-emerald-300">
+                                                {topSegments.map((segment) => `${segment.label} ${segment.share}%`).join(' • ')}
+                                            </span>
                                         </div>
                                     )}
                                     {isLowSample && (

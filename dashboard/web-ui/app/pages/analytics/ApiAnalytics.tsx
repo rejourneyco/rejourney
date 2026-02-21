@@ -1,8 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
     Activity,
-    AlertTriangle,
-    ArrowRight,
     ChevronDown,
     ChevronUp,
     Gauge,
@@ -31,7 +29,6 @@ import {
     YAxis,
     ZAxis,
 } from 'recharts';
-import { Link } from 'react-router';
 import { useSessionData } from '../../context/SessionContext';
 import {
     getApiEndpointStats,
@@ -47,18 +44,9 @@ import {
 } from '../../services/api';
 import { DashboardPageHeader } from '../../components/ui/DashboardPageHeader';
 import { TimeFilter, TimeRange, DEFAULT_TIME_RANGE } from '../../components/ui/TimeFilter';
-import { usePathPrefix } from '../../hooks/usePathPrefix';
 
 type EndpointRisk = ApiEndpointStats['allEndpoints'][number] & {
     riskScore: number;
-    recommendation: string;
-};
-
-type ActionItem = {
-    title: string;
-    impact: string;
-    recommendation: string;
-    sessionId?: string;
 };
 
 type ReleaseMarker = {
@@ -206,6 +194,11 @@ const pct = (value: number | null | undefined, digits: number = 2): string => {
     return `${value.toFixed(digits)}%`;
 };
 
+const formatMs = (value: number | null | undefined): string => {
+    if (value === null || value === undefined || Number.isNaN(value)) return 'N/A';
+    return `${Math.round(value)} ms`;
+};
+
 const formatCompact = (value: number): string => {
     if (!Number.isFinite(value)) return '0';
     if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`;
@@ -213,65 +206,33 @@ const formatCompact = (value: number): string => {
     return value.toLocaleString();
 };
 
-const getEndpointRecommendation = (endpoint: ApiEndpointStats['allEndpoints'][number]): string => {
-    if (endpoint.errorRate > 5) return 'Prioritize backend failure root cause and retry behavior.';
-    if (endpoint.avgLatencyMs > 1000) return 'Optimize server path or introduce response caching.';
-    if (endpoint.totalErrors > 0) return 'Review intermittent error spikes and circuit breaking.';
-    return 'Healthy endpoint; keep monitoring with regression alerts.';
+const getSlowLatencyFill = (latencyMs: number): string => {
+    if (latencyMs > 1000) return '#ca8a04';
+    if (latencyMs > 700) return '#eab308';
+    if (latencyMs > 400) return '#facc15';
+    return '#fde047';
 };
 
-const buildActionQueue = (
-    endpointRisks: EndpointRisk[],
-    regions: RegionPerformance | null,
-    deepMetrics: ObservabilityDeepMetrics | null,
-): ActionItem[] => {
-    const actions: ActionItem[] = [];
+const getFailRateToneClass = (failRate: number): string => {
+    if (failRate >= 5) return 'text-rose-700';
+    if (failRate >= 2) return 'text-amber-700';
+    return 'text-emerald-700';
+};
 
-    if (endpointRisks[0]) {
-        const worst = endpointRisks[0];
-        actions.push({
-            title: 'Highest-risk endpoint needs immediate mitigation',
-            impact: `${worst.endpoint} runs at ${worst.errorRate.toFixed(2)}% failures and ${worst.avgLatencyMs}ms avg latency.`,
-            recommendation: worst.recommendation,
-        });
-    }
+const getLatencyToneClass = (latencyMs: number): string => {
+    if (latencyMs >= 1000) return 'text-amber-800';
+    if (latencyMs >= 500) return 'text-amber-700';
+    return 'text-slate-700';
+};
 
-    if (regions?.slowestRegions?.[0]) {
-        const slow = regions.slowestRegions[0];
-        actions.push({
-            title: 'Regional bottleneck impacts user-perceived API speed',
-            impact: `${slow.name} averages ${slow.avgLatencyMs}ms across ${formatCompact(slow.totalCalls)} calls.`,
-            recommendation: 'Review CDN edge, routing policy, and regional backend capacity.',
-        });
-    }
-
-    if (deepMetrics && deepMetrics.reliability.apiFailureRate > 1.5) {
-        actions.push({
-            title: 'Global API reliability is below target',
-            impact: `${deepMetrics.reliability.apiFailureRate.toFixed(2)}% API failure rate across analyzed sessions.`,
-            recommendation: 'Stabilize top failing endpoints before shipping new feature traffic.',
-            sessionId: deepMetrics.evidenceSessions.find((item) => item.metric === 'api')?.sessionIds?.[0],
-        });
-    }
-
-    const riskyNetwork = deepMetrics?.networkBreakdown
-        ? [...deepMetrics.networkBreakdown].sort((a, b) => b.apiErrorRate - a.apiErrorRate)[0]
-        : null;
-
-    if (riskyNetwork && riskyNetwork.apiErrorRate > 2) {
-        actions.push({
-            title: 'Network-specific API degradation is measurable',
-            impact: `${riskyNetwork.networkType.toUpperCase()} sees ${riskyNetwork.apiErrorRate.toFixed(2)}% error rate.`,
-            recommendation: 'Tune payload and timeout policy for this network class.',
-        });
-    }
-
-    return actions.slice(0, 4);
+const getRiskBadgeClass = (riskScore: number): string => {
+    if (riskScore >= 80) return 'border-rose-300 bg-rose-50 text-rose-700';
+    if (riskScore >= 50) return 'border-amber-300 bg-amber-50 text-amber-700';
+    return 'border-emerald-300 bg-emerald-50 text-emerald-700';
 };
 
 export const ApiAnalytics: React.FC = () => {
     const { selectedProject } = useSessionData();
-    const pathPrefix = usePathPrefix();
 
     const [timeRange, setTimeRange] = useState<TimeRange>(DEFAULT_TIME_RANGE);
     const [isLoading, setIsLoading] = useState(true);
@@ -375,7 +336,6 @@ export const ApiAnalytics: React.FC = () => {
                 return {
                     ...endpoint,
                     riskScore,
-                    recommendation: getEndpointRecommendation(endpoint),
                 };
             });
 
@@ -399,8 +359,6 @@ export const ApiAnalytics: React.FC = () => {
         if (!q) return endpointRisks;
         return endpointRisks.filter((endpoint) => endpoint.endpoint.toLowerCase().includes(q));
     }, [endpointRisks, searchQuery]);
-
-    const actionQueue = useMemo(() => buildActionQueue(endpointRisks, regionStats, deepMetrics), [endpointRisks, regionStats, deepMetrics]);
 
     const slowEndpointChart = useMemo(() => endpointStats?.slowestEndpoints?.slice(0, 6) || [], [endpointStats]);
     const errorEndpointChart = useMemo(() => endpointStats?.erroringEndpoints?.slice(0, 6) || [], [endpointStats]);
@@ -551,8 +509,14 @@ export const ApiAnalytics: React.FC = () => {
         }));
     }, [trends]);
 
+    const p95ApiMs = deepMetrics?.performance.p95ApiResponseMs ?? null;
+    const p99ApiMs = deepMetrics?.performance.p99ApiResponseMs ?? null;
+    const tailLatencySpreadMs = p99ApiMs !== null && p95ApiMs !== null
+        ? Math.max(0, p99ApiMs - p95ApiMs)
+        : null;
+
     return (
-        <div className="min-h-screen bg-slate-50 font-sans text-slate-900">
+        <div className="min-h-screen bg-gradient-to-b from-slate-50 to-slate-100/70 font-sans text-slate-900">
             <div className="sticky top-0 z-30 bg-white">
                 <DashboardPageHeader
                     title="API Reliability & Performance"
@@ -595,16 +559,9 @@ export const ApiAnalytics: React.FC = () => {
                                     <Server className="h-4 w-4 text-blue-600" />
                                 </div>
                                 <div className="mt-2 text-3xl font-semibold text-slate-900">{formatCompact(endpointStats.summary.totalCalls)}</div>
-                                <p className="mt-1 text-sm text-slate-600">Across {endpointStats.allEndpoints.length.toLocaleString()} tracked endpoints.</p>
-                            </div>
-
-                            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-                                <div className="flex items-center justify-between text-xs font-semibold uppercase tracking-wide text-slate-500">
-                                    API Failure Rate
-                                    <ShieldAlert className="h-4 w-4 text-rose-600" />
-                                </div>
-                                <div className="mt-2 text-3xl font-semibold text-slate-900">{pct(endpointStats.summary.errorRate, 2)}</div>
-                                <p className="mt-1 text-sm text-slate-600">Session-level failure rate: {pct(deepMetrics.reliability.apiFailureRate, 2)}.</p>
+                                <p className="mt-1 text-sm text-slate-600">
+                                    {endpointStats.allEndpoints.length.toLocaleString()} endpoints tracked | {pct(endpointStats.summary.errorRate, 2)} fail rate.
+                                </p>
                             </div>
 
                             <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
@@ -612,82 +569,74 @@ export const ApiAnalytics: React.FC = () => {
                                     p95 Response
                                     <Gauge className="h-4 w-4 text-amber-600" />
                                 </div>
-                                <div className="mt-2 text-3xl font-semibold text-slate-900">{deepMetrics.performance.p95ApiResponseMs ?? 'N/A'} ms</div>
-                                <p className="mt-1 text-sm text-slate-600">Apdex score: {deepMetrics.performance.apiApdex ?? 'N/A'}.</p>
+                                <div className="mt-2 text-3xl font-semibold text-slate-900">{formatMs(p95ApiMs)}</div>
+                                <p className="mt-1 text-sm text-slate-600">
+                                    Median response (p50): {formatMs(deepMetrics.performance.p50ApiResponseMs)}.
+                                </p>
                             </div>
 
                             <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
                                 <div className="flex items-center justify-between text-xs font-semibold uppercase tracking-wide text-slate-500">
-                                    Slow API Sessions
+                                    p99 Tail Latency
+                                    <ShieldAlert className="h-4 w-4 text-rose-600" />
+                                </div>
+                                <div className="mt-2 text-3xl font-semibold text-slate-900">{formatMs(p99ApiMs)}</div>
+                                <p className="mt-1 text-sm text-slate-600">
+                                    Tail spread vs p95: {tailLatencySpreadMs !== null ? `${tailLatencySpreadMs} ms` : 'N/A'}.
+                                </p>
+                            </div>
+
+                            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+                                <div className="flex items-center justify-between text-xs font-semibold uppercase tracking-wide text-slate-500">
+                                    API Apdex
                                     <Zap className="h-4 w-4 text-indigo-600" />
                                 </div>
-                                <div className="mt-2 text-3xl font-semibold text-slate-900">{pct(deepMetrics.performance.slowApiSessionRate, 1)}</div>
-                                <p className="mt-1 text-sm text-slate-600">Sessions above 1s average API response.</p>
+                                <div className="mt-2 text-3xl font-semibold text-slate-900">
+                                    {deepMetrics.performance.apiApdex !== null
+                                        ? deepMetrics.performance.apiApdex.toFixed(2)
+                                        : 'N/A'}
+                                </div>
+                                <p className="mt-1 text-sm text-slate-600">
+                                    Slow API sessions: {pct(deepMetrics.performance.slowApiSessionRate, 1)} | Session-level API failure: {pct(deepMetrics.reliability.apiFailureRate, 2)}.
+                                </p>
                             </div>
                         </section>
 
-                        <section className="grid grid-cols-1 gap-6 xl:grid-cols-3">
-                            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm xl:col-span-2">
-                                <div className="mb-4 flex items-center justify-between">
-                                    <h2 className="text-lg font-semibold text-slate-900">Traffic vs Errors vs Latency</h2>
-                                    <Activity className="h-5 w-5 text-blue-600" />
-                                </div>
-                                {trendChartData.length > 0 ? (
-                                    <div className="h-[300px]">
-                                        <ResponsiveContainer width="100%" height="100%">
-                                            <AreaChart data={trendChartData} margin={{ top: 26, right: 8, left: 0, bottom: 0 }}>
-                                                <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                                                <XAxis dataKey="dateKey" tick={{ fontSize: 11 }} tickFormatter={formatDateLabel} minTickGap={24} />
-                                                <YAxis yAxisId="left" tick={{ fontSize: 11 }} />
-                                                <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 11 }} />
-                                                <Tooltip labelFormatter={(value) => formatDateLabel(String(value))} />
-                                                <Legend />
-                                                {trendReleaseMarkers.map((marker, index) => (
-                                                    <ReferenceLine
-                                                        key={`api-trend-release-${marker.version}-${marker.dateKey}`}
-                                                        x={marker.dateKey}
-                                                        stroke="#0f172a"
-                                                        strokeDasharray="4 3"
-                                                        strokeWidth={1.9}
-                                                        ifOverflow="extendDomain"
-                                                        label={buildReleaseLineLabel(marker.version, index)}
-                                                    />
-                                                ))}
-                                                <Area yAxisId="left" type="monotone" dataKey="sessions" name="Sessions" stroke="#2563eb" fill="#bfdbfe" fillOpacity={0.45} />
-                                                <Line yAxisId="left" type="monotone" dataKey="errorCount" name="Errors" stroke="#dc2626" strokeWidth={2} dot={false} />
-                                                <Line yAxisId="right" type="monotone" dataKey="avgApiResponseMs" name="Avg API ms" stroke="#f59e0b" strokeWidth={2} dot={false} />
-                                            </AreaChart>
-                                        </ResponsiveContainer>
-                                    </div>
-                                ) : (
-                                    <p className="text-sm text-slate-500">No traffic/error/latency trend data available for this range.</p>
-                                )}
+                        <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+                            <div className="mb-4 flex items-center justify-between">
+                                <h2 className="text-lg font-semibold text-slate-900">Traffic vs Errors vs Latency</h2>
+                                <Activity className="h-5 w-5 text-blue-600" />
                             </div>
-
-                            <div className="space-y-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-                                <div className="flex items-center justify-between">
-                                    <h2 className="text-lg font-semibold text-slate-900">Priority Action Queue</h2>
-                                    <AlertTriangle className="h-5 w-5 text-amber-600" />
+                            {trendChartData.length > 0 ? (
+                                <div className="h-[300px]">
+                                    <ResponsiveContainer width="100%" height="100%">
+                                        <AreaChart data={trendChartData} margin={{ top: 26, right: 8, left: 0, bottom: 0 }}>
+                                            <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                                            <XAxis dataKey="dateKey" tick={{ fontSize: 11 }} tickFormatter={formatDateLabel} minTickGap={24} />
+                                            <YAxis yAxisId="left" tick={{ fontSize: 11 }} />
+                                            <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 11 }} />
+                                            <Tooltip labelFormatter={(value) => formatDateLabel(String(value))} />
+                                            <Legend />
+                                            {trendReleaseMarkers.map((marker, index) => (
+                                                <ReferenceLine
+                                                    key={`api-trend-release-${marker.version}-${marker.dateKey}`}
+                                                    x={marker.dateKey}
+                                                    stroke="#0f172a"
+                                                    strokeDasharray="4 3"
+                                                    strokeWidth={1.9}
+                                                    ifOverflow="extendDomain"
+                                                    label={buildReleaseLineLabel(marker.version, index)}
+                                                />
+                                            ))}
+                                            <Area yAxisId="left" type="monotone" dataKey="sessions" name="Sessions" stroke="#2563eb" fill="#bfdbfe" fillOpacity={0.45} />
+                                            <Line yAxisId="left" type="monotone" dataKey="errorCount" name="Errors" stroke="#dc2626" strokeWidth={2} dot={false} />
+                                            <Line yAxisId="right" type="monotone" dataKey="avgApiResponseMs" name="Avg API ms" stroke="#f59e0b" strokeWidth={2} dot={false} />
+                                        </AreaChart>
+                                    </ResponsiveContainer>
                                 </div>
-                                {actionQueue.length === 0 && (
-                                    <p className="text-sm text-slate-500">No urgent API actions identified.</p>
-                                )}
-                                {actionQueue.map((item, index) => (
-                                    <div key={`${item.title}-${index}`} className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-                                        <div className="text-sm font-semibold text-slate-900">{item.title}</div>
-                                        <p className="mt-1 text-sm text-slate-600">{item.impact}</p>
-                                        <p className="mt-2 text-xs text-slate-500">{item.recommendation}</p>
-                                        {item.sessionId && (
-                                            <Link
-                                                to={`${pathPrefix}/sessions/${item.sessionId}`}
-                                                className="mt-3 inline-flex items-center gap-1 text-xs font-semibold text-blue-700 hover:text-blue-800"
-                                            >
-                                                Open replay evidence <ArrowRight className="h-3.5 w-3.5" />
-                                            </Link>
-                                        )}
-                                    </div>
-                                ))}
-                            </div>
+                            ) : (
+                                <p className="text-sm text-slate-500">No traffic/error/latency trend data available for this range.</p>
+                            )}
                         </section>
 
                         <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
@@ -696,9 +645,10 @@ export const ApiAnalytics: React.FC = () => {
                                 <Server className="h-5 w-5 text-blue-600" />
                             </div>
                             <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-                                <div>
+                                <div className="rounded-xl border border-amber-200 bg-amber-50/40 p-3">
                                     <div className="mb-2 flex items-center justify-between">
-                                        <h3 className="text-base font-semibold text-slate-900">Slowest Endpoints</h3>
+                                        <h3 className="text-base font-semibold text-amber-900">Slowest Endpoints</h3>
+                                        <span className="text-[10px] font-semibold uppercase tracking-wide text-amber-700">Latency severity</span>
                                     </div>
                                     <div className="h-[250px]">
                                         <ResponsiveContainer width="100%" height="100%">
@@ -717,7 +667,7 @@ export const ApiAnalytics: React.FC = () => {
                                                     {slowEndpointChart.map((endpoint) => (
                                                         <Cell
                                                             key={endpoint.endpoint}
-                                                            fill={endpoint.avgLatencyMs > 1000 ? '#ef4444' : endpoint.avgLatencyMs > 500 ? '#f59e0b' : '#3b82f6'}
+                                                            fill={getSlowLatencyFill(endpoint.avgLatencyMs)}
                                                         />
                                                     ))}
                                                 </Bar>
@@ -726,9 +676,10 @@ export const ApiAnalytics: React.FC = () => {
                                     </div>
                                 </div>
 
-                                <div>
+                                <div className="rounded-xl border border-rose-200 bg-rose-50/35 p-3">
                                     <div className="mb-2 flex items-center justify-between">
-                                        <h3 className="text-base font-semibold text-slate-900">Most Erroring Endpoints</h3>
+                                        <h3 className="text-base font-semibold text-rose-900">Most Erroring Endpoints</h3>
+                                        <span className="text-[10px] font-semibold uppercase tracking-wide text-rose-700">Failure hotspots</span>
                                     </div>
                                     <div className="h-[250px]">
                                         <ResponsiveContainer width="100%" height="100%">
@@ -886,12 +837,12 @@ export const ApiAnalytics: React.FC = () => {
                                 </div>
                             </div>
 
-                            <div className="overflow-x-auto">
-                                <table className="w-full min-w-[860px] text-left text-sm">
-                                    <thead className="text-xs uppercase tracking-wide text-slate-500">
+                            <div className="overflow-x-auto rounded-xl border border-slate-200">
+                                <table className="w-full min-w-[980px] text-left text-sm">
+                                    <thead className="sticky top-0 bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
                                         <tr>
                                             <th
-                                                className="cursor-pointer pb-2 pr-4 hover:text-slate-900"
+                                                className="cursor-pointer px-4 py-3 pr-4 hover:text-slate-900"
                                                 onClick={() => {
                                                     if (sortKey === 'endpoint') setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
                                                     else { setSortKey('endpoint'); setSortOrder('asc'); }
@@ -903,7 +854,7 @@ export const ApiAnalytics: React.FC = () => {
                                                 </div>
                                             </th>
                                             <th
-                                                className="cursor-pointer pb-2 pr-4 text-right hover:text-slate-900"
+                                                className="cursor-pointer px-4 py-3 pr-4 text-right hover:text-slate-900"
                                                 onClick={() => {
                                                     if (sortKey === 'totalCalls') setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
                                                     else { setSortKey('totalCalls'); setSortOrder('desc'); }
@@ -915,7 +866,7 @@ export const ApiAnalytics: React.FC = () => {
                                                 </div>
                                             </th>
                                             <th
-                                                className="cursor-pointer pb-2 pr-4 text-right hover:text-slate-900"
+                                                className="cursor-pointer px-4 py-3 pr-4 text-right hover:text-slate-900"
                                                 onClick={() => {
                                                     if (sortKey === 'totalErrors') setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
                                                     else { setSortKey('totalErrors'); setSortOrder('desc'); }
@@ -927,7 +878,7 @@ export const ApiAnalytics: React.FC = () => {
                                                 </div>
                                             </th>
                                             <th
-                                                className="cursor-pointer pb-2 pr-4 text-right hover:text-slate-900"
+                                                className="cursor-pointer px-4 py-3 pr-4 text-right hover:text-slate-900"
                                                 onClick={() => {
                                                     if (sortKey === 'errorRate') setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
                                                     else { setSortKey('errorRate'); setSortOrder('desc'); }
@@ -939,7 +890,7 @@ export const ApiAnalytics: React.FC = () => {
                                                 </div>
                                             </th>
                                             <th
-                                                className="cursor-pointer pb-2 pr-4 text-right hover:text-slate-900"
+                                                className="cursor-pointer px-4 py-3 pr-4 text-right hover:text-slate-900"
                                                 onClick={() => {
                                                     if (sortKey === 'avgLatencyMs') setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
                                                     else { setSortKey('avgLatencyMs'); setSortOrder('desc'); }
@@ -951,7 +902,7 @@ export const ApiAnalytics: React.FC = () => {
                                                 </div>
                                             </th>
                                             <th
-                                                className="cursor-pointer pb-2 pr-4 text-right hover:text-slate-900"
+                                                className="cursor-pointer px-4 py-3 pr-4 text-right hover:text-slate-900"
                                                 onClick={() => {
                                                     if (sortKey === 'riskScore') setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
                                                     else { setSortKey('riskScore'); setSortOrder('desc'); }
@@ -966,13 +917,17 @@ export const ApiAnalytics: React.FC = () => {
                                     </thead>
                                     <tbody className="divide-y divide-slate-100">
                                         {filteredEndpoints.slice(0, 40).map((endpoint) => (
-                                            <tr key={endpoint.endpoint}>
-                                                <td className="py-3 pr-4 font-medium text-slate-900">{endpoint.endpoint}</td>
-                                                <td className="py-3 pr-4 text-right text-slate-700">{formatCompact(endpoint.totalCalls)}</td>
-                                                <td className="py-3 pr-4 text-right text-slate-700">{formatCompact(endpoint.totalErrors)}</td>
-                                                <td className="py-3 pr-4 text-right text-slate-700">{endpoint.errorRate.toFixed(2)}%</td>
-                                                <td className="py-3 pr-4 text-right text-slate-700">{endpoint.avgLatencyMs} ms</td>
-                                                <td className="py-3 pr-4 text-right text-slate-700 font-semibold">{endpoint.riskScore.toFixed(1)}</td>
+                                            <tr key={endpoint.endpoint} className="transition-colors hover:bg-slate-50">
+                                                <td className="px-4 py-3 pr-4 font-mono text-[12px] font-semibold text-slate-900">{endpoint.endpoint}</td>
+                                                <td className="px-4 py-3 pr-4 text-right text-slate-700">{formatCompact(endpoint.totalCalls)}</td>
+                                                <td className="px-4 py-3 pr-4 text-right text-slate-700">{formatCompact(endpoint.totalErrors)}</td>
+                                                <td className={`px-4 py-3 pr-4 text-right font-semibold ${getFailRateToneClass(endpoint.errorRate)}`}>{endpoint.errorRate.toFixed(2)}%</td>
+                                                <td className={`px-4 py-3 pr-4 text-right font-semibold ${getLatencyToneClass(endpoint.avgLatencyMs)}`}>{endpoint.avgLatencyMs} ms</td>
+                                                <td className="px-4 py-3 pr-4 text-right">
+                                                    <span className={`inline-flex rounded-full border px-2 py-0.5 text-xs font-semibold ${getRiskBadgeClass(endpoint.riskScore)}`}>
+                                                        {endpoint.riskScore.toFixed(1)}
+                                                    </span>
+                                                </td>
                                             </tr>
                                         ))}
                                     </tbody>

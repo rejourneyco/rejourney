@@ -570,6 +570,7 @@ public final class ReplayOrchestrator: NSObject {
     
     @objc private func _onBackground() {
         _bgStartMs = UInt64(Date().timeIntervalSince1970 * 1000)
+        ResponsivenessWatcher.shared.halt()
     }
     
     @objc private func _onForeground() {
@@ -577,6 +578,10 @@ public final class ReplayOrchestrator: NSObject {
         let now = UInt64(Date().timeIntervalSince1970 * 1000)
         _bgTimeMs += (now - start)
         _bgStartMs = nil
+        
+        if responsivenessCaptureEnabled {
+            ResponsivenessWatcher.shared.activate()
+        }
     }
     
     private func _startHierarchyCapture() {

@@ -155,7 +155,7 @@ function App() {
     try {
       console.log('[App] Initializing Rejourney SDK...');
       initRejourney('rj_054c62bfc50b9e1afd18bfdf8c389dc2', {
-        apiUrl: 'http://10.43.80.188:3000',
+        apiUrl: 'http://10.42.213.164:3000',
         debug: true,
       });
 

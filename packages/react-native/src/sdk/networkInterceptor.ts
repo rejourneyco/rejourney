@@ -59,6 +59,94 @@ const config = {
 
 const SENSITIVE_KEYS = ['token', 'key', 'secret', 'password', 'auth', 'access_token', 'api_key'];
 
+function getUtf8Size(text: string): number {
+  if (!text) return 0;
+  if (typeof TextEncoder !== 'undefined') {
+    return new TextEncoder().encode(text).length;
+  }
+  return text.length;
+}
+
+function getBodySize(body: unknown): number {
+  if (body == null) return 0;
+
+  if (typeof body === 'string') return getUtf8Size(body);
+
+  if (typeof ArrayBuffer !== 'undefined' && body instanceof ArrayBuffer) {
+    return body.byteLength;
+  }
+
+  if (typeof ArrayBuffer !== 'undefined' && ArrayBuffer.isView(body as any)) {
+    return (body as ArrayBufferView).byteLength;
+  }
+
+  if (typeof Blob !== 'undefined' && body instanceof Blob) {
+    return body.size;
+  }
+
+  if (typeof URLSearchParams !== 'undefined' && body instanceof URLSearchParams) {
+    return getUtf8Size(body.toString());
+  }
+
+  return 0;
+}
+
+async function getFetchResponseSize(response: Response): Promise<number> {
+  const contentLength = response.headers?.get?.('content-length');
+  if (contentLength) {
+    const parsed = parseInt(contentLength, 10);
+    if (Number.isFinite(parsed) && parsed > 0) return parsed;
+  }
+
+  try {
+    const cloned = response.clone();
+    const buffer = await cloned.arrayBuffer();
+    return buffer.byteLength;
+  } catch {
+    return 0;
+  }
+}
+
+function getXhrResponseSize(xhr: XMLHttpRequest): number {
+  try {
+    const contentLength = xhr.getResponseHeader('content-length');
+    if (contentLength) {
+      const parsed = parseInt(contentLength, 10);
+      if (Number.isFinite(parsed) && parsed > 0) return parsed;
+    }
+  } catch {
+    // Ignore header access errors and fall through to body inspection.
+  }
+
+  const responseType = xhr.responseType;
+
+  if (responseType === '' || responseType === 'text') {
+    return getUtf8Size(xhr.responseText || '');
+  }
+
+  if (responseType === 'arraybuffer') {
+    return typeof ArrayBuffer !== 'undefined' && xhr.response instanceof ArrayBuffer
+      ? xhr.response.byteLength
+      : 0;
+  }
+
+  if (responseType === 'blob') {
+    return typeof Blob !== 'undefined' && xhr.response instanceof Blob
+      ? xhr.response.size
+      : 0;
+  }
+
+  if (responseType === 'json') {
+    try {
+      return getUtf8Size(JSON.stringify(xhr.response ?? ''));
+    } catch {
+      return 0;
+    }
+  }
+
+  return 0;
+}
+
 /**
  * Scrub sensitive data from URL
  */
@@ -225,8 +313,15 @@ function interceptFetch(): void {
 
     const startTime = Date.now();
     const method = ((init?.method || 'GET').toUpperCase()) as NetworkRequestParams['method'];
+
+    const requestBodySize = config.captureSizes ? getBodySize(init?.body) : 0;
+
     return originalFetch!(input, init).then(
-      (response) => {
+      async (response) => {
+        const responseBodySize = config.captureSizes
+          ? await getFetchResponseSize(response)
+          : 0;
+
         queueRequest({
           requestId: `f${startTime}`,
           method,
@@ -236,6 +331,8 @@ function interceptFetch(): void {
           startTimestamp: startTime,
           endTimestamp: Date.now(),
           success: response.ok,
+          requestBodySize,
+          responseBodySize,
         });
         return response;
       },
@@ -250,6 +347,7 @@ function interceptFetch(): void {
           endTimestamp: Date.now(),
           success: false,
           errorMessage: error?.message || 'Network error',
+          requestBodySize,
         });
         throw error;
       }
@@ -296,10 +394,19 @@ function interceptXHR(): void {
       return originalXHRSend!.call(this, body);
     }
 
+    if (config.captureSizes && body) {
+      data.reqSize = getBodySize(body);
+    } else {
+      data.reqSize = 0;
+    }
+
     data.t = Date.now();
 
     const onComplete = () => {
       const endTime = Date.now();
+
+      const responseBodySize = config.captureSizes ? getXhrResponseSize(this) : 0;
+
       queueRequest({
         requestId: `x${data.t}`,
         method: data.m as NetworkRequestParams['method'],
@@ -310,6 +417,8 @@ function interceptXHR(): void {
         endTimestamp: endTime,
         success: this.status >= 200 && this.status < 400,
         errorMessage: this.status === 0 ? 'Network error' : undefined,
+        requestBodySize: data.reqSize,
+        responseBodySize,
       });
     };
 

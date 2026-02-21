@@ -616,22 +616,26 @@ export async function backfillDailyStats(days: number = 30): Promise<void> {
 /**
  * Check if daily rollup should run (once per day at midnight UTC)
  */
-function shouldRunDailyRollup(): boolean {
+async function shouldRunDailyRollup(): Promise<boolean> {
     const now = new Date();
-    const utcHour = now.getUTCHours();
-    const utcMinute = now.getUTCMinutes();
+    const todayDate = now.toISOString().split('T')[0];
 
-    // Run between 00:00 and 00:10 UTC
-    if (utcHour !== 0 || utcMinute > 10) {
-        return false;
-    }
-
-    // Check if already ran today
-    if (lastDailyRollupTime) {
-        const lastRunDate = lastDailyRollupTime.toISOString().split('T')[0];
-        const todayDate = now.toISOString().split('T')[0];
-        if (lastRunDate === todayDate) {
-            return false;
+    try {
+        const lastRunStr = await redis.get('stats:daily_rollup:last_run');
+        if (lastRunStr) {
+            const lastRunDate = new Date(lastRunStr).toISOString().split('T')[0];
+            if (lastRunDate === todayDate) {
+                return false; // Already ran today
+            }
+        }
+    } catch (err) {
+        logger.error({ err }, 'Failed to check last rollup time from Redis');
+        // Fallback to memory
+        if (lastDailyRollupTime) {
+            const lastRunDate = lastDailyRollupTime.toISOString().split('T')[0];
+            if (lastRunDate === todayDate) {
+                return false;
+            }
         }
     }
 
@@ -652,7 +656,7 @@ export async function runStatsAggregation(): Promise<void> {
 
     try {
         // Check if daily rollup should run
-        if (shouldRunDailyRollup()) {
+        if (await shouldRunDailyRollup()) {
             logger.info('Triggering daily rollup');
             await runDailyRollup();
         }

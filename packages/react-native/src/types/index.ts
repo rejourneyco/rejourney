@@ -102,8 +102,12 @@ export interface RejourneyConfig {
    * Disable if you want minimal network tracking overhead.
    */
   networkCaptureSizes?: boolean;
+  /** 
+   * Automatically intercept console.log, console.warn, and console.error and include them in session recordings.
+   * Useful for debugging sessions. (default: false)
+   */
+  trackConsoleLogs?: boolean;
 }
-
 export type GestureType =
   | 'tap'
   | 'double_tap'
@@ -578,7 +582,16 @@ export interface RejourneyAPI {
   getStorageUsage(): Promise<{ used: number; max: number }>;
 
   /** 
+   * Log customer feedback (e.g. from an in-app survey or NPS widget).
+   * 
+   * @param rating - Numeric rating (e.g. 1 to 5)
+   * @param message - Associated feedback text or comment
+   */
+  logFeedback(rating: number, message: string): void;
+
+  /** 
    * Get SDK telemetry metrics for observability
+
    * Returns metrics about SDK health including upload success rates,
    * retry attempts, circuit breaker events, and memory pressure.
    */

@@ -779,6 +779,155 @@ router.get(
 );
 
 /**
+ * Get regional value and engagement segment mix
+ * GET /api/analytics/geo-value
+ *
+ * Returns country-level value metrics (UX, duration, high-value session share)
+ * and user engagement segments for the Geographic page.
+ */
+router.get(
+    '/geo-value',
+    sessionAuth,
+    asyncHandler(async (req, res) => {
+        const { timeRange, projectId } = req.query;
+
+        const emptyResult = {
+            regions: [],
+            summary: {
+                totalSessions: 0,
+                totalValueSessions: 0,
+                valueShare: 0,
+                avgUxScore: 0,
+                avgDurationSeconds: 0,
+                regionCount: 0,
+            },
+        };
+
+        // Get accessible projects for user
+        const membership = await db
+            .select({ teamId: teamMembers.teamId })
+            .from(teamMembers)
+            .where(eq(teamMembers.userId, req.user!.id));
+
+        const teamIds = membership.map((m) => m.teamId);
+        if (teamIds.length === 0) {
+            res.json(emptyResult);
+            return;
+        }
+
+        const accessibleProjects = await db
+            .select({ id: projects.id })
+            .from(projects)
+            .where(inArray(projects.teamId, teamIds));
+
+        const projectIds = projectId
+            ? [projectId as string]
+            : accessibleProjects.map((p) => p.id);
+
+        if (projectIds.length === 0) {
+            res.json(emptyResult);
+            return;
+        }
+
+        const cacheKey = `analytics:geo-value:${projectIds.sort().join(',')}:${timeRange || 'all'}:v1`;
+        const cached = await redis.get(cacheKey);
+        if (cached) {
+            res.json(JSON.parse(cached));
+            return;
+        }
+
+        let startedAfter: Date | undefined;
+        if (timeRange && timeRange !== 'all') {
+            const days = timeRange === '24h' ? 1 :
+                timeRange === '7d' ? 7 :
+                    timeRange === '30d' ? 30 :
+                        timeRange === '90d' ? 90 : undefined;
+            if (days) {
+                startedAfter = new Date();
+                startedAfter.setDate(startedAfter.getDate() - days);
+            }
+        }
+
+        const conditions = [
+            inArray(sessions.projectId, projectIds),
+            isNotNull(sessions.geoCountry),
+        ];
+        if (startedAfter) {
+            conditions.push(gte(sessions.startedAt, startedAfter));
+        }
+
+        const durationSql = sql`coalesce(${sessions.durationSeconds}, 0)`;
+        const screensVisitedSql = sql`coalesce(array_length(${sessionMetrics.screensVisited}, 1), 0)`;
+
+        const regionalRows = await db
+            .select({
+                country: sessions.geoCountry,
+                sessionsCount: sql<number>`count(*)`,
+                avgDurationSeconds: sql<number>`round(avg(${durationSql})::numeric, 1)`,
+                avgUxScore: sql<number>`round(avg(coalesce(${sessionMetrics.uxScore}, 0))::numeric, 1)`,
+                bouncers: sql<number>`sum(case when ${durationSql} < 10 and ${screensVisitedSql} <= 3 then 1 else 0 end)`,
+                casuals: sql<number>`sum(case when ${durationSql} >= 10 and ${durationSql} <= 60 and ${screensVisitedSql} <= 3 then 1 else 0 end)`,
+                explorers: sql<number>`sum(case when ${durationSql} <= 180 and (${durationSql} > 60 or ${screensVisitedSql} > 3) then 1 else 0 end)`,
+                loyalists: sql<number>`sum(case when ${durationSql} > 180 then 1 else 0 end)`,
+            })
+            .from(sessions)
+            .leftJoin(sessionMetrics, eq(sessions.id, sessionMetrics.sessionId))
+            .where(and(...conditions))
+            .groupBy(sessions.geoCountry);
+
+        const regions = regionalRows
+            .filter((row) => Boolean(row.country))
+            .map((row) => {
+                const country = row.country as string;
+                const sessionsCount = Number(row.sessionsCount || 0);
+                const bouncers = Number(row.bouncers || 0);
+                const casuals = Number(row.casuals || 0);
+                const explorers = Number(row.explorers || 0);
+                const loyalists = Number(row.loyalists || 0);
+                const valueSessions = explorers + loyalists;
+                const valueShare = toPercent(valueSessions, Math.max(1, sessionsCount), 2);
+
+                return {
+                    country,
+                    sessions: sessionsCount,
+                    valueSessions,
+                    valueShare,
+                    avgUxScore: Number(row.avgUxScore || 0),
+                    avgDurationSeconds: Number(row.avgDurationSeconds || 0),
+                    engagementSegments: {
+                        bouncers,
+                        casuals,
+                        explorers,
+                        loyalists,
+                    },
+                };
+            })
+            .filter((row) => row.sessions > 0)
+            .sort((a, b) => b.valueSessions - a.valueSessions || b.sessions - a.sessions);
+
+        const totalSessions = regions.reduce((sum, row) => sum + row.sessions, 0);
+        const totalValueSessions = regions.reduce((sum, row) => sum + row.valueSessions, 0);
+        const weightedUxSum = regions.reduce((sum, row) => sum + (row.avgUxScore * row.sessions), 0);
+        const weightedDurationSum = regions.reduce((sum, row) => sum + (row.avgDurationSeconds * row.sessions), 0);
+
+        const result = {
+            regions,
+            summary: {
+                totalSessions,
+                totalValueSessions,
+                valueShare: toPercent(totalValueSessions, Math.max(1, totalSessions), 2),
+                avgUxScore: totalSessions > 0 ? Number((weightedUxSum / totalSessions).toFixed(1)) : 0,
+                avgDurationSeconds: totalSessions > 0 ? Number((weightedDurationSum / totalSessions).toFixed(1)) : 0,
+                regionCount: regions.length,
+            },
+        };
+
+        await redis.set(cacheKey, JSON.stringify(result), 'EX', CACHE_TTL);
+        res.json(result);
+    })
+);
+
+/**
  * Get geographic distribution of issues (errors, crashes, ANRs, rage taps)
  * GET /api/analytics/geo-issues
  * 
@@ -2744,6 +2893,7 @@ router.get(
                     sessionHealth: { clean: 0, error: 0, rage: 0, slow: 0, crash: 0 },
                     firstSessionSuccessRate: 0,
                     firstSessionStats: { total: 0, clean: 0, withCrash: 0, withAnr: 0, withRageTaps: 0, withSlowApi: 0 },
+                    newUserGrowth: { acquiredUsers: 0, activeUsers: 0, acquisitionRate: 0, returnedUsers: 0, returnRate: 0 },
                     growthKillers: [],
                     dailyHealth: []
                 });
@@ -2761,13 +2911,14 @@ router.get(
                 sessionHealth: { clean: 0, error: 0, rage: 0, slow: 0, crash: 0 },
                 firstSessionSuccessRate: 0,
                 firstSessionStats: { total: 0, clean: 0, withCrash: 0, withAnr: 0, withRageTaps: 0, withSlowApi: 0 },
+                newUserGrowth: { acquiredUsers: 0, activeUsers: 0, acquisitionRate: 0, returnedUsers: 0, returnRate: 0 },
                 growthKillers: [],
                 dailyHealth: []
             });
             return;
         }
 
-        const cacheKey = `analytics:growth-observability:${projectIds.sort().join(',')}:${timeRange || 'all'}`;
+        const cacheKey = `analytics:growth-observability:v2:${projectIds.sort().join(',')}:${timeRange || 'all'}`;
         const cached = await redis.get(cacheKey);
         if (cached) {
             res.json(JSON.parse(cached));
@@ -2834,7 +2985,30 @@ router.get(
             }
         }
 
+        // For real acquisition/return metrics, find each observed device's first-ever session in the selected projects.
+        const observedDeviceIds = Array.from(deviceFirstSession.keys());
+        const firstSeenByDevice = new Map<string, Date>();
+        if (observedDeviceIds.length > 0) {
+            const firstSeenRows = await db
+                .select({
+                    deviceId: sessions.deviceId,
+                    firstSeenAt: sql<Date>`min(${sessions.startedAt})`,
+                })
+                .from(sessions)
+                .where(and(
+                    inArray(sessions.projectId, projectIds),
+                    inArray(sessions.deviceId, observedDeviceIds),
+                ))
+                .groupBy(sessions.deviceId);
+
+            for (const row of firstSeenRows) {
+                if (!row.deviceId || !row.firstSeenAt) continue;
+                firstSeenByDevice.set(row.deviceId, new Date(row.firstSeenAt));
+            }
+        }
+
         const firstSessionIds = new Set(Array.from(deviceFirstSession.values()).map(d => d.id));
+        const sessionsPerDeviceInWindow = new Map<string, number>();
 
         // First session stats
         const firstSessionStats = { total: 0, clean: 0, withCrash: 0, withAnr: 0, withRageTaps: 0, withSlowApi: 0 };
@@ -2849,6 +3023,9 @@ router.get(
             const isFirstSession = firstSessionIds.has(s.id);
             const screens = s.screensVisited || [];
             const firstScreen = screens[0] || 'Unknown';
+            if (s.deviceId) {
+                sessionsPerDeviceInWindow.set(s.deviceId, (sessionsPerDeviceInWindow.get(s.deviceId) || 0) + 1);
+            }
 
             // Date for daily tracking
             const dateKey = s.startedAt.toISOString().split('T')[0];
@@ -2926,6 +3103,24 @@ router.get(
             ? Math.round((firstSessionStats.clean / firstSessionStats.total) * 100)
             : 0;
 
+        const activeUsers = sessionsPerDeviceInWindow.size;
+        let acquiredUsers = 0;
+        let returnedUsers = 0;
+
+        for (const [deviceId, sessionCount] of sessionsPerDeviceInWindow.entries()) {
+            const firstSeenAt = firstSeenByDevice.get(deviceId);
+            const isNewInWindow = startedAfter
+                ? Boolean(firstSeenAt && firstSeenAt >= startedAfter)
+                : true;
+
+            if (!isNewInWindow) continue;
+            acquiredUsers++;
+            if (sessionCount >= 2) returnedUsers++;
+        }
+
+        const acquisitionRate = toPercent(acquiredUsers, activeUsers, 1);
+        const returnRate = toPercent(returnedUsers, acquiredUsers, 1);
+
         // Build growth killers list
         const totalSessions = sessionsWithMetrics.length;
         const growthKillers = Object.entries(killerCounts)
@@ -2954,6 +3149,13 @@ router.get(
             sessionHealth,
             firstSessionSuccessRate,
             firstSessionStats,
+            newUserGrowth: {
+                acquiredUsers,
+                activeUsers,
+                acquisitionRate,
+                returnedUsers,
+                returnRate,
+            },
             growthKillers,
             dailyHealth: dailyHealthArray,
         };

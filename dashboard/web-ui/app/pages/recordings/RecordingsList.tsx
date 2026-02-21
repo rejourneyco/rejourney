@@ -38,6 +38,7 @@ import { useDemoMode } from '../../context/DemoModeContext';
 import { useSessionData } from '../../context/SessionContext';
 import { useSafeTeam } from '../../context/TeamContext';
 import { PromotionLogicGraphic } from '../../components/recordings/PromotionLogicGraphic';
+import { formatGeoDisplay } from '../../utils/geoDisplay';
 
 const ROWS_PER_PAGE = 50;
 
@@ -428,6 +429,7 @@ export const RecordingsList: React.FC = () => {
               <div className="w-8 flex-shrink-0"></div>
               <div className="flex-1 min-w-0 px-2 outline outline-2 outline-transparent">User & Device</div>
               <div className="hidden lg:block w-32 px-2"><SortableHeader label="Date" sortKey="date" /></div>
+              <div className="hidden lg:block w-40 px-2">Location</div>
               <div className="hidden md:block w-24 text-right px-2"><SortableHeader label="Duration" sortKey="duration" align="right" /></div>
               <div className="hidden lg:block w-24 text-right px-2"><SortableHeader label="Screens" sortKey="screens" align="right" /></div>
 
@@ -479,6 +481,7 @@ export const RecordingsList: React.FC = () => {
             const durationMinutes = session.durationSeconds / 60;
             const hasLowExp = session.replayPromotedReason === 'failed_funnel';
             const hasDeadTaps = ((session as any).deadTapCount || 0) > 0;
+            const geoDisplay = formatGeoDisplay((session as any).geoLocation);
 
             const isProcessing = session.durationSeconds === 0;
 
@@ -533,6 +536,19 @@ export const RecordingsList: React.FC = () => {
                   <div className="hidden lg:block w-32 px-2">
                     <div className="text-xs font-bold text-black">{new Date(session.startedAt).toLocaleDateString()}</div>
                     <div className="text-[10px] text-slate-500 font-mono font-bold">{new Date(session.startedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>
+                  </div>
+
+                  {/* Location */}
+                  <div className="hidden lg:block w-40 px-2">
+                    <div className={`leading-tight ${isProcessing ? 'opacity-50' : ''}`}>
+                      <div className={`flex items-center gap-1.5 text-xs font-bold ${geoDisplay.hasLocation ? 'text-black' : 'text-slate-400'}`}>
+                        <span className="text-sm leading-none">{geoDisplay.flagEmoji}</span>
+                        <span className="truncate">{geoDisplay.countryLabel || 'Unknown'}</span>
+                      </div>
+                      <div className="pl-5 text-[10px] font-bold text-slate-500 truncate">
+                        {geoDisplay.cityLabel || (geoDisplay.hasLocation ? 'City Unknown' : 'Unknown location')}
+                      </div>
+                    </div>
                   </div>
 
                   {/* Duration */}
@@ -642,6 +658,12 @@ export const RecordingsList: React.FC = () => {
                           <div className="flex justify-between items-center pb-1">
                             <span className="text-slate-600 font-bold text-xs uppercase">OS Version</span>
                             <span className="font-bold text-black text-xs">{session.osVersion || 'Unknown'}</span>
+                          </div>
+                          <div className="flex justify-between items-center pb-1 gap-2">
+                            <span className="text-slate-600 font-bold text-xs uppercase">Location</span>
+                            <span className="font-bold text-black text-xs truncate max-w-[140px] text-right">
+                              {geoDisplay.flagEmoji} {geoDisplay.fullLabel}
+                            </span>
                           </div>
                         </div>
 

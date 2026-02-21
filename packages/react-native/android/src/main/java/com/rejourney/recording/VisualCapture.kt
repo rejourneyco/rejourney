@@ -170,6 +170,10 @@ class VisualCapture private constructor(private val context: Context) {
         redactionMask.remove(view)
     }
     
+    fun invalidateMaskCache() {
+        redactionMask.invalidateCache()
+    }
+    
     fun configure(snapshotInterval: Double, jpegQuality: Double) {
         this.snapshotInterval = snapshotInterval
         this.quality = jpegQuality.toFloat()
@@ -241,7 +245,7 @@ class VisualCapture private constructor(private val context: Context) {
             
             if (bounds.width() <= 0 || bounds.height() <= 0) return
             
-            val redactRects = redactionMask.computeRects()
+            val redactRects = redactionMask.computeRects(decorView)
             
             val screenScale = 1.25f
             val scaledWidth = (bounds.width() / screenScale).toInt()
@@ -530,6 +534,10 @@ private class CaptureStateMachine {
 private class RedactionMask {
     private val views = CopyOnWriteArrayList<WeakReference<View>>()
     
+    private val cachedAutoRects = mutableListOf<Rect>()
+    private var lastScanTime = 0L
+    private val scanCacheDurationMs = 500L
+    
     fun add(view: View) {
         views.add(WeakReference(view))
     }
@@ -538,29 +546,81 @@ private class RedactionMask {
         views.removeIf { it.get() === view || it.get() == null }
     }
     
-    fun computeRects(): List<Rect> {
+    fun invalidateCache() {
+        lastScanTime = 0L
+    }
+    
+    fun computeRects(decorView: View? = null): List<Rect> {
         val rects = mutableListOf<Rect>()
         views.removeIf { it.get() == null }
         
         for (ref in views) {
             val view = ref.get() ?: continue
-            if (!view.isShown) continue
-            
-            val location = IntArray(2)
-            view.getLocationOnScreen(location)
-            
-            val rect = Rect(
-                location[0],
-                location[1],
-                location[0] + view.width,
-                location[1] + view.height
-            )
-            
-            if (rect.width() > 0 && rect.height() > 0) {
-                rects.add(rect)
+            val rect = getViewRect(view)
+            if (rect != null) rects.add(rect)
+        }
+        
+        if (decorView != null) {
+            val now = SystemClock.elapsedRealtime()
+            if (now - lastScanTime >= scanCacheDurationMs) {
+                cachedAutoRects.clear()
+                scanForSensitiveViews(decorView, cachedAutoRects)
+                lastScanTime = now
             }
+            rects.addAll(cachedAutoRects)
         }
         
         return rects
+    }
+    
+    private fun getViewRect(view: View): Rect? {
+        if (!view.isShown || view.width <= 0 || view.height <= 0) return null
+        val location = IntArray(2)
+        view.getLocationOnScreen(location)
+        val rect = Rect(
+            location[0],
+            location[1],
+            location[0] + view.width,
+            location[1] + view.height
+        )
+        if (rect.width() > 0 && rect.height() > 0) return rect
+        return null
+    }
+
+    private fun scanForSensitiveViews(view: View, rects: MutableList<Rect>, depth: Int = 0) {
+        if (depth > 20) return
+        if (!view.isShown || view.alpha <= 0.01f || view.width <= 0 || view.height <= 0) return
+        
+        if (shouldMask(view)) {
+            val rect = getViewRect(view)
+            if (rect != null) {
+                rects.add(rect)
+                return
+            }
+        }
+        
+        if (view is ViewGroup) {
+            for (i in 0 until view.childCount) {
+                scanForSensitiveViews(view.getChildAt(i), rects, depth + 1)
+            }
+        }
+    }
+
+    private fun shouldMask(view: View): Boolean {
+        if (view.contentDescription?.toString() == "rejourney_occlude") return true
+        
+        try {
+            val hint = view.getTag(com.facebook.react.R.id.accessibility_hint) as? String
+            if (hint == "rejourney_occlude") return true
+        } catch (_: Exception) { }
+        
+        if (view is EditText) return true
+        
+        val className = view.javaClass.simpleName.lowercase(java.util.Locale.US)
+        if (className.contains("camera") || (className.contains("surfaceview") && className.contains("preview"))) {
+            return true
+        }
+        
+        return false
     }
 }

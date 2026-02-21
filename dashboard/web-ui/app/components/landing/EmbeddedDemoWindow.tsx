@@ -34,9 +34,9 @@ export const EmbeddedDemoWindow: React.FC = () => {
                     {/* Main Window */}
                     <div className="relative z-10 bg-white border-2 border-black shadow-[8px_8px_0px_0px_rgba(0,0,0,1)]">
                         {/* Title Bar */}
-                        <div className="flex items-center justify-between border-b-2 border-black bg-gray-50 px-3 sm:px-4 py-2 sm:py-3">
+                        <div className="flex flex-wrap items-center justify-between gap-2 border-b-2 border-black bg-gray-50 px-3 py-2 sm:px-4 sm:py-3">
                             {/* Traffic Lights */}
-                            <div className="flex items-center gap-3">
+                            <div className="flex min-w-0 items-center gap-3">
                                 <div className="flex gap-2">
                                     <div className="w-3 h-3 rounded-full border border-black bg-red-400 transition-transform hover:scale-110"></div>
                                     <div className="w-3 h-3 rounded-full border border-black bg-yellow-400 transition-transform hover:scale-110"></div>
@@ -44,15 +44,15 @@ export const EmbeddedDemoWindow: React.FC = () => {
                                 </div>
 
                                 {/* URL Bar */}
-                                <div className="hidden sm:flex items-center bg-white border border-gray-300 rounded px-3 py-1 ml-3">
-                                    <span className="text-xs sm:text-sm font-mono text-gray-600">
+                                <div className="ml-3 hidden min-w-0 items-center rounded border border-gray-300 bg-white px-3 py-1 md:flex">
+                                    <span className="truncate text-xs font-mono text-gray-600 sm:text-sm">
                                         rejourney.co/demo
                                     </span>
                                 </div>
                             </div>
 
                             {/* Actions */}
-                            <div className="flex items-center gap-2">
+                            <div className="flex w-full items-center justify-end gap-2 sm:w-auto">
                                 <Link
                                     to="/demo"
                                     target="_blank"

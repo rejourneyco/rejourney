@@ -494,6 +494,7 @@ class RejourneyModuleImpl(
                 state = SessionState.Idle
             }
             
+            
             // Android-specific: Stop SessionLifecycleService
             stopSessionLifecycleService()
 

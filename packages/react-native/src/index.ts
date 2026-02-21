@@ -635,6 +635,7 @@ const Rejourney: RejourneyAPI = {
           trackJSErrors: true,
           trackPromiseRejections: true,
           trackReactNativeErrors: true,
+          trackConsoleLogs: _storedConfig?.trackConsoleLogs ?? false,
           collectDeviceInfo: _storedConfig?.collectDeviceInfo !== false,
         },
         {
@@ -673,6 +674,11 @@ const Rejourney: RejourneyAPI = {
 
       if (_storedConfig?.autoTrackNetwork !== false) {
         try {
+          // JS-level fetch/XHR patching is the primary mechanism for capturing network
+          // calls within React Native. Native interceptors (RejourneyURLProtocol on iOS,
+          // RejourneyNetworkInterceptor on Android) are supplementary — they capture
+          // native-originated HTTP calls that bypass JS fetch(), but cannot intercept
+          // RN's own networking since it creates its NSURLSession/OkHttpClient at init time.
           const ignoreUrls: (string | RegExp)[] = [
             apiUrl,
             '/api/sdk/config',
@@ -1149,6 +1155,28 @@ const Rejourney: RejourneyAPI = {
         };
 
         getRejourneyNative()!.logEvent('network_request', networkEvent).catch(() => { });
+      },
+      undefined
+    );
+  },
+
+  /**
+   * Log customer feedback (e.g. from an in-app survey or NPS widget).
+   * 
+   * @param rating - Numeric rating (e.g. 1 to 5)
+   * @param message - Associated feedback text or comment
+   */
+  logFeedback(rating: number, message: string): void {
+    safeNativeCallSync(
+      'logFeedback',
+      () => {
+        const feedbackEvent = {
+          type: 'feedback',
+          timestamp: Date.now(),
+          rating,
+          message,
+        };
+        getRejourneyNative()!.logEvent('feedback', feedbackEvent).catch(() => { });
       },
       undefined
     );

@@ -162,6 +162,11 @@ public final class VisualCapture: NSObject {
         _redactionMask.remove(view)
     }
     
+    @objc public func invalidateMaskCache() {
+        _redactionMask.invalidateCache()
+    }
+
+    
     @objc public func configure(snapshotInterval: Double, jpegQuality: Double, captureScale: CGFloat = 1.25) {
         self.snapshotInterval = snapshotInterval
         self.quality = CGFloat(jpegQuality)
@@ -512,7 +517,28 @@ private final class RedactionMask {
     // sensitive views (text inputs, cameras) don't appear/disappear at 3fps.
     private var _cachedAutoRects: [CGRect] = []
     private var _lastScanTime: CFAbsoluteTime = 0
-    private let _scanCacheDurationSec: CFAbsoluteTime = 1.0
+    private let _scanCacheDurationSec: CFAbsoluteTime = 0.5
+    
+    private var _observers: [Any] = []
+    
+    init() {
+        _observers.append(NotificationCenter.default.addObserver(forName: UIResponder.keyboardWillShowNotification, object: nil, queue: nil) { [weak self] _ in self?.invalidateCache() })
+        _observers.append(NotificationCenter.default.addObserver(forName: UIResponder.keyboardWillHideNotification, object: nil, queue: nil) { [weak self] _ in self?.invalidateCache() })
+        _observers.append(NotificationCenter.default.addObserver(forName: UITextField.textDidChangeNotification, object: nil, queue: nil) { [weak self] _ in self?.invalidateCache() })
+        _observers.append(NotificationCenter.default.addObserver(forName: UITextView.textDidChangeNotification, object: nil, queue: nil) { [weak self] _ in self?.invalidateCache() })
+    }
+    
+    deinit {
+        for observer in _observers {
+            NotificationCenter.default.removeObserver(observer)
+        }
+    }
+    
+    func invalidateCache() {
+        _lock.lock()
+        _lastScanTime = 0
+        _lock.unlock()
+    }
     
     // View class names that should always be masked (privacy sensitive)
     private let _sensitiveClassNames: Set<String> = [
@@ -668,6 +694,10 @@ private final class RedactionMask {
     }
     
     private func _shouldMask(_ view: UIView) -> Bool {
+        if view.accessibilityHint == "rejourney_occlude" {
+            return true
+        }
+        
         // 1. Mask ALL text input fields by default (privacy first)
         // This includes password fields, instructions, notes, etc.
         if view is UITextField {

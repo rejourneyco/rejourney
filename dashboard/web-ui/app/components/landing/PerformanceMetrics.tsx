@@ -150,8 +150,8 @@ export const PerformanceMetrics: React.FC = () => {
                             <p className="text-[10px] font-mono text-gray-500 uppercase">iPhone 15 Pro; iOS 18; Expo SDK 54; RN New Architecture. Running on <a href="https://merchcampus.com" target="_blank" rel="noopener noreferrer" className="underline">Merch App</a>. Production build.</p>
                         </div>
 
-                        <div className="border-2 border-black bg-white overflow-hidden">
-                            <table className="w-full border-collapse">
+                        <div className="border-2 border-black bg-white overflow-x-auto">
+                            <table className="w-full min-w-[720px] border-collapse">
                                 <thead>
                                     <tr className="bg-black text-white">
                                         <th className="text-left py-3 px-4 text-[10px] font-black uppercase tracking-widest border-r-2 border-white">Metric</th>

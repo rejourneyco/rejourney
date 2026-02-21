@@ -136,6 +136,7 @@ import UIKit
     private func _typeName(_ v: UIView) -> String { String(describing: type(of: v)) }
     
     private func _isSensitive(_ v: UIView) -> Bool {
+        if v.accessibilityHint == "rejourney_occlude" { return true }
         if let tf = v as? UITextField, tf.isSecureTextEntry { return true }
         return false
     }

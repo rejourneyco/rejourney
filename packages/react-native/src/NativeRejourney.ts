@@ -154,9 +154,9 @@ export interface Spec extends TurboModule {
 
   setDebugMode(enabled: boolean): Promise<{ success: boolean }>;
 
-/**
-   * Set SDK version from JS (called during init with version from package.json)
-   */
+  /**
+     * Set SDK version from JS (called during init with version from package.json)
+     */
   setSDKVersion(version: string): void;
 
   /**

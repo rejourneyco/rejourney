@@ -70,11 +70,11 @@ RCT_EXPORT_MODULE()
 
 #pragma mark - Tap Event Emission (no-ops, dead tap detection is native-side)
 
-RCT_EXPORT_METHOD(addListener:(NSString *)eventName) {
+RCT_EXPORT_METHOD(addListener : (NSString *)eventName) {
   // No-op: dead tap detection is handled natively in TelemetryPipeline
 }
 
-RCT_EXPORT_METHOD(removeListeners:(double)count) {
+RCT_EXPORT_METHOD(removeListeners : (double)count) {
   // No-op: dead tap detection is handled natively in TelemetryPipeline
 }
 
@@ -312,12 +312,11 @@ RCT_EXPORT_METHOD(setDebugMode : (BOOL)enabled resolve : (
   [impl setDebugMode:enabled resolve:resolve reject:reject];
 }
 
-RCT_EXPORT_METHOD(setRemoteConfig : (BOOL)rejourneyEnabled 
-                  recordingEnabled : (BOOL)recordingEnabled 
-                  sampleRate : (double)sampleRate 
-                  maxRecordingMinutes : (double)maxRecordingMinutes 
-                  resolve : (RCTPromiseResolveBlock)resolve 
-                  reject : (RCTPromiseRejectBlock)reject) {
+RCT_EXPORT_METHOD(setRemoteConfig : (BOOL)rejourneyEnabled recordingEnabled : (
+    BOOL)recordingEnabled sampleRate : (double)
+                      sampleRate maxRecordingMinutes : (double)
+                          maxRecordingMinutes resolve : (RCTPromiseResolveBlock)
+                              resolve reject : (RCTPromiseRejectBlock)reject) {
   RejourneyImpl *impl = [self ensureImpl];
   if (!impl) {
     resolve(@{@"success" : @NO});

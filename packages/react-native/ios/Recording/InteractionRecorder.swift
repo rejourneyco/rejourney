@@ -101,6 +101,7 @@ public final class InteractionRecorder: NSObject {
         for touch in touches {
             switch touch.phase {
             case .began:
+                VisualCapture.shared.invalidateMaskCache()
                 SpecialCases.shared.notifyTouchBegan()
             case .ended, .cancelled:
                 SpecialCases.shared.notifyTouchEnded()
