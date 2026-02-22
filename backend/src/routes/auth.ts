@@ -691,7 +691,7 @@ router.get(
 
             // Redirect to dashboard
             const dashboardUrl = config.PUBLIC_DASHBOARD_URL || 'https://rejourney.co';
-            res.redirect(`${dashboardUrl}/dashboard/issues`);
+            res.redirect(`${dashboardUrl}/dashboard/general`);
 
         } catch (error) {
             const dashboardUrl = config.PUBLIC_DASHBOARD_URL || 'https://rejourney.co';

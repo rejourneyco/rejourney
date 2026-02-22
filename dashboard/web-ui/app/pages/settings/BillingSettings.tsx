@@ -380,7 +380,7 @@ export const BillingSettings: React.FC = () => {
               <Shield className="w-8 h-8 text-white" />
             </div>
             <div className="flex-1">
-              <h2 className="text-2xl font-black uppercase tracking-tight mb-2">Self-Hosted Enterprise</h2>
+              <h2 className="text-2xl font-semibold uppercase tracking-tight mb-2">Self-Hosted Enterprise</h2>
               <p className="text-sm font-bold text-emerald-800 mb-4">
                 Your instance is running in self-hosted mode with unlimited sessions.
               </p>
@@ -413,7 +413,7 @@ export const BillingSettings: React.FC = () => {
         <div className="p-4 bg-amber-50 border-4 border-amber-500 flex items-center gap-4 mb-6">
           <Info className="w-6 h-6 text-amber-600 shrink-0" />
           <div className="flex-1">
-            <div className="font-black text-amber-900 uppercase tracking-wide text-sm">Scheduled Plan Change</div>
+            <div className="font-semibold text-amber-900 uppercase tracking-wide text-sm">Scheduled Plan Change</div>
             <div className="text-sm font-bold text-amber-800">
               {teamPlan.cancelAtPeriodEnd 
                 ? 'Your subscription will be canceled at the end of your current billing period. You\'ll continue to have access to your current plan features until then.'
@@ -428,7 +428,7 @@ export const BillingSettings: React.FC = () => {
         <div className="p-4 bg-rose-50 border-4 border-rose-600 flex items-center gap-4 mb-6">
           <AlertTriangle className="w-6 h-6 text-rose-600 shrink-0" />
           <div className="flex-1">
-            <div className="font-black text-rose-900 uppercase tracking-wide text-sm">Error</div>
+            <div className="font-semibold text-rose-900 uppercase tracking-wide text-sm">Error</div>
             <div className="text-sm font-bold text-rose-700">{billingError}</div>
           </div>
           <button onClick={() => setBillingError(null)} className="text-rose-600 hover:text-rose-800">
@@ -444,9 +444,9 @@ export const BillingSettings: React.FC = () => {
           <div className="lg:col-span-2 space-y-4">
             <div className="flex items-center justify-between">
               <div>
-                <span className="text-[10px] font-black uppercase text-slate-500 tracking-widest">Sessions This Period</span>
+                <span className="text-[10px] font-semibold uppercase text-slate-500 tracking-widest">Sessions This Period</span>
                 <div className="flex items-baseline gap-2">
-                  <span className="text-4xl font-black text-slate-900 font-mono">
+                  <span className="text-4xl font-semibold text-slate-900 font-mono">
                     {(sessionUsage?.sessionsUsed ?? 0).toLocaleString()}
                   </span>
                   <span className="text-lg font-bold text-slate-500">
@@ -455,8 +455,8 @@ export const BillingSettings: React.FC = () => {
                 </div>
               </div>
               <div className="text-right">
-                <span className="text-[10px] font-black uppercase text-slate-500 tracking-widest">Period Ends</span>
-                <div className="text-lg font-black text-slate-900 font-mono">
+                <span className="text-[10px] font-semibold uppercase text-slate-500 tracking-widest">Period Ends</span>
+                <div className="text-lg font-semibold text-slate-900 font-mono">
                   {alertSettings ? new Date(alertSettings.billingCycleEndDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '---'}
                 </div>
               </div>
@@ -472,7 +472,7 @@ export const BillingSettings: React.FC = () => {
                 />
               </div>
               <div className="flex items-center justify-between">
-                <span className={`text-xs font-black uppercase ${isAtLimit ? 'text-rose-600' : isNearLimit ? 'text-amber-600' : 'text-emerald-600'}`}>
+                <span className={`text-xs font-semibold uppercase ${isAtLimit ? 'text-rose-600' : isNearLimit ? 'text-amber-600' : 'text-emerald-600'}`}>
                   {usagePercent}% used
                 </span>
                 <span className="text-xs font-bold text-slate-500">
@@ -485,7 +485,7 @@ export const BillingSettings: React.FC = () => {
             {isAtLimit && (
               <div className="flex items-center gap-3 p-3 bg-rose-100 border-2 border-rose-600">
                 <AlertOctagon className="w-5 h-5 text-rose-600" />
-                <span className="text-sm font-black text-rose-800">
+                <span className="text-sm font-semibold text-rose-800">
                   Session limit reached. Recording is paused until next billing cycle or upgrade.
                 </span>
               </div>
@@ -493,7 +493,7 @@ export const BillingSettings: React.FC = () => {
             {isNearLimit && !isAtLimit && (
               <div className="flex items-center gap-3 p-3 bg-amber-100 border-2 border-amber-500">
                 <AlertTriangle className="w-5 h-5 text-amber-600" />
-                <span className="text-sm font-black text-amber-800">
+                <span className="text-sm font-semibold text-amber-800">
                   Approaching limit. Consider upgrading to avoid recording interruption.
                 </span>
               </div>
@@ -502,8 +502,8 @@ export const BillingSettings: React.FC = () => {
 
           {/* Current Plan Summary */}
           <div className="bg-white/50 p-4 border-2 border-slate-900 flex flex-col justify-center items-center text-center">
-            <span className="text-[10px] font-black uppercase text-slate-500 tracking-widest mb-1">Current Plan</span>
-            <span className="text-3xl font-black text-slate-900 uppercase mb-2">
+            <span className="text-[10px] font-semibold uppercase text-slate-500 tracking-widest mb-1">Current Plan</span>
+            <span className="text-3xl font-semibold text-slate-900 uppercase mb-2">
               {teamPlan?.planName || 'Free'}
             </span>
             <span className="text-lg font-bold text-slate-600">
@@ -513,7 +513,7 @@ export const BillingSettings: React.FC = () => {
               <div className="mt-3 pt-3 border-t-2 border-amber-500 w-full">
                 <div className="flex items-center gap-2 justify-center mb-1">
                   <AlertTriangle className="w-4 h-4 text-amber-600" />
-                  <span className="text-[10px] font-black uppercase text-amber-600 tracking-widest">Scheduled Change</span>
+                  <span className="text-[10px] font-semibold uppercase text-amber-600 tracking-widest">Scheduled Change</span>
                 </div>
                 <span className="text-xs font-bold text-amber-800">
                   {teamPlan.cancelAtPeriodEnd 
@@ -530,9 +530,9 @@ export const BillingSettings: React.FC = () => {
       {/* Plan Selection */}
       <section className="space-y-4">
         <div className="flex items-center justify-between">
-          <h2 className="text-xl font-black uppercase tracking-tight">Choose Your Plan</h2>
+          <h2 className="text-xl font-semibold uppercase tracking-tight">Choose Your Plan</h2>
           <div className="text-xs font-bold text-slate-500">
-            Need more? <a href="mailto:sales@rejourney.co" className="text-slate-900 hover:underline font-black">Contact Sales</a>
+            Need more? <a href="mailto:sales@rejourney.co" className="text-slate-900 hover:underline font-semibold">Contact Sales</a>
           </div>
         </div>
 
@@ -571,12 +571,12 @@ export const BillingSettings: React.FC = () => {
 
                 <div className="pt-2 space-y-4">
                   <div>
-                    <h3 className="text-xl font-black uppercase tracking-tight">{plan.label}</h3>
+                    <h3 className="text-xl font-semibold uppercase tracking-tight">{plan.label}</h3>
                     <p className="text-xs font-bold text-slate-500 mt-1">{plan.description}</p>
                   </div>
 
                   <div>
-                    <span className="text-4xl font-black text-slate-900">
+                    <span className="text-4xl font-semibold text-slate-900">
                       {plan.price === 0 ? 'Free' : `$${plan.price}`}
                     </span>
                     {plan.price > 0 && <span className="text-sm font-bold text-slate-500">/mo</span>}
@@ -585,7 +585,7 @@ export const BillingSettings: React.FC = () => {
                   <div className="py-3 border-t border-slate-200">
                     <div className="flex items-center gap-2">
                       <div className="w-2 h-2 bg-slate-900" />
-                      <span className="text-sm font-black text-slate-900">
+                      <span className="text-sm font-semibold text-slate-900">
                         {plan.sessions.toLocaleString()} sessions
                       </span>
                     </div>
@@ -594,11 +594,11 @@ export const BillingSettings: React.FC = () => {
 
                   {isCurrentPlan ? (
                     <div className="py-3 text-center border-2 border-emerald-600 bg-emerald-100">
-                      <span className="text-sm font-black text-emerald-700 uppercase">Current Plan</span>
+                      <span className="text-sm font-semibold text-emerald-700 uppercase">Current Plan</span>
                     </div>
                   ) : isScheduledPlan ? (
                     <div className="py-3 text-center border-2 border-amber-500 bg-amber-100">
-                      <span className="text-sm font-black text-amber-700 uppercase">Already Scheduled</span>
+                      <span className="text-sm font-semibold text-amber-700 uppercase">Already Scheduled</span>
                     </div>
                   ) : isBillingAdmin ? (
                     <NeoButton
@@ -624,14 +624,14 @@ export const BillingSettings: React.FC = () => {
       {/* Payment Methods - Only show if user has a paid plan or payment methods */}
       {stripeStatus?.enabled && (teamPlan?.planName?.toLowerCase() !== 'free' || paymentMethods.length > 0) && (
         <section className="space-y-4">
-          <h2 className="text-xl font-black uppercase tracking-tight">Payment Method</h2>
+          <h2 className="text-xl font-semibold uppercase tracking-tight">Payment Method</h2>
 
           <NeoCard className="p-6">
             {stripeStatus.paymentFailed && (
               <div className="p-4 bg-rose-50 border-4 border-rose-600 flex items-center gap-4 mb-6">
                 <AlertOctagon className="w-8 h-8 text-rose-600" />
                 <div className="flex-1">
-                  <div className="font-black text-rose-900 uppercase tracking-wide">Payment Failed</div>
+                  <div className="font-semibold text-rose-900 uppercase tracking-wide">Payment Failed</div>
                   <div className="text-sm font-bold text-rose-700">Please update your payment method to continue recording.</div>
                 </div>
               </div>
@@ -646,7 +646,7 @@ export const BillingSettings: React.FC = () => {
                         <CreditCard className="w-6 h-6 text-slate-800" />
                       </div>
                       <div>
-                        <span className="font-mono font-black text-slate-900">
+                        <span className="font-mono font-semibold text-slate-900">
                           {pm.brand ? pm.brand.toUpperCase() : 'CARD'} •••• {pm.last4 || '****'}
                         </span>
                         <div className="text-xs font-bold text-slate-500">
@@ -694,7 +694,7 @@ export const BillingSettings: React.FC = () => {
                 <div className="w-16 h-16 bg-slate-100 border-2 border-slate-300 flex items-center justify-center mx-auto mb-4">
                   <CreditCard className="w-8 h-8 text-slate-400" />
                 </div>
-                <h3 className="text-lg font-black text-slate-900 uppercase mb-2">No Payment Method</h3>
+                <h3 className="text-lg font-semibold text-slate-900 uppercase mb-2">No Payment Method</h3>
                 <p className="text-sm font-bold text-slate-500 mb-4 max-w-md mx-auto">
                   Add a payment method to upgrade your plan. Recording pauses at your session limit.
                 </p>
@@ -717,14 +717,14 @@ export const BillingSettings: React.FC = () => {
 
       {/* Plan Change Confirmation Modal */}
       {planChangeModal.isOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50" onClick={handleCloseModal}>
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50" onClick={handleCloseModal}>
           <div
             className="bg-white border-4 border-slate-900 shadow-[8px_8px_0_0_#000] max-w-lg w-full max-h-[90vh] overflow-y-auto"
             onClick={(e) => e.stopPropagation()}
           >
             {/* Modal Header */}
             <div className="flex items-center justify-between p-4 border-b-4 border-slate-900 bg-slate-100">
-              <h2 className="text-xl font-black uppercase tracking-tight">
+              <h2 className="text-xl font-semibold uppercase tracking-tight">
                 {planChangeModal.isLoading ? 'Loading...' :
                   planChangeModal.preview?.changeType === 'new' ? 'Subscribe to Plan' :
                     planChangeModal.preview?.changeType === 'upgrade' ? 'Confirm Upgrade' :
@@ -752,7 +752,7 @@ export const BillingSettings: React.FC = () => {
                   <div className="flex items-center justify-center gap-4">
                     <div className="text-center p-4 bg-slate-100 border-2 border-slate-300 flex-1">
                       <div className="text-xs font-bold text-slate-500 uppercase mb-1">Current</div>
-                      <div className="text-lg font-black">
+                      <div className="text-lg font-semibold">
                         {planChangeModal.preview.currentPlan.displayName}
                       </div>
                       <div className="text-sm font-bold text-slate-600">
@@ -761,13 +761,13 @@ export const BillingSettings: React.FC = () => {
                           : `$${(planChangeModal.preview.currentPlan.priceCents / 100).toFixed(0)}/mo`}
                       </div>
                     </div>
-                    <div className="text-slate-400 font-black text-xl">→</div>
+                    <div className="text-slate-400 font-semibold text-xl">→</div>
                     <div className={`text-center p-4 border-2 flex-1 ${planChangeModal.preview.changeType === 'upgrade' || planChangeModal.preview.changeType === 'new'
                         ? 'bg-emerald-50 border-emerald-600'
                         : 'bg-amber-50 border-amber-600'
                       }`}>
                       <div className="text-xs font-bold text-slate-500 uppercase mb-1">New Plan</div>
-                      <div className="text-lg font-black">{planChangeModal.preview.newPlan.displayName}</div>
+                      <div className="text-lg font-semibold">{planChangeModal.preview.newPlan.displayName}</div>
                       <div className="text-sm font-bold text-slate-600">
                         {planChangeModal.preview.newPlan.priceCents === 0
                           ? 'Free'
@@ -784,7 +784,7 @@ export const BillingSettings: React.FC = () => {
                         <span className="line-through text-slate-400 mr-2">
                           {planChangeModal.preview.currentPlan.sessionLimit.toLocaleString()}
                         </span>
-                        <span className={`font-black ${planChangeModal.preview.changeType === 'upgrade' || planChangeModal.preview.changeType === 'new'
+                        <span className={`font-semibold ${planChangeModal.preview.changeType === 'upgrade' || planChangeModal.preview.changeType === 'new'
                             ? 'text-emerald-600'
                             : 'text-amber-600'
                           }`}>
@@ -798,7 +798,7 @@ export const BillingSettings: React.FC = () => {
                   {/* Payment Method Warning */}
                   {planChangeModal.preview.requiresPaymentMethod && !planChangeModal.preview.hasPaymentMethod && (
                     <div className="p-4 bg-slate-100 border-2 border-slate-300">
-                      <div className="font-black text-slate-900 mb-2">Payment Method Required</div>
+                      <div className="font-semibold text-slate-900 mb-2">Payment Method Required</div>
                       <p className="text-sm text-slate-600 mb-3">
                         You must add a payment method before subscribing to a paid plan.
                       </p>
@@ -819,7 +819,7 @@ export const BillingSettings: React.FC = () => {
                   {planChangeModal.preview.warnings.length > 0 &&
                     !(planChangeModal.preview.requiresPaymentMethod && !planChangeModal.preview.hasPaymentMethod) && (
                       <div className="p-4 bg-slate-100 border-2 border-slate-300">
-                        <div className="font-black text-slate-900 mb-2">Important</div>
+                        <div className="font-semibold text-slate-900 mb-2">Important</div>
                         <ul className="text-sm text-slate-600 space-y-1">
                           {planChangeModal.preview.warnings.map((warning, i) => (
                             <li key={i}>{warning}</li>
@@ -831,12 +831,12 @@ export const BillingSettings: React.FC = () => {
                   {/* When change takes effect */}
                   {planChangeModal.preview.isImmediate ? (
                     <div className="p-3 bg-slate-100 border-2 border-slate-300 text-sm">
-                      <div className="font-black text-slate-900">Takes effect immediately</div>
+                      <div className="font-semibold text-slate-900">Takes effect immediately</div>
                       <p className="text-slate-600 mt-1">Your new session limit will be active right away.</p>
                     </div>
                   ) : (
                     <div className="p-3 bg-slate-100 border-2 border-slate-300 text-sm">
-                      <div className="font-black text-slate-900">Scheduled for end of billing period</div>
+                      <div className="font-semibold text-slate-900">Scheduled for end of billing period</div>
                       <p className="text-slate-600 mt-1">
                         Your downgrade will take effect on {new Date(planChangeModal.preview.effectiveDate).toLocaleDateString()}.
                       </p>

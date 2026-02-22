@@ -320,6 +320,15 @@ class TelemetryPipeline private constructor(private val context: Context) {
         ))
     }
     
+    fun recordConsoleLogEvent(level: String, message: String) {
+        enqueue(mapOf(
+            "type" to "log",
+            "timestamp" to ts(),
+            "level" to level,
+            "message" to message
+        ))
+    }
+    
     fun recordJSErrorEvent(name: String, message: String, stack: String?) {
         val event = mutableMapOf<String, Any>(
             "type" to "error",

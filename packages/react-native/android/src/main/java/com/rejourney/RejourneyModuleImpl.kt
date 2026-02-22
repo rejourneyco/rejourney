@@ -590,6 +590,17 @@ class RejourneyModuleImpl(
             return
         }
 
+        // Handle console log events - preserve type:"log" with level and message
+        // so the dashboard replay can display them in the console terminal
+        if (eventType == "log") {
+            val detailsMap = details.toHashMap()
+            val level = detailsMap["level"]?.toString() ?: "log"
+            val message = detailsMap["message"]?.toString() ?: ""
+            TelemetryPipeline.shared?.recordConsoleLogEvent(level, message)
+            promise.resolve(createResultMap(true))
+            return
+        }
+
         // All other events go through custom event recording
         val payload = try {
             val json = org.json.JSONObject(details.toHashMap()).toString()

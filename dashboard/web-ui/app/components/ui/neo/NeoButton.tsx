@@ -20,16 +20,16 @@ export const NeoButton: React.FC<NeoButtonProps> = ({
     disabled,
     ...props
 }) => {
-    // Neo-Brutalism: Sharp corners, thick borders, hard shadows
-    const baseStyles = "inline-flex items-center justify-center font-bold uppercase tracking-wide transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed border-2 border-black focus:outline-none focus:ring-2 focus:ring-black focus:ring-offset-2 rounded-lg";
+    // Softened UI: Thinner borders, softer shadows
+    const baseStyles = "inline-flex items-center justify-center font-bold uppercase tracking-wide transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed border border-transparent focus:outline-none focus:ring-2 focus:ring-slate-400 focus:ring-offset-2 rounded-lg";
 
     const variants = {
-        primary: "bg-black text-white hover:bg-slate-800 shadow-[2px_2px_0_0_rgba(0,0,0,1)] active:shadow-none active:translate-x-[2px] active:translate-y-[2px]",
-        secondary: "bg-white text-black hover:bg-slate-100 shadow-[2px_2px_0_0_rgba(0,0,0,1)] active:shadow-none active:translate-x-[2px] active:translate-y-[2px]",
-        danger: "bg-red-500 text-white hover:bg-red-600 shadow-[2px_2px_0_0_rgba(0,0,0,1)] active:shadow-none active:translate-x-[2px] active:translate-y-[2px]",
-        success: "bg-emerald-400 text-black hover:bg-emerald-500 shadow-[2px_2px_0_0_rgba(0,0,0,1)] active:shadow-none active:translate-x-[2px] active:translate-y-[2px]",
-        warning: "bg-yellow-400 text-black hover:bg-yellow-500 shadow-[2px_2px_0_0_rgba(0,0,0,1)] active:shadow-none active:translate-x-[2px] active:translate-y-[2px]",
-        ghost: "bg-transparent text-black border-transparent hover:bg-slate-100 hover:border-slate-200 shadow-none active:translate-x-[1px] active:translate-y-[1px]"
+        primary: "bg-slate-900 text-white hover:bg-slate-800 shadow-sm active:scale-95",
+        secondary: "bg-white text-slate-700 border-slate-200 hover:bg-slate-50 hover:border-slate-300 shadow-sm active:scale-95",
+        danger: "bg-rose-500 text-white hover:bg-rose-600 shadow-sm active:scale-95",
+        success: "bg-emerald-500 text-white hover:bg-emerald-600 shadow-sm active:scale-95",
+        warning: "bg-amber-400 text-slate-900 hover:bg-amber-500 shadow-sm active:scale-95",
+        ghost: "bg-transparent text-slate-700 hover:bg-slate-100 hover:text-slate-900 shadow-none active:scale-95"
     };
 
     const sizes = {

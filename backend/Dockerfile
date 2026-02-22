@@ -45,10 +45,6 @@ COPY packages/react-native/package.json packages/react-native/
 # Install production dependencies only (from root)
 RUN npm ci --omit=dev --ignore-scripts
 
-# Copy pre-downloaded GeoIP-lite database files (fallback path)
-# These files are committed to the repo or downloaded during CI/local development
-COPY node_modules/geoip-lite/data/ node_modules/geoip-lite/data/
-
 # Install drizzle-kit and tsx globally to ensure they are available for migrations
 RUN npm install -g drizzle-kit@beta drizzle-orm@beta tsx
 

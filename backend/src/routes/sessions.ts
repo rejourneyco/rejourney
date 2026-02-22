@@ -41,8 +41,8 @@ function getTimeRangeFilter(timeRange?: string): Date | undefined {
 }
 
 const DETAIL_FETCH_CONCURRENCY = Number(process.env.RJ_REPLAY_DETAIL_FETCH_CONCURRENCY ?? 6);
-const frameModeFromEnv = (process.env.RJ_REPLAY_FRAME_URL_MODE || 'signed').toLowerCase();
-const DEFAULT_FRAME_URL_MODE: ScreenshotFrameUrlMode = frameModeFromEnv === 'proxy' ? 'proxy' : 'signed';
+const frameModeFromEnv = (process.env.RJ_REPLAY_FRAME_URL_MODE || 'proxy').toLowerCase();
+const DEFAULT_FRAME_URL_MODE: ScreenshotFrameUrlMode = frameModeFromEnv === 'signed' ? 'signed' : 'proxy';
 
 function resolveFrameUrlMode(raw: unknown): ScreenshotFrameUrlMode {
     if (typeof raw !== 'string') return DEFAULT_FRAME_URL_MODE;

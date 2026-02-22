@@ -18,9 +18,9 @@ export const Card: React.FC<CardProps> = ({
   ...props
 }) => {
   const variantStyles = {
-    default: 'bg-white border border-slate-200 shadow-sm rounded-xl',
-    flat: 'bg-white border border-slate-300 rounded-xl',
-    subtle: 'bg-white border border-slate-200 shadow-sm rounded-xl',
+    default: 'dashboard-card-surface',
+    flat: 'dashboard-card-surface shadow-none',
+    subtle: 'dashboard-card-surface bg-slate-50 shadow-none',
   };
 
   const headerStyles = {

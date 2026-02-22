@@ -15,7 +15,6 @@ import {
     Clock, 
     Terminal, 
     Mail, 
-    LineChart, 
     Globe,
     AlertOctagon
 } from 'lucide-react';
@@ -42,10 +41,9 @@ export const Search: React.FC = () => {
     // Build searchable items dynamically based on current project
     const searchableItems: SearchableItem[] = useMemo(() => [
         // Monitor
-        { id: 'issues', title: 'Issues', path: '/issues', icon: MessageSquareWarning, description: 'Track and manage errors, crashes, and ANRs', section: 'Monitor', keywords: ['bugs', 'problems', 'exceptions'] },
+        { id: 'general', title: 'General', path: '/general', icon: MessageSquareWarning, description: 'Unified view of top issues, user replays, and behavior signals', section: 'Monitor', keywords: ['issues', 'problems', 'exceptions', 'overview'] },
         { id: 'sessions', title: 'Replays', path: '/sessions', icon: Database, description: 'Watch and inspect user replay sessions', section: 'Monitor', keywords: ['recordings', 'replays', 'videos', 'playback'] },
         { id: 'api', title: 'API Insights', path: '/analytics/api', icon: Activity, description: 'API reliability, latency, and replay-backed evidence', section: 'Analytics', keywords: ['latency', 'endpoints', 'requests', 'network', 'api'] },
-        { id: 'growth', title: 'Growth', path: '/analytics/growth', icon: LineChart, description: 'Growth metrics, retention cohorts, and user trends', section: 'Analytics', keywords: ['metrics', 'retention', 'dau', 'mau', 'users', 'analytics'] },
         { id: 'journeys', title: 'User Journeys', path: '/analytics/journeys', icon: MapIcon, description: 'User flows and navigation paths', section: 'Analytics', keywords: ['flows', 'navigation', 'screens', 'paths', 'funnels'] },
         { id: 'devices', title: 'Devices', path: '/analytics/devices', icon: Smartphone, description: 'Device models and OS version breakdown', section: 'Analytics', keywords: ['device', 'os', 'model', 'android', 'ios', 'version'] },
         { id: 'geo', title: 'Geographic', path: '/analytics/geo', icon: Globe, description: 'Regional value, engagement segments, and issue hotspots', section: 'Analytics', keywords: ['location', 'country', 'region', 'map', 'world'] },
@@ -107,7 +105,7 @@ export const Search: React.FC = () => {
     };
 
     return (
-        <div className="min-h-screen bg-slate-50/60 p-8">
+        <div className="min-h-screen p-8 bg-transparent">
             <div className="mx-auto max-w-5xl rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
             <div className="mb-8">
                 <h1 className="text-2xl font-semibold text-slate-900 mb-2">New Tab</h1>

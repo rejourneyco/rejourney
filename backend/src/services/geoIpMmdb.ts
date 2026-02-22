@@ -37,7 +37,7 @@ function logMmdbDisabled(reason: string, extra?: Record<string, unknown>): void 
         mmdbPath: MMDB_PATH,
         mmdbUrl: MMDB_URL,
         ...extra,
-    }, 'GeoIP MMDB disabled, falling back to geoip-lite');
+    }, 'GeoIP MMDB disabled');
 }
 
 async function hasUsableFile(filePath: string): Promise<boolean> {

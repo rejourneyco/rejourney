@@ -4,7 +4,6 @@ import {
     MessageSquareWarning,
     Database,
     Activity,
-    LineChart,
     Map,
     Smartphone,
     Globe,
@@ -19,8 +18,7 @@ import {
     User,
     Search as SearchIcon
 } from 'lucide-react';
-import { IssuesFeed } from '../pages/IssuesFeed';
-import { Growth } from '../pages/analytics/Growth';
+import { GeneralOverview } from '../pages/GeneralOverview';
 import { RecordingsList } from '../pages/recordings/RecordingsList';
 import { RecordingDetail } from '../pages/recordings/RecordingDetail';
 import { CrashDetail } from '../pages/crashes/CrashDetail';
@@ -61,7 +59,15 @@ const routes: Array<{
     Component: React.ComponentType<any>;
     getProps?: (params: Record<string, string>) => Record<string, any>;
 }> = [
-        { pattern: '/issues', getInfo: () => ({ id: 'issues', title: 'Issues', icon: MessageSquareWarning }), Component: IssuesFeed },
+        { pattern: '/general', getInfo: () => ({ id: 'general', title: 'General', icon: MessageSquareWarning }), Component: GeneralOverview },
+        {
+            pattern: '/general/:issueId',
+            getInfo: (p) => ({ id: `issue-${p.issueId}`, title: `Issue ${(p.issueId || '').substring(0, 8)}...`, icon: MessageSquareWarning }),
+            Component: IssueDetail,
+            getProps: (p) => ({ issueId: p.issueId })
+        },
+        // Legacy route aliases - keep compatibility for old saved tabs/bookmarks.
+        { pattern: '/issues', getInfo: () => ({ id: 'general', title: 'General', icon: MessageSquareWarning }), Component: GeneralOverview },
         {
             pattern: '/issues/:issueId',
             getInfo: (p) => ({ id: `issue-${p.issueId}`, title: `Issue ${(p.issueId || '').substring(0, 8)}...`, icon: MessageSquareWarning }),
@@ -70,7 +76,6 @@ const routes: Array<{
         },
         // Analytics routes
         { pattern: '/analytics/api', getInfo: () => ({ id: 'analytics-api', title: 'API Insights', icon: Activity }), Component: ApiAnalytics },
-        { pattern: '/analytics/growth', getInfo: () => ({ id: 'analytics-growth', title: 'Growth', icon: LineChart }), Component: Growth },
         { pattern: '/analytics/journeys', getInfo: () => ({ id: 'analytics-journeys', title: 'User Journeys', icon: Map }), Component: Journeys },
         { pattern: '/analytics/devices', getInfo: () => ({ id: 'analytics-devices', title: 'Devices', icon: Smartphone }), Component: Devices },
         { pattern: '/analytics/geo', getInfo: () => ({ id: 'analytics-geo', title: 'Geographic', icon: Globe }), Component: Geo },

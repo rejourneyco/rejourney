@@ -57,7 +57,7 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 function DashboardLayoutContent() {
     return (
         <ProjectLayout pathPrefix="/dashboard">
-            <div className="flex flex-col h-full min-h-0 bg-gray-50">
+            <div className="flex flex-col h-full min-h-0 bg-transparent">
                 <TabWorkspace>
                     <Outlet />
                 </TabWorkspace>

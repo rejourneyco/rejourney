@@ -18,12 +18,11 @@ export const NeoCard: React.FC<NeoCardProps> = ({
     disablePadding = false,
     ...props
 }) => {
-    // Neo-Brutalism: High contrast, hard edges
-    const baseStyles = "bg-white border border-slate-200 transition-all duration-200 rounded-2xl";
+    const baseStyles = "transition-all duration-200 rounded-xl";
     const variants = {
-        default: "shadow-sm hover:shadow-md",
-        flat: "shadow-none bg-white",
-        monitor: "p-6 relative bg-slate-900 shadow-[4px_4px_0_0_rgba(0,0,0,0.2)] border-black"
+        default: "dashboard-card-surface hover:shadow-sm",
+        flat: "dashboard-card-surface shadow-none bg-white",
+        monitor: "p-6 relative bg-slate-900 shadow-lg border border-slate-800"
     };
 
     if (variant === 'monitor') {
@@ -42,7 +41,7 @@ export const NeoCard: React.FC<NeoCardProps> = ({
     return (
         <div className={`${baseStyles} ${variants[variant]} ${disablePadding ? '' : 'p-6'} ${className}`} {...props}>
             {(title || action) && (
-                <div className="flex justify-between items-center mb-6 pb-4 border-b border-slate-100">
+                <div className="flex justify-between items-center mb-6 pb-4 border-b border-slate-100/80">
                     {title && (
                         <h3 className="text-lg font-semibold text-slate-900 tracking-tight">{title}</h3>
                     )}

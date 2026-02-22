@@ -62,7 +62,7 @@ export default function LoginPage() {
                 localStorage.removeItem('returnUrl');
                 navigate(returnUrl, { replace: true });
             } else {
-                navigate('/dashboard/issues', { replace: true });
+                navigate('/dashboard/general', { replace: true });
             }
         }
     }, [isAuthenticated, authLoading, navigate]);
@@ -178,7 +178,7 @@ export default function LoginPage() {
                     localStorage.removeItem('returnUrl');
                     navigate(returnUrl);
                 } else {
-                    navigate('/dashboard/issues');
+                    navigate('/dashboard/general');
                 }
             } else {
                 setError(authError || 'Invalid verification code');

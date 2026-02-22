@@ -385,6 +385,15 @@ class RejourneyImpl private constructor(private val context: Context) :
             return
         }
 
+        // Handle console log events - preserve type:"log" with level and message
+        // so the dashboard replay can display them in the console terminal
+        if (eventType == "log") {
+            val level = details?.get("level")?.toString() ?: "log"
+            val message = details?.get("message")?.toString() ?: ""
+            TelemetryPipeline.shared?.recordConsoleLogEvent(level, message)
+            return
+        }
+
         val payload = try {
             org.json.JSONObject(details ?: emptyMap<String, Any>()).toString()
         } catch (e: Exception) {

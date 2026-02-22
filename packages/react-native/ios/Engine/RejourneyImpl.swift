@@ -476,6 +476,16 @@ public final class RejourneyImpl: NSObject {
             return
         }
         
+        // Handle console log events - preserve type:"log" with level and message
+        // so the dashboard replay can display them in the console terminal
+        if eventType == "log" {
+            let level = details["level"] as? String ?? "log"
+            let message = details["message"] as? String ?? ""
+            TelemetryPipeline.shared.recordConsoleLogEvent(level: level, message: message)
+            resolve(["success": true])
+            return
+        }
+        
         // All other events go through custom event recording
         var payload = "{}"
         if let data = try? JSONSerialization.data(withJSONObject: details),

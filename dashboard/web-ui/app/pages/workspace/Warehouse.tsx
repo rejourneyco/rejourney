@@ -372,7 +372,7 @@ const WarehouseContent: React.FC = () => {
       }
 
       setSelectedProject(toProjectModel(normalizedProject));
-      navigate(`${pathPrefix}/issues`);
+      navigate(`${pathPrefix}/general`);
     },
     [teams, currentTeam?.id, setCurrentTeam, setSelectedProject, navigate, pathPrefix],
   );
@@ -567,7 +567,7 @@ const WarehouseContent: React.FC = () => {
                 navigate(-1);
                 return;
               }
-              navigate(`${pathPrefix}/issues`);
+              navigate(`${pathPrefix}/general`);
             }}
             className="inline-flex h-8 w-8 items-center justify-center rounded-full text-slate-500 hover:bg-white hover:text-slate-900"
             title="Back"
@@ -576,7 +576,7 @@ const WarehouseContent: React.FC = () => {
           </button>
           <div className="h-4 w-[1px] bg-slate-200/60" />
           <button
-            onClick={() => navigate(`${pathPrefix}/issues`)}
+            onClick={() => navigate(`${pathPrefix}/general`)}
             className="inline-flex h-8 w-8 items-center justify-center rounded-full text-slate-500 hover:bg-white hover:text-slate-900"
             title="Home"
           >

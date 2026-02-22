@@ -1,7 +1,6 @@
 import { eq, sql } from 'drizzle-orm';
 import { db, sessions, sessionMetrics, deviceUsage, projects, teams } from '../db/client.js';
 import { logger } from '../logger.js';
-import geoip from 'geoip-lite';
 import { lookupGeoIpFromMmdb } from './geoIpMmdb.js';
 
 /**
@@ -57,7 +56,7 @@ export async function updateDeviceUsage(
 }
 
 /**
- * GeoIP lookup using local MMDB (preferred) with geoip-lite fallback.
+ * GeoIP lookup using local MMDB.
  */
 export async function lookupGeoIp(sessionId: string, ip: string): Promise<void> {
     if (!ip) return;
@@ -116,30 +115,7 @@ export async function lookupGeoIp(sessionId: string, ip: string): Promise<void> 
             return;
         }
 
-        const geo = geoip.lookup(normalizedIp);
-
-        if (!geo) {
-            logger.info({ sessionId, ip }, 'GeoIP lookup returned null (likely local/private IP)');
-            return;
-        }
-
-        // Normalize country codes for disputed/miscategorized regions
-        // West Bank users are often miscategorized
-        const countryCode = geo.country === 'IL' ? 'PS/IL' : geo.country;
-
-        await db.update(sessions)
-            .set({
-                geoCity: geo.city || null,
-                geoRegion: geo.region || null,
-                geoCountry: countryCode || null,
-                geoCountryCode: countryCode || null,
-                geoLatitude: geo.ll ? geo.ll[0] : null,
-                geoLongitude: geo.ll ? geo.ll[1] : null,
-                geoTimezone: geo.timezone || null,
-            })
-            .where(eq(sessions.id, sessionId));
-
-        logger.debug({ sessionId, ip, city: geo.city, country: countryCode, source: 'geoip-lite' }, 'GeoIP lookup succeeded');
+        logger.info({ sessionId, ip: normalizedIp }, 'GeoIP MMDB lookup returned null');
     } catch (error) {
         logger.warn({ error, sessionId, ip }, 'GeoIP lookup failed');
     }

@@ -104,7 +104,7 @@ export interface RejourneyConfig {
   networkCaptureSizes?: boolean;
   /** 
    * Automatically intercept console.log, console.warn, and console.error and include them in session recordings.
-   * Useful for debugging sessions. (default: false)
+   * Useful for debugging sessions. Capped at 1,000 logs per session. (default: true)
    */
   trackConsoleLogs?: boolean;
 }

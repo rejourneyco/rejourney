@@ -1570,13 +1570,12 @@ export interface FrictionHeatmap {
     errors: number;
     exitRate: number;
     frictionScore: number;
-    // New actionable friction metrics
+    // Quantitative friction metrics
     impactScore?: number;
     rageTapRatePer100?: number;
     errorRatePer100?: number;
     estimatedAffectedSessions?: number;
     primarySignal?: 'rage_taps' | 'errors' | 'exits' | 'mixed';
-    recommendedAction?: string;
     confidence?: 'high' | 'medium' | 'low';
     sessionIds: string[];
     screenshotUrl: string | null;
@@ -1667,7 +1666,7 @@ export async function getIssues(projectId: string, timeRange: string = '30d', se
   if (searchQuery) params.set('search', searchQuery);
   if (issueType) params.set('type', issueType);
 
-  return fetchJson<{ issues: Issue[], stats: any, total: number }>(`/api/issues?${params.toString()}`);
+  return fetchJson<{ issues: Issue[], stats: any, total: number }>(`/api/general?${params.toString()}`);
 }
 
 /**
@@ -1715,7 +1714,7 @@ export async function getIssue(issueId: string): Promise<IssueDetail> {
     } as IssueDetail;
   }
 
-  return fetchJson<IssueDetail>(`/api/issues/${issueId}`);
+  return fetchJson<IssueDetail>(`/api/general/${issueId}`);
 }
 
 /**
@@ -1726,7 +1725,7 @@ export async function getIssueSessions(issueId: string, limit: number = 6): Prom
     return { sessions: demoApiData.demoIssueSessions };
   }
 
-  return fetchJson<{ sessions: IssueSession[] }>(`/api/issues/${issueId}/sessions?limit=${limit}`);
+  return fetchJson<{ sessions: IssueSession[] }>(`/api/general/${issueId}/sessions?limit=${limit}`);
 }
 
 /**
@@ -1735,7 +1734,7 @@ export async function getIssueSessions(issueId: string, limit: number = 6): Prom
 export async function syncIssues(projectId: string): Promise<void> {
   if (isDemoMode()) return;
 
-  await fetchJson<void>(`/api/issues/sync?projectId=${projectId}`, { method: 'POST' });
+  await fetchJson<void>(`/api/general/sync?projectId=${projectId}`, { method: 'POST' });
 }
 
 /**
@@ -1747,7 +1746,7 @@ export async function updateIssue(issueId: string, updates: { status?: 'unresolv
     return {} as Issue;
   }
 
-  return fetchJson<Issue>(`/api/issues/${issueId}`, {
+  return fetchJson<Issue>(`/api/general/${issueId}`, {
     method: 'PATCH',
     body: JSON.stringify(updates),
   });
@@ -2361,6 +2360,7 @@ export interface ObservabilityJourneySummary {
     anrCount: number;
     health: 'healthy' | 'degraded' | 'problematic';
     replayCount: number;
+    sampleSessionIds?: string[];
   }>;
   problematicJourneys: Array<{
     path: string[];

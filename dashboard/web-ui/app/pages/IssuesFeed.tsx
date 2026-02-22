@@ -1,995 +1,826 @@
-import React, { useState, useMemo, useEffect, useCallback } from 'react';
-import { useSearchParams, useNavigate, Link } from 'react-router';
-import { useSessionData } from '../context/SessionContext';
-import { useDemoMode } from '../context/DemoModeContext';
-import { usePathPrefix } from '../hooks/usePathPrefix';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { Link, useSearchParams } from 'react-router';
 import {
-  Search,
-  CheckCircle,
-  Key,
-  RefreshCw,
-  ChevronDown,
-  ChevronUp,
-  ChevronRight,
-  Play,
-  ExternalLink,
-  AlertTriangle,
-  Copy,
-  ClipboardCheck,
-  Loader,
-  Plus,
   Activity,
-  Check,
+  AlertTriangle,
+  BarChart3,
+  CircleAlert,
+  RefreshCw,
+  Sparkles,
+  Users,
 } from 'lucide-react';
-import { TimeRange, TimeFilter } from '../components/ui/TimeFilter';
+import { useSessionData } from '../context/SessionContext';
+import { usePathPrefix } from '../hooks/usePathPrefix';
+import { TimeFilter, TimeRange } from '../components/ui/TimeFilter';
+import { DashboardPageHeader } from '../components/ui/DashboardPageHeader';
 import { NeoButton } from '../components/ui/neo/NeoButton';
 import { NeoCard } from '../components/ui/neo/NeoCard';
 import { NeoBadge } from '../components/ui/neo/NeoBadge';
-import { DashboardPageHeader } from '../components/ui/DashboardPageHeader';
-import { ModernPhoneFrame } from '../components/ui/ModernPhoneFrame';
-import { MiniSessionCard } from '../components/ui/MiniSessionCard';
-
+import { KpiCardItem, KpiCardsGrid, computePeriodDeltaFromSeries } from '../components/dashboard/KpiCardsGrid';
 import { api } from '../services/api';
-import * as demoApiData from '../data/demoApiData';
-import { API_BASE_URL } from '../config';
-import { Issue, IssueSession } from '../types';
+import { Issue, RecordingSession } from '../types';
 
-// Format relative time like "3min ago"
-function formatLastSeen(date: string): string {
-  const d = new Date(date);
-  const now = new Date();
-  const diffMs = now.getTime() - d.getTime();
-  const diffMins = Math.floor(diffMs / 60000);
-  const diffHours = Math.floor(diffMs / 3600000);
-  const diffDays = Math.floor(diffMs / 86400000);
+const DEFAULT_TIME_RANGE: TimeRange = '30d';
 
-  if (diffMins < 1) return 'now';
-  if (diffMins < 60) return `${diffMins}m ago`;
-  if (diffHours < 24) return `${diffHours}h ago`;
-  if (diffDays < 7) return `${diffDays}d ago`;
-  return `${Math.floor(diffDays / 7)}w ago`;
-}
+const ISSUE_TYPE_BADGE_VARIANT: Record<Issue['issueType'], 'neutral' | 'success' | 'warning' | 'danger' | 'info' | 'anr' | 'rage' | 'dead_tap' | 'slow_start' | 'slow_api' | 'low_exp'> = {
+  error: 'warning',
+  crash: 'danger',
+  anr: 'anr',
+  rage_tap: 'rage',
+  api_latency: 'slow_api',
+  ux_friction: 'low_exp',
+  performance: 'info',
+};
 
-// Format age like "3mo" or "2wk"
-function formatAge(date: string): string {
-  const d = new Date(date);
-  const now = new Date();
-  const diffMs = now.getTime() - d.getTime();
-  const diffDays = Math.floor(diffMs / 86400000);
+const ISSUE_TYPE_COLOR: Record<Issue['issueType'], string> = {
+  error: '#f59e0b',
+  crash: '#ef4444',
+  anr: '#8b5cf6',
+  rage_tap: '#ec4899',
+  api_latency: '#6366f1',
+  ux_friction: '#f97316',
+  performance: '#06b6d4',
+};
 
-  if (diffDays < 1) return '<1d';
-  if (diffDays < 7) return `${diffDays}d`;
-  if (diffDays < 30) return `${Math.floor(diffDays / 7)}wk`;
-  if (diffDays < 365) return `${Math.floor(diffDays / 30)}mo`;
-  return `${Math.floor(diffDays / 365)}y`;
-}
-
-const SPARKLINE_POINTS_BY_RANGE: Record<TimeRange, number> = {
+const TIMELINE_POINTS_BY_RANGE: Record<TimeRange, number> = {
   '24h': 14,
   '7d': 14,
   '30d': 30,
-  '90d': 90,
-  'all': 90,
+  '90d': 45,
+  all: 60,
 };
 
-const ONE_DAY_MS = 24 * 60 * 60 * 1000;
+interface UserReplayBucket {
+  key: string;
+  label: string;
+  issueSignals: number;
+  replayCount: number;
+  totalDurationSeconds: number;
+  latestStartedAt: string;
+  sessions: RecordingSession[];
+}
 
-const toUtcDayStart = (date: Date): Date =>
-  new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+function isValidTimeRange(value: string | null): value is TimeRange {
+  return value === '24h' || value === '7d' || value === '30d' || value === '90d' || value === 'all';
+}
 
-const toUtcDateKey = (date: Date): string =>
-  date.toISOString().slice(0, 10);
+function compactNumber(value: number): string {
+  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`;
+  if (value >= 1_000) return `${(value / 1_000).toFixed(1)}k`;
+  return value.toString();
+}
 
-const parseDailyCount = (value: unknown): number => {
-  const parsed = typeof value === 'number' ? value : Number(value);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
-};
+function formatDuration(seconds: number): string {
+  if (!Number.isFinite(seconds) || seconds <= 0) return '0m';
+  if (seconds < 60) return `${Math.round(seconds)}s`;
+  if (seconds < 3600) return `${Math.round(seconds / 60)}m`;
+  return `${(seconds / 3600).toFixed(1)}h`;
+}
 
-const buildSparklineSeries = (
-  data: Record<string, number> | undefined,
-  timeRange: TimeRange,
-): { series: number[]; start: Date; end: Date } => {
-  const pointCount = SPARKLINE_POINTS_BY_RANGE[timeRange] ?? 30;
-  const today = toUtcDayStart(new Date());
-  const start = new Date(today.getTime() - (pointCount - 1) * ONE_DAY_MS);
+function formatLastSeen(dateIso: string): string {
+  const ts = new Date(dateIso).getTime();
+  if (Number.isNaN(ts)) return 'unknown';
+  const diffMs = Date.now() - ts;
+  const mins = Math.floor(diffMs / 60000);
+  const hours = Math.floor(diffMs / 3600000);
+  const days = Math.floor(diffMs / 86400000);
 
-  const counts = new Map<string, number>();
-  if (data) {
-    for (const [date, rawCount] of Object.entries(data)) {
-      if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) continue;
-      const count = parseDailyCount(rawCount);
-      if (count > 0) counts.set(date, count);
+  if (mins < 1) return 'now';
+  if (mins < 60) return `${mins}m ago`;
+  if (hours < 24) return `${hours}h ago`;
+  if (days < 7) return `${days}d ago`;
+  return `${Math.floor(days / 7)}w ago`;
+}
+
+function toDateKey(value: string): string | null {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  return date.toISOString().slice(0, 10);
+}
+
+function issueSignalsForSession(session: RecordingSession): number {
+  return (
+    (session.errorCount || 0)
+    + (session.crashCount || 0)
+    + (session.anrCount || 0)
+    + (session.rageTapCount || 0)
+  );
+}
+
+function sessionUserKey(session: RecordingSession): string {
+  if (session.userId) return `user:${session.userId}`;
+  if (session.anonymousId) return `anon:${session.anonymousId}`;
+  if (session.anonymousDisplayName) return `anon_name:${session.anonymousDisplayName}`;
+  if (session.deviceId) return `device:${session.deviceId}`;
+  return `session:${session.id}`;
+}
+
+function sessionUserLabel(session: RecordingSession): string {
+  if (session.userId) return session.userId;
+  if (session.anonymousDisplayName) return session.anonymousDisplayName;
+  if (session.anonymousId) return session.anonymousId;
+  if (session.deviceId) return `Device ${session.deviceId.slice(-6)}`;
+  return 'Anonymous user';
+}
+
+function aggregateIssueTimeline(issues: Issue[], timeRange: TimeRange): Array<{ date: string; value: number }> {
+  const totals = new Map<string, number>();
+
+  for (const issue of issues) {
+    if (!issue.dailyEvents) continue;
+    for (const [date, count] of Object.entries(issue.dailyEvents)) {
+      const parsedCount = typeof count === 'number' ? count : Number(count);
+      if (!Number.isFinite(parsedCount) || parsedCount <= 0) continue;
+      totals.set(date, (totals.get(date) || 0) + parsedCount);
     }
   }
 
-  const series: number[] = [];
-  for (let i = 0; i < pointCount; i++) {
-    const date = new Date(start.getTime() + i * ONE_DAY_MS);
-    series.push(counts.get(toUtcDateKey(date)) ?? 0);
-  }
+  const sorted = Array.from(totals.entries())
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([date, value]) => ({ date, value }));
 
-  return { series, start, end: today };
-};
+  return sorted.slice(-TIMELINE_POINTS_BY_RANGE[timeRange]);
+}
 
-// Sparkline component (kept local as it's simple)
-const Sparkline: React.FC<{
-  data?: Record<string, number>;
-  color?: string;
-  timeRange: TimeRange;
-  releaseMarkerDate?: string | null;
-  releaseLabel?: string | null;
-}> = ({
-  data,
-  color = '#6366f1',
-  timeRange,
-  releaseMarkerDate,
-  releaseLabel,
-}) => {
-    const { series: rawValues, start, end } = buildSparklineSeries(data, timeRange);
-    const values = rawValues.map((value) => Math.sqrt(value));
-    const max = Math.max(...values, 1);
-    const range = max;
-
-    const pointTuples = values.map((val, i) => {
-      const x = (i / Math.max(values.length - 1, 1)) * 100;
-      const normalizedY = val / range;
-      const y = 24 - (normalizedY * 20 + 2);
-      return { x, y };
+function buildIssueSparkline(dailyEvents?: Record<string, number>): number[] {
+  if (!dailyEvents) return [];
+  const values = Object.entries(dailyEvents)
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .slice(-14)
+    .map(([, raw]) => {
+      const value = typeof raw === 'number' ? raw : Number(raw);
+      return Number.isFinite(value) ? Math.max(0, value) : 0;
     });
 
-    const points = pointTuples.map((point) => `${point.x},${point.y}`).join(' ');
-    const firstX = pointTuples[0]?.x ?? 0;
-    const lastX = pointTuples[pointTuples.length - 1]?.x ?? 100;
-    const areaLine = pointTuples.map((point) => `${point.x},${point.y}`).join(' L');
-    const areaPath = `M${firstX},24 L${areaLine} L${lastX},24 Z`;
-    const hasSignal = rawValues.some((value) => value > 0);
+  return values;
+}
 
-    let releaseMarkerX: number | null = null;
-    let releaseMarkerHint: 'before' | 'after' | 'within' | null = null;
-    if (releaseMarkerDate) {
-      const parsed = new Date(releaseMarkerDate);
-      if (!Number.isNaN(parsed.getTime())) {
-        const markerDay = toUtcDayStart(parsed);
-        const markerIndex = Math.round((markerDay.getTime() - start.getTime()) / ONE_DAY_MS);
-        const clampedIndex = Math.max(0, Math.min(values.length - 1, markerIndex));
-        releaseMarkerX = (clampedIndex / Math.max(values.length - 1, 1)) * 100;
-        // Keep marker slightly inset so it doesn't get clipped at chart edges.
-        releaseMarkerX = Math.max(1, Math.min(99, releaseMarkerX));
+const IssueSparkline: React.FC<{ dailyEvents?: Record<string, number>; color: string }> = ({ dailyEvents, color }) => {
+  const values = buildIssueSparkline(dailyEvents);
+  if (values.length === 0) {
+    return <div className="h-8 rounded-md border border-dashed border-slate-200 bg-slate-50" />;
+  }
 
-        if (markerDay < start) releaseMarkerHint = 'before';
-        else if (markerDay > end) releaseMarkerHint = 'after';
-        else releaseMarkerHint = 'within';
-      }
-    }
+  const max = Math.max(...values, 1);
+  return (
+    <div className="h-8 flex items-end gap-0.5">
+      {values.map((value, index) => (
+        <div
+          key={index}
+          title={`${value}`}
+          className="flex-1 rounded-sm"
+          style={{
+            height: `${Math.max(8, (value / max) * 100)}%`,
+            backgroundColor: color,
+            opacity: 0.9,
+          }}
+        />
+      ))}
+    </div>
+  );
+};
 
-    const releaseTag = releaseLabel?.trim() ? releaseLabel.trim() : null;
-    const releaseTagText = releaseTag && releaseTag.length > 10 ? `${releaseTag.slice(0, 9)}…` : releaseTag;
-    const releaseTagWidth = releaseTagText ? releaseTagText.length * 2.8 + 4 : 0;
-    const placeTagOnRight = releaseMarkerX !== null && releaseTagText
-      ? releaseMarkerX + releaseTagWidth + 1 <= 99
-      : true;
-    const releaseTagRectX = releaseMarkerX !== null
-      ? (placeTagOnRight ? releaseMarkerX + 1 : releaseMarkerX - releaseTagWidth - 1)
-      : 0;
-    const releaseTagTextX = releaseMarkerX !== null
-      ? (placeTagOnRight ? releaseMarkerX + 2.2 : releaseMarkerX - 2.2)
-      : 0;
-    const releaseTagAnchor: 'start' | 'end' = placeTagOnRight ? 'start' : 'end';
-
-    return (
-      <div className="h-8 w-24">
-        <svg width="100%" height="100%" viewBox="0 0 100 24" preserveAspectRatio="none" className="overflow-visible">
-          {releaseMarkerX !== null && (
-            <g>
-              <line
-                x1={releaseMarkerX}
-                y1={2}
-                x2={releaseMarkerX}
-                y2={22}
-                stroke="#0f172a"
-                strokeWidth="1.2"
-                strokeDasharray="2 2"
-                opacity={0.65}
-              />
-              <circle cx={releaseMarkerX} cy={3} r={1.3} fill="#0f172a" opacity={0.75} />
-              {releaseTagText && (
-                <>
-                  <rect
-                    x={releaseTagRectX}
-                    y={2}
-                    width={releaseTagWidth}
-                    height={5.8}
-                    rx={1}
-                    fill="#ffffff"
-                    fillOpacity={0.9}
-                    stroke="#0f172a"
-                    strokeWidth={0.35}
-                  />
-                  <text
-                    x={releaseTagTextX}
-                    y={6.3}
-                    textAnchor={releaseTagAnchor}
-                    fill="#0f172a"
-                    fontSize={3.8}
-                    fontWeight={700}
-                  >
-                    {releaseTagText}
-                  </text>
-                </>
-              )}
-              {releaseLabel && (
-                <title>
-                  {releaseMarkerHint === 'before'
-                    ? `${releaseLabel} released before selected window`
-                    : releaseMarkerHint === 'after'
-                      ? `${releaseLabel} released after selected window`
-                      : `${releaseLabel} first seen`}
-                </title>
-              )}
-            </g>
-          )}
-          <polyline
-            points={points}
-            fill="none"
-            stroke={color}
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            vectorEffect="non-scaling-stroke"
-            opacity={hasSignal ? 1 : 0.35}
-          />
-          <path
-            d={areaPath}
-            fill={color}
-            fillOpacity={hasSignal ? 0.1 : 0.04}
-            stroke="none"
-          />
-        </svg>
-      </div>
-    );
-  };
+const EmptyStateCard: React.FC<{ title: string; subtitle: string }> = ({ title, subtitle }) => (
+  <NeoCard className="border-dashed border-slate-300 bg-white">
+    <div className="py-8 text-center">
+      <p className="text-sm font-bold uppercase tracking-wide text-slate-700">{title}</p>
+      <p className="mt-2 text-xs text-slate-500">{subtitle}</p>
+    </div>
+  </NeoCard>
+);
 
 export const IssuesFeed: React.FC = () => {
-  const { selectedProject, projects, isLoading: projectsLoading } = useSessionData();
-  const { isDemoMode } = useDemoMode();
-  const [searchParams, setSearchParams] = useSearchParams();
-  const navigate = useNavigate();
+  const { selectedProject, isLoading: projectLoading } = useSessionData();
   const pathPrefix = usePathPrefix();
+  const [searchParams, setSearchParams] = useSearchParams();
 
-  // State
+  const timeRangeParam = searchParams.get('range');
+  const timeRange: TimeRange = isValidTimeRange(timeRangeParam) ? timeRangeParam : DEFAULT_TIME_RANGE;
+
   const [issues, setIssues] = useState<Issue[]>([]);
-  const [stats, setStats] = useState({ unresolved: 0, resolved: 0, ignored: 0 });
-  const [totalIssues, setTotalIssues] = useState(0);
-  const [isLoading, setIsLoading] = useState(true);
-  const [isSyncing, setIsSyncing] = useState(false);
+  const [sessions, setSessions] = useState<RecordingSession[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  // Expanded state and sessions for expanded issue
-  const [expandedId, setExpandedId] = useState<string | null>(null);
-  const [expandedSessions, setExpandedSessions] = useState<IssueSession[]>([]);
-  const [sessionsLoading, setSessionsLoading] = useState(false);
-  const [expandedIssueDetail, setExpandedIssueDetail] = useState<{ stackTrace?: string } | null>(null);
-  const [issueDetailLoading, setIssueDetailLoading] = useState(false);
-  const [copiedStackId, setCopiedStackId] = useState<string | null>(null);
+  const loadGeneral = useCallback(
+    async (mode: 'initial' | 'refresh' = 'initial') => {
+      if (!selectedProject?.id) {
+        setIssues([]);
+        setSessions([]);
+        setLoading(false);
+        return;
+      }
 
-  // Filters
-  const [searchQuery, setSearchQuery] = useState(searchParams.get('search') || '');
-  const [timeRange, setTimeRange] = useState<TimeRange>((searchParams.get('timeRange') as TimeRange) || '30d');
-  const [selectedType, setSelectedType] = useState<string | null>(searchParams.get('type') || null);
-  const [statusFilter, setStatusFilter] = useState<'all' | 'unresolved' | 'resolved'>(searchParams.get('status') as any || 'all');
-  const [sortBy, setSortBy] = useState<'newest' | 'oldest' | 'users' | 'events'>(searchParams.get('sort') as any || 'newest');
-  const [resolvingId, setResolvingId] = useState<string | null>(null);
-  // Track status overrides for optimistic UI updates
-  const [statusOverrides, setStatusOverrides] = useState<Record<string, Issue['status']>>({});
+      if (mode === 'refresh') {
+        setRefreshing(true);
+      } else {
+        setLoading(true);
+      }
+      setError(null);
 
-  const [copiedKey, setCopiedKey] = useState(false);
-
-  // Fetch sessions and issue detail when an issue is expanded
-  useEffect(() => {
-    if (!expandedId) {
-      setExpandedSessions([]);
-      setExpandedIssueDetail(null);
-      return;
-    }
-
-    const fetchData = async () => {
-      setSessionsLoading(true);
-      setIssueDetailLoading(true);
       try {
-        const [sessionsData, issueDetail] = await Promise.all([
-          api.getIssueSessions(expandedId, 6),
-          // Only fetch detail if it's a crash/error/anr type
-          (() => {
-            const issue = issues.find(i => i.id === expandedId);
-            if (issue && (issue.issueType === 'crash' || issue.issueType === 'error' || issue.issueType === 'anr')) {
-              return api.getIssue(expandedId).catch(() => null);
-            }
-            return Promise.resolve(null);
-          })()
+        const [issueData, replayData] = await Promise.allSettled([
+          api.getIssues(selectedProject.id, timeRange),
+          api.getSessionsPaginated({
+            projectId: selectedProject.id,
+            timeRange,
+            limit: 120,
+          }),
         ]);
-        setExpandedSessions(sessionsData.sessions || []);
-        if (issueDetail) {
-          setExpandedIssueDetail({ stackTrace: issueDetail.sampleStackTrace });
+
+        const failedSections: string[] = [];
+
+        if (issueData.status === 'fulfilled') {
+          setIssues(issueData.value.issues || []);
+        } else {
+          failedSections.push('issues');
+          setIssues([]);
+        }
+
+        if (replayData.status === 'fulfilled') {
+          setSessions((replayData.value.sessions || []) as RecordingSession[]);
+        } else {
+          failedSections.push('replays');
+          setSessions([]);
+        }
+
+        if (failedSections.length === 1) {
+          setError(`Loaded partial data. Failed to load ${failedSections[0]}.`);
+        } else if (failedSections.length > 1) {
+          setError('Failed to load issues and replay analytics.');
         }
       } catch (err) {
-        setExpandedSessions([]);
-        setExpandedIssueDetail(null);
+        console.error('Failed to load general dashboard data:', err);
+        setIssues([]);
+        setSessions([]);
+        setError(err instanceof Error ? err.message : 'Failed to load general analytics');
       } finally {
-        setSessionsLoading(false);
-        setIssueDetailLoading(false);
+        setLoading(false);
+        setRefreshing(false);
       }
-    };
+    },
+    [selectedProject?.id, timeRange],
+  );
 
-    fetchData();
-  }, [expandedId, issues]);
+  useEffect(() => {
+    if (projectLoading) return;
+    loadGeneral('initial');
+  }, [loadGeneral, projectLoading]);
 
-  const handleCopyKey = () => {
-    if (selectedProject?.publicKey) {
-      navigator.clipboard.writeText(selectedProject.publicKey);
-      setCopiedKey(true);
-      setTimeout(() => setCopiedKey(false), 2000);
+  const handleTimeRangeChange = (nextRange: TimeRange) => {
+    const nextParams = new URLSearchParams(searchParams);
+    if (nextRange === DEFAULT_TIME_RANGE) {
+      nextParams.delete('range');
+    } else {
+      nextParams.set('range', nextRange);
     }
+    setSearchParams(nextParams, { replace: true });
   };
 
-  const handleCopyStack = (issueId: string, stackTrace?: string) => {
-    if (stackTrace) {
-      navigator.clipboard.writeText(stackTrace);
-      setCopiedStackId(issueId);
-      setTimeout(() => setCopiedStackId(null), 2000);
-    }
-  };
-
-  const syncIssues = useCallback(async () => {
-    // Skip sync in demo mode
-    if (isDemoMode) return;
-    if (!selectedProject?.id) return;
-    setIsSyncing(true);
-    try {
-      await api.syncIssues(selectedProject.id);
-    } catch (err) {
-      console.error('Sync failed:', err);
-    } finally {
-      setIsSyncing(false);
-    }
-  }, [selectedProject?.id, isDemoMode]);
-
-  const fetchIssues = useCallback(async () => {
-    // Demo mode: use static demo data
-    if (isDemoMode) {
-      setIssues(demoApiData.demoIssuesResponse.issues);
-      setStats(demoApiData.demoIssuesResponse.stats);
-      setTotalIssues(demoApiData.demoIssuesResponse.total);
-      setIsLoading(false);
-      return;
-    }
-
-    if (!selectedProject?.id) return;
-    setIsLoading(true);
-    try {
-      const data = await api.getIssues(selectedProject.id, timeRange, searchQuery, selectedType || undefined);
-      setIssues(data.issues);
-      setStats(data.stats);
-      setTotalIssues(typeof data.total === 'number' ? data.total : data.issues.length);
-      // Do NOT auto-expand - let user click to expand
-    } catch (err) {
-      setIssues([]);
-    } finally {
-      setIsLoading(false);
-    }
-  }, [selectedProject?.id, timeRange, searchQuery, selectedType, isDemoMode]);
-
-  const typeCounts = useMemo(() => {
-    return issues.reduce(
-      (acc, issue) => {
-        acc[issue.issueType] = (acc[issue.issueType] ?? 0) + 1;
-        return acc;
-      },
-      {} as Record<Issue['issueType'], number>
-    );
+  const topIssues = useMemo(() => {
+    return [...issues]
+      .sort((a, b) => {
+        if (b.eventCount !== a.eventCount) return b.eventCount - a.eventCount;
+        return new Date(b.lastSeen).getTime() - new Date(a.lastSeen).getTime();
+      })
+      .slice(0, 8);
   }, [issues]);
 
-  useEffect(() => {
-    // In demo mode, fetch immediately without waiting for project
-    if (isDemoMode) {
-      fetchIssues();
-      return;
+  const issueTypeMix = useMemo(() => {
+    const counts = new Map<Issue['issueType'], number>();
+    for (const issue of issues) {
+      counts.set(issue.issueType, (counts.get(issue.issueType) || 0) + issue.eventCount);
     }
-    syncIssues().then(() => fetchIssues());
-  }, [selectedProject?.id, isDemoMode]);
 
-  useEffect(() => {
-    if (!isLoading) fetchIssues();
-  }, [timeRange, searchQuery, selectedType]);
+    return Array.from(counts.entries())
+      .map(([issueType, count]) => ({ issueType, count }))
+      .sort((a, b) => b.count - a.count);
+  }, [issues]);
 
-  useEffect(() => {
-    const params = new URLSearchParams();
-    if (searchQuery) params.set('search', searchQuery);
-    if (timeRange !== '30d') params.set('timeRange', timeRange);
-    if (selectedType) params.set('type', selectedType);
-    setSearchParams(params, { replace: true });
-  }, [searchQuery, timeRange, selectedType, setSearchParams]);
+  const totalIssueEvents = useMemo(() => issues.reduce((sum, issue) => sum + issue.eventCount, 0), [issues]);
 
-  const handleNavigate = (issue: Issue) => {
-    // Navigate to the issue detail page for error, crash, and ANR types
-    if (issue.issueType === 'anr' || issue.issueType === 'crash' || issue.issueType === 'error') {
-      navigate(`${pathPrefix}/issues/${issue.id}`);
-    } else {
-      // Other types (insights) don't have detail pages yet
-      navigate(`${pathPrefix}/issues`);
-    }
-  };
+  const totalSignalsAcrossReplays = useMemo(
+    () => sessions.reduce((sum, session) => sum + issueSignalsForSession(session), 0),
+    [sessions],
+  );
 
-  // Get effective status for an issue (with overrides applied)
-  const getEffectiveStatus = (issue: Issue): Issue['status'] => {
-    return statusOverrides[issue.id] ?? issue.status;
-  };
+  const replaysWithSignals = useMemo(
+    () => sessions.filter((session) => issueSignalsForSession(session) > 0),
+    [sessions],
+  );
 
-  // Toggle resolved/unresolved status with optimistic UI update
-  const handleResolveToggle = async (issue: Issue, e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (resolvingId) return; // Prevent double-clicks
+  const topUsersWithReplays = useMemo(() => {
+    const buckets = new Map<string, UserReplayBucket>();
 
-    const currentStatus = getEffectiveStatus(issue);
-    const newStatus: Issue['status'] = currentStatus === 'resolved' ? 'unresolved' : 'resolved';
+    for (const session of sessions) {
+      const key = sessionUserKey(session);
+      const existing = buckets.get(key);
+      const sessionSignals = issueSignalsForSession(session);
 
-    // Optimistic update - immediately update UI via override
-    setStatusOverrides(prev => ({ ...prev, [issue.id]: newStatus }));
-    setResolvingId(issue.id);
-
-    // Update stats optimistically
-    setStats(prev => {
-      if (newStatus === 'resolved') {
-        return { ...prev, resolved: prev.resolved + 1, unresolved: Math.max(0, prev.unresolved - 1) };
-      } else {
-        return { ...prev, resolved: Math.max(0, prev.resolved - 1), unresolved: prev.unresolved + 1 };
+      if (!existing) {
+        buckets.set(key, {
+          key,
+          label: sessionUserLabel(session),
+          issueSignals: sessionSignals,
+          replayCount: 1,
+          totalDurationSeconds: session.durationSeconds || 0,
+          latestStartedAt: session.startedAt,
+          sessions: [session],
+        });
+        continue;
       }
-    });
 
-    try {
-      await api.updateIssue(issue.id, { status: newStatus });
-      // Success - keep the override in place
-    } catch (err) {
-      console.error('Failed to update issue status:', err);
-      // Revert on failure
-      setStatusOverrides(prev => {
-        const updated = { ...prev };
-        delete updated[issue.id];
-        return updated;
-      });
-      // Revert stats
-      setStats(prev => {
-        if (newStatus === 'resolved') {
-          return { ...prev, resolved: Math.max(0, prev.resolved - 1), unresolved: prev.unresolved + 1 };
-        } else {
-          return { ...prev, resolved: prev.resolved + 1, unresolved: Math.max(0, prev.unresolved - 1) };
-        }
-      });
-    } finally {
-      setResolvingId(null);
-    }
-  };
-
-  // Get the correct link for an issue based on type
-  const getIssueLink = (issue: Issue): string => {
-    // Standard issue types -> issue detail page
-    if (issue.issueType === 'anr' || issue.issueType === 'crash' || issue.issueType === 'error') {
-      return `${pathPrefix}/issues/${issue.id}`;
-    }
-    // Insight types -> relevant analytics pages with search context
-    else if (issue.issueType === 'api_latency') {
-      // Link to API analytics with the endpoint as search
-      const endpoint = issue.culprit || '';
-      return `${pathPrefix}/analytics/api?search=${encodeURIComponent(endpoint)}`;
-    } else if (issue.issueType === 'ux_friction') {
-      // Link to Journeys page with screen search
-      const screenName = issue.culprit || '';
-      return `${pathPrefix}/analytics/journeys?search=${encodeURIComponent(screenName)}`;
-    } else if (issue.issueType === 'performance') {
-      // Link to Devices page for startup analysis
-      return `${pathPrefix}/analytics/devices`;
-    } else if (issue.issueType === 'rage_tap') {
-      // Rage taps link to the specific session if available
-      if (issue.sampleSessionId) {
-        return `${pathPrefix}/sessions/${issue.sampleSessionId}`;
+      existing.issueSignals += sessionSignals;
+      existing.replayCount += 1;
+      existing.totalDurationSeconds += session.durationSeconds || 0;
+      if (new Date(session.startedAt).getTime() > new Date(existing.latestStartedAt).getTime()) {
+        existing.latestStartedAt = session.startedAt;
       }
-      return `${pathPrefix}/sessions`;
+      existing.sessions.push(session);
     }
-    // Fallback for unknown types
-    return `${pathPrefix}/issues`;
-  };
+
+    return Array.from(buckets.values())
+      .map((bucket) => ({
+        ...bucket,
+        sessions: [...bucket.sessions].sort((a, b) => {
+          const signalDiff = issueSignalsForSession(b) - issueSignalsForSession(a);
+          if (signalDiff !== 0) return signalDiff;
+          return new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime();
+        }),
+      }))
+      .sort((a, b) => {
+        if (b.issueSignals !== a.issueSignals) return b.issueSignals - a.issueSignals;
+        return b.replayCount - a.replayCount;
+      })
+      .slice(0, 6);
+  }, [sessions]);
+
+  const summaryStats = useMemo(() => {
+    const unresolved = issues.filter((issue) => issue.status === 'unresolved' || issue.status === 'ongoing').length;
+    const ongoing = issues.filter((issue) => issue.status === 'ongoing').length;
+    const replayCoverage = sessions.length > 0 ? (replaysWithSignals.length / sessions.length) * 100 : 0;
+    const avgSignals = sessions.length > 0 ? totalSignalsAcrossReplays / sessions.length : 0;
+
+    return {
+      unresolved,
+      ongoing,
+      replayCoverage,
+      avgSignals,
+    };
+  }, [issues, replaysWithSignals.length, sessions.length, totalSignalsAcrossReplays]);
+
+  const behaviorAnalytics = useMemo(() => {
+    const timeline = aggregateIssueTimeline(issues, timeRange);
+    const values = timeline.map((point) => point.value);
+
+    const mean = values.length > 0
+      ? values.reduce((sum, value) => sum + value, 0) / values.length
+      : 0;
+    const variance = values.length > 0
+      ? values.reduce((sum, value) => sum + Math.pow(value - mean, 2), 0) / values.length
+      : 0;
+    const volatility = mean > 0 ? (Math.sqrt(variance) / mean) * 100 : 0;
+
+    const windowSize = Math.max(3, Math.floor(values.length / 3));
+    const recentWindow = values.slice(-windowSize);
+    const previousWindow = values.slice(-windowSize * 2, -windowSize);
+
+    const recentSum = recentWindow.reduce((sum, value) => sum + value, 0);
+    const previousSum = previousWindow.reduce((sum, value) => sum + value, 0);
+    const momentum = previousSum > 0 ? ((recentSum - previousSum) / previousSum) * 100 : (recentSum > 0 ? 100 : 0);
+
+    const now = Date.now();
+    const recentIssues = issues.filter((issue) => {
+      const firstSeen = new Date(issue.firstSeen).getTime();
+      return Number.isFinite(firstSeen) && now - firstSeen <= 7 * 24 * 60 * 60 * 1000;
+    }).length;
+
+    const topThreeShare = totalIssueEvents > 0
+      ? (topIssues.slice(0, 3).reduce((sum, issue) => sum + issue.eventCount, 0) / totalIssueEvents) * 100
+      : 0;
+
+    return {
+      timeline,
+      volatility,
+      momentum,
+      recentIssues,
+      topThreeShare,
+    };
+  }, [issues, timeRange, topIssues, totalIssueEvents]);
+
+  const maxTimelineValue = useMemo(
+    () => Math.max(...behaviorAnalytics.timeline.map((entry) => entry.value), 1),
+    [behaviorAnalytics.timeline],
+  );
+
+  const kpiCards = useMemo<KpiCardItem[]>(() => {
+    const issueEventsSeries = behaviorAnalytics.timeline.map((entry) => entry.value);
+
+    const issueGroupByDate = new Map<string, Set<string>>();
+    for (const issue of issues) {
+      for (const [date, count] of Object.entries(issue.dailyEvents || {})) {
+        const parsedCount = typeof count === 'number' ? count : Number(count);
+        if (!Number.isFinite(parsedCount) || parsedCount <= 0) continue;
+        const existing = issueGroupByDate.get(date) || new Set<string>();
+        existing.add(issue.id);
+        issueGroupByDate.set(date, existing);
+      }
+    }
+    const issueGroupSeries = Array.from(issueGroupByDate.entries())
+      .sort((a, b) => a[0].localeCompare(b[0]))
+      .map(([, issueSet]) => issueSet.size);
+
+    const replayCountByDate = new Map<string, number>();
+    for (const session of sessions) {
+      const dateKey = toDateKey(session.startedAt);
+      if (!dateKey) continue;
+      replayCountByDate.set(dateKey, (replayCountByDate.get(dateKey) || 0) + 1);
+    }
+    const replaySeries = Array.from(replayCountByDate.entries())
+      .sort((a, b) => a[0].localeCompare(b[0]))
+      .map(([, count]) => count);
+
+    const issueEventMap = new Map(behaviorAnalytics.timeline.map((entry) => [entry.date, entry.value]));
+    const allDateKeys = new Set<string>([
+      ...Array.from(issueEventMap.keys()),
+      ...Array.from(replayCountByDate.keys()),
+    ]);
+    const signalDensitySeries = Array.from(allDateKeys)
+      .sort((a, b) => a.localeCompare(b))
+      .map((date) => {
+        const issueCount = issueEventMap.get(date) || 0;
+        const replayCount = replayCountByDate.get(date) || 0;
+        if (replayCount <= 0) return 0;
+        return issueCount / replayCount;
+      });
+
+    const trackedIssueDelta = computePeriodDeltaFromSeries(issueGroupSeries, timeRange, 'avg');
+    const issueEventsDelta = computePeriodDeltaFromSeries(issueEventsSeries, timeRange, 'sum');
+    const replayDelta = computePeriodDeltaFromSeries(replaySeries, timeRange, 'sum');
+    const signalDensityDelta = computePeriodDeltaFromSeries(signalDensitySeries, timeRange, 'avg');
+
+    return [
+      {
+        id: 'tracked-issues',
+        label: 'Tracked Issues',
+        value: compactNumber(issues.length),
+        sortValue: issues.length,
+        info: 'Unique issue groups active in this selected window.',
+        detail: `${compactNumber(summaryStats.unresolved)} unresolved`,
+        delta: trackedIssueDelta
+          ? {
+            value: trackedIssueDelta.deltaPct,
+            label: trackedIssueDelta.comparisonLabel,
+            betterDirection: 'down',
+            precision: 1,
+          }
+          : undefined,
+      },
+      {
+        id: 'issue-events',
+        label: 'Issue Events',
+        value: compactNumber(totalIssueEvents),
+        sortValue: totalIssueEvents,
+        info: 'Total issue event volume aggregated across all issue groups.',
+        detail: `${compactNumber(summaryStats.ongoing)} ongoing now`,
+        delta: issueEventsDelta
+          ? {
+            value: issueEventsDelta.deltaPct,
+            label: issueEventsDelta.comparisonLabel,
+            betterDirection: 'down',
+            precision: 1,
+          }
+          : undefined,
+      },
+      {
+        id: 'replays-scanned',
+        label: 'Replays Scanned',
+        value: compactNumber(sessions.length),
+        sortValue: sessions.length,
+        info: 'Replay sessions evaluated for issue and behavioral signals.',
+        detail: `${summaryStats.replayCoverage.toFixed(0)}% with issue signals`,
+        delta: replayDelta
+          ? {
+            value: replayDelta.deltaPct,
+            label: replayDelta.comparisonLabel,
+            betterDirection: 'up',
+            precision: 1,
+          }
+          : undefined,
+      },
+      {
+        id: 'signal-density',
+        label: 'Signal Density',
+        value: summaryStats.avgSignals.toFixed(1),
+        sortValue: summaryStats.avgSignals,
+        info: 'Average count of issue signals generated per replay session.',
+        detail: 'Signals per replay',
+        delta: signalDensityDelta
+          ? {
+            value: signalDensityDelta.deltaPct,
+            label: signalDensityDelta.comparisonLabel,
+            betterDirection: 'down',
+            precision: 1,
+          }
+          : undefined,
+      },
+    ];
+  }, [behaviorAnalytics.timeline, issues, sessions, summaryStats.unresolved, summaryStats.ongoing, summaryStats.replayCoverage, summaryStats.avgSignals, timeRange, totalIssueEvents]);
+
+  if (!selectedProject && !projectLoading) {
+    return (
+      <div className="p-6 md:p-8">
+        <EmptyStateCard
+          title="No project selected"
+          subtitle="Pick a project to open the General dashboard."
+        />
+      </div>
+    );
+  }
 
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col font-sans text-black">
-      {/* Unified Sticky Header Container */}
-      <div className="sticky top-0 z-50 bg-white border-b-2 border-black">
-        {/* Main Header */}
-        <DashboardPageHeader
-          title="Issues Feed"
-          subtitle="Live stream of detected anomalies"
-          icon={<AlertTriangle className="w-6 h-6" />}
-          iconColor="bg-amber-400"
+    <div className="min-h-screen bg-transparent">
+      <DashboardPageHeader
+        title="General"
+        subtitle="Top issues, top users, and behavior analytics"
+        icon={<Sparkles className="w-5 h-5" />}
+        iconColor="bg-sky-50"
+      >
+        <TimeFilter value={timeRange} onChange={handleTimeRangeChange} />
+        <NeoButton
+          size="sm"
+          variant="secondary"
+          onClick={() => loadGeneral('refresh')}
+          disabled={refreshing || loading}
+          leftIcon={<RefreshCw className={`h-3.5 w-3.5 ${refreshing ? 'animate-spin' : ''}`} />}
         >
-          <div className="relative max-w-xs w-full hidden md:block group">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-black group-focus-within:text-indigo-600 transition-colors" />
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="SEARCH ISSUES..."
-              className="w-full pl-10 pr-4 py-2 bg-white border-2 border-black shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] rounded-lg font-bold text-sm uppercase placeholder:text-slate-400 focus:outline-none focus:translate-x-[1px] focus:translate-y-[1px] focus:shadow-none transition-all"
+          Refresh
+        </NeoButton>
+      </DashboardPageHeader>
+
+      <div className="mx-auto max-w-[1800px] space-y-6 p-6 md:p-8">
+        {error && (
+          <NeoCard className="border-rose-300 bg-rose-50">
+            <div className="flex items-center gap-3 text-sm font-semibold text-rose-700">
+              <AlertTriangle className="h-5 w-5" />
+              {error}
+            </div>
+          </NeoCard>
+        )}
+
+        {loading ? (
+          <div className="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-4">
+            {Array.from({ length: 8 }).map((_, index) => (
+              <div key={index} className="h-32 animate-pulse rounded-3xl border border-slate-100/80 bg-white ring-1 ring-slate-900/5" />
+            ))}
+          </div>
+        ) : (
+          <>
+            <KpiCardsGrid
+              cards={kpiCards}
+              timeRange={timeRange}
+              storageKey="issues-feed"
+              gridClassName="grid grid-cols-2 gap-5 lg:grid-cols-4"
             />
-          </div>
-          <TimeFilter value={timeRange} onChange={setTimeRange} />
-        </DashboardPageHeader>
 
-        {/* Secondary Filter Bar */}
-        <div className="bg-white border-b-2 border-slate-100 px-6 py-3 flex flex-wrap items-center justify-between gap-4">
-          <div className="flex flex-wrap gap-2">
-            <div className="flex items-center gap-2 mr-4">
-              <span className="text-[10px] font-black uppercase text-slate-400 tracking-wider">Type:</span>
-              <div className="flex gap-1">
-                {[
-                  { type: 'crash', label: 'Crashes', count: typeCounts.crash ?? 0, variant: 'danger' as const },
-                  { type: 'error', label: 'Errors', count: typeCounts.error ?? 0, variant: 'warning' as const },
-                  { type: 'anr', label: 'ANRs', count: typeCounts.anr ?? 0, variant: 'anr' as const },
-                  { type: 'rage_tap', label: 'Rage', count: typeCounts.rage_tap ?? 0, variant: 'rage' as const },
-                  { type: 'api_latency', label: 'API', count: typeCounts.api_latency ?? 0, variant: 'neutral' as const },
-                  { type: 'ux_friction', label: 'UX', count: typeCounts.ux_friction ?? 0, variant: 'neutral' as const },
-                  { type: 'performance', label: 'Perf', count: typeCounts.performance ?? 0, variant: 'neutral' as const },
-                ].map((item) => (
-                  <button
-                    key={item.label}
-                    onClick={() => setSelectedType(selectedType === item.type ? null : item.type)}
-                    className={`transition-all ${selectedType === item.type ? 'brightness-90 translate-y-[1px]' : 'hover:-translate-y-[1px] hover:shadow-sm'}`}
-                  >
-                    <NeoBadge variant={item.variant} size="sm" className={selectedType === item.type ? 'ring-2 ring-black ring-offset-1' : ''}>
-                      {item.label} {item.count}
-                    </NeoBadge>
-                  </button>
-                ))}
+            <section className="space-y-4">
+              <div className="flex items-center justify-between">
+                <h2 className="text-sm font-black uppercase tracking-[0.14em] text-slate-800">Top Issues</h2>
+                <NeoBadge variant="neutral" size="sm">{topIssues.length} shown</NeoBadge>
               </div>
-            </div>
-          </div>
 
-          <div className="flex items-center gap-4 text-xs">
-            {/* Status Filter */}
-            <select
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value as any)}
-              className="text-xs font-bold uppercase px-2 py-1 border-2 border-black rounded bg-white cursor-pointer hover:bg-slate-50 shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] focus:translate-x-[1px] focus:translate-y-[1px] focus:shadow-none transition-all"
-            >
-              <option value="all">All Status</option>
-              <option value="unresolved">Unresolved</option>
-              <option value="resolved">Resolved</option>
-            </select>
-            {/* Sort */}
-            <select
-              value={sortBy}
-              onChange={(e) => setSortBy(e.target.value as any)}
-              className="text-xs font-bold uppercase px-2 py-1 border-2 border-black rounded bg-white cursor-pointer hover:bg-slate-50 shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] focus:translate-x-[1px] focus:translate-y-[1px] focus:shadow-none transition-all"
-            >
-              <option value="newest">Newest</option>
-              <option value="oldest">Oldest</option>
-              <option value="users">Most Users</option>
-              <option value="events">Most Events</option>
-            </select>
-            <div className="h-4 w-[2px] bg-slate-200" />
-            <div className="text-slate-400 uppercase font-black tracking-tighter">
-              Total: <span className="text-black font-mono">{issues.length}</span>
-            </div>
-          </div>
-        </div>
-
-        {/* Table Header */}
-        <div className="bg-slate-50/50 px-6">
-          <div className="flex items-center py-2 text-[10px] font-black text-black uppercase tracking-wider gap-4">
-            <div className="w-6 flex-shrink-0"></div>
-            <div className="w-4 flex-shrink-0"></div>
-            <div className="flex-1 min-w-0">Issue</div>
-            <div className="hidden md:block w-20 text-right">Last Seen</div>
-            <div className="hidden md:block w-16 text-right">Age</div>
-            <div className="hidden md:block w-24 text-center px-2">Trend</div>
-            <div className="w-16 text-right">Events</div>
-            <div className="w-16 text-right">Users</div>
-            <div className="w-10"></div>
-          </div>
-        </div>
-      </div>
-
-      <div className="bg-white">
-        {/* Compute filtered and sorted issues */}
-        {(() => {
-          const filteredAndSortedIssues = issues
-            .filter(issue => {
-              const effectiveStatus = getEffectiveStatus(issue);
-              if (statusFilter === 'unresolved') return effectiveStatus !== 'resolved';
-              if (statusFilter === 'resolved') return effectiveStatus === 'resolved';
-              return true;
-            })
-            .sort((a, b) => {
-              switch (sortBy) {
-                case 'newest':
-                  return new Date(b.lastSeen).getTime() - new Date(a.lastSeen).getTime();
-                case 'oldest':
-                  return new Date(a.lastSeen).getTime() - new Date(b.lastSeen).getTime();
-                case 'users':
-                  return b.userCount - a.userCount;
-                case 'events':
-                  return b.eventCount - a.eventCount;
-                default:
-                  return 0;
-              }
-            });
-
-          if (filteredAndSortedIssues.length === 0 && !isLoading) {
-            // Show different message for users with no projects vs no issues
-            if (!projectsLoading && projects.length === 0) {
-              return (
-                <div className="py-16 text-center text-slate-400">
-                  <div className="max-w-md mx-auto">
-                    <div className="w-16 h-16 mx-auto mb-6 bg-slate-100 border-2 border-black shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] flex items-center justify-center">
-                      <Plus className="w-8 h-8 text-black" />
-                    </div>
-                    <h3 className="text-xl font-black text-black mb-2 uppercase">Welcome to Rejourney!</h3>
-                    <p className="text-sm text-slate-500 mb-6">
-                      Create your first project to start monitoring your mobile app's sessions, crashes, and user experience.
-                    </p>
-                    <button
-                      onClick={() => window.dispatchEvent(new CustomEvent('openAddProjectModal'))}
-                      className="bg-black text-white px-6 py-3 border-2 border-black shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] hover:translate-x-[2px] hover:translate-y-[2px] hover:shadow-none transition-all font-black uppercase text-sm tracking-wider"
-                    >
-                      Create Your First Project
-                    </button>
-                  </div>
-                </div>
-              );
-            }
-
-            return (
-              <div className="py-16 text-center text-slate-400">
-                <AlertTriangle className="w-12 h-12 mx-auto mb-4 opacity-50" />
-                <p className="text-lg font-bold">No issues found</p>
-                <p className="text-sm">Issues will appear here when they are detected</p>
-              </div>
-            );
-          }
-
-          return filteredAndSortedIssues.map((issue) => {
-            const isExpanded = expandedId === issue.id;
-            const typeColor = issue.issueType === 'crash' ? 'bg-red-500' :
-              issue.issueType === 'error' ? 'bg-amber-500' :
-                issue.issueType === 'anr' ? 'bg-purple-500' :
-                  issue.issueType === 'api_latency' ? 'bg-blue-500' :
-                    issue.issueType === 'ux_friction' ? 'bg-orange-500' :
-                      issue.issueType === 'performance' ? 'bg-cyan-500' : 'bg-slate-400';
-            const sparklineColor = issue.issueType === 'crash' ? '#ef4444' :
-              issue.issueType === 'error' ? '#f59e0b' :
-                issue.issueType === 'anr' ? '#8b5cf6' :
-                  issue.issueType === 'api_latency' ? '#3b82f6' :
-                    issue.issueType === 'ux_friction' ? '#f97316' :
-                      issue.issueType === 'performance' ? '#06b6d4' : '#64748b';
-
-            // Insight types navigate directly instead of expanding
-            const isInsightType = ['api_latency', 'ux_friction', 'performance', 'rage_tap'].includes(issue.issueType);
-
-            return (
-              <div key={issue.id} className="border-b border-slate-100">
-
-                {/* Row */}
-                <div
-                  className={`flex items-center py-3 px-6 gap-4 cursor-pointer group/row transition-colors ${isExpanded ? 'bg-slate-50/50' : 'hover:bg-slate-50/50'} ${getEffectiveStatus(issue) === 'resolved' ? 'opacity-50' : ''}`}
-                  onClick={() => setExpandedId(isExpanded ? null : issue.id)}
-                >
-
-                  {/* Resolve Checkbox - Left side like a todo */}
-                  <button
-                    onClick={(e) => handleResolveToggle(issue, e)}
-                    disabled={resolvingId === issue.id}
-                    className={`w-6 h-6 flex-shrink-0 flex items-center justify-center border-2 border-black rounded-sm transition-all ${getEffectiveStatus(issue) === 'resolved'
-                      ? 'bg-emerald-500 text-white'
-                      : 'bg-white hover:bg-slate-100'
-                      } ${resolvingId === issue.id ? 'opacity-50 cursor-wait' : 'hover:shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]'}`}
-                    title={getEffectiveStatus(issue) === 'resolved' ? 'Mark as unresolved' : 'Mark as resolved'}
-                  >
-                    {resolvingId === issue.id ? (
-                      <Loader className="w-3 h-3 animate-spin" />
-                    ) : getEffectiveStatus(issue) === 'resolved' ? (
-                      <CheckCircle className="w-4 h-4" />
-                    ) : null}
-                  </button>
-
-                  {/* Type Color Dot */}
-                  <div className="w-4 flex-shrink-0 flex justify-center">
-                    <div className={`w-3 h-3 border-2 border-black shadow-[1px_1px_0px_0px_rgba(0,0,0,1)] ${typeColor}`} />
-                  </div>
-
-                  {/* Issue Info (Left) */}
-                  <div className="flex-1 min-w-0">
-                    <Link
-                      to={getIssueLink(issue)}
-                      className="inline-block group/link"
-                      onClick={(e) => e.stopPropagation()}
-                    >
-                      <div className="flex items-center gap-2 mb-1">
-                        <h3 className={`font-extrabold text-sm truncate group-hover/link:underline decoration-2 underline-offset-2 ${getEffectiveStatus(issue) === 'resolved' ? 'text-slate-500 line-through' : 'text-black'}`}>
-                          {issue.title}
-                        </h3>
-                      </div>
-                    </Link>
-                    <div className="flex items-center gap-2 text-xs text-slate-500">
-                      <span className="border-l-2 border-black pl-2 truncate max-w-[300px] font-mono text-[10px]">
-                        {issue.subtitle || issue.culprit || 'No details'}
-                      </span>
-                      <NeoBadge variant={
-                        issue.issueType === 'crash' ? 'danger' :
-                          issue.issueType === 'error' ? 'warning' :
-                            issue.issueType === 'anr' ? 'anr' :
-                              issue.issueType === 'api_latency' ? 'neutral' :
-                                issue.issueType === 'ux_friction' ? 'rage' :
-                                  issue.issueType === 'performance' ? 'neutral' : 'neutral'
-                      } size="sm">
-                        {issue.issueType.replace('_', ' ')}
-                      </NeoBadge>
-                    </div>
-                  </div>
-
-                  {/* Last Seen */}
-                  <div className="hidden md:block w-20 text-right">
-                    <span className="text-xs text-slate-600">{formatLastSeen(issue.lastSeen)}</span>
-                  </div>
-
-                  {/* Age */}
-                  <div className="hidden md:block w-16 text-right">
-                    <span className="text-xs text-slate-400">{formatAge(issue.firstSeen)}</span>
-                  </div>
-
-                  {/* Trend Sparkline */}
-                  <div className="hidden md:flex w-24 h-6 items-center justify-center">
-                    <Sparkline
-                      data={issue.dailyEvents}
-                      color={sparklineColor}
-                      timeRange={timeRange}
-                      releaseMarkerDate={issue.sampleAppVersionFirstSeenAt ?? (issue.sampleAppVersion ? issue.firstSeen : null)}
-                      releaseLabel={issue.sampleAppVersion ? `v${issue.sampleAppVersion}` : null}
-                    />
-                  </div>
-
-                  {/* Events */}
-                  <div className="w-16 text-right">
-                    <span className="text-sm font-black text-black font-mono bg-slate-100 border border-slate-300 px-1 py-0.5 shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]">
-                      {issue.eventCount >= 1000 ? (issue.eventCount / 1000).toFixed(1) + 'k' : issue.eventCount}
-                    </span>
-                  </div>
-
-                  {/* Users */}
-                  <div className="w-16 text-right">
-                    <span className="text-sm font-black text-black font-mono bg-indigo-100 border border-indigo-300 px-1 py-0.5 shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]">
-                      {issue.userCount >= 1000 ? (issue.userCount / 1000).toFixed(1) + 'k' : issue.userCount}
-                    </span>
-                  </div>
-
-                  {/* Expand Toggle */}
-                  <div className="w-10 flex justify-end">
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setExpandedId(isExpanded ? null : issue.id);
-                      }}
-                      className={`w-8 h-8 flex items-center justify-center border-2 border-transparent transition-all ${isExpanded ? 'bg-black text-white shadow-[2px_2px_0px_0px_rgba(0,0,0,0.5)] rotate-180' : 'text-slate-400 group-hover/row:border-black group-hover/row:bg-white group-hover/row:text-black group-hover/row:shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]'
-                        }`}
-                    >
-                      <ChevronDown size={16} />
-                    </button>
-                  </div>
-                </div>
-
-                {/* Expanded Section - Detailed Issue Summary & Sessions */}
-                {isExpanded && (
-                  <div className="px-6 py-8 bg-slate-50/80 border-t border-slate-100">
-                    <div className="max-w-7xl mx-auto">
-
-                      {/* Mission Control Header */}
-                      <div className="flex items-center justify-between mb-8">
-                        <div className="flex items-center gap-4">
-                          <NeoBadge variant={
-                            issue.issueType === 'crash' ? 'danger' :
-                              issue.issueType === 'error' ? 'warning' :
-                                issue.issueType === 'anr' ? 'anr' :
-                                  issue.issueType === 'api_latency' ? 'neutral' :
-                                    issue.issueType === 'ux_friction' ? 'rage' :
-                                      issue.issueType === 'performance' ? 'neutral' : 'neutral'
-                          } size="md">
-                            {issue.issueType.replace('_', ' ').toUpperCase()}
-                          </NeoBadge>
-                          <div className="h-6 w-[2px] bg-black" />
-                          <div className="flex gap-8">
-                            <div className="flex flex-col">
-                              <span className="text-[9px] font-black uppercase text-slate-400 tracking-wider">Affected Users</span>
-                              <span className="text-xl font-black text-black font-mono">{issue.userCount.toLocaleString()}</span>
+              {topIssues.length === 0 ? (
+                <EmptyStateCard
+                  title="No issues in this window"
+                  subtitle="As new issue groups are detected, they appear here with direct replay links."
+                />
+              ) : (
+                <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
+                  {topIssues.map((issue) => {
+                    const issueColor = ISSUE_TYPE_COLOR[issue.issueType] || '#64748b';
+                    return (
+                      <NeoCard key={issue.id} className="border-slate-100/80 bg-white ring-1 ring-slate-900/5">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <div className="mb-2 flex items-center gap-2">
+                              <NeoBadge variant={ISSUE_TYPE_BADGE_VARIANT[issue.issueType] || 'neutral'} size="sm">
+                                {issue.issueType.replace('_', ' ')}
+                              </NeoBadge>
+                              <span className="text-[10px] font-bold uppercase tracking-wide text-slate-500">
+                                {issue.status}
+                              </span>
                             </div>
-                            <div className="flex flex-col">
-                              <span className="text-[9px] font-black uppercase text-slate-400 tracking-wider">Total Events</span>
-                              <span className="text-xl font-black text-black font-mono">{issue.eventCount.toLocaleString()}</span>
-                            </div>
+                            <h3 className="truncate text-base font-black text-slate-900">{issue.title}</h3>
+                            <p className="mt-1 truncate text-xs text-slate-500">{issue.subtitle || issue.culprit || 'No extra context'}</p>
+                          </div>
+                          <CircleAlert className="h-5 w-5 shrink-0 text-slate-400" />
+                        </div>
+
+                        <div className="mt-4 grid grid-cols-3 gap-3">
+                          <div>
+                            <div className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Events</div>
+                            <div className="mt-1 text-xl font-black text-slate-900">{compactNumber(issue.eventCount)}</div>
+                          </div>
+                          <div>
+                            <div className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Users</div>
+                            <div className="mt-1 text-xl font-black text-slate-900">{compactNumber(issue.userCount)}</div>
+                          </div>
+                          <div>
+                            <div className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Last Seen</div>
+                            <div className="mt-1 text-sm font-bold text-slate-900">{formatLastSeen(issue.lastSeen)}</div>
                           </div>
                         </div>
-                        <div className="flex gap-3">
-                          <Link to={getIssueLink(issue)}>
-                            <NeoButton size="md" variant="primary" rightIcon={<ExternalLink size={16} />}>
-                              Deep Analysis
-                            </NeoButton>
+
+                        <div className="mt-4">
+                          <IssueSparkline dailyEvents={issue.dailyEvents} color={issueColor} />
+                        </div>
+
+                        <div className="mt-4 flex flex-wrap gap-2">
+                          <Link
+                            to={`${pathPrefix}/general/${issue.id}`}
+                            className="inline-flex items-center rounded-md border border-slate-300 px-3 py-1.5 text-xs font-bold uppercase tracking-wide text-slate-700 hover:border-slate-900 hover:text-slate-900"
+                          >
+                            View Issue
                           </Link>
-                        </div>
-                      </div>
-
-                      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
-
-                        {/* LEFT: Diagnostic Context (2x2 Grid) */}
-                        <div className="lg:col-span-5">
-                          <h4 className="text-[10px] font-black text-black uppercase tracking-widest mb-4 flex items-center gap-2">
-                            <AlertTriangle size={14} className="text-black" /> Diagnostic Context
-                          </h4>
-
-                          <div className="grid grid-cols-2 gap-4">
-                            {/* Card 1: Affected Devices */}
-                            <div className="bg-white p-4 border-2 border-black shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]">
-                              <h5 className="text-[9px] font-black text-slate-400 uppercase tracking-wider mb-4">Affected Devices</h5>
-                              <div className="space-y-3">
-                                {issue.affectedDevices && Object.keys(issue.affectedDevices).length > 0 ? (
-                                  Object.entries(issue.affectedDevices)
-                                    .sort(([, a], [, b]) => b - a)
-                                    .slice(0, 4)
-                                    .map(([device, count]) => (
-                                      <div key={device} className="flex justify-between items-end border-b border-slate-100 pb-1 last:border-0 last:pb-0">
-                                        <span className="text-xs font-bold text-black truncate max-w-[120px]">{device}</span>
-                                        <span className="text-[10px] font-mono text-black bg-slate-100 border border-black px-1.5 py-0.5 shadow-[1px_1px_0px_0px_rgba(0,0,0,1)]">{count}</span>
-                                      </div>
-                                    ))
-                                ) : (
-                                  <span className="text-xs text-slate-300 font-bold">No device data</span>
-                                )}
-                              </div>
-                            </div>
-
-                            {/* Card 2: Affected Versions */}
-                            <div className="bg-white p-4 border-2 border-black shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]">
-                              <h5 className="text-[9px] font-black text-slate-400 uppercase tracking-wider mb-4">Affected Versions</h5>
-                              <div className="space-y-3">
-                                {issue.affectedVersions && Object.keys(issue.affectedVersions).length > 0 ? (
-                                  Object.entries(issue.affectedVersions)
-                                    .sort(([, a], [, b]) => b - a)
-                                    .slice(0, 4)
-                                    .map(([version, count]) => (
-                                      <div key={version} className="flex justify-between items-end border-b border-slate-100 pb-1 last:border-0 last:pb-0">
-                                        <span className="text-xs font-bold text-black">{version}</span>
-                                        <span className="text-[10px] font-mono text-black bg-slate-100 border border-black px-1.5 py-0.5 shadow-[1px_1px_0px_0px_rgba(0,0,0,1)]">{count}</span>
-                                      </div>
-                                    ))
-                                ) : (
-                                  <span className="text-xs text-slate-300 font-bold">No version data</span>
-                                )}
-                              </div>
-                            </div>
-
-                            {/* Card 3: First Seen */}
-                            <div className="bg-white p-4 border-2 border-black shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]">
-                              <h5 className="text-[9px] font-black text-slate-400 uppercase tracking-wider mb-2">First Seen</h5>
-                              <div className="text-lg font-black tracking-tighter text-black leading-none py-1">
-                                {new Date(issue.firstSeen).toLocaleDateString()}
-                              </div>
-                            </div>
-
-                            {/* Card 4: Last Seen */}
-                            <div className="bg-white p-4 border-2 border-black shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]">
-                              <h5 className="text-[9px] font-black text-slate-400 uppercase tracking-wider mb-2">Last Seen</h5>
-                              <div className="text-lg font-black tracking-tighter text-black leading-none py-1">
-                                {formatLastSeen(issue.lastSeen)}
-                              </div>
-                            </div>
-                          </div>
-
-                          {/* Stack Trace Preview - Only for Crash/Error/ANR */}
-                          {(issue.issueType === 'crash' || issue.issueType === 'error' || issue.issueType === 'anr') && (
-                            <div className="mt-6">
-                              <div className="flex items-center justify-between mb-3">
-                                <h4 className="text-[10px] font-black text-black uppercase tracking-widest flex items-center gap-2">
-                                  <Activity size={12} className="text-black" />
-                                  {issue.issueType === 'anr' ? 'Main Thread State' : 'Stack Trace Preview'}
-                                </h4>
-                                {expandedIssueDetail?.stackTrace && (
-                                  <button
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      handleCopyStack(issue.id, expandedIssueDetail.stackTrace);
-                                    }}
-                                    className="flex items-center gap-1 text-[9px] font-black uppercase text-slate-500 hover:text-black transition-colors"
-                                  >
-                                    {copiedStackId === issue.id ? (
-                                      <>
-                                        <Check size={10} className="text-green-600" />
-                                        <span>Copied</span>
-                                      </>
-                                    ) : (
-                                      <>
-                                        <Copy size={10} />
-                                        <span>Copy</span>
-                                      </>
-                                    )}
-                                  </button>
-                                )}
-                              </div>
-                              {issueDetailLoading ? (
-                                <div className="bg-white border-2 border-black shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] p-4">
-                                  <div className="flex items-center gap-2 text-xs text-slate-400">
-                                    <Loader size={12} className="animate-spin" />
-                                    <span>Loading stack trace...</span>
-                                  </div>
-                                </div>
-                              ) : expandedIssueDetail?.stackTrace ? (
-                                <div className="bg-white border-2 border-black shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] p-4">
-                                  <div className="bg-slate-900 text-green-400 p-4 font-mono text-[10px] overflow-x-auto whitespace-pre border-2 border-black shadow-inner max-h-[200px] overflow-y-auto leading-relaxed">
-                                    {expandedIssueDetail.stackTrace.split('\n').slice(0, 10).join('\n')}
-                                    {expandedIssueDetail.stackTrace.split('\n').length > 10 && (
-                                      <div className="mt-2 pt-2 border-t border-slate-700 text-slate-500 text-[9px] flex items-center justify-between">
-                                        <span className="italic">... and {expandedIssueDetail.stackTrace.split('\n').length - 10} more lines</span>
-                                      </div>
-                                    )}
-                                  </div>
-                                </div>
-                              ) : (
-                                <div className="bg-white border-2 border-black shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] p-4 text-center">
-                                  <span className="text-xs text-slate-400 font-bold">No stack trace available</span>
-                                </div>
-                              )}
-                            </div>
+                          {issue.sampleSessionId && (
+                            <Link
+                              to={`${pathPrefix}/sessions/${issue.sampleSessionId}`}
+                              className="inline-flex items-center rounded-md border border-sky-300 bg-sky-50 px-3 py-1.5 text-xs font-bold uppercase tracking-wide text-sky-700 hover:border-sky-500"
+                            >
+                              Replay
+                            </Link>
                           )}
                         </div>
+                      </NeoCard>
+                    );
+                  })}
+                </div>
+              )}
+            </section>
 
-                        {/* RIGHT: Evidence Sample */}
-                        <div className="lg:col-span-7">
-                          <div className="flex items-center justify-between mb-4">
-                            <h4 className="text-[10px] font-black text-black uppercase tracking-widest flex items-center gap-2">
-                              <Play size={14} className="text-indigo-500" /> Evidence Sample
-                            </h4>
-                          </div>
+            <section className="space-y-4">
+              <div className="flex items-center justify-between">
+                <h2 className="text-sm font-black uppercase tracking-[0.14em] text-slate-800">Top Users and Replays</h2>
+                <NeoBadge variant="neutral" size="sm">{topUsersWithReplays.length} users</NeoBadge>
+              </div>
 
-                          <NeoCard variant="flat" className="bg-slate-100 border-2 border-black !shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] p-8 min-h-[360px] flex items-center justify-center">
-                            {sessionsLoading ? (
-                              <div className="flex flex-col items-center gap-4">
-                                <div className="w-8 h-8 border-4 border-black border-t-transparent rounded-full animate-spin" />
-                                <span className="text-[10px] font-black text-black uppercase tracking-widest">Hydrating Replays...</span>
-                              </div>
-                            ) : expandedSessions.length > 0 ? (
-                              <div className="flex gap-8 overflow-x-auto pb-6 pt-2 px-2 hide-scrollbar w-full justify-start">
-                                {expandedSessions.map((session) => (
-                                  <div key={session.id} className="transform hover:-translate-y-2 hover:rotate-1 transition-all duration-300">
-                                    <MiniSessionCard
-                                      session={session}
-                                      onClick={() => navigate(`${pathPrefix}/sessions/${session.id}`)}
-                                    />
-                                  </div>
-                                ))}
-                              </div>
-                            ) : (
-                              <div className="text-center opacity-50">
-                                <Play className="w-12 h-12 mx-auto mb-4 text-black" />
-                                <p className="text-[10px] font-black text-black uppercase tracking-widest">No Replay Samples Available</p>
-                              </div>
-                            )}
-                          </NeoCard>
+              {topUsersWithReplays.length === 0 ? (
+                <EmptyStateCard
+                  title="No replay users in this window"
+                  subtitle="Replay-backed user ranking appears here once sessions are available."
+                />
+              ) : (
+                <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
+                  {topUsersWithReplays.map((bucket) => (
+                    <NeoCard key={bucket.key} className="border-slate-100/80 bg-white ring-1 ring-slate-900/5">
+                      <div className="mb-4 flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <div className="truncate text-base font-black text-slate-900">{bucket.label}</div>
+                          <div className="mt-1 text-xs text-slate-500">Last replay {formatLastSeen(bucket.latestStartedAt)}</div>
                         </div>
-
+                        <Users className="h-5 w-5 shrink-0 text-slate-400" />
                       </div>
 
+                      <div className="grid grid-cols-3 gap-3">
+                        <div>
+                          <div className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Issue Signals</div>
+                          <div className="mt-1 text-xl font-black text-slate-900">{bucket.issueSignals}</div>
+                        </div>
+                        <div>
+                          <div className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Replays</div>
+                          <div className="mt-1 text-xl font-black text-slate-900">{bucket.replayCount}</div>
+                        </div>
+                        <div>
+                          <div className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Watch Time</div>
+                          <div className="mt-1 text-sm font-bold text-slate-900">{formatDuration(bucket.totalDurationSeconds)}</div>
+                        </div>
+                      </div>
+
+                      <div className="mt-4 space-y-2">
+                        {bucket.sessions.slice(0, 3).map((session) => {
+                          const sessionSignals = issueSignalsForSession(session);
+                          const hasSignals = sessionSignals > 0;
+                          return (
+                            <Link
+                              key={session.id}
+                              to={`${pathPrefix}/sessions/${session.id}`}
+                              className="flex items-center justify-between rounded-xl border border-slate-100/80 bg-slate-50/50 px-3 py-2 transition-colors hover:border-sky-300 hover:bg-sky-50"
+                            >
+                              <div className="min-w-0">
+                                <div className="truncate text-xs font-bold uppercase tracking-wide text-slate-800">
+                                  Replay {session.id.replace('session_', '').slice(0, 10)}
+                                </div>
+                                <div className="text-[11px] text-slate-500">
+                                  {session.platform.toUpperCase()} · {formatDuration(session.durationSeconds)} · UX {Math.round(session.uxScore)}
+                                </div>
+                              </div>
+                              <div className="ml-3 flex items-center gap-2">
+                                <NeoBadge variant={hasSignals ? 'warning' : 'success'} size="sm">
+                                  {sessionSignals}
+                                </NeoBadge>
+                                <Activity className="h-4 w-4 text-slate-400" />
+                              </div>
+                            </Link>
+                          );
+                        })}
+                      </div>
+                    </NeoCard>
+                  ))}
+                </div>
+              )}
+            </section>
+
+            <section className="grid grid-cols-1 gap-6 xl:grid-cols-3">
+              <NeoCard className="xl:col-span-2 border-slate-100/80 bg-white ring-1 ring-slate-900/5">
+                <div className="mb-4 flex items-center justify-between">
+                  <h2 className="text-sm font-black uppercase tracking-[0.14em] text-slate-800">General Behavior Analytics</h2>
+                  <BarChart3 className="h-5 w-5 text-slate-400" />
+                </div>
+
+                <div className="grid grid-cols-2 gap-5 lg:grid-cols-4">
+                  <div className="rounded-2xl border border-slate-100/80 bg-slate-50/50 p-3">
+                    <div className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Volatility</div>
+                    <div className="mt-1 text-xl font-black text-slate-900">{behaviorAnalytics.volatility.toFixed(0)}%</div>
+                  </div>
+                  <div className="rounded-2xl border border-slate-100/80 bg-slate-50/50 p-3">
+                    <div className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Momentum</div>
+                    <div className={`mt-1 text-xl font-black ${behaviorAnalytics.momentum >= 0 ? 'text-rose-600' : 'text-emerald-600'}`}>
+                      {behaviorAnalytics.momentum >= 0 ? '+' : ''}{behaviorAnalytics.momentum.toFixed(0)}%
                     </div>
                   </div>
-                )
-                }
-              </div>
-            );
-          })
-        })()}
+                  <div className="rounded-2xl border border-slate-100/80 bg-slate-50/50 p-3">
+                    <div className="text-[10px] font-bold uppercase tracking-wide text-slate-500">New This Week</div>
+                    <div className="mt-1 text-xl font-black text-slate-900">{behaviorAnalytics.recentIssues}</div>
+                  </div>
+                  <div className="rounded-2xl border border-slate-100/80 bg-slate-50/50 p-3">
+                    <div className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Top-3 Concentration</div>
+                    <div className="mt-1 text-xl font-black text-slate-900">{behaviorAnalytics.topThreeShare.toFixed(0)}%</div>
+                  </div>
+                </div>
+
+                <div className="mt-5 h-36 rounded-2xl border border-slate-100/80 bg-slate-50/50 p-3">
+                  {behaviorAnalytics.timeline.length === 0 ? (
+                    <div className="flex h-full items-center justify-center text-xs font-semibold text-slate-500">
+                      No timeline activity in this range
+                    </div>
+                  ) : (
+                    <div className="flex h-full items-end gap-1">
+                      {behaviorAnalytics.timeline.map((point) => {
+                        return (
+                          <div
+                            key={point.date}
+                            title={`${point.date}: ${point.value}`}
+                            className="flex-1 rounded-sm bg-slate-900/80"
+                            style={{ height: `${Math.max(5, (point.value / maxTimelineValue) * 100)}%` }}
+                          />
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              </NeoCard>
+
+              <NeoCard className="border-slate-100/80 bg-white ring-1 ring-slate-900/5">
+                <div className="mb-4 flex items-center justify-between">
+                  <h2 className="text-sm font-black uppercase tracking-[0.14em] text-slate-800">Issue Type Mix</h2>
+                  <Sparkles className="h-5 w-5 text-slate-400" />
+                </div>
+
+                {issueTypeMix.length === 0 ? (
+                  <div className="flex h-[220px] items-center justify-center text-xs font-semibold text-slate-500">
+                    No issue type data
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {issueTypeMix.map((entry) => {
+                      const share = totalIssueEvents > 0 ? (entry.count / totalIssueEvents) * 100 : 0;
+                      const color = ISSUE_TYPE_COLOR[entry.issueType] || '#64748b';
+                      return (
+                        <div key={entry.issueType}>
+                          <div className="mb-1 flex items-center justify-between text-xs">
+                            <span className="font-bold uppercase tracking-wide text-slate-700">
+                              {entry.issueType.replace('_', ' ')}
+                            </span>
+                            <span className="font-semibold text-slate-500">{compactNumber(entry.count)}</span>
+                          </div>
+                          <div className="h-2 overflow-hidden rounded-full bg-slate-100">
+                            <div
+                              className="h-full rounded-full"
+                              style={{ width: `${Math.max(3, share)}%`, backgroundColor: color }}
+                            />
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </NeoCard>
+            </section>
+          </>
+        )}
       </div>
-    </div >
+    </div>
   );
 };
 

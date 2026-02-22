@@ -255,7 +255,7 @@ export const TeamSettings: React.FC = () => {
       setAcknowledgeBillingDowngrade(false);
 
       await refreshTeams();
-      navigate(`${pathPrefix}/issues`);
+      navigate(`${pathPrefix}/general`);
     } catch (err) {
       setDeleteTeamError(err instanceof Error ? err.message : 'Failed to delete team');
     } finally {
@@ -324,13 +324,13 @@ export const TeamSettings: React.FC = () => {
     >
       {/* Team Information */}
       <section className="space-y-4">
-        <h2 className="text-xl font-black uppercase tracking-tight flex items-center gap-2">
+        <h2 className="text-xl font-semibold uppercase tracking-tight flex items-center gap-2">
           <Building2 className="w-5 h-5" /> Team Profile
         </h2>
         <NeoCard className="p-6">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div>
-              <label className="text-[10px] font-black uppercase text-slate-400 mb-2 block tracking-widest">Team Name</label>
+              <label className="text-[10px] font-semibold uppercase text-slate-400 mb-2 block tracking-widest">Team Name</label>
               {isEditingName ? (
                 <div className="flex gap-2">
                   <Input
@@ -357,7 +357,7 @@ export const TeamSettings: React.FC = () => {
                 </div>
               ) : (
                 <div className="flex items-center gap-2 group">
-                  <div className="text-2xl font-black text-slate-900 uppercase tracking-tight">{currentTeam.name}</div>
+                  <div className="text-2xl font-semibold text-slate-900 uppercase tracking-tight">{currentTeam.name}</div>
                   {isAdmin && (
                     <button
                       onClick={() => setIsEditingName(true)}
@@ -397,7 +397,7 @@ export const TeamSettings: React.FC = () => {
                   <CreditCard className="w-5 h-5 text-white" />
                 </div>
                 <div>
-                  <h3 className="text-sm font-black uppercase tracking-tight">Billing & Plans</h3>
+                  <h3 className="text-sm font-semibold uppercase tracking-tight">Billing & Plans</h3>
                   <p className="text-xs font-bold text-blue-700">Manage your subscription, usage, and payment methods</p>
                 </div>
               </div>
@@ -410,7 +410,7 @@ export const TeamSettings: React.FC = () => {
       {/* Pending Invitations */}
       {isAdmin && invitations.length > 0 && (
         <section className="space-y-4">
-          <h2 className="text-xl font-black uppercase tracking-tight flex items-center gap-2">
+          <h2 className="text-xl font-semibold uppercase tracking-tight flex items-center gap-2">
             <Mail className="w-5 h-5" /> Pending Invitations
           </h2>
           <NeoCard className="p-0 overflow-hidden">
@@ -458,7 +458,7 @@ export const TeamSettings: React.FC = () => {
       {/* Team Members */}
       <section className="space-y-4">
         <div className="flex items-center justify-between">
-          <h2 className="text-xl font-black uppercase tracking-tight flex items-center gap-2">
+          <h2 className="text-xl font-semibold uppercase tracking-tight flex items-center gap-2">
             <Users className="w-5 h-5" /> Team Members
           </h2>
           {isAdmin && (
@@ -488,7 +488,7 @@ export const TeamSettings: React.FC = () => {
             {teamMembers.map((member) => (
               <div key={member.id} className="p-4 flex items-center justify-between hover:bg-slate-50 transition-colors">
                 <div className="flex items-center gap-4">
-                  <div className="w-10 h-10 bg-slate-900 text-white flex items-center justify-center font-black border border-slate-900 shadow-sm">
+                  <div className="w-10 h-10 bg-slate-900 text-white flex items-center justify-center font-semibold border border-slate-900 shadow-sm">
                     {member.email.charAt(0).toUpperCase()}
                   </div>
                   <div>
@@ -500,7 +500,7 @@ export const TeamSettings: React.FC = () => {
                 <div className="flex items-center gap-3">
                   {isAdmin && member.userId !== currentTeam.ownerUserId ? (
                     <select
-                      className="border-2 border-slate-900 px-2 py-1 text-xs font-black uppercase tracking-wide bg-white cursor-pointer hover:bg-slate-50"
+                      className="border-2 border-slate-900 px-2 py-1 text-xs font-semibold uppercase tracking-wide bg-white cursor-pointer hover:bg-slate-50"
                       value={member.role}
                       onChange={(e) => handleChangeRole(member.userId, e.target.value)}
                     >
@@ -532,10 +532,10 @@ export const TeamSettings: React.FC = () => {
       {/* Role Explainer */}
       <section>
         <NeoCard className="p-6 bg-slate-50">
-          <h3 className="text-sm font-black uppercase tracking-tight mb-4">Role Permissions</h3>
+          <h3 className="text-sm font-semibold uppercase tracking-tight mb-4">Role Permissions</h3>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
             <div className="space-y-2">
-              <div className="font-black uppercase text-slate-900">Member</div>
+              <div className="font-semibold uppercase text-slate-900">Member</div>
               <ul className="text-xs font-bold text-slate-600 space-y-1">
                 <li>• View sessions & analytics</li>
                 <li>• Access crash reports</li>
@@ -543,7 +543,7 @@ export const TeamSettings: React.FC = () => {
               </ul>
             </div>
             <div className="space-y-2">
-              <div className="font-black uppercase text-slate-900">Admin</div>
+              <div className="font-semibold uppercase text-slate-900">Admin</div>
               <ul className="text-xs font-bold text-slate-600 space-y-1">
                 <li>• All member permissions</li>
                 <li>• Manage team members</li>
@@ -551,7 +551,7 @@ export const TeamSettings: React.FC = () => {
               </ul>
             </div>
             <div className="space-y-2">
-              <div className="font-black uppercase text-slate-900">Billing Admin</div>
+              <div className="font-semibold uppercase text-slate-900">Billing Admin</div>
               <ul className="text-xs font-bold text-slate-600 space-y-1">
                 <li>• All member permissions</li>
                 <li>• Manage billing & plans</li>
@@ -565,12 +565,12 @@ export const TeamSettings: React.FC = () => {
       {/* Danger Zone */}
       {isOwner && (
         <section className="space-y-4">
-          <h2 className="text-xl font-black uppercase tracking-tight text-red-600 flex items-center gap-2">
+          <h2 className="text-xl font-semibold uppercase tracking-tight text-red-600 flex items-center gap-2">
             <AlertTriangle className="w-5 h-5" /> Danger Zone
           </h2>
           <NeoCard className="p-6 border-rose-600 bg-rose-50">
             <div className="space-y-3">
-              <h3 className="text-lg font-black text-rose-900 uppercase tracking-tight">Delete Team</h3>
+              <h3 className="text-lg font-semibold text-rose-900 uppercase tracking-tight">Delete Team</h3>
               <p className="text-sm font-bold text-rose-700">
                 Owner-only action. Deleting this team permanently removes all nested projects, S3 artifacts, and Postgres data.
               </p>
@@ -632,27 +632,27 @@ export const TeamSettings: React.FC = () => {
             className="font-mono font-bold"
           />
           <div className="bg-slate-50 p-4 border border-slate-200 space-y-3">
-            <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Select Role</label>
+            <label className="text-[10px] font-semibold uppercase text-slate-400 tracking-widest">Select Role</label>
             <div className="grid grid-cols-1 gap-2">
               <button
                 onClick={() => setNewMemberRole('member')}
                 className={`p-3 text-left border-2 transition-all ${newMemberRole === 'member' ? 'border-slate-900 bg-white shadow-[2px_2px_0_0_#000]' : 'border-transparent bg-slate-100 hover:bg-white'}`}
               >
-                <div className="text-sm font-black uppercase">Member</div>
+                <div className="text-sm font-semibold uppercase">Member</div>
                 <div className="text-[10px] font-bold text-slate-500">Standard access to projects and sessions.</div>
               </button>
               <button
                 onClick={() => setNewMemberRole('admin')}
                 className={`p-3 text-left border-2 transition-all ${newMemberRole === 'admin' ? 'border-slate-900 bg-white shadow-[2px_2px_0_0_#000]' : 'border-transparent bg-slate-100 hover:bg-white'}`}
               >
-                <div className="text-sm font-black uppercase">Admin</div>
+                <div className="text-sm font-semibold uppercase">Admin</div>
                 <div className="text-[10px] font-bold text-slate-500">Full control over settings and members.</div>
               </button>
               <button
                 onClick={() => setNewMemberRole('billing_admin')}
                 className={`p-3 text-left border-2 transition-all ${newMemberRole === 'billing_admin' ? 'border-slate-900 bg-white shadow-[2px_2px_0_0_#000]' : 'border-transparent bg-slate-100 hover:bg-white'}`}
               >
-                <div className="text-sm font-black uppercase">Billing Admin</div>
+                <div className="text-sm font-semibold uppercase">Billing Admin</div>
                 <div className="text-[10px] font-bold text-slate-500">Manage payment methods and subscriptions.</div>
               </button>
             </div>

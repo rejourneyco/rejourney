@@ -55,7 +55,7 @@ export const ProjectLayout: React.FC<AppLayoutProps> = ({ children, pathPrefix =
   ), [isWarehouseRoute, currentTeam?.id, selectedProject?.id]);
   const contentScopeKey = `${routeScopeKey}:refresh-${manualRefreshCycle}`;
   const isProjectDependentRoute = useMemo(() => (
-    routeWithoutPrefix.startsWith('/issues')
+    routeWithoutPrefix.startsWith('/general')
     || routeWithoutPrefix.startsWith('/sessions')
     || routeWithoutPrefix.startsWith('/analytics')
     || routeWithoutPrefix.startsWith('/stability')

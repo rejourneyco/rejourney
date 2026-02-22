@@ -82,7 +82,7 @@ describe('Email Previews', () => {
             subtitle: 'com.example.app.MainActivity.onCreate(MainActivity.java:42)',
             affectedUsers: 150,
             issueId: 'issue_789',
-            issueUrl: 'http://localhost:5173/dashboard/issues/issue_789',
+            issueUrl: 'http://localhost:5173/dashboard/general/issue_789',
             shortId: 'ERR-123',
             environment: 'production',
             lastSeen: new Date(),

@@ -206,7 +206,7 @@ export function initAutoTracking(
     trackJSErrors: true,
     trackPromiseRejections: true,
     trackReactNativeErrors: true,
-    trackConsoleLogs: false,
+    trackConsoleLogs: true,
     collectDeviceInfo: true,
     maxSessionDurationMs: trackingConfig.maxSessionDurationMs,
     ...trackingConfig,
@@ -247,6 +247,7 @@ export function cleanupAutoTracking(): void {
   // Reset state
   tapHead = 0;
   tapCount = 0;
+  consoleLogCount = 0;
   metrics = createEmptyMetrics();
   screensVisited = [];
   currentScreen = '';
@@ -596,6 +597,10 @@ export function captureError(
 let originalConsoleLog: ((...args: any[]) => void) | null = null;
 let originalConsoleWarn: ((...args: any[]) => void) | null = null;
 
+// Cap console logs to prevent flooding the event pipeline
+const MAX_CONSOLE_LOGS_PER_SESSION = 1000;
+let consoleLogCount = 0;
+
 /**
  * Setup console tracking to capture log statements
  */
@@ -618,8 +623,13 @@ function setupConsoleTracking(): void {
           }
         }).join(' ');
 
-        // Prevent infinite loops and ignore common internal noise
-        if (!message.includes('[Rejourney]') && !message.includes('Possible Unhandled Promise Rejection')) {
+        // Prevent infinite loops, ignore internal noise, and enforce per-session cap
+        if (
+          consoleLogCount < MAX_CONSOLE_LOGS_PER_SESSION &&
+          !message.includes('[Rejourney]') &&
+          !message.includes('Possible Unhandled Promise Rejection')
+        ) {
+          consoleLogCount++;
           const nativeModule = getRejourneyNativeModule();
           if (nativeModule) {
             const logEvent = {

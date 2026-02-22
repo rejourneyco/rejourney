@@ -257,7 +257,7 @@ export async function triggerCrashAlert(
 
         const projectName = await getProjectName(projectId);
         const baseUrl = config.PUBLIC_DASHBOARD_URL || 'http://localhost:8080';
-        const issueUrl = `${baseUrl}/issues/${issueId || ''}`;
+        const issueUrl = `${baseUrl}/dashboard/general/${issueId || ''}`;
 
         await sendCrashAlertEmail(recipients, {
             projectId,
@@ -363,7 +363,7 @@ export async function triggerAnrAlert(
 
         const projectName = await getProjectName(projectId);
         const baseUrl = config.PUBLIC_DASHBOARD_URL || 'http://localhost:8080';
-        const issueUrl = `${baseUrl}/issues/${issueId || ''}`;
+        const issueUrl = `${baseUrl}/dashboard/general/${issueId || ''}`;
 
         await sendAnrAlertEmail(recipients, {
             projectId,
@@ -450,7 +450,7 @@ export async function triggerErrorSpikeAlert(
 
         const projectName = await getProjectName(projectId);
         const baseUrl = config.PUBLIC_DASHBOARD_URL || 'http://localhost:8080';
-        const issueUrl = `${baseUrl}/projects/${projectId}/issues`;
+        const issueUrl = `${baseUrl}/dashboard/general`;
 
         await sendErrorSpikeAlertEmail(recipients, {
             projectId,

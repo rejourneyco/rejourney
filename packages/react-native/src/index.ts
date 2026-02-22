@@ -635,7 +635,7 @@ const Rejourney: RejourneyAPI = {
           trackJSErrors: true,
           trackPromiseRejections: true,
           trackReactNativeErrors: true,
-          trackConsoleLogs: _storedConfig?.trackConsoleLogs ?? false,
+          trackConsoleLogs: _storedConfig?.trackConsoleLogs ?? true,
           collectDeviceInfo: _storedConfig?.collectDeviceInfo !== false,
         },
         {

@@ -306,6 +306,15 @@ public final class TelemetryPipeline: NSObject {
         _enqueue(["type": "custom", "timestamp": _ts(), "name": name, "payload": payload])
     }
     
+    @objc public func recordConsoleLogEvent(level: String, message: String) {
+        _enqueue([
+            "type": "log",
+            "timestamp": _ts(),
+            "level": level,
+            "message": message
+        ])
+    }
+    
     @objc public func recordJSErrorEvent(name: String, message: String, stack: String?) {
         var event: [String: Any] = [
             "type": "error",

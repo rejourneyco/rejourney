@@ -24,7 +24,9 @@ export const TimeFilter: React.FC<TimeFilterProps> = ({ value, onChange, classNa
                 {TIME_RANGE_OPTIONS.map((option, index) => (
                     <button
                         key={option.value}
+                        type="button"
                         onClick={() => onChange(option.value)}
+                        aria-pressed={value === option.value}
                         className={`px-3 py-1 text-[10px] font-bold uppercase tracking-wider transition-colors 
                         ${value === option.value
                                 ? 'bg-slate-900 text-white'

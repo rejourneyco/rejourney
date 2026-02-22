@@ -3,12 +3,9 @@ import {
     Activity,
     ChevronDown,
     ChevronUp,
-    Gauge,
     Globe,
     Search,
     Server,
-    ShieldAlert,
-    Zap,
 } from 'lucide-react';
 import {
     Area,
@@ -44,6 +41,7 @@ import {
 } from '../../services/api';
 import { DashboardPageHeader } from '../../components/ui/DashboardPageHeader';
 import { TimeFilter, TimeRange, DEFAULT_TIME_RANGE } from '../../components/ui/TimeFilter';
+import { KpiCardItem, KpiCardsGrid, computePeriodDeltaFromSeries } from '../../components/dashboard/KpiCardsGrid';
 
 type EndpointRisk = ApiEndpointStats['allEndpoints'][number] & {
     riskScore: number;
@@ -366,6 +364,29 @@ export const ApiAnalytics: React.FC = () => {
 
     const geoLatencyRows = useMemo(() => latencyByLocation?.regions?.slice(0, 8) || [], [latencyByLocation]);
     const networkRows = useMemo(() => deepMetrics?.networkBreakdown?.slice(0, 6) || [], [deepMetrics]);
+    const regionalLatencyChartData = useMemo(() => (
+        regionStats?.slowestRegions?.slice(0, 8).map((region) => ({
+            region: region.name,
+            latencyMs: region.avgLatencyMs,
+            calls: region.totalCalls,
+        })) || []
+    ), [regionStats]);
+    const countryLatencyChartData = useMemo(() => (
+        geoLatencyRows.map((region) => ({
+            country: region.country,
+            latencyMs: region.avgLatencyMs,
+            successRate: Number(region.successRate.toFixed(2)),
+            requests: region.totalRequests,
+        }))
+    ), [geoLatencyRows]);
+    const networkReliabilityChartData = useMemo(() => (
+        networkRows.map((network) => ({
+            network: network.networkType.toUpperCase(),
+            latencyMs: network.avgLatencyMs,
+            failRate: Number(network.apiErrorRate.toFixed(2)),
+            sessions: network.sessions,
+        }))
+    ), [networkRows]);
     const networkCorrelationData = useMemo(() => {
         if (!deepMetrics?.networkBreakdown?.length) return [];
         return deepMetrics.networkBreakdown.slice(0, 8).map((network) => ({
@@ -515,12 +536,98 @@ export const ApiAnalytics: React.FC = () => {
         ? Math.max(0, p99ApiMs - p95ApiMs)
         : null;
 
+    const kpiCards = useMemo<KpiCardItem[]>(() => {
+        const callsDelta = computePeriodDeltaFromSeries(
+            (trends?.daily || []).map((day) => day.totalApiCalls),
+            timeRange,
+            'sum',
+        );
+        const latencyDelta = computePeriodDeltaFromSeries(
+            (trends?.daily || []).map((day) => day.avgApiResponseMs),
+            timeRange,
+            'avg',
+        );
+        const errorRateDelta = computePeriodDeltaFromSeries(
+            (trends?.daily || []).map((day) => day.apiErrorRate),
+            timeRange,
+            'avg',
+        );
+
+        return [
+            {
+                id: 'total-api-calls',
+                label: 'API Calls',
+                value: formatCompact(endpointStats?.summary.totalCalls || 0),
+                sortValue: endpointStats?.summary.totalCalls || 0,
+                info: 'Total API requests captured for the active project and filter.',
+                detail: `${endpointStats?.allEndpoints.length.toLocaleString() || 0} endpoints tracked`,
+                delta: callsDelta
+                    ? {
+                        value: callsDelta.deltaPct,
+                        label: callsDelta.comparisonLabel,
+                        betterDirection: 'up',
+                        precision: 1,
+                    }
+                    : undefined,
+            },
+            {
+                id: 'p95-response',
+                label: 'p95 Response',
+                value: formatMs(p95ApiMs),
+                sortValue: p95ApiMs ?? null,
+                info: '95th percentile API response time across captured traffic.',
+                detail: `p50 ${formatMs(deepMetrics?.performance.p50ApiResponseMs)} · fail ${pct(endpointStats?.summary.errorRate, 2)}`,
+                delta: latencyDelta
+                    ? {
+                        value: latencyDelta.deltaPct,
+                        label: latencyDelta.comparisonLabel,
+                        betterDirection: 'down',
+                        precision: 1,
+                    }
+                    : undefined,
+            },
+            {
+                id: 'p99-tail-latency',
+                label: 'p99 Tail',
+                value: formatMs(p99ApiMs),
+                sortValue: p99ApiMs ?? null,
+                info: '99th percentile tail latency; highlights severe slow requests.',
+                detail: `Tail spread ${tailLatencySpreadMs !== null ? `${tailLatencySpreadMs} ms` : 'N/A'}`,
+                delta: latencyDelta
+                    ? {
+                        value: latencyDelta.deltaPct,
+                        label: latencyDelta.comparisonLabel,
+                        betterDirection: 'down',
+                        precision: 1,
+                    }
+                    : undefined,
+            },
+            {
+                id: 'api-apdex',
+                label: 'API Apdex',
+                value: deepMetrics?.performance.apiApdex !== null && deepMetrics?.performance.apiApdex !== undefined
+                    ? deepMetrics.performance.apiApdex.toFixed(2)
+                    : 'N/A',
+                sortValue: deepMetrics?.performance.apiApdex ?? null,
+                info: 'Service satisfaction score combining latency and failure distribution.',
+                detail: `Failure ${pct(deepMetrics?.reliability.apiFailureRate, 2)}`,
+                delta: errorRateDelta
+                    ? {
+                        value: errorRateDelta.deltaPct,
+                        label: errorRateDelta.comparisonLabel,
+                        betterDirection: 'down',
+                        precision: 1,
+                    }
+                    : undefined,
+            },
+        ];
+    }, [trends, timeRange, endpointStats, p95ApiMs, deepMetrics, p99ApiMs, tailLatencySpreadMs]);
+
     return (
-        <div className="min-h-screen bg-gradient-to-b from-slate-50 to-slate-100/70 font-sans text-slate-900">
+        <div className="min-h-screen font-sans text-slate-900 bg-transparent">
             <div className="sticky top-0 z-30 bg-white">
                 <DashboardPageHeader
                     title="API Reliability & Performance"
-                    subtitle="Monitor endpoints, regions, and network conditions"
                     icon={<Activity className="w-6 h-6" />}
                     iconColor="bg-emerald-500"
                 >
@@ -536,73 +643,29 @@ export const ApiAnalytics: React.FC = () => {
                 )}
 
                 {isLoading && (
-                    <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+                    <div className="rounded-3xl border border-slate-100/80 bg-white ring-1 ring-slate-900/5 p-6 shadow-sm">
                         <div className="flex items-center gap-3 text-sm text-slate-600">
                             <Activity className="h-4 w-4 animate-pulse text-blue-600" />
-                            Analyzing endpoint reliability, latency, and regional variance...
+                            Loading API analytics...
                         </div>
                     </div>
                 )}
 
                 {!isLoading && selectedProject?.id && !hasData && (
-                    <div className="rounded-2xl border border-slate-200 bg-white p-6 text-sm text-slate-600 shadow-sm">
+                    <div className="rounded-3xl border border-slate-100/80 bg-white ring-1 ring-slate-900/5 p-6 text-sm text-slate-600 shadow-sm">
                         No API telemetry available for this window.
                     </div>
                 )}
 
                 {!isLoading && hasData && endpointStats && deepMetrics && (
                     <>
-                        <section className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
-                            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-                                <div className="flex items-center justify-between text-xs font-semibold uppercase tracking-wide text-slate-500">
-                                    Total API Calls
-                                    <Server className="h-4 w-4 text-blue-600" />
-                                </div>
-                                <div className="mt-2 text-3xl font-semibold text-slate-900">{formatCompact(endpointStats.summary.totalCalls)}</div>
-                                <p className="mt-1 text-sm text-slate-600">
-                                    {endpointStats.allEndpoints.length.toLocaleString()} endpoints tracked | {pct(endpointStats.summary.errorRate, 2)} fail rate.
-                                </p>
-                            </div>
+                        <KpiCardsGrid
+                            cards={kpiCards}
+                            timeRange={timeRange}
+                            storageKey="analytics-api"
+                        />
 
-                            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-                                <div className="flex items-center justify-between text-xs font-semibold uppercase tracking-wide text-slate-500">
-                                    p95 Response
-                                    <Gauge className="h-4 w-4 text-amber-600" />
-                                </div>
-                                <div className="mt-2 text-3xl font-semibold text-slate-900">{formatMs(p95ApiMs)}</div>
-                                <p className="mt-1 text-sm text-slate-600">
-                                    Median response (p50): {formatMs(deepMetrics.performance.p50ApiResponseMs)}.
-                                </p>
-                            </div>
-
-                            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-                                <div className="flex items-center justify-between text-xs font-semibold uppercase tracking-wide text-slate-500">
-                                    p99 Tail Latency
-                                    <ShieldAlert className="h-4 w-4 text-rose-600" />
-                                </div>
-                                <div className="mt-2 text-3xl font-semibold text-slate-900">{formatMs(p99ApiMs)}</div>
-                                <p className="mt-1 text-sm text-slate-600">
-                                    Tail spread vs p95: {tailLatencySpreadMs !== null ? `${tailLatencySpreadMs} ms` : 'N/A'}.
-                                </p>
-                            </div>
-
-                            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-                                <div className="flex items-center justify-between text-xs font-semibold uppercase tracking-wide text-slate-500">
-                                    API Apdex
-                                    <Zap className="h-4 w-4 text-indigo-600" />
-                                </div>
-                                <div className="mt-2 text-3xl font-semibold text-slate-900">
-                                    {deepMetrics.performance.apiApdex !== null
-                                        ? deepMetrics.performance.apiApdex.toFixed(2)
-                                        : 'N/A'}
-                                </div>
-                                <p className="mt-1 text-sm text-slate-600">
-                                    Slow API sessions: {pct(deepMetrics.performance.slowApiSessionRate, 1)} | Session-level API failure: {pct(deepMetrics.reliability.apiFailureRate, 2)}.
-                                </p>
-                            </div>
-                        </section>
-
-                        <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+                        <section className="rounded-3xl border border-slate-100/80 bg-white ring-1 ring-slate-900/5 p-5 shadow-sm">
                             <div className="mb-4 flex items-center justify-between">
                                 <h2 className="text-lg font-semibold text-slate-900">Traffic vs Errors vs Latency</h2>
                                 <Activity className="h-5 w-5 text-blue-600" />
@@ -639,13 +702,13 @@ export const ApiAnalytics: React.FC = () => {
                             )}
                         </section>
 
-                        <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+                        <section className="rounded-3xl border border-slate-100/80 bg-white ring-1 ring-slate-900/5 p-5 shadow-sm">
                             <div className="mb-4 flex items-center justify-between">
                                 <h2 className="text-lg font-semibold text-slate-900">Endpoint Hotspots</h2>
                                 <Server className="h-5 w-5 text-blue-600" />
                             </div>
-                            <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-                                <div className="rounded-xl border border-amber-200 bg-amber-50/40 p-3">
+                            <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+                                <div className="rounded-xl border border-amber-100/80 bg-amber-50/30 ring-1 ring-amber-900/5 p-3">
                                     <div className="mb-2 flex items-center justify-between">
                                         <h3 className="text-base font-semibold text-amber-900">Slowest Endpoints</h3>
                                         <span className="text-[10px] font-semibold uppercase tracking-wide text-amber-700">Latency severity</span>
@@ -676,7 +739,7 @@ export const ApiAnalytics: React.FC = () => {
                                     </div>
                                 </div>
 
-                                <div className="rounded-xl border border-rose-200 bg-rose-50/35 p-3">
+                                <div className="rounded-xl border border-rose-100/80 bg-rose-50/20 ring-1 ring-rose-900/5 p-3">
                                     <div className="mb-2 flex items-center justify-between">
                                         <h3 className="text-base font-semibold text-rose-900">Most Erroring Endpoints</h3>
                                         <span className="text-[10px] font-semibold uppercase tracking-wide text-rose-700">Failure hotspots</span>
@@ -703,7 +766,7 @@ export const ApiAnalytics: React.FC = () => {
                         </section>
 
                         <section className="grid grid-cols-1 gap-6 xl:grid-cols-2">
-                            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+                            <div className="rounded-3xl border border-slate-100/80 bg-white ring-1 ring-slate-900/5 p-5 shadow-sm">
                                 <h2 className="mb-4 text-lg font-semibold text-slate-900">API Usage Intensity</h2>
                                 {apiCallsChartData.length > 0 ? (
                                     <div className="h-[260px]">
@@ -725,9 +788,8 @@ export const ApiAnalytics: React.FC = () => {
                                 )}
                             </div>
 
-                            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+                            <div className="rounded-3xl border border-slate-100/80 bg-white ring-1 ring-slate-900/5 p-5 shadow-sm">
                                 <h2 className="mb-2 text-lg font-semibold text-slate-900">Network Correlation</h2>
-                                <p className="mb-4 text-xs text-slate-500">Bubble size = sessions, X = latency, Y = API failure rate.</p>
                                 {networkCorrelationData.length > 0 ? (
                                     <div className="h-[300px]">
                                         <ResponsiveContainer width="100%" height="100%">
@@ -742,7 +804,7 @@ export const ApiAnalytics: React.FC = () => {
                                                         if (!active || !payload?.length) return null;
                                                         const point = payload[0].payload;
                                                         return (
-                                                            <div className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs shadow-sm">
+                                                            <div className="rounded-xl border border-slate-100/80 bg-white px-3 py-2 text-xs shadow-sm ring-1 ring-slate-900/5">
                                                                 <div className="font-semibold text-slate-900">{point.network}</div>
                                                                 <div className="mt-1 text-slate-600">Latency: {point.avgLatencyMs} ms</div>
                                                                 <div className="text-slate-600">Fail rate: {point.apiErrorRate.toFixed(2)}%</div>
@@ -762,68 +824,72 @@ export const ApiAnalytics: React.FC = () => {
                         </section>
 
                         <section className="grid grid-cols-1 gap-6 xl:grid-cols-3">
-                            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+                            <div className="rounded-3xl border border-slate-100/80 bg-white ring-1 ring-slate-900/5 p-5 shadow-sm">
                                 <div className="mb-4 flex items-center justify-between">
                                     <h2 className="text-lg font-semibold text-slate-900">Regional API Latency</h2>
                                     <Globe className="h-5 w-5 text-blue-600" />
                                 </div>
-                                <div className="space-y-3">
-                                    {regionStats?.slowestRegions?.length ? regionStats.slowestRegions.map((region) => (
-                                        <div key={region.code} className="rounded-xl border border-slate-200 p-3">
-                                            <div className="flex items-center justify-between">
-                                                <div className="text-sm font-medium text-slate-900">{region.name}</div>
-                                                <span className="text-sm font-semibold text-rose-600">{region.avgLatencyMs} ms</span>
-                                            </div>
-                                            <div className="mt-1 text-xs text-slate-500">{formatCompact(region.totalCalls)} calls</div>
-                                        </div>
-                                    )) : (
-                                        <p className="text-sm text-slate-500">No regional latency data available.</p>
-                                    )}
-                                </div>
+                                {regionalLatencyChartData.length > 0 ? (
+                                    <div className="h-[280px]">
+                                        <ResponsiveContainer width="100%" height="100%">
+                                            <BarChart data={regionalLatencyChartData} layout="vertical" margin={{ left: 0, right: 8, top: 4, bottom: 4 }}>
+                                                <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                                                <XAxis type="number" hide />
+                                                <YAxis dataKey="region" type="category" width={120} tick={{ fontSize: 11 }} />
+                                                <Tooltip formatter={(value: number | string | undefined) => [`${Math.round(Number(value || 0))} ms`, 'Latency']} />
+                                                <Bar dataKey="latencyMs" fill="#ef4444" radius={[4, 4, 4, 4]} />
+                                            </BarChart>
+                                        </ResponsiveContainer>
+                                    </div>
+                                ) : (
+                                    <p className="text-sm text-slate-500">No regional latency data available.</p>
+                                )}
                             </div>
 
-                            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+                            <div className="rounded-3xl border border-slate-100/80 bg-white ring-1 ring-slate-900/5 p-5 shadow-sm">
                                 <h2 className="mb-4 text-lg font-semibold text-slate-900">Latency by Country</h2>
-                                <div className="space-y-3">
-                                    {geoLatencyRows.length > 0 ? geoLatencyRows.map((region) => (
-                                        <div key={region.country} className="rounded-xl border border-slate-200 p-3">
-                                            <div className="flex items-center justify-between">
-                                                <div className="text-sm font-medium text-slate-900">{region.country}</div>
-                                                <span className="text-sm font-semibold text-slate-700">{region.avgLatencyMs} ms</span>
-                                            </div>
-                                            <div className="mt-1 flex items-center justify-between text-xs text-slate-500">
-                                                <span>{formatCompact(region.totalRequests)} requests</span>
-                                                <span>{region.successRate}% success</span>
-                                            </div>
-                                        </div>
-                                    )) : (
-                                        <p className="text-sm text-slate-500">No geo-latency data available.</p>
-                                    )}
-                                </div>
+                                {countryLatencyChartData.length > 0 ? (
+                                    <div className="h-[280px]">
+                                        <ResponsiveContainer width="100%" height="100%">
+                                            <ComposedChart data={countryLatencyChartData}>
+                                                <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                                                <XAxis dataKey="country" tick={{ fontSize: 11 }} interval={0} angle={-20} height={56} textAnchor="end" />
+                                                <YAxis yAxisId="left" tick={{ fontSize: 11 }} />
+                                                <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 11 }} domain={[80, 100]} />
+                                                <Tooltip />
+                                                <Bar yAxisId="left" dataKey="latencyMs" name="Latency (ms)" fill="#60a5fa" radius={[4, 4, 0, 0]} />
+                                                <Line yAxisId="right" type="monotone" dataKey="successRate" name="Success %" stroke="#16a34a" strokeWidth={2} dot={false} />
+                                            </ComposedChart>
+                                        </ResponsiveContainer>
+                                    </div>
+                                ) : (
+                                    <p className="text-sm text-slate-500">No geo-latency data available.</p>
+                                )}
                             </div>
 
-                            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+                            <div className="rounded-3xl border border-slate-100/80 bg-white ring-1 ring-slate-900/5 p-5 shadow-sm">
                                 <h2 className="mb-4 text-lg font-semibold text-slate-900">Network Reliability Snapshot</h2>
-                                <div className="space-y-3">
-                                    {networkRows.length > 0 ? networkRows.map((network) => (
-                                        <div key={network.networkType} className="rounded-xl border border-slate-200 p-3">
-                                            <div className="flex items-center justify-between">
-                                                <div className="text-sm font-medium text-slate-900">{network.networkType.toUpperCase()}</div>
-                                                <span className="text-sm font-semibold text-slate-700">{network.avgLatencyMs} ms</span>
-                                            </div>
-                                            <div className="mt-1 flex items-center justify-between text-xs text-slate-500">
-                                                <span>{formatCompact(network.sessions)} sessions</span>
-                                                <span>{network.apiErrorRate.toFixed(2)}% fail</span>
-                                            </div>
-                                        </div>
-                                    )) : (
-                                        <p className="text-sm text-slate-500">No network-level metrics available.</p>
-                                    )}
-                                </div>
+                                {networkReliabilityChartData.length > 0 ? (
+                                    <div className="h-[280px]">
+                                        <ResponsiveContainer width="100%" height="100%">
+                                            <ComposedChart data={networkReliabilityChartData}>
+                                                <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                                                <XAxis dataKey="network" tick={{ fontSize: 11 }} />
+                                                <YAxis yAxisId="left" tick={{ fontSize: 11 }} />
+                                                <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 11 }} />
+                                                <Tooltip />
+                                                <Bar yAxisId="left" dataKey="latencyMs" name="Latency (ms)" fill="#94a3b8" radius={[4, 4, 0, 0]} />
+                                                <Line yAxisId="right" type="monotone" dataKey="failRate" name="Fail %" stroke="#dc2626" strokeWidth={2} dot={false} />
+                                            </ComposedChart>
+                                        </ResponsiveContainer>
+                                    </div>
+                                ) : (
+                                    <p className="text-sm text-slate-500">No network-level metrics available.</p>
+                                )}
                             </div>
                         </section>
 
-                        <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+                        <section className="rounded-3xl border border-slate-100/80 bg-white ring-1 ring-slate-900/5 p-5 shadow-sm">
                             <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                                 <h2 className="text-lg font-semibold text-slate-900">Endpoint Activity Database</h2>
                                 <div className="relative w-full md:w-[360px]">
@@ -832,12 +898,12 @@ export const ApiAnalytics: React.FC = () => {
                                         value={searchQuery}
                                         onChange={(event) => setSearchQuery(event.target.value)}
                                         placeholder="Filter by endpoint path"
-                                        className="w-full rounded-xl border border-slate-200 bg-slate-50 py-2 pl-9 pr-3 text-sm text-slate-700 outline-none transition focus:border-blue-300 focus:bg-white"
+                                        className="w-full rounded-2xl border border-slate-100/80 bg-slate-50/50 py-2 pl-9 pr-3 text-sm text-slate-700 outline-none transition focus:border-blue-300 focus:bg-white"
                                     />
                                 </div>
                             </div>
 
-                            <div className="overflow-x-auto rounded-xl border border-slate-200">
+                            <div className="overflow-x-auto rounded-2xl border border-slate-100/80 ring-1 ring-slate-900/5 shadow-sm">
                                 <table className="w-full min-w-[980px] text-left text-sm">
                                     <thead className="sticky top-0 bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
                                         <tr>
