@@ -142,11 +142,9 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
       
-      - name: Install dependencies and download GeoIP data
+      - name: Install dependencies
         run: |
           npm ci
-          # Verify geoip data was downloaded
-          ls -la node_modules/geoip-lite/data/
       
       - name: Build API
         uses: docker/build-push-action@v5
