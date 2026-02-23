@@ -21,6 +21,31 @@ const redis = getRedis();
 // Cache TTL in seconds
 const CACHE_TTL = 300; // 5 minutes
 
+/**
+ * Returns the last date (YYYY-MM-DD) for which daily rollups are guaranteed
+ * to have completed. This is derived from the `stats:daily_rollup:last_run`
+ * marker written by the statsAggregator job and falls back to "yesterday"
+ * if the marker is missing or invalid.
+ */
+async function getLastRolledUpDate(): Promise<string> {
+    try {
+        const lastRun = await redis.get('stats:daily_rollup:last_run');
+        if (lastRun) {
+            const parsed = new Date(lastRun);
+            if (!Number.isNaN(parsed.getTime())) {
+                return parsed.toISOString().split('T')[0];
+            }
+        }
+    } catch (err) {
+        logger.warn({ err }, 'Failed to read last daily rollup time from Redis');
+    }
+
+    const yesterday = new Date();
+    yesterday.setUTCDate(yesterday.getUTCDate() - 1);
+    yesterday.setUTCHours(0, 0, 0, 0);
+    return yesterday.toISOString().split('T')[0];
+}
+
 function toPercent(numerator: number, denominator: number, decimals: number = 1): number {
     if (denominator <= 0) return 0;
     return Number(((numerator / denominator) * 100).toFixed(decimals));
@@ -179,7 +204,11 @@ router.get(
         }
 
         const startStr = start.toISOString().split('T')[0];
-        const endStr = end.toISOString().split('T')[0];
+        const requestedEndStr = end.toISOString().split('T')[0];
+
+        // Cap at last fully rolled-up date to avoid showing partial "today" data.
+        const lastRolledUpDate = await getLastRolledUpDate();
+        const endStr = requestedEndStr > lastRolledUpDate ? lastRolledUpDate : requestedEndStr;
 
         // Check Redis cache
         const cacheKey = `analytics:daily:${projectId}:${startStr}:${endStr}`;
@@ -280,8 +309,11 @@ router.get(
         start.setDate(start.getDate() - days);
         const startStr = start.toISOString().split('T')[0];
 
+        // Cap range at last fully rolled-up date
+        const lastRolledUpDate = await getLastRolledUpDate();
+
         // Check cache
-        const cacheKey = `analytics:trends:${projectId}:${days}d`;
+        const cacheKey = `analytics:trends:${projectId}:${days}d:through:${lastRolledUpDate}`;
         const cached = await redis.get(cacheKey);
         if (cached) {
             res.json(JSON.parse(cached));
@@ -293,7 +325,8 @@ router.get(
             .from(appDailyStats)
             .where(and(
                 eq(appDailyStats.projectId, projectId),
-                gte(appDailyStats.date, startStr)
+                gte(appDailyStats.date, startStr),
+                lte(appDailyStats.date, lastRolledUpDate)
             ))
             .orderBy(asc(appDailyStats.date));
 
@@ -591,12 +624,15 @@ router.get(
             start.setDate(start.getDate() - days);
             const startStr = start.toISOString().split('T')[0];
 
+            const lastRolledUpDate = await getLastRolledUpDate();
+
             const dailies = await db
                 .select()
                 .from(appDailyStats)
                 .where(and(
                     eq(appDailyStats.projectId, projectId as string),
-                    gte(appDailyStats.date, startStr)
+                    gte(appDailyStats.date, startStr),
+                    lte(appDailyStats.date, lastRolledUpDate)
                 ));
 
             // Sum up
@@ -1384,8 +1420,10 @@ router.get(
             }
         }
 
+        const lastRolledUpDate = await getLastRolledUpDate();
+
         // Query session counts from appDailyStats rollup table (SCALABLE - queries days, not sessions)
-        const conditions = [inArray(appDailyStats.projectId, projectIds)];
+        const conditions = [inArray(appDailyStats.projectId, projectIds), lte(appDailyStats.date, lastRolledUpDate)];
         if (startDateStr) {
             conditions.push(gte(appDailyStats.date, startDateStr));
         }
@@ -1798,8 +1836,10 @@ router.get(
             }
         }
 
+        const lastRolledUpDate = await getLastRolledUpDate();
+
         // Use pre-aggregated stats from appDailyStats
-        const conditions = [inArray(appDailyStats.projectId, projectIds)];
+        const conditions = [inArray(appDailyStats.projectId, projectIds), lte(appDailyStats.date, lastRolledUpDate)];
         if (startDateStr) {
             conditions.push(gte(appDailyStats.date, startDateStr));
         }

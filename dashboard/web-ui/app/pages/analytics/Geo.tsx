@@ -10,6 +10,7 @@ import {
     type ApiLatencyByLocationResponse,
     type GeoIssuesSummary,
 } from '../../services/api';
+import { config } from '../../config';
 
 // @ts-ignore: mapbox-gl default export typing can vary across versions
 import mapboxgl from 'mapbox-gl';
@@ -17,7 +18,7 @@ import mapboxgl from 'mapbox-gl';
 import MapGL, { Marker, NavigationControl, Popup } from 'react-map-gl';
 import 'mapbox-gl/dist/mapbox-gl.css';
 
-const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN || '';
+const MAPBOX_TOKEN = config.mapboxToken;
 const DISABLE_MAPBOX_IN_DEMO = true;
 
 type LatencyTier = 'excellent' | 'good' | 'degraded' | 'critical' | 'unknown';

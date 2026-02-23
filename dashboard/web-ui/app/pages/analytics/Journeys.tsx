@@ -773,16 +773,28 @@ export const Journeys: React.FC = () => {
                                                     <Cell key={row.key} fill={row.color} />
                                                 ))}
                                             </Pie>
-                                            <Tooltip formatter={(value: number | string | undefined) => [formatCompact(Number(value || 0)), 'Users']} />
+                                            <Tooltip
+                                                formatter={(value: number | string | undefined, name: string) => [
+                                                    formatCompact(Number(value || 0)),
+                                                    name || 'Users',
+                                                ]}
+                                                contentStyle={{ padding: '8px 12px' }}
+                                            />
                                         </PieChart>
                                     </ResponsiveContainer>
                                 </div>
                                 <div className="mt-3 grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
                                     {userTypeMixData.map((row) => (
-                                        <div key={row.key} className="rounded-xl border border-slate-100/80 bg-slate-50/50 p-2 text-center">
-                                            <div className="font-semibold text-slate-900">{row.label}</div>
-                                            <div className="mt-0.5 text-slate-600">
-                                                {totalUserTypeMixUsers > 0 ? `${((row.value / totalUserTypeMixUsers) * 100).toFixed(1)}%` : '0%'}
+                                        <div
+                                            key={row.key}
+                                            className="flex items-center gap-2 rounded-xl border border-slate-100/80 bg-slate-50/50 p-2"
+                                            style={{ borderLeftWidth: 4, borderLeftColor: row.color }}
+                                        >
+                                            <div className="flex-1 text-center">
+                                                <div className="font-semibold text-slate-900">{row.label}</div>
+                                                <div className="mt-0.5 text-slate-600">
+                                                    {totalUserTypeMixUsers > 0 ? `${((row.value / totalUserTypeMixUsers) * 100).toFixed(1)}%` : '0%'}
+                                                </div>
                                             </div>
                                         </div>
                                     ))}

@@ -16,6 +16,9 @@ export const config = {
     // Stripe publishable key for in-app payment method collection
     stripePublishableKey: (typeof window !== 'undefined' ? window.ENV?.VITE_STRIPE_PUBLISHABLE_KEY : undefined) || import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY || '',
 
+    // Mapbox token for geographic maps
+    mapboxToken: (typeof window !== 'undefined' ? window.ENV?.VITE_MAPBOX_TOKEN : undefined) || import.meta.env.VITE_MAPBOX_TOKEN || '',
+
     // GitHub repo
     githubUrl: 'https://github.com/rejourneyco/rejourney',
 
