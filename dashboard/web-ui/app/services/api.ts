@@ -2161,6 +2161,7 @@ export interface GeoIssueLocation {
     apiErrors: number;
     total: number;
   };
+  growthRate?: number;
 }
 
 export interface GeoIssueCountry {

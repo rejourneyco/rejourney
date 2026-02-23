@@ -224,6 +224,57 @@ const RECOMMENDED_SESSION_PRIORITY_STYLES: Record<RecommendedSession['priority']
     baseline: 'border-slate-200 bg-slate-50 text-slate-700',
 };
 
+const ANONYMOUS_NICKNAME_STYLES = [
+    'border-emerald-200 bg-emerald-100 text-emerald-800',
+    'border-teal-200 bg-teal-100 text-teal-800',
+    'border-cyan-200 bg-cyan-100 text-cyan-800',
+    'border-sky-200 bg-sky-100 text-sky-800',
+    'border-blue-200 bg-blue-100 text-blue-800',
+    'border-indigo-200 bg-indigo-100 text-indigo-800',
+    'border-violet-200 bg-violet-100 text-violet-800',
+    'border-purple-200 bg-purple-100 text-purple-800',
+    'border-fuchsia-200 bg-fuchsia-100 text-fuchsia-800',
+    'border-pink-200 bg-pink-100 text-pink-800',
+    'border-lime-200 bg-lime-100 text-lime-800',
+    'border-green-200 bg-green-100 text-green-800',
+];
+
+function hashString(input: string): number {
+    let hash = 0;
+    for (let i = 0; i < input.length; i++) {
+        hash = ((hash << 5) - hash + input.charCodeAt(i)) | 0;
+    }
+    return Math.abs(hash);
+}
+
+function getAnonymousNickname(session: RecordingSession): string | null {
+    const displayName = session.anonymousDisplayName?.trim();
+    if (displayName) return displayName;
+
+    const anonymousId = session.anonymousId?.trim();
+    if (!anonymousId || anonymousId.toLowerCase() === 'anonymous') return null;
+    return anonymousId.length > 22 ? `${anonymousId.slice(0, 22)}...` : anonymousId;
+}
+
+function getAnonymousNicknameStyle(nickname: string): string {
+    const idx = hashString(nickname) % ANONYMOUS_NICKNAME_STYLES.length;
+    return ANONYMOUS_NICKNAME_STYLES[idx];
+}
+
+function getSessionLocationLabel(session: RecordingSession): string {
+    const city = session.geoLocation?.city?.trim();
+    const region = session.geoLocation?.region?.trim();
+    const country = session.geoLocation?.country?.trim();
+
+    if (city && country) return `${city}, ${country}`;
+    if (city && region) return `${city}, ${region}`;
+    if (city) return city;
+    if (region && country) return `${region}, ${country}`;
+    if (region) return region;
+    if (country) return country;
+    return 'Unknown location';
+}
+
 function buildRecommendedSessions(sessions: RecordingSession[]): RecommendedSession[] {
     if (sessions.length === 0) return [];
 
@@ -684,7 +735,7 @@ export const GeneralOverview: React.FC = () => {
 
     const activitySummary = useMemo(() => {
         if (!trendChartData.length) {
-            return { latestDau: 0, avgDau: 0, peakMau: 0 };
+            return { latestDau: 0, avgDau: 0, peakMau: 0, latestSessions: 0 };
         }
 
         const latest = trendChartData[trendChartData.length - 1];
@@ -695,6 +746,7 @@ export const GeneralOverview: React.FC = () => {
             latestDau: latest?.dau ?? 0,
             avgDau: Math.round(totalDau / trendChartData.length),
             peakMau,
+            latestSessions: latest?.sessions ?? 0,
         };
     }, [trendChartData]);
 
@@ -1155,6 +1207,20 @@ export const GeneralOverview: React.FC = () => {
         [sessions],
     );
 
+    const anonymousNicknameStyleMap = useMemo(() => {
+        const styleMap: Record<string, string> = {};
+        let paletteIndex = 0;
+
+        for (const rec of recommendedSessions) {
+            const nickname = getAnonymousNickname(rec.session);
+            if (!nickname || styleMap[nickname]) continue;
+            styleMap[nickname] = ANONYMOUS_NICKNAME_STYLES[paletteIndex % ANONYMOUS_NICKNAME_STYLES.length];
+            paletteIndex += 1;
+        }
+
+        return styleMap;
+    }, [recommendedSessions]);
+
     const hasData = useMemo(() => {
         return (
             trendChartData.length > 0
@@ -1173,7 +1239,7 @@ export const GeneralOverview: React.FC = () => {
                 title="General"
                 subtitle="Acquisition, reliability, retention, and replay-driven issue triage"
                 icon={<MessageSquareWarning className="w-6 h-6" />}
-                iconColor="bg-sky-500"
+                iconColor="bg-sky-50"
             >
                 <TimeFilter value={timeRange} onChange={setTimeRange} />
             </DashboardPageHeader>
@@ -1250,6 +1316,10 @@ export const GeneralOverview: React.FC = () => {
                                         <span className="text-[11px] text-slate-400">PEAK MAU</span>
                                         <div className="text-lg font-semibold text-slate-700">{formatCompact(activitySummary.peakMau)}</div>
                                     </div>
+                                    <div>
+                                        <span className="text-[11px] text-slate-400">LATEST SESSIONS</span>
+                                        <div className="text-lg font-semibold text-slate-700">{formatCompact(activitySummary.latestSessions)}</div>
+                                    </div>
                                 </div>
                                 <div className="h-[130px]">
                                     <ResponsiveContainer width="100%" height="100%">
@@ -1257,6 +1327,7 @@ export const GeneralOverview: React.FC = () => {
                                             <XAxis dataKey="dateKey" tick={{ fontSize: 10 }} tickFormatter={formatDateLabel} minTickGap={40} />
                                             <YAxis tick={{ fontSize: 10 }} />
                                             <Tooltip labelFormatter={(value) => formatDateLabel(String(value))} />
+                                            <Line type="monotone" dataKey="sessions" stroke="#f59e0b" strokeWidth={1.75} dot={false} name="Sessions" />
                                             <Line type="monotone" dataKey="dau" stroke="#1a73e8" strokeWidth={2} dot={false} name="DAU" />
                                             <Line type="monotone" dataKey="mau" stroke="#34a853" strokeWidth={1.5} dot={false} name="MAU" />
                                         </LineChart>
@@ -1682,15 +1753,21 @@ export const GeneralOverview: React.FC = () => {
                                 />
                             ) : (
                                 <div className="relative">
-                                    <div className="pointer-events-none absolute inset-y-0 left-0 z-10 w-12 bg-gradient-to-r from-white via-white/80 to-transparent" />
                                     <div className="pointer-events-none absolute inset-y-0 right-0 z-10 w-12 bg-gradient-to-l from-white via-white/80 to-transparent" />
                                     <div className="overflow-x-auto pb-3">
-                                        <div className="flex min-w-max snap-x snap-mandatory gap-3 pr-4">
-                                        {recommendedSessions.map((rec) => (
-                                            <article
-                                                key={rec.session.id}
-                                                className="group w-[360px] snap-start rounded-2xl border border-slate-200/80 bg-gradient-to-b from-white to-slate-50/60 p-3 shadow-sm transition-all hover:border-slate-300 hover:shadow-md"
-                                            >
+                                        <div className="flex min-w-max snap-x snap-mandatory gap-3 pl-3 pr-4">
+                                        {recommendedSessions.map((rec) => {
+                                            const anonymousNickname = getAnonymousNickname(rec.session);
+                                            const nicknameStyle = anonymousNickname
+                                                ? (anonymousNicknameStyleMap[anonymousNickname] || getAnonymousNicknameStyle(anonymousNickname))
+                                                : '';
+                                            const locationLabel = getSessionLocationLabel(rec.session);
+                                            const audienceLabel = rec.session.userId ? 'Identified user' : 'Device-only user';
+                                            return (
+                                                <article
+                                                    key={rec.session.id}
+                                                    className="group w-[360px] snap-start rounded-2xl border border-slate-200/80 bg-gradient-to-b from-white to-slate-50/60 p-3 shadow-sm transition-all hover:border-slate-300 hover:shadow-md"
+                                                >
                                                 <div className="flex items-start justify-between gap-2">
                                                     <div className="min-w-0">
                                                         <span
@@ -1698,15 +1775,24 @@ export const GeneralOverview: React.FC = () => {
                                                         >
                                                             {rec.category}
                                                         </span>
-                                                        <div className="mt-1 truncate text-[11px] font-semibold uppercase tracking-wide text-slate-600">
-                                                            {(rec.session.userId
-                                                                ? 'Identified user'
-                                                                : (rec.session.anonymousId || rec.session.anonymousDisplayName)
-                                                                    ? 'Anonymous user'
-                                                                    : 'Device-only user')}
-                                                            {' · '}
-                                                            {rec.session.platform.toUpperCase()}
+                                                        <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                                                            {anonymousNickname ? (
+                                                                <span
+                                                                    className={`inline-flex max-w-[200px] items-center truncate rounded-md border px-2 py-0.5 text-[10px] font-semibold ${nicknameStyle}`}
+                                                                    title={anonymousNickname}
+                                                                >
+                                                                    {anonymousNickname}
+                                                                </span>
+                                                            ) : (
+                                                                <span className="inline-flex items-center rounded-md border border-slate-200 bg-slate-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-600">
+                                                                    {audienceLabel}
+                                                                </span>
+                                                            )}
+                                                            <span className="inline-flex items-center rounded-md border border-slate-200 bg-slate-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-600">
+                                                                {rec.session.platform.toUpperCase()}
+                                                            </span>
                                                         </div>
+                                                        <div className="mt-1 truncate text-[11px] text-slate-500">{locationLabel}</div>
                                                     </div>
                                                     <button
                                                         type="button"
@@ -1736,38 +1822,51 @@ export const GeneralOverview: React.FC = () => {
                                                     </div>
                                                 </div>
 
-                                                <div className="mt-2 flex items-end justify-between gap-2">
-                                                    <div className="flex min-w-0 flex-wrap gap-1.5">
-                                                        {rec.session.appVersion && (
-                                                            <span className="inline-flex items-center rounded border border-slate-200 bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-600">
-                                                                v{rec.session.appVersion}
+                                                <div className="mt-3 flex items-start justify-between gap-3 rounded-xl border border-slate-200/80 bg-white/80 p-2.5">
+                                                    <div className="min-w-0 flex-1">
+                                                        <div className="truncate text-[11px] font-semibold uppercase tracking-wide text-slate-700">
+                                                            {rec.session.deviceModel || 'Unknown device'}
+                                                        </div>
+                                                        <div className="text-[10px] text-slate-500">
+                                                            {formatLastSeen(rec.session.startedAt)}
+                                                        </div>
+                                                        <div className="mt-1.5 flex min-w-0 flex-wrap gap-1.5">
+                                                            {rec.session.appVersion && (
+                                                                <span className="inline-flex items-center rounded border border-slate-200 bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-600">
+                                                                    v{rec.session.appVersion}
+                                                                </span>
+                                                            )}
+                                                            {rec.session.networkType && (
+                                                                <span className="inline-flex items-center rounded border border-slate-200 bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-600">
+                                                                    {rec.session.networkType}
+                                                                </span>
+                                                            )}
+                                                            <span className="inline-flex items-center rounded border border-slate-200 bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium uppercase text-slate-600">
+                                                                {rec.session.platform}
                                                             </span>
-                                                        )}
-                                                        {rec.session.networkType && (
-                                                            <span className="inline-flex items-center rounded border border-slate-200 bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-600">
-                                                                {rec.session.networkType}
-                                                            </span>
-                                                        )}
+                                                        </div>
                                                     </div>
-                                                    <div className="shrink-0 scale-[0.85] origin-bottom-right">
-                                                        <MiniSessionCard
-                                                            session={{
-                                                                id: rec.session.id,
-                                                                deviceModel: rec.session.deviceModel,
-                                                                createdAt: rec.session.startedAt,
-                                                                coverPhotoUrl:
-                                                                    rec.session.replayPromoted !== false
-                                                                        ? `/api/sessions/${rec.session.id}/cover`
-                                                                        : null,
-                                                            }}
-                                                            onClick={() =>
-                                                                navigate(`${pathPrefix}/sessions/${rec.session.id}`)
-                                                            }
-                                                        />
-                                                    </div>
+                                                    <MiniSessionCard
+                                                        session={{
+                                                            id: rec.session.id,
+                                                            deviceModel: rec.session.deviceModel,
+                                                            createdAt: rec.session.startedAt,
+                                                            coverPhotoUrl:
+                                                                rec.session.replayPromoted !== false
+                                                                    ? `/api/sessions/${rec.session.id}/cover`
+                                                                    : null,
+                                                        }}
+                                                        onClick={() =>
+                                                            navigate(`${pathPrefix}/sessions/${rec.session.id}`)
+                                                        }
+                                                        size="xs"
+                                                        showMeta={false}
+                                                        className="p-0"
+                                                    />
                                                 </div>
-                                            </article>
-                                        ))}
+                                                </article>
+                                            );
+                                        })}
                                     </div>
                                 </div>
                                 </div>

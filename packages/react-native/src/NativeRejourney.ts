@@ -128,8 +128,7 @@ export interface Spec extends TurboModule {
   debugCrash(): void;
 
   /**
-   * Trigger a debug ANR (Dev only)
-   * Blocks the main thread for the specified duration
+   * Trigger an ANR test by blocking the main thread for the specified duration.
    */
   debugTriggerANR(durationMs: number): void;
 
@@ -151,6 +150,10 @@ export interface Spec extends TurboModule {
   setUserIdentity(userId: string): Promise<{ success: boolean }>;
 
   getUserIdentity(): Promise<string | null>;
+
+  setAnonymousId(anonymousId: string): Promise<{ success: boolean }>;
+
+  getAnonymousId(): Promise<string | null>;
 
   setDebugMode(enabled: boolean): Promise<{ success: boolean }>;
 

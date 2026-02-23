@@ -173,6 +173,9 @@ class StabilityMonitor private constructor(private val context: Context) {
         ReplayOrchestrator.shared?.incrementFaultTally()
         persistIncident(incident)
         
+        // Flush visual frames to disk for crash safety
+        try { VisualCapture.shared?.flushToDisk() } catch (_: Exception) { }
+        
         // Give time to write
         Thread.sleep(150)
     }

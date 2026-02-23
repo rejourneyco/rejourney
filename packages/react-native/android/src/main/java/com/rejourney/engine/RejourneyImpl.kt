@@ -30,6 +30,7 @@ import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.ProcessLifecycleOwner
 import com.rejourney.recording.*
 import java.security.MessageDigest
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.locks.ReentrantLock
 import kotlin.concurrent.withLock
 
@@ -45,26 +46,26 @@ sealed class SessionState {
 
 /**
  * Main SDK implementation aligned with iOS RejourneyImpl.swift
- * 
+ *
  * This class provides the core SDK functionality for native Android usage.
  * For React Native, use RejourneyModuleImpl instead.
  */
-class RejourneyImpl private constructor(private val context: Context) : 
+class RejourneyImpl private constructor(private val context: Context) :
     Application.ActivityLifecycleCallbacks, DefaultLifecycleObserver {
 
     companion object {
         @Volatile
         private var instance: RejourneyImpl? = null
-        
+
         fun getInstance(context: Context): RejourneyImpl {
             return instance ?: synchronized(this) {
                 instance ?: RejourneyImpl(context.applicationContext).also { instance = it }
             }
         }
-        
+
         val shared: RejourneyImpl?
             get() = instance
-            
+
         var sdkVersion = "1.0.1"
     }
 
@@ -81,14 +82,23 @@ class RejourneyImpl private constructor(private val context: Context) :
 
     // Session timeout threshold (60 seconds)
     private val sessionTimeoutMs = 60_000L
+    private val sessionRolloverGraceMs = 2_000L
 
     private val mainHandler = Handler(Looper.getMainLooper())
-    
+
     @Volatile
     private var isInitialized = false
 
     init {
         setupLifecycleListeners()
+
+        // Recover sessions interrupted by a previous crash first, then send stored faults.
+        ReplayOrchestrator.getInstance(context).recoverInterruptedReplay { recoveredId ->
+            if (recoveredId != null) {
+                DiagnosticLog.notice("[Rejourney] Recovered crashed session: $recoveredId")
+            }
+            StabilityMonitor.getInstance(context).transmitStoredReport()
+        }
     }
 
     private fun setupLifecycleListeners() {
@@ -97,10 +107,10 @@ class RejourneyImpl private constructor(private val context: Context) :
             mainHandler.post {
                 ProcessLifecycleOwner.get().lifecycle.addObserver(this)
             }
-            
+
             // Register activity callbacks
             (context.applicationContext as? Application)?.registerActivityLifecycleCallbacks(this)
-            
+
         } catch (e: Exception) {
             DiagnosticLog.fault("[Rejourney] Failed to setup lifecycle listeners: ${e.message}")
         }
@@ -123,7 +133,7 @@ class RejourneyImpl private constructor(private val context: Context) :
                     state = SessionState.Paused(currentState.sessionId, currentState.startTimeMs)
                     backgroundEntryTimeMs = System.currentTimeMillis()
                     DiagnosticLog.notice("[Rejourney] ⏸️ Session '${currentState.sessionId}' paused (app backgrounded)")
-                    
+
                     TelemetryPipeline.shared?.dispatchNow()
                     SegmentDispatcher.shared.shipPending()
                 }
@@ -158,16 +168,49 @@ class RejourneyImpl private constructor(private val context: Context) :
 
                 DiagnosticLog.notice("[Rejourney] 🔄 Session timeout! Ending session '$oldSessionId' and creating new one")
 
-                Thread {
-                    ReplayOrchestrator.shared?.endReplay { success, uploaded ->
-                        DiagnosticLog.notice("[Rejourney] Old session ended (success: $success, uploaded: $uploaded)")
+                val restartStarted = AtomicBoolean(false)
+                val triggerRestart: (String) -> Unit = { source ->
+                    if (restartStarted.compareAndSet(false, true)) {
+                        DiagnosticLog.notice("[Rejourney] Session rollover trigger source=$source, oldSession=$oldSessionId")
                         mainHandler.post { startNewSessionAfterTimeout() }
+                    }
+                }
+
+                mainHandler.postDelayed({
+                    if (!restartStarted.get()) {
+                        DiagnosticLog.caution("[Rejourney] Session rollover grace timeout reached (${sessionRolloverGraceMs}ms), forcing new session start")
+                    }
+                    triggerRestart("grace_timeout")
+                }, sessionRolloverGraceMs)
+
+                Thread {
+                    val orchestrator = ReplayOrchestrator.shared
+                    if (orchestrator == null) {
+                        triggerRestart("orchestrator_missing")
+                    } else {
+                        orchestrator.endReplayWithReason("background_timeout") { success, uploaded ->
+                            DiagnosticLog.notice("[Rejourney] Old session ended (success: $success, uploaded: $uploaded)")
+                            triggerRestart("end_replay_callback")
+                        }
                     }
                 }.start()
             } else {
-                // Resume existing session
-                state = SessionState.Active(currentState.sessionId, currentState.startTimeMs)
-                DiagnosticLog.notice("[Rejourney] ▶️ Resuming session '${currentState.sessionId}'")
+                val orchestratorSessionId = ReplayOrchestrator.shared?.replayId
+                if (orchestratorSessionId.isNullOrEmpty()) {
+                    state = SessionState.Idle
+                    DiagnosticLog.notice("[Rejourney] Session ended while backgrounded, starting fresh session on foreground")
+                    mainHandler.post { startNewSessionAfterTimeout() }
+                    return
+                }
+
+                if (orchestratorSessionId != currentState.sessionId) {
+                    state = SessionState.Active(orchestratorSessionId, System.currentTimeMillis())
+                    DiagnosticLog.notice("[Rejourney] ▶️ Foreground reconciled to active session '$orchestratorSessionId' (was '${currentState.sessionId}')")
+                } else {
+                    // Resume existing session
+                    state = SessionState.Active(currentState.sessionId, currentState.startTimeMs)
+                    DiagnosticLog.notice("[Rejourney] ▶️ Resuming session '${currentState.sessionId}'")
+                }
 
                 TelemetryPipeline.shared?.recordAppForeground(backgroundDuration)
                 StabilityMonitor.shared?.transmitStoredReport()
@@ -323,7 +366,7 @@ class RejourneyImpl private constructor(private val context: Context) :
                 return@post
             }
 
-            ReplayOrchestrator.shared?.endReplay { success, uploaded ->
+            ReplayOrchestrator.shared?.endReplayWithReason("user_initiated") { success, uploaded ->
                 DiagnosticLog.replayEnded(targetSid)
                 callback?.invoke(success, targetSid, uploaded)
             }
@@ -508,7 +551,7 @@ class RejourneyImpl private constructor(private val context: Context) :
                 else -> {}
             }
         }
-        
+
         try {
             (context.applicationContext as? Application)?.unregisterActivityLifecycleCallbacks(this)
             mainHandler.post {

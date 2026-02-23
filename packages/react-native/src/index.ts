@@ -649,13 +649,8 @@ const Rejourney: RejourneyAPI = {
             });
             getLogger().logFrustration(`Rage tap (${count} taps)`);
           },
-          // Error callback - log as error event
+          // Error callback - SDK forwarding is handled in autoTracking.trackError
           onError: (error: { message: string; stack?: string; name?: string }) => {
-            this.logEvent('error', {
-              message: error.message,
-              stack: error.stack,
-              name: error.name,
-            });
             getLogger().logError(error.message);
           },
           onScreen: (_screenName: string, _previousScreen?: string) => {
@@ -1222,21 +1217,16 @@ const Rejourney: RejourneyAPI = {
   },
 
   /**
-   * Trigger a debug ANR (Dev only)
-   * Blocks the main thread for the specified duration
+   * Trigger an ANR test by blocking the main thread for the specified duration.
    */
   debugTriggerANR(durationMs: number): void {
-    if (__DEV__) {
-      safeNativeCallSync(
-        'debugTriggerANR',
-        () => {
-          getRejourneyNative()!.debugTriggerANR(durationMs);
-        },
-        undefined
-      );
-    } else {
-      getLogger().warn('debugTriggerANR is only available in development mode');
-    }
+    safeNativeCallSync(
+      'debugTriggerANR',
+      () => {
+        getRejourneyNative()!.debugTriggerANR(durationMs);
+      },
+      undefined
+    );
   },
 
   /**

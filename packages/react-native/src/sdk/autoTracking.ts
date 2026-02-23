@@ -184,6 +184,7 @@ let originalOnError: OnErrorEventHandler | null = null;
 let originalOnUnhandledRejection: ((event: PromiseRejectionEvent) => void) | null = null;
 let originalConsoleError: ((...args: any[]) => void) | null = null;
 let _promiseRejectionTrackingDisable: (() => void) | null = null;
+const FATAL_ERROR_FLUSH_DELAY_MS = 1200;
 
 /**
  * Initialize auto tracking features
@@ -364,7 +365,7 @@ function setupErrorTracking(): void {
 /**
  * Setup React Native ErrorUtils handler
  *
- * CRITICAL FIX: For fatal errors, we delay calling the original handler by 500ms
+ * CRITICAL FIX: For fatal errors, we delay calling the original handler briefly
  * to give the React Native bridge time to flush the logEvent('error') call to the
  * native TelemetryPipeline. Without this delay, the error event is queued on the
  * JS→native bridge but the app crashes (via originalErrorHandler) before the bridge
@@ -391,10 +392,10 @@ function setupReactNativeErrorHandler(): void {
         if (isFatal) {
           // For fatal errors, delay the original handler so the native bridge
           // has time to deliver the error event to TelemetryPipeline before
-          // the app terminates. 500ms is enough for the bridge to flush.
+          // the app terminates.
           setTimeout(() => {
             originalErrorHandler!(error, isFatal);
-          }, 500);
+          }, FATAL_ERROR_FLUSH_DELAY_MS);
         } else {
           originalErrorHandler(error, isFatal);
         }
@@ -457,7 +458,6 @@ function setupPromiseRejectionHandler(): void {
 
   // Strategy 1: RN-specific promise rejection tracking polyfill
   try {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
     const tracking = require('promise/setimmediate/rejection-tracking');
     if (tracking && typeof tracking.enable === 'function') {
       tracking.enable({
@@ -572,8 +572,30 @@ function trackError(error: ErrorEvent): void {
   metrics.errorCount++;
   metrics.totalEvents++;
 
+  forwardErrorToNative(error);
+
   if (onErrorCaptured) {
-    onErrorCaptured(error);
+    try {
+      onErrorCaptured(error);
+    } catch {
+      // Ignore callback exceptions so SDK error forwarding keeps working.
+    }
+  }
+}
+
+function forwardErrorToNative(error: ErrorEvent): void {
+  try {
+    const nativeModule = getRejourneyNativeModule();
+    if (!nativeModule || typeof nativeModule.logEvent !== 'function') return;
+
+    nativeModule.logEvent('error', {
+      message: error.message,
+      stack: error.stack,
+      name: error.name || 'Error',
+      timestamp: error.timestamp,
+    }).catch(() => { });
+  } catch {
+    // Ignore native forwarding failures; SDK should never crash app code.
   }
 }
 
@@ -595,6 +617,7 @@ export function captureError(
 }
 
 let originalConsoleLog: ((...args: any[]) => void) | null = null;
+let originalConsoleInfo: ((...args: any[]) => void) | null = null;
 let originalConsoleWarn: ((...args: any[]) => void) | null = null;
 
 // Cap console logs to prevent flooding the event pipeline
@@ -608,9 +631,10 @@ function setupConsoleTracking(): void {
   if (typeof console === 'undefined') return;
 
   if (!originalConsoleLog) originalConsoleLog = console.log;
+  if (!originalConsoleInfo) originalConsoleInfo = console.info;
   if (!originalConsoleWarn) originalConsoleWarn = console.warn;
 
-  const createConsoleInterceptor = (level: 'log' | 'warn' | 'error', originalFn: (...args: any[]) => void) => {
+  const createConsoleInterceptor = (level: 'log' | 'info' | 'warn' | 'error', originalFn: (...args: any[]) => void) => {
     return (...args: any[]) => {
       try {
         const message = args.map(arg => {
@@ -623,10 +647,9 @@ function setupConsoleTracking(): void {
           }
         }).join(' ');
 
-        // Prevent infinite loops, ignore internal noise, and enforce per-session cap
+        // Enforce per-session cap and skip React Native unhandled-rejection noise.
         if (
           consoleLogCount < MAX_CONSOLE_LOGS_PER_SESSION &&
-          !message.includes('[Rejourney]') &&
           !message.includes('Possible Unhandled Promise Rejection')
         ) {
           consoleLogCount++;
@@ -652,6 +675,7 @@ function setupConsoleTracking(): void {
   };
 
   console.log = createConsoleInterceptor('log', originalConsoleLog!);
+  console.info = createConsoleInterceptor('info', originalConsoleInfo!);
   console.warn = createConsoleInterceptor('warn', originalConsoleWarn!);
 
   const currentConsoleError = console.error;
@@ -666,6 +690,10 @@ function restoreConsoleHandlers(): void {
   if (originalConsoleLog) {
     console.log = originalConsoleLog;
     originalConsoleLog = null;
+  }
+  if (originalConsoleInfo) {
+    console.info = originalConsoleInfo;
+    originalConsoleInfo = null;
   }
   if (originalConsoleWarn) {
     console.warn = originalConsoleWarn;
@@ -1261,7 +1289,27 @@ export async function collectDeviceInfo(): Promise<DeviceInfo> {
 function generateAnonymousId(): string {
   const timestamp = Date.now().toString(36);
   const random = Math.random().toString(36).substring(2, 15);
-  return `anon_${timestamp}_${random}`;
+  const id = `anon_${timestamp}_${random}`;
+  // Persist so the same ID survives app restarts
+  _persistAnonymousId(id);
+  return id;
+}
+
+/**
+ * Best-effort async persist of anonymous ID to native storage
+ */
+function _persistAnonymousId(id: string): void {
+  const nativeModule = getRejourneyNativeModule();
+  if (!nativeModule?.setAnonymousId) return;
+
+  try {
+    const result = nativeModule.setAnonymousId(id);
+    if (result && typeof result.catch === 'function') {
+      result.catch(() => { });
+    }
+  } catch {
+    // Native storage unavailable — ID will still be stable for this session
+  }
 }
 
 /**
@@ -1292,17 +1340,41 @@ export async function ensurePersistentAnonymousId(): Promise<string> {
 
 /**
  * Load anonymous ID from persistent storage
- * Call this at app startup for best results
+ * Checks native anonymous storage first, then falls back to native getUserIdentity,
+ * and finally generates a new ID if nothing is persisted.
  */
 export async function loadAnonymousId(): Promise<string> {
   const nativeModule = getRejourneyNativeModule();
-  if (nativeModule && nativeModule.getUserIdentity) {
+
+  // 1. Try native anonymous ID storage
+  if (nativeModule?.getAnonymousId) {
     try {
-      return await nativeModule.getUserIdentity() || generateAnonymousId();
+      const stored = await nativeModule.getAnonymousId();
+      if (stored && typeof stored === 'string') return stored;
     } catch {
-      return generateAnonymousId();
+      // Continue to fallbacks
     }
   }
+
+  // 2. Backward compatibility fallback for older native modules
+  if (nativeModule?.getUserIdentity) {
+    try {
+      const nativeId = await nativeModule.getUserIdentity();
+      if (nativeId && typeof nativeId === 'string') {
+        const normalized = nativeId.trim();
+        // Only migrate legacy anonymous identifiers. Never treat explicit user identities
+        // as anonymous fingerprints, or session correlation becomes unstable.
+        if (normalized.startsWith('anon_')) {
+          _persistAnonymousId(normalized);
+          return normalized;
+        }
+      }
+    } catch {
+      // Continue to fallback
+    }
+  }
+
+  // 3. Generate and persist new ID
   return generateAnonymousId();
 }
 
@@ -1310,7 +1382,13 @@ export async function loadAnonymousId(): Promise<string> {
  * Set a custom anonymous ID
  */
 export function setAnonymousId(id: string): void {
-  anonymousId = id;
+  const normalized = (id || '').trim();
+  if (!normalized) {
+    anonymousId = generateAnonymousId();
+    return;
+  }
+  anonymousId = normalized;
+  _persistAnonymousId(normalized);
 }
 
 export default {

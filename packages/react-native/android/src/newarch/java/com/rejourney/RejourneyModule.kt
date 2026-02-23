@@ -193,6 +193,20 @@ class RejourneyModule(reactContext: ReactApplicationContext) :
 
     @ReactMethod
     @DoNotStrip
+    override fun setAnonymousId(anonymousId: String, promise: Promise) {
+           val instance = getImplOrReject(promise) ?: return
+           instance.setAnonymousId(anonymousId, promise)
+    }
+
+    @ReactMethod
+    @DoNotStrip
+    override fun getAnonymousId(promise: Promise) {
+           val instance = getImplOrReject(promise) ?: return
+           instance.getAnonymousId(promise)
+    }
+
+    @ReactMethod
+    @DoNotStrip
     override fun setDebugMode(enabled: Boolean, promise: Promise) {
            val instance = getImplOrReject(promise) ?: return
            instance.setDebugMode(enabled, promise)

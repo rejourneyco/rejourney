@@ -18,7 +18,6 @@ import UIKit
 import Accelerate
 
 extension UIImage {
-    /// Apply Gaussian blur to the image
     func gaussianBlur(radius: CGFloat) -> UIImage? {
         guard let cgImage = cgImage else { return nil }
         

@@ -12,7 +12,7 @@
 
 import { Router } from 'express';
 import { randomBytes, createHmac } from 'crypto';
-import { eq, and, sql, desc } from 'drizzle-orm';
+import { eq, and, sql, desc, gte, lte } from 'drizzle-orm';
 import { db, sessions, sessionMetrics, projects, recordingArtifacts, ingestJobs, crashes, anrs } from '../db/client.js';
 
 import { logger } from '../logger.js';
@@ -88,6 +88,15 @@ function toNonNegativeBigInt(value: unknown): bigint | undefined {
     const parsed = Number(value);
     if (!Number.isFinite(parsed)) return undefined;
     return BigInt(Math.max(0, Math.trunc(parsed)));
+}
+
+function normalizeEndReason(value: unknown): string | null {
+    if (typeof value !== 'string') return null;
+    const trimmed = value.trim().toLowerCase();
+    if (!trimmed) return null;
+    return trimmed
+        .replace(/[^a-z0-9._-]/g, '_')
+        .slice(0, 64);
 }
 
 function normalizeSdkTelemetry(value: unknown): NormalizedSdkTelemetry | null {
@@ -969,27 +978,62 @@ router.post(
         }
 
         const session = sessionResult.session;
-        const metrics = sessionResult.metrics;
         const normalizedSdkTelemetry = normalizeSdkTelemetry(data.sdkTelemetry);
+        const lifecycleVersion = Math.max(1, toNonNegativeInt(data.lifecycleVersion) ?? 1);
+        const endReason = normalizeEndReason(data.endReason) ?? 'legacy';
 
-        if (data.metrics && metrics) {
-            await db.update(sessionMetrics)
-                .set({
-                    touchCount: data.metrics.touchCount ?? metrics.touchCount,
-                    scrollCount: data.metrics.scrollCount ?? metrics.scrollCount,
-                    gestureCount: data.metrics.gestureCount ?? metrics.gestureCount,
-                    inputCount: data.metrics.inputCount ?? metrics.inputCount,
-                    errorCount: data.metrics.errorCount ?? metrics.errorCount,
-                    rageTapCount: data.metrics.rageTapCount ?? metrics.rageTapCount,
-                    apiSuccessCount: data.metrics.apiSuccessCount ?? metrics.apiSuccessCount,
-                    apiErrorCount: data.metrics.apiErrorCount ?? metrics.apiErrorCount,
-                    apiTotalCount: data.metrics.apiTotalCount ?? metrics.apiTotalCount,
-                    screensVisited: data.metrics.screensVisited ?? metrics.screensVisited,
-                    interactionScore: data.metrics.interactionScore ?? metrics.interactionScore,
-                    explorationScore: data.metrics.explorationScore ?? metrics.explorationScore,
-                    uxScore: data.metrics.uxScore ?? metrics.uxScore,
-                })
-                .where(eq(sessionMetrics.sessionId, session.id));
+        // Defensive: metrics row should always exist, but keep this endpoint resilient.
+        if (data.metrics || normalizedSdkTelemetry) {
+            await db.insert(sessionMetrics)
+                .values({ sessionId: session.id })
+                .onConflictDoNothing();
+        }
+
+        if (data.metrics) {
+            const reportedCrashCount = toNonNegativeInt(data.metrics.crashCount);
+            const reportedAnrCount = toNonNegativeInt(data.metrics.anrCount);
+            const metricsUpdates: Record<string, unknown> = {};
+
+            const touchCount = toNonNegativeInt(data.metrics.touchCount);
+            if (touchCount !== undefined) metricsUpdates.touchCount = touchCount;
+            const scrollCount = toNonNegativeInt(data.metrics.scrollCount);
+            if (scrollCount !== undefined) metricsUpdates.scrollCount = scrollCount;
+            const gestureCount = toNonNegativeInt(data.metrics.gestureCount);
+            if (gestureCount !== undefined) metricsUpdates.gestureCount = gestureCount;
+            const inputCount = toNonNegativeInt(data.metrics.inputCount);
+            if (inputCount !== undefined) metricsUpdates.inputCount = inputCount;
+            const errorCount = toNonNegativeInt(data.metrics.errorCount);
+            if (errorCount !== undefined) metricsUpdates.errorCount = errorCount;
+            const rageTapCount = toNonNegativeInt(data.metrics.rageTapCount);
+            if (rageTapCount !== undefined) metricsUpdates.rageTapCount = rageTapCount;
+            const apiSuccessCount = toNonNegativeInt(data.metrics.apiSuccessCount);
+            if (apiSuccessCount !== undefined) metricsUpdates.apiSuccessCount = apiSuccessCount;
+            const apiErrorCount = toNonNegativeInt(data.metrics.apiErrorCount);
+            if (apiErrorCount !== undefined) metricsUpdates.apiErrorCount = apiErrorCount;
+            const apiTotalCount = toNonNegativeInt(data.metrics.apiTotalCount);
+            if (apiTotalCount !== undefined) metricsUpdates.apiTotalCount = apiTotalCount;
+            if (Array.isArray(data.metrics.screensVisited)) {
+                metricsUpdates.screensVisited = data.metrics.screensVisited;
+            }
+            const interactionScore = toFiniteNumber(data.metrics.interactionScore);
+            if (interactionScore !== undefined) metricsUpdates.interactionScore = interactionScore;
+            const explorationScore = toFiniteNumber(data.metrics.explorationScore);
+            if (explorationScore !== undefined) metricsUpdates.explorationScore = explorationScore;
+            const uxScore = toFiniteNumber(data.metrics.uxScore);
+            if (uxScore !== undefined) metricsUpdates.uxScore = uxScore;
+
+            if (reportedCrashCount !== undefined) {
+                metricsUpdates.crashCount = sql`GREATEST(COALESCE(${sessionMetrics.crashCount}, 0), ${reportedCrashCount})`;
+            }
+            if (reportedAnrCount !== undefined) {
+                metricsUpdates.anrCount = sql`GREATEST(COALESCE(${sessionMetrics.anrCount}, 0), ${reportedAnrCount})`;
+            }
+
+            if (Object.keys(metricsUpdates).length > 0) {
+                await db.update(sessionMetrics)
+                    .set(metricsUpdates)
+                    .where(eq(sessionMetrics.sessionId, session.id));
+            }
         }
 
         if (normalizedSdkTelemetry) {
@@ -1042,6 +1086,8 @@ router.post(
             wallClockSeconds,
             backgroundTimeSeconds,
             durationSeconds,
+            endReason,
+            lifecycleVersion,
         }, 'Session duration breakdown (durationSeconds = playable time)');
 
         await db.update(sessions)
@@ -1070,7 +1116,13 @@ router.post(
             await evaluateAndPromoteSession(session.id, projectId, durationSeconds);
         }
 
-        logger.info({ sessionId: session.id, durationSeconds, backgroundTimeSeconds }, 'Session ended');
+        logger.info({
+            sessionId: session.id,
+            durationSeconds,
+            backgroundTimeSeconds,
+            endReason,
+            lifecycleVersion,
+        }, 'Session ended');
 
         res.json({ success: true, durationSeconds, backgroundTimeSeconds });
     })
@@ -1228,6 +1280,10 @@ router.post(
 
         const sessionId = incident.sessionId;
         const timestamp = new Date(incident.timestampMs || Date.now());
+        const normalizedCategory = String(incident.category || '').trim().toLowerCase();
+        const isAnrIncident = normalizedCategory === 'anr'
+            || normalizedCategory === 'app_not_responding'
+            || normalizedCategory === 'application_not_responding';
 
         // Ensure session row exists so foreign-key constraints are satisfied
         const [existingSession] = await db
@@ -1252,12 +1308,32 @@ router.post(
                 ? incident.frames
                 : null;
 
-        if (incident.category === 'anr') {
+        if (isAnrIncident) {
             // ANR incident
             const durationMs =
                 incident.context?.durationMs
                     ? parseInt(incident.context.durationMs, 10)
                     : 5000;
+
+            // Best-effort dedupe for retries/replays of the same ANR signal.
+            const dedupeWindowMs = 30_000;
+            const minTs = new Date(timestamp.getTime() - dedupeWindowMs);
+            const maxTs = new Date(timestamp.getTime() + dedupeWindowMs);
+            const [existingAnr] = await db
+                .select({ id: anrs.id })
+                .from(anrs)
+                .where(and(
+                    eq(anrs.sessionId, sessionId),
+                    gte(anrs.timestamp, minTs),
+                    lte(anrs.timestamp, maxTs),
+                    sql`ABS(COALESCE(${anrs.durationMs}, 0) - ${durationMs}) <= 500`
+                ))
+                .limit(1);
+            if (existingAnr) {
+                logger.info({ projectId, sessionId, category: normalizedCategory, durationMs }, 'Fault report deduplicated');
+                res.json({ ok: true, deduplicated: true });
+                return;
+            }
 
             await db.insert(anrs).values({
                 sessionId,
@@ -1282,7 +1358,7 @@ router.post(
                 sessionId,
             }).catch(() => { });
 
-            logger.info({ projectId, sessionId, category: 'anr', durationMs }, 'Fault report ingested');
+            logger.info({ projectId, sessionId, category: normalizedCategory, durationMs }, 'Fault report ingested');
         } else {
             // Crash / signal / exception incident
             await db.insert(crashes).values({
@@ -1310,7 +1386,7 @@ router.post(
                 sessionId,
             }).catch(() => { });
 
-            logger.info({ projectId, sessionId, category: incident.category, identifier: incident.identifier }, 'Fault report ingested');
+            logger.info({ projectId, sessionId, category: normalizedCategory, identifier: incident.identifier }, 'Fault report ingested');
         }
 
         res.json({ ok: true });

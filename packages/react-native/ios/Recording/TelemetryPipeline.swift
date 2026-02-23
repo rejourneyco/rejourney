@@ -326,6 +326,10 @@ public final class TelemetryPipeline: NSObject {
             event["stack"] = stack
         }
         _enqueue(event)
+        // Prioritize JS error delivery to reduce loss on fatal terminations.
+        _serialWorker.async { [weak self] in
+            self?._shipPendingEvents()
+        }
     }
     
     @objc public func recordAnrEvent(durationMs: Int, stack: String?) {
@@ -339,6 +343,10 @@ public final class TelemetryPipeline: NSObject {
             event["stack"] = stack
         }
         _enqueue(event)
+        // Prioritize ANR delivery while the process is still alive.
+        _serialWorker.async { [weak self] in
+            self?._shipPendingEvents()
+        }
     }
     
     @objc public func recordUserAssociation(_ userId: String) {

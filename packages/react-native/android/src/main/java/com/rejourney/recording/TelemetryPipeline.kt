@@ -340,6 +340,8 @@ class TelemetryPipeline private constructor(private val context: Context) {
             event["stack"] = stack
         }
         enqueue(event)
+        // Prioritize JS error delivery to reduce loss on fatal terminations.
+        serialWorker.execute { shipPendingEvents() }
     }
     
     fun recordAnrEvent(durationMs: Long, stack: String?) {
@@ -353,6 +355,8 @@ class TelemetryPipeline private constructor(private val context: Context) {
             event["stack"] = stack
         }
         enqueue(event)
+        // Prioritize ANR delivery while the process is still alive.
+        serialWorker.execute { shipPendingEvents() }
     }
     
     fun recordUserAssociation(userId: String) {

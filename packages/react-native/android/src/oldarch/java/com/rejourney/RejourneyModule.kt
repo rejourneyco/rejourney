@@ -225,6 +225,24 @@ class RejourneyModule(reactContext: ReactApplicationContext) :
     }
 
     @ReactMethod
+    fun setAnonymousId(anonymousId: String, promise: Promise) {
+        try {
+            impl.setAnonymousId(anonymousId, promise)
+        } catch (e: Exception) {
+            promise.resolve(createErrorMap("Module initialization failed: ${e.message}"))
+        }
+    }
+
+    @ReactMethod
+    fun getAnonymousId(promise: Promise) {
+        try {
+            impl.getAnonymousId(promise)
+        } catch (e: Exception) {
+            promise.resolve(null)
+        }
+    }
+
+    @ReactMethod
     fun setSDKVersion(version: String) {
         try {
             impl.setSDKVersion(version)

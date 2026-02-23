@@ -42,11 +42,20 @@ type StaleSessionRow = {
     teamId: string;
     sessionDeviceId: string | null;
     startedAt: Date;
-    lastArtifactAt: Date;
+    lastArtifactAt: Date | string | null;
+    lastJobAt: Date | string | null;
+    sessionUpdatedAt: Date | string | null;
+    lastActivityAt: Date | string | null;
     pendingJobs: number;
     rejourneyEnabled: boolean | null;
     deletedAt: Date | null;
 };
+
+function toDateOrNull(value: unknown): Date | null {
+    if (!value) return null;
+    const date = value instanceof Date ? value : new Date(String(value));
+    return Number.isFinite(date.getTime()) ? date : null;
+}
 
 async function finalizeStaleSessions(): Promise<void> {
     const cutoff = new Date(Date.now() - AUTO_FINALIZE_AFTER_MS);
@@ -60,6 +69,13 @@ async function finalizeStaleSessions(): Promise<void> {
             s.device_id as "sessionDeviceId",
             s.started_at as "startedAt",
             max(ra.created_at) as "lastArtifactAt",
+            max(ij.updated_at) as "lastJobAt",
+            s.updated_at as "sessionUpdatedAt",
+            greatest(
+                coalesce(max(ra.created_at), s.started_at),
+                coalesce(max(ij.updated_at), s.started_at),
+                coalesce(s.updated_at, s.started_at)
+            ) as "lastActivityAt",
             sum(case when ij.status in ('pending','processing') then 1 else 0 end) as "pendingJobs",
             p.rejourney_enabled as "rejourneyEnabled",
             p.deleted_at as "deletedAt"
@@ -70,9 +86,12 @@ async function finalizeStaleSessions(): Promise<void> {
         where s.ended_at is null
           and s.status = 'processing'
           and s.started_at <= ${minStartedAt}
-        group by s.id, s.project_id, p.team_id, s.device_id, s.started_at, p.rejourney_enabled, p.deleted_at
-        having max(ra.created_at) is not null
-           and max(ra.created_at) <= ${cutoff}
+        group by s.id, s.project_id, p.team_id, s.device_id, s.started_at, s.updated_at, p.rejourney_enabled, p.deleted_at
+        having greatest(
+                coalesce(max(ra.created_at), s.started_at),
+                coalesce(max(ij.updated_at), s.started_at),
+                coalesce(s.updated_at, s.started_at)
+            ) <= ${cutoff}
            and sum(case when ij.status in ('pending','processing') then 1 else 0 end) = 0
         limit 100
     `);
@@ -85,8 +104,13 @@ async function finalizeStaleSessions(): Promise<void> {
     for (const row of rows) {
         if (!isRunning) return;
 
-        const endedAt = new Date(row.lastArtifactAt);
-        let durationSeconds = Math.round((endedAt.getTime() - new Date(row.startedAt).getTime()) / 1000);
+        const startedAt = toDateOrNull(row.startedAt) ?? new Date();
+        const endedAt = toDateOrNull(row.lastActivityAt)
+            ?? toDateOrNull(row.lastArtifactAt)
+            ?? toDateOrNull(row.lastJobAt)
+            ?? toDateOrNull(row.sessionUpdatedAt)
+            ?? new Date(startedAt.getTime() + 1000);
+        let durationSeconds = Math.round((endedAt.getTime() - startedAt.getTime()) / 1000);
         if (durationSeconds <= 0) durationSeconds = 1;
 
         await db.update(sessions)

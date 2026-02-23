@@ -60,8 +60,8 @@ spec:
     browserXssFilter: true
     # Referrer Policy
     referrerPolicy: "strict-origin-when-cross-origin"
-    # Content Security Policy - includes Cloudflare Turnstile, Stripe, and Analytics
-    contentSecurityPolicy: "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://challenges.cloudflare.com https://js.stripe.com https://m.stripe.network https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: https: blob:; font-src 'self' data: https://fonts.gstatic.com; connect-src 'self' https://api.rejourney.co wss://api.rejourney.co https://ingest.rejourney.co https://api.stripe.com https://m.stripe.network https://cloudflareinsights.com; media-src 'self' https://*.your-objectstorage.com blob:; frame-src 'self' https://challenges.cloudflare.com https://js.stripe.com https://hooks.stripe.com; frame-ancestors 'self'; base-uri 'self'; form-action 'self';"
+    # Content Security Policy - includes Cloudflare Turnstile, Stripe, Analytics, and Mapbox
+    contentSecurityPolicy: "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://challenges.cloudflare.com https://js.stripe.com https://m.stripe.network https://static.cloudflareinsights.com https://www.clarity.ms; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: https: blob:; font-src 'self' data: https://fonts.gstatic.com; connect-src 'self' https://api.rejourney.co wss://api.rejourney.co https://ingest.rejourney.co https://api.stripe.com https://m.stripe.network https://cloudflareinsights.com https://api.mapbox.com https://events.mapbox.com https://*.tiles.mapbox.com https://www.clarity.ms https://*.clarity.ms; media-src 'self' https://*.your-objectstorage.com blob:; worker-src 'self' blob:; frame-src 'self' https://challenges.cloudflare.com https://js.stripe.com https://hooks.stripe.com; frame-ancestors 'self'; base-uri 'self'; form-action 'self';"
     # Permissions Policy
     permissionsPolicy: "geolocation=(), microphone=(), camera=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()"
     # Remove server info headers

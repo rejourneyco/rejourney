@@ -736,14 +736,14 @@ export default function ProfileScreen() {
                             onPress={() => {
                                 Alert.alert(
                                     'Trigger ANR?',
-                                    'This will freeze the app for 5 seconds.',
+                                    'This will freeze the app for ~6.5 seconds.',
                                     [
                                         { text: 'Cancel', style: 'cancel' },
                                         {
                                             text: 'FREEZE', style: 'destructive', onPress: () => {
                                                 const { TurboModuleRegistry, NativeModules } = require('react-native');
                                                 const mod = TurboModuleRegistry?.get?.('Rejourney') ?? NativeModules?.Rejourney;
-                                                mod?.debugTriggerANR(5000);
+                                                mod?.debugTriggerANR(6500);
                                             }
                                         }
                                     ]

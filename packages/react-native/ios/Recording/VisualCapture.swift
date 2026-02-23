@@ -379,10 +379,20 @@ public final class VisualCapture: NSObject {
     
     /// Load and upload any pending frames from disk for a session
     @objc public func uploadPendingFrames(sessionId: String) {
-        guard let cacheDir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first else { return }
+        uploadPendingFrames(sessionId: sessionId, completion: nil)
+    }
+    
+    public func uploadPendingFrames(sessionId: String, completion: ((Bool) -> Void)? = nil) {
+        guard let cacheDir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first else {
+            completion?(false)
+            return
+        }
         let framesPath = cacheDir.appendingPathComponent("rj_pending").appendingPathComponent(sessionId).appendingPathComponent("frames")
         
-        guard let frameFiles = try? FileManager.default.contentsOfDirectory(at: framesPath, includingPropertiesForKeys: nil) else { return }
+        guard let frameFiles = try? FileManager.default.contentsOfDirectory(at: framesPath, includingPropertiesForKeys: nil) else {
+            completion?(true)
+            return
+        }
         
         var frames: [(Data, UInt64)] = []
         for file in frameFiles.sorted(by: { $0.lastPathComponent < $1.lastPathComponent }) {
@@ -397,18 +407,24 @@ public final class VisualCapture: NSObject {
             frames.append((data, ts))
         }
         
-        guard !frames.isEmpty, let bundle = _packageFrameBundle(images: frames, sessionEpoch: frames.first?.1 ?? 0) else { return }
+        guard !frames.isEmpty, let bundle = _packageFrameBundle(images: frames, sessionEpoch: frames.first?.1 ?? 0) else {
+            completion?(frames.isEmpty)
+            return
+        }
         
         let endTs = frames.last?.1 ?? 0
-        let fname = "\(sessionId)-\(endTs).tar.gz"
         
-        TelemetryPipeline.shared.submitFrameBundle(
+        SegmentDispatcher.shared.transmitFrameBundle(
             payload: bundle,
-            filename: fname,
             startMs: frames.first?.1 ?? 0,
             endMs: endTs,
             frameCount: frames.count
-        )
+        ) { ok in
+            if ok {
+                try? FileManager.default.removeItem(at: framesPath)
+            }
+            completion?(ok)
+        }
     }
     
     /// Clear pending frames for a session after successful upload

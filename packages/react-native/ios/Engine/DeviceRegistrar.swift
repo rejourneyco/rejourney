@@ -37,6 +37,7 @@ public final class DeviceRegistrar: NSObject {
     // MARK: Private State
     
     private let _keychainId = "com.rejourney.device.fingerprint"
+    private let _fallbackIdKey = "com.rejourney.device.fallbackId"
     
     private lazy var _httpSession: URLSession = {
         let config = URLSessionConfiguration.default
@@ -124,11 +125,20 @@ public final class DeviceRegistrar: NSObject {
         
         var composite = bundleId
         composite += device.model
-        composite += device.systemName
-        composite += device.systemVersion
-        composite += device.identifierForVendor?.uuidString ?? UUID().uuidString
+        composite += device.identifierForVendor?.uuidString ?? _stableDeviceFallback()
         
         return _sha256(composite)
+    }
+    
+    /// Returns a keychain-persisted UUID so the fingerprint stays stable even when
+    /// identifierForVendor is temporarily nil (early boot, App Clips, extensions).
+    private func _stableDeviceFallback() -> String {
+        if let existing = _keychainLoad(_fallbackIdKey) {
+            return existing
+        }
+        let fresh = UUID().uuidString
+        _keychainSave(_fallbackIdKey, value: fresh)
+        return fresh
     }
     
     // MARK: Server Communication

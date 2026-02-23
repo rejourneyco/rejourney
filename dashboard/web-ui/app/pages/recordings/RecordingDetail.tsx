@@ -39,6 +39,7 @@ import { api } from '../../services/api';
 import DOMInspector, { HierarchySnapshot } from '../../components/ui/DOMInspector';
 import { TouchOverlay, TouchEvent } from '../../components/ui/TouchOverlay';
 import { MarkerTooltip } from '../../components/ui/MarkerTooltip';
+import ScreenshotReplayPlayer, { ScreenshotReplayPlayerRef } from '../../components/ui/ScreenshotReplayPlayer';
 import { SessionLoadingOverlay } from '../../components/recordings/SessionLoadingOverlay';
 import { formatGeoDisplay } from '../../utils/geoDisplay';
 
@@ -47,10 +48,12 @@ import { formatGeoDisplay } from '../../utils/geoDisplay';
 // ============================================================================
 
 interface SessionEvent {
+    id?: string;
     type: string;
     name?: string;
     timestamp: number;
     properties?: Record<string, any>;
+    payload?: Record<string, any>;
     screen?: string;
     gestureType?: string;
     frustrationKind?: string;
@@ -58,6 +61,7 @@ interface SessionEvent {
     touches?: Array<{ x: number; y: number; force?: number }>;
     level?: 'log' | 'warn' | 'error' | string;
     message?: string;
+    stack?: string;
     rating?: number;
 }
 
@@ -84,8 +88,8 @@ interface FullSession {
     id: string;
     userId: string;
     hasRecording?: boolean;
-    /** 'screenshots' | 'none' - determines playback mode */
-    playbackMode?: 'screenshots' | 'none';
+    /** 'screenshots' | 'video' | 'none' - determines playback mode */
+    playbackMode?: 'screenshots' | 'video' | 'none';
     deviceInfo: {
         model?: string;
         systemName?: string;
@@ -120,6 +124,13 @@ interface FullSession {
         url: string;
         index: number;
     }[];
+    /** Video segments for demo video playback */
+    videoSegments?: Array<{
+        url: string;
+        startTime: number;
+        endTime: number | null;
+        frameCount: number | null;
+    }>;
     hierarchySnapshots?: {
         timestamp: number;
         screenName: string | null;
@@ -130,12 +141,15 @@ interface FullSession {
         timestamp: number;
         exceptionName: string;
         reason: string;
+        stackTrace?: string;
         status?: string;
     }[];
     anrs?: {
+        id?: string;
         timestamp: number;
         durationMs?: number;
         threadState?: string;
+        status?: string;
     }[];
     metrics?: {
         touchCount?: number;
@@ -288,7 +302,128 @@ const formatPlaybackClock = (seconds: number): string => {
 const escapeRegExp = (value: string): string =>
     value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
+const isFaultType = (type: string): boolean =>
+    type === 'crash' || type === 'anr' || type === 'error';
+
+const isFaultEvent = (event: SessionEvent): boolean => {
+    const type = (event.type || '').toLowerCase();
+    return isFaultType(type);
+};
+
+const getFaultMarker = (event: SessionEvent): 'CRASH' | 'ANR' | 'ERROR' | null => {
+    const type = (event.type || '').toLowerCase();
+    if (type === 'crash') return 'CRASH';
+    if (type === 'anr') return 'ANR';
+    if (type === 'error') return 'ERROR';
+    return null;
+};
+
+const getEventStackTrace = (event: SessionEvent): string | null => {
+    const stackCandidate =
+        event.stack ||
+        event.properties?.stackTrace ||
+        event.properties?.threadState ||
+        event.properties?.stack ||
+        event.payload?.stack ||
+        null;
+    if (typeof stackCandidate !== 'string' || !stackCandidate.trim()) return null;
+    const lines = stackCandidate.split('\n').map((line) => line.trim()).filter(Boolean);
+    if (lines.length === 0) return null;
+    const maxLines = 18;
+    const truncated = lines.slice(0, maxLines);
+    if (lines.length > maxLines) {
+        truncated.push(`... (+${lines.length - maxLines} more lines)`);
+    }
+    return truncated.join('\n');
+};
+
+const getFaultConsoleSummary = (event: SessionEvent): string => {
+    const marker = getFaultMarker(event);
+    if (marker === 'CRASH') {
+        const exceptionName = event.properties?.exceptionName || event.name || 'Crash';
+        const reason = event.properties?.reason || event.message || '';
+        return reason ? `${exceptionName}: ${reason}` : String(exceptionName);
+    }
+    if (marker === 'ANR') {
+        const durationMs = event.properties?.durationMs;
+        if (typeof durationMs === 'number' && durationMs > 0) {
+            return `ANR detected (${durationMs} ms blocked)`;
+        }
+        return event.message || 'ANR detected';
+    }
+    if (marker === 'ERROR') {
+        const errorName = event.properties?.errorName || event.name || 'Error';
+        const message = event.properties?.message || event.message || '';
+        return message ? `${errorName}: ${message}` : String(errorName);
+    }
+    return event.message || event.properties?.message || event.name || 'Log entry';
+};
+
+const getFaultBadgeStyles = (marker: 'CRASH' | 'ANR' | 'ERROR'): string => {
+    if (marker === 'CRASH') return 'bg-red-100 text-red-700 border-red-300';
+    if (marker === 'ANR') return 'bg-violet-100 text-violet-700 border-violet-300';
+    return 'bg-orange-100 text-orange-700 border-orange-300';
+};
+
+const getFaultTerminalClass = (marker: 'CRASH' | 'ANR' | 'ERROR'): string => {
+    if (marker === 'CRASH') return 'text-red-300';
+    if (marker === 'ANR') return 'text-violet-300';
+    return 'text-orange-300';
+};
+
+const buildFaultEventDedupKey = (event: SessionEvent): string | null => {
+    const type = (event.type || '').toLowerCase();
+    if (!isFaultType(type)) return null;
+    const roundedTs = Number.isFinite(event.timestamp)
+        ? Math.round(event.timestamp / 250) * 250
+        : 0;
+    const name = String(
+        event.name ||
+        event.properties?.errorName ||
+        event.properties?.exceptionName ||
+        ''
+    ).trim().toLowerCase();
+    const message = String(
+        event.message ||
+        event.properties?.message ||
+        event.properties?.reason ||
+        ''
+    ).trim().toLowerCase().slice(0, 180);
+    const stack = getEventStackTrace(event);
+    const stackHead = stack ? stack.split('\n')[0].trim().toLowerCase().slice(0, 180) : '';
+    return `${type}|${roundedTs}|${name}|${message}|${stackHead}`;
+};
+
+const mergeTimelineEvents = (
+    primaryEvents: SessionEvent[],
+    fallbackFaultEvents: SessionEvent[]
+): SessionEvent[] => {
+    const seenFaultKeys = new Set<string>();
+    for (const event of primaryEvents) {
+        const key = buildFaultEventDedupKey(event);
+        if (key) seenFaultKeys.add(key);
+    }
+
+    const merged: SessionEvent[] = [...primaryEvents];
+    for (const fallbackEvent of fallbackFaultEvents) {
+        const key = buildFaultEventDedupKey(fallbackEvent);
+        if (key && seenFaultKeys.has(key)) continue;
+        if (key) seenFaultKeys.add(key);
+        merged.push(fallbackEvent);
+    }
+
+    return merged.sort((a, b) => a.timestamp - b.timestamp);
+};
+
 const getLogLevel = (event: SessionEvent): string => {
+    if (isFaultEvent(event)) return 'error';
+    const type = (event.type || '').toLowerCase();
+    if (type === 'network_request') {
+        const statusCode = Number(event.properties?.statusCode);
+        const success = event.properties?.success ?? (Number.isFinite(statusCode) ? statusCode < 400 : true);
+        return success ? 'log' : 'error';
+    }
+
     const level =
         event.level ||
         event.properties?.level ||
@@ -300,12 +435,57 @@ const getLogLevel = (event: SessionEvent): string => {
 
 const isLogEvent = (event: SessionEvent): boolean => {
     const type = (event.type || '').toLowerCase();
+    if (isFaultType(type)) return true;
     return (
         type === 'log' ||
         type === 'console_log' ||
         type === 'console' ||
         type === 'console.warn' ||
         type === 'console.error'
+    );
+};
+
+const isConsoleSupplementEvent = (event: SessionEvent): boolean => {
+    const type = (event.type || '').toLowerCase();
+    return (
+        type === 'network_request' ||
+        type === 'navigation' ||
+        type === 'screen_view' ||
+        type === 'app_foreground' ||
+        type === 'app_background' ||
+        type === 'app_terminated' ||
+        type === 'session_end'
+    );
+};
+
+const formatConsoleMessage = (event: SessionEvent): string => {
+    const type = (event.type || '').toLowerCase();
+
+    if (type === 'network_request') {
+        const method = String(event.name || event.properties?.method || 'GET').toUpperCase();
+        const endpoint = event.properties?.urlPath || event.properties?.url || event.targetLabel || 'request';
+        const statusCode = event.properties?.statusCode;
+        const duration = event.properties?.duration;
+        const statusPart = statusCode ? ` -> ${statusCode}` : '';
+        const durationPart = typeof duration === 'number' && duration >= 0 ? ` (${Math.round(duration)} ms)` : '';
+        return `${method} ${endpoint}${statusPart}${durationPart}`;
+    }
+
+    if (type === 'navigation' || type === 'screen_view') {
+        const targetScreen = event.screen || event.name || event.properties?.screen || event.targetLabel || 'unknown';
+        return `Navigated to ${targetScreen}`;
+    }
+
+    if (type === 'app_foreground') return 'App entered foreground';
+    if (type === 'app_background') return 'App moved to background';
+    if (type === 'app_terminated' || type === 'session_end') return 'Session ended';
+
+    return (
+        event.message ||
+        event.properties?.message ||
+        event.name ||
+        event.targetLabel ||
+        JSON.stringify(event.properties || {})
     );
 };
 
@@ -359,6 +539,7 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
     const { sessions } = useSessionData();
     const navigate = useNavigate();
     const pathPrefix = usePathPrefix();
+    const isDemoReplay = pathPrefix === '/demo';
 
     // State
     const [fullSession, setFullSession] = useState<FullSession | null>(null);
@@ -391,6 +572,7 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const progressRef = useRef<HTMLDivElement>(null);
     const terminalViewportRef = useRef<HTMLDivElement>(null);
+    const replayPlayerRef = useRef<ScreenshotReplayPlayerRef>(null);
 
     // Ref-based playback state to avoid stale closures in animation loop
     const currentPlaybackTimeRef = useRef<number>(0);
@@ -558,40 +740,95 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
     // Crash events for timeline
     const crashEvents: SessionEvent[] = useMemo(() => {
         return ((fullSession as any)?.crashes || []).map((c: any) => ({
+            id: `crash_fallback_${c.id}`,
             type: 'crash',
             name: c.exceptionName || 'Crash',
             timestamp: c.timestamp,
-            properties: { exceptionName: c.exceptionName, reason: c.reason, crashId: c.id },
+            message: c.reason || c.exceptionName || 'Crash detected',
+            stack: c.stackTrace || undefined,
+            level: 'error',
+            properties: {
+                exceptionName: c.exceptionName,
+                reason: c.reason,
+                stackTrace: c.stackTrace,
+                crashId: c.id,
+                consoleMarker: 'RJ_CRASH',
+            },
+        }));
+    }, [fullSession]);
+
+    // ANR events for timeline
+    const anrEvents: SessionEvent[] = useMemo(() => {
+        return ((fullSession as any)?.anrs || []).map((a: any, index: number) => ({
+            id: `anr_fallback_${a.id || `${a.timestamp}_${index}`}`,
+            type: 'anr',
+            name: 'ANR',
+            timestamp: a.timestamp,
+            message: typeof a.durationMs === 'number' && a.durationMs > 0
+                ? `ANR detected (${a.durationMs} ms blocked)`
+                : 'ANR detected',
+            stack: a.threadState || undefined,
+            level: 'error',
+            properties: {
+                anrId: a.id,
+                durationMs: a.durationMs,
+                threadState: a.threadState,
+                status: a.status,
+                consoleMarker: 'RJ_ANR',
+            },
         }));
     }, [fullSession]);
 
     // All timeline events sorted
     const allTimelineEvents = useMemo(() => {
-        return [...events, ...networkEventsForTimeline, ...detectedRageTaps, ...crashEvents]
-            .sort((a, b) => a.timestamp - b.timestamp);
-    }, [events, networkEventsForTimeline, detectedRageTaps, crashEvents]);
+        return mergeTimelineEvents(
+            [...events, ...networkEventsForTimeline, ...detectedRageTaps],
+            [...crashEvents, ...anrEvents]
+        );
+    }, [events, networkEventsForTimeline, detectedRageTaps, crashEvents, anrEvents]);
 
     const replayBaseTime = fullSession?.startTime || (session?.startedAt ? new Date(session.startedAt).getTime() : Date.now());
     const startTime = replayBaseTime;
 
-    const logEvents = useMemo(() => allTimelineEvents.filter((event) => isLogEvent(event)), [allTimelineEvents]);
+    const logEvents = useMemo(() => {
+        const selected = allTimelineEvents.filter((event) => {
+            if (isLogEvent(event)) return true;
+            return isDemoReplay && isConsoleSupplementEvent(event);
+        });
+
+        const deduped = new Map<string, SessionEvent>();
+        selected.forEach((event, index) => {
+            const dedupKey = event.id
+                ? `id:${event.id}`
+                : `${event.type}|${event.timestamp}|${event.name || ''}|${event.targetLabel || ''}|${index}`;
+            if (!deduped.has(dedupKey)) {
+                deduped.set(dedupKey, event);
+            }
+        });
+
+        return Array.from(deduped.values()).sort((a, b) => a.timestamp - b.timestamp);
+    }, [allTimelineEvents, isDemoReplay]);
 
     const terminalLogRows = useMemo(() => {
         return logEvents
             .map((event, index) => {
                 const relativeSeconds = Math.max(0, (event.timestamp - replayBaseTime) / 1000);
                 const level = getLogLevel(event);
-                const rawMessage = event.message || event.properties?.message || event.name;
-                const message = rawMessage
-                    ? String(rawMessage)
-                    : JSON.stringify(event.properties || {});
+                const marker = getFaultMarker(event);
+                const stack = getEventStackTrace(event);
+                const baseMessage = marker
+                    ? getFaultConsoleSummary(event)
+                    : formatConsoleMessage(event);
+                const message = stack ? `${baseMessage}\n${stack}` : baseMessage;
+                const levelTag = marker || level.toUpperCase();
                 return {
                     id: `${event.timestamp}-${index}`,
                     timestamp: event.timestamp,
                     relativeSeconds,
                     level,
+                    marker,
                     message,
-                    line: `[${formatPlaybackClock(relativeSeconds)}] [${level.toUpperCase()}] ${message}`,
+                    line: `[${formatPlaybackClock(relativeSeconds)}] [${levelTag}] ${message}`,
                 };
             })
             .sort((a, b) => a.timestamp - b.timestamp);
@@ -611,6 +848,22 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
         () => visibleTerminalLogRows.map((entry) => entry.line).join('\n'),
         [visibleTerminalLogRows]
     );
+
+    useEffect(() => {
+        if (!isDemoReplay || !fullSession) return;
+        const eventTypeCounts = allTimelineEvents.reduce<Record<string, number>>((acc, event) => {
+            const type = (event.type || 'unknown').toLowerCase();
+            acc[type] = (acc[type] || 0) + 1;
+            return acc;
+        }, {});
+        console.info('[DEMO_REPLAY] composed replay payload', {
+            sessionId: fullSession.id,
+            timelineEventCount: allTimelineEvents.length,
+            consoleRowCount: terminalLogRows.length,
+            logEventCount: logEvents.length,
+            eventTypeCounts,
+        });
+    }, [isDemoReplay, fullSession, allTimelineEvents, terminalLogRows.length, logEvents.length]);
 
     useEffect(() => {
         const viewport = terminalViewportRef.current;
@@ -649,6 +902,17 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
             const screenshotDuration = ((lastFrame.timestamp - sessionStart) / 1000) + 0.5;
             if (screenshotDuration > 0) {
                 candidates.push(screenshotDuration);
+            }
+        }
+
+        // Video segments duration (demo and legacy video sessions)
+        if (fullSession?.videoSegments && fullSession.videoSegments.length > 0) {
+            const firstSegment = fullSession.videoSegments[0];
+            const lastSegment = fullSession.videoSegments[fullSession.videoSegments.length - 1];
+            const fallbackEnd = fullSession.endTime || firstSegment.startTime;
+            const lastSegmentEnd = lastSegment.endTime || fallbackEnd;
+            if (lastSegmentEnd > firstSegment.startTime) {
+                candidates.push((lastSegmentEnd - firstSegment.startTime) / 1000);
             }
         }
 
@@ -748,16 +1012,27 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
             .map((f, idx) => ({ ...f, index: idx }));
     }, [fullSession?.screenshotFrames, fullSession?.startTime]);
 
+    const videoSegments = useMemo(() => {
+        const rawSegments = fullSession?.videoSegments || [];
+        return [...rawSegments].sort((a, b) => a.startTime - b.startTime);
+    }, [fullSession?.videoSegments]);
+
     // Determine playback mode
     const playbackMode = useMemo(() => {
         if (fullSession?.playbackMode === 'screenshots' && screenshotFrames.length > 0) {
             return 'screenshots' as const;
         }
+        if (fullSession?.playbackMode === 'video' && videoSegments.length > 0) {
+            return 'video' as const;
+        }
         if (screenshotFrames.length > 0) {
             return 'screenshots' as const;
         }
+        if (videoSegments.length > 0) {
+            return 'video' as const;
+        }
         return 'none' as const;
-    }, [fullSession?.playbackMode, screenshotFrames]);
+    }, [fullSession?.playbackMode, screenshotFrames, videoSegments]);
 
     // Has any visual recording?
     const hasRecording = playbackMode !== 'none';
@@ -905,6 +1180,7 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
         const handleKeyDown = (e: KeyboardEvent) => {
             // Ignore if user is typing in an input/textarea
             if (e.target !== document.body) return;
+            if (playbackMode !== 'screenshots') return;
 
             if (e.code === 'Space') {
                 e.preventDefault();
@@ -920,7 +1196,7 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
 
         document.addEventListener('keydown', handleKeyDown);
         return () => document.removeEventListener('keydown', handleKeyDown);
-    }, [togglePlayPause, skip]);
+    }, [togglePlayPause, skip, playbackMode]);
 
     // ============================================================================
     // Screenshot Playback Effects
@@ -1172,8 +1448,15 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
 
     // Seek helper used by timeline and activity interactions
     const handleSeekToTime = useCallback((time: number) => {
-        seekToScreenshotFrame(time);
-    }, [seekToScreenshotFrame]);
+        const clampedTime = Math.max(0, Math.min(time, durationSeconds));
+        if (playbackMode === 'video') {
+            const sessionStartMs = fullSession?.startTime || replayBaseTime;
+            replayPlayerRef.current?.seekTo(sessionStartMs + clampedTime * 1000);
+            setCurrentPlaybackTime(clampedTime);
+            return;
+        }
+        seekToScreenshotFrame(clampedTime);
+    }, [seekToScreenshotFrame, playbackMode, durationSeconds, fullSession?.startTime, replayBaseTime]);
 
     const formatPlaybackTime = formatPlaybackClock;
 
@@ -1534,12 +1817,16 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
 
         const lines = logEvents.map((event) => {
             const isoTime = new Date(event.timestamp).toISOString();
-            const level = getLogLevel(event).toUpperCase();
-            const message =
-                event.message ||
+            const marker = getFaultMarker(event);
+            const level = marker || getLogLevel(event).toUpperCase();
+            const summary = marker
+                ? getFaultConsoleSummary(event)
+                : event.message ||
                 event.properties?.message ||
                 event.name ||
                 JSON.stringify(event.properties || {});
+            const stack = getEventStackTrace(event);
+            const message = stack ? `${summary}\n${stack}` : summary;
             return `[${isoTime}] [${level}] ${message}`;
         });
 
@@ -1657,9 +1944,13 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
                                     <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-cyan-200">Replay Theater</p>
                                 </div>
                                 <div className="flex flex-wrap items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide text-slate-200">
-                                    <span className="rounded border border-white/20 bg-white/10 px-2 py-1">{screenshotFrames.length} frames</span>
+                                    <span className="rounded border border-white/20 bg-white/10 px-2 py-1">
+                                        {playbackMode === 'video' ? `${videoSegments.length} segments` : `${screenshotFrames.length} frames`}
+                                    </span>
                                     <span className="rounded border border-white/20 bg-white/10 px-2 py-1">{allTimelineEvents.length} events</span>
-                                    <span className="rounded border border-white/20 bg-white/10 px-2 py-1">{playbackMode === 'screenshots' ? 'Image Replay' : 'No Visual Replay'}</span>
+                                    <span className="rounded border border-white/20 bg-white/10 px-2 py-1">
+                                        {playbackMode === 'screenshots' ? 'Image Replay' : playbackMode === 'video' ? 'Video Replay' : 'No Visual Replay'}
+                                    </span>
                                 </div>
                             </div>
                         </div>
@@ -1676,13 +1967,32 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
                                             </p>
                                         ) : replayUnavailableReason === 'not_promoted' ? (
                                             <p className="mt-2 text-xs leading-5 text-slate-600">
-                                                This session was not promoted for replay capture. You can still inspect all telemetry.
+                                                This session was not promoted for replay capture OR was lost in a bad crash. You can still inspect all telemetry.
                                             </p>
                                         ) : (
                                             <p className="mt-2 text-xs leading-5 text-slate-600">
                                                 No visual frames were uploaded for this session.
                                             </p>
                                         )}
+                                    </div>
+                                ) : playbackMode === 'video' ? (
+                                    <div className="w-full max-w-[320px]">
+                                        <ScreenshotReplayPlayer
+                                            ref={replayPlayerRef}
+                                            sessionId={fullSession?.id || id || 'demo-session'}
+                                            playbackMode="video"
+                                            videoSegments={videoSegments}
+                                            events={allTimelineEvents}
+                                            crashes={(fullSession as any)?.crashes || []}
+                                            anrs={(fullSession as any)?.anrs || []}
+                                            sessionStartTime={fullSession?.startTime || replayBaseTime}
+                                            sessionEndTime={fullSession?.endTime}
+                                            playableDuration={durationSeconds}
+                                            deviceWidth={deviceWidth}
+                                            deviceHeight={deviceHeight}
+                                            onTimeUpdate={(time) => setCurrentPlaybackTime(time)}
+                                            className="w-[320px] max-w-[80vw] rounded-[2.4rem] border border-slate-700 shadow-[0_22px_55px_rgba(15,23,42,0.35)]"
+                                        />
                                     </div>
                                 ) : (
                                     <div className="relative">
@@ -1732,6 +2042,8 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
                             </div>
                         </div>
 
+                        {playbackMode === 'screenshots' ? (
+                            <>
                         <div className="border-b border-slate-200 bg-white px-4 py-4 sm:px-6">
                             <div className="flex flex-wrap items-center gap-2">
                                 <button
@@ -1990,6 +2302,17 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
                                 />
                             </div>
                         </div>
+                            </>
+                        ) : (
+                            <div className="border-b border-slate-200 bg-white px-4 py-4 text-sm text-slate-600">
+                                <div className="flex flex-wrap items-center justify-between gap-2">
+                                    <span>Video replay is active. Use the player controls to seek and adjust speed.</span>
+                                    <span className="rounded-md border border-slate-300 bg-slate-100 px-2 py-1 font-mono text-xs font-semibold text-slate-700">
+                                        {formatPlaybackTime(currentPlaybackTime)} / {formatPlaybackTime(effectiveDuration)}
+                                    </span>
+                                </div>
+                            </div>
+                        )}
                     </section>
 
                     
@@ -2093,6 +2416,7 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
                                 filteredActivity.map((event, index) => {
                                     const isNetwork = event.type === 'network_request';
                                     const isLog = isLogEvent(event);
+                                    const faultMarker = getFaultMarker(event);
                                     const logLevel = getLogLevel(event);
                                     const color = getEventColor(event);
                                     const Icon = getEventIcon(event);
@@ -2101,10 +2425,14 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
                                     const isHighlighted = Math.abs(seekTime - currentPlaybackTime) < 0.75;
                                     const title = isNetwork
                                         ? `${event.name || event.properties?.method || 'API Request'}`
-                                        : isLog
+                                        : faultMarker
+                                            ? `Fault ${faultMarker}`
+                                            : isLog
                                             ? `Console ${logLevel}`
                                             : event.type.replace(/_/g, ' ');
-                                    const detail = isLog
+                                    const detail = faultMarker
+                                        ? getFaultConsoleSummary(event)
+                                        : isLog
                                         ? event.message || event.properties?.message || event.name || 'Console message'
                                         : event.targetLabel ||
                                         event.properties?.targetLabel ||
@@ -2132,6 +2460,10 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
                                                                 }`}
                                                         >
                                                             {event.properties?.statusCode || 'ERR'}
+                                                        </span>
+                                                    ) : faultMarker ? (
+                                                        <span className={`inline-flex rounded border px-1 py-0.5 text-[9px] font-bold uppercase ${getFaultBadgeStyles(faultMarker)}`}>
+                                                            {faultMarker}
                                                         </span>
                                                     ) : isLog ? (
                                                         <span className={`inline-flex rounded border px-1 py-0.5 text-[9px] font-bold uppercase ${getLogBadgeStyles(logLevel)}`}>
@@ -2211,7 +2543,11 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
                                     {terminalVisibleRows.map((row) => (
                                         <div key={row.id} className="whitespace-pre-wrap break-words">
                                             <span className="text-slate-500">[{formatPlaybackTime(row.relativeSeconds)}]</span>{' '}
-                                            <span className={`font-semibold ${getTerminalLevelClass(row.level)}`}>[{row.level.toUpperCase()}]</span>{' '}
+                                            {row.marker ? (
+                                                <span className={`font-semibold ${getFaultTerminalClass(row.marker)}`}>[{row.marker}]</span>
+                                            ) : (
+                                                <span className={`font-semibold ${getTerminalLevelClass(row.level)}`}>[{row.level.toUpperCase()}]</span>
+                                            )}{' '}
                                             <span className="text-slate-100">{row.message}</span>
                                         </div>
                                     ))}

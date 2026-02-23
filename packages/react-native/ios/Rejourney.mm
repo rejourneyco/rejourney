@@ -195,6 +195,26 @@ RCT_EXPORT_METHOD(getUserIdentity : (RCTPromiseResolveBlock)
   [impl getUserIdentity:resolve reject:reject];
 }
 
+RCT_EXPORT_METHOD(setAnonymousId : (NSString *)anonymousId resolve : (
+    RCTPromiseResolveBlock)resolve reject : (RCTPromiseRejectBlock)reject) {
+  RejourneyImpl *impl = [self ensureImpl];
+  if (!impl) {
+    resolve(@{@"success" : @NO});
+    return;
+  }
+  [impl setAnonymousId:anonymousId resolve:resolve reject:reject];
+}
+
+RCT_EXPORT_METHOD(getAnonymousId : (RCTPromiseResolveBlock)
+                      resolve reject : (RCTPromiseRejectBlock)reject) {
+  RejourneyImpl *impl = [self ensureImpl];
+  if (!impl) {
+    resolve([NSNull null]);
+    return;
+  }
+  [impl getAnonymousId:resolve reject:reject];
+}
+
 #pragma mark - Events and Tracking
 
 RCT_EXPORT_METHOD(logEvent : (NSString *)eventType details : (NSDictionary *)
