@@ -27,6 +27,7 @@ export default [
     route("engineering/:date/:slug", "routes/engineering.article.tsx"),
     route("feed.xml", "routes/feed.xml.tsx"),
     route("login", "routes/login.tsx"),
+    route("changelog", "routes/changelog.tsx"),
     route("invite/accept/:token", "routes/invite.accept.$token.tsx"),
 
     // ============================================

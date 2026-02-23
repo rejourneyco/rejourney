@@ -46,14 +46,16 @@ import {
   previewPlanChange,
   confirmPlanChange,
   PlanChangePreview,
+  getAvailablePlans,
+  BillingPlan,
 } from '../../services/api';
 
-const PLANS = [
-  { name: 'free', label: 'Free', sessions: 5000, price: 0, description: 'Perfect for Stable Monthly Rejourney' },
-  { name: 'starter', label: 'Starter', sessions: 25000, price: 5, description: 'For Apps Growing Fast' },
-  { name: 'growth', label: 'Growth', sessions: 100000, price: 15, description: 'For Apps with more users' },
-  { name: 'pro', label: 'Pro', sessions: 350000, price: 35, description: 'For high-traffic applications' },
-];
+const PLAN_DESCRIPTIONS: Record<string, string> = {
+  free: 'Perfect for Stable Monthly Rejourney',
+  starter: 'For Apps Growing Fast',
+  growth: 'For Apps with more users',
+  pro: 'For high-traffic applications',
+};
 
 export const BillingSettings: React.FC = () => {
   const { user } = useAuth();
@@ -70,6 +72,7 @@ export const BillingSettings: React.FC = () => {
   const [teamPlan, setTeamPlan] = useState<TeamPlanInfo | null>(null);
   const [sessionUsage, setSessionUsage] = useState<TeamSessionUsage | null>(null);
   const [alertSettings, setAlertSettings] = useState<BillingAlertSettings | null>(null);
+  const [availablePlans, setAvailablePlans] = useState<BillingPlan[]>([]);
 
   // UI state
   const [isLoadingPortal, setIsLoadingPortal] = useState(false);
@@ -118,18 +121,20 @@ export const BillingSettings: React.FC = () => {
       clearCache(`/api/teams/${currentTeam.id}/billing/plan`);
       clearCache(`/api/teams/${currentTeam.id}/billing/dashboard`);
 
-      const [usageData, stripeStatusData, planData, sessionUsageData, alertSettingsData] = await Promise.all([
+      const [usageData, stripeStatusData, planData, sessionUsageData, alertSettingsData, availablePlansData] = await Promise.all([
         getTeamBillingUsage(currentTeam.id).catch(() => null),
         getStripeStatus(currentTeam.id).catch(() => null),
         getTeamPlan(currentTeam.id).catch(() => null),
         getTeamSessionUsage(currentTeam.id).catch(() => null),
         getBillingAlertSettings(currentTeam.id).catch(() => null),
+        getAvailablePlans().catch(() => []),
       ]);
 
       setTeamUsage(usageData?.usage ?? null);
       setTeamPlan(planData);
       setSessionUsage(sessionUsageData);
       setAlertSettings(alertSettingsData);
+      setAvailablePlans(availablePlansData || []);
 
       if (stripeStatusData) {
         setStripeStatus(stripeStatusData);
@@ -415,7 +420,7 @@ export const BillingSettings: React.FC = () => {
           <div className="flex-1">
             <div className="font-semibold text-amber-900 uppercase tracking-wide text-sm">Scheduled Plan Change</div>
             <div className="text-sm font-bold text-amber-800">
-              {teamPlan.cancelAtPeriodEnd 
+              {teamPlan.cancelAtPeriodEnd
                 ? 'Your subscription will be canceled at the end of your current billing period. You\'ll continue to have access to your current plan features until then.'
                 : 'Your plan change is scheduled for the end of your current billing period. You\'ll keep your current plan features until then.'}
             </div>
@@ -516,7 +521,7 @@ export const BillingSettings: React.FC = () => {
                   <span className="text-[10px] font-semibold uppercase text-amber-600 tracking-widest">Scheduled Change</span>
                 </div>
                 <span className="text-xs font-bold text-amber-800">
-                  {teamPlan.cancelAtPeriodEnd 
+                  {teamPlan.cancelAtPeriodEnd
                     ? 'Canceling at period end'
                     : 'Downgrade scheduled'}
                 </span>
@@ -537,23 +542,29 @@ export const BillingSettings: React.FC = () => {
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 pt-4">
-          {PLANS.map((plan) => {
+          {(availablePlans.length > 0 ? availablePlans : [
+            { name: 'free', displayName: 'Free', sessionLimit: 5000, priceCents: 0 },
+            { name: 'starter', displayName: 'Starter', sessionLimit: 25000, priceCents: 500 },
+            { name: 'growth', displayName: 'Growth', sessionLimit: 100000, priceCents: 1500 },
+            { name: 'pro', displayName: 'Pro', sessionLimit: 350000, priceCents: 3500 },
+          ]).map((plan) => {
             const currentPlanName = teamPlan?.planName?.toLowerCase() || 'free';
             const isCurrentPlan = currentPlanName === plan.name;
-            const isDowngrade = teamPlan && PLANS.findIndex(p => p.name === currentPlanName) > PLANS.findIndex(p => p.name === plan.name);
+            const isDowngrade = teamPlan && availablePlans.findIndex(p => p.name === currentPlanName) > availablePlans.findIndex(p => p.name === plan.name);
             // Disable free plan only if already on free
             const isFreePlanDisabled = plan.name === 'free' && isCurrentPlan;
             // Disable plan if it's already scheduled for downgrade
             const isScheduledPlan = teamPlan?.scheduledPlanName?.toLowerCase() === plan.name;
+            const price = plan.priceCents / 100;
 
             return (
               <NeoCard
                 key={plan.name}
                 className={`p-5 relative transition-all overflow-visible ${isCurrentPlan
-                    ? 'border-emerald-600 bg-emerald-50 border-b-[6px]'
-                    : isFreePlanDisabled || isScheduledPlan
-                      ? 'border-slate-200 bg-slate-50 opacity-60 cursor-not-allowed'
-                      : 'border-slate-300 hover:border-slate-900 hover:-translate-y-1 cursor-pointer'
+                  ? 'border-emerald-600 bg-emerald-50 border-b-[6px]'
+                  : isFreePlanDisabled || isScheduledPlan
+                    ? 'border-slate-200 bg-slate-50 opacity-60 cursor-not-allowed'
+                    : 'border-slate-300 hover:border-slate-900 hover:-translate-y-1 cursor-pointer'
                   }`}
                 onClick={isCurrentPlan || isFreePlanDisabled || isScheduledPlan ? undefined : () => handlePlanClick(plan.name)}
               >
@@ -571,22 +582,22 @@ export const BillingSettings: React.FC = () => {
 
                 <div className="pt-2 space-y-4">
                   <div>
-                    <h3 className="text-xl font-semibold uppercase tracking-tight">{plan.label}</h3>
-                    <p className="text-xs font-bold text-slate-500 mt-1">{plan.description}</p>
+                    <h3 className="text-xl font-semibold uppercase tracking-tight">{plan.displayName}</h3>
+                    <p className="text-xs font-bold text-slate-500 mt-1">{PLAN_DESCRIPTIONS[plan.name] || 'Subscription Plan'}</p>
                   </div>
 
                   <div>
                     <span className="text-4xl font-semibold text-slate-900">
-                      {plan.price === 0 ? 'Free' : `$${plan.price}`}
+                      {price === 0 ? 'Free' : `$${price}`}
                     </span>
-                    {plan.price > 0 && <span className="text-sm font-bold text-slate-500">/mo</span>}
+                    {price > 0 && <span className="text-sm font-bold text-slate-500">/mo</span>}
                   </div>
 
                   <div className="py-3 border-t border-slate-200">
                     <div className="flex items-center gap-2">
                       <div className="w-2 h-2 bg-slate-900" />
                       <span className="text-sm font-semibold text-slate-900">
-                        {plan.sessions.toLocaleString()} sessions
+                        {plan.sessionLimit.toLocaleString()} sessions
                       </span>
                     </div>
                     <p className="text-[10px] font-bold text-slate-400 mt-1 ml-4">per month</p>
@@ -763,8 +774,8 @@ export const BillingSettings: React.FC = () => {
                     </div>
                     <div className="text-slate-400 font-semibold text-xl">→</div>
                     <div className={`text-center p-4 border-2 flex-1 ${planChangeModal.preview.changeType === 'upgrade' || planChangeModal.preview.changeType === 'new'
-                        ? 'bg-emerald-50 border-emerald-600'
-                        : 'bg-amber-50 border-amber-600'
+                      ? 'bg-emerald-50 border-emerald-600'
+                      : 'bg-amber-50 border-amber-600'
                       }`}>
                       <div className="text-xs font-bold text-slate-500 uppercase mb-1">New Plan</div>
                       <div className="text-lg font-semibold">{planChangeModal.preview.newPlan.displayName}</div>
@@ -785,8 +796,8 @@ export const BillingSettings: React.FC = () => {
                           {planChangeModal.preview.currentPlan.sessionLimit.toLocaleString()}
                         </span>
                         <span className={`font-semibold ${planChangeModal.preview.changeType === 'upgrade' || planChangeModal.preview.changeType === 'new'
-                            ? 'text-emerald-600'
-                            : 'text-amber-600'
+                          ? 'text-emerald-600'
+                          : 'text-amber-600'
                           }`}>
                           {planChangeModal.preview.newPlan.sessionLimit.toLocaleString()}
                         </span>

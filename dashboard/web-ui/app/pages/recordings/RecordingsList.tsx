@@ -37,7 +37,6 @@ import { getSessionsPaginated } from '../../services/api';
 import { useDemoMode } from '../../context/DemoModeContext';
 import { useSessionData } from '../../context/SessionContext';
 import { useSafeTeam } from '../../context/TeamContext';
-import { PromotionLogicGraphic } from '../../components/recordings/PromotionLogicGraphic';
 import { formatGeoDisplay } from '../../utils/geoDisplay';
 
 const ROWS_PER_PAGE = 50;
@@ -356,10 +355,6 @@ export const RecordingsList: React.FC = () => {
           icon={<Layers className="w-6 h-6" />}
           iconColor="bg-indigo-500"
         >
-          <div className="hidden lg:block mr-2">
-            <PromotionLogicGraphic />
-          </div>
-
           <div className="relative max-w-xs w-full hidden md:block group">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-900 group-focus-within:text-indigo-600 transition-colors" />
             <input
@@ -390,9 +385,6 @@ export const RecordingsList: React.FC = () => {
         {/* Filter Bar */}
         <div className="bg-slate-50 border-b border-slate-100/80 px-6 py-3 overflow-x-auto scrollbar-hide">
           <div className="flex items-center gap-3 max-w-[1800px] mx-auto">
-            <div className="lg:hidden">
-              <PromotionLogicGraphic />
-            </div>
             <span className="font-semibold uppercase text-xs mr-2 flex items-center gap-1">
               <Filter className="w-3 h-3" /> Filters:
             </span>

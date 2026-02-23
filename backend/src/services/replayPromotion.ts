@@ -22,6 +22,7 @@ import {
 } from '../utils/promotionLogic.js';
 
 import { getAdaptiveScaleFactor } from '../utils/adaptiveSampling.js';
+import { config } from '../config.js';
 
 // =============================================================================
 // Types
@@ -60,6 +61,10 @@ export interface PromotionResult {
     reason: PromotionReason;
     score?: number;
 }
+
+// Global toggle for whether to apply replay promotion heuristics.
+// When false, all eligible sessions are promoted without applying scoring or hard/soft rules.
+const USE_PROMOTION_LOGIC = config.REPLAY_USE_PROMOTION_LOGIC;
 
 // =============================================================================
 // Configuration
@@ -468,6 +473,11 @@ export async function evaluateReplayPromotionWithQuota(
             'Replay not promoted: session exceeds max recording minutes'
         );
         return { promoted: false, reason: 'quota_exceeded' };
+    }
+
+    // If promotion logic is disabled, always promote eligible sessions without applying heuristics.
+    if (!USE_PROMOTION_LOGIC) {
+        return { promoted: true, reason: 'sample', score: 1 };
     }
 
     // Delegate to main evaluation logic

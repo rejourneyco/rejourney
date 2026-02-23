@@ -1,14 +1,13 @@
-import React from 'react';
+import { useState, useEffect } from 'react';
 import { Link } from 'react-router';
-import { Check, Server, Building2, ArrowRight } from 'lucide-react';
+import { Check, Server, Building2, ArrowRight, Loader2 } from 'lucide-react';
 import { useToast } from '~/context/ToastContext';
+import { api, type BillingPlan } from '~/services/api';
 
-const PLANS = [
-    { name: 'free', displayName: 'Free', sessions: 5000, price: 0 },
-    { name: 'starter', displayName: 'Starter', sessions: 25000, price: 5 },
-    { name: 'growth', displayName: 'Growth', sessions: 100000, price: 15, savings: '25% SCALE SAVINGS' },
-    { name: 'pro', displayName: 'Pro', sessions: 350000, price: 35, savings: '50% SCALE SAVINGS' },
-];
+const SAVINGS_LABELS: Record<string, string> = {
+    growth: '25% SCALE SAVINGS',
+    pro: '50% SCALE SAVINGS',
+};
 
 const FEATURES = [
     { id: '01', title: "Pixel Perfect", highlight: "Session Replay", desc: "Experience true fidelity with our high-performance replay engine. Capture the true state of your application." },
@@ -23,6 +22,24 @@ const FEATURES = [
 
 export const PricingTable: React.FC = () => {
     const { showToast } = useToast();
+    const [availablePlans, setAvailablePlans] = useState<BillingPlan[]>([]);
+    const [isLoading, setIsLoading] = useState(true);
+
+    useEffect(() => {
+        const fetchPlans = async () => {
+            try {
+                const plans = await api.getAvailablePlans();
+                if (plans && plans.length > 0) {
+                    setAvailablePlans(plans);
+                }
+            } catch (err) {
+                console.error('Failed to fetch plans:', err);
+            } finally {
+                setIsLoading(false);
+            }
+        };
+        fetchPlans();
+    }, []);
 
     const handleCopyEmail = () => {
         navigator.clipboard.writeText('contact@rejourney.co');
@@ -47,9 +64,9 @@ export const PricingTable: React.FC = () => {
                             <Server className="w-8 h-8 shrink-0 group-hover:rotate-12 transition-transform" />
                             <h3 className="text-3xl font-black uppercase whitespace-nowrap tracking-tighter">Self-Hosted</h3>
                         </div>
-                        
+
                         <div className="w-px h-12 bg-white/20 hidden md:block" />
-                        
+
                         <div className="flex-grow text-center md:text-left">
                             <p className="text-xs font-black uppercase tracking-widest opacity-60 mb-1">Open Source & Free Forever</p>
                             <p className="text-lg font-bold uppercase leading-tight">
@@ -86,45 +103,60 @@ export const PricingTable: React.FC = () => {
                 </div>
 
                 {/* Plans Grid */}
-                <div className="grid lg:grid-cols-4 gap-0 border-4 border-black mb-24 overflow-hidden">
-                    {PLANS.map((plan) => (
-                        <div
-                            key={plan.name}
-                            className="p-8 border-b-4 lg:border-b-0 lg:border-r-4 last:border-r-0 border-black transition-all bg-white text-black hover:bg-neutral-50 hover:-translate-y-1 group"
-                        >
-                            <div className="flex justify-between items-start mb-8">
-                                <h3 className="text-2xl font-black uppercase">{plan.displayName}</h3>
-                                {plan.savings && (
-                                    <span className="text-[10px] font-black px-2 py-1 border-2 border-black bg-black text-white group-hover:shadow-[4px_4px_0px_0px_rgba(0,0,0,0.3)] transition-all">
-                                        {plan.savings}
-                                    </span>
-                                )}
-                            </div>
-                            
-                            <div className="mb-8">
-                                <div className="text-5xl font-black">{formatCurrency(plan.price)}</div>
-                            </div>
-
-                            <div className="space-y-4 mb-12">
-                                <div className="flex items-center gap-2">
-                                    <div className="w-4 h-4 border-2 border-black bg-black group-hover:rotate-45 transition-transform" />
-                                    <span className="font-black uppercase text-sm">
-                                        {formatNumber(plan.sessions)} Sessions / month
-                                    </span>
-                                </div>
-                                <p className="text-xs font-bold leading-relaxed opacity-70">
-                                    Full access to all features and analytics tools.
-                                </p>
-                            </div>
-
-                            <Link 
-                                to="/login"
-                                className="block w-full py-4 text-center font-black uppercase border-4 border-black bg-black text-white shadow-[6px_6px_0px_0px_rgba(0,0,0,1)] hover:shadow-[10px_10px_0px_0px_rgba(0,0,0,1)] hover:-translate-x-1 hover:-translate-y-1 active:translate-x-0 active:translate-y-0 active:shadow-none transition-all"
-                            >
-                                Get Started
-                            </Link>
+                <div className="grid lg:grid-cols-4 gap-0 border-4 border-black mb-24 overflow-hidden min-h-[400px]">
+                    {isLoading ? (
+                        <div className="col-span-full flex flex-col items-center justify-center py-24 bg-neutral-50 border-black">
+                            <Loader2 className="w-12 h-12 text-black animate-spin mb-4" />
+                            <p className="font-black uppercase tracking-widest text-sm">Loading Plans...</p>
                         </div>
-                    ))}
+                    ) : (availablePlans.length > 0 ? availablePlans : [
+                        { name: 'free', displayName: 'Free', sessionLimit: 5000, priceCents: 0 },
+                        { name: 'starter', displayName: 'Starter', sessionLimit: 25000, priceCents: 500 },
+                        { name: 'growth', displayName: 'Growth', sessionLimit: 100000, priceCents: 1500 },
+                        { name: 'pro', displayName: 'Pro', sessionLimit: 350000, priceCents: 3500 },
+                    ]).map((plan) => {
+                        const savings = SAVINGS_LABELS[plan.name];
+                        const price = plan.priceCents / 100;
+
+                        return (
+                            <div
+                                key={plan.name}
+                                className="p-8 border-b-4 lg:border-b-0 lg:border-r-4 last:border-r-0 border-black transition-all bg-white text-black hover:bg-neutral-50 hover:-translate-y-1 group"
+                            >
+                                <div className="flex justify-between items-start mb-8">
+                                    <h3 className="text-2xl font-black uppercase">{plan.displayName}</h3>
+                                    {savings && (
+                                        <span className="text-[10px] font-black px-2 py-1 border-2 border-black bg-black text-white group-hover:shadow-[4px_4px_0px_0px_rgba(0,0,0,0.3)] transition-all">
+                                            {savings}
+                                        </span>
+                                    )}
+                                </div>
+
+                                <div className="mb-8">
+                                    <div className="text-5xl font-black">{formatCurrency(price)}</div>
+                                </div>
+
+                                <div className="space-y-4 mb-12">
+                                    <div className="flex items-center gap-2">
+                                        <div className="w-4 h-4 border-2 border-black bg-black group-hover:rotate-45 transition-transform" />
+                                        <span className="font-black uppercase text-sm">
+                                            {formatNumber(plan.sessionLimit)} Sessions / month
+                                        </span>
+                                    </div>
+                                    <p className="text-xs font-bold leading-relaxed opacity-70">
+                                        Full access to all features and analytics tools.
+                                    </p>
+                                </div>
+
+                                <Link
+                                    to="/login"
+                                    className="block w-full py-4 text-center font-black uppercase border-4 border-black bg-black text-white shadow-[6px_6px_0px_0px_rgba(0,0,0,1)] hover:shadow-[10px_10px_0px_0px_rgba(0,0,0,1)] hover:-translate-x-1 hover:-translate-y-1 active:translate-x-0 active:translate-y-0 active:shadow-none transition-all"
+                                >
+                                    Get Started
+                                </Link>
+                            </div>
+                        );
+                    })}
                 </div>
 
                 {/* Features Section */}
@@ -170,7 +202,7 @@ export const PricingTable: React.FC = () => {
                                 </li>
                             ))}
                         </ul>
-                        <button 
+                        <button
                             onClick={handleCopyEmail}
                             className="inline-flex items-center gap-2 font-black uppercase border-b-4 border-black pb-1 hover:gap-4 transition-all w-fit pointer-events-auto"
                         >

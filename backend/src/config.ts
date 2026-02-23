@@ -124,6 +124,10 @@ const envSchema = z.object({
     INGEST_IP_BYTES_PER_MINUTE: z.string().transform(Number).default('104857600'), // 100 MB/min per IP
     INGEST_IP_BYTES_PER_DAY: z.string().transform(Number).default('5368709120'), // 5 GB/day per IP
 
+    // Replay promotion
+    // When false, all eligible sessions are promoted without applying scoring/heuristics.
+    REPLAY_USE_PROMOTION_LOGIC: z.string().transform(v => v !== 'false').default('false'),
+
     // Storage encryption
     STORAGE_ENCRYPTION_KEY: z.string().length(64).optional(), // 32-byte hex key
 

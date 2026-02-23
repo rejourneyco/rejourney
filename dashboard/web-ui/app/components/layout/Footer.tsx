@@ -21,6 +21,8 @@ export const Footer: React.FC = () => {
           <span>•</span>
           <Link to="/engineering" className="hover:text-black transition-colors">Engineering</Link>
           <span>•</span>
+          <Link to="/changelog" className="hover:text-black transition-colors">Changelog</Link>
+          <span>•</span>
           <Link to="/pricing" className="hover:text-black transition-colors">Pricing</Link>
           <span>•</span>
           <Link to="/docs/selfhosted" className="hover:text-black transition-colors">Self Hosted</Link>
