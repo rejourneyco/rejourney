@@ -6,7 +6,7 @@
  */
 
 import { Router } from 'express';
-import { eq, gte, and, desc, asc, inArray } from 'drizzle-orm';
+import { eq, gte, lte, and, desc, asc, inArray } from 'drizzle-orm';
 import { db, sessions, sessionMetrics, projects, teamMembers, appDailyStats, recordingArtifacts, screenTouchHeatmaps, apiEndpointDailyStats } from '../db/client.js';
 import { getRedis } from '../db/redis.js';
 import { asyncHandler, ApiError } from '../middleware/index.js';
@@ -16,6 +16,31 @@ import { sessionAuth } from '../middleware/auth.js';
 const router = Router();
 const redis = getRedis();
 const CACHE_TTL = 180; // 3 minutes for insights
+
+/**
+ * Returns the last date (YYYY-MM-DD) for which daily rollups are guaranteed
+ * to have completed. This is derived from the `stats:daily_rollup:last_run`
+ * marker written by the statsAggregator job and falls back to "yesterday"
+ * if the marker is missing or invalid.
+ */
+async function getLastRolledUpDate(): Promise<string> {
+    try {
+        const lastRun = await redis.get('stats:daily_rollup:last_run');
+        if (lastRun) {
+            const parsed = new Date(lastRun);
+            if (!Number.isNaN(parsed.getTime())) {
+                return parsed.toISOString().split('T')[0];
+            }
+        }
+    } catch (err) {
+        logger.warn({ err }, 'Failed to read last daily rollup time from Redis (insights)');
+    }
+
+    const yesterday = new Date();
+    yesterday.setUTCDate(yesterday.getUTCDate() - 1);
+    yesterday.setUTCHours(0, 0, 0, 0);
+    return yesterday.toISOString().split('T')[0];
+}
 
 // Helper to get time filter
 function getTimeFilter(timeRange?: string): Date | undefined {
@@ -742,7 +767,9 @@ router.get(
             queryStartStr = queryStart.toISOString().split('T')[0];
         }
 
-        const dailyConditions = [inArray(appDailyStats.projectId, projectIds)];
+        const lastRolledUpDate = await getLastRolledUpDate();
+
+        const dailyConditions = [inArray(appDailyStats.projectId, projectIds), lte(appDailyStats.date, lastRolledUpDate)];
         if (startStr) {
             dailyConditions.push(gte(appDailyStats.date, startStr));
         }

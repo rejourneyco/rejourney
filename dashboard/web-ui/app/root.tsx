@@ -144,6 +144,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
                     dangerouslySetInnerHTML={{
                         __html: `window.ENV = ${JSON.stringify({
                             VITE_STRIPE_PUBLISHABLE_KEY: process.env.VITE_STRIPE_PUBLISHABLE_KEY,
+                            VITE_MAPBOX_TOKEN: process.env.VITE_MAPBOX_TOKEN,
                         })}`,
                     }}
                 />
