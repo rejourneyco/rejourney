@@ -52,6 +52,9 @@ type Pages = {
   "/login": {
     params: {};
   };
+  "/changelog": {
+    params: {};
+  };
   "/invite/accept/:token": {
     params: {
       "token": string;
@@ -246,7 +249,7 @@ type Pages = {
 type RouteFiles = {
   "root.tsx": {
     id: "root";
-    page: "/" | "/docs" | "/docs/*" | "/contribute" | "/pricing" | "/terms-of-service" | "/privacy-policy" | "/dpa" | "/engineering" | "/engineering/:date/:slug" | "/feed.xml" | "/login" | "/invite/accept/:token" | "/demo" | "/demo/general" | "/demo/general/:issueId" | "/demo/issues" | "/demo/issues/:issueId" | "/demo/sessions" | "/demo/sessions/:sessionId" | "/demo/analytics/api" | "/demo/stability/crashes" | "/demo/stability/crashes/:projectId/:crashId" | "/demo/stability/anrs" | "/demo/stability/anrs/:projectId/:anrId" | "/demo/stability/errors" | "/demo/stability/errors/:projectId/:errorId" | "/demo/analytics/journeys" | "/demo/analytics/devices" | "/demo/analytics/geo" | "/demo/alerts/emails" | "/demo/team" | "/demo/warehouse" | "/demo/billing" | "/demo/billing/return" | "/demo/account" | "/demo/settings/:projectId" | "/demo/search" | "/dashboard" | "/dashboard/general" | "/dashboard/general/:issueId" | "/dashboard/issues" | "/dashboard/issues/:issueId" | "/dashboard/sessions" | "/dashboard/sessions/:sessionId" | "/dashboard/analytics/api" | "/dashboard/stability/crashes" | "/dashboard/stability/crashes/:projectId/:crashId" | "/dashboard/stability/anrs" | "/dashboard/stability/anrs/:projectId/:anrId" | "/dashboard/stability/errors" | "/dashboard/stability/errors/:projectId/:errorId" | "/dashboard/analytics/journeys" | "/dashboard/analytics/devices" | "/dashboard/analytics/geo" | "/dashboard/alerts/emails" | "/dashboard/team" | "/dashboard/warehouse" | "/dashboard/billing" | "/dashboard/billing/return" | "/dashboard/account" | "/dashboard/settings/:projectId" | "/dashboard/search";
+    page: "/" | "/docs" | "/docs/*" | "/contribute" | "/pricing" | "/terms-of-service" | "/privacy-policy" | "/dpa" | "/engineering" | "/engineering/:date/:slug" | "/feed.xml" | "/login" | "/changelog" | "/invite/accept/:token" | "/demo" | "/demo/general" | "/demo/general/:issueId" | "/demo/issues" | "/demo/issues/:issueId" | "/demo/sessions" | "/demo/sessions/:sessionId" | "/demo/analytics/api" | "/demo/stability/crashes" | "/demo/stability/crashes/:projectId/:crashId" | "/demo/stability/anrs" | "/demo/stability/anrs/:projectId/:anrId" | "/demo/stability/errors" | "/demo/stability/errors/:projectId/:errorId" | "/demo/analytics/journeys" | "/demo/analytics/devices" | "/demo/analytics/geo" | "/demo/alerts/emails" | "/demo/team" | "/demo/warehouse" | "/demo/billing" | "/demo/billing/return" | "/demo/account" | "/demo/settings/:projectId" | "/demo/search" | "/dashboard" | "/dashboard/general" | "/dashboard/general/:issueId" | "/dashboard/issues" | "/dashboard/issues/:issueId" | "/dashboard/sessions" | "/dashboard/sessions/:sessionId" | "/dashboard/analytics/api" | "/dashboard/stability/crashes" | "/dashboard/stability/crashes/:projectId/:crashId" | "/dashboard/stability/anrs" | "/dashboard/stability/anrs/:projectId/:anrId" | "/dashboard/stability/errors" | "/dashboard/stability/errors/:projectId/:errorId" | "/dashboard/analytics/journeys" | "/dashboard/analytics/devices" | "/dashboard/analytics/geo" | "/dashboard/alerts/emails" | "/dashboard/team" | "/dashboard/warehouse" | "/dashboard/billing" | "/dashboard/billing/return" | "/dashboard/account" | "/dashboard/settings/:projectId" | "/dashboard/search";
   };
   "routes/_index.tsx": {
     id: "routes/_index";
@@ -295,6 +298,10 @@ type RouteFiles = {
   "routes/login.tsx": {
     id: "routes/login";
     page: "/login";
+  };
+  "routes/changelog.tsx": {
+    id: "routes/changelog";
+    page: "/changelog";
   };
   "routes/invite.accept.$token.tsx": {
     id: "routes/invite.accept.$token";
@@ -524,6 +531,7 @@ type RouteModules = {
   "routes/engineering.article": typeof import("./app/routes/engineering.article.tsx");
   "routes/feed.xml": typeof import("./app/routes/feed.xml.tsx");
   "routes/login": typeof import("./app/routes/login.tsx");
+  "routes/changelog": typeof import("./app/routes/changelog.tsx");
   "routes/invite.accept.$token": typeof import("./app/routes/invite.accept.$token.tsx");
   "routes/_demo": typeof import("./app/routes/_demo.tsx");
   "routes/_demo._index": typeof import("./app/routes/_demo._index.tsx");

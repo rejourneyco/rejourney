@@ -264,8 +264,8 @@ export const Journeys: React.FC = () => {
             const conversionRate = entrants > 0 ? (progressed / entrants) * 100 : 0;
             const issueRatePer100 = flow
                 ? flow.apiErrorRate
-                    + ((flow.crashCount + flow.anrCount) / Math.max(flow.count, 1)) * 100
-                    + (flow.rageTapCount / Math.max(flow.count, 1)) * 100
+                + ((flow.crashCount + flow.anrCount) / Math.max(flow.count, 1)) * 100
+                + (flow.rageTapCount / Math.max(flow.count, 1)) * 100
                 : 0;
 
             previousProgressed = progressed;
@@ -774,9 +774,9 @@ export const Journeys: React.FC = () => {
                                                 ))}
                                             </Pie>
                                             <Tooltip
-                                                formatter={(value: number | string | undefined, name: string) => [
+                                                formatter={(value: any, name: any) => [
                                                     formatCompact(Number(value || 0)),
-                                                    name || 'Users',
+                                                    String(name || 'Users'),
                                                 ]}
                                                 contentStyle={{ padding: '8px 12px' }}
                                             />
