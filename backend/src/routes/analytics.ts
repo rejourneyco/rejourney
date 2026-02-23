@@ -29,11 +29,21 @@ const CACHE_TTL = 300; // 5 minutes
  */
 async function getLastRolledUpDate(): Promise<string> {
     try {
+        // 1. Try to get the actual date that was last rolled up
+        const lastRolledUpDate = await redis.get('stats:daily_rollup:last_rolled_up_date');
+        if (lastRolledUpDate && /^\d{4}-\d{2}-\d{2}$/.test(lastRolledUpDate)) {
+            return lastRolledUpDate;
+        }
+
+        // 2. Fallback to deriving from execution timestamp (legacy behavior)
         const lastRun = await redis.get('stats:daily_rollup:last_run');
         if (lastRun) {
             const parsed = new Date(lastRun);
             if (!Number.isNaN(parsed.getTime())) {
-                return parsed.toISOString().split('T')[0];
+                // If it ran today (or ever), it processed yesterday's data (or that day - 1)
+                const processedDate = new Date(parsed);
+                processedDate.setUTCDate(processedDate.getUTCDate() - 1);
+                return processedDate.toISOString().split('T')[0];
             }
         }
     } catch (err) {
@@ -137,9 +147,9 @@ router.get(
             const hasRecipients = connectedProjectIds.has(projectId);
             const anyAlertEnabled = settings
                 ? (settings.crashAlertsEnabled ?? false) ||
-                  (settings.anrAlertsEnabled ?? false) ||
-                  (settings.errorSpikeAlertsEnabled ?? false) ||
-                  (settings.apiDegradationAlertsEnabled ?? false)
+                (settings.anrAlertsEnabled ?? false) ||
+                (settings.errorSpikeAlertsEnabled ?? false) ||
+                (settings.apiDegradationAlertsEnabled ?? false)
                 : false;
             const enabled = hasRecipients || anyAlertEnabled;
             projectStatuses[projectId] = { enabled, hasActiveAlert: enabled };

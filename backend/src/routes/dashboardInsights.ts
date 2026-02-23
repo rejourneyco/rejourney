@@ -25,11 +25,21 @@ const CACHE_TTL = 180; // 3 minutes for insights
  */
 async function getLastRolledUpDate(): Promise<string> {
     try {
+        // 1. Try to get the actual date that was last rolled up
+        const lastRolledUpDate = await redis.get('stats:daily_rollup:last_rolled_up_date');
+        if (lastRolledUpDate && /^\d{4}-\d{2}-\d{2}$/.test(lastRolledUpDate)) {
+            return lastRolledUpDate;
+        }
+
+        // 2. Fallback to deriving from execution timestamp (legacy behavior)
         const lastRun = await redis.get('stats:daily_rollup:last_run');
         if (lastRun) {
             const parsed = new Date(lastRun);
             if (!Number.isNaN(parsed.getTime())) {
-                return parsed.toISOString().split('T')[0];
+                // If it ran today, it processed yesterday's data
+                const processedDate = new Date(parsed);
+                processedDate.setUTCDate(processedDate.getUTCDate() - 1);
+                return processedDate.toISOString().split('T')[0];
             }
         }
     } catch (err) {
