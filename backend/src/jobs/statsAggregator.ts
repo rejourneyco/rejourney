@@ -516,9 +516,13 @@ export async function runDailyRollup(date?: Date): Promise<void> {
         }
 
         lastDailyRollupTime = new Date();
+        const rolledUpDateStr = targetDate.toISOString().split('T')[0];
 
-        // Cache the last rollup timestamp in Redis
-        await redis.set('stats:daily_rollup:last_run', lastDailyRollupTime.toISOString());
+        // Cache the last rollup execution timestamp and the actual rolled-up date
+        await Promise.all([
+            redis.set('stats:daily_rollup:last_run', lastDailyRollupTime.toISOString()),
+            redis.set('stats:daily_rollup:last_rolled_up_date', rolledUpDateStr),
+        ]);
 
         // Check for error spikes and API degradation for each project
         await checkAlertsAfterRollup(projectIds, targetDate);
