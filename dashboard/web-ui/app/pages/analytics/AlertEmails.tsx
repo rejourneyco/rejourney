@@ -6,6 +6,7 @@ import { NeoCard } from '../../components/ui/neo/NeoCard';
 import { NeoBadge } from '../../components/ui/neo/NeoBadge';
 import { DashboardPageHeader } from '../../components/ui/DashboardPageHeader';
 import { Link } from 'react-router';
+import { usePathPrefix } from '../../hooks/usePathPrefix';
 
 // Alert settings types
 interface AlertSettings {
@@ -222,6 +223,7 @@ const AlertTypeCard: React.FC<{
 
 export const AlertEmails: React.FC = () => {
     const { selectedProject } = useSessionData();
+    const pathPrefix = usePathPrefix();
     const [settings, setSettings] = useState<AlertSettings | null>(null);
     const [recipients, setRecipients] = useState<AlertRecipient[]>([]);
     const [availableMembers, setAvailableMembers] = useState<TeamMember[]>([]);
@@ -283,16 +285,40 @@ export const AlertEmails: React.FC = () => {
         setIsLoading(true);
         setError(null);
         try {
-            const [settingsData, recipientsData, membersData] = await Promise.all([
+            const [settingsData, recipientsData, membersData] = await Promise.allSettled([
                 getAlertSettings(selectedProject.id),
                 getAlertRecipients(selectedProject.id),
                 getAvailableRecipients(selectedProject.id),
             ]);
-            setSettings(settingsData);
-            setRecipients(recipientsData);
-            setAvailableMembers(membersData);
+
+            const failedSections: string[] = [];
+
+            if (settingsData.status === 'fulfilled') {
+                setSettings(settingsData.value);
+            } else {
+                failedSections.push('alert rules');
+                setSettings(null);
+            }
+
+            if (recipientsData.status === 'fulfilled') {
+                setRecipients(recipientsData.value);
+            } else {
+                failedSections.push('recipient list');
+                setRecipients([]);
+            }
+
+            if (membersData.status === 'fulfilled') {
+                setAvailableMembers(membersData.value);
+            } else {
+                failedSections.push('team members');
+                setAvailableMembers([]);
+            }
+
+            if (failedSections.length > 0) {
+                setError(`Some alert settings data failed to load (${failedSections.join(', ')}).`);
+            }
         } catch (err) {
-            setError(err instanceof Error ? err.message : 'Failed to load settings');
+            setError(err instanceof Error ? err.message : 'Failed to load alert settings');
         } finally {
             setIsLoading(false);
         }
@@ -662,7 +688,7 @@ export const AlertEmails: React.FC = () => {
                                                     </div>
                                                     {log.issueId && (
                                                         <Link
-                                                            to={`/issues/${log.issueId}`}
+                                                            to={`${pathPrefix}/general/${log.issueId}`}
                                                             className="text-[10px] text-blue-600 hover:text-blue-700 font-bold uppercase tracking-wider"
                                                         >
                                                             View Issue →

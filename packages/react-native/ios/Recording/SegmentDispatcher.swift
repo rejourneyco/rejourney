@@ -173,6 +173,8 @@ final class SegmentDispatcher {
         backgroundDurationMs: UInt64,
         metrics: [String: Any]?,
         currentQueueDepth: Int = 0,
+        endReason: String? = nil,
+        lifecycleVersion: Int? = nil,
         completion: @escaping (Bool) -> Void
     ) {
         guard let url = URL(string: "\(endpoint)/api/ingest/session/end") else {
@@ -190,6 +192,12 @@ final class SegmentDispatcher {
         if backgroundDurationMs > 0 { body["totalBackgroundTimeMs"] = backgroundDurationMs }
         if let m = metrics { body["metrics"] = m }
         body["sdkTelemetry"] = sdkTelemetrySnapshot(currentQueueDepth: currentQueueDepth)
+        if let endReason, !endReason.isEmpty {
+            body["endReason"] = endReason
+        }
+        if let lifecycleVersion, lifecycleVersion > 0 {
+            body["lifecycleVersion"] = lifecycleVersion
+        }
         
         do {
             req.httpBody = try JSONSerialization.data(withJSONObject: body)

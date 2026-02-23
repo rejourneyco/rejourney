@@ -598,7 +598,7 @@ export async function sendCrashAlertEmail(
 
   const baseUrl = config.PUBLIC_DASHBOARD_URL || 'http://localhost:8080';
   // Use a generic issues link if specific one isn't constructed correctly or needs to be update
-  const issueLink = `${baseUrl}/dashboard/issues/${data.issueId || ''}`;
+  const issueLink = `${baseUrl}/dashboard/general/${data.issueId || ''}`;
 
   const metaBadges: EmailMetaBadge[] = [
     { label: 'USERS', value: data.affectedUsers.toLocaleString() },
@@ -706,7 +706,7 @@ export async function sendAnrAlertEmail(
   if (!transport) return;
 
   const baseUrl = config.PUBLIC_DASHBOARD_URL || 'http://localhost:8080';
-  const issueLink = `${baseUrl}/dashboard/issues/${data.issueId || ''}`;
+  const issueLink = `${baseUrl}/dashboard/general/${data.issueId || ''}`;
 
   const durationSecs = Math.round(data.durationMs / 1000);
   const metaBadges: EmailMetaBadge[] = [
@@ -781,7 +781,7 @@ export async function sendErrorSpikeAlertEmail(
   if (!transport) return;
 
   const baseUrl = config.PUBLIC_DASHBOARD_URL || 'http://localhost:8080';
-  const issueLink = data.issueUrl || `${baseUrl}/dashboard/issues`;
+  const issueLink = data.issueUrl || `${baseUrl}/dashboard/general`;
 
   const metaBadges: EmailMetaBadge[] = [
     { label: 'SPIKE', value: `+${data.percentIncrease.toFixed(0)}%` },

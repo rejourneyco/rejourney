@@ -8,6 +8,8 @@ export const endSessionSchema = z.object({
     sessionId: z.string(),
     endedAt: z.number().optional(),
     totalBackgroundTimeMs: z.number().optional(), // Background time in milliseconds for billing exclusion
+    endReason: z.string().min(1).max(64).optional(), // Optional lifecycle reason (v2+ SDKs)
+    lifecycleVersion: z.number().int().min(1).optional(), // Optional lifecycle contract version
     metrics: z.object({
         totalEvents: z.number().int().optional(),
         touchCount: z.number().int().optional(),
@@ -15,6 +17,8 @@ export const endSessionSchema = z.object({
         gestureCount: z.number().int().optional(),
         inputCount: z.number().int().optional(),
         errorCount: z.number().int().optional(),
+        crashCount: z.number().int().optional(),
+        anrCount: z.number().int().optional(),
         rageTapCount: z.number().int().optional(),
         apiSuccessCount: z.number().int().optional(),
         apiErrorCount: z.number().int().optional(),

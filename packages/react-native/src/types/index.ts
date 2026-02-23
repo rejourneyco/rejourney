@@ -102,9 +102,9 @@ export interface RejourneyConfig {
    * Disable if you want minimal network tracking overhead.
    */
   networkCaptureSizes?: boolean;
-  /** 
-   * Automatically intercept console.log, console.warn, and console.error and include them in session recordings.
-   * Useful for debugging sessions. (default: false)
+  /**
+   * Automatically intercept console.log/info/warn/error and include them in session recordings.
+   * Useful for debugging sessions. Capped at 1,000 logs per session. (default: true)
    */
   trackConsoleLogs?: boolean;
 }
@@ -598,8 +598,7 @@ export interface RejourneyAPI {
   getSDKMetrics(): Promise<SDKMetrics>;
 
   /**
-   * Trigger a debug ANR (Dev only)
-   * Blocks the main thread for the specified duration
+   * Trigger an ANR test by blocking the main thread for the specified duration.
    */
   debugTriggerANR(durationMs: number): void;
 

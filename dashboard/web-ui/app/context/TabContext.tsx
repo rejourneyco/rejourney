@@ -58,8 +58,25 @@ function isDetailTab(tabId: string): boolean {
         || tabId.startsWith('issue-');
 }
 
+function normalizeLegacyGeneralPath(path: string): string {
+    if (path === '/issues' || path.startsWith('/issues/')) {
+        return path.replace('/issues', '/general');
+    }
+    if (path === '/dashboard/issues' || path.startsWith('/dashboard/issues/')) {
+        return path.replace('/dashboard/issues', '/dashboard/general');
+    }
+    if (path === '/demo/issues' || path.startsWith('/demo/issues/')) {
+        return path.replace('/demo/issues', '/demo/general');
+    }
+    return path;
+}
+
+function normalizeLegacyTabId(tabId: string): string {
+    return tabId === 'issues' ? 'general' : tabId;
+}
+
 function stripPathPrefix(pathname: string): string {
-    return pathname.replace(/^\/(dashboard|demo)/, '') || '/issues';
+    return pathname.replace(/^\/(dashboard|demo)/, '') || '/general';
 }
 
 function isWarehousePath(pathname: string): boolean {
@@ -210,7 +227,7 @@ export const TabProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                     selectedProject?.teamId || '',
                     selectedProject?.id || '',
                     workspaceTabs,
-                    currentActiveId || 'issues', // Fallback to 'issues' if undefined/empty
+                    currentActiveId || 'general', // Fallback to 'general' if undefined/empty
                     closedTabs
                 );
             } catch (err) {
@@ -239,63 +256,65 @@ export const TabProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     // Normalize old paths to new SSR paths
     const normalizePath = useCallback((path: string, prefix: string): string => {
+        const legacyNormalizedPath = normalizeLegacyGeneralPath(path);
+
         // If path already has the correct prefix, return as-is
-        if (path.startsWith(prefix)) {
-            return path;
+        if (legacyNormalizedPath.startsWith(prefix)) {
+            return legacyNormalizedPath;
         }
 
         // If path has wrong prefix (e.g., /demo/sessions when we're in /dashboard), fix it
-        if (path.startsWith('/dashboard/') && prefix === '/demo') {
-            return path.replace('/dashboard/', '/demo/');
+        if (legacyNormalizedPath.startsWith('/dashboard/') && prefix === '/demo') {
+            return legacyNormalizedPath.replace('/dashboard/', '/demo/');
         }
-        if (path.startsWith('/demo/') && prefix === '/dashboard') {
-            return path.replace('/demo/', '/dashboard/');
+        if (legacyNormalizedPath.startsWith('/demo/') && prefix === '/dashboard') {
+            return legacyNormalizedPath.replace('/demo/', '/dashboard/');
         }
 
         // If path starts with old root-level routes (no prefix), add prefix
         const oldRoutes = [
-            '/sessions', '/issues', '/stability', '/monitor',
-            '/growth', '/breakdowns', '/billing',
+            '/sessions', '/general', '/stability', '/monitor',
+            '/breakdowns', '/billing',
             '/alerts', '/team', '/account', '/settings',
             '/search'
         ];
 
         for (const oldRoute of oldRoutes) {
-            if (path === oldRoute || path.startsWith(oldRoute + '/')) {
-                return path.replace(oldRoute, `${prefix}${oldRoute}`);
+            if (legacyNormalizedPath === oldRoute || legacyNormalizedPath.startsWith(oldRoute + '/')) {
+                return legacyNormalizedPath.replace(oldRoute, `${prefix}${oldRoute}`);
             }
         }
 
         // If path doesn't match any known pattern, try to get tab info
         // Strip any existing prefix to check against TabRegistry patterns
-        const pathWithoutPrefix = path.replace(/^\/(dashboard|demo)/, '');
+        const pathWithoutPrefix = legacyNormalizedPath.replace(/^\/(dashboard|demo)/, '');
         const tabInfo = TabRegistry.getTabInfo(pathWithoutPrefix);
         if (tabInfo) {
             // Path is valid - ensure it has the correct prefix
-            if (path.startsWith('/dashboard/') || path.startsWith('/demo/')) {
+            if (legacyNormalizedPath.startsWith('/dashboard/') || legacyNormalizedPath.startsWith('/demo/')) {
                 // Has prefix but might be wrong one - fix it
-                if (path.startsWith('/dashboard/') && prefix === '/demo') {
-                    return path.replace('/dashboard/', '/demo/');
+                if (legacyNormalizedPath.startsWith('/dashboard/') && prefix === '/demo') {
+                    return legacyNormalizedPath.replace('/dashboard/', '/demo/');
                 }
-                if (path.startsWith('/demo/') && prefix === '/dashboard') {
-                    return path.replace('/demo/', '/dashboard/');
+                if (legacyNormalizedPath.startsWith('/demo/') && prefix === '/dashboard') {
+                    return legacyNormalizedPath.replace('/demo/', '/dashboard/');
                 }
-                return path; // Already has correct prefix
+                return legacyNormalizedPath; // Already has correct prefix
             }
             // No prefix - add it
             return `${prefix}${pathWithoutPrefix}`;
         }
 
         // If we can't normalize and it looks like a dashboard route, add prefix
-        if (path.startsWith('/') && !path.startsWith('/dashboard') && !path.startsWith('/demo') &&
-            !path.startsWith('/login') && !path.startsWith('/docs') &&
-            !path.startsWith('/pricing') && !path.startsWith('/terms') &&
-            !path.startsWith('/privacy') && !path.startsWith('/engineering') &&
-            !path.startsWith('/invite') && path !== '/') {
-            return `${prefix}${path}`;
+        if (legacyNormalizedPath.startsWith('/') && !legacyNormalizedPath.startsWith('/dashboard') && !legacyNormalizedPath.startsWith('/demo') &&
+            !legacyNormalizedPath.startsWith('/login') && !legacyNormalizedPath.startsWith('/docs') &&
+            !legacyNormalizedPath.startsWith('/pricing') && !legacyNormalizedPath.startsWith('/terms') &&
+            !legacyNormalizedPath.startsWith('/privacy') && !legacyNormalizedPath.startsWith('/engineering') &&
+            !legacyNormalizedPath.startsWith('/invite') && legacyNormalizedPath !== '/') {
+            return `${prefix}${legacyNormalizedPath}`;
         }
 
-        return path;
+        return legacyNormalizedPath;
     }, []);
 
     // Track which project we've loaded workspace for
@@ -380,7 +399,7 @@ export const TabProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                         const normalizedPath = normalizePath(t.path, prefix);
                         const canonicalTabInfo = TabRegistry.getTabInfo(normalizedPath);
                         return annotateTabWithScope({
-                            id: canonicalTabInfo?.id || t.id,
+                            id: normalizeLegacyTabId(canonicalTabInfo?.id || t.id),
                             type: 'page',
                             title: canonicalTabInfo?.title || t.title,
                             path: normalizedPath,
@@ -392,7 +411,7 @@ export const TabProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                         const normalizedPath = normalizePath(t.path, prefix);
                         const canonicalTabInfo = TabRegistry.getTabInfo(normalizedPath);
                         return annotateTabWithScope({
-                            id: canonicalTabInfo?.id || t.id,
+                            id: normalizeLegacyTabId(canonicalTabInfo?.id || t.id),
                             type: 'page',
                             title: canonicalTabInfo?.title || t.title,
                             path: normalizedPath,
@@ -401,16 +420,17 @@ export const TabProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                         });
                     });
                     const resolveSavedActiveTabId = (): string | null => {
-                        const savedId = workspace.activeTabId || null;
+                        const rawSavedId = workspace.activeTabId || null;
+                        const savedId = rawSavedId ? normalizeLegacyTabId(rawSavedId) : null;
                         if (!savedId) return null;
                         if (loadedTabs.some(tab => tab.id === savedId)) return savedId;
 
-                        const original = workspace.tabs.find(tab => tab.id === savedId);
+                        const original = workspace.tabs.find(tab => normalizeLegacyTabId(tab.id) === savedId || tab.id === rawSavedId);
                         if (original) {
                             const normalizedPath = normalizePath(original.path, prefix);
                             const canonicalInfo = TabRegistry.getTabInfo(normalizedPath);
                             if (canonicalInfo && loadedTabs.some(tab => tab.id === canonicalInfo.id)) {
-                                return canonicalInfo.id;
+                                return normalizeLegacyTabId(canonicalInfo.id);
                             }
                         }
 
@@ -462,10 +482,10 @@ export const TabProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                         const activeTab = trimmed.tabs.find(t => t.id === resolvedActiveTabId);
 
                         if (activeTab) {
-                            // Don't restore sessions tab - always default to issues
+                            // Don't restore sessions tab - always default to general
                             if (activeTab.id === 'sessions' || activeTab.path.includes('/sessions')) {
-                                navigate(`${prefix}/issues`, { replace: true });
-                                setActiveTabId('issues');
+                                navigate(`${prefix}/general`, { replace: true });
+                                setActiveTabId('general');
                                 return;
                             }
 
@@ -483,19 +503,19 @@ export const TabProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                             if (tabInfo && location.pathname !== activeTab.path && !isPublicPage) {
                                 navigate(activeTab.path, { replace: true });
                             } else if (!tabInfo) {
-                                // Invalid path - redirect to issues instead
-                                navigate(`${prefix}/issues`, { replace: true });
+                                // Invalid path - redirect to general instead
+                                navigate(`${prefix}/general`, { replace: true });
                             }
                         } else {
-                            // Active tab not found - redirect to issues
-                            navigate(`${prefix}/issues`, { replace: true });
+                            // Active tab not found - redirect to general
+                            navigate(`${prefix}/general`, { replace: true });
                         }
                     } else {
-                        // No saved active tab - redirect to issues if we're on a dashboard route
+                        // No saved active tab - redirect to general if we're on a dashboard route
                         if (location.pathname.startsWith('/dashboard') || location.pathname.startsWith('/demo')) {
                             const tabInfo = TabRegistry.getTabInfo(location.pathname);
                             if (!tabInfo) {
-                                navigate(`${prefix}/issues`, { replace: true });
+                                navigate(`${prefix}/general`, { replace: true });
                             }
                         }
                     }
@@ -622,7 +642,7 @@ export const TabProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setRecentlyClosed(prev => appendRecentlyClosed(prev, [closedTab]));
 
         // Handle focus changes
-        if (closedTab.group === 'primary') {
+                if (closedTab.group === 'primary') {
             if (activeTabIdRef.current === id) {
                 const nextTab = sameGroupTabs[Math.min(tabIndex, sameGroupTabs.length - 1)] || sameGroupTabs[sameGroupTabs.length - 1];
                 if (nextTab) {
@@ -631,7 +651,7 @@ export const TabProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                 } else {
                     setActiveTabId('');
                     const prefix = getPathPrefix();
-                    navigate(`${prefix}/issues`, { replace: true });
+                    navigate(`${prefix}/general`, { replace: true });
                 }
             }
         } else {
@@ -656,7 +676,7 @@ export const TabProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setActiveTabId('');
         setSecondaryTabId(null);
         setIsSplitView(false);
-        navigate(`${getPathPrefix()}/issues`, { replace: true });
+        navigate(`${getPathPrefix()}/general`, { replace: true });
     }, [navigate, setActiveTabId, getPathPrefix]);
 
     const closeOtherTabs = useCallback((id: string) => {

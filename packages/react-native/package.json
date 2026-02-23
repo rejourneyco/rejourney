@@ -1,6 +1,6 @@
 {
     "name": "@rejourneyco/react-native",
-    "version": "1.0.8",
+    "version": "1.0.9",
     "description": "Rejourney Session Recording SDK for React Native",
     "main": "lib/commonjs/index.js",
     "module": "lib/module/index.js",
@@ -75,7 +75,7 @@
         "@types/react-native": "*",
         "@typescript-eslint/eslint-plugin": "^8.15.0",
         "@typescript-eslint/parser": "^8.15.0",
-        "@vitest/coverage-v8": "^2.1.0",
+        "@vitest/coverage-v8": "^4.0.18",
         "dependency-cruiser": "^16.10.4",
         "@react-navigation/native": "*",
         "expo-router": "*",
@@ -84,7 +84,7 @@
         "react-native": "*",
         "react-native-builder-bob": "^0.23.0",
         "typescript": "^5.0.0",
-        "vitest": "^3.2.4"
+        "vitest": "^4.0.18"
     },
     "peerDependencies": {
         "react": "*",

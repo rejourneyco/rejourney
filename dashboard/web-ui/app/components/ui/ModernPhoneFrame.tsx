@@ -2,7 +2,7 @@ import React from 'react';
 
 interface ModernPhoneFrameProps {
     children: React.ReactNode;
-    size?: 'sm' | 'md' | 'lg';
+    size?: 'xs' | 'sm' | 'md' | 'lg';
     className?: string;
 }
 
@@ -17,6 +17,7 @@ export const ModernPhoneFrame: React.FC<ModernPhoneFrameProps> = ({
 }) => {
     // Size configurations
     const sizeConfig = {
+        xs: { width: 'w-[100px]', height: 'aspect-[9/19.5]', bezel: 'p-[3px]', notchW: '30%', notchH: '11px' },
         sm: { width: 'w-[140px]', height: 'aspect-[9/19.5]', bezel: 'p-[4px]', notchW: '28%', notchH: '16px' },
         md: { width: 'w-[180px]', height: 'aspect-[9/19.5]', bezel: 'p-[5px]', notchW: '28%', notchH: '18px' },
         lg: { width: 'w-[220px]', height: 'aspect-[9/19.5]', bezel: 'p-[6px]', notchW: '28%', notchH: '20px' },

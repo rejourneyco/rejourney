@@ -63,6 +63,7 @@ services:
       dockerfile: ./dashboard/web-ui/Dockerfile
       args:
         - VITE_STRIPE_PUBLISHABLE_KEY=${VITE_STRIPE_PUBLISHABLE_KEY:-}
+        - VITE_MAPBOX_TOKEN=${VITE_MAPBOX_TOKEN:-}
         - VITE_DASHBOARD_URL=${PUBLIC_DASHBOARD_URL:-}
         - VITE_API_URL=${PUBLIC_API_URL:-}
     environment:

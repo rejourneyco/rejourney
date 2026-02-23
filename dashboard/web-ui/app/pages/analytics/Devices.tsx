@@ -7,34 +7,47 @@ import {
     Layers,
     Smartphone,
 } from 'lucide-react';
+import {
+    Bar,
+    BarChart,
+    CartesianGrid,
+    ComposedChart,
+    Legend,
+    Line,
+    ResponsiveContainer,
+    Tooltip,
+    XAxis,
+    YAxis,
+} from 'recharts';
 import { useSessionData } from '../../context/SessionContext';
 import {
     getDeviceIssueMatrix,
     getDeviceSummary,
+    getInsightsTrends,
     getObservabilityDeepMetrics,
     DeviceIssueMatrix,
     DeviceSummary,
+    InsightsTrends,
     ObservabilityDeepMetrics,
 } from '../../services/api';
 import { DashboardPageHeader } from '../../components/ui/DashboardPageHeader';
 import { TimeFilter, TimeRange, DEFAULT_TIME_RANGE } from '../../components/ui/TimeFilter';
+import { KpiCardItem, KpiCardsGrid, computePeriodDeltaFromSeries } from '../../components/dashboard/KpiCardsGrid';
 
 type DeviceRiskRow = DeviceSummary['devices'][number] & {
     incidentRatePer100: number;
     impactScore: number;
-    recommendation: string;
 };
 
 type OsRiskRow = DeviceSummary['osVersions'][number] & {
     incidentRatePer100: number;
     impactScore: number;
-    recommendation: string;
 };
 
 type ReleaseRiskRow = DeviceSummary['appVersions'][number] & {
     failureRate: number;
     deltaVsOverall: number;
-    recommendation: string;
+    riskBand: 'critical' | 'watch' | 'healthy';
 };
 
 type MatrixHotspot = DeviceIssueMatrix['matrix'][number] & {
@@ -45,6 +58,13 @@ type MatrixHotspot = DeviceIssueMatrix['matrix'][number] & {
 const toApiRange = (value: TimeRange): string | undefined => {
     if (value === 'all') return undefined;
     return value;
+};
+
+const toTrendsRange = (value: TimeRange): string => {
+    if (value === '24h') return '7d';
+    if (value === '7d') return '30d';
+    if (value === '30d') return '90d';
+    return 'all';
 };
 
 const formatCompact = (value: number): string => {
@@ -66,23 +86,15 @@ const ratePer100 = (value: number, total: number): number => {
     return Number(((value / total) * 100).toFixed(1));
 };
 
-const getDeviceRecommendation = (row: DeviceSummary['devices'][number]): string => {
-    if (row.crashes + row.anrs >= 10) return 'Prioritize crash/ANR stabilization on this hardware cohort.';
-    if (row.errors >= 20) return 'Audit API and validation reliability for this device profile.';
-    if (row.rageTaps >= 40) return 'Revisit layout and interaction affordance for this screen density.';
-    return 'Monitor in canary and guard against regressions.';
+const getReleaseRiskBand = (failureRate: number, deltaVsOverall: number): 'critical' | 'watch' | 'healthy' => {
+    if (failureRate >= 25 || deltaVsOverall >= 5) return 'critical';
+    if (failureRate >= 15 || deltaVsOverall >= 2) return 'watch';
+    return 'healthy';
 };
 
-const getOsRecommendation = (row: DeviceSummary['osVersions'][number]): string => {
-    if (row.crashes + row.anrs >= 10) return 'Run OS-specific stability pass and hotfix compatibility issues.';
-    if (row.errors >= 15) return 'Inspect network/client errors tied to this OS release.';
-    return 'Keep under watch during next release rollout.';
-};
-
-const getReleaseRecommendation = (failureRate: number, deltaVsOverall: number): string => {
-    if (failureRate >= 25 || deltaVsOverall >= 5) return 'Gate further rollout and patch reliability before expansion.';
-    if (failureRate >= 15 || deltaVsOverall >= 2) return 'Hold rollout pace and monitor fail cohorts closely.';
-    return 'Release is healthy for broader rollout.';
+const isValidDeviceLabel = (value: string | null | undefined): boolean => {
+    const normalized = (value || '').trim().toLowerCase();
+    return Boolean(normalized) && normalized !== 'unknown' && normalized !== 'unknown device' && normalized !== 'n/a';
 };
 
 export const Devices: React.FC = () => {
@@ -91,6 +103,8 @@ export const Devices: React.FC = () => {
     const [data, setData] = useState<DeviceSummary | null>(null);
     const [deepMetrics, setDeepMetrics] = useState<ObservabilityDeepMetrics | null>(null);
     const [matrixData, setMatrixData] = useState<DeviceIssueMatrix | null>(null);
+    const [trends, setTrends] = useState<InsightsTrends | null>(null);
+    const [partialError, setPartialError] = useState<string | null>(null);
     const [isLoading, setIsLoading] = useState(true);
 
     useEffect(() => {
@@ -98,31 +112,60 @@ export const Devices: React.FC = () => {
             setData(null);
             setDeepMetrics(null);
             setMatrixData(null);
+            setTrends(null);
+            setPartialError(null);
             setIsLoading(false);
             return;
         }
 
         let cancelled = false;
         setIsLoading(true);
+        setPartialError(null);
 
         const range = toApiRange(timeRange);
 
-        Promise.all([
+        Promise.allSettled([
             getDeviceSummary(selectedProject.id, timeRange === 'all' ? 'max' : timeRange),
             getObservabilityDeepMetrics(selectedProject.id, range),
             getDeviceIssueMatrix(selectedProject.id, timeRange === 'all' ? 'max' : timeRange),
+            getInsightsTrends(selectedProject.id, toTrendsRange(timeRange)),
         ])
-            .then(([summary, deep, matrix]) => {
+            .then(([summary, deep, matrix, trendData]) => {
                 if (cancelled) return;
-                setData(summary);
-                setDeepMetrics(deep);
-                setMatrixData(matrix);
-            })
-            .catch(() => {
-                if (cancelled) return;
-                setData(null);
-                setDeepMetrics(null);
-                setMatrixData(null);
+
+                const failedSections: string[] = [];
+
+                if (summary.status === 'fulfilled') {
+                    setData(summary.value);
+                } else {
+                    failedSections.push('device summary');
+                    setData(null);
+                }
+
+                if (deep.status === 'fulfilled') {
+                    setDeepMetrics(deep.value);
+                } else {
+                    failedSections.push('deep metrics');
+                    setDeepMetrics(null);
+                }
+
+                if (matrix.status === 'fulfilled') {
+                    setMatrixData(matrix.value);
+                } else {
+                    failedSections.push('device matrix');
+                    setMatrixData(null);
+                }
+
+                if (trendData.status === 'fulfilled') {
+                    setTrends(trendData.value);
+                } else {
+                    failedSections.push('trends');
+                    setTrends(null);
+                }
+
+                if (failedSections.length > 0) {
+                    setPartialError(`Some device widgets are unavailable (${failedSections.join(', ')}).`);
+                }
             })
             .finally(() => {
                 if (!cancelled) setIsLoading(false);
@@ -146,7 +189,6 @@ export const Devices: React.FC = () => {
                     ...row,
                     incidentRatePer100,
                     impactScore,
-                    recommendation: getDeviceRecommendation(row),
                 };
             })
             .sort((a, b) => b.impactScore - a.impactScore || b.count - a.count);
@@ -163,7 +205,6 @@ export const Devices: React.FC = () => {
                     ...row,
                     incidentRatePer100,
                     impactScore,
-                    recommendation: getOsRecommendation(row),
                 };
             })
             .sort((a, b) => b.impactScore - a.impactScore || b.count - a.count)
@@ -193,7 +234,7 @@ export const Devices: React.FC = () => {
                     ...row,
                     failureRate,
                     deltaVsOverall,
-                    recommendation: getReleaseRecommendation(failureRate, deltaVsOverall),
+                    riskBand: getReleaseRiskBand(failureRate, deltaVsOverall),
                 };
             })
             .sort((a, b) => b.failureRate - a.failureRate || b.count - a.count)
@@ -237,6 +278,29 @@ export const Devices: React.FC = () => {
         [releaseRiskRows],
     );
 
+    const deviceImpactChartData = useMemo(() => {
+        return deviceRiskRows
+            .filter((row) => isValidDeviceLabel(row.model) && row.impactScore > 0)
+            .slice(0, 8)
+            .map((row) => ({
+                device: row.model,
+                sessions: row.count,
+                incidentRatePer100: row.incidentRatePer100,
+                impactScore: row.impactScore,
+            }));
+    }, [deviceRiskRows]);
+
+    const releaseRiskChartData = useMemo(() => {
+        return releaseRiskRows
+            .slice(0, 8)
+            .map((row) => ({
+                version: `v${row.version}`,
+                sessions: row.count,
+                failureRate: Number(row.failureRate.toFixed(2)),
+                deltaVsOverall: Number(row.deltaVsOverall.toFixed(2)),
+            }));
+    }, [releaseRiskRows]);
+
     const dominantPlatform = useMemo(() => {
         if (!data?.platforms || !data.totalSessions) return null;
         const entries = Object.entries(data.platforms);
@@ -254,13 +318,99 @@ export const Devices: React.FC = () => {
         [deviceRiskRows],
     );
 
+    const kpiCards = useMemo<KpiCardItem[]>(() => {
+        const sessionVolumeDelta = computePeriodDeltaFromSeries(
+            (trends?.daily || []).map((day) => day.sessions),
+            timeRange,
+            'sum',
+        );
+        const issuePressureDelta = computePeriodDeltaFromSeries(
+            (trends?.daily || []).map((day) => (day.sessions > 0 ? (day.errorCount / day.sessions) * 100 : 0)),
+            timeRange,
+            'avg',
+        );
+
+        return [
+            {
+                id: 'device-fragmentation',
+                label: 'Fragmentation',
+                value: `${topThreeDeviceShare.toFixed(1)}%`,
+                sortValue: topThreeDeviceShare,
+                info: 'Session share concentrated in the top three device models.',
+                detail: `${data?.devices.length.toLocaleString() || 0} models · ${data?.osVersions.length.toLocaleString() || 0} OS versions`,
+                delta: sessionVolumeDelta
+                    ? {
+                        value: sessionVolumeDelta.deltaPct,
+                        label: sessionVolumeDelta.comparisonLabel,
+                        betterDirection: 'up',
+                        precision: 1,
+                    }
+                    : undefined,
+            },
+            {
+                id: 'platform-concentration',
+                label: 'Platform Concentration',
+                value: dominantPlatform ? `${dominantPlatform.share.toFixed(1)}%` : 'N/A',
+                sortValue: dominantPlatform?.share ?? null,
+                info: 'Share of traffic carried by the dominant platform in this time range.',
+                detail: dominantPlatform
+                    ? `${dominantPlatform.platform.toUpperCase()} · ${formatCompact(dominantPlatform.count)} sessions`
+                    : 'No platform distribution data',
+                delta: sessionVolumeDelta
+                    ? {
+                        value: sessionVolumeDelta.deltaPct,
+                        label: sessionVolumeDelta.comparisonLabel,
+                        betterDirection: 'up',
+                        precision: 1,
+                    }
+                    : undefined,
+            },
+            {
+                id: 'compatibility-hotspots',
+                label: 'Compatibility Hotspots',
+                value: compatibilityHotspotCount.toLocaleString(),
+                sortValue: compatibilityHotspotCount,
+                info: 'Device x OS cohorts exceeding issue-rate hotspot thresholds.',
+                detail: matrixHotspots[0]
+                    ? `${matrixHotspots[0].device} x v${matrixHotspots[0].version} at ${(matrixHotspots[0].issueRate * 100).toFixed(1)}%`
+                    : 'No matrix hotspot data',
+                delta: issuePressureDelta
+                    ? {
+                        value: issuePressureDelta.deltaPct,
+                        label: issuePressureDelta.comparisonLabel,
+                        betterDirection: 'down',
+                        precision: 1,
+                    }
+                    : undefined,
+            },
+            {
+                id: 'release-gate-candidates',
+                label: 'Release Gates',
+                value: rolloutGateReleaseCount.toLocaleString(),
+                sortValue: rolloutGateReleaseCount,
+                info: 'App versions currently breaching release-risk gate thresholds.',
+                detail: topRelease
+                    ? `Highest risk v${topRelease.version} · ${topRelease.failureRate.toFixed(1)}%`
+                    : 'No release risk data',
+                delta: issuePressureDelta
+                    ? {
+                        value: issuePressureDelta.deltaPct,
+                        label: issuePressureDelta.comparisonLabel,
+                        betterDirection: 'down',
+                        precision: 1,
+                    }
+                    : undefined,
+            },
+        ];
+    }, [trends, timeRange, topThreeDeviceShare, data, dominantPlatform, compatibilityHotspotCount, matrixHotspots, rolloutGateReleaseCount, topRelease]);
+
     if (isLoading) {
         return (
             <div className="min-h-[50vh] flex items-center justify-center">
-                <div className="rounded-2xl border border-slate-200 bg-white p-6 text-sm text-slate-600 shadow-sm">
+                <div className="rounded-3xl border border-slate-100/80 bg-white ring-1 ring-slate-900/5 p-6 text-sm text-slate-600 shadow-sm">
                     <div className="flex items-center gap-3">
                         <Activity className="h-4 w-4 animate-pulse text-blue-600" />
-                        Building device reliability intelligence...
+                        Loading device analytics...
                     </div>
                 </div>
             </div>
@@ -268,11 +418,10 @@ export const Devices: React.FC = () => {
     }
 
     return (
-        <div className="min-h-screen bg-slate-50 font-sans text-slate-900">
+        <div className="min-h-screen font-sans text-slate-900 bg-transparent">
             <div className="sticky top-0 z-30 bg-white">
                 <DashboardPageHeader
                     title="Device Reliability Intelligence"
-                    subtitle="Identify high-risk device cohorts, releases, and compatibility hotspots"
                     icon={<Smartphone className="w-6 h-6" />}
                     iconColor="bg-indigo-500"
                 >
@@ -288,72 +437,73 @@ export const Devices: React.FC = () => {
                 )}
 
                 {!isLoading && selectedProject?.id && !hasData && (
-                    <div className="rounded-2xl border border-slate-200 bg-white p-6 text-sm text-slate-600 shadow-sm">
+                    <div className="rounded-3xl border border-slate-100/80 bg-white ring-1 ring-slate-900/5 p-6 text-sm text-slate-600 shadow-sm">
                         No device telemetry available for this range.
+                    </div>
+                )}
+
+                {!isLoading && partialError && (
+                    <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+                        {partialError}
                     </div>
                 )}
 
                 {hasData && data && (
                     <>
-                        <section className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
-                            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-                                <div className="flex items-center justify-between text-xs font-semibold uppercase tracking-wide text-slate-500">
-                                    Device Fragmentation
-                                    <Layers className="h-4 w-4 text-blue-600" />
+                        <KpiCardsGrid
+                            cards={kpiCards}
+                            timeRange={timeRange}
+                            storageKey="analytics-devices"
+                        />
+
+                        <section className="grid grid-cols-1 gap-6 xl:grid-cols-2">
+                            <div className="rounded-3xl border border-slate-100/80 bg-white ring-1 ring-slate-900/5 p-5 shadow-sm">
+                                <div className="mb-4 flex items-center justify-between">
+                                    <h2 className="text-lg font-semibold text-slate-900">Top Devices</h2>
+                                    <Smartphone className="h-5 w-5 text-indigo-600" />
                                 </div>
-                                <div className="mt-2 text-3xl font-semibold text-slate-900">{topThreeDeviceShare.toFixed(1)}%</div>
-                                <p className="mt-1 text-sm text-slate-600">
-                                    Top 3 devices | {data.devices.length.toLocaleString()} models and {data.osVersions.length.toLocaleString()} OS versions in range.
-                                </p>
+                                <div className="h-[300px]">
+                                    <ResponsiveContainer width="100%" height="100%">
+                                        <BarChart data={deviceImpactChartData} layout="vertical" margin={{ left: 8, right: 16, top: 6, bottom: 6 }}>
+                                            <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                                            <XAxis type="number" tick={{ fontSize: 11 }} />
+                                            <YAxis dataKey="device" type="category" width={180} tick={{ fontSize: 11 }} />
+                                            <Tooltip />
+                                            <Bar dataKey="impactScore" name="Impact score" fill="#6366f1" radius={[4, 4, 4, 4]} />
+                                        </BarChart>
+                                    </ResponsiveContainer>
+                                </div>
                             </div>
 
-                            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-                                <div className="flex items-center justify-between text-xs font-semibold uppercase tracking-wide text-slate-500">
-                                    Platform Concentration
-                                    <AlertTriangle className="h-4 w-4 text-rose-600" />
+                            <div className="rounded-3xl border border-slate-100/80 bg-white ring-1 ring-slate-900/5 p-5 shadow-sm">
+                                <div className="mb-4 flex items-center justify-between">
+                                    <h2 className="text-lg font-semibold text-slate-900">Release Risk Curve</h2>
+                                    <Layers className="h-5 w-5 text-indigo-600" />
                                 </div>
-                                <div className="mt-2 text-3xl font-semibold text-slate-900">{dominantPlatform ? `${dominantPlatform.share.toFixed(1)}%` : 'N/A'}</div>
-                                <p className="mt-1 text-sm text-slate-600">
-                                    {dominantPlatform
-                                        ? `${dominantPlatform.platform.toUpperCase()} carries ${formatCompact(dominantPlatform.count)} sessions`
-                                        : 'No platform distribution data available.'}
-                                </p>
-                            </div>
-
-                            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-                                <div className="flex items-center justify-between text-xs font-semibold uppercase tracking-wide text-slate-500">
-                                    Compatibility Hotspots
-                                    <Cpu className="h-4 w-4 text-amber-600" />
+                                <div className="h-[300px]">
+                                    <ResponsiveContainer width="100%" height="100%">
+                                        <ComposedChart data={releaseRiskChartData}>
+                                            <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                                            <XAxis dataKey="version" tick={{ fontSize: 11 }} />
+                                            <YAxis yAxisId="left" tick={{ fontSize: 11 }} />
+                                            <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 11 }} />
+                                            <Tooltip />
+                                            <Legend />
+                                            <Bar yAxisId="left" dataKey="sessions" name="Sessions" fill="#93c5fd" radius={[4, 4, 0, 0]} />
+                                            <Line yAxisId="right" type="monotone" dataKey="failureRate" name="Failure Rate %" stroke="#dc2626" strokeWidth={2} />
+                                            <Line yAxisId="right" type="monotone" dataKey="deltaVsOverall" name="Delta vs Overall (pts)" stroke="#7c3aed" strokeWidth={2} />
+                                        </ComposedChart>
+                                    </ResponsiveContainer>
                                 </div>
-                                <div className="mt-2 text-3xl font-semibold text-slate-900">{compatibilityHotspotCount.toLocaleString()}</div>
-                                <p className="mt-1 text-sm text-slate-600">
-                                    {matrixHotspots[0]
-                                        ? `${matrixHotspots[0].device} x v${matrixHotspots[0].version} leads at ${(matrixHotspots[0].issueRate * 100).toFixed(1)}% issue rate`
-                                        : 'No matrix hotspot data available.'}
-                                </p>
-                            </div>
-
-                            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-                                <div className="flex items-center justify-between text-xs font-semibold uppercase tracking-wide text-slate-500">
-                                    Release Gate Candidates
-                                    <Activity className="h-4 w-4 text-indigo-600" />
-                                </div>
-                                <div className="mt-2 text-3xl font-semibold text-slate-900">{rolloutGateReleaseCount.toLocaleString()}</div>
-                                <p className="mt-1 text-sm text-slate-600">
-                                    {topRelease ? `Current highest risk: v${topRelease.version} at ${topRelease.failureRate.toFixed(1)}% failures` : 'No release risk data available.'}
-                                </p>
                             </div>
                         </section>
 
                         <section className="grid grid-cols-1 gap-6 xl:grid-cols-3">
-                            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm xl:col-span-2">
+                            <div className="rounded-3xl border border-slate-100/80 bg-white ring-1 ring-slate-900/5 p-5 shadow-sm xl:col-span-2">
                                 <div className="mb-4 flex items-center justify-between">
                                     <h2 className="text-lg font-semibold text-slate-900">Device Risk Leaderboard</h2>
                                     <Smartphone className="h-5 w-5 text-indigo-600" />
                                 </div>
-                                <p className="mb-4 text-sm text-slate-600">
-                                    Ranked by weighted incident intensity and traffic impact. Use this list to prioritize device-specific fixes.
-                                </p>
                                 <div className="overflow-x-auto">
                                     <table className="w-full min-w-[960px] text-left text-sm">
                                         <thead className="text-xs uppercase tracking-wide text-slate-500">
@@ -366,7 +516,6 @@ export const Devices: React.FC = () => {
                                                 <th className="pb-2 pr-4 text-right">Rage</th>
                                                 <th className="pb-2 pr-4 text-right">Incident /100</th>
                                                 <th className="pb-2 pr-4 text-right">Impact</th>
-                                                <th className="pb-2 pr-4">Action</th>
                                             </tr>
                                         </thead>
                                         <tbody className="divide-y divide-slate-100">
@@ -382,7 +531,6 @@ export const Devices: React.FC = () => {
                                                         {row.incidentRatePer100.toFixed(1)}
                                                     </td>
                                                     <td className="py-3 pr-4 text-right font-semibold text-slate-700">{row.impactScore.toFixed(1)}</td>
-                                                    <td className="py-3 pr-4 text-xs text-slate-600">{row.recommendation}</td>
                                                 </tr>
                                             ))}
                                         </tbody>
@@ -390,13 +538,13 @@ export const Devices: React.FC = () => {
                                 </div>
                             </div>
 
-                            <div className="space-y-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+                            <div className="space-y-4 rounded-3xl border border-slate-100/80 bg-white ring-1 ring-slate-900/5 p-5 shadow-sm">
                                 <div className="flex items-center justify-between">
                                     <h2 className="text-lg font-semibold text-slate-900">Coverage Snapshot</h2>
                                     <Layers className="h-5 w-5 text-indigo-600" />
                                 </div>
 
-                                <div className="rounded-xl border border-slate-200 p-3">
+                                <div className="rounded-2xl border border-slate-100/80 p-4">
                                     <div className="text-xs uppercase tracking-wide text-slate-500">Coverage profile</div>
                                     <div className="mt-2 space-y-1 text-sm text-slate-700">
                                         <div className="flex items-center justify-between">
@@ -416,7 +564,7 @@ export const Devices: React.FC = () => {
                                     </div>
                                 </div>
 
-                                <div className="rounded-xl border border-slate-200 p-3">
+                                <div className="rounded-2xl border border-slate-100/80 p-4">
                                     <div className="text-xs uppercase tracking-wide text-slate-500">Most volatile OS cohort</div>
                                     {topOs ? (
                                         <div className="mt-2 space-y-1 text-sm text-slate-700">
@@ -424,14 +572,16 @@ export const Devices: React.FC = () => {
                                                 <span className="font-medium text-slate-900">{topOs.version}</span>
                                                 <span className="font-semibold text-rose-700">{topOs.incidentRatePer100.toFixed(1)} /100</span>
                                             </div>
-                                            <p className="text-xs text-slate-600">{topOs.recommendation}</p>
+                                            <div className="text-xs text-slate-600">
+                                                C{topOs.crashes} | A{topOs.anrs} | E{topOs.errors} | R{topOs.rageTaps}
+                                            </div>
                                         </div>
                                     ) : (
                                         <p className="mt-2 text-sm text-slate-500">No OS-level cohort risk in this range.</p>
                                     )}
                                 </div>
 
-                                <div className="rounded-xl border border-slate-200 p-3">
+                                <div className="rounded-2xl border border-slate-100/80 p-4">
                                     <div className="text-xs uppercase tracking-wide text-slate-500">Highest-risk device model</div>
                                     {topDevice ? (
                                         <div className="mt-2 space-y-1 text-sm text-slate-700">
@@ -451,7 +601,7 @@ export const Devices: React.FC = () => {
                         </section>
 
                         <section className="grid grid-cols-1 gap-6 xl:grid-cols-2">
-                            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+                            <div className="rounded-3xl border border-slate-100/80 bg-white ring-1 ring-slate-900/5 p-5 shadow-sm">
                                 <div className="mb-4 flex items-center justify-between">
                                     <h2 className="text-lg font-semibold text-slate-900">Release Reliability Ranking</h2>
                                     <Layers className="h-5 w-5 text-indigo-600" />
@@ -464,7 +614,7 @@ export const Devices: React.FC = () => {
                                                 <th className="pb-2 pr-4 text-right">Sessions</th>
                                                 <th className="pb-2 pr-4 text-right">Failure Rate</th>
                                                 <th className="pb-2 pr-4 text-right">Delta vs Overall</th>
-                                                <th className="pb-2 pr-4">Rollout Guidance</th>
+                                                <th className="pb-2 pr-4 text-center">Risk Band</th>
                                             </tr>
                                         </thead>
                                         <tbody className="divide-y divide-slate-100">
@@ -478,7 +628,16 @@ export const Devices: React.FC = () => {
                                                     <td className={`py-3 pr-4 text-right font-semibold ${row.deltaVsOverall >= 2 ? 'text-rose-700' : row.deltaVsOverall > 0 ? 'text-amber-700' : 'text-emerald-700'}`}>
                                                         {row.deltaVsOverall >= 0 ? '+' : ''}{row.deltaVsOverall.toFixed(1)} pts
                                                     </td>
-                                                    <td className="py-3 pr-4 text-xs text-slate-600">{row.recommendation}</td>
+                                                    <td className="py-3 pr-4 text-center">
+                                                        <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-semibold ${row.riskBand === 'critical'
+                                                            ? 'bg-rose-100 text-rose-700'
+                                                            : row.riskBand === 'watch'
+                                                                ? 'bg-amber-100 text-amber-700'
+                                                                : 'bg-emerald-100 text-emerald-700'
+                                                            }`}>
+                                                            {row.riskBand}
+                                                        </span>
+                                                    </td>
                                                 </tr>
                                             ))}
                                         </tbody>
@@ -486,7 +645,7 @@ export const Devices: React.FC = () => {
                                 </div>
                             </div>
 
-                            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+                            <div className="rounded-3xl border border-slate-100/80 bg-white ring-1 ring-slate-900/5 p-5 shadow-sm">
                                 <div className="mb-4 flex items-center justify-between">
                                     <h2 className="text-lg font-semibold text-slate-900">OS Cohort Risk</h2>
                                     <Cpu className="h-5 w-5 text-amber-600" />
@@ -499,7 +658,6 @@ export const Devices: React.FC = () => {
                                                 <th className="pb-2 pr-4 text-right">Sessions</th>
                                                 <th className="pb-2 pr-4 text-right">Incident /100</th>
                                                 <th className="pb-2 pr-4 text-right">Impact</th>
-                                                <th className="pb-2 pr-4">Action</th>
                                             </tr>
                                         </thead>
                                         <tbody className="divide-y divide-slate-100">
@@ -511,7 +669,6 @@ export const Devices: React.FC = () => {
                                                         {row.incidentRatePer100.toFixed(1)}
                                                     </td>
                                                     <td className="py-3 pr-4 text-right font-semibold text-slate-700">{row.impactScore.toFixed(1)}</td>
-                                                    <td className="py-3 pr-4 text-xs text-slate-600">{row.recommendation}</td>
                                                 </tr>
                                             ))}
                                         </tbody>
@@ -521,14 +678,14 @@ export const Devices: React.FC = () => {
                         </section>
 
                         <section className="grid grid-cols-1 gap-6 xl:grid-cols-3">
-                            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+                            <div className="rounded-3xl border border-slate-100/80 bg-white ring-1 ring-slate-900/5 p-5 shadow-sm">
                                 <div className="mb-4 flex items-center justify-between">
                                     <h2 className="text-lg font-semibold text-slate-900">Platform Mix</h2>
                                     <Smartphone className="h-5 w-5 text-blue-600" />
                                 </div>
                                 <div className="space-y-3">
                                     {Object.entries(data.platforms).map(([platform, count]) => (
-                                        <div key={platform} className="rounded-xl border border-slate-200 p-3">
+                                        <div key={platform} className="rounded-2xl border border-slate-100/80 p-4">
                                             <div className="flex items-center justify-between">
                                                 <div className="flex items-center gap-2 text-sm font-medium uppercase text-slate-900">
                                                     <span
@@ -553,7 +710,7 @@ export const Devices: React.FC = () => {
                                 </div>
                             </div>
 
-                            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm xl:col-span-2">
+                            <div className="rounded-3xl border border-slate-100/80 bg-white ring-1 ring-slate-900/5 p-5 shadow-sm xl:col-span-2">
                                 <div className="mb-4 flex items-center justify-between">
                                     <h2 className="text-lg font-semibold text-slate-900">Network Reliability by Device Context</h2>
                                     <Clock className="h-5 w-5 text-indigo-600" />
@@ -604,7 +761,7 @@ export const Devices: React.FC = () => {
                         </section>
 
                         {matrixHotspots.length > 0 && (
-                            <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+                            <section className="rounded-3xl border border-slate-100/80 bg-white ring-1 ring-slate-900/5 p-5 shadow-sm">
                                 <div className="mb-4 flex items-center justify-between">
                                     <h2 className="text-lg font-semibold text-slate-900">Device-Version Compatibility Hotspots</h2>
                                     <AlertTriangle className="h-5 w-5 text-amber-600" />

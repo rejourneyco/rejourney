@@ -27,6 +27,7 @@ export default [
     route("engineering/:date/:slug", "routes/engineering.article.tsx"),
     route("feed.xml", "routes/feed.xml.tsx"),
     route("login", "routes/login.tsx"),
+    route("changelog", "routes/changelog.tsx"),
     route("invite/accept/:token", "routes/invite.accept.$token.tsx"),
 
     // ============================================
@@ -36,6 +37,8 @@ export default [
     ...prefix("demo", [
         layout("routes/_demo.tsx", [
             index("routes/_demo._index.tsx"),
+            route("general", "routes/_demo.general.tsx"),
+            route("general/:issueId", "routes/_demo.general.$issueId.tsx"),
             route("issues", "routes/_demo.issues.tsx"),
             route("issues/:issueId", "routes/_demo.issues.$issueId.tsx"),
             route("sessions", "routes/_demo.sessions.tsx"),
@@ -47,7 +50,6 @@ export default [
             route("stability/anrs/:projectId/:anrId", "routes/_demo.stability.anrs.$projectId.$anrId.tsx"),
             route("stability/errors", "routes/_demo.stability.errors.tsx"),
             route("stability/errors/:projectId/:errorId", "routes/_demo.stability.errors.$projectId.$errorId.tsx"),
-            route("analytics/growth", "routes/_demo.analytics.growth.tsx"),
             route("analytics/journeys", "routes/_demo.analytics.journeys.tsx"),
             route("analytics/devices", "routes/_demo.analytics.devices.tsx"),
             route("analytics/geo", "routes/_demo.analytics.geo.tsx"),
@@ -69,6 +71,8 @@ export default [
     ...prefix("dashboard", [
         layout("routes/_dashboard.tsx", [
             index("routes/_dashboard._index.tsx"),
+            route("general", "routes/_dashboard.general.tsx"),
+            route("general/:issueId", "routes/_dashboard.general.$issueId.tsx"),
             route("issues", "routes/_dashboard.issues.tsx"),
             route("issues/:issueId", "routes/_dashboard.issues.$issueId.tsx"),
             route("sessions", "routes/_dashboard.sessions.tsx"),
@@ -80,7 +84,6 @@ export default [
             route("stability/anrs/:projectId/:anrId", "routes/_dashboard.stability.anrs.$projectId.$anrId.tsx"),
             route("stability/errors", "routes/_dashboard.stability.errors.tsx"),
             route("stability/errors/:projectId/:errorId", "routes/_dashboard.stability.errors.$projectId.$errorId.tsx"),
-            route("analytics/growth", "routes/_dashboard.analytics.growth.tsx"),
             route("analytics/journeys", "routes/_dashboard.analytics.journeys.tsx"),
             route("analytics/devices", "routes/_dashboard.analytics.devices.tsx"),
             route("analytics/geo", "routes/_dashboard.analytics.geo.tsx"),

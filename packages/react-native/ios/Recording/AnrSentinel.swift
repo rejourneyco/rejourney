@@ -18,64 +18,64 @@ import Foundation
 
 @objc(AnrSentinel)
 public final class AnrSentinel: NSObject {
-    
+
     @objc public static let shared = AnrSentinel()
-    
+
     private let _freezeThreshold: TimeInterval = 5.0
     private let _pollFrequency: TimeInterval = 2.0
-    
+
     private var _watchThread: Thread?
     private var _volatile = VolatileState()
     private let _stateLock = os_unfair_lock_t.allocate(capacity: 1)
-    
+
     private override init() {
         _stateLock.initialize(to: os_unfair_lock())
         super.init()
     }
-    
+
     deinit {
         _stateLock.deallocate()
     }
-    
+
     @objc public func activate() {
         os_unfair_lock_lock(_stateLock)
         guard _watchThread == nil else {
             os_unfair_lock_unlock(_stateLock)
             return
         }
-        
+
         _volatile.running = true
         _volatile.lastResponse = Date().timeIntervalSince1970
-        
+
         let t = Thread { [weak self] in self?._watchLoop() }
         t.name = "co.rejourney.anr"
         t.qualityOfService = .utility
         _watchThread = t
         os_unfair_lock_unlock(_stateLock)
-        
+
         t.start()
     }
-    
+
     @objc public func halt() {
         os_unfair_lock_lock(_stateLock)
         _volatile.running = false
         _watchThread = nil
         os_unfair_lock_unlock(_stateLock)
     }
-    
+
     private func _watchLoop() {
         while true {
             os_unfair_lock_lock(_stateLock)
             let running = _volatile.running
             os_unfair_lock_unlock(_stateLock)
             guard running else { break }
-            
+
             _sendPing()
             Thread.sleep(forTimeInterval: _pollFrequency)
             _checkPong()
         }
     }
-    
+
     private func _sendPing() {
         os_unfair_lock_lock(_stateLock)
         if _volatile.awaitingPong {
@@ -84,7 +84,7 @@ public final class AnrSentinel: NSObject {
         }
         _volatile.awaitingPong = true
         os_unfair_lock_unlock(_stateLock)
-        
+
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             os_unfair_lock_lock(self._stateLock)
@@ -93,30 +93,62 @@ public final class AnrSentinel: NSObject {
             os_unfair_lock_unlock(self._stateLock)
         }
     }
-    
+
     private func _checkPong() {
         os_unfair_lock_lock(_stateLock)
         let awaiting = _volatile.awaitingPong
         let last = _volatile.lastResponse
+        let lastReportedAt = _volatile.lastAnrReport
         os_unfair_lock_unlock(_stateLock)
-        
+
         guard awaiting else { return }
-        
-        let delta = Date().timeIntervalSince1970 - last
+
+        let now = Date().timeIntervalSince1970
+        let delta = now - last
         if delta >= _freezeThreshold {
+            // Avoid spamming duplicate ANRs while one long freeze persists.
+            if now - lastReportedAt < _freezeThreshold {
+                return
+            }
+
+            os_unfair_lock_lock(_stateLock)
+            _volatile.lastAnrReport = now
+            _volatile.lastResponse = now
+            _volatile.awaitingPong = false
+            os_unfair_lock_unlock(_stateLock)
+
             _reportFreeze(duration: delta)
         }
     }
-    
+
     private func _reportFreeze(duration: TimeInterval) {
         DiagnosticLog.emit(.caution, "Main thread frozen for \(String(format: "%.1f", duration))s")
-        
+
         ReplayOrchestrator.shared.incrementStalledTally()
-        
+
         let trace = Thread.callStackSymbols.joined(separator: "\n")
         let ms = Int(duration * 1000)
-        
+
         TelemetryPipeline.shared.recordAnrEvent(durationMs: ms, stack: trace)
+
+        // Persist ANR incident and send through /api/ingest/fault so ANRs survive
+        // process termination/background upload loss, similar to crash recovery.
+        let incident = IncidentRecord(
+            sessionId: StabilityMonitor.shared.currentSessionId ?? ReplayOrchestrator.shared.replayId ?? "unknown",
+            timestampMs: UInt64(Date().timeIntervalSince1970 * 1000),
+            category: "anr",
+            identifier: "MainThreadFrozen",
+            detail: "Main thread unresponsive for \(ms)ms",
+            frames: trace
+                .split(separator: "\n")
+                .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) },
+            context: [
+                "durationMs": String(ms),
+                "threadState": "blocked"
+            ]
+        )
+        StabilityMonitor.shared.persistIncidentSync(incident)
+        StabilityMonitor.shared.transmitStoredReport()
     }
 }
 
@@ -124,18 +156,19 @@ private struct VolatileState {
     var running = false
     var awaitingPong = false
     var lastResponse: TimeInterval = 0
+    var lastAnrReport: TimeInterval = 0
 }
 
 @objc(ResponsivenessWatcher)
 public final class ResponsivenessWatcher: NSObject {
     @objc public static let shared = ResponsivenessWatcher()
-    
+
     private override init() { super.init() }
-    
+
     @objc public func activate() {
         AnrSentinel.shared.activate()
     }
-    
+
     @objc public func halt() {
         AnrSentinel.shared.halt()
     }

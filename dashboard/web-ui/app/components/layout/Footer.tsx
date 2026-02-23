@@ -15,11 +15,13 @@ export const Footer: React.FC = () => {
     <footer className="border-t border-input bg-background mt-16">
       <div className="container mx-auto px-6 py-8">
         <div className="flex flex-wrap gap-4 items-center justify-center text-sm font-mono font-bold uppercase tracking-tight text-gray-500">
-          <Link to="/dashboard/issues" className="hover:text-black transition-colors">Dashboard</Link>
+          <Link to="/dashboard/general" className="hover:text-black transition-colors">Dashboard</Link>
           <span>•</span>
           <Link to="/docs/reactnative/overview" className="hover:text-black transition-colors">Docs</Link>
           <span>•</span>
           <Link to="/engineering" className="hover:text-black transition-colors">Engineering</Link>
+          <span>•</span>
+          <Link to="/changelog" className="hover:text-black transition-colors">Changelog</Link>
           <span>•</span>
           <Link to="/pricing" className="hover:text-black transition-colors">Pricing</Link>
           <span>•</span>
@@ -42,7 +44,6 @@ export const Footer: React.FC = () => {
     </footer>
   );
 };
-
 
 
 

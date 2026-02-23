@@ -259,6 +259,8 @@ class SegmentDispatcher private constructor() {
         backgroundDurationMs: Long,
         metrics: Map<String, Any>?,
         currentQueueDepth: Int = 0,
+        endReason: String? = null,
+        lifecycleVersion: Int? = null,
         completion: (Boolean) -> Unit
     ) {
         val url = "$endpoint/api/ingest/session/end"
@@ -270,6 +272,8 @@ class SegmentDispatcher private constructor() {
             if (backgroundDurationMs > 0) put("totalBackgroundTimeMs", backgroundDurationMs)
             metrics?.let { put("metrics", JSONObject(it)) }
             put("sdkTelemetry", buildSdkTelemetry(currentQueueDepth))
+            if (!endReason.isNullOrBlank()) put("endReason", endReason)
+            if ((lifecycleVersion ?: 0) > 0) put("lifecycleVersion", lifecycleVersion)
         }
         
         val request = buildRequest(url, body)

@@ -33,11 +33,47 @@ async function assertProjectAccess(projectId: string, teamId: string) {
     }
 }
 
+function normalizeWorkspacePath(path: unknown): string {
+    const value = typeof path === 'string' ? path : '';
+    if (!value) return value;
+    if (value === '/issues' || value.startsWith('/issues/')) {
+        return value.replace('/issues', '/general');
+    }
+    if (value === '/dashboard/issues' || value.startsWith('/dashboard/issues/')) {
+        return value.replace('/dashboard/issues', '/dashboard/general');
+    }
+    if (value === '/demo/issues' || value.startsWith('/demo/issues/')) {
+        return value.replace('/demo/issues', '/demo/general');
+    }
+    return value;
+}
+
+function normalizeWorkspaceTabId(tabId: string | null | undefined): string | null {
+    if (!tabId) return null;
+    return tabId === 'issues' ? 'general' : tabId;
+}
+
+function normalizeTabState(raw: any) {
+    const normalizedPath = normalizeWorkspacePath(raw?.path || '');
+    const normalizedId = normalizeWorkspaceTabId(raw?.id) || raw?.id;
+    const title = typeof raw?.title === 'string' ? raw.title : '';
+    const shouldRetitle = title.toLowerCase() === 'issues'
+        && (normalizedId === 'general' || normalizedPath.startsWith('/general') || normalizedPath.includes('/general/'));
+
+    return {
+        ...raw,
+        id: normalizedId,
+        title: shouldRetitle ? 'General' : raw?.title,
+        path: normalizedPath,
+        route: raw?.route ? normalizeWorkspacePath(raw.route) : raw?.route,
+    };
+}
+
 function normalizeTabs(rawTabs: any[]) {
     // Ensure tabs match schema; invalid tabs are filtered out
     const safeTabs: any[] = [];
     for (const t of rawTabs || []) {
-        const parsed = tabStateSchema.safeParse(t);
+        const parsed = tabStateSchema.safeParse(normalizeTabState(t));
         if (parsed.success) {
             safeTabs.push(parsed.data);
         }
@@ -79,7 +115,7 @@ router.get(
 
         res.json({
             tabs: normalizeTabs(workspace.tabs as any[]),
-            activeTabId: workspace.activeTabId,
+            activeTabId: normalizeWorkspaceTabId(workspace.activeTabId),
             recentlyClosed: normalizeTabs(workspace.recentlyClosed as any[]),
             workspaceKey: workspace.workspaceKey,
         });
@@ -105,7 +141,7 @@ router.put(
             projectId: body.projectId,
             workspaceKey: body.workspaceKey || 'default',
             tabs,
-            activeTabId: body.activeTabId,
+            activeTabId: normalizeWorkspaceTabId(body.activeTabId),
             recentlyClosed,
             updatedAt: new Date(),
         };
@@ -147,10 +183,11 @@ router.post(
 
         const tabs = normalizeTabs(workspace?.tabs as any[]) || [];
         const recentlyClosed = normalizeTabs(workspace?.recentlyClosed as any[]) || [];
+        const requestedTab = body.tab ? normalizeTabState(body.tab) : null;
 
         const tabToRestore =
-            body.tab && tabStateSchema.safeParse(body.tab).success
-                ? body.tab
+            requestedTab && tabStateSchema.safeParse(requestedTab).success
+                ? requestedTab
                 : recentlyClosed.length > 0
                     ? { ...recentlyClosed[recentlyClosed.length - 1], id: uuidv4() }
                     : null;
@@ -223,7 +260,8 @@ router.delete(
         const remainingTabs = tabs.filter((t) => t.id !== id);
         const closed = tabs.find((t) => t.id === id);
         const newRecentlyClosed = closed ? [...recentlyClosed.slice(-9), closed] : recentlyClosed;
-        const newActive = workspace.activeTabId === id && remainingTabs.length > 0 ? remainingTabs[remainingTabs.length - 1].id : workspace.activeTabId;
+        const currentActive = normalizeWorkspaceTabId(workspace.activeTabId);
+        const newActive = currentActive === id && remainingTabs.length > 0 ? remainingTabs[remainingTabs.length - 1].id : currentActive;
 
         await db
             .insert(uiWorkspaces)
@@ -291,8 +329,8 @@ router.post(
                 projectId: body.projectId,
                 workspaceKey: body.workspaceKey || 'default',
                 tabs: newOrder,
-                activeTabId: workspace.activeTabId,
-                recentlyClosed: workspace.recentlyClosed,
+                activeTabId: normalizeWorkspaceTabId(workspace.activeTabId),
+                recentlyClosed: normalizeTabs(workspace.recentlyClosed as any[]),
                 updatedAt: new Date(),
             })
             .onConflictDoUpdate({

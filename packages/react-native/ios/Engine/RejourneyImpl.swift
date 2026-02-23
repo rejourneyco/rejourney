@@ -22,63 +22,74 @@ import CommonCrypto
 public final class RejourneyImpl: NSObject {
     @objc public static let shared = RejourneyImpl()
     @objc public static var sdkVersion = "1.0.1"
-    
+
     // MARK: - State Machine
-    
+
     private enum SessionState {
         case idle
         case active(sessionId: String, startTime: TimeInterval)
         case paused(sessionId: String, startTime: TimeInterval)
         case terminated
     }
-    
+
     private var state: SessionState = .idle
     private let stateLock = NSLock()
-    
+
     // MARK: - Internal Storage
-    
+
     private var currentUserIdentity: String?
     private var internalEventStream: [[String: Any]] = []
     private var backgroundStartTime: TimeInterval?
     private var lastSessionConfig: [String: Any]?
     private var lastApiUrl: String?
     private var lastPublicKey: String?
-    
+
     // Session timeout threshold (60 seconds)
     private let sessionTimeoutSeconds: TimeInterval = 60
-    
+    private let sessionRolloverGraceSeconds: TimeInterval = 2
+
     private let userIdentityKey = "com.rejourney.user.identity"
-    
+    private let anonymousIdentityKey = "com.rejourney.anonymous.identity"
+
     public override init() {
         super.init()
         setupLifecycleListeners()
         _loadPersistedIdentity()
+
+        // Recover any session interrupted by a previous crash.
+        // Send the stored crash report after recovery restores auth/session context.
+        ReplayOrchestrator.shared.recoverInterruptedReplay { recoveredId in
+            if let recoveredId = recoveredId {
+                DiagnosticLog.notice("[Rejourney] Recovered crashed session: \(recoveredId)")
+            }
+            StabilityMonitor.shared.transmitStoredReport()
+        }
     }
-    
+
     private func _loadPersistedIdentity() {
         if let persisted = UserDefaults.standard.string(forKey: userIdentityKey), !persisted.isEmpty {
             self.currentUserIdentity = persisted
             DiagnosticLog.notice("[Rejourney] Restored persisted user identity: \(persisted)")
         }
     }
-    
+
     deinit {
         NotificationCenter.default.removeObserver(self)
     }
-    
+
     private func setupLifecycleListeners() {
         let center = NotificationCenter.default
         center.addObserver(self, selector: #selector(handleTermination), name: UIApplication.willTerminateNotification, object: nil)
         center.addObserver(self, selector: #selector(handleBackgrounding), name: UIApplication.didEnterBackgroundNotification, object: nil)
         center.addObserver(self, selector: #selector(handleForegrounding), name: UIApplication.willEnterForegroundNotification, object: nil)
     }
-    
+
     // MARK: - State Transitions
-    
+
     @objc private func handleTermination() {
         stateLock.lock()
         defer { stateLock.unlock() }
-        
+
         switch state {
         case .active, .paused:
             state = .terminated
@@ -88,11 +99,11 @@ public final class RejourneyImpl: NSObject {
             break
         }
     }
-    
+
     @objc private func handleBackgrounding() {
         stateLock.lock()
         defer { stateLock.unlock() }
-        
+
         if case .active(let sid, let start) = state {
             state = .paused(sessionId: sid, startTime: start)
             backgroundStartTime = Date().timeIntervalSince1970
@@ -101,23 +112,22 @@ public final class RejourneyImpl: NSObject {
             SegmentDispatcher.shared.shipPending()
         }
     }
-    
+
     @objc private func handleForegrounding() {
-        // Dispatch to avoid blocking the main thread notification handler
         DispatchQueue.main.async { [weak self] in
             self?._processForegrounding()
         }
     }
-    
+
     private func _processForegrounding() {
         stateLock.lock()
-        
+
         guard case .paused(let sid, let start) = state else {
             DiagnosticLog.trace("[Rejourney] Foreground: not in paused state, ignoring")
             stateLock.unlock()
             return
         }
-        
+
         // Check if we've been in background longer than the timeout
         let backgroundDuration: TimeInterval
         if let bgStart = backgroundStartTime {
@@ -126,33 +136,67 @@ public final class RejourneyImpl: NSObject {
             backgroundDuration = 0
         }
         backgroundStartTime = nil
-        
+
         DiagnosticLog.notice("[Rejourney] App foregrounded after \(Int(backgroundDuration))s (timeout: \(Int(sessionTimeoutSeconds))s)")
-        
+
         if backgroundDuration > sessionTimeoutSeconds {
             // End current session and start a new one
             state = .idle
             stateLock.unlock()
-            
+
             DiagnosticLog.notice("[Rejourney] 🔄 Session timeout! Ending session '\(sid)' and creating new one")
-            
-            // End the old session asynchronously, then start new one
-            // Use a background queue to avoid blocking main thread
-            DispatchQueue.global(qos: .utility).async { [weak self] in
-                ReplayOrchestrator.shared.endReplay { success, uploaded in
+
+            let restartLock = NSLock()
+            var restartStarted = false
+            let triggerRestart: (String) -> Void = { [weak self] source in
+                restartLock.lock()
+                defer { restartLock.unlock() }
+                guard !restartStarted else { return }
+                restartStarted = true
+                DiagnosticLog.notice("[Rejourney] Session rollover trigger source=\(source), oldSession=\(sid)")
+                DispatchQueue.main.async {
+                    self?._startNewSessionAfterTimeout()
+                }
+            }
+
+            DispatchQueue.main.asyncAfter(deadline: .now() + sessionRolloverGraceSeconds) {
+                restartLock.lock()
+                let shouldWarn = !restartStarted
+                restartLock.unlock()
+                if shouldWarn {
+                    DiagnosticLog.caution("[Rejourney] Session rollover grace timeout reached (\(Int(self.sessionRolloverGraceSeconds * 1000))ms), forcing new session start")
+                }
+                triggerRestart("grace_timeout")
+            }
+
+            DispatchQueue.global(qos: .utility).async {
+                ReplayOrchestrator.shared.endReplayWithReason("background_timeout") { success, uploaded in
                     DiagnosticLog.notice("[Rejourney] Old session ended (success: \(success), uploaded: \(uploaded))")
-                    // Start a new session with preserved config and user identity
-                    DispatchQueue.main.async {
-                        self?._startNewSessionAfterTimeout()
-                    }
+                    triggerRestart("end_replay_callback")
                 }
             }
         } else {
-            // Resume existing session
-            state = .active(sessionId: sid, startTime: start)
-            stateLock.unlock()
-            
-            DiagnosticLog.notice("[Rejourney] ▶️ Resuming session '\(sid)'")
+            let orchestratorSessionId = ReplayOrchestrator.shared.replayId
+            if orchestratorSessionId?.isEmpty ?? true {
+                state = .idle
+                stateLock.unlock()
+                DiagnosticLog.notice("[Rejourney] Session ended while backgrounded, starting fresh session on foreground")
+                DispatchQueue.main.async { [weak self] in
+                    self?._startNewSessionAfterTimeout()
+                }
+                return
+            }
+
+            if let orchestratorSessionId, orchestratorSessionId != sid {
+                state = .active(sessionId: orchestratorSessionId, startTime: Date().timeIntervalSince1970)
+                stateLock.unlock()
+                DiagnosticLog.notice("[Rejourney] ▶️ Foreground reconciled to active session '\(orchestratorSessionId)' (was '\(sid)')")
+            } else {
+                // Resume existing session
+                state = .active(sessionId: sid, startTime: start)
+                stateLock.unlock()
+                DiagnosticLog.notice("[Rejourney] ▶️ Resuming session '\(sid)'")
+            }
             
             // Record the foreground event with background duration
             let bgMs = UInt64(backgroundDuration * 1000)
@@ -161,22 +205,22 @@ public final class RejourneyImpl: NSObject {
             StabilityMonitor.shared.transmitStoredReport()
         }
     }
-    
+
     private func _startNewSessionAfterTimeout() {
         guard let apiUrl = lastApiUrl, let publicKey = lastPublicKey else {
             DiagnosticLog.caution("[Rejourney] Cannot restart session - missing API config")
             return
         }
-        
+
         let savedUserId = currentUserIdentity
-        
+
         DiagnosticLog.notice("[Rejourney] Starting new session after timeout (user: \(savedUserId ?? "nil"))")
-        
+
         // Use a faster path: directly call beginSessionFast if credentials are still valid
         // This avoids the network roundtrip for credential re-fetch
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
-            
+
             // Try the fast path first - if credentials are still valid
             if let existingCred = DeviceRegistrar.shared.uploadCredential, DeviceRegistrar.shared.credentialValid {
                 DiagnosticLog.notice("[Rejourney] Using cached credentials for fast session restart")
@@ -195,34 +239,34 @@ public final class RejourneyImpl: NSObject {
                     captureSettings: self.lastSessionConfig
                 )
             }
-            
+
             // Poll for session to be ready (up to 3 seconds)
             self._waitForSessionReady(savedUserId: savedUserId, attempts: 0)
         }
     }
-    
+
     private func _waitForSessionReady(savedUserId: String?, attempts: Int) {
         let maxAttempts = 30 // 3 seconds max (30 * 100ms)
-        
+
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
             guard let self else { return }
-            
+
             // Check if ReplayOrchestrator has generated a new session ID
             if let newSid = ReplayOrchestrator.shared.replayId, !newSid.isEmpty {
                 let start = Date().timeIntervalSince1970
-                
+
                 self.stateLock.lock()
                 self.state = .active(sessionId: newSid, startTime: start)
                 self.stateLock.unlock()
-                
+
                 ReplayOrchestrator.shared.activateGestureRecording()
-                
+
                 // Re-apply user identity if it was set
                 if let userId = savedUserId, userId != "anonymous", !userId.hasPrefix("anon_") {
                     ReplayOrchestrator.shared.associateUser(userId)
                     DiagnosticLog.notice("[Rejourney] ✅ Restored user identity '\(userId)' to new session \(newSid)")
                 }
-                
+
                 DiagnosticLog.replayBegan(newSid)
                 DiagnosticLog.notice("[Rejourney] ✅ New session started: \(newSid)")
             } else if attempts < maxAttempts {
@@ -233,9 +277,9 @@ public final class RejourneyImpl: NSObject {
             }
         }
     }
-    
+
     // MARK: - Public API
-    
+
     @objc(startSession:apiUrl:publicKey:resolve:reject:)
     public func startSession(
         _ userId: String,
@@ -254,7 +298,7 @@ public final class RejourneyImpl: NSObject {
             reject: reject
         )
     }
-    
+
     @objc(startSessionWithOptions:resolve:reject:)
     public func startSessionWithOptions(
         _ options: NSDictionary,
@@ -265,29 +309,29 @@ public final class RejourneyImpl: NSObject {
             DiagnosticLog.setVerbose(true)
             DiagnosticLog.notice("[Rejourney] Debug mode ENABLED - verbose logging active")
         }
-        
+
         let startParams = PerformanceSnapshot.capture()
-        
+
         let userId = options["userId"] as? String ?? "anonymous"
         let apiUrl = options["apiUrl"] as? String ?? "https://api.rejourney.co"
         let publicKey = options["publicKey"] as? String ?? ""
-        
+
         guard !publicKey.isEmpty else {
             reject("INVALID_KEY", "publicKey is required", nil)
             return
         }
-        
+
         var config: [String: Any] = [:]
         if let val = options["captureScreen"] as? Bool { config["captureScreen"] = val }
         if let val = options["captureAnalytics"] as? Bool { config["captureAnalytics"] = val }
         if let val = options["captureCrashes"] as? Bool { config["captureCrashes"] = val }
         if let val = options["captureANR"] as? Bool { config["captureANR"] = val }
         if let val = options["wifiOnly"] as? Bool { config["wifiOnly"] = val }
-        
+
         if let fps = options["fps"] as? Int {
             config["captureRate"] = 1.0 / Double(max(1, min(fps, 30)))
         }
-        
+
         if let quality = options["quality"] as? String {
             switch quality.lowercased() {
             case "low": config["imgCompression"] = 0.4
@@ -295,14 +339,14 @@ public final class RejourneyImpl: NSObject {
             default: config["imgCompression"] = 0.5
             }
         }
-        
+
         // Critical: Ensure async dispatch to allow React Native bridge to return
         DispatchQueue.main.async { [weak self] in
             guard let self else {
                 resolve(["success": false, "sessionId": "", "error": "Instance released"])
                 return
             }
-            
+
             self.stateLock.lock()
             if case .active(let sid, _) = self.state {
                 self.stateLock.unlock()
@@ -310,46 +354,46 @@ public final class RejourneyImpl: NSObject {
                 return
             }
             self.stateLock.unlock()
-            
+
             if !userId.isEmpty && userId != "anonymous" && !userId.hasPrefix("anon_") {
                 self.currentUserIdentity = userId
             }
-            
+
             // Store config for session restart after background timeout
             self.lastSessionConfig = config
             self.lastApiUrl = apiUrl
             self.lastPublicKey = publicKey
-            
+
             TelemetryPipeline.shared.endpoint = apiUrl
             SegmentDispatcher.shared.endpoint = apiUrl
             DeviceRegistrar.shared.endpoint = apiUrl
-            
+
             // Activate native network interception
             RejourneyURLProtocol.enable()
-            
+
             ReplayOrchestrator.shared.beginReplay(apiToken: publicKey, serverEndpoint: apiUrl, captureSettings: config)
-            
+
             // Allow orchestrator time to spin up
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
                 let sid = ReplayOrchestrator.shared.replayId ?? UUID().uuidString
                 let start = Date().timeIntervalSince1970
-                
+
                 self.stateLock.lock()
                 self.state = .active(sessionId: sid, startTime: start)
                 self.stateLock.unlock()
-                
+
                 ReplayOrchestrator.shared.activateGestureRecording()
-                
+
                 if userId != "anonymous" && !userId.hasPrefix("anon_") {
                     ReplayOrchestrator.shared.associateUser(userId)
                 }
-                
+
                 DiagnosticLog.replayBegan(sid)
                 resolve(["success": true, "sessionId": sid])
             }
         }
     }
-    
+
     @objc(stopSession:reject:)
     public func stopSession(
         resolve: @escaping RCTPromiseResolveBlock,
@@ -357,27 +401,27 @@ public final class RejourneyImpl: NSObject {
     ) {
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
-            
+
             var targetSid = ""
-            
+
             self.stateLock.lock()
             if case .active(let sid, _) = self.state {
                 targetSid = sid
             }
             self.state = .idle
             self.stateLock.unlock()
-            
+
             // Disable native network interception
             RejourneyURLProtocol.disable()
-            
+
             guard !targetSid.isEmpty else {
                 resolve(["success": true, "sessionId": "", "uploadSuccess": true])
                 return
             }
-            
-            ReplayOrchestrator.shared.endReplay { success, uploaded in
+
+            ReplayOrchestrator.shared.endReplayWithReason("user_initiated") { success, uploaded in
                 DiagnosticLog.replayEnded(targetSid)
-                
+
                 resolve([
                     "success": success,
                     "sessionId": targetSid,
@@ -386,7 +430,7 @@ public final class RejourneyImpl: NSObject {
             }
         }
     }
-    
+
     @objc(getSessionId:reject:)
     public func getSessionId(
         resolve: @escaping RCTPromiseResolveBlock,
@@ -394,7 +438,7 @@ public final class RejourneyImpl: NSObject {
     ) {
         stateLock.lock()
         defer { stateLock.unlock() }
-        
+
         switch state {
         case .active(let sid, _), .paused(let sid, _):
             resolve(sid)
@@ -402,7 +446,7 @@ public final class RejourneyImpl: NSObject {
             resolve(nil)
         }
     }
-    
+
     @objc(setUserIdentity:resolve:reject:)
     public func setUserIdentity(
         _ userId: String,
@@ -411,11 +455,11 @@ public final class RejourneyImpl: NSObject {
     ) {
         if !userId.isEmpty && userId != "anonymous" && !userId.hasPrefix("anon_") {
             currentUserIdentity = userId
-            
+
             // Persist natively
             UserDefaults.standard.set(userId, forKey: userIdentityKey)
             DiagnosticLog.notice("[Rejourney] Persisted user identity: \(userId)")
-            
+
             ReplayOrchestrator.shared.associateUser(userId)
         } else if userId == "anonymous" || userId.isEmpty {
             // Clear identity
@@ -423,10 +467,10 @@ public final class RejourneyImpl: NSObject {
             UserDefaults.standard.removeObject(forKey: userIdentityKey)
             DiagnosticLog.notice("[Rejourney] Cleared user identity")
         }
-        
+
         resolve(["success": true])
     }
-    
+
     @objc(getUserIdentity:reject:)
     public func getUserIdentity(
         resolve: @escaping RCTPromiseResolveBlock,
@@ -434,7 +478,31 @@ public final class RejourneyImpl: NSObject {
     ) {
         resolve(currentUserIdentity)
     }
-    
+
+    @objc(setAnonymousId:resolve:reject:)
+    public func setAnonymousId(
+        _ anonymousId: String,
+        resolve: @escaping RCTPromiseResolveBlock,
+        reject: @escaping RCTPromiseRejectBlock
+    ) {
+        if anonymousId.isEmpty {
+            UserDefaults.standard.removeObject(forKey: anonymousIdentityKey)
+        } else {
+            UserDefaults.standard.set(anonymousId, forKey: anonymousIdentityKey)
+        }
+
+        resolve(["success": true])
+    }
+
+    @objc(getAnonymousId:reject:)
+    public func getAnonymousId(
+        resolve: @escaping RCTPromiseResolveBlock,
+        reject: @escaping RCTPromiseRejectBlock
+    ) {
+        let stored = UserDefaults.standard.string(forKey: anonymousIdentityKey)
+        resolve(stored)
+    }
+
     @objc(logEvent:details:resolve:reject:)
     public func logEvent(
         _ eventType: String,
@@ -451,7 +519,7 @@ public final class RejourneyImpl: NSObject {
             resolve(["success": true])
             return
         }
-        
+
         // Handle JS error events - route through TelemetryPipeline as type:"error"
         // so the backend ingest worker processes them into the errors table
         if eventType == "error" {
@@ -462,7 +530,7 @@ public final class RejourneyImpl: NSObject {
             resolve(["success": true])
             return
         }
-        
+
         // Handle dead_tap events from JS-side detection
         // Native view hierarchy inspection is unreliable in React Native,
         // so dead tap detection runs in JS and reports back via logEvent.
@@ -475,7 +543,17 @@ public final class RejourneyImpl: NSObject {
             resolve(["success": true])
             return
         }
-        
+
+        // Handle console log events - preserve type:"log" with level and message
+        // so the dashboard replay can display them in the console terminal
+        if eventType == "log" {
+            let level = details["level"] as? String ?? "log"
+            let message = details["message"] as? String ?? ""
+            TelemetryPipeline.shared.recordConsoleLogEvent(level: level, message: message)
+            resolve(["success": true])
+            return
+        }
+
         // All other events go through custom event recording
         var payload = "{}"
         if let data = try? JSONSerialization.data(withJSONObject: details),
@@ -485,7 +563,7 @@ public final class RejourneyImpl: NSObject {
         ReplayOrchestrator.shared.recordCustomEvent(name: eventType, payload: payload)
         resolve(["success": true])
     }
-    
+
     @objc(screenChanged:resolve:reject:)
     public func screenChanged(
         _ screenName: String,
@@ -496,7 +574,7 @@ public final class RejourneyImpl: NSObject {
         ReplayOrchestrator.shared.logScreenView(screenName)
         resolve(["success": true])
     }
-    
+
     @objc(onScroll:resolve:reject:)
     public func onScroll(
         _ offsetY: Double,
@@ -506,7 +584,7 @@ public final class RejourneyImpl: NSObject {
         ReplayOrchestrator.shared.logScrollAction()
         resolve(["success": true])
     }
-    
+
     @objc(markVisualChange:importance:resolve:reject:)
     public func markVisualChange(
         _ reason: String,
@@ -519,7 +597,7 @@ public final class RejourneyImpl: NSObject {
         }
         resolve(true)
     }
-    
+
     @objc(onExternalURLOpened:resolve:reject:)
     public func onExternalURLOpened(
         _ urlScheme: String,
@@ -529,7 +607,7 @@ public final class RejourneyImpl: NSObject {
         ReplayOrchestrator.shared.recordCustomEvent(name: "external_url_opened", payload: "{\"scheme\":\"\(urlScheme)\"}")
         resolve(["success": true])
     }
-    
+
     @objc(onOAuthStarted:resolve:reject:)
     public func onOAuthStarted(
         _ provider: String,
@@ -539,7 +617,7 @@ public final class RejourneyImpl: NSObject {
         ReplayOrchestrator.shared.recordCustomEvent(name: "oauth_started", payload: "{\"provider\":\"\(provider)\"}")
         resolve(["success": true])
     }
-    
+
     @objc(onOAuthCompleted:success:resolve:reject:)
     public func onOAuthCompleted(
         _ provider: String,
@@ -550,7 +628,7 @@ public final class RejourneyImpl: NSObject {
         ReplayOrchestrator.shared.recordCustomEvent(name: "oauth_completed", payload: "{\"provider\":\"\(provider)\",\"success\":\(success)}")
         resolve(["success": true])
     }
-    
+
     @objc(maskViewByNativeID:resolve:reject:)
     public func maskViewByNativeID(
         _ nativeID: String,
@@ -564,7 +642,7 @@ public final class RejourneyImpl: NSObject {
         }
         resolve(["success": true])
     }
-    
+
     @objc(unmaskViewByNativeID:resolve:reject:)
     public func unmaskViewByNativeID(
         _ nativeID: String,
@@ -578,12 +656,12 @@ public final class RejourneyImpl: NSObject {
         }
         resolve(["success": true])
     }
-    
+
     private func findView(by identifier: String) -> UIView? {
         guard let window = UIApplication.shared.windows.first(where: { $0.isKeyWindow }) else { return nil }
         return scanView(window, id: identifier)
     }
-    
+
     private func scanView(_ node: UIView, id: String) -> UIView? {
         if node.accessibilityIdentifier == id || node.nativeID == id {
             return node
@@ -595,7 +673,7 @@ public final class RejourneyImpl: NSObject {
         }
         return nil
     }
-    
+
     @objc(setDebugMode:resolve:reject:)
     public func setDebugMode(
         _ enabled: Bool,
@@ -605,7 +683,7 @@ public final class RejourneyImpl: NSObject {
         DiagnosticLog.setVerbose(enabled)
         resolve(["success": true])
     }
-    
+
     @objc(setRemoteConfigWithRejourneyEnabled:recordingEnabled:sampleRate:maxRecordingMinutes:resolve:reject:)
     public func setRemoteConfig(
         rejourneyEnabled: Bool,
@@ -616,22 +694,22 @@ public final class RejourneyImpl: NSObject {
         reject: @escaping RCTPromiseRejectBlock
     ) {
         DiagnosticLog.trace("[Rejourney] setRemoteConfig: rejourneyEnabled=\(rejourneyEnabled), recordingEnabled=\(recordingEnabled), sampleRate=\(sampleRate), maxRecording=\(maxRecordingMinutes)min")
-        
+
         ReplayOrchestrator.shared.setRemoteConfig(
             rejourneyEnabled: rejourneyEnabled,
             recordingEnabled: recordingEnabled,
             sampleRate: sampleRate,
             maxRecordingMinutes: maxRecordingMinutes
         )
-        
+
         resolve(["success": true])
     }
-    
+
     @objc(setSDKVersion:)
     public func setSDKVersion(_ version: String) {
         RejourneyImpl.sdkVersion = version
     }
-    
+
     @objc(getSDKMetrics:reject:)
     public func getSDKMetrics(
         resolve: @escaping RCTPromiseResolveBlock,
@@ -640,7 +718,7 @@ public final class RejourneyImpl: NSObject {
         let queueDepth = TelemetryPipeline.shared.getQueueDepth()
         resolve(SegmentDispatcher.shared.sdkTelemetrySnapshot(currentQueueDepth: queueDepth))
     }
-    
+
     @objc(getDeviceInfo:reject:)
     public func getDeviceInfo(
         resolve: @escaping RCTPromiseResolveBlock,
@@ -648,7 +726,7 @@ public final class RejourneyImpl: NSObject {
     ) {
         let device = UIDevice.current
         let screen = UIScreen.main
-        
+
         resolve([
             "platform": "ios",
             "osVersion": device.systemVersion,
@@ -661,7 +739,7 @@ public final class RejourneyImpl: NSObject {
             "bundleId": Bundle.main.bundleIdentifier ?? "unknown"
         ])
     }
-    
+
     @objc(debugCrash)
     public func debugCrash() {
         DispatchQueue.main.async {
@@ -669,14 +747,14 @@ public final class RejourneyImpl: NSObject {
             _ = arr[1]
         }
     }
-    
+
     @objc(debugTriggerANR:)
     public func debugTriggerANR(_ durationMs: Double) {
         DispatchQueue.main.async {
             Thread.sleep(forTimeInterval: durationMs / 1000.0)
         }
     }
-    
+
     @objc(getSDKVersion:reject:)
     public func getSDKVersion(
         resolve: @escaping RCTPromiseResolveBlock,
@@ -684,7 +762,7 @@ public final class RejourneyImpl: NSObject {
     ) {
         resolve(Self.sdkVersion)
     }
-    
+
     @objc(setUserData:value:resolve:reject:)
     public func setUserData(
         _ key: String,
@@ -695,16 +773,16 @@ public final class RejourneyImpl: NSObject {
         ReplayOrchestrator.shared.attachAttribute(key: key, value: value)
         resolve(nil)
     }
-    
+
     private func computeHash() -> String {
         let uuid = UIDevice.current.identifierForVendor?.uuidString ?? "unknown"
         guard let data = uuid.data(using: .utf8) else { return "" }
-        
+
         var buffer = [UInt8](repeating: 0, count: Int(CC_SHA256_DIGEST_LENGTH))
         data.withUnsafeBytes {
             _ = CC_SHA256($0.baseAddress, CC_LONG(data.count), &buffer)
         }
-        
+
         return buffer.map { String(format: "%02x", $0) }.joined()
     }
 }

@@ -99,17 +99,17 @@ export const AccountSettings: React.FC = () => {
       <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
         {/* Profile Card */}
         <section className="space-y-4">
-          <h2 className="text-xl font-black uppercase tracking-tight flex items-center gap-2">
+          <h2 className="text-xl font-semibold uppercase tracking-tight flex items-center gap-2">
             <UserCircle className="w-5 h-5" /> My Profile
           </h2>
           <NeoCard className="p-6">
             <div className="flex items-center gap-6 mb-8">
-              <div className="w-20 h-20 bg-black text-white text-3xl font-black flex items-center justify-center border-2 border-black shadow-[4px_4px_0_0_#94a3b8]">
+              <div className="w-20 h-20 bg-slate-900 text-white text-3xl font-semibold flex items-center justify-center border border-slate-100/80 shadow-[4px_4px_0_0_#94a3b8]">
                 {user.email.charAt(0).toUpperCase()}
               </div>
               <div>
-                <div className="font-black text-xl text-black tracking-tight">{user.email}</div>
-                <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-1 bg-slate-100 px-2 py-1 inline-block rounded">Personal Account</div>
+                <div className="font-semibold text-xl text-slate-900 tracking-tight">{user.email}</div>
+                <div className="text-[10px] font-semibold text-slate-400 uppercase tracking-widest mt-1 bg-slate-100 px-2 py-1 inline-block rounded">Personal Account</div>
               </div>
             </div>
 
@@ -117,16 +117,16 @@ export const AccountSettings: React.FC = () => {
               <div className="flex items-center justify-between border-b border-slate-100 pb-4">
                 <div className="flex items-center gap-2 text-slate-400">
                   <Mail className="w-4 h-4" />
-                  <span className="text-[10px] font-black uppercase tracking-widest">Email</span>
+                  <span className="text-[10px] font-semibold uppercase tracking-widest">Email</span>
                 </div>
-                <span className="font-mono text-sm font-bold text-black">{user.email}</span>
+                <span className="font-mono text-sm font-bold text-slate-900">{user.email}</span>
               </div>
               <div className="flex items-center justify-between border-b border-slate-100 pb-4">
                 <div className="flex items-center gap-2 text-slate-400">
                   <Calendar className="w-4 h-4" />
-                  <span className="text-[10px] font-black uppercase tracking-widest">Member Since</span>
+                  <span className="text-[10px] font-semibold uppercase tracking-widest">Member Since</span>
                 </div>
-                <span className="font-mono text-sm font-bold text-black">{new Date(user.createdAt).toLocaleDateString()}</span>
+                <span className="font-mono text-sm font-bold text-slate-900">{new Date(user.createdAt).toLocaleDateString()}</span>
               </div>
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2 text-slate-400">
@@ -135,7 +135,7 @@ export const AccountSettings: React.FC = () => {
                   ) : (
                     <AlertCircle className="w-4 h-4 text-amber-500" />
                   )}
-                  <span className="text-[10px] font-black uppercase tracking-widest">Verification</span>
+                  <span className="text-[10px] font-semibold uppercase tracking-widest">Verification</span>
                 </div>
                 <NeoBadge variant={user.emailVerified ? 'success' : 'warning'}>
                   {user.emailVerified ? 'VERIFIED' : 'UNVERIFIED'}
@@ -170,7 +170,7 @@ export const AccountSettings: React.FC = () => {
         <div className="space-y-6">
           {/* Free Tier Card */}
           <section className="space-y-4">
-            <h2 className="text-xl font-black uppercase tracking-tight flex items-center gap-2">
+            <h2 className="text-xl font-semibold uppercase tracking-tight flex items-center gap-2">
               <Gift className="w-5 h-5 text-emerald-500" /> Free Tier
             </h2>
             <NeoCard className="p-6">
@@ -180,7 +180,7 @@ export const AccountSettings: React.FC = () => {
                 <div className="space-y-4">
                   {/* Status badge */}
                   <div className="flex items-center justify-between">
-                    <span className="text-xs font-black uppercase tracking-widest text-slate-500">Free Tier Status</span>
+                    <span className="text-xs font-semibold uppercase tracking-widest text-slate-500">Free Tier Status</span>
                     <NeoBadge variant={freeTierStatus.isExhausted ? 'warning' : 'success'}>
                       {freeTierStatus.isExhausted ? 'EXHAUSTED' : 'ACTIVE'}
                     </NeoBadge>
@@ -189,8 +189,8 @@ export const AccountSettings: React.FC = () => {
                   {/* Progress bar */}
                   <div>
                     <div className="flex justify-between text-xs mb-2">
-                      <span className="text-black font-bold uppercase tracking-wide">Sessions Used</span>
-                      <span className="font-mono font-bold text-black">
+                      <span className="text-slate-900 font-bold uppercase tracking-wide">Sessions Used</span>
+                      <span className="font-mono font-bold text-slate-900">
                         {freeTierStatus.sessionsUsed.toLocaleString()} <span className="text-slate-400">/</span> {freeTierStatus.freeTierSessions.toLocaleString()}
                       </span>
                     </div>
@@ -233,7 +233,7 @@ export const AccountSettings: React.FC = () => {
 
           {/* Data Export Card (GDPR) */}
           <section className="space-y-4">
-            <h2 className="text-xl font-black uppercase tracking-tight flex items-center gap-2">
+            <h2 className="text-xl font-semibold uppercase tracking-tight flex items-center gap-2">
               <Download className="w-5 h-5" /> Export My Data
             </h2>
             <NeoCard className="p-6">

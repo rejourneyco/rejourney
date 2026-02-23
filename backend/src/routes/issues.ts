@@ -13,11 +13,11 @@ import { writeApiRateLimiter } from '../middleware/rateLimit.js';
 const router = Router();
 
 /**
- * GET /api/issues
+ * GET /api/general
  * Get paginated list of issues with filtering and search
  */
 router.get(
-    '/issues',
+    '/general',
     sessionAuth,
     asyncHandler(async (req, res) => {
         const projectId = req.query.projectId as string;
@@ -244,11 +244,11 @@ router.get(
 );
 
 /**
- * GET /api/issues/:issueId
+ * GET /api/general/:issueId
  * Get a single issue with full details
  */
 router.get(
-    '/issues/:issueId',
+    '/general/:issueId',
     sessionAuth,
     asyncHandler(async (req, res) => {
         const { issueId } = req.params;
@@ -331,11 +331,11 @@ router.get(
 );
 
 /**
- * PATCH /api/issues/:issueId
+ * PATCH /api/general/:issueId
  * Update issue status, assignee, or priority
  */
 router.patch(
-    '/issues/:issueId',
+    '/general/:issueId',
     sessionAuth,
     writeApiRateLimiter,
     asyncHandler(async (req, res) => {
@@ -403,11 +403,11 @@ router.patch(
 );
 
 /**
- * POST /api/issues/bulk-update
+ * POST /api/general/bulk-update
  * Bulk update multiple issues
  */
 router.post(
-    '/issues/bulk-update',
+    '/general/bulk-update',
     sessionAuth,
     writeApiRateLimiter,
     asyncHandler(async (req, res) => {
@@ -474,11 +474,11 @@ router.post(
 );
 
 /**
- * GET /api/issues/environments
+ * GET /api/general/environments
  * Get list of environments for a project
  */
 router.get(
-    '/issues/environments',
+    '/general/environments',
     sessionAuth,
     asyncHandler(async (req, res) => {
         const projectId = req.query.projectId as string;
@@ -501,12 +501,12 @@ router.get(
 );
 
 /**
- * POST /api/issues/sync
+ * POST /api/general/sync
  * Sync existing errors/crashes/anrs into the issues table
  * This is a comprehensive sync that rebuilds issue aggregations from source data
  */
 router.post(
-    '/issues/sync',
+    '/general/sync',
     sessionAuth,
     writeApiRateLimiter,
     asyncHandler(async (req, res) => {
@@ -1451,11 +1451,11 @@ router.post(
 );
 
 /**
- * GET /api/issues/:issueId/sessions
+ * GET /api/general/:issueId/sessions
  * Get sessions related to an issue (for displaying cover photos)
  */
 router.get(
-    '/issues/:issueId/sessions',
+    '/general/:issueId/sessions',
     sessionAuth,
     asyncHandler(async (req, res) => {
         const { issueId } = req.params;

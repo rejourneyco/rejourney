@@ -9,7 +9,6 @@ import { ProjectCreatedModal } from '../ui/ProjectCreatedModal';
 import { getAndroidPackageError, getIosBundleIdError } from '../../utils/validation';
 import {
   LayoutDashboard,
-  LineChart,
   Activity,
   Smartphone,
   Globe,
@@ -106,7 +105,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     {
       section: 'Monitor',
       items: [
-        { path: p('/issues'), label: 'Issues', icon: MessageSquareWarning },
+        { path: p('/general'), label: 'General', icon: MessageSquareWarning },
         { path: p('/sessions'), label: 'Replays', icon: Database },
       ],
     },
@@ -114,7 +113,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
       section: 'Analytics',
       items: [
         { path: p('/analytics/api'), label: 'API Insights', icon: Activity },
-        { path: p('/analytics/growth'), label: 'Growth', icon: LineChart },
         { path: p('/analytics/journeys'), label: 'User Journeys', icon: Map },
         { path: p('/analytics/devices'), label: 'Devices', icon: Smartphone },
         { path: p('/analytics/geo'), label: 'Geographic', icon: Globe },
@@ -214,7 +212,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                         if (onTeamChange) onTeamChange(team);
                         setShowTeamSelector(false);
                         setShowAppSelector(false);
-                        navigate(p('/issues'));
+                        navigate(p('/general'));
                       }}
                       className={`w-full text-left px-3 py-2 text-sm font-medium hover:bg-slate-700/70 flex items-center justify-between group border-b border-slate-700 last:border-0 ${currentTeam?.id === team.id ? 'bg-sky-600/20 text-sky-100' : 'text-slate-200'}`}
                     >
@@ -386,7 +384,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   onProjectChange(createdProjectData);
                   if (onProjectCreated) onProjectCreated();
                   window.dispatchEvent(new CustomEvent('projectCreated', { detail: newProject }));
-                  navigate(p('/issues'));
+                  navigate(p('/general'));
                 } catch (error) {
                   setCreateError(error instanceof Error ? error.message : 'Failed to create project');
                 } finally {
@@ -527,7 +525,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   if (onTeamChange) onTeamChange(newTeam);
                   window.dispatchEvent(new CustomEvent('teamCreated', { detail: { teamId: newTeam.id } }));
                   closeCreateTeamModal();
-                  navigate(p('/issues'));
+                  navigate(p('/general'));
                 } catch (e) {
                   setCreateTeamError(e instanceof Error ? e.message : 'Failed to create team');
                 } finally {

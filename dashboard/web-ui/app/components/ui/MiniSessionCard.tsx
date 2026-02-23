@@ -24,9 +24,18 @@ interface MiniSessionCardProps {
         coverPhotoUrl?: string | null; // URL from API response
     };
     onClick: () => void;
+    size?: 'xs' | 'sm' | 'md' | 'lg';
+    showMeta?: boolean;
+    className?: string;
 }
 
-export const MiniSessionCard: React.FC<MiniSessionCardProps> = ({ session, onClick }) => {
+export const MiniSessionCard: React.FC<MiniSessionCardProps> = ({
+    session,
+    onClick,
+    size = 'sm',
+    showMeta = true,
+    className = '',
+}) => {
     const [imageUrl, setImageUrl] = useState<string | null>(null);
     const [imageLoaded, setImageLoaded] = useState(false);
 
@@ -90,9 +99,9 @@ export const MiniSessionCard: React.FC<MiniSessionCardProps> = ({ session, onCli
     return (
         <div
             onClick={onClick}
-            className="cursor-pointer group flex-shrink-0 transition-transform active:translate-x-[2px] active:translate-y-[2px] p-1"
+            className={`cursor-pointer group flex-shrink-0 transition-transform active:translate-x-[2px] active:translate-y-[2px] p-1 ${className}`}
         >
-            <ModernPhoneFrame size="sm" className="transition-shadow duration-300">
+            <ModernPhoneFrame size={size} className="transition-shadow duration-300">
                 {imageUrl ? (
                     <img
                         src={imageUrl}
@@ -112,14 +121,16 @@ export const MiniSessionCard: React.FC<MiniSessionCardProps> = ({ session, onCli
                     </div>
                 </div>
             </ModernPhoneFrame>
-            <div className="mt-2">
-                <div className="text-[10px] font-bold text-black truncate max-w-[140px] uppercase">
-                    {session.deviceModel || 'Unknown Device'}
+            {showMeta && (
+                <div className="mt-2">
+                    <div className="text-[10px] font-bold text-black truncate max-w-[140px] uppercase">
+                        {session.deviceModel || 'Unknown Device'}
+                    </div>
+                    <div className="text-[9px] font-mono text-slate-500">
+                        {formatLastSeen(session.createdAt)}
+                    </div>
                 </div>
-                <div className="text-[9px] font-mono text-slate-500">
-                    {formatLastSeen(session.createdAt)}
-                </div>
-            </div>
+            )}
         </div>
     );
 };

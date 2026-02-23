@@ -12,7 +12,7 @@ interface TabWorkspaceProps {
 const TAB_DRAG_MIME = 'application/x-rejourney-tab-id';
 
 function stripPathPrefix(pathname: string): string {
-    return pathname.replace(/^\/(dashboard|demo)/, '') || '/issues';
+    return pathname.replace(/^\/(dashboard|demo)/, '') || '/general';
 }
 
 function extractDraggedTabId(event: React.DragEvent): string {
@@ -93,7 +93,7 @@ export const TabWorkspace: React.FC<TabWorkspaceProps> = ({ children }) => {
 
     if (hideTabChrome) {
         return (
-            <div className="flex h-full min-h-0 flex-col bg-background">
+            <div className="flex h-full min-h-0 flex-col bg-transparent">
                 <div className="flex-1 min-h-0 overflow-hidden">{children}</div>
             </div>
         );
@@ -101,7 +101,7 @@ export const TabWorkspace: React.FC<TabWorkspaceProps> = ({ children }) => {
 
     if (!isSplitView || !secondaryTab) {
         return (
-            <div className="flex flex-col h-full min-h-0 bg-background">
+            <div className="flex flex-col h-full min-h-0 bg-transparent">
                 <TabBar group="primary" pathPrefix="/dashboard" />
                 <div
                     className="relative flex-1 min-h-0 overflow-y-auto"
@@ -135,7 +135,7 @@ export const TabWorkspace: React.FC<TabWorkspaceProps> = ({ children }) => {
 
     // In split view, we render two panes, each with a TabBar.
     return (
-        <div ref={splitContainerRef} className="flex flex-1 min-h-0 bg-background h-full">
+        <div ref={splitContainerRef} className="flex flex-1 min-h-0 bg-transparent h-full">
             {/* Primary Pane */}
             <section className="flex min-w-0 flex-col border-r border-slate-300 h-full" style={{ width: `${splitRatio * 100}%` }}>
                 <TabBar group="primary" pathPrefix="/dashboard" />
@@ -154,7 +154,7 @@ export const TabWorkspace: React.FC<TabWorkspaceProps> = ({ children }) => {
             {/* Secondary Pane */}
             <section className="flex min-w-0 flex-col h-full" style={{ width: `${(1 - splitRatio) * 100}%` }}>
                 <TabBar group="secondary" pathPrefix="/dashboard" />
-                <div ref={secondaryScrollRef} className="flex-1 min-h-0 overflow-y-auto bg-background relative">
+                <div ref={secondaryScrollRef} className="flex-1 min-h-0 overflow-y-auto bg-transparent relative">
                     {SecondaryComponent && secondaryTabDefinition ? (
                         <SecondaryComponent key={secondaryTab.id} {...(secondaryTabDefinition.props || {})} />
                     ) : (

@@ -13,10 +13,10 @@ import type { AppLoadContext, EntryContext } from "react-router";
 
 const ABORT_DELAY = 5000;
 
-// Content Security Policy that allows Cloudflare Turnstile and Stripe
+// Content Security Policy that allows Cloudflare Turnstile, Stripe, and Mapbox
 const CSP_POLICY = [
     "default-src 'self'",
-    "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://challenges.cloudflare.com https://js.stripe.com https://m.stripe.network",
+    "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://challenges.cloudflare.com https://js.stripe.com https://m.stripe.network https://www.clarity.ms",
     "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
     "font-src 'self' https://fonts.gstatic.com data:",
     // Session replay images/screenshots are served from MinIO/S3 (http for local dev)
@@ -24,7 +24,7 @@ const CSP_POLICY = [
     // Session replay media is served from MinIO/S3 in self-hosted/local setups
     "media-src 'self' blob: data: http: https:",
     "frame-src 'self' https://challenges.cloudflare.com https://js.stripe.com https://hooks.stripe.com",
-    "connect-src 'self' https://challenges.cloudflare.com https://api.stripe.com https://m.stripe.network",
+    "connect-src 'self' https://challenges.cloudflare.com https://api.stripe.com https://m.stripe.network https://api.mapbox.com https://events.mapbox.com https://*.tiles.mapbox.com https://www.clarity.ms https://*.clarity.ms",
     "worker-src 'self' blob:",
 ].join("; ");
 

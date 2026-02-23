@@ -1,255 +1,325 @@
-import React, { useEffect, useState } from 'react';
-import { useParams, useNavigate } from 'react-router';
+import React, { useEffect, useMemo, useState } from 'react';
+import { useNavigate, useParams } from 'react-router';
+import {
+  Activity,
+  AlertTriangle,
+  ArrowLeft,
+  Calendar,
+  Check,
+  Clock,
+  Copy,
+  Download,
+  Play,
+  Server,
+  Smartphone,
+  Sparkles,
+} from 'lucide-react';
 import { useSessionData } from '../../context/SessionContext';
 import { usePathPrefix } from '../../hooks/usePathPrefix';
-import { Badge } from '../../components/ui/Badge';
-import {
-    Clock,
-    ArrowLeft,
-    Play,
-    Smartphone,
-    Copy,
-    Check,
-    AlertOctagon,
-    Server,
-    Activity,
-    Download
-} from 'lucide-react';
 import { api } from '../../services/api';
+import { DashboardPageHeader } from '../../components/ui/DashboardPageHeader';
+import { NeoBadge } from '../../components/ui/neo/NeoBadge';
+import { NeoButton } from '../../components/ui/neo/NeoButton';
+import { NeoCard } from '../../components/ui/neo/NeoCard';
 
 interface ANRReport {
-    id: string;
-    sessionId: string;
-    projectId: string;
-    timestamp: string;
-    durationMs: number;
-    threadState: string;
-    deviceMetadata?: {
-        model?: string;
-        manufacturer?: string;
-        systemName?: string;
-        systemVersion?: string;
-        osVersion?: string;
-        sdkInt?: number;
-        [key: string]: any;
-    };
-    status: string;
-    fullReport?: any;
+  id: string;
+  sessionId: string;
+  projectId: string;
+  timestamp: string;
+  durationMs: number;
+  threadState: string;
+  deviceMetadata?: {
+    model?: string;
+    manufacturer?: string;
+    systemName?: string;
+    systemVersion?: string;
+    osVersion?: string;
+    sdkInt?: number;
+    [key: string]: any;
+  };
+  status: string;
+  fullReport?: any;
 }
 
-export const ANRDetail: React.FC<{ anrId?: string; projectId?: string }> = ({ anrId: propAnrId, projectId: propProjectId }) => {
-    const { anrId: paramAnrId, projectId: paramProjectId } = useParams<{ anrId: string; projectId: string }>();
-    const anrId = propAnrId || paramAnrId;
-    const projectId = propProjectId || paramProjectId;
-    const { projects } = useSessionData();
-    const navigate = useNavigate();
-    const pathPrefix = usePathPrefix();
-    const [anr, setAnr] = useState<ANRReport | null>(null);
-    const [loading, setLoading] = useState(true);
-    const [error, setError] = useState<string | null>(null);
-    const [copied, setCopied] = useState(false);
-
-    const currentProject = projects.find(p => p.id === projectId);
-
-    useEffect(() => {
-        if (!anrId || !currentProject) return;
-
-        const fetchANR = async () => {
-            setLoading(true);
-            try {
-                const data = await api.getANR(currentProject.id, anrId);
-                setAnr(data);
-            } catch (err: any) {
-                console.error("Failed to load ANR details:", err);
-                setError("Failed to load ANR details. It might be deleted or you don't have access.");
-            } finally {
-                setLoading(false);
-            }
-        };
-
-        fetchANR();
-    }, [anrId, currentProject]);
-
-    const handleCopyStack = () => {
-        const stackText = anr?.threadState || anr?.fullReport?.threadState || '';
-        navigator.clipboard.writeText(stackText);
-        setCopied(true);
-        setTimeout(() => setCopied(false), 2000);
-    };
-
-    const handleDownloadStack = () => {
-        const stackText = anr?.threadState || anr?.fullReport?.threadState || '';
-        const blob = new Blob([stackText], { type: 'text/plain' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `anr-trace-${anr?.id}-${Date.now()}.txt`;
-        a.click();
-        URL.revokeObjectURL(url);
-    };
-
-    if (loading) {
-        return (
-            <div className="flex flex-col items-center justify-center min-h-[50vh]">
-                <div className="text-2xl font-black uppercase animate-pulse">Loading ANR Event...</div>
-            </div>
-        );
-    }
-
-    if (error || !anr) {
-        return (
-            <div className="flex flex-col items-center justify-center min-h-[50vh] space-y-4">
-                <div className="text-red-600 font-black uppercase text-xl">{error || "ANR not found"}</div>
-                <button
-                    onClick={() => navigate(-1)}
-                    className="px-6 py-2 bg-black text-white font-black uppercase hover:bg-slate-800 transition-colors"
-                >
-                    Go Back
-                </button>
-            </div>
-        );
-    }
-
-    const threadState = anr.threadState || anr.fullReport?.threadState || 'No thread state captured';
-    const deviceMeta = anr.deviceMetadata || anr.fullReport?.deviceInfo || {};
-
-    return (
-        <div className="min-h-screen bg-slate-50 p-6 md:p-12 font-sans">
-            <div className="max-w-[1800px] mx-auto space-y-8">
-
-                {/* Navigation */}
-                <button
-                    onClick={() => navigate(`${pathPrefix}/stability/anrs`)}
-                    className="flex items-center gap-2 text-sm font-black uppercase text-slate-500 hover:text-black transition-colors"
-                >
-                    <ArrowLeft className="w-4 h-4" /> Back to ANRs
-                </button>
-
-                {/* Header */}
-                <div className="bg-white border-2 border-black p-8 shadow-[8px_8px_0_0_rgba(0,0,0,1)]">
-                    <div className="flex flex-col md:flex-row md:items-start justify-between gap-6">
-                        <div className="flex items-start gap-6">
-                            <div className="w-16 h-16 bg-purple-600 border-2 border-black flex items-center justify-center shrink-0 shadow-[4px_4px_0_0_rgba(0,0,0,1)]">
-                                <Clock className="w-8 h-8 text-white" />
-                            </div>
-                            <div>
-                                <div className="flex items-center gap-3 mb-2 flex-wrap">
-                                    <h1 className="text-3xl md:text-4xl font-black uppercase text-slate-900 tracking-tight leading-none">
-                                        App Not Responding
-                                    </h1>
-                                    <Badge variant={anr.status === 'open' ? 'error' : 'success'} className="font-mono text-sm py-1">
-                                        {anr.status}
-                                    </Badge>
-                                </div>
-                                <p className="text-lg md:text-xl font-bold text-slate-600 font-mono border-l-4 border-slate-200 pl-4 py-1">
-                                    Main Thread Blocked for <span className="text-purple-600 border-b-2 border-purple-200">{anr.durationMs}ms</span>
-                                </p>
-                            </div>
-                        </div>
-
-                        <div className="flex flex-col items-end gap-3 shrink-0">
-                            <div className="text-right">
-                                <div className="text-xs font-black uppercase text-slate-400">Occurred At</div>
-                                <div className="text-lg font-bold font-mono">{new Date(anr.timestamp).toLocaleString()}</div>
-                            </div>
-                            <button
-                                onClick={() => navigate(`${pathPrefix}/sessions/${anr.sessionId}`)}
-                                className="flex items-center gap-2 px-6 py-3 bg-black text-white font-black uppercase hover:bg-slate-800 transition-colors shadow-[4px_4px_0_0_rgba(200,200,200,1)] hover:shadow-[4px_4px_0_0_rgba(0,0,0,0)] hover:translate-x-[2px] hover:translate-y-[2px]"
-                            >
-                                <Play className="w-4 h-4" /> Replay Session
-                            </button>
-                        </div>
-                    </div>
-                </div>
-
-                <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-
-                    {/* Left Column: Stack Trace */}
-                    <div className="lg:col-span-2 space-y-8">
-                        <div className="bg-white border-2 border-black shadow-[8px_8px_0_0_rgba(0,0,0,1)] p-6">
-                            <div className="flex items-center justify-between mb-4 border-b-2 border-slate-100 pb-4">
-                                <div className="flex items-center gap-2">
-                                    <Activity className="w-5 h-5 text-black" />
-                                    <h2 className="text-xl font-black uppercase text-slate-900">Main Thread State</h2>
-                                </div>
-                                <button
-                                    onClick={handleCopyStack}
-                                    className="flex items-center gap-2 px-3 py-1.5 text-xs font-black uppercase border-2 border-slate-200 hover:border-black hover:bg-slate-50 transition-all"
-                                >
-                                    {copied ? <Check className="w-3 h-3 text-green-600" /> : <Copy className="w-3 h-3" />}
-                                    {copied ? 'Copied' : 'Copy Trace'}
-                                </button>
-                                <button
-                                    onClick={handleDownloadStack}
-                                    className="flex items-center gap-2 px-3 py-1.5 text-xs font-black uppercase border-2 border-slate-200 hover:border-black hover:bg-slate-50 transition-all ml-2"
-                                >
-                                    <Download className="w-3 h-3" />
-                                    Download Trace
-                                </button>
-                            </div>
-
-                            <div className="bg-slate-900 text-green-400 p-6 font-mono text-xs overflow-x-auto whitespace-pre border-2 border-black shadow-inner min-h-[400px] leading-relaxed">
-                                {threadState}
-                            </div>
-
-                            <div className="mt-4 p-4 bg-purple-50 border-2 border-purple-200 text-purple-900 text-sm font-bold flex items-start gap-3">
-                                <AlertOctagon className="w-5 h-5 shrink-0 mt-0.5" />
-                                <p>
-                                    This trace represents the state of the main thread when the freeze happened.
-                                    Synchronous operations blocking the main thread will appear here.
-                                </p>
-                            </div>
-                        </div>
-                    </div>
-
-                    {/* Right Column: Metadata */}
-                    <div className="space-y-6">
-                        {/* Device Info */}
-                        <div className="bg-white border-2 border-black p-6 shadow-[8px_8px_0_0_rgba(0,0,0,1)]">
-                            <h2 className="text-lg font-black uppercase text-slate-900 mb-6 flex items-center gap-2">
-                                <Smartphone className="w-5 h-5" /> Device Environment
-                            </h2>
-                            <div className="space-y-4">
-                                <div className="group">
-                                    <div className="text-xs font-black uppercase text-slate-400 mb-1">Model</div>
-                                    <div className="font-mono font-bold text-slate-900 bg-slate-50 p-2 border-2 border-slate-100 group-hover:border-black transition-colors">
-                                        {deviceMeta.model || deviceMeta.manufacturer || 'Unknown Device'}
-                                    </div>
-                                </div>
-                                <div className="flex gap-4">
-                                    <div className="group flex-1">
-                                        <div className="text-xs font-black uppercase text-slate-400 mb-1">System</div>
-                                        <div className="font-mono font-bold text-slate-900 bg-slate-50 p-2 border-2 border-slate-100 group-hover:border-black transition-colors">
-                                            {deviceMeta.systemName || 'Unknown'} {deviceMeta.systemVersion || deviceMeta.osVersion || ''}
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-
-                        {/* Session Info */}
-                        <div className="bg-white border-2 border-black p-6 shadow-[8px_8px_0_0_rgba(0,0,0,1)]">
-                            <h2 className="text-lg font-black uppercase text-slate-900 mb-6 flex items-center gap-2">
-                                <Server className="w-5 h-5" /> IDs
-                            </h2>
-                            <div className="space-y-4">
-                                <div>
-                                    <div className="text-xs font-black uppercase text-slate-400 mb-1">Session ID</div>
-                                    <div className="font-mono text-xs font-bold text-black break-all">
-                                        {anr.sessionId}
-                                    </div>
-                                </div>
-                                <div>
-                                    <div className="text-xs font-black uppercase text-slate-400 mb-1">ANR ID</div>
-                                    <div className="font-mono text-xs font-medium text-slate-500 break-all">
-                                        {anr.id}
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-    );
+const getStatusVariant = (status?: string): 'danger' | 'warning' | 'success' | 'neutral' | 'info' => {
+  const normalized = (status || '').toLowerCase();
+  if (normalized === 'open' || normalized === 'new') return 'danger';
+  if (normalized === 'investigating') return 'warning';
+  if (normalized === 'resolved' || normalized === 'fixed') return 'success';
+  if (normalized === 'ignored') return 'neutral';
+  return 'info';
 };
+
+export const ANRDetail: React.FC<{ anrId?: string; projectId?: string }> = ({
+  anrId: propAnrId,
+  projectId: propProjectId,
+}) => {
+  const { anrId: paramAnrId, projectId: paramProjectId } = useParams<{ anrId: string; projectId: string }>();
+  const anrId = propAnrId || paramAnrId;
+  const projectId = propProjectId || paramProjectId;
+
+  const { projects, isLoading: contextLoading } = useSessionData();
+  const navigate = useNavigate();
+  const pathPrefix = usePathPrefix();
+
+  const [anr, setAnr] = useState<ANRReport | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  const currentProject = projects.find((project) => project.id === projectId);
+
+  useEffect(() => {
+    if (!anrId) {
+      setError('Missing ANR id.');
+      setLoading(false);
+      return;
+    }
+
+    if (contextLoading) return;
+
+    if (!currentProject) {
+      setError('Project not found or access revoked.');
+      setLoading(false);
+      return;
+    }
+
+    const fetchANR = async () => {
+      setLoading(true);
+      setError(null);
+
+      try {
+        const data = await api.getANR(currentProject.id, anrId);
+        setAnr(data);
+      } catch (err) {
+        console.error('Failed to load ANR details:', err);
+        setError('Failed to load ANR details. It may have been deleted or moved.');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchANR();
+  }, [anrId, currentProject, contextLoading]);
+
+  const threadState = anr?.threadState || anr?.fullReport?.threadState || '';
+  const deviceMeta = anr?.deviceMetadata || anr?.fullReport?.deviceInfo || {};
+
+  const handleCopyStack = () => {
+    if (!threadState) return;
+    navigator.clipboard.writeText(threadState);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  const handleDownloadStack = () => {
+    if (!threadState || !anr?.id) return;
+
+    const blob = new Blob([threadState], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `anr-trace-${anr.id}-${Date.now()}.txt`;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const statusVariant = useMemo(() => getStatusVariant(anr?.status), [anr?.status]);
+
+  if (loading || contextLoading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-transparent">
+        <div className="text-2xl font-semibold uppercase tracking-tight animate-pulse">Loading ANR analysis...</div>
+      </div>
+    );
+  }
+
+  if (error || !anr) {
+    return (
+      <div className="min-h-screen bg-transparent pb-8">
+        <DashboardPageHeader
+          title="ANR Root Cause"
+          subtitle="Deep ANR analysis"
+          icon={<Clock className="h-5 w-5" />}
+          iconColor="bg-violet-50"
+        />
+        <div className="mx-auto w-full max-w-[960px] px-6 pt-8">
+          <NeoCard variant="flat" className="p-8 text-center">
+            <AlertTriangle className="mx-auto mb-3 h-10 w-10 text-violet-500" />
+            <p className="text-lg font-semibold text-slate-900">{error || 'ANR not found.'}</p>
+            <NeoButton variant="primary" className="mt-5" onClick={() => navigate(`${pathPrefix}/stability/anrs`)}>
+              Back to ANRs
+            </NeoButton>
+          </NeoCard>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-transparent pb-8">
+      <DashboardPageHeader
+        title="ANR Root Cause"
+        subtitle="Inspect main-thread freeze signatures and replay context"
+        icon={<Clock className="h-5 w-5" />}
+        iconColor="bg-violet-50"
+      >
+        <NeoButton
+          variant="secondary"
+          size="sm"
+          leftIcon={<ArrowLeft size={14} />}
+          onClick={() => navigate(`${pathPrefix}/stability/anrs`)}
+        >
+          Back to ANRs
+        </NeoButton>
+        <NeoButton
+          variant="primary"
+          size="sm"
+          leftIcon={<Play size={14} />}
+          onClick={() => navigate(`${pathPrefix}/sessions/${anr.sessionId}`)}
+        >
+          Replay Session
+        </NeoButton>
+      </DashboardPageHeader>
+
+      <div className="mx-auto w-full max-w-[1800px] space-y-4 px-6 pt-6">
+        <NeoCard variant="flat" className="p-5">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+            <div className="min-w-0">
+              <div className="mb-2 flex flex-wrap items-center gap-2">
+                <NeoBadge variant={statusVariant} size="sm">
+                  {anr.status || 'unknown'}
+                </NeoBadge>
+                <NeoBadge variant="anr" size="sm">
+                  app not responding
+                </NeoBadge>
+              </div>
+              <h2 className="truncate text-xl font-semibold text-slate-900 md:text-2xl">Main Thread Blocked</h2>
+              <p className="mt-2 text-sm text-slate-600">
+                Freeze duration: <span className="font-semibold text-violet-700">{anr.durationMs}ms</span>
+              </p>
+            </div>
+
+            <div className="grid w-full max-w-md grid-cols-2 gap-2">
+              <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Duration</p>
+                <p className="mt-1 text-xs font-semibold text-slate-800">{(anr.durationMs / 1000).toFixed(2)}s</p>
+              </div>
+              <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Occurred At</p>
+                <p className="mt-1 text-xs font-semibold text-slate-800">{new Date(anr.timestamp).toLocaleString()}</p>
+              </div>
+            </div>
+          </div>
+        </NeoCard>
+
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-12">
+          <div className="space-y-4 lg:col-span-8">
+            <NeoCard variant="flat" disablePadding className="overflow-hidden">
+              <div className="flex flex-col gap-3 border-b border-slate-200 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+                <h3 className="flex items-center gap-2 text-sm font-semibold text-slate-800">
+                  <Activity className="h-4 w-4 text-violet-500" />
+                  Main Thread Snapshot
+                </h3>
+                <div className="flex items-center gap-2">
+                  <NeoButton
+                    variant="ghost"
+                    size="sm"
+                    leftIcon={copied ? <Check size={14} /> : <Copy size={14} />}
+                    onClick={handleCopyStack}
+                    disabled={!threadState}
+                  >
+                    {copied ? 'Copied' : 'Copy'}
+                  </NeoButton>
+                  <NeoButton
+                    variant="ghost"
+                    size="sm"
+                    leftIcon={<Download size={14} />}
+                    onClick={handleDownloadStack}
+                    disabled={!threadState}
+                  >
+                    Download
+                  </NeoButton>
+                </div>
+              </div>
+
+              {threadState ? (
+                <pre className="max-h-[560px] overflow-auto bg-slate-950 p-5 font-mono text-xs leading-relaxed text-violet-200">
+                  {threadState}
+                </pre>
+              ) : (
+                <div className="p-8 text-center text-sm text-slate-500">No main-thread snapshot was captured.</div>
+              )}
+            </NeoCard>
+
+            <NeoCard variant="flat" className="border-violet-200 bg-violet-50 p-4">
+              <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-violet-700">
+                <Sparkles size={14} />
+                Root Cause Playbook
+              </p>
+              <div className="mt-3 space-y-2 text-xs leading-relaxed text-violet-700/90">
+                <p>1. Locate synchronous calls and long loops at the top of this snapshot.</p>
+                <p>2. Compare freeze timing with user actions in replay to identify trigger paths.</p>
+                <p>3. Confirm whether the same code path appears across multiple ANR reports.</p>
+              </div>
+            </NeoCard>
+          </div>
+
+          <div className="space-y-4 lg:col-span-4">
+            <NeoCard variant="flat" className="p-4">
+              <p className="mb-3 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-600">
+                <Smartphone size={14} className="text-slate-500" />
+                Device Context
+              </p>
+              <div className="space-y-3 text-sm">
+                <div>
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Model</p>
+                  <p className="mt-1 font-semibold text-slate-800">
+                    {deviceMeta.model || deviceMeta.manufacturer || 'Unknown device'}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">OS</p>
+                  <p className="mt-1 font-semibold text-slate-800">
+                    {deviceMeta.systemName || 'Unknown'} {deviceMeta.systemVersion || deviceMeta.osVersion || ''}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">SDK Level</p>
+                  <p className="mt-1 font-semibold text-slate-800">{deviceMeta.sdkInt || 'N/A'}</p>
+                </div>
+              </div>
+            </NeoCard>
+
+            <NeoCard variant="flat" className="p-4">
+              <p className="mb-3 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-600">
+                <Server size={14} className="text-slate-500" />
+                Event Identifiers
+              </p>
+              <div className="space-y-3 text-sm">
+                <div>
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Session ID</p>
+                  <p className="mt-1 break-all font-mono text-xs text-slate-700">{anr.sessionId}</p>
+                </div>
+                <div>
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">ANR ID</p>
+                  <p className="mt-1 break-all font-mono text-xs text-slate-700">{anr.id}</p>
+                </div>
+                <div>
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Timestamp</p>
+                  <p className="mt-1 flex items-center gap-1 text-xs text-slate-700">
+                    <Calendar size={12} className="text-slate-400" />
+                    {new Date(anr.timestamp).toLocaleString()}
+                  </p>
+                </div>
+              </div>
+            </NeoCard>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export default ANRDetail;

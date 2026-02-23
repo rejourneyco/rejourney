@@ -68,6 +68,12 @@ spec:
                   name: stripe-secret
                   key: VITE_STRIPE_PUBLISHABLE_KEY
                   optional: true
+            - name: VITE_MAPBOX_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: mapbox-secret
+                  key: VITE_MAPBOX_TOKEN
+                  optional: true
           resources:
             requests:
               cpu: 50m

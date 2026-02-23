@@ -35,6 +35,11 @@
     --ring: 205 70% 63%;
 
     --radius: 0.75rem;
+
+    /* Dashboard surface tokens (GA-like neutral canvas) */
+    --dashboard-canvas: #f5f6f8;
+    --dashboard-canvas-soft: #f5f6f8;
+    --dashboard-card-border: #dadce0;
   }
 
   .dark {
@@ -74,7 +79,8 @@
   }
 
   body {
-    @apply bg-slate-50 text-foreground antialiased;
+    @apply text-foreground antialiased;
+    background-color: var(--dashboard-canvas);
     font-family: 'Outfit', sans-serif;
     font-feature-settings: "rlig" 1, "calt" 1;
   }
@@ -286,13 +292,26 @@
 
 /* Unified dashboard shell theme */
 .dashboard-shell {
-  background-color: #f8fafc;
-  background-image: radial-gradient(#cbd5e1 1px, transparent 1px);
-  background-size: 24px 24px;
+  background-color: var(--dashboard-canvas);
 }
 
 .dashboard-content {
-  background: transparent;
+  background-color: var(--dashboard-canvas) !important;
+  background-image: none !important;
+}
+
+/* Keep inner dashboard route wrappers from introducing conflicting page backgrounds. */
+.dashboard-content .min-h-screen {
+  background-color: transparent !important;
+  background-image: none !important;
+}
+
+/* Reusable card surface for dashboard pages/charts */
+.dashboard-card-surface {
+  background: #ffffff;
+  border: 1px solid var(--dashboard-card-border);
+  border-radius: 0.75rem;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
 }
 
 .dashboard-sidebar {
@@ -338,87 +357,4 @@
 
 .dashboard-modern [class*="border-blue-300"] {
   border-color: #bfdef4 !important;
-}
-
-/* Dashboard-wide style normalization:
-   Softens older neo-brutal utility styling without rewriting every page. */
-.dashboard-modern {
-  --dashboard-border-soft: #000000;
-  --dashboard-shadow-soft: 4px 4px 0px 0px rgba(0, 0, 0, 1);
-}
-
-.dashboard-modern .rounded-xl.border.bg-white,
-.dashboard-modern .rounded-lg.border.bg-white,
-.dashboard-modern .rounded-md.border.bg-white,
-.dashboard-modern .card {
-  border: 2px solid #000 !important;
-  box-shadow: 4px 4px 0px 0px rgba(0, 0, 0, 1) !important;
-  border-radius: 8px !important;
-  transition: all 0.2s ease-in-out;
-}
-
-.dashboard-modern .rounded-xl.border.bg-white:hover,
-.dashboard-modern .rounded-lg.border.bg-white:hover,
-.dashboard-modern .card:hover {
-  transform: translate(-2px, -2px);
-  box-shadow: 6px 6px 0px 0px rgba(0, 0, 0, 1) !important;
-}
-
-.dashboard-modern [class*="bg-blue-600"] {
-  background-color: #3b82f6 !important;
-  /* Revert to standard vibrant blue or custom */
-  border: 2px solid #000 !important;
-  box-shadow: 2px 2px 0px 0px rgba(0, 0, 0, 1);
-}
-
-.dashboard-modern [class*="bg-blue-600"]:hover {
-  background-color: #2563eb !important;
-  box-shadow: 4px 4px 0px 0px rgba(0, 0, 0, 1);
-  transform: translate(-1px, -1px);
-}
-
-/* Force borders on inputs */
-.dashboard-modern input,
-.dashboard-modern select,
-.dashboard-modern textarea {
-  border: 2px solid #000 !important;
-  border-radius: 6px !important;
-  box-shadow: 2px 2px 0px 0px rgba(0, 0, 0, 0.1);
-}
-
-.dashboard-modern input:focus,
-.dashboard-modern select:focus,
-.dashboard-modern textarea:focus {
-  outline: none;
-  box-shadow: 4px 4px 0px 0px rgba(0, 0, 0, 1) !important;
-  transform: translate(-1px, -1px);
-}
-
-/* Buttons inside dashboard */
-.dashboard-modern button.bg-primary,
-.dashboard-modern button.bg-black,
-.dashboard-modern button.text-white {
-  border: 2px solid #000 !important;
-  box-shadow: 3px 3px 0px 0px rgba(0, 0, 0, 1);
-  font-weight: 700 !important;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-}
-
-.dashboard-modern button:active {
-  transform: translate(2px, 2px);
-  box-shadow: 1px 1px 0px 0px rgba(0, 0, 0, 1) !important;
-}
-
-.dashboard-modern [class*="border"] {
-  border-color: #000;
-}
-
-/* Ensure shadows are hard */
-.dashboard-modern .shadow-sm,
-.dashboard-modern .shadow-md,
-.dashboard-modern .shadow-lg,
-.dashboard-modern .shadow-xl,
-.dashboard-modern .shadow-2xl {
-  box-shadow: 4px 4px 0px 0px rgba(0, 0, 0, 1) !important;
 }

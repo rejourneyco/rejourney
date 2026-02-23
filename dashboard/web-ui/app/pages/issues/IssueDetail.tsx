@@ -39,6 +39,7 @@ export const IssueDetail: React.FC = () => {
     const [sessions, setSessions] = useState<IssueSession[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
+    const [partialError, setPartialError] = useState<string | null>(null);
     const [copied, setCopied] = useState(false);
 
     const currentProject = issue ? projects.find(p => p.id === issue.projectId) : null;
@@ -48,15 +49,34 @@ export const IssueDetail: React.FC = () => {
 
         const fetchIssue = async () => {
             setLoading(true);
+            setError(null);
+            setPartialError(null);
             try {
-                const [issueData, sessionsData] = await Promise.all([
+                const [issueData, sessionsData] = await Promise.allSettled([
                     api.getIssue(issueId),
                     api.getIssueSessions(issueId, 6)
                 ]);
-                setIssue(issueData);
-                setSessions(sessionsData.sessions || []);
-            } catch (err: any) {
+
+                if (issueData.status === 'fulfilled') {
+                    setIssue(issueData.value);
+                } else {
+                    console.error("Failed to load issue details:", issueData.reason);
+                    setIssue(null);
+                    setSessions([]);
+                    setError("Failed to load issue details. It might be deleted or you don't have access.");
+                    return;
+                }
+
+                if (sessionsData.status === 'fulfilled') {
+                    setSessions(sessionsData.value.sessions || []);
+                } else {
+                    setSessions([]);
+                    setPartialError('Related sessions could not be loaded. Core issue details are still available.');
+                }
+            } catch (err: unknown) {
                 console.error("Failed to load issue details:", err);
+                setIssue(null);
+                setSessions([]);
                 setError("Failed to load issue details. It might be deleted or you don't have access.");
             } finally {
                 setLoading(false);
@@ -120,7 +140,7 @@ export const IssueDetail: React.FC = () => {
     if (loading) {
         return (
             <div className="flex flex-col items-center justify-center min-h-[50vh]">
-                <div className="text-2xl font-black uppercase animate-pulse">Loading Issue...</div>
+                <div className="text-2xl font-semibold uppercase animate-pulse">Loading Issue...</div>
             </div>
         );
     }
@@ -129,23 +149,23 @@ export const IssueDetail: React.FC = () => {
         return (
             <div className="flex flex-col items-center justify-center min-h-[50vh] gap-6">
                 <AlertTriangle className="w-16 h-16 text-red-500" />
-                <div className="text-xl font-black text-red-600 uppercase">{error || 'Issue not found'}</div>
-                <NeoButton onClick={() => navigate(`${pathPrefix}/issues`)}>
-                    <ArrowLeft size={16} className="mr-2" /> Back to Issues
+                <div className="text-xl font-semibold text-red-600 uppercase">{error || 'Issue not found'}</div>
+                <NeoButton onClick={() => navigate(`${pathPrefix}/general`)}>
+                    <ArrowLeft size={16} className="mr-2" /> Back to General
                 </NeoButton>
             </div>
         );
     }
 
     return (
-        <div className="min-h-screen bg-slate-50 p-6 md:p-12 font-sans">
+        <div className="min-h-screen p-6 md:p-12 font-sans bg-transparent">
             <div className="max-w-[1800px] mx-auto space-y-8">
                 {/* Navigation */}
                 <button
-                    onClick={() => navigate(`${pathPrefix}/issues`)}
-                    className="flex items-center gap-2 text-sm font-black uppercase text-slate-500 hover:text-black transition-colors"
+                    onClick={() => navigate(`${pathPrefix}/general`)}
+                    className="flex items-center gap-2 text-sm font-semibold uppercase text-slate-500 hover:text-slate-900 transition-colors"
                 >
-                    <ArrowLeft className="w-4 h-4" /> Back to Issues
+                    <ArrowLeft className="w-4 h-4" /> Back to General
                 </button>
 
 
@@ -184,25 +204,31 @@ export const IssueDetail: React.FC = () => {
                     }
                 />
 
+                {partialError && (
+                    <div className="rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                        {partialError}
+                    </div>
+                )}
+
                 {/* Stats Grid */}
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
-                    <NeoCard variant="flat" className="p-4 border-2 border-black">
+                    <NeoCard variant="flat" className="p-4 border border-slate-100/80">
                         <div className="flex items-center gap-2 text-slate-500 mb-2">
                             <Activity size={14} />
                             <span className="text-xs font-bold uppercase">Events</span>
                         </div>
-                        <div className="text-2xl font-black">{issue.eventCount.toLocaleString()}</div>
+                        <div className="text-2xl font-semibold">{issue.eventCount.toLocaleString()}</div>
                     </NeoCard>
 
-                    <NeoCard variant="flat" className="p-4 border-2 border-black">
+                    <NeoCard variant="flat" className="p-4 border border-slate-100/80">
                         <div className="flex items-center gap-2 text-slate-500 mb-2">
                             <Users size={14} />
                             <span className="text-xs font-bold uppercase">Users</span>
                         </div>
-                        <div className="text-2xl font-black">{issue.userCount.toLocaleString()}</div>
+                        <div className="text-2xl font-semibold">{issue.userCount.toLocaleString()}</div>
                     </NeoCard>
 
-                    <NeoCard variant="flat" className="p-4 border-2 border-black">
+                    <NeoCard variant="flat" className="p-4 border border-slate-100/80">
                         <div className="flex items-center gap-2 text-slate-500 mb-2">
                             <Calendar size={14} />
                             <span className="text-xs font-bold uppercase">First Seen</span>
@@ -210,7 +236,7 @@ export const IssueDetail: React.FC = () => {
                         <div className="text-sm font-bold">{new Date(issue.firstSeen).toLocaleDateString()}</div>
                     </NeoCard>
 
-                    <NeoCard variant="flat" className="p-4 border-2 border-black">
+                    <NeoCard variant="flat" className="p-4 border border-slate-100/80">
                         <div className="flex items-center gap-2 text-slate-500 mb-2">
                             <Clock size={14} />
                             <span className="text-xs font-bold uppercase">Last Seen</span>
@@ -222,31 +248,31 @@ export const IssueDetail: React.FC = () => {
                 {/* Stack Trace - Prominent Display for Crash/Error/ANR */}
                 {(issue.issueType === 'crash' || issue.issueType === 'error' || issue.issueType === 'anr') && issue.sampleStackTrace && (
                     <div className="mb-8">
-                        <div className="bg-white border-2 border-black shadow-[8px_8px_0_0_rgba(0,0,0,1)] p-6">
+                        <div className="bg-white border border-slate-100/80 shadow-[8px_8px_0_0_rgba(0,0,0,1)] p-6">
                             <div className="flex items-center justify-between mb-4 border-b-2 border-slate-100 pb-4">
                                 <div className="flex items-center gap-2">
-                                    <Activity className="w-5 h-5 text-black" />
-                                    <h2 className="text-xl font-black uppercase text-slate-900">
+                                    <Activity className="w-5 h-5 text-slate-900" />
+                                    <h2 className="text-xl font-semibold uppercase text-slate-900">
                                         {issue.issueType === 'anr' ? 'Main Thread State' : 'Stack Trace'}
                                     </h2>
                                 </div>
                                 <button
                                     onClick={handleCopyStack}
-                                    className="flex items-center gap-2 px-3 py-1.5 text-xs font-black uppercase border-2 border-slate-200 hover:border-black hover:bg-slate-50 transition-all"
+                                    className="flex items-center gap-2 px-3 py-1.5 text-xs font-semibold uppercase border-2 border-slate-200 hover:border-slate-100/80 hover:bg-slate-50 transition-all"
                                 >
                                     {copied ? <Check className="w-3 h-3 text-green-600" /> : <Copy className="w-3 h-3" />}
                                     {copied ? 'Copied to Clipboard' : 'Copy Trace'}
                                 </button>
                                 <button
                                     onClick={handleDownloadStack}
-                                    className="flex items-center gap-2 px-3 py-1.5 text-xs font-black uppercase border-2 border-slate-200 hover:border-black hover:bg-slate-50 transition-all ml-2"
+                                    className="flex items-center gap-2 px-3 py-1.5 text-xs font-semibold uppercase border-2 border-slate-200 hover:border-slate-100/80 hover:bg-slate-50 transition-all ml-2"
                                 >
                                     <Download className="w-3 h-3" />
                                     Download Trace
                                 </button>
                             </div>
 
-                            <div className="bg-slate-900 text-green-400 p-6 font-mono text-xs overflow-x-auto whitespace-pre border-2 border-black shadow-inner min-h-[400px] leading-relaxed">
+                            <div className="bg-slate-900 text-green-400 p-6 font-mono text-xs overflow-x-auto whitespace-pre border border-slate-100/80 shadow-inner min-h-[400px] leading-relaxed">
                                 {issue.sampleStackTrace || "No stack trace available for this issue."}
                             </div>
 
@@ -270,8 +296,8 @@ export const IssueDetail: React.FC = () => {
                     {/* Left Column - Details */}
                     <div className="space-y-6">
                         {/* Affected Devices & Versions */}
-                        <NeoCard variant="flat" className="p-6 border-2 border-black">
-                            <h3 className="text-sm font-black uppercase tracking-wider mb-4">Diagnostic Context</h3>
+                        <NeoCard variant="flat" className="p-6 border border-slate-100/80">
+                            <h3 className="text-sm font-semibold uppercase tracking-wider mb-4">Diagnostic Context</h3>
 
                             <div className="grid grid-cols-2 gap-6">
                                 {/* Affected Devices */}
@@ -285,7 +311,7 @@ export const IssueDetail: React.FC = () => {
                                                 .map(([device, count]) => (
                                                     <div key={device} className="flex justify-between items-center text-sm">
                                                         <span className="font-medium truncate max-w-[120px]">{device}</span>
-                                                        <span className="font-mono text-xs bg-slate-100 px-2 py-0.5 border border-black">{count}</span>
+                                                        <span className="font-mono text-xs bg-slate-100 px-2 py-0.5 border border-slate-100/80">{count}</span>
                                                     </div>
                                                 ))
                                         ) : (
@@ -305,7 +331,7 @@ export const IssueDetail: React.FC = () => {
                                                 .map(([version, count]) => (
                                                     <div key={version} className="flex justify-between items-center text-sm">
                                                         <span className="font-medium">{version}</span>
-                                                        <span className="font-mono text-xs bg-slate-100 px-2 py-0.5 border border-black">{count}</span>
+                                                        <span className="font-mono text-xs bg-slate-100 px-2 py-0.5 border border-slate-100/80">{count}</span>
                                                     </div>
                                                 ))
                                         ) : (
@@ -318,8 +344,8 @@ export const IssueDetail: React.FC = () => {
 
                         {/* Sample Device Info */}
                         {(issue.sampleDeviceModel || issue.sampleOsVersion || issue.sampleAppVersion) && (
-                            <NeoCard variant="flat" className="p-6 border-2 border-black">
-                                <h3 className="text-sm font-black uppercase tracking-wider mb-4">Sample Device</h3>
+                            <NeoCard variant="flat" className="p-6 border border-slate-100/80">
+                                <h3 className="text-sm font-semibold uppercase tracking-wider mb-4">Sample Device</h3>
                                 <div className="flex items-center gap-3">
                                     <Smartphone size={24} className="text-slate-400" />
                                     <div>
@@ -338,8 +364,8 @@ export const IssueDetail: React.FC = () => {
                     {/* Right Column - Sessions & Events */}
                     <div className="space-y-6">
                         {/* Related Sessions */}
-                        <NeoCard variant="flat" className="p-6 border-2 border-black">
-                            <h3 className="text-sm font-black uppercase tracking-wider mb-4">Related Sessions</h3>
+                        <NeoCard variant="flat" className="p-6 border border-slate-100/80">
+                            <h3 className="text-sm font-semibold uppercase tracking-wider mb-4">Related Sessions</h3>
 
                             {sessions.length > 0 ? (
                                 <div className="flex gap-4 overflow-x-auto pb-4">
@@ -361,8 +387,8 @@ export const IssueDetail: React.FC = () => {
 
                         {/* Recent Events */}
                         {issue.recentEvents && issue.recentEvents.length > 0 && (
-                            <NeoCard variant="flat" className="p-6 border-2 border-black">
-                                <h3 className="text-sm font-black uppercase tracking-wider mb-4">Recent Occurrences</h3>
+                            <NeoCard variant="flat" className="p-6 border border-slate-100/80">
+                                <h3 className="text-sm font-semibold uppercase tracking-wider mb-4">Recent Occurrences</h3>
 
                                 <div className="space-y-3 max-h-96 overflow-y-auto">
                                     {issue.recentEvents.map((event) => (

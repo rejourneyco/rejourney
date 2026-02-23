@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { Link } from 'react-router';
+import { AnimatePresence, motion } from 'framer-motion';
 
 export interface SankeyFlow {
     from: string;
@@ -9,6 +10,18 @@ export interface SankeyFlow {
     anrCount: number;
     apiErrorRate: number;
     rageTapCount: number;
+    apiErrors?: number;
+    avgApiLatencyMs?: number;
+    health?: 'healthy' | 'degraded' | 'problematic';
+    replayCount?: number;
+    sampleSessionIds?: string[];
+}
+
+export interface SankeyEvidenceSession {
+    sessionId: string;
+    source: string;
+    signal: string;
+    priority?: 'high' | 'medium' | 'low';
 }
 
 interface SankeyNode {
@@ -37,11 +50,66 @@ interface SankeyJourneyProps {
     width?: number;
     height?: number;
     happyPath?: string[] | null;
+    sessionPathPrefix?: string;
+    transitionEvidence?: Record<string, SankeyEvidenceSession[]>;
+    maxEvidenceRows?: number;
 }
 
-export const SankeyJourney: React.FC<SankeyJourneyProps> = ({ flows, width: propWidth, height = 500, happyPath }) => {
+const PRIORITY_RANK: Record<'high' | 'medium' | 'low', number> = {
+    high: 3,
+    medium: 2,
+    low: 1,
+};
+
+const deriveEvidencePriority = (flow: SankeyFlow): 'high' | 'medium' | 'low' => {
+    if (flow.crashCount > 0 || flow.anrCount > 0) return 'high';
+    if (flow.apiErrorRate >= 5 || flow.rageTapCount >= 2) return 'medium';
+    return 'low';
+};
+
+const deriveEvidenceSignal = (flow: SankeyFlow): string => {
+    if (flow.crashCount > 0 || flow.anrCount > 0) {
+        return `${flow.crashCount} crashes / ${flow.anrCount} ANRs`;
+    }
+    if (flow.apiErrorRate >= 5) {
+        return `${flow.apiErrorRate.toFixed(1)}% API error rate`;
+    }
+    if (flow.rageTapCount > 0) {
+        return `${flow.rageTapCount} rage taps`;
+    }
+    return 'Traffic sample';
+};
+
+const normalizeEvidenceRow = (row: SankeyEvidenceSession, fallbackSignal: string): SankeyEvidenceSession => {
+    const source = row.source?.trim() || 'Journey evidence';
+    const signal = row.signal?.trim() || fallbackSignal;
+    return {
+        sessionId: row.sessionId,
+        source,
+        signal,
+        priority: row.priority || 'medium',
+    };
+};
+
+const formatCompact = (value: number): string => {
+    if (!Number.isFinite(value)) return '0';
+    if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`;
+    if (value >= 1_000) return `${(value / 1_000).toFixed(1)}k`;
+    return value.toLocaleString();
+};
+
+export const SankeyJourney: React.FC<SankeyJourneyProps> = ({
+    flows,
+    width: propWidth,
+    height = 500,
+    happyPath,
+    sessionPathPrefix,
+    transitionEvidence = {},
+    maxEvidenceRows = 8,
+}) => {
     const [hoveredLinkId, setHoveredLinkId] = useState<string | null>(null);
     const [hoveredNode, setHoveredNode] = useState<string | null>(null);
+    const [selectedLinkId, setSelectedLinkId] = useState<string | null>(null);
 
     const happyTransitionSet = useMemo(() => {
         const transitions = new Set<string>();
@@ -70,7 +138,6 @@ export const SankeyJourney: React.FC<SankeyJourneyProps> = ({ flows, width: prop
             connections.get(flow.from)!.add(flow.to);
         });
 
-        // Assign levels with BFS so flows run left-to-right.
         const levels = new Map<string, number>();
         const queue: string[] = [];
         const allNodes = Array.from(nodeMap.keys());
@@ -161,6 +228,53 @@ export const SankeyJourney: React.FC<SankeyJourneyProps> = ({ flows, width: prop
         return { nodes: sankeyNodes, links: sankeyLinks, nodeLookup, calculatedWidth };
     }, [flows, propWidth, height]);
 
+    const evidenceByLink = useMemo(() => {
+        const evidenceMap = new Map<string, SankeyEvidenceSession[]>();
+
+        for (const link of links) {
+            const rows: SankeyEvidenceSession[] = [];
+            const flowSignal = deriveEvidenceSignal(link.data);
+            const flowPriority = deriveEvidencePriority(link.data);
+
+            for (const sessionId of link.data.sampleSessionIds || []) {
+                rows.push({
+                    sessionId,
+                    source: 'Flow sample',
+                    signal: flowSignal,
+                    priority: flowPriority,
+                });
+            }
+
+            for (const extraRow of transitionEvidence[link.id] || []) {
+                rows.push(normalizeEvidenceRow(extraRow, flowSignal));
+            }
+
+            const deduped = new Map<string, SankeyEvidenceSession>();
+            for (const row of rows) {
+                if (!row.sessionId) continue;
+                const existing = deduped.get(row.sessionId);
+                if (!existing) {
+                    deduped.set(row.sessionId, row);
+                    continue;
+                }
+
+                const existingPriority = PRIORITY_RANK[existing.priority || 'low'];
+                const nextPriority = PRIORITY_RANK[row.priority || 'low'];
+                if (nextPriority >= existingPriority) {
+                    deduped.set(row.sessionId, row);
+                }
+            }
+
+            const compactRows = Array.from(deduped.values())
+                .sort((a, b) => PRIORITY_RANK[b.priority || 'low'] - PRIORITY_RANK[a.priority || 'low'])
+                .slice(0, maxEvidenceRows);
+
+            evidenceMap.set(link.id, compactRows);
+        }
+
+        return evidenceMap;
+    }, [links, transitionEvidence, maxEvidenceRows]);
+
     if (nodes.length === 0) {
         return (
             <div className="w-full h-80 flex items-center justify-center bg-slate-50 rounded-xl border border-slate-200">
@@ -191,7 +305,20 @@ export const SankeyJourney: React.FC<SankeyJourneyProps> = ({ flows, width: prop
         return isHovered ? 'rgba(37, 99, 235, 0.72)' : 'rgba(37, 99, 235, 0.24)';
     };
 
-    const activeLink = hoveredLinkId ? links.find((link) => link.id === hoveredLinkId) || null : null;
+    const selectedLink = selectedLinkId ? links.find((link) => link.id === selectedLinkId) || null : null;
+    const hoveredLink = hoveredLinkId ? links.find((link) => link.id === hoveredLinkId) || null : null;
+    const activeLink = selectedLink || hoveredLink;
+    const hasPinnedDetails = Boolean(selectedLink);
+    const activeEvidenceRows = activeLink ? evidenceByLink.get(activeLink.id) || [] : [];
+
+    const sourceLevel = activeLink ? nodeLookup.get(activeLink.source)?.level || 0 : 0;
+    const targetLevel = activeLink ? nodeLookup.get(activeLink.target)?.level || 0 : 0;
+    const rawLeftPct = maxLevel > 0 ? (((sourceLevel + targetLevel) / 2) / maxLevel) * 100 : 50;
+    const popupLeftPct = Math.max(10, Math.min(88, rawLeftPct));
+    const rawTopPct = activeLink ? ((activeLink.ySource + activeLink.yTarget) / 2 / height) * 100 : 50;
+    const popupTopPct = Math.max(10, Math.min(88, rawTopPct));
+
+    const canLinkToReplays = Boolean(sessionPathPrefix);
 
     return (
         <div className="relative rounded-2xl border border-slate-200 bg-gradient-to-b from-white via-white to-slate-50/60 shadow-sm overflow-hidden">
@@ -200,11 +327,14 @@ export const SankeyJourney: React.FC<SankeyJourneyProps> = ({ flows, width: prop
                     Flow map by transition volume
                 </div>
                 <div className="text-xs text-slate-500">
-                    Green links represent your configured happy path.
+                    Green links represent your configured happy path. Click any path for evidence sessions.
                 </div>
             </div>
 
-            <div className="relative overflow-x-auto p-4">
+            <div
+                className="relative overflow-x-auto p-4"
+                onClick={() => setSelectedLinkId(null)}
+            >
                 <div className="absolute inset-0 pointer-events-none opacity-25" style={{
                     backgroundImage: 'linear-gradient(to right, rgba(148,163,184,0.16) 1px, transparent 1px), linear-gradient(to bottom, rgba(148,163,184,0.16) 1px, transparent 1px)',
                     backgroundSize: '28px 28px',
@@ -221,8 +351,9 @@ export const SankeyJourney: React.FC<SankeyJourneyProps> = ({ flows, width: prop
                             const cp1x = xStart + (xEnd - xStart) * 0.42;
                             const cp2x = xEnd - (xEnd - xStart) * 0.42;
 
-                            const isHovered = hoveredLinkId === link.id || hoveredNode === link.source || hoveredNode === link.target;
-                            const isOther = (hoveredLinkId || hoveredNode) && !isHovered;
+                            const isSelected = selectedLinkId === link.id;
+                            const isHovered = hoveredLinkId === link.id || hoveredNode === link.source || hoveredNode === link.target || isSelected;
+                            const isOther = (hoveredLinkId || hoveredNode || selectedLinkId) && !isHovered;
 
                             return (
                                 <motion.path
@@ -241,6 +372,10 @@ export const SankeyJourney: React.FC<SankeyJourneyProps> = ({ flows, width: prop
                                     transition={{ duration: 0.55, delay: index * 0.018 }}
                                     onMouseEnter={() => setHoveredLinkId(link.id)}
                                     onMouseLeave={() => setHoveredLinkId(null)}
+                                    onClick={(event) => {
+                                        event.stopPropagation();
+                                        setSelectedLinkId((current) => (current === link.id ? null : link.id));
+                                    }}
                                     className="cursor-pointer"
                                     style={{ filter: isHovered ? 'drop-shadow(0 3px 6px rgba(15,23,42,0.14))' : 'none' }}
                                 />
@@ -253,7 +388,7 @@ export const SankeyJourney: React.FC<SankeyJourneyProps> = ({ flows, width: prop
                             const x = padding + node.level * levelSpacing;
                             const transitionHover = activeLink && (activeLink.source === node.id || activeLink.target === node.id);
                             const isHovered = hoveredNode === node.id || Boolean(transitionHover);
-                            const isOther = (hoveredLinkId || hoveredNode) && !isHovered;
+                            const isOther = (hoveredLinkId || hoveredNode || selectedLinkId) && !isHovered;
                             const isHappyNode = happyNodeSet.has(node.id);
 
                             return (
@@ -308,19 +443,94 @@ export const SankeyJourney: React.FC<SankeyJourneyProps> = ({ flows, width: prop
                             initial={{ opacity: 0, y: 5 }}
                             animate={{ opacity: 1, y: 0 }}
                             exit={{ opacity: 0, y: 5 }}
-                            className="absolute bg-white rounded-lg shadow-lg border border-slate-200 p-3 text-xs pointer-events-none z-20"
+                            className={`absolute bg-white rounded-lg shadow-lg border border-slate-200 p-3 text-xs z-20 ${hasPinnedDetails ? 'pointer-events-auto w-[420px]' : 'pointer-events-none w-[260px]'}`}
                             style={{
-                                left: `calc(${((nodeLookup.get(activeLink.source)?.level || 0) + (nodeLookup.get(activeLink.target)?.level || 0)) / 2 / Math.max(...nodes.map((node) => node.level), 1) * 100}% + 42px)`,
-                                top: `${(activeLink.ySource + activeLink.yTarget) / 2 / height * 100}%`,
+                                left: `calc(${popupLeftPct}% + 42px)`,
+                                top: `${popupTopPct}%`,
                                 transform: 'translate(-50%, -50%)',
                             }}
+                            onClick={(event) => event.stopPropagation()}
                         >
-                            <div className="font-semibold text-slate-800 mb-1">{activeLink.value.toLocaleString()} sessions</div>
-                            <div className="text-slate-600">{activeLink.source} → {activeLink.target}</div>
-                            <div className="mt-1 text-slate-500">{activeLink.data.apiErrorRate.toFixed(1)}% API error rate</div>
-                            {activeLink.data.crashCount > 0 && <div className="text-red-600 mt-1">{activeLink.data.crashCount} crashes</div>}
-                            {activeLink.data.anrCount > 0 && <div className="text-red-600">{activeLink.data.anrCount} ANRs</div>}
-                            {activeLink.data.rageTapCount > 0 && <div className="text-rose-600">{activeLink.data.rageTapCount} rage taps</div>}
+                            <div className="flex items-start justify-between gap-2">
+                                <div>
+                                    <div className="font-semibold text-slate-800 mb-0.5">{formatCompact(activeLink.value)} sessions</div>
+                                    <div className="text-slate-600">{activeLink.source} → {activeLink.target}</div>
+                                </div>
+                                {hasPinnedDetails && (
+                                    <button
+                                        type="button"
+                                        className="rounded border border-slate-200 px-1.5 py-0.5 text-[10px] font-semibold text-slate-600 hover:bg-slate-50"
+                                        onClick={() => setSelectedLinkId(null)}
+                                    >
+                                        Close
+                                    </button>
+                                )}
+                            </div>
+
+                            <div className="mt-2 grid grid-cols-2 gap-1.5 text-[10px]">
+                                <div className="rounded border border-slate-200 bg-slate-50 px-2 py-1 text-slate-700">
+                                    API err: <span className="font-semibold">{activeLink.data.apiErrorRate.toFixed(1)}%</span>
+                                </div>
+                                <div className="rounded border border-slate-200 bg-slate-50 px-2 py-1 text-slate-700">
+                                    Replays: <span className="font-semibold">{(activeLink.data.replayCount || 0).toLocaleString()}</span>
+                                </div>
+                                <div className="rounded border border-slate-200 bg-slate-50 px-2 py-1 text-rose-700">
+                                    Crashes/ANR: <span className="font-semibold">{activeLink.data.crashCount + activeLink.data.anrCount}</span>
+                                </div>
+                                <div className="rounded border border-slate-200 bg-slate-50 px-2 py-1 text-rose-700">
+                                    Rage taps: <span className="font-semibold">{activeLink.data.rageTapCount.toLocaleString()}</span>
+                                </div>
+                            </div>
+
+                            {!hasPinnedDetails && (
+                                <div className="mt-2 text-[10px] text-slate-500">
+                                    Click this path to inspect a compact evidence table with replay sessions.
+                                </div>
+                            )}
+
+                            {hasPinnedDetails && (
+                                <div className="mt-2">
+                                    <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-slate-500">Evidence Sessions</div>
+                                    <div className="max-h-44 overflow-y-auto rounded border border-slate-200">
+                                        <table className="w-full text-[10px]">
+                                            <thead className="sticky top-0 bg-slate-50 text-slate-600">
+                                                <tr>
+                                                    <th className="px-2 py-1 text-left font-semibold">Session</th>
+                                                    <th className="px-2 py-1 text-left font-semibold">Source</th>
+                                                    <th className="px-2 py-1 text-left font-semibold">Signal</th>
+                                                    <th className="px-2 py-1 text-right font-semibold">Replay</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {activeEvidenceRows.map((row) => (
+                                                    <tr key={row.sessionId} className="border-t border-slate-100">
+                                                        <td className="px-2 py-1.5 font-medium text-slate-700">{row.sessionId}</td>
+                                                        <td className="px-2 py-1.5 text-slate-600">{row.source}</td>
+                                                        <td className="px-2 py-1.5 text-slate-600">{row.signal}</td>
+                                                        <td className="px-2 py-1.5 text-right">
+                                                            {canLinkToReplays ? (
+                                                                <Link
+                                                                    to={`${sessionPathPrefix}/sessions/${row.sessionId}`}
+                                                                    className="font-semibold text-blue-700 hover:text-blue-800"
+                                                                >
+                                                                    Watch
+                                                                </Link>
+                                                            ) : (
+                                                                <span className="text-slate-400">N/A</span>
+                                                            )}
+                                                        </td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                    {activeEvidenceRows.length === 0 && (
+                                        <div className="mt-2 rounded border border-dashed border-slate-300 bg-slate-50 px-2 py-1.5 text-[10px] text-slate-500">
+                                            No evidence sessions are available for this transition yet.
+                                        </div>
+                                    )}
+                                </div>
+                            )}
                         </motion.div>
                     )}
                 </AnimatePresence>

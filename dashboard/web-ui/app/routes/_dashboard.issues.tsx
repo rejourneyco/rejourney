@@ -1,4 +1,10 @@
-/**
- * Dashboard Child Routes - Issues Feed (default dashboard page)
- */
-export { IssuesFeed as default } from "~/pages/IssuesFeed";
+import { redirect } from "react-router";
+
+export function loader({ request }: { request: Request }) {
+    const url = new URL(request.url);
+    return redirect(`/dashboard/general${url.search}`);
+}
+
+export default function DashboardIssuesRedirect() {
+    return null;
+}

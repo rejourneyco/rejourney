@@ -1,303 +1,351 @@
-import React, { useEffect, useState } from 'react';
-import { useParams, useNavigate } from 'react-router';
+import React, { useEffect, useMemo, useState } from 'react';
+import { useNavigate, useParams } from 'react-router';
+import {
+  AlertTriangle,
+  ArrowLeft,
+  Bug,
+  Calendar,
+  Check,
+  Code,
+  Copy,
+  Download,
+  Layers,
+  Monitor,
+  Play,
+  Server,
+  Smartphone,
+  Sparkles,
+} from 'lucide-react';
 import { useSessionData } from '../../context/SessionContext';
 import { usePathPrefix } from '../../hooks/usePathPrefix';
-import { Badge } from '../../components/ui/Badge';
-import {
-    Bug,
-    ArrowLeft,
-    Play,
-    Smartphone,
-    Calendar,
-    Copy,
-    Check,
-    Code,
-    Monitor,
-    AlertTriangle,
-    Server,
-    Layers,
-    Download
-} from 'lucide-react';
 import { api } from '../../services/api';
+import { DashboardPageHeader } from '../../components/ui/DashboardPageHeader';
+import { NeoBadge } from '../../components/ui/neo/NeoBadge';
+import { NeoButton } from '../../components/ui/neo/NeoButton';
+import { NeoCard } from '../../components/ui/neo/NeoCard';
 
 interface JSErrorReport {
-    id: string;
-    sessionId: string;
-    projectId: string;
-    timestamp: string;
-    errorType: string;
-    errorName: string;
-    message: string;
-    stack?: string;
-    screenName?: string;
-    componentName?: string;
-    deviceModel?: string;
-    osVersion?: string;
-    appVersion?: string;
+  id: string;
+  sessionId: string;
+  projectId: string;
+  timestamp: string;
+  errorType: string;
+  errorName: string;
+  message: string;
+  stack?: string;
+  screenName?: string;
+  componentName?: string;
+  deviceModel?: string;
+  osVersion?: string;
+  appVersion?: string;
+  status?: string;
 }
 
-export const ErrorDetail: React.FC<{ errorId?: string; projectId?: string }> = ({ errorId: propErrorId, projectId: propProjectId }) => {
-    const { errorId: paramErrorId, projectId: paramProjectId } = useParams<{ errorId: string; projectId: string }>();
-    const errorId = propErrorId || paramErrorId;
-    const projectId = propProjectId || paramProjectId;
-    const { projects } = useSessionData();
-    const navigate = useNavigate();
-    const pathPrefix = usePathPrefix();
-    const [errorData, setErrorData] = useState<JSErrorReport | null>(null);
-    const [loading, setLoading] = useState(true);
-    const [fetchError, setFetchError] = useState<string | null>(null);
-    const [copied, setCopied] = useState(false);
+const getStatusVariant = (status?: string): 'danger' | 'warning' | 'success' | 'neutral' | 'info' => {
+  const normalized = (status || '').toLowerCase();
+  if (normalized === 'open' || normalized === 'new') return 'danger';
+  if (normalized === 'investigating') return 'warning';
+  if (normalized === 'resolved' || normalized === 'fixed') return 'success';
+  if (normalized === 'ignored') return 'neutral';
+  return 'info';
+};
 
-    const currentProject = projects.find(p => p.id === projectId);
+const getErrorTypeLabel = (errorType: string): string => {
+  switch (errorType) {
+    case 'promise_rejection':
+      return 'Promise Rejection';
+    case 'unhandled_exception':
+      return 'Unhandled Exception';
+    case 'js_error':
+      return 'JavaScript Error';
+    default:
+      return errorType;
+  }
+};
 
-    useEffect(() => {
-        if (!errorId || !currentProject) return;
+const getErrorTypeVariant = (errorType: string): 'warning' | 'danger' | 'info' => {
+  if (errorType === 'promise_rejection') return 'warning';
+  if (errorType === 'unhandled_exception') return 'danger';
+  return 'info';
+};
 
-        const fetchErrorDetails = async () => {
-            setLoading(true);
-            try {
-                const data = await api.getError(currentProject.id, errorId);
-                setErrorData(data);
-            } catch (err: any) {
-                console.error("Failed to load error details:", err);
-                setFetchError("Failed to load error details. It might be deleted or you don't have access.");
-            } finally {
-                setLoading(false);
-            }
-        };
+export const ErrorDetail: React.FC<{ errorId?: string; projectId?: string }> = ({
+  errorId: propErrorId,
+  projectId: propProjectId,
+}) => {
+  const { errorId: paramErrorId, projectId: paramProjectId } = useParams<{ errorId: string; projectId: string }>();
+  const errorId = propErrorId || paramErrorId;
+  const projectId = propProjectId || paramProjectId;
 
-        fetchErrorDetails();
-    }, [errorId, currentProject]);
+  const { projects, isLoading: contextLoading } = useSessionData();
+  const navigate = useNavigate();
+  const pathPrefix = usePathPrefix();
 
-    const handleCopyStack = () => {
-        const stackText = errorData?.stack || '';
-        navigator.clipboard.writeText(stackText);
-        setCopied(true);
-        setTimeout(() => setCopied(false), 2000);
-    };
+  const [errorData, setErrorData] = useState<JSErrorReport | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [fetchError, setFetchError] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
 
-    const handleDownloadStack = () => {
-        const stackText = errorData?.stack || '';
-        const blob = new Blob([stackText], { type: 'text/plain' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `error-trace-${errorData?.id}-${Date.now()}.txt`;
-        a.click();
-        URL.revokeObjectURL(url);
-    };
+  const currentProject = projects.find((project) => project.id === projectId);
 
-    const getErrorTypeLabel = (errorType: string) => {
-        switch (errorType) {
-            case 'promise_rejection': return 'Promise Rejection';
-            case 'unhandled_exception': return 'Unhandled Exception';
-            case 'js_error': return 'JavaScript Error';
-            default: return errorType;
-        }
-    };
-
-    const getErrorTypeColor = (errorType: string) => {
-        switch (errorType) {
-            case 'promise_rejection': return 'bg-amber-500 text-white';
-            case 'unhandled_exception': return 'bg-red-500 text-white';
-            default: return 'bg-slate-800 text-white';
-        }
-    };
-
-    if (loading) {
-        return (
-            <div className="flex flex-col items-center justify-center min-h-[50vh]">
-                <div className="text-2xl font-black uppercase animate-pulse">Loading Error Details...</div>
-            </div>
-        );
+  useEffect(() => {
+    if (!errorId) {
+      setFetchError('Missing error id.');
+      setLoading(false);
+      return;
     }
 
-    if (fetchError || !errorData) {
-        return (
-            <div className="flex flex-col items-center justify-center min-h-[50vh] space-y-4">
-                <div className="text-red-600 font-black uppercase text-xl">{fetchError || "Error not found"}</div>
-                <button
-                    onClick={() => navigate(-1)}
-                    className="px-6 py-2 bg-black text-white font-black uppercase hover:bg-slate-800 transition-colors"
-                >
-                    Go Back
-                </button>
-            </div>
-        );
+    if (contextLoading) return;
+
+    if (!currentProject) {
+      setFetchError('Project not found or access revoked.');
+      setLoading(false);
+      return;
     }
 
+    const fetchErrorDetails = async () => {
+      setLoading(true);
+      setFetchError(null);
+
+      try {
+        const data = await api.getError(currentProject.id, errorId);
+        setErrorData(data);
+      } catch (err) {
+        console.error('Failed to load error details:', err);
+        setFetchError('Failed to load error details. It may have been deleted or moved.');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchErrorDetails();
+  }, [errorId, currentProject, contextLoading]);
+
+  const stackText = errorData?.stack || '';
+
+  const handleCopyStack = () => {
+    if (!stackText) return;
+    navigator.clipboard.writeText(stackText);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  const handleDownloadStack = () => {
+    if (!stackText || !errorData?.id) return;
+
+    const blob = new Blob([stackText], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `error-trace-${errorData.id}-${Date.now()}.txt`;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const statusVariant = useMemo(() => getStatusVariant(errorData?.status), [errorData?.status]);
+  const typeVariant = useMemo(() => getErrorTypeVariant(errorData?.errorType || ''), [errorData?.errorType]);
+
+  if (loading || contextLoading) {
     return (
-        <div className="min-h-screen bg-slate-50 p-6 md:p-12 font-sans">
-            <div className="max-w-[1800px] mx-auto space-y-8">
-
-                {/* Navigation */}
-                <button
-                    onClick={() => navigate(`${pathPrefix}/stability/errors`)}
-                    className="flex items-center gap-2 text-sm font-black uppercase text-slate-500 hover:text-black transition-colors"
-                >
-                    <ArrowLeft className="w-4 h-4" /> Back to Error List
-                </button>
-
-                {/* Header */}
-                <div className="bg-white border-2 border-black p-8 shadow-[8px_8px_0_0_rgba(0,0,0,1)]">
-                    <div className="flex flex-col md:flex-row md:items-start justify-between gap-6">
-                        <div className="flex items-start gap-6">
-                            <div className="w-16 h-16 bg-amber-500 border-2 border-black flex items-center justify-center shrink-0 shadow-[4px_4px_0_0_rgba(0,0,0,1)]">
-                                <Bug className="w-8 h-8 text-white" />
-                            </div>
-                            <div>
-                                <div className="flex items-center gap-3 mb-2 flex-wrap">
-                                    <h1 className="text-3xl md:text-4xl font-black text-slate-900 tracking-tight leading-none font-mono">
-                                        {errorData.errorName}
-                                    </h1>
-                                    <span className={`px-3 py-1 text-xs font-black uppercase border-2 border-black ${getErrorTypeColor(errorData.errorType)}`}>
-                                        {getErrorTypeLabel(errorData.errorType)}
-                                    </span>
-                                </div>
-                                <p className="text-lg font-bold text-slate-600 font-mono border-l-4 border-slate-200 pl-4 py-1 max-w-4xl">
-                                    {errorData.message}
-                                </p>
-                            </div>
-                        </div>
-
-                        <div className="flex flex-col items-end gap-3 shrink-0">
-                            <div className="text-right">
-                                <div className="text-xs font-black uppercase text-slate-400">Occurred At</div>
-                                <div className="text-lg font-bold font-mono">{new Date(errorData.timestamp).toLocaleString()}</div>
-                            </div>
-                            <button
-                                onClick={() => navigate(`${pathPrefix}/sessions/${errorData.sessionId}`)}
-                                className="flex items-center gap-2 px-6 py-3 bg-black text-white font-black uppercase hover:bg-slate-800 transition-colors shadow-[4px_4px_0_0_rgba(200,200,200,1)] hover:shadow-[4px_4px_0_0_rgba(0,0,0,0)] hover:translate-x-[2px] hover:translate-y-[2px]"
-                            >
-                                <Play className="w-4 h-4" /> Replay Session
-                            </button>
-                        </div>
-                    </div>
-                </div>
-
-                <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-
-                    {/* Left Column: Stack Trace */}
-                    <div className="lg:col-span-2 space-y-8">
-                        <div className="bg-white border-2 border-black shadow-[8px_8px_0_0_rgba(0,0,0,1)] p-6">
-                            <div className="flex items-center justify-between mb-4 border-b-2 border-slate-100 pb-4">
-                                <div className="flex items-center gap-2">
-                                    <Code className="w-5 h-5 text-black" />
-                                    <h2 className="text-xl font-black uppercase text-slate-900">Stack Trace</h2>
-                                </div>
-                                {errorData.stack && (
-                                    <div className="flex items-center gap-2">
-                                        <button
-                                            onClick={handleCopyStack}
-                                            className="flex items-center gap-2 px-3 py-1.5 text-xs font-black uppercase border-2 border-slate-200 hover:border-black hover:bg-slate-50 transition-all"
-                                        >
-                                            {copied ? <Check className="w-3 h-3 text-green-600" /> : <Copy className="w-3 h-3" />}
-                                            {copied ? 'Copied' : 'Copy'}
-                                        </button>
-                                        <button
-                                            onClick={handleDownloadStack}
-                                            className="flex items-center gap-2 px-3 py-1.5 text-xs font-black uppercase border-2 border-slate-200 hover:border-black hover:bg-slate-50 transition-all"
-                                        >
-                                            <Download className="w-3 h-3" />
-                                            Download
-                                        </button>
-                                    </div>
-                                )}
-                            </div>
-
-                            <div className="bg-slate-900 text-green-400 p-6 font-mono text-xs overflow-x-auto whitespace-pre border-2 border-black shadow-inner min-h-[400px] leading-relaxed">
-                                {errorData.stack || "No stack trace available for this error."}
-                            </div>
-
-                            <div className="mt-4 p-4 bg-slate-100 border-2 border-slate-200 text-slate-600 text-sm font-bold">
-                                <p>
-                                    Review the stack trace to identify the exact line of code where the error originated.
-                                </p>
-                            </div>
-                        </div>
-                    </div>
-
-                    {/* Right Column: Metadata */}
-                    <div className="space-y-6">
-                        {/* Context Info */}
-                        <div className="bg-white border-2 border-black p-6 shadow-[8px_8px_0_0_rgba(0,0,0,1)]">
-                            <h2 className="text-lg font-black uppercase text-slate-900 mb-6 flex items-center gap-2">
-                                <Layers className="w-5 h-5" /> Error Context
-                            </h2>
-                            <div className="space-y-4">
-                                {errorData.screenName && (
-                                    <div className="group">
-                                        <div className="text-xs font-black uppercase text-slate-400 mb-1 flex items-center gap-1"><Monitor className="w-3 h-3" /> Active Screen</div>
-                                        <div className="font-mono font-bold text-slate-900 bg-slate-50 p-2 border-2 border-slate-100 group-hover:border-black transition-colors">
-                                            {errorData.screenName}
-                                        </div>
-                                    </div>
-                                )}
-                                {errorData.componentName && (
-                                    <div className="group">
-                                        <div className="text-xs font-black uppercase text-slate-400 mb-1 flex items-center gap-1"><Code className="w-3 h-3" /> Component</div>
-                                        <div className="font-mono font-bold text-slate-900 bg-slate-50 p-2 border-2 border-slate-100 group-hover:border-black transition-colors">
-                                            {errorData.componentName}
-                                        </div>
-                                    </div>
-                                )}
-                            </div>
-                        </div>
-
-                        {/* Device Info */}
-                        <div className="bg-white border-2 border-black p-6 shadow-[8px_8px_0_0_rgba(0,0,0,1)]">
-                            <h2 className="text-lg font-black uppercase text-slate-900 mb-6 flex items-center gap-2">
-                                <Smartphone className="w-5 h-5" /> Environment
-                            </h2>
-                            <div className="space-y-4">
-                                <div className="group">
-                                    <div className="text-xs font-black uppercase text-slate-400 mb-1">Device Model</div>
-                                    <div className="font-mono font-bold text-slate-900 bg-slate-50 p-2 border-2 border-slate-100 group-hover:border-black transition-colors">
-                                        {errorData.deviceModel || 'Unknown Device'}
-                                    </div>
-                                </div>
-                                <div className="flex gap-4">
-                                    <div className="group flex-1">
-                                        <div className="text-xs font-black uppercase text-slate-400 mb-1">OS Version</div>
-                                        <div className="font-mono font-bold text-slate-900 bg-slate-50 p-2 border-2 border-slate-100 group-hover:border-black transition-colors">
-                                            {errorData.osVersion || 'N/A'}
-                                        </div>
-                                    </div>
-                                    <div className="group flex-1">
-                                        <div className="text-xs font-black uppercase text-slate-400 mb-1">App Version</div>
-                                        <div className="font-mono font-bold text-slate-900 bg-slate-50 p-2 border-2 border-slate-100 group-hover:border-black transition-colors">
-                                            {errorData.appVersion || 'N/A'}
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-
-                        {/* Session Info */}
-                        <div className="bg-white border-2 border-black p-6 shadow-[8px_8px_0_0_rgba(0,0,0,1)]">
-                            <h2 className="text-lg font-black uppercase text-slate-900 mb-6 flex items-center gap-2">
-                                <Server className="w-5 h-5" /> IDs
-                            </h2>
-                            <div className="space-y-4">
-                                <div>
-                                    <div className="text-xs font-black uppercase text-slate-400 mb-1">Session ID</div>
-                                    <div className="font-mono text-xs font-bold text-black break-all">
-                                        {errorData.sessionId}
-                                    </div>
-                                </div>
-                                <div>
-                                    <div className="text-xs font-black uppercase text-slate-400 mb-1">Error ID</div>
-                                    <div className="font-mono text-xs font-medium text-slate-500 break-all">
-                                        {errorData.id}
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div >
-        </div >
+      <div className="flex min-h-screen items-center justify-center bg-transparent">
+        <div className="text-2xl font-semibold uppercase tracking-tight animate-pulse">Loading error analysis...</div>
+      </div>
     );
+  }
+
+  if (fetchError || !errorData) {
+    return (
+      <div className="min-h-screen bg-transparent pb-8">
+        <DashboardPageHeader
+          title="Error Root Cause"
+          subtitle="Deep runtime error analysis"
+          icon={<Bug className="h-5 w-5" />}
+          iconColor="bg-amber-50"
+        />
+        <div className="mx-auto w-full max-w-[960px] px-6 pt-8">
+          <NeoCard variant="flat" className="p-8 text-center">
+            <AlertTriangle className="mx-auto mb-3 h-10 w-10 text-amber-500" />
+            <p className="text-lg font-semibold text-slate-900">{fetchError || 'Error not found.'}</p>
+            <NeoButton variant="primary" className="mt-5" onClick={() => navigate(`${pathPrefix}/stability/errors`)}>
+              Back to Errors
+            </NeoButton>
+          </NeoCard>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-transparent pb-8">
+      <DashboardPageHeader
+        title="Error Root Cause"
+        subtitle="Trace exception origins, component context, and replay evidence"
+        icon={<Bug className="h-5 w-5" />}
+        iconColor="bg-amber-50"
+      >
+        <NeoButton
+          variant="secondary"
+          size="sm"
+          leftIcon={<ArrowLeft size={14} />}
+          onClick={() => navigate(`${pathPrefix}/stability/errors`)}
+        >
+          Back to Errors
+        </NeoButton>
+        <NeoButton
+          variant="primary"
+          size="sm"
+          leftIcon={<Play size={14} />}
+          onClick={() => navigate(`${pathPrefix}/sessions/${errorData.sessionId}`)}
+        >
+          Replay Session
+        </NeoButton>
+      </DashboardPageHeader>
+
+      <div className="mx-auto w-full max-w-[1800px] space-y-4 px-6 pt-6">
+        <NeoCard variant="flat" className="p-5">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+            <div className="min-w-0">
+              <div className="mb-2 flex flex-wrap items-center gap-2">
+                <NeoBadge variant={statusVariant} size="sm">
+                  {errorData.status || 'active'}
+                </NeoBadge>
+                <NeoBadge variant={typeVariant} size="sm">
+                  {getErrorTypeLabel(errorData.errorType)}
+                </NeoBadge>
+              </div>
+              <h2 className="truncate text-xl font-semibold text-slate-900 md:text-2xl">{errorData.errorName}</h2>
+              <p className="mt-2 text-sm text-slate-600">{errorData.message}</p>
+            </div>
+
+            <div className="grid w-full max-w-md grid-cols-2 gap-2">
+              <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Occurred At</p>
+                <p className="mt-1 text-xs font-semibold text-slate-800">{new Date(errorData.timestamp).toLocaleString()}</p>
+              </div>
+              <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">App Version</p>
+                <p className="mt-1 text-xs font-semibold text-slate-800">{errorData.appVersion || 'N/A'}</p>
+              </div>
+            </div>
+          </div>
+        </NeoCard>
+
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-12">
+          <div className="space-y-4 lg:col-span-8">
+            <NeoCard variant="flat" disablePadding className="overflow-hidden">
+              <div className="flex flex-col gap-3 border-b border-slate-200 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+                <h3 className="flex items-center gap-2 text-sm font-semibold text-slate-800">
+                  <Code className="h-4 w-4 text-amber-500" />
+                  Error Stack Trace
+                </h3>
+                <div className="flex items-center gap-2">
+                  <NeoButton
+                    variant="ghost"
+                    size="sm"
+                    leftIcon={copied ? <Check size={14} /> : <Copy size={14} />}
+                    onClick={handleCopyStack}
+                    disabled={!stackText}
+                  >
+                    {copied ? 'Copied' : 'Copy'}
+                  </NeoButton>
+                  <NeoButton
+                    variant="ghost"
+                    size="sm"
+                    leftIcon={<Download size={14} />}
+                    onClick={handleDownloadStack}
+                    disabled={!stackText}
+                  >
+                    Download
+                  </NeoButton>
+                </div>
+              </div>
+
+              {stackText ? (
+                <pre className="max-h-[560px] overflow-auto bg-slate-950 p-5 font-mono text-xs leading-relaxed text-slate-300">
+                  {stackText}
+                </pre>
+              ) : (
+                <div className="p-8 text-center text-sm text-slate-500">No stack trace available for this error.</div>
+              )}
+            </NeoCard>
+
+            <NeoCard variant="flat" className="border-amber-200 bg-amber-50 p-4">
+              <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-amber-700">
+                <Sparkles size={14} />
+                Root Cause Playbook
+              </p>
+              <div className="mt-3 space-y-2 text-xs leading-relaxed text-amber-700/90">
+                <p>1. Start at the first app frame in the stack and map it to the active screen/component.</p>
+                <p>2. Validate app version and device environment to confirm blast radius.</p>
+                <p>3. Replay this session and verify the exact user path that leads into the failing code.</p>
+              </div>
+            </NeoCard>
+          </div>
+
+          <div className="space-y-4 lg:col-span-4">
+            <NeoCard variant="flat" className="p-4">
+              <p className="mb-3 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-600">
+                <Layers size={14} className="text-slate-500" />
+                Error Context
+              </p>
+              <div className="space-y-3 text-sm">
+                <div>
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Screen</p>
+                  <p className="mt-1 flex items-center gap-1 font-semibold text-slate-800">
+                    <Monitor size={12} className="text-slate-400" />
+                    {errorData.screenName || 'Unknown screen'}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Component</p>
+                  <p className="mt-1 font-semibold text-slate-800">{errorData.componentName || 'Unknown component'}</p>
+                </div>
+              </div>
+            </NeoCard>
+
+            <NeoCard variant="flat" className="p-4">
+              <p className="mb-3 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-600">
+                <Smartphone size={14} className="text-slate-500" />
+                Device + IDs
+              </p>
+              <div className="space-y-3 text-sm">
+                <div>
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Device Model</p>
+                  <p className="mt-1 font-semibold text-slate-800">{errorData.deviceModel || 'Unknown device'}</p>
+                </div>
+                <div>
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">OS Version</p>
+                  <p className="mt-1 font-semibold text-slate-800">{errorData.osVersion || 'N/A'}</p>
+                </div>
+                <div>
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Session ID</p>
+                  <p className="mt-1 break-all font-mono text-xs text-slate-700">{errorData.sessionId}</p>
+                </div>
+                <div>
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Error ID</p>
+                  <p className="mt-1 break-all font-mono text-xs text-slate-700">{errorData.id}</p>
+                </div>
+                <div>
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Timestamp</p>
+                  <p className="mt-1 flex items-center gap-1 text-xs text-slate-700">
+                    <Calendar size={12} className="text-slate-400" />
+                    {new Date(errorData.timestamp).toLocaleString()}
+                  </p>
+                </div>
+                <div className="pt-1">
+                  <p className="mb-1 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-600">
+                    <Server size={12} className="text-slate-400" />
+                    Project Link
+                  </p>
+                  <p className="break-all font-mono text-[11px] text-slate-500">{errorData.projectId}</p>
+                </div>
+              </div>
+            </NeoCard>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
 };
 
 export default ErrorDetail;

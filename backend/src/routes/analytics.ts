@@ -2444,7 +2444,7 @@ router.get(
             return;
         }
 
-        const cacheKey = `analytics:journey-observability:v2:${projectIds.sort().join(',')}:${timeRange || 'all'}`;
+        const cacheKey = `analytics:journey-observability:v3:${projectIds.sort().join(',')}:${timeRange || 'all'}`;
         const cached = await redis.get(cacheKey);
         if (cached) {
             res.json(JSON.parse(cached));
@@ -2560,6 +2560,8 @@ router.get(
             crashes: number;
             anrs: number;
             replayCount: number;
+            sampleSessionIds: string[];
+            replaySessionIds: string[];
         };
         const transitionStats: Record<string, TransitionStats> = {};
 
@@ -2642,7 +2644,18 @@ router.get(
                 const key = `${from}→${to}`;
 
                 if (!transitionStats[key]) {
-                    transitionStats[key] = { count: 0, apiErrors: 0, apiTotal: 0, latencySum: 0, rageTaps: 0, crashes: 0, anrs: 0, replayCount: 0 };
+                    transitionStats[key] = {
+                        count: 0,
+                        apiErrors: 0,
+                        apiTotal: 0,
+                        latencySum: 0,
+                        rageTaps: 0,
+                        crashes: 0,
+                        anrs: 0,
+                        replayCount: 0,
+                        sampleSessionIds: [],
+                        replaySessionIds: [],
+                    };
                 }
                 transitionStats[key].count++;
                 // Distribute metrics across transitions
@@ -2653,7 +2666,15 @@ router.get(
                 transitionStats[key].rageTaps += rageTaps * transitionShare;
                 transitionStats[key].crashes += crashes * transitionShare;
                 transitionStats[key].anrs += anrs * transitionShare;
-                if (hasReplay) transitionStats[key].replayCount++;
+                if (!transitionStats[key].sampleSessionIds.includes(s.id) && transitionStats[key].sampleSessionIds.length < 20) {
+                    transitionStats[key].sampleSessionIds.push(s.id);
+                }
+                if (hasReplay) {
+                    transitionStats[key].replayCount++;
+                    if (!transitionStats[key].replaySessionIds.includes(s.id) && transitionStats[key].replaySessionIds.length < 10) {
+                        transitionStats[key].replaySessionIds.push(s.id);
+                    }
+                }
             }
 
             // Entry/Exit tracking
@@ -2700,6 +2721,9 @@ router.get(
                 const [from, to] = key.split('→');
                 const apiErrorRate = stats.apiTotal > 0 ? (stats.apiErrors / stats.apiTotal) * 100 : 0;
                 const avgLatency = stats.count > 0 ? stats.latencySum / stats.count : 0;
+                const sampleSessionIds = stats.replaySessionIds.length > 0
+                    ? stats.replaySessionIds
+                    : stats.sampleSessionIds;
 
                 // Compute transition health
                 let health: HealthStatus = 'healthy';
@@ -2718,6 +2742,7 @@ router.get(
                     anrCount: Math.round(stats.anrs),
                     health,
                     replayCount: stats.replayCount,
+                    sampleSessionIds: sampleSessionIds.slice(0, 6),
                 };
             })
             .sort((a, b) => b.count - a.count)

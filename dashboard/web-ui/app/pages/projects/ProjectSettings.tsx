@@ -313,8 +313,8 @@ export const ProjectSettings: React.FC<SettingsProps> = ({ projectId: propProjec
       // Refresh projects list
       await refreshSessions();
 
-      // Navigate to issues (default page)
-      navigate(`${pathPrefix}/issues`);
+      // Navigate to general page (default dashboard view)
+      navigate(`${pathPrefix}/general`);
     } catch (err) {
       setDeleteError(err instanceof Error ? err.message : 'Failed to delete project');
     } finally {
@@ -337,7 +337,7 @@ export const ProjectSettings: React.FC<SettingsProps> = ({ projectId: propProjec
           <div className="flex gap-4 items-center">
             <AlertTriangle className="text-rose-600 w-6 h-6" />
             <div>
-              <h3 className="text-rose-900 font-black uppercase tracking-tight">Error Loading Project</h3>
+              <h3 className="text-rose-900 font-semibold uppercase tracking-tight">Error Loading Project</h3>
               <p className="text-rose-700 text-sm font-bold mt-1">{error || 'Project not found'}</p>
             </div>
           </div>
@@ -347,15 +347,15 @@ export const ProjectSettings: React.FC<SettingsProps> = ({ projectId: propProjec
   }
 
   return (
-    <div className="min-h-screen bg-white flex flex-col font-sans text-black">
+    <div className="min-h-screen flex flex-col font-sans text-slate-900 bg-transparent">
       {/* Sticky Header */}
       <div className="sticky top-0 z-50 bg-white/95 backdrop-blur-sm border-b border-slate-200">
         <div className="px-6 py-4 flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div className="flex items-center gap-6 flex-1">
-            <h1 className="text-3xl font-black uppercase tracking-tighter flex items-center gap-3">
+            <h1 className="text-3xl font-semibold uppercase tracking-tighter flex items-center gap-3">
               <Settings className="w-8 h-8" /> Project Settings
             </h1>
-            <div className="h-8 w-[2px] bg-black hidden md:block"></div>
+            <div className="h-8 w-[2px] bg-slate-900 hidden md:block"></div>
             <div className="hidden md:block">
               <p className="text-slate-500 font-bold text-[10px] uppercase tracking-widest">
                 Configure {project.name}
@@ -378,7 +378,7 @@ export const ProjectSettings: React.FC<SettingsProps> = ({ projectId: propProjec
 
             {/* General Section */}
             <section className="space-y-4">
-              <h2 className="text-xl font-black uppercase tracking-tight">General Information</h2>
+              <h2 className="text-xl font-semibold uppercase tracking-tight">General Information</h2>
               <NeoCard className="p-6">
                 <div className="space-y-4">
                   <div className="flex gap-4 items-end">
@@ -417,7 +417,7 @@ export const ProjectSettings: React.FC<SettingsProps> = ({ projectId: propProjec
             {/* App Identifiers - MOVED TO TOP */}
             <section className="space-y-4">
               <div className="flex items-center justify-between">
-                <h2 className="text-xl font-black uppercase tracking-tight">App Identifiers</h2>
+                <h2 className="text-xl font-semibold uppercase tracking-tight">App Identifiers</h2>
                 {(!project.bundleId || !project.packageName) && canEdit && (
                   <NeoBadge variant="warning" size="md">
                     Action Required
@@ -429,7 +429,7 @@ export const ProjectSettings: React.FC<SettingsProps> = ({ projectId: propProjec
                   {/* iOS Bundle ID */}
                   <div className="space-y-3">
                     <div className="flex items-center justify-between">
-                      <label className="text-sm font-black text-slate-900 uppercase tracking-wide flex items-center gap-2">
+                      <label className="text-sm font-semibold text-slate-900 uppercase tracking-wide flex items-center gap-2">
                         <Smartphone className="w-4 h-4" />
                         iOS Bundle ID
                       </label>
@@ -466,7 +466,7 @@ export const ProjectSettings: React.FC<SettingsProps> = ({ projectId: propProjec
                               value={(project as any)._newBundleId || ''}
                               onChange={(e) => setProject({ ...project, _newBundleId: e.target.value })}
                               disabled={!canEdit}
-                              className="font-mono text-sm font-bold flex-1 border-2 border-black"
+                              className="font-mono text-sm font-bold flex-1 border border-slate-100/80"
                             />
                             <NeoButton
                               variant="primary"
@@ -501,7 +501,7 @@ export const ProjectSettings: React.FC<SettingsProps> = ({ projectId: propProjec
                   {/* Android Package Name */}
                   <div className="space-y-3">
                     <div className="flex items-center justify-between">
-                      <label className="text-sm font-black text-slate-900 uppercase tracking-wide flex items-center gap-2">
+                      <label className="text-sm font-semibold text-slate-900 uppercase tracking-wide flex items-center gap-2">
                         <Shield className="w-4 h-4" />
                         Android Package Name
                       </label>
@@ -538,7 +538,7 @@ export const ProjectSettings: React.FC<SettingsProps> = ({ projectId: propProjec
                               value={(project as any)._newPackageName || ''}
                               onChange={(e) => setProject({ ...project, _newPackageName: e.target.value })}
                               disabled={!canEdit}
-                              className="font-mono text-sm font-bold flex-1 border-2 border-black"
+                              className="font-mono text-sm font-bold flex-1 border border-slate-100/80"
                             />
                             <NeoButton
                               variant="primary"
@@ -572,7 +572,7 @@ export const ProjectSettings: React.FC<SettingsProps> = ({ projectId: propProjec
 
             {/* Recording Status */}
             <section className="space-y-4">
-              <h2 className="text-xl font-black uppercase tracking-tight">Observability</h2>
+              <h2 className="text-xl font-semibold uppercase tracking-tight">Observability</h2>
 
               <NeoCard className="p-6">
                 <div className="flex items-start justify-between gap-6">
@@ -653,7 +653,7 @@ export const ProjectSettings: React.FC<SettingsProps> = ({ projectId: propProjec
             {isSelfHosted && (
               <section className="space-y-4">
                 <div className="flex items-center justify-between">
-                  <h2 className="text-xl font-black uppercase tracking-tight">API Keys</h2>
+                  <h2 className="text-xl font-semibold uppercase tracking-tight">API Keys</h2>
                   {canEdit && (
                     <NeoButton size="sm" variant="secondary" onClick={() => { setShowCreateKeyModal(true); setCreatedApiKey(null); }}>
                       <Plus className="w-4 h-4" /> Create Key
@@ -705,12 +705,12 @@ export const ProjectSettings: React.FC<SettingsProps> = ({ projectId: propProjec
             {/* Danger Zone */}
             {canEdit && (
               <section className="space-y-4 pt-8">
-                <h2 className="text-xl font-black uppercase tracking-tight text-red-600 flex items-center gap-2">
+                <h2 className="text-xl font-semibold uppercase tracking-tight text-red-600 flex items-center gap-2">
                   <AlertOctagon className="w-6 h-6" /> Danger Zone
                 </h2>
                 <NeoCard className="p-6 border-rose-600 bg-rose-50">
                   <div>
-                    <h3 className="text-lg font-black text-rose-900 uppercase tracking-tight">Delete Project</h3>
+                    <h3 className="text-lg font-semibold text-rose-900 uppercase tracking-tight">Delete Project</h3>
                     <p className="text-rose-700 text-sm font-bold mt-1 max-w-xl">
                       Deleting a project is irreversible. All recordings, analytics, and data will be permanently removed.
                     </p>
@@ -732,11 +732,11 @@ export const ProjectSettings: React.FC<SettingsProps> = ({ projectId: propProjec
           <div className="space-y-8">
             {/* Recording Configuration */}
             <section className="space-y-4">
-              <h2 className="text-xl font-black uppercase tracking-tight">Configuration</h2>
+              <h2 className="text-xl font-semibold uppercase tracking-tight">Configuration</h2>
               <NeoCard className="p-6">
                 <div className="space-y-4">
                   <div>
-                    <label className="text-sm font-black uppercase text-slate-900 block mb-3 tracking-wide flex items-center gap-2">
+                    <label className="text-sm font-semibold uppercase text-slate-900 block mb-3 tracking-wide flex items-center gap-2">
                       <Clock className="w-4 h-4" />
                       Max Observeability Duration
                     </label>
@@ -753,10 +753,10 @@ export const ProjectSettings: React.FC<SettingsProps> = ({ projectId: propProjec
                               setDurationSaveError(null);
                             }}
                             disabled={!canEdit}
-                            className="font-mono font-bold text-base border-2 border-black"
+                            className="font-mono font-bold text-base border border-slate-100/80"
                           />
                         </div>
-                        <span className="text-sm font-black uppercase text-slate-700 mb-1">MIN</span>
+                        <span className="text-sm font-semibold uppercase text-slate-700 mb-1">MIN</span>
                         {canEdit && (
                           <NeoButton
                             variant="primary"
@@ -785,11 +785,11 @@ export const ProjectSettings: React.FC<SettingsProps> = ({ projectId: propProjec
 
             {/* Technical Info */}
             <section className="space-y-4">
-              <h2 className="text-xl font-black uppercase tracking-tight">Technical Details</h2>
+              <h2 className="text-xl font-semibold uppercase tracking-tight">Technical Details</h2>
               <NeoCard className="p-0 overflow-hidden">
                 <div className="divide-y-2 divide-slate-200">
                   <div className="p-5 group hover:bg-slate-50 transition-colors">
-                    <div className="text-xs font-black text-slate-600 uppercase tracking-wide mb-2 flex items-center gap-2">
+                    <div className="text-xs font-semibold text-slate-600 uppercase tracking-wide mb-2 flex items-center gap-2">
                       <Key className="w-3 h-3" /> Project ID
                     </div>
                     <div className="flex items-center gap-2">
@@ -798,7 +798,7 @@ export const ProjectSettings: React.FC<SettingsProps> = ({ projectId: propProjec
                       </div>
                       <button
                         onClick={() => handleCopy(project.id, 'projectId')}
-                        className="flex-shrink-0 p-2 hover:bg-black hover:text-white border-2 border-black rounded transition-all active:scale-95"
+                        className="flex-shrink-0 p-2 hover:bg-slate-900 hover:text-white border border-slate-100/80 rounded transition-all active:scale-95"
                         title="Copy Project ID"
                       >
                         {copiedField === 'projectId' ? (
@@ -810,7 +810,7 @@ export const ProjectSettings: React.FC<SettingsProps> = ({ projectId: propProjec
                     </div>
                   </div>
                   <div className="p-5 group hover:bg-slate-50 transition-colors">
-                    <div className="text-xs font-black text-slate-600 uppercase tracking-wide mb-2 flex items-center gap-2">
+                    <div className="text-xs font-semibold text-slate-600 uppercase tracking-wide mb-2 flex items-center gap-2">
                       <Shield className="w-3 h-3" /> Public Key
                     </div>
                     <div className="flex items-center gap-2">
@@ -819,7 +819,7 @@ export const ProjectSettings: React.FC<SettingsProps> = ({ projectId: propProjec
                       </div>
                       <button
                         onClick={() => handleCopy(project.publicKey, 'publicKey')}
-                        className="flex-shrink-0 p-2 hover:bg-black hover:text-white border-2 border-black rounded transition-all active:scale-95"
+                        className="flex-shrink-0 p-2 hover:bg-slate-900 hover:text-white border border-slate-100/80 rounded transition-all active:scale-95"
                         title="Copy Public Key"
                       >
                         {copiedField === 'publicKey' ? (
@@ -831,7 +831,7 @@ export const ProjectSettings: React.FC<SettingsProps> = ({ projectId: propProjec
                     </div>
                   </div>
                   <div className="p-5">
-                    <div className="text-xs font-black text-slate-600 uppercase tracking-wide mb-3 flex items-center gap-2">
+                    <div className="text-xs font-semibold text-slate-600 uppercase tracking-wide mb-3 flex items-center gap-2">
                       <Smartphone className="w-3 h-3" /> Platforms
                     </div>
                     <div className="flex gap-2 flex-wrap">

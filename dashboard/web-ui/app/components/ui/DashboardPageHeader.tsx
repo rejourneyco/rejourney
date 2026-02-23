@@ -15,12 +15,19 @@ export const DashboardPageHeader: React.FC<DashboardPageHeaderProps> = ({
     iconColor = 'bg-white', // Default to white if not provided
     children
 }) => {
+    const isLightIconBackground = /-(50|100|200)\b/.test(iconColor) || iconColor.includes('white');
+    const iconToneClass = iconColor.includes('sky-50')
+        ? 'text-sky-600'
+        : isLightIconBackground
+            ? 'text-slate-800'
+            : 'text-white';
+
     return (
         <div className="bg-white border-b border-slate-100 w-full">
             <div className="px-6 py-4 flex flex-col md:flex-row md:items-center justify-between gap-4 max-w-[1800px] mx-auto w-full">
                 <div className="flex items-center gap-4 min-w-0">
                     {icon && (
-                        <div className={`shrink-0 p-2.5 rounded-xl border border-slate-100 shadow-sm ${iconColor} ${iconColor.includes('white') || iconColor.includes('slate-50') ? 'text-black' : 'text-white'}`}>
+                        <div className={`shrink-0 p-2.5 rounded-xl border border-slate-100 shadow-sm ${iconColor} ${iconToneClass}`}>
                             {icon}
                         </div>
                     )}

@@ -55,6 +55,11 @@ class AnrSentinel private constructor() {
     
     fun activate() {
         if (isActive.getAndSet(true)) return
+
+        // Reset watchdog state on each activation to avoid stale timings from
+        // previous app background periods.
+        lastResponseTime.set(System.currentTimeMillis())
+        pongSequence.set(pingSequence.get())
         
         startWatchdog()
     }
@@ -87,7 +92,7 @@ class AnrSentinel private constructor() {
                     val elapsed = System.currentTimeMillis() - lastResponseTime.get()
                     val missedPongs = pingSequence.get() - pongSequence.get()
                     
-                    if (elapsed > anrThresholdMs && missedPongs > 0) {
+                    if (elapsed >= anrThresholdMs && missedPongs > 0) {
                         captureAnr(elapsed)
                         
                         // Reset to avoid duplicate reports
@@ -113,12 +118,32 @@ class AnrSentinel private constructor() {
                 "${element.className}.${element.methodName}(${element.fileName}:${element.lineNumber})"
             }
             
-            ReplayOrchestrator.shared?.incrementFaultTally()
+            ReplayOrchestrator.shared?.incrementStalledTally()
             
             // Route ANR through TelemetryPipeline so it arrives in the events
             // batch and the backend ingest worker can insert it into the anrs table
             val stackStr = frames.joinToString("\n")
             TelemetryPipeline.shared?.recordAnrEvent(durationMs, stackStr)
+
+            // Persist ANR incident and send through /api/ingest/fault so ANRs survive
+            // process termination/background upload loss, similar to crash recovery.
+            val sessionId = StabilityMonitor.shared?.currentSessionId
+                ?: ReplayOrchestrator.shared?.replayId
+                ?: "unknown"
+            val incident = IncidentRecord(
+                sessionId = sessionId,
+                timestampMs = System.currentTimeMillis(),
+                category = "anr",
+                identifier = "MainThreadFrozen",
+                detail = "Main thread unresponsive for ${durationMs}ms",
+                frames = frames,
+                context = mapOf(
+                    "durationMs" to durationMs.toString(),
+                    "threadState" to "blocked"
+                )
+            )
+            StabilityMonitor.shared?.persistIncidentSync(incident)
+            StabilityMonitor.shared?.transmitStoredReport()
             
             DiagnosticLog.fault("ANR detected: ${durationMs}ms hang")
             

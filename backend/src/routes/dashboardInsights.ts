@@ -1,8 +1,8 @@
 /**
  * Dashboard Insights Routes
  * 
- * Provides actionable insights for the redesigned dashboard.
- * Transforms raw session data into meaningful patterns and recommendations.
+ * Provides quantitative insight endpoints for the dashboard.
+ * Transforms raw session telemetry into ranked, comparable metrics.
  */
 
 import { Router } from 'express';
@@ -301,14 +301,6 @@ router.get(
                     ? 'mixed'
                     : topSignal.key;
 
-                const recommendedAction = primarySignal === 'rage_taps'
-                    ? 'Review hotspot taps for blocked CTAs and disabled controls on this screen.'
-                    : primarySignal === 'errors'
-                        ? 'Audit validation/API failures and add clearer recovery states here.'
-                        : primarySignal === 'exits'
-                            ? 'Reduce drop-off by clarifying next step and improving load responsiveness.'
-                            : 'Replay affected sessions and prioritize the first visible blocker.';
-
                 const confidence = visits >= 150 ? 'high' : visits >= 50 ? 'medium' : 'low';
 
                 return {
@@ -323,7 +315,6 @@ router.get(
                     errorRatePer100: Number(errorRatePer100.toFixed(1)),
                     estimatedAffectedSessions,
                     primarySignal,
-                    recommendedAction,
                     confidence,
                     sessionIds: stats.sessionIds.slice(0, 10),
                 };
@@ -396,7 +387,6 @@ router.get(
                 errorRatePer100: screen.errorRatePer100,
                 estimatedAffectedSessions: screen.estimatedAffectedSessions,
                 primarySignal: screen.primarySignal,
-                recommendedAction: screen.recommendedAction,
                 confidence: screen.confidence,
                 sessionIds: screen.sessionIds,
                 screenshotUrl,
@@ -721,35 +711,46 @@ router.get(
             throw ApiError.forbidden('Access denied');
         }
 
+        const normalizedTimeRange = typeof timeRange === 'string' ? timeRange : undefined;
+
         // Redis caching for fast page loads
-        const cacheKey = `insights:trends:${projectIds.sort().join(',')}:${timeRange || '30d'}`;
+        const cacheKey = `insights:trends:${projectIds.sort().join(',')}:${normalizedTimeRange || '30d'}`;
         const cached = await redis.get(cacheKey);
         if (cached) {
             res.json(JSON.parse(cached));
             return;
         }
 
-        const days = timeRange === '7d' ? 7 : timeRange === '30d' ? 30 : timeRange === '90d' ? 90 : 30;
+        const days = normalizedTimeRange === '24h' ? 1
+            : normalizedTimeRange === '7d' ? 7
+                : normalizedTimeRange === '30d' ? 30
+                    : normalizedTimeRange === '90d' ? 90
+                        : undefined;
 
-        // Fetch extra 30 days for MAU calculation
-        const extendedDays = days + 30;
+        // For bounded windows fetch extra 30 days to compute MAU.
+        // "all" intentionally loads the full available timeline.
+        let startStr: string | undefined;
+        let queryStartStr: string | undefined;
+        if (typeof days === 'number') {
+            const extendedDays = days + 30;
+            const start = new Date();
+            start.setDate(start.getDate() - extendedDays);
+            startStr = start.toISOString().split('T')[0];
 
-        const start = new Date();
-        start.setDate(start.getDate() - extendedDays);
-        const startStr = start.toISOString().split('T')[0];
+            const queryStart = new Date();
+            queryStart.setDate(queryStart.getDate() - days);
+            queryStartStr = queryStart.toISOString().split('T')[0];
+        }
 
-        // Filter for query response
-        const queryStart = new Date();
-        queryStart.setDate(queryStart.getDate() - days);
-        const queryStartStr = queryStart.toISOString().split('T')[0];
+        const dailyConditions = [inArray(appDailyStats.projectId, projectIds)];
+        if (startStr) {
+            dailyConditions.push(gte(appDailyStats.date, startStr));
+        }
 
         const stats = await db
             .select()
             .from(appDailyStats)
-            .where(and(
-                inArray(appDailyStats.projectId, projectIds),
-                gte(appDailyStats.date, startStr)
-            ))
+            .where(and(...dailyConditions))
             .orderBy(asc(appDailyStats.date));
 
         // Aggregate by date
@@ -818,6 +819,11 @@ router.get(
             }
         }
 
+        const apiConditions = [inArray(apiEndpointDailyStats.projectId, projectIds)];
+        if (startStr) {
+            apiConditions.push(gte(apiEndpointDailyStats.date, startStr));
+        }
+
         // Fetch API endpoint stats for total calls
         const apiStats = await db
             .select({
@@ -825,10 +831,7 @@ router.get(
                 totalCalls: apiEndpointDailyStats.totalCalls,
             })
             .from(apiEndpointDailyStats)
-            .where(and(
-                inArray(apiEndpointDailyStats.projectId, projectIds),
-                gte(apiEndpointDailyStats.date, startStr)
-            ));
+            .where(and(...apiConditions));
 
         // Merge API stats into dailyMap
         for (const s of apiStats) {
@@ -862,10 +865,11 @@ router.get(
 
         // Convert to sorted array of all dates (including the buffer period)
         const allDates = Object.keys(dailyMap).sort();
+        const dateIndex = new Map(allDates.map((date, index) => [date, index]));
 
         // Build final daily stats with MAU
         const daily = allDates
-            .filter(date => date >= queryStartStr) // Only return requested range
+            .filter(date => !queryStartStr || date >= queryStartStr) // Only return requested range
             .map(date => {
                 const data = dailyMap[date];
 
@@ -873,7 +877,7 @@ router.get(
                 const mauSet = new Set<string>();
 
                 // Find index of current date
-                const currentIndex = allDates.indexOf(date);
+                const currentIndex = dateIndex.get(date) ?? 0;
 
                 // Look back up to 30 days (or as far as we have data)
                 // Since we fetched extra 30 days, we should have coverage

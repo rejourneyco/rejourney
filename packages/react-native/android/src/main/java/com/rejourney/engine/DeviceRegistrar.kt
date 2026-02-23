@@ -64,6 +64,7 @@ class DeviceRegistrar private constructor(private val context: Context) {
     // Private State
     private val prefsKey = "com.rejourney.device"
     private val fingerprintKey = "device_fingerprint"
+    private val fallbackIdKey = "device_fallback_id"
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     
     private val httpClient: OkHttpClient = OkHttpClient.Builder()
@@ -169,7 +170,6 @@ class DeviceRegistrar private constructor(private val context: Context) {
         var composite = packageName
         composite += Build.MODEL
         composite += Build.MANUFACTURER
-        composite += Build.VERSION.RELEASE
         composite += getAndroidId()
         
         return sha256(composite)
@@ -177,10 +177,25 @@ class DeviceRegistrar private constructor(private val context: Context) {
     
     private fun getAndroidId(): String {
         return try {
-            Settings.Secure.getString(context.contentResolver, Settings.Secure.ANDROID_ID) ?: java.util.UUID.randomUUID().toString()
+            Settings.Secure.getString(context.contentResolver, Settings.Secure.ANDROID_ID)
+                ?: stableDeviceFallback()
         } catch (e: Exception) {
-            java.util.UUID.randomUUID().toString()
+            stableDeviceFallback()
         }
+    }
+    
+    /**
+     * Returns a SharedPreferences-persisted UUID so the fingerprint stays stable
+     * even when ANDROID_ID is unavailable (restricted profiles, some OEM devices).
+     */
+    private fun stableDeviceFallback(): String {
+        val prefs = context.getSharedPreferences(prefsKey, Context.MODE_PRIVATE)
+        val existing = prefs.getString(fallbackIdKey, null)
+        if (existing != null) return existing
+        
+        val fresh = java.util.UUID.randomUUID().toString()
+        prefs.edit().putString(fallbackIdKey, fresh).apply()
+        return fresh
     }
     
     // Server Communication

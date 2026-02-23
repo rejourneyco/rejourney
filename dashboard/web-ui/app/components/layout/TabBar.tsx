@@ -2,7 +2,6 @@ import React, { useRef, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { useTabs } from '../../context/TabContext';
 import { useSessionData } from '../../context/SessionContext';
-import { useSafeTeam } from '../../context/TeamContext';
 import {
     Plus,
     X,
@@ -11,7 +10,6 @@ import {
     Undo2,
     PanelRightClose,
     SplitSquareVertical,
-    LayoutTemplate,
     FileText
 } from 'lucide-react';
 
@@ -23,9 +21,114 @@ interface TabBarProps {
 const STALE_TAB_KEEP_COUNT = 6;
 const TAB_DRAG_MIME = 'application/x-rejourney-tab-id';
 
+type TabCategory = 'issues' | 'replays' | 'analytics' | 'stability' | 'alerts' | 'settings' | 'search' | 'other';
+
+type TabTheme = {
+    shortLabel: string;
+    accent: string;
+    badgeBg: string;
+    badgeText: string;
+    idleBg: string;
+    idleHoverBg: string;
+};
+
+const TAB_THEME_MAP: Record<TabCategory, TabTheme> = {
+    issues: {
+        shortLabel: 'GEN',
+        accent: '#2563eb',
+        badgeBg: '#dbeafe',
+        badgeText: '#1d4ed8',
+        idleBg: '#eff6ff',
+        idleHoverBg: '#dbeafe',
+    },
+    replays: {
+        shortLabel: 'RPL',
+        accent: '#0f766e',
+        badgeBg: '#ccfbf1',
+        badgeText: '#0f766e',
+        idleBg: '#ecfeff',
+        idleHoverBg: '#cffafe',
+    },
+    analytics: {
+        shortLabel: 'ANL',
+        accent: '#0e7490',
+        badgeBg: '#d1f4ff',
+        badgeText: '#0e7490',
+        idleBg: '#e0f2fe',
+        idleHoverBg: '#bae6fd',
+    },
+    stability: {
+        shortLabel: 'STB',
+        accent: '#dc2626',
+        badgeBg: '#fee2e2',
+        badgeText: '#b91c1c',
+        idleBg: '#fef2f2',
+        idleHoverBg: '#fee2e2',
+    },
+    alerts: {
+        shortLabel: 'ALT',
+        accent: '#b45309',
+        badgeBg: '#fef3c7',
+        badgeText: '#b45309',
+        idleBg: '#fffbeb',
+        idleHoverBg: '#fef3c7',
+    },
+    settings: {
+        shortLabel: 'CFG',
+        accent: '#475569',
+        badgeBg: '#e2e8f0',
+        badgeText: '#334155',
+        idleBg: '#f1f5f9',
+        idleHoverBg: '#e2e8f0',
+    },
+    search: {
+        shortLabel: 'NEW',
+        accent: '#334155',
+        badgeBg: '#e2e8f0',
+        badgeText: '#1e293b',
+        idleBg: '#f8fafc',
+        idleHoverBg: '#e2e8f0',
+    },
+    other: {
+        shortLabel: 'TAB',
+        accent: '#64748b',
+        badgeBg: '#e2e8f0',
+        badgeText: '#475569',
+        idleBg: '#f8fafc',
+        idleHoverBg: '#e2e8f0',
+    },
+};
+
 function compactLabel(value?: string | null, fallback: string = 'Unknown'): string {
     if (!value) return fallback;
     return value.length > 22 ? `${value.slice(0, 20)}...` : value;
+}
+
+function stripPathPrefix(pathname: string): string {
+    return pathname.replace(/^\/(dashboard|demo)/, '');
+}
+
+function getTabCategory(path: string, tabId: string): TabCategory {
+    const normalizedPath = stripPathPrefix(path);
+
+    if (normalizedPath.startsWith('/analytics')) return 'analytics';
+    if (normalizedPath.startsWith('/stability')) return 'stability';
+    if (normalizedPath.startsWith('/sessions')) return 'replays';
+    if (normalizedPath.startsWith('/alerts')) return 'alerts';
+    if (
+        normalizedPath.startsWith('/settings')
+        || normalizedPath.startsWith('/team')
+        || normalizedPath.startsWith('/account')
+        || normalizedPath.startsWith('/billing')
+    ) return 'settings';
+    if (normalizedPath.startsWith('/search')) return 'search';
+    if (normalizedPath.startsWith('/general') || normalizedPath.startsWith('/issues')) return 'issues';
+
+    if (tabId.startsWith('session-')) return 'replays';
+    if (tabId.startsWith('crash-') || tabId.startsWith('anr-') || tabId.startsWith('error-')) return 'stability';
+    if (tabId.startsWith('issue-')) return 'issues';
+
+    return 'other';
 }
 
 export const TabBar: React.FC<TabBarProps> = ({ pathPrefix = '', group = 'primary' }) => {
@@ -43,12 +146,10 @@ export const TabBar: React.FC<TabBarProps> = ({ pathPrefix = '', group = 'primar
         openTabInSplit,
         moveTabToGroup,
         recentlyClosed,
-        maxTabs,
         isSplitView,
         closeSplitView,
     } = useTabs();
     const { selectedProject } = useSessionData();
-    const { currentTeam } = useSafeTeam();
     const navigate = useNavigate();
 
     const groupTabs = tabs.filter(t => t.group === group);
@@ -61,12 +162,6 @@ export const TabBar: React.FC<TabBarProps> = ({ pathPrefix = '', group = 'primar
     const closableTabs = tabs.filter((tab) => tab.isClosable).length;
     const canReopen = recentlyClosed.length > 0;
     const canCloseStale = closableTabs > STALE_TAB_KEEP_COUNT;
-    const tabsNearLimit = tabs.length >= maxTabs - 2;
-    const tabCounterClass = tabs.length >= maxTabs
-        ? 'text-red-600 border-red-300 bg-red-50'
-        : tabsNearLimit
-            ? 'text-amber-700 border-amber-300 bg-amber-50'
-            : 'text-slate-600 border-slate-300 bg-white';
 
     const handleDragStart = (e: React.DragEvent<HTMLDivElement>, index: number, tabId: string) => {
         draggedItem.current = index;
@@ -166,7 +261,8 @@ export const TabBar: React.FC<TabBarProps> = ({ pathPrefix = '', group = 'primar
 
     return (
         <div
-            className="dashboard-tabbar flex items-end gap-[1px] overflow-x-auto no-scrollbar border-b-2 border-slate-950 bg-white px-2 pt-2"
+            className="dashboard-tabbar flex items-end gap-1 overflow-x-auto no-scrollbar border-b bg-slate-100 px-2 pt-2"
+            style={{ borderColor: '#cbd5e1' }}
             onClick={() => setContextMenu(null)}
             onDragOver={(e) => e.preventDefault()}
             onDrop={(e) => {
@@ -184,19 +280,24 @@ export const TabBar: React.FC<TabBarProps> = ({ pathPrefix = '', group = 'primar
                     const isDraggingOver = dragOverIndex === index;
                     const projectLabel = compactLabel(tab.projectName || selectedProject?.name, 'Project');
                     const TabIcon = tab.icon || FileText;
+                    const category = getTabCategory(tab.path, tab.id);
+                    const tabTheme = TAB_THEME_MAP[category];
 
-                    // Style logic
-                    let baseClasses = "group relative flex items-center gap-2 border border-b-0 px-4 py-2 text-xs transition-all select-none min-w-0 font-mono uppercase tracking-wider";
-                    let stateClasses = "";
-
-                    if (isActive) {
-                        stateClasses = "z-10 -mb-px border-slate-950 border-2 border-b-0 bg-white text-slate-950 font-bold";
-                    } else {
-                        stateClasses = "border-transparent bg-[#e9eff6] text-slate-500 hover:text-slate-800 hover:bg-[#dfe7f0]";
-                    }
+                    const tabStyle: React.CSSProperties = isActive
+                        ? {
+                            borderColor: '#cbd5e1',
+                            background: 'linear-gradient(180deg, #ffffff 0%, #ffffff 68%, #f8fafc 100%)',
+                            boxShadow: `inset 0 3px 0 0 ${tabTheme.accent}`,
+                        }
+                        : {
+                            borderColor: '#d7e0eb',
+                            backgroundColor: tabTheme.idleBg,
+                            boxShadow: `inset 0 2px 0 0 ${tabTheme.accent}99`,
+                        };
 
                     if (isDraggingOver) {
-                        stateClasses += " border-blue-500 bg-blue-50";
+                        tabStyle.borderColor = tabTheme.accent;
+                        tabStyle.backgroundColor = tabTheme.idleHoverBg;
                     }
 
                     return (
@@ -209,23 +310,37 @@ export const TabBar: React.FC<TabBarProps> = ({ pathPrefix = '', group = 'primar
                             onDragEnd={handleDragEnd}
                             onClick={() => handleTabClick(tab)}
                             onContextMenu={(e) => handleContextMenu(e, tab.id)}
-                            className={`${baseClasses} ${stateClasses} flex-1 max-w-[240px]`}
+                            className={[
+                                'group relative flex flex-1 min-w-0 max-w-[260px] cursor-pointer select-none items-center gap-2 rounded-t-lg border border-b-0 px-3 py-2 text-xs transition-all duration-150',
+                                isActive ? 'z-20 -mb-px text-slate-900' : 'text-slate-600 hover:-translate-y-[1px] hover:text-slate-900',
+                            ].join(' ')}
+                            style={tabStyle}
                             title={`Project: ${projectLabel}\n${tab.title}`}
                         >
+                            <div
+                                className="absolute left-2 right-2 top-0 h-[3px] rounded-full"
+                                style={{ backgroundColor: tabTheme.accent, opacity: isActive ? 1 : 0.75 }}
+                            />
+
                             <div className="min-w-0 flex-1 flex items-center gap-2">
-                                {/* Hiding icons to match screenshot more closely, but keeping the space if needed */}
-                                {/* <TabIcon className={`h-3.5 w-3.5 shrink-0 ${isActive ? 'text-slate-600' : 'text-slate-400'}`} /> */}
-                                <div className="truncate text-[12px] leading-tight font-bold">{tab.title}</div>
+                                <TabIcon className="h-3.5 w-3.5 shrink-0" style={{ color: tabTheme.accent }} />
+                                <div className="truncate text-[12px] leading-tight font-semibold">{tab.title}</div>
+                                <span
+                                    className="hidden shrink-0 items-center rounded-full px-1.5 py-0.5 text-[9px] font-bold tracking-[0.08em] text-inherit sm:inline-flex"
+                                    style={{ backgroundColor: tabTheme.badgeBg, color: tabTheme.badgeText }}
+                                >
+                                    {tabTheme.shortLabel}
+                                </span>
                             </div>
 
                             <div className={`flex items-center gap-0.5 shrink-0 ${isActive ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'} transition-opacity`}>
-                                {tab.id === activeId && tab.isClosable && (
+                                {tab.isClosable && (
                                     <button
                                         onClick={(e) => {
                                             e.stopPropagation();
                                             closeTab(tab.id, e);
                                         }}
-                                        className="flex h-4 w-4 items-center justify-center rounded-none text-slate-400 hover:bg-red-50 hover:text-red-600 transition-colors"
+                                        className="flex h-4 w-4 items-center justify-center rounded-sm text-slate-500 hover:bg-red-100 hover:text-red-600 transition-colors"
                                         title="Close tab"
                                     >
                                         <X className="h-3 w-3" />
@@ -241,7 +356,8 @@ export const TabBar: React.FC<TabBarProps> = ({ pathPrefix = '', group = 'primar
                 {group === 'primary' && (
                     <button
                         onClick={handleNewTab}
-                        className="flex h-[34px] shrink-0 items-center justify-center border border-b-0 border-transparent px-3 text-slate-500 transition-colors hover:bg-[#e9eff6] hover:text-slate-800"
+                        className="flex h-[35px] shrink-0 items-center justify-center rounded-t-lg border border-b-0 px-3 text-slate-600 transition-colors hover:text-slate-900"
+                        style={{ borderColor: '#d7e0eb', backgroundColor: '#e2e8f0' }}
                         title="New tab"
                     >
                         <Plus className="h-4 w-4" />

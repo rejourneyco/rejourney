@@ -7,7 +7,7 @@
 import { Router } from 'express';
 import { eq, and, inArray, gte, lt, isNull, desc } from 'drizzle-orm';
 
-import { db, sessions, sessionMetrics, recordingArtifacts, projects, teamMembers, crashes, anrs } from '../db/client.js';
+import { db, sessions, sessionMetrics, recordingArtifacts, projects, teamMembers, crashes, anrs, errors } from '../db/client.js';
 import { gunzipSync } from 'zlib';
 
 import { getSignedDownloadUrlForProject, downloadFromS3ForProject, getObjectSizeBytesForProject } from '../db/s3.js';
@@ -41,8 +41,8 @@ function getTimeRangeFilter(timeRange?: string): Date | undefined {
 }
 
 const DETAIL_FETCH_CONCURRENCY = Number(process.env.RJ_REPLAY_DETAIL_FETCH_CONCURRENCY ?? 6);
-const frameModeFromEnv = (process.env.RJ_REPLAY_FRAME_URL_MODE || 'signed').toLowerCase();
-const DEFAULT_FRAME_URL_MODE: ScreenshotFrameUrlMode = frameModeFromEnv === 'proxy' ? 'proxy' : 'signed';
+const frameModeFromEnv = (process.env.RJ_REPLAY_FRAME_URL_MODE || 'proxy').toLowerCase();
+const DEFAULT_FRAME_URL_MODE: ScreenshotFrameUrlMode = frameModeFromEnv === 'signed' ? 'signed' : 'proxy';
 
 function resolveFrameUrlMode(raw: unknown): ScreenshotFrameUrlMode {
     if (typeof raw !== 'string') return DEFAULT_FRAME_URL_MODE;
@@ -322,13 +322,177 @@ function normalizeEventsForTimeline(
     return { normalizedEvents, coerceToEpochMs };
 }
 
+function getFaultTextValue(raw: unknown): string {
+    if (typeof raw !== 'string') return '';
+    return raw.trim().toLowerCase().slice(0, 240);
+}
+
+function buildFaultDedupeSignature(event: any): string {
+    const type = (event?.type ?? '').toString().toLowerCase();
+    const timestamp = Number.isFinite(event?.timestamp)
+        ? Math.round(Number(event.timestamp) / 250) * 250
+        : 0;
+    const name = getFaultTextValue(
+        event?.name ??
+        event?.properties?.errorName ??
+        event?.properties?.exceptionName
+    );
+    const message = getFaultTextValue(
+        event?.message ??
+        event?.reason ??
+        event?.properties?.message ??
+        event?.properties?.reason
+    );
+    const stackHead = getFaultTextValue(
+        ((event?.stack ??
+            event?.properties?.stack ??
+            event?.properties?.stackTrace ??
+            event?.properties?.threadState ??
+            '') as string)
+            .split('\n')[0]
+    );
+    return `${type}|${timestamp}|${name}|${message}|${stackHead}`;
+}
+
+function mergeEventsWithFaults(normalizedEvents: any[], faultEvents: any[]) {
+    const seen = new Set<string>();
+    for (const event of normalizedEvents) {
+        seen.add(buildFaultDedupeSignature(event));
+    }
+
+    const merged = [...normalizedEvents];
+    for (const faultEvent of faultEvents) {
+        const signature = buildFaultDedupeSignature(faultEvent);
+        if (seen.has(signature)) continue;
+        seen.add(signature);
+        merged.push(faultEvent);
+    }
+
+    return merged.sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
+}
+
+function buildSessionFaultEvents(
+    sessionCrashes: any[],
+    sessionAnrs: any[],
+    sessionErrors: any[],
+    sessionStartMs: number,
+    coerceToEpochMs: (raw: unknown, fallbackMs: number) => number
+) {
+    const crashEvents = sessionCrashes.map((crashRow) => {
+        const timestamp = coerceToEpochMs(crashRow.timestamp?.getTime?.() ?? crashRow.timestamp, sessionStartMs);
+        const properties: any = {
+            crashId: crashRow.id,
+            exceptionName: crashRow.exceptionName,
+            reason: crashRow.reason,
+            stackTrace: crashRow.stackTrace,
+            status: crashRow.status,
+            deviceMetadata: crashRow.deviceMetadata ?? null,
+            consoleMarker: 'RJ_CRASH',
+        };
+        const primaryMessage = [crashRow.exceptionName || 'Crash', crashRow.reason || '']
+            .filter(Boolean)
+            .join(': ');
+        return {
+            id: `crash_evt_${crashRow.id}`,
+            type: 'crash',
+            timestamp,
+            name: crashRow.exceptionName || 'Crash',
+            message: primaryMessage || 'Crash detected',
+            level: 'error',
+            stack: crashRow.stackTrace || undefined,
+            properties,
+            payload: properties,
+        };
+    });
+
+    const anrEvents = sessionAnrs.map((anrRow) => {
+        const timestamp = coerceToEpochMs(anrRow.timestamp?.getTime?.() ?? anrRow.timestamp, sessionStartMs);
+        const properties: any = {
+            anrId: anrRow.id,
+            durationMs: anrRow.durationMs,
+            threadState: anrRow.threadState,
+            status: anrRow.status,
+            consoleMarker: 'RJ_ANR',
+        };
+        const detail = Number.isFinite(anrRow.durationMs)
+            ? `ANR detected (${anrRow.durationMs} ms blocked)`
+            : 'ANR detected';
+        return {
+            id: `anr_evt_${anrRow.id}`,
+            type: 'anr',
+            timestamp,
+            name: 'ANR',
+            message: detail,
+            level: 'error',
+            stack: anrRow.threadState || undefined,
+            durationMs: anrRow.durationMs,
+            threadState: anrRow.threadState,
+            properties,
+            payload: properties,
+        };
+    });
+
+    const errorEvents = sessionErrors.map((errorRow) => {
+        const timestamp = coerceToEpochMs(errorRow.timestamp?.getTime?.() ?? errorRow.timestamp, sessionStartMs);
+        const properties: any = {
+            errorId: errorRow.id,
+            errorType: errorRow.errorType,
+            errorName: errorRow.errorName,
+            message: errorRow.message,
+            stack: errorRow.stack,
+            screenName: errorRow.screenName,
+            status: errorRow.status,
+            consoleMarker: 'RJ_ERROR',
+        };
+        const name = errorRow.errorName || 'Error';
+        const message = errorRow.message || 'Runtime error';
+        return {
+            id: `error_evt_${errorRow.id}`,
+            type: 'error',
+            timestamp,
+            name,
+            message,
+            level: 'error',
+            stack: errorRow.stack || undefined,
+            screen: errorRow.screenName || null,
+            properties,
+            payload: properties,
+        };
+    });
+
+    return [...crashEvents, ...anrEvents, ...errorEvents];
+}
+
+function mapCrashRowsForPayload(sessionCrashes: any[]) {
+    return sessionCrashes.map((crashRow) => ({
+        id: crashRow.id,
+        timestamp: crashRow.timestamp.getTime(),
+        exceptionName: crashRow.exceptionName,
+        reason: crashRow.reason,
+        stackTrace: crashRow.stackTrace,
+        status: crashRow.status,
+        deviceMetadata: crashRow.deviceMetadata,
+    }));
+}
+
+function mapAnrRowsForPayload(sessionAnrs: any[]) {
+    return sessionAnrs.map((anrRow) => ({
+        id: anrRow.id,
+        timestamp: anrRow.timestamp.getTime(),
+        durationMs: anrRow.durationMs,
+        threadState: anrRow.threadState,
+        status: anrRow.status,
+    }));
+}
+
 async function loadTimelinePayload(session: any, artifactsList: any[]) {
     const eventsArtifacts = artifactsList.filter((a) => a.kind === 'events');
     const networkArtifacts = artifactsList.filter((a) => a.kind === 'network');
 
-    const [sessionCrashes, sessionAnrs, parsedEventsBatches, parsedNetworkBatches] = await Promise.all([
+    const [sessionCrashes, sessionAnrs, sessionErrors, parsedEventsBatches, parsedNetworkBatches] = await Promise.all([
         db.select().from(crashes).where(eq(crashes.sessionId, session.id)).orderBy(desc(crashes.timestamp)),
         db.select().from(anrs).where(eq(anrs.sessionId, session.id)).orderBy(desc(anrs.timestamp)),
+        db.select().from(errors).where(eq(errors.sessionId, session.id)).orderBy(desc(errors.timestamp)),
         mapWithConcurrency(eventsArtifacts, DETAIL_FETCH_CONCURRENCY, async (artifact) => {
             try {
                 const data = await downloadFromS3ForProject(session.projectId, artifact.s3ObjectKey);
@@ -363,26 +527,14 @@ async function loadTimelinePayload(session: any, artifactsList: any[]) {
         ?? (sessionStartMs + ((session.durationSeconds ?? 0) * 1000));
 
     const { normalizedEvents, coerceToEpochMs } = normalizeEventsForTimeline(allEvents, sessionStartMs, sessionEndMs);
-
-    const anrEvents = sessionAnrs.map((a) => {
-        const timestamp = coerceToEpochMs(a.timestamp?.getTime?.() ?? a.timestamp, sessionStartMs);
-        const properties: any = {
-            durationMs: a.durationMs,
-            threadState: a.threadState,
-        };
-        return {
-            id: a.id,
-            type: 'anr',
-            timestamp,
-            durationMs: a.durationMs,
-            threadState: a.threadState,
-            properties,
-            payload: properties,
-        };
-    });
-
-    const mergedEvents = [...normalizedEvents, ...anrEvents]
-        .sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
+    const faultEvents = buildSessionFaultEvents(
+        sessionCrashes,
+        sessionAnrs,
+        sessionErrors,
+        sessionStartMs,
+        coerceToEpochMs
+    );
+    const mergedEvents = mergeEventsWithFaults(normalizedEvents, faultEvents);
 
     const networkRequests = [
         ...allNetwork.map((n) => ({ ...n, timestamp: n.timestamp || Date.now() })),
@@ -439,21 +591,8 @@ async function loadTimelinePayload(session: any, artifactsList: any[]) {
     return {
         events: mergedEvents,
         networkRequests,
-        crashes: sessionCrashes.map((c) => ({
-            id: c.id,
-            timestamp: c.timestamp.getTime(),
-            exceptionName: c.exceptionName,
-            reason: c.reason,
-            status: c.status,
-            deviceMetadata: c.deviceMetadata,
-        })),
-        anrs: sessionAnrs.map((a) => ({
-            id: a.id,
-            timestamp: a.timestamp.getTime(),
-            durationMs: a.durationMs,
-            threadState: a.threadState,
-            status: a.status,
-        })),
+        crashes: mapCrashRowsForPayload(sessionCrashes),
+        anrs: mapAnrRowsForPayload(sessionAnrs),
     };
 }
 
@@ -829,6 +968,12 @@ router.get(
             .where(eq(anrs.sessionId, session.id))
             .orderBy(desc(anrs.timestamp));
 
+        const sessionErrors = await db
+            .select()
+            .from(errors)
+            .where(eq(errors.sessionId, session.id))
+            .orderBy(desc(errors.timestamp));
+
         // Get recording artifacts
         const artifactsList = await db
             .select()
@@ -1056,25 +1201,15 @@ router.get(
             .map((e, idx) => normalizeEvent(e, idx))
             .sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
 
-        const anrEvents = sessionAnrs.map((a) => {
-            const timestamp = coerceToEpochMs(a.timestamp?.getTime?.() ?? a.timestamp, sessionStartMs);
-            const properties: any = {
-                durationMs: a.durationMs,
-                threadState: a.threadState,
-            };
-            return {
-                id: a.id,
-                type: 'anr',
-                timestamp,
-                durationMs: a.durationMs,
-                threadState: a.threadState,
-                properties,
-                payload: properties,
-            };
-        });
+        const faultEvents = buildSessionFaultEvents(
+            sessionCrashes,
+            sessionAnrs,
+            sessionErrors,
+            sessionStartMs,
+            coerceToEpochMs
+        );
 
-        const mergedEvents = [...normalizedEvents, ...anrEvents]
-            .sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
+        const mergedEvents = mergeEventsWithFaults(normalizedEvents, faultEvents);
 
         // Determine if this session has replay data (screenshots only).
         // A session without segments may still have analytics data (events, metrics)
@@ -1198,14 +1333,8 @@ router.get(
                     crashCount: metrics.crashCount || 0,
                 }
                 : null,
-            crashes: sessionCrashes.map((c) => ({
-                id: c.id,
-                timestamp: c.timestamp.getTime(),
-                exceptionName: c.exceptionName,
-                reason: c.reason,
-                status: c.status,
-                deviceMetadata: c.deviceMetadata,
-            })),
+            crashes: mapCrashRowsForPayload(sessionCrashes),
+            anrs: mapAnrRowsForPayload(sessionAnrs),
             stats: {
                 duration: String(session.durationSeconds ?? 0),
                 durationMinutes: String(((session.durationSeconds ?? 0) / 60).toFixed(2)),

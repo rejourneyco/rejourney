@@ -13,7 +13,6 @@ import { EngineeringCTA } from "~/components/landing/EngineeringCTA";
 import { EmbeddedDemoWindow } from "~/components/landing/EmbeddedDemoWindow";
 import { PerformanceMetrics } from "~/components/landing/PerformanceMetrics";
 import { Features } from "~/components/landing/Features";
-import { PromotionLogicGraphic } from "~/components/recordings/PromotionLogicGraphic";
 
 export const meta: Route.MetaFunction = () => [
     { title: "Rejourney: Open Source React Native Sentry Alternative" },
@@ -36,7 +35,6 @@ export default function LandingPage() {
                 <EmbeddedDemoWindow />
                 <Features />
                 <PerformanceMetrics />
-                <PromotionLogicGraphic mode="inline" />
                 <EngineeringCTA />
             </main>
             <Footer />

@@ -30,6 +30,7 @@ import android.view.TextureView
 import android.view.View
 import android.view.ViewGroup
 import android.view.WindowManager
+import android.widget.EditText
 import com.rejourney.engine.DiagnosticLog
 import com.rejourney.utility.gzipCompress
 import java.io.ByteArrayOutputStream
@@ -470,12 +471,18 @@ class VisualCapture private constructor(private val context: Context) {
         sendScreenshots()
     }
     
-    fun uploadPendingFrames(sessionId: String) {
+    fun uploadPendingFrames(sessionId: String, completion: ((Boolean) -> Unit)? = null) {
         val framesPath = File(context.cacheDir, "rj_pending/$sessionId/frames")
         
-        if (!framesPath.exists()) return
+        if (!framesPath.exists()) {
+            completion?.invoke(true)
+            return
+        }
         
-        val frameFiles = framesPath.listFiles()?.sortedBy { it.name } ?: return
+        val frameFiles = framesPath.listFiles()?.sortedBy { it.name } ?: run {
+            completion?.invoke(true)
+            return
+        }
         
         val frames = mutableListOf<Pair<ByteArray, Long>>()
         for (file in frameFiles) {
@@ -485,9 +492,15 @@ class VisualCapture private constructor(private val context: Context) {
             frames.add(Pair(data, ts))
         }
         
-        if (frames.isEmpty()) return
+        if (frames.isEmpty()) {
+            completion?.invoke(true)
+            return
+        }
         
-        val bundle = packageFrameBundle(frames, frames.first().second) ?: return
+        val bundle = packageFrameBundle(frames, frames.first().second) ?: run {
+            completion?.invoke(false)
+            return
+        }
         
         SegmentDispatcher.shared.transmitFrameBundle(
             payload = bundle,
@@ -500,6 +513,7 @@ class VisualCapture private constructor(private val context: Context) {
                 frameFiles.forEach { it.delete() }
                 framesPath.delete()
             }
+            completion?.invoke(ok)
         }
     }
 }

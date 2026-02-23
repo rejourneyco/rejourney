@@ -45,6 +45,7 @@ import com.rejourney.platform.TaskRemovedListener
 import com.rejourney.recording.*
 import kotlinx.coroutines.*
 import java.security.MessageDigest
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.locks.ReentrantLock
 import kotlin.concurrent.withLock
 
@@ -68,9 +69,11 @@ class RejourneyModuleImpl(
         var sdkVersion = "1.0.1"
         
         private const val SESSION_TIMEOUT_MS = 60_000L // 60 seconds
+        private const val SESSION_ROLLOVER_GRACE_MS = 2_000L
         
         private const val PREFS_NAME = "com.rejourney.prefs"
         private const val KEY_USER_IDENTITY = "user_identity"
+        private const val KEY_ANONYMOUS_ID = "anonymous_id"
     }
 
     // State machine
@@ -143,8 +146,14 @@ class RejourneyModuleImpl(
                 registerActivityLifecycleCallbacks()
                 registerProcessLifecycleObserver()
                 
-                // Transmit any stored crash reports
-                StabilityMonitor.getInstance(reactContext).transmitStoredReport()
+                // Recover any session interrupted by a previous crash.
+                // Transmit stored fault reports only after recovery restores auth context.
+                ReplayOrchestrator.getInstance(reactContext).recoverInterruptedReplay { recoveredId ->
+                    if (recoveredId != null) {
+                        DiagnosticLog.notice("[Rejourney] Recovered crashed session: $recoveredId")
+                    }
+                    StabilityMonitor.getInstance(reactContext).transmitStoredReport()
+                }
                 
                 // Android-specific: OEM detection and task removed handling
                 setupOEMSpecificHandling()
@@ -252,16 +261,52 @@ class RejourneyModuleImpl(
                 
                 DiagnosticLog.notice("[Rejourney] 🔄 Session timeout! Ending session '$oldSessionId' and creating new one")
 
-                backgroundScope.launch {
-                    ReplayOrchestrator.shared?.endReplay { success, uploaded ->
-                        DiagnosticLog.notice("[Rejourney] Old session ended (success: $success, uploaded: $uploaded)")
+                val restartStarted = AtomicBoolean(false)
+                val triggerRestart: (String) -> Unit = { source ->
+                    if (restartStarted.compareAndSet(false, true)) {
+                        DiagnosticLog.notice("[Rejourney] Session rollover trigger source=$source, oldSession=$oldSessionId")
                         mainHandler.post { startNewSessionAfterTimeout() }
                     }
                 }
+
+                mainHandler.postDelayed({
+                    if (!restartStarted.get()) {
+                        DiagnosticLog.caution("[Rejourney] Session rollover grace timeout reached (${SESSION_ROLLOVER_GRACE_MS}ms), forcing new session start")
+                    }
+                    triggerRestart("grace_timeout")
+                }, SESSION_ROLLOVER_GRACE_MS)
+
+                backgroundScope.launch {
+                    val orchestrator = ReplayOrchestrator.shared
+                    if (orchestrator == null) {
+                        triggerRestart("orchestrator_missing")
+                        return@launch
+                    }
+
+                    orchestrator.endReplayWithReason("background_timeout") { success, uploaded ->
+                        DiagnosticLog.notice("[Rejourney] Old session ended (success: $success, uploaded: $uploaded)")
+                        triggerRestart("end_replay_callback")
+                    }
+                }
             } else {
-                // Resume existing session
-                state = SessionState.Active(currentState.sessionId, currentState.startTimeMs)
-                DiagnosticLog.notice("[Rejourney] ▶️ Resuming session '${currentState.sessionId}'")
+                val orchestratorSessionId = ReplayOrchestrator.shared?.replayId
+                if (orchestratorSessionId.isNullOrEmpty()) {
+                    // The old session can end while app is backgrounded (e.g. duration limit).
+                    // Do not resume a dead session; start a fresh one.
+                    state = SessionState.Idle
+                    DiagnosticLog.notice("[Rejourney] Session ended while backgrounded, starting fresh session on foreground")
+                    mainHandler.post { startNewSessionAfterTimeout() }
+                    return
+                }
+
+                if (orchestratorSessionId != currentState.sessionId) {
+                    state = SessionState.Active(orchestratorSessionId, System.currentTimeMillis())
+                    DiagnosticLog.notice("[Rejourney] ▶️ Foreground reconciled to active session '$orchestratorSessionId' (was '${currentState.sessionId}')")
+                } else {
+                    // Resume existing session
+                    state = SessionState.Active(currentState.sessionId, currentState.startTimeMs)
+                    DiagnosticLog.notice("[Rejourney] ▶️ Resuming session '${currentState.sessionId}'")
+                }
                 
                 // Record foreground event
                 TelemetryPipeline.shared?.recordAppForeground(backgroundDuration)
@@ -503,7 +548,7 @@ class RejourneyModuleImpl(
                 return@post
             }
 
-            ReplayOrchestrator.shared?.endReplay { success, uploaded ->
+            ReplayOrchestrator.shared?.endReplayWithReason("user_initiated") { success, uploaded ->
                 DiagnosticLog.replayEnded(targetSid)
                 
                 promise.resolve(Arguments.createMap().apply {
@@ -555,6 +600,30 @@ class RejourneyModuleImpl(
         promise.resolve(currentUserIdentity)
     }
 
+    fun setAnonymousId(anonymousId: String, promise: Promise) {
+        try {
+            val prefs = reactContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            if (anonymousId.isBlank()) {
+                prefs.edit().remove(KEY_ANONYMOUS_ID).apply()
+            } else {
+                prefs.edit().putString(KEY_ANONYMOUS_ID, anonymousId).apply()
+            }
+        } catch (e: Exception) {
+            DiagnosticLog.fault("[Rejourney] Failed to persist anonymous ID: ${e.message}")
+        }
+
+        promise.resolve(createResultMap(true))
+    }
+
+    fun getAnonymousId(promise: Promise) {
+        try {
+            val prefs = reactContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            promise.resolve(prefs.getString(KEY_ANONYMOUS_ID, null))
+        } catch (_: Exception) {
+            promise.resolve(null)
+        }
+    }
+
     fun logEvent(eventType: String, details: ReadableMap, promise: Promise) {
         // Handle network_request events specially
         if (eventType == "network_request") {
@@ -586,6 +655,17 @@ class RejourneyModuleImpl(
             val label = detailsMap["label"]?.toString() ?: "unknown"
             TelemetryPipeline.shared?.recordDeadTapEvent(label, x, y)
             ReplayOrchestrator.shared?.incrementDeadTapTally()
+            promise.resolve(createResultMap(true))
+            return
+        }
+
+        // Handle console log events - preserve type:"log" with level and message
+        // so the dashboard replay can display them in the console terminal
+        if (eventType == "log") {
+            val detailsMap = details.toHashMap()
+            val level = detailsMap["level"]?.toString() ?: "log"
+            val message = detailsMap["message"]?.toString() ?: ""
+            TelemetryPipeline.shared?.recordConsoleLogEvent(level, message)
             promise.resolve(createResultMap(true))
             return
         }

@@ -1,16 +1,28 @@
+# syntax=docker/dockerfile:1.7
 # Stage 1: build
 FROM node:24-bookworm-slim AS build
 WORKDIR /app
 
 # Build arguments for Vite (baked in at build time)
 ARG VITE_STRIPE_PUBLISHABLE_KEY
+ARG VITE_MAPBOX_TOKEN
 ARG VITE_DASHBOARD_URL
 ARG VITE_API_URL
 
 # Make build args available as env vars during build
 ENV VITE_STRIPE_PUBLISHABLE_KEY=$VITE_STRIPE_PUBLISHABLE_KEY
+ENV VITE_MAPBOX_TOKEN=$VITE_MAPBOX_TOKEN
 ENV VITE_DASHBOARD_URL=$VITE_DASHBOARD_URL
 ENV VITE_API_URL=$VITE_API_URL
+
+# Harden npm network behavior for transient registry failures.
+ENV NPM_CONFIG_FETCH_RETRIES=5 \
+    NPM_CONFIG_FETCH_RETRY_FACTOR=2 \
+    NPM_CONFIG_FETCH_RETRY_MINTIMEOUT=20000 \
+    NPM_CONFIG_FETCH_RETRY_MAXTIMEOUT=120000 \
+    NPM_CONFIG_FETCH_TIMEOUT=300000 \
+    NPM_CONFIG_AUDIT=false \
+    NPM_CONFIG_FUND=false
 
 # Copy root package files
 COPY package.json package-lock.json ./
@@ -21,7 +33,7 @@ COPY dashboard/web-ui/package.json dashboard/web-ui/
 COPY packages/react-native/package.json packages/react-native/
 
 # Install dependencies (from root)
-RUN npm ci --legacy-peer-deps --ignore-scripts
+RUN --mount=type=cache,target=/root/.npm npm ci --legacy-peer-deps --ignore-scripts
 
 # Copy web-ui source code
 COPY dashboard/web-ui/ dashboard/web-ui/
@@ -37,6 +49,14 @@ RUN npm run build
 FROM node:24-bookworm-slim AS production
 WORKDIR /app
 
+ENV NPM_CONFIG_FETCH_RETRIES=5 \
+    NPM_CONFIG_FETCH_RETRY_FACTOR=2 \
+    NPM_CONFIG_FETCH_RETRY_MINTIMEOUT=20000 \
+    NPM_CONFIG_FETCH_RETRY_MAXTIMEOUT=120000 \
+    NPM_CONFIG_FETCH_TIMEOUT=300000 \
+    NPM_CONFIG_AUDIT=false \
+    NPM_CONFIG_FUND=false
+
 # Note: The Node.js base image already includes a 'node' user (UID 1000)
 # We will switch to it at the end for security
 
@@ -48,7 +68,7 @@ COPY dashboard/web-ui/package.json dashboard/web-ui/
 COPY packages/react-native/package.json packages/react-native/
 
 # Install production dependencies only (from root)
-RUN npm ci --legacy-peer-deps --omit=dev --ignore-scripts
+RUN --mount=type=cache,target=/root/.npm npm ci --legacy-peer-deps --omit=dev --ignore-scripts
 
 # Copy the built application and server
 COPY --from=build /app/dashboard/web-ui/build dashboard/web-ui/build

@@ -10,6 +10,9 @@ if [[ "$1" == "--no-cache" ]]; then
     NO_CACHE="--no-cache"
 fi
 
+MAX_BUILD_RETRIES="${REBUILD_MAX_RETRIES:-3}"
+BUILD_RETRY_DELAY_SECONDS="${REBUILD_RETRY_DELAY_SECONDS:-10}"
+
 echo "🧹 Rebuilding Rejourney Web UI container..."
 
 # Check for .env.local
@@ -28,6 +31,22 @@ else
     exit 1
 fi
 
+retry_build() {
+    local attempt=1
+    while true; do
+        if $COMPOSE --env-file .env.local build $NO_CACHE "$@"; then
+            return 0
+        fi
+        if [ "$attempt" -ge "$MAX_BUILD_RETRIES" ]; then
+            echo "❌ Build failed after ${MAX_BUILD_RETRIES} attempt(s)."
+            return 1
+        fi
+        echo "⚠️  Build failed (attempt ${attempt}/${MAX_BUILD_RETRIES}). Retrying in ${BUILD_RETRY_DELAY_SECONDS}s..."
+        attempt=$((attempt + 1))
+        sleep "$BUILD_RETRY_DELAY_SECONDS"
+    done
+}
+
 # Stop the web service
 echo "📦 Stopping web container..."
 $COMPOSE --env-file .env.local stop web
@@ -38,7 +57,7 @@ $COMPOSE --env-file .env.local rm -f web
 
 # Rebuild web image
 echo "🔨 Rebuilding web image ${NO_CACHE:+(no cache)}..."
-$COMPOSE --env-file .env.local build $NO_CACHE web
+retry_build web
 
 # Start web service
 echo "🚀 Starting web service..."
