@@ -25,27 +25,37 @@ npm install @rejourneyco/react-native
 Initialize and start Rejourney at the top of your app (e.g. in App.tsx or index.js).
 
 ```javascript
-import { initRejourney, startRejourney } from '@rejourneyco/react-native';
+import { Rejourney } from '@rejourneyco/react-native';
 
-initRejourney('pk_live_your_public_key');
-startRejourney();
+Rejourney.init('pk_live_your_public_key');
+Rejourney.start();
 ```
 
 Requires no provider wrapping. Recording starts immediately.
 
 ## Screen Tracking
 
-> [!IMPORTANT]
-> **Screen changes are tracked automatically if you use Expo Router. No additional code needed.**
+Rejourney automatically tracks screen changes so you can see where users are in your app during replays. Choose the setup that matches your navigation library:
 
-For **React Navigation**, pass the tracking hook to your NavigationContainer:
+### Expo Router (Automatic)
+
+If you use **Expo Router**, screen tracking works out of the box. No additional code is needed.
+
+> [!TIP]
+> **Using custom screen names?** If you use Expo Router but want to provide your own screen names manually, see the [Custom Screen Names](#custom-screen-names) section below.
+
+---
+
+### React Navigation
+
+If you use **React Navigation** (`@react-navigation/native`), use the `useNavigationTracking` hook in your root `NavigationContainer`:
 
 ```javascript
-import { useNavigationTracking } from '@rejourneyco/react-native';
+import { Rejourney } from '@rejourneyco/react-native';
 import { NavigationContainer } from '@react-navigation/native';
 
 function App() {
-  const navigationTracking = useNavigationTracking();
+  const navigationTracking = Rejourney.useNavigationTracking();
 
   return (
     <NavigationContainer {...navigationTracking}>
@@ -53,6 +63,31 @@ function App() {
     </NavigationContainer>
   );
 }
+```
+
+---
+
+### Custom Screen Names
+
+If you want to manually specify screen names (e.g., for analytics consistency or if you don't use the libraries above), use the `trackScreen` method.
+
+#### For Expo Router users:
+To use custom names with Expo Router, you must first disable automatic tracking in your configuration:
+
+```javascript
+Rejourney.init('pk_live_your_public_key', {
+  autoTrackExpoRouter: false
+});
+```
+
+#### Manual tracking call:
+Call `trackScreen` whenever a screen change occurs:
+
+```javascript
+import { Rejourney } from '@rejourneyco/react-native';
+
+// Call this in your screen component or navigation listener
+Rejourney.trackScreen('Checkout Page');
 ```
 
 ## User Identification
@@ -71,6 +106,21 @@ Rejourney.clearUserIdentity();
 
 > [!IMPORTANT]
 > **Privacy:** Use internal IDs or UUIDs. If you must use PII (email, phone), hash it before sending.
+
+## Custom Events & Metadata
+
+You can track custom events and assign metadata to sessions to filter and segment them later in the dashboard.
+
+```javascript
+// Set a single metadata property
+Rejourney.setMetadata('plan', 'premium');
+
+// Set multiple metadata properties
+Rejourney.setMetadata({
+  role: 'admin',
+  segment: 'enterprise'
+});
+```
 
 ## Privacy Controls
 

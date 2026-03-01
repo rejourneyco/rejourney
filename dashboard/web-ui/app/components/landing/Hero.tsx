@@ -4,10 +4,10 @@ import { Terminal, UserPlus, Check } from 'lucide-react';
 import { DocsCodeBlock } from '~/components/features/docs/DocsCodeBlock';
 import { AI_INTEGRATION_PROMPT } from '../../constants/aiPrompts';
 
-const quickStartCode = `import { initRejourney, startRejourney } from '@rejourneyco/react-native';
+const quickStartCode = `import { Rejourney } from '@rejourneyco/react-native';
 
-initRejourney('YOUR_PUBLIC_ID');
-startRejourney();
+Rejourney.init('YOUR_PUBLIC_ID');
+Rejourney.start();
 // That's it!`;
 
 export const Hero: React.FC = () => {

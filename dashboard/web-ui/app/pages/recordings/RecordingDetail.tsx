@@ -26,12 +26,16 @@ import {
     Maximize2,
     RefreshCw,
     GripHorizontal,
+    Star,
     MapPin,
     Download,
     FileText,
     ListFilter,
     Terminal,
     Code,
+    Check,
+    Copy,
+    Database,
 } from 'lucide-react';
 import { useSessionData } from '../../context/SessionContext';
 import { usePathPrefix } from '../../hooks/usePathPrefix';
@@ -158,7 +162,7 @@ interface FullSession {
         errorCount?: number;
         rageTapCount?: number;
         screensVisited?: string[];
-        uxScore?: number;
+        totalScreens?: number;
         interactionScore?: number;
     };
     interactionScore?: number;
@@ -182,7 +186,7 @@ interface FullSession {
         screenshotSizeKB?: string;
         screenshotSegmentCount?: number;
     };
-    uxScore?: number;
+    screenCount?: number;
     screensVisited?: string[];
 }
 
@@ -211,6 +215,7 @@ const EVENT_COLORS = {
     navigation: '#8b5cf6',
     deviceInfo: '#64748b',
     log: '#2563eb',
+    custom: '#8b5cf6',
     default: '#6b7280',
 } as const;
 
@@ -232,6 +237,7 @@ const getEventColor = (event: SessionEvent): string => {
     if (type === 'app_background') return EVENT_COLORS.appBackground;
     if (type === 'navigation' || type === 'screen_view') return EVENT_COLORS.navigation;
     if (type === 'device_info') return EVENT_COLORS.deviceInfo;
+    if (type === 'custom') return EVENT_COLORS.custom;
 
     // Gesture-specific colors (check gestureType first, then fall back to type)
     if (gestureType.includes('pinch') || gestureType.includes('zoom')) return EVENT_COLORS.pinch;
@@ -254,6 +260,7 @@ const getEventIcon = (event: SessionEvent) => {
     if (type === 'navigation' || type === 'screen_view') return Navigation;
     if (type === 'app_foreground' || type === 'app_background') return Play;
     if (type === 'device_info') return Smartphone;
+    if (type === 'custom') return Star;
     if (type === 'dead_tap' || event.frustrationKind === 'dead_tap') return MousePointer2;
     if (type === 'rage_tap' || event.frustrationKind) return Zap;
     if (gestureType.includes('pinch') || gestureType.includes('zoom')) return Maximize2;
@@ -489,6 +496,37 @@ const formatConsoleMessage = (event: SessionEvent): string => {
     );
 };
 
+/** One-line summary for timeline export (all event types). */
+const formatTimelineEventForExport = (event: SessionEvent): string => {
+    const isoTime = new Date(event.timestamp).toISOString();
+    const marker = getFaultMarker(event);
+    const isLog = isLogEvent(event);
+    const isNetwork = (event.type || '').toLowerCase() === 'network_request';
+    const level = marker || (isLog ? getLogLevel(event).toUpperCase() : '');
+    const typeLabel = isNetwork
+        ? (event.name || event.properties?.method || 'REQUEST')
+        : marker
+            ? `Fault ${marker}`
+            : isLog
+                ? `Console ${level}`
+                : event.type === 'custom'
+                    ? event.name || 'Custom'
+                    : (event.type || 'event').replace(/_/g, ' ');
+    const summary = marker
+        ? getFaultConsoleSummary(event)
+        : isLog || isNetwork
+            ? formatConsoleMessage(event)
+            : event.targetLabel ||
+              event.properties?.targetLabel ||
+              event.properties?.urlPath ||
+              event.name ||
+              event.screen ||
+              JSON.stringify(event.properties || {});
+    const stack = getEventStackTrace(event);
+    const message = stack ? `${summary}\n${stack}` : summary;
+    return `[${isoTime}] [${typeLabel}] ${message}`;
+};
+
 const isFeedbackType = (type: string): boolean =>
     type === 'feedback' || type === 'user_feedback';
 
@@ -546,7 +584,7 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
     const [isLoading, setIsLoading] = useState(true);
     const [activityFilter, setActivityFilter] = useState<string>('all');
     const [currentPlaybackTime, setCurrentPlaybackTime] = useState<number>(0);
-    const [activeWorkbenchTab, setActiveWorkbenchTab] = useState<'timeline' | 'console' | 'inspector'>('timeline');
+    const [activeWorkbenchTab, setActiveWorkbenchTab] = useState<'timeline' | 'console' | 'inspector' | 'metadata'>('timeline');
 
     // Replay player state
     const [isPlaying, setIsPlaying] = useState(false);
@@ -558,6 +596,9 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
     const [isDragging, setIsDragging] = useState(false);
     const [hoveredMarker, setHoveredMarker] = useState<any>(null);
     const [terminalCopied, setTerminalCopied] = useState(false);
+    const [timelineCopied, setTimelineCopied] = useState(false);
+    const [domCopied, setDomCopied] = useState(false);
+    const [metadataCopied, setMetadataCopied] = useState(false);
 
     // DOM Inspector state
     const [hierarchySnapshots, setHierarchySnapshots] = useState<HierarchySnapshot[]>([]);
@@ -571,6 +612,7 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
     // Refs
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const progressRef = useRef<HTMLDivElement>(null);
+    const activityViewportRef = useRef<HTMLDivElement>(null);
     const terminalViewportRef = useRef<HTMLDivElement>(null);
     const replayPlayerRef = useRef<ScreenshotReplayPlayerRef>(null);
 
@@ -597,7 +639,12 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
             setIsLoading(true);
             setHierarchySnapshots([]);
             // Use proxied frame URLs to avoid browser access issues with internal/private S3 endpoints.
+            const coreMark = `replay_core_${id}`;
+            if (typeof performance !== 'undefined') performance.mark(coreMark);
             const coreData = await api.getSessionCore(id, { frameUrlMode: 'proxy' });
+            if (typeof performance !== 'undefined') {
+                performance.measure(`replay:getSessionCore:${id}`, coreMark);
+            }
             setFullSession(coreData as any);
             setIsLoading(false);
 
@@ -1410,6 +1457,9 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
 
         if (cachedImg && cachedImg.complete && cachedImg.naturalWidth > 0) {
             ctx.drawImage(cachedImg, 0, 0, canvas.width, canvas.height);
+            try {
+                performance.mark(`replay:firstFramePaint:${id}`);
+            } catch { }
         } else {
             const img = new Image();
             img.crossOrigin = 'anonymous'; // Enable CORS for S3 presigned URLs
@@ -1417,6 +1467,9 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
 
                 ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
                 cache.set(frame.url, img);
+                try {
+                    performance.mark(`replay:firstFramePaint:${id}`);
+                } catch { }
             };
             img.onerror = (err) => {
                 console.error('[SCREENSHOT] Frame load error:', currentFrameIndex, frame.url, err);
@@ -1463,6 +1516,130 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
     // Progress percentage
     const effectiveDuration = durationSeconds;
     const progressPercent = effectiveDuration > 0 ? (currentPlaybackTime / effectiveDuration) * 100 : 0;
+
+    const activityTabs = [
+        {
+            id: 'all',
+            label: 'All',
+            count: allTimelineEvents.filter((event) => !isFeedbackType((event.type || '').toLowerCase())).length,
+        },
+        {
+            id: 'navigation',
+            label: 'Navigation',
+            count: allTimelineEvents.filter((event) => {
+                const type = (event.type || '').toLowerCase();
+                return type === 'navigation' || type === 'screen_view' || type === 'app_foreground' || type === 'app_background';
+            }).length,
+        },
+        {
+            id: 'touches',
+            label: 'Touches',
+            count: allTimelineEvents.filter((event) => {
+                const type = (event.type || '').toLowerCase();
+                const gestureType = (event.gestureType || event.properties?.gestureType || '').toLowerCase();
+                return type === 'tap' || type === 'touch' || type === 'gesture' || gestureType.includes('tap');
+            }).length,
+        },
+        { id: 'network', label: 'Network', count: allTimelineEvents.filter((event) => (event.type || '').toLowerCase() === 'network_request').length },
+        { id: 'logs', label: 'Logs', count: logEvents.length },
+        {
+            id: 'issues',
+            label: 'Issues',
+            count: allTimelineEvents.filter((event) => {
+                const type = (event.type || '').toLowerCase();
+                const gestureType = (event.gestureType || event.properties?.gestureType || '').toLowerCase();
+                return (
+                    type === 'crash' ||
+                    type === 'error' ||
+                    type === 'anr' ||
+                    type === 'rage_tap' ||
+                    type === 'dead_tap' ||
+                    gestureType === 'rage_tap' ||
+                    gestureType === 'dead_tap'
+                );
+            }).length,
+        },
+    ];
+
+    // Filter activity feed - also filter out empty/invalid events and apply search
+    const filteredActivity = allTimelineEvents.filter((e) => {
+        const type = e.type?.toLowerCase() || '';
+
+        if (isFeedbackType(type)) return false;
+
+        // Filter out empty error events that have no useful information
+        if (type === 'error') {
+            const hasContent = e.name || e.properties?.message || e.properties?.reason || e.properties?.errorMessage;
+            if (!hasContent) return false;
+        }
+
+        // Filter out network requests with no URL or path to display
+        if (type === 'network_request') {
+            const hasUrl = e.properties?.url || e.properties?.urlPath;
+            if (!hasUrl) return false;
+        }
+
+        // Apply activity filter (tabs)
+        const gestureType = (e.gestureType || e.properties?.gestureType || '').toLowerCase();
+        let matchesFilter = true;
+
+        if (activityFilter === 'navigation') {
+            matchesFilter = type === 'navigation' || type === 'screen_view' || type === 'app_foreground' || type === 'app_background';
+        } else if (activityFilter === 'touches') {
+            matchesFilter = type === 'tap' || type === 'touch' || type === 'gesture' || gestureType.includes('tap');
+        } else if (activityFilter === 'network') {
+            matchesFilter = type === 'network_request';
+        } else if (activityFilter === 'logs') {
+            matchesFilter = isLogEvent(e);
+        } else if (activityFilter === 'issues') {
+            matchesFilter = type === 'crash' || type === 'error' || type === 'anr' || type === 'rage_tap' || type === 'dead_tap' || gestureType === 'rage_tap' || gestureType === 'dead_tap';
+        }
+
+        if (!matchesFilter) return false;
+
+        // Apply search filter
+        if (activitySearch.trim()) {
+            const search = activitySearch.toLowerCase();
+            const name = (e.name || '').toLowerCase();
+            const target = (e.targetLabel || e.properties?.targetLabel || '').toLowerCase();
+            const url = (e.properties?.url || e.properties?.urlPath || '').toLowerCase();
+            const props = JSON.stringify(e.properties || {}).toLowerCase();
+            const gesture = gestureType.toLowerCase();
+            const message = (e.message || e.properties?.message || '').toLowerCase();
+
+            return (
+                type.includes(search) ||
+                name.includes(search) ||
+                target.includes(search) ||
+                url.includes(search) ||
+                props.includes(search) ||
+                gesture.includes(search) ||
+                message.includes(search)
+            );
+        }
+
+        return true;
+    });
+
+    const activeActivityIndex = useMemo(() => {
+        if (filteredActivity.length === 0) return -1;
+        const playbackTimestamp = replayBaseTime + currentPlaybackTime * 1000;
+        let lastAtOrBefore = -1;
+        for (let i = 0; i < filteredActivity.length; i++) {
+            if ((filteredActivity[i]?.timestamp || 0) <= playbackTimestamp) lastAtOrBefore = i;
+        }
+        return lastAtOrBefore >= 0 ? lastAtOrBefore : 0;
+    }, [filteredActivity, currentPlaybackTime, replayBaseTime]);
+
+    // Auto-scrolling of the activity list is intentionally disabled so the main
+    // page scroll remains stable while the replay is playing. The active event
+    // is still highlighted via styling, but we no longer change scrollTop
+    // programmatically here.
+    useEffect(() => {
+        if (activeWorkbenchTab !== 'timeline') return;
+        if (activeActivityIndex < 0) return;
+        // no-op
+    }, [activeWorkbenchTab, activeActivityIndex]);
 
     // ========================================================================
     // EARLY RETURNS (after all hooks)
@@ -1690,110 +1867,6 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
         ? sortedSessions[currentSessionIndex + 1]?.id
         : null;
 
-    const activityTabs = [
-        {
-            id: 'all',
-            label: 'All',
-            count: allTimelineEvents.filter((event) => !isFeedbackType((event.type || '').toLowerCase())).length,
-        },
-        {
-            id: 'navigation',
-            label: 'Navigation',
-            count: allTimelineEvents.filter((event) => {
-                const type = (event.type || '').toLowerCase();
-                return type === 'navigation' || type === 'screen_view' || type === 'app_foreground' || type === 'app_background';
-            }).length,
-        },
-        {
-            id: 'touches',
-            label: 'Touches',
-            count: allTimelineEvents.filter((event) => {
-                const type = (event.type || '').toLowerCase();
-                const gestureType = (event.gestureType || event.properties?.gestureType || '').toLowerCase();
-                return type === 'tap' || type === 'touch' || type === 'gesture' || gestureType.includes('tap');
-            }).length,
-        },
-        { id: 'network', label: 'Network', count: allTimelineEvents.filter((event) => (event.type || '').toLowerCase() === 'network_request').length },
-        { id: 'logs', label: 'Logs', count: logEvents.length },
-        {
-            id: 'issues',
-            label: 'Issues',
-            count: allTimelineEvents.filter((event) => {
-                const type = (event.type || '').toLowerCase();
-                const gestureType = (event.gestureType || event.properties?.gestureType || '').toLowerCase();
-                return (
-                    type === 'crash' ||
-                    type === 'error' ||
-                    type === 'anr' ||
-                    type === 'rage_tap' ||
-                    type === 'dead_tap' ||
-                    gestureType === 'rage_tap' ||
-                    gestureType === 'dead_tap'
-                );
-            }).length,
-        },
-    ];
-
-    // Filter activity feed - also filter out empty/invalid events and apply search
-    const filteredActivity = allTimelineEvents.filter((e) => {
-        const type = e.type?.toLowerCase() || '';
-
-        if (isFeedbackType(type)) return false;
-
-        // Filter out empty error events that have no useful information
-        if (type === 'error') {
-            const hasContent = e.name || e.properties?.message || e.properties?.reason || e.properties?.errorMessage;
-            if (!hasContent) return false;
-        }
-
-        // Filter out network requests with no URL or path to display
-        if (type === 'network_request') {
-            const hasUrl = e.properties?.url || e.properties?.urlPath;
-            if (!hasUrl) return false;
-        }
-
-        // Apply activity filter (tabs)
-        const gestureType = (e.gestureType || e.properties?.gestureType || '').toLowerCase();
-        let matchesFilter = true;
-
-        if (activityFilter === 'navigation') {
-            matchesFilter = type === 'navigation' || type === 'screen_view' || type === 'app_foreground' || type === 'app_background';
-        } else if (activityFilter === 'touches') {
-            matchesFilter = type === 'tap' || type === 'touch' || type === 'gesture' || gestureType.includes('tap');
-        } else if (activityFilter === 'network') {
-            matchesFilter = type === 'network_request';
-        } else if (activityFilter === 'logs') {
-            matchesFilter = isLogEvent(e);
-        } else if (activityFilter === 'issues') {
-            matchesFilter = type === 'crash' || type === 'error' || type === 'anr' || type === 'rage_tap' || type === 'dead_tap' || gestureType === 'rage_tap' || gestureType === 'dead_tap';
-        }
-
-        if (!matchesFilter) return false;
-
-        // Apply search filter
-        if (activitySearch.trim()) {
-            const search = activitySearch.toLowerCase();
-            const name = (e.name || '').toLowerCase();
-            const target = (e.targetLabel || e.properties?.targetLabel || '').toLowerCase();
-            const url = (e.properties?.url || e.properties?.urlPath || '').toLowerCase();
-            const props = JSON.stringify(e.properties || {}).toLowerCase();
-            const gesture = gestureType.toLowerCase();
-            const message = (e.message || e.properties?.message || '').toLowerCase();
-
-            return (
-                type.includes(search) ||
-                name.includes(search) ||
-                target.includes(search) ||
-                url.includes(search) ||
-                props.includes(search) ||
-                gesture.includes(search) ||
-                message.includes(search)
-            );
-        }
-
-        return true;
-    });
-
     const HighlightedText: React.FC<{ text: string; search: string }> = ({ text, search }) => {
         if (!search.trim() || !text) return <>{text}</>;
         const normalizedSearch = search.trim().toLowerCase();
@@ -1812,43 +1885,119 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
         );
     };
 
-    const downloadSessionLogs = () => {
-        if (logEvents.length === 0) return;
-
-        const lines = logEvents.map((event) => {
-            const isoTime = new Date(event.timestamp).toISOString();
-            const marker = getFaultMarker(event);
-            const level = marker || getLogLevel(event).toUpperCase();
-            const summary = marker
-                ? getFaultConsoleSummary(event)
-                : event.message ||
-                event.properties?.message ||
-                event.name ||
-                JSON.stringify(event.properties || {});
-            const stack = getEventStackTrace(event);
-            const message = stack ? `${summary}\n${stack}` : summary;
-            return `[${isoTime}] [${level}] ${message}`;
-        });
-
+    const downloadTimelineEvents = () => {
+        if (allTimelineEvents.length === 0) return;
+        const lines = allTimelineEvents.map(formatTimelineEventForExport);
         const file = new Blob([lines.join('\n')], { type: 'text/plain;charset=utf-8' });
         const url = URL.createObjectURL(file);
         const anchor = document.createElement('a');
         anchor.href = url;
-        anchor.download = `session-${(id || 'unknown').slice(0, 16)}-logs.txt`;
+        anchor.download = `session-${(id || 'unknown').slice(0, 16)}-timeline.txt`;
         document.body.appendChild(anchor);
         anchor.click();
         document.body.removeChild(anchor);
         URL.revokeObjectURL(url);
     };
 
-    const copyVisibleTerminalLogs = async () => {
-        if (!visibleTerminalLogText.trim()) return;
+    const downloadAllTerminalLogs = () => {
+        if (terminalLogRows.length === 0) return;
+        const text = terminalLogRows.map(row => `[${formatPlaybackTime(row.relativeSeconds)}] [${row.marker || row.level.toUpperCase()}] ${row.message}`).join('\n');
+        const file = new Blob([text], { type: 'text/plain;charset=utf-8' });
+        const url = URL.createObjectURL(file);
+        const anchor = document.createElement('a');
+        anchor.href = url;
+        anchor.download = `session-${(id || 'unknown').slice(0, 16)}-console.txt`;
+        document.body.appendChild(anchor);
+        anchor.click();
+        document.body.removeChild(anchor);
+        URL.revokeObjectURL(url);
+    };
+
+    const copyAllTerminalLogs = async () => {
+        if (terminalLogRows.length === 0) return;
+        const text = terminalLogRows.map(row => `[${formatPlaybackTime(row.relativeSeconds)}] [${row.marker || row.level.toUpperCase()}] ${row.message}`).join('\n');
         try {
-            await navigator.clipboard.writeText(visibleTerminalLogText);
+            await navigator.clipboard.writeText(text);
             setTerminalCopied(true);
+            setTimeout(() => setTerminalCopied(false), 2000);
         } catch {
             setTerminalCopied(false);
         }
+    };
+
+    const copyTimelineEvents = async () => {
+        if (allTimelineEvents.length === 0) return;
+        const lines = allTimelineEvents.map(formatTimelineEventForExport);
+        try {
+            await navigator.clipboard.writeText(lines.join('\n'));
+            setTimelineCopied(true);
+            setTimeout(() => setTimelineCopied(false), 2000);
+        } catch {
+            setTimelineCopied(false);
+        }
+    };
+
+    const downloadDOMHierarchy = () => {
+        const absoluteTime = (fullSession?.startTime || 0) + currentPlaybackTime * 1000;
+        const currentHierarchy = hierarchySnapshots.reduce((prev, curr) =>
+            Math.abs(curr.timestamp - absoluteTime) < Math.abs(prev.timestamp - absoluteTime) ? curr : prev
+            , hierarchySnapshots[0]);
+
+        if (!currentHierarchy) return;
+
+        const file = new Blob([JSON.stringify(currentHierarchy, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(file);
+        const anchor = document.createElement('a');
+        anchor.href = url;
+        anchor.download = `session-${(id || 'unknown').slice(0, 16)}-dom-${Math.round(currentPlaybackTime)}s.json`;
+        document.body.appendChild(anchor);
+        anchor.click();
+        document.body.removeChild(anchor);
+        URL.revokeObjectURL(url);
+    };
+
+    const copyDOMHierarchy = async () => {
+        const absoluteTime = (fullSession?.startTime || 0) + currentPlaybackTime * 1000;
+        const currentHierarchy = hierarchySnapshots.reduce((prev, curr) =>
+            Math.abs(curr.timestamp - absoluteTime) < Math.abs(prev.timestamp - absoluteTime) ? curr : prev
+            , hierarchySnapshots[0]);
+
+        if (!currentHierarchy) return;
+        try {
+            await navigator.clipboard.writeText(JSON.stringify(currentHierarchy, null, 2));
+            setDomCopied(true);
+            setTimeout(() => setDomCopied(false), 2000);
+        } catch {
+            setDomCopied(false);
+        }
+    };
+
+    const metadata = (fullSession as any)?.metadata as Record<string, unknown> | undefined;
+    const hasMetadata = metadata && typeof metadata === 'object' && Object.keys(metadata).length > 0;
+    const metadataJson = hasMetadata ? JSON.stringify(metadata, null, 2) : '';
+
+    const copyMetadata = async () => {
+        if (!metadataJson) return;
+        try {
+            await navigator.clipboard.writeText(metadataJson);
+            setMetadataCopied(true);
+            setTimeout(() => setMetadataCopied(false), 2000);
+        } catch {
+            setMetadataCopied(false);
+        }
+    };
+
+    const downloadMetadata = () => {
+        if (!metadataJson) return;
+        const file = new Blob([metadataJson], { type: 'application/json' });
+        const url = URL.createObjectURL(file);
+        const anchor = document.createElement('a');
+        anchor.href = url;
+        anchor.download = `session-${(id || 'unknown').slice(0, 16)}-metadata.json`;
+        document.body.appendChild(anchor);
+        anchor.click();
+        document.body.removeChild(anchor);
+        URL.revokeObjectURL(url);
     };
 
     return (
@@ -1906,8 +2055,8 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
                             onMouseDown={(event) => event.preventDefault()}
                             disabled={!previousSessionId}
                             className={`flex h-9 items-center gap-1.5 rounded-lg border px-3 text-xs font-semibold transition ${previousSessionId
-                                    ? 'border-slate-300 bg-white text-slate-700 hover:border-slate-900 hover:text-slate-900'
-                                    : 'cursor-not-allowed border-slate-200 bg-slate-100 text-slate-400'
+                                ? 'border-slate-300 bg-white text-slate-700 hover:border-slate-900 hover:text-slate-900'
+                                : 'cursor-not-allowed border-slate-200 bg-slate-100 text-slate-400'
                                 }`}
                         >
                             <ChevronLeft className="h-3.5 w-3.5" />
@@ -1918,8 +2067,8 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
                             onMouseDown={(event) => event.preventDefault()}
                             disabled={!nextSessionId}
                             className={`flex h-9 items-center gap-1.5 rounded-lg border px-3 text-xs font-semibold transition ${nextSessionId
-                                    ? 'border-slate-300 bg-white text-slate-700 hover:border-slate-900 hover:text-slate-900'
-                                    : 'cursor-not-allowed border-slate-200 bg-slate-100 text-slate-400'
+                                ? 'border-slate-300 bg-white text-slate-700 hover:border-slate-900 hover:text-slate-900'
+                                : 'cursor-not-allowed border-slate-200 bg-slate-100 text-slate-400'
                                 }`}
                         >
                             Next
@@ -2044,264 +2193,264 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
 
                         {playbackMode === 'screenshots' ? (
                             <>
-                        <div className="border-b border-slate-200 bg-white px-4 py-4 sm:px-6">
-                            <div className="flex flex-wrap items-center gap-2">
-                                <button
-                                    onClick={restart}
-                                    onMouseDown={(event) => event.preventDefault()}
-                                    disabled={playbackDisabled}
-                                    className={`flex h-9 w-9 items-center justify-center rounded-lg border transition ${playbackDisabled
-                                            ? 'cursor-not-allowed border-slate-200 bg-slate-100 text-slate-400'
-                                            : 'border-slate-300 bg-white text-slate-700 hover:border-slate-900 hover:text-slate-900'
-                                        }`}
-                                    title="Restart"
-                                >
-                                    <RotateCcw className="h-4 w-4" />
-                                </button>
-                                <button
-                                    onClick={() => skip(-5)}
-                                    onMouseDown={(event) => event.preventDefault()}
-                                    disabled={playbackDisabled}
-                                    className={`flex h-9 w-9 items-center justify-center rounded-lg border transition ${playbackDisabled
-                                            ? 'cursor-not-allowed border-slate-200 bg-slate-100 text-slate-400'
-                                            : 'border-slate-300 bg-white text-slate-700 hover:border-slate-900 hover:text-slate-900'
-                                        }`}
-                                    title="Back 5s"
-                                >
-                                    <SkipBack className="h-4 w-4" />
-                                </button>
-                                <button
-                                    onClick={togglePlayPause}
-                                    onMouseDown={(event) => event.preventDefault()}
-                                    disabled={playbackDisabled}
-                                    className={`flex h-12 w-12 items-center justify-center rounded-full border text-white shadow-sm transition ${playbackDisabled
-                                            ? 'cursor-not-allowed border-slate-300 bg-slate-300 text-slate-200'
-                                            : isPlaying
-                                                ? 'border-amber-300 bg-amber-500 hover:bg-amber-600'
-                                                : 'border-cyan-500 bg-cyan-600 hover:bg-cyan-700'
-                                        }`}
-                                    title={isPlaying ? 'Pause' : 'Play'}
-                                >
-                                    {isPlaying ? <Pause className="h-5 w-5" /> : <Play className="ml-0.5 h-5 w-5" />}
-                                </button>
-                                <button
-                                    onClick={() => skip(5)}
-                                    onMouseDown={(event) => event.preventDefault()}
-                                    disabled={playbackDisabled}
-                                    className={`flex h-9 w-9 items-center justify-center rounded-lg border transition ${playbackDisabled
-                                            ? 'cursor-not-allowed border-slate-200 bg-slate-100 text-slate-400'
-                                            : 'border-slate-300 bg-white text-slate-700 hover:border-slate-900 hover:text-slate-900'
-                                        }`}
-                                    title="Forward 5s"
-                                >
-                                    <SkipForward className="h-4 w-4" />
-                                </button>
-
-                                <div className="ml-auto flex items-center gap-2">
-                                    <span className="rounded-md border border-slate-300 bg-slate-100 px-2 py-1 font-mono text-xs font-semibold text-slate-700">
-                                        {formatPlaybackTime(currentPlaybackTime)} / {formatPlaybackTime(effectiveDuration)}
-                                    </span>
-
-                                    <button
-                                        onClick={() => setShowTouchOverlay(!showTouchOverlay)}
-                                        onMouseDown={(event) => event.preventDefault()}
-                                        className={`flex h-9 items-center gap-1.5 rounded-lg border px-2.5 text-xs font-semibold transition ${showTouchOverlay
-                                                ? 'border-cyan-600 bg-cyan-600 text-white'
-                                                : 'border-slate-300 bg-white text-slate-700 hover:border-slate-900 hover:text-slate-900'
-                                            }`}
-                                    >
-                                        <Hand className="h-3.5 w-3.5" />
-                                        Touches
-                                    </button>
-
-                                    <div className="relative">
+                                <div className="border-b border-slate-200 bg-white px-4 py-4 sm:px-6">
+                                    <div className="flex flex-wrap items-center gap-2">
                                         <button
-                                            onClick={() => setShowSpeedMenu(!showSpeedMenu)}
+                                            onClick={restart}
                                             onMouseDown={(event) => event.preventDefault()}
-                                            className="flex h-9 items-center rounded-lg border border-slate-300 bg-white px-3 text-xs font-semibold text-slate-700 transition hover:border-slate-900 hover:text-slate-900"
+                                            disabled={playbackDisabled}
+                                            className={`flex h-9 w-9 items-center justify-center rounded-lg border transition ${playbackDisabled
+                                                ? 'cursor-not-allowed border-slate-200 bg-slate-100 text-slate-400'
+                                                : 'border-slate-300 bg-white text-slate-700 hover:border-slate-900 hover:text-slate-900'
+                                                }`}
+                                            title="Restart"
                                         >
-                                            {playbackRate}x
+                                            <RotateCcw className="h-4 w-4" />
+                                        </button>
+                                        <button
+                                            onClick={() => skip(-5)}
+                                            onMouseDown={(event) => event.preventDefault()}
+                                            disabled={playbackDisabled}
+                                            className={`flex h-9 w-9 items-center justify-center rounded-lg border transition ${playbackDisabled
+                                                ? 'cursor-not-allowed border-slate-200 bg-slate-100 text-slate-400'
+                                                : 'border-slate-300 bg-white text-slate-700 hover:border-slate-900 hover:text-slate-900'
+                                                }`}
+                                            title="Back 5s"
+                                        >
+                                            <SkipBack className="h-4 w-4" />
+                                        </button>
+                                        <button
+                                            onClick={togglePlayPause}
+                                            onMouseDown={(event) => event.preventDefault()}
+                                            disabled={playbackDisabled}
+                                            className={`flex h-12 w-12 items-center justify-center rounded-full border text-white shadow-sm transition ${playbackDisabled
+                                                ? 'cursor-not-allowed border-slate-300 bg-slate-300 text-slate-200'
+                                                : isPlaying
+                                                    ? 'border-amber-300 bg-amber-500 hover:bg-amber-600'
+                                                    : 'border-cyan-500 bg-cyan-600 hover:bg-cyan-700'
+                                                }`}
+                                            title={isPlaying ? 'Pause' : 'Play'}
+                                        >
+                                            {isPlaying ? <Pause className="h-5 w-5" /> : <Play className="ml-0.5 h-5 w-5" />}
+                                        </button>
+                                        <button
+                                            onClick={() => skip(5)}
+                                            onMouseDown={(event) => event.preventDefault()}
+                                            disabled={playbackDisabled}
+                                            className={`flex h-9 w-9 items-center justify-center rounded-lg border transition ${playbackDisabled
+                                                ? 'cursor-not-allowed border-slate-200 bg-slate-100 text-slate-400'
+                                                : 'border-slate-300 bg-white text-slate-700 hover:border-slate-900 hover:text-slate-900'
+                                                }`}
+                                            title="Forward 5s"
+                                        >
+                                            <SkipForward className="h-4 w-4" />
                                         </button>
 
-                                        {showSpeedMenu && (
-                                            <>
-                                                <div className="fixed inset-0 z-40" onClick={() => setShowSpeedMenu(false)} />
-                                                <div className="absolute right-0 top-full z-50 mt-2 min-w-[92px] overflow-hidden rounded-lg border border-slate-200 bg-white shadow-lg">
-                                                    {[0.5, 1, 1.5, 2, 4].map((rate) => (
-                                                        <button
-                                                            key={rate}
-                                                            onClick={() => {
-                                                                setPlaybackRate(rate);
-                                                                setShowSpeedMenu(false);
-                                                            }}
-                                                            onMouseDown={(event) => event.preventDefault()}
-                                                            className={`block w-full border-b border-slate-100 px-3 py-2 text-left text-xs font-semibold last:border-b-0 ${playbackRate === rate
-                                                                    ? 'bg-cyan-50 text-cyan-700'
-                                                                    : 'text-slate-700 hover:bg-slate-50'
-                                                                }`}
-                                                        >
-                                                            {rate}x
-                                                        </button>
-                                                    ))}
-                                                </div>
-                                            </>
-                                        )}
+                                        <div className="ml-auto flex items-center gap-2">
+                                            <span className="rounded-md border border-slate-300 bg-slate-100 px-2 py-1 font-mono text-xs font-semibold text-slate-700">
+                                                {formatPlaybackTime(currentPlaybackTime)} / {formatPlaybackTime(effectiveDuration)}
+                                            </span>
+
+                                            <button
+                                                onClick={() => setShowTouchOverlay(!showTouchOverlay)}
+                                                onMouseDown={(event) => event.preventDefault()}
+                                                className={`flex h-9 items-center gap-1.5 rounded-lg border px-2.5 text-xs font-semibold transition ${showTouchOverlay
+                                                    ? 'border-cyan-600 bg-cyan-600 text-white'
+                                                    : 'border-slate-300 bg-white text-slate-700 hover:border-slate-900 hover:text-slate-900'
+                                                    }`}
+                                            >
+                                                <Hand className="h-3.5 w-3.5" />
+                                                Touches
+                                            </button>
+
+                                            <div className="relative">
+                                                <button
+                                                    onClick={() => setShowSpeedMenu(!showSpeedMenu)}
+                                                    onMouseDown={(event) => event.preventDefault()}
+                                                    className="flex h-9 items-center rounded-lg border border-slate-300 bg-white px-3 text-xs font-semibold text-slate-700 transition hover:border-slate-900 hover:text-slate-900"
+                                                >
+                                                    {playbackRate}x
+                                                </button>
+
+                                                {showSpeedMenu && (
+                                                    <>
+                                                        <div className="fixed inset-0 z-40" onClick={() => setShowSpeedMenu(false)} />
+                                                        <div className="absolute right-0 top-full z-50 mt-2 min-w-[92px] overflow-hidden rounded-lg border border-slate-200 bg-white shadow-lg">
+                                                            {[0.5, 1, 1.5, 2, 4].map((rate) => (
+                                                                <button
+                                                                    key={rate}
+                                                                    onClick={() => {
+                                                                        setPlaybackRate(rate);
+                                                                        setShowSpeedMenu(false);
+                                                                    }}
+                                                                    onMouseDown={(event) => event.preventDefault()}
+                                                                    className={`block w-full border-b border-slate-100 px-3 py-2 text-left text-xs font-semibold last:border-b-0 ${playbackRate === rate
+                                                                        ? 'bg-cyan-50 text-cyan-700'
+                                                                        : 'text-slate-700 hover:bg-slate-50'
+                                                                        }`}
+                                                                >
+                                                                    {rate}x
+                                                                </button>
+                                                            ))}
+                                                        </div>
+                                                    </>
+                                                )}
+                                            </div>
+                                        </div>
                                     </div>
                                 </div>
-                            </div>
-                        </div>
 
-                        <div className="bg-slate-50/90 px-4 py-3 sm:px-6">
-                            <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-                                <div className="flex items-center gap-4 text-[10px] font-bold uppercase tracking-wide text-slate-600">
-                                    <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full bg-blue-500" />Touches</span>
-                                    <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full bg-emerald-500" />API</span>
-                                    <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full bg-rose-500" />Issues</span>
-                                </div>
-                                <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
-                                    Drag timeline or click markers to seek
-                                </span>
-                            </div>
+                                <div className="bg-slate-50/90 px-4 py-3 sm:px-6">
+                                    <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                                        <div className="flex items-center gap-4 text-[10px] font-bold uppercase tracking-wide text-slate-600">
+                                            <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full bg-blue-500" />Touches</span>
+                                            <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full bg-emerald-500" />API</span>
+                                            <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full bg-rose-500" />Issues</span>
+                                        </div>
+                                        <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                                            Drag timeline or click markers to seek
+                                        </span>
+                                    </div>
 
-                            <svg viewBox="0 0 1000 50" preserveAspectRatio="none" className="h-11 w-full">
-                                <defs>
-                                    <linearGradient id="touchGradNew" x1="0%" y1="0%" x2="0%" y2="100%">
-                                        <stop offset="0%" stopColor="#3b82f6" stopOpacity="0.35" />
-                                        <stop offset="100%" stopColor="#3b82f6" stopOpacity="0.08" />
-                                    </linearGradient>
-                                    <linearGradient id="apiGradNew" x1="0%" y1="0%" x2="0%" y2="100%">
-                                        <stop offset="0%" stopColor="#10b981" stopOpacity="0.35" />
-                                        <stop offset="100%" stopColor="#10b981" stopOpacity="0.08" />
-                                    </linearGradient>
-                                </defs>
+                                    <svg viewBox="0 0 1000 50" preserveAspectRatio="none" className="h-11 w-full">
+                                        <defs>
+                                            <linearGradient id="touchGradNew" x1="0%" y1="0%" x2="0%" y2="100%">
+                                                <stop offset="0%" stopColor="#3b82f6" stopOpacity="0.35" />
+                                                <stop offset="100%" stopColor="#3b82f6" stopOpacity="0.08" />
+                                            </linearGradient>
+                                            <linearGradient id="apiGradNew" x1="0%" y1="0%" x2="0%" y2="100%">
+                                                <stop offset="0%" stopColor="#10b981" stopOpacity="0.35" />
+                                                <stop offset="100%" stopColor="#10b981" stopOpacity="0.08" />
+                                            </linearGradient>
+                                        </defs>
 
-                                {densityData.touchDensity.length > 0 && (
-                                    <>
-                                        <path
-                                            fill="url(#touchGradNew)"
-                                            d={`M0,48 ${densityData.touchDensity
-                                                .map((value, index) => {
-                                                    const x = (index / (densityData.touchDensity.length - 1)) * 1000;
-                                                    const y = 45 - value * 38;
-                                                    return `L${x},${y}`;
-                                                })
-                                                .join(' ')} L1000,48 Z`}
-                                        />
-                                        <polyline
-                                            fill="none"
-                                            stroke="#3b82f6"
-                                            strokeWidth="2"
-                                            strokeLinecap="round"
-                                            strokeLinejoin="round"
-                                            points={densityData.touchDensity
-                                                .map((value, index) => {
-                                                    const x = (index / (densityData.touchDensity.length - 1)) * 1000;
-                                                    const y = 45 - value * 38;
-                                                    return `${x},${y}`;
-                                                })
-                                                .join(' ')}
-                                        />
-                                    </>
-                                )}
+                                        {densityData.touchDensity.length > 0 && (
+                                            <>
+                                                <path
+                                                    fill="url(#touchGradNew)"
+                                                    d={`M0,48 ${densityData.touchDensity
+                                                        .map((value, index) => {
+                                                            const x = (index / (densityData.touchDensity.length - 1)) * 1000;
+                                                            const y = 45 - value * 38;
+                                                            return `L${x},${y}`;
+                                                        })
+                                                        .join(' ')} L1000,48 Z`}
+                                                />
+                                                <polyline
+                                                    fill="none"
+                                                    stroke="#3b82f6"
+                                                    strokeWidth="2"
+                                                    strokeLinecap="round"
+                                                    strokeLinejoin="round"
+                                                    points={densityData.touchDensity
+                                                        .map((value, index) => {
+                                                            const x = (index / (densityData.touchDensity.length - 1)) * 1000;
+                                                            const y = 45 - value * 38;
+                                                            return `${x},${y}`;
+                                                        })
+                                                        .join(' ')}
+                                                />
+                                            </>
+                                        )}
 
-                                {densityData.apiDensity.length > 0 && (
-                                    <>
-                                        <path
-                                            fill="url(#apiGradNew)"
-                                            d={`M0,48 ${densityData.apiDensity
-                                                .map((value, index) => {
-                                                    const x = (index / (densityData.apiDensity.length - 1)) * 1000;
-                                                    const y = 45 - value * 38;
-                                                    return `L${x},${y}`;
-                                                })
-                                                .join(' ')} L1000,48 Z`}
-                                        />
-                                        <polyline
-                                            fill="none"
-                                            stroke="#10b981"
-                                            strokeWidth="2"
-                                            strokeLinecap="round"
-                                            strokeLinejoin="round"
-                                            points={densityData.apiDensity
-                                                .map((value, index) => {
-                                                    const x = (index / (densityData.apiDensity.length - 1)) * 1000;
-                                                    const y = 45 - value * 38;
-                                                    return `${x},${y}`;
-                                                })
-                                                .join(' ')}
-                                        />
-                                    </>
-                                )}
-                            </svg>
+                                        {densityData.apiDensity.length > 0 && (
+                                            <>
+                                                <path
+                                                    fill="url(#apiGradNew)"
+                                                    d={`M0,48 ${densityData.apiDensity
+                                                        .map((value, index) => {
+                                                            const x = (index / (densityData.apiDensity.length - 1)) * 1000;
+                                                            const y = 45 - value * 38;
+                                                            return `L${x},${y}`;
+                                                        })
+                                                        .join(' ')} L1000,48 Z`}
+                                                />
+                                                <polyline
+                                                    fill="none"
+                                                    stroke="#10b981"
+                                                    strokeWidth="2"
+                                                    strokeLinecap="round"
+                                                    strokeLinejoin="round"
+                                                    points={densityData.apiDensity
+                                                        .map((value, index) => {
+                                                            const x = (index / (densityData.apiDensity.length - 1)) * 1000;
+                                                            const y = 45 - value * 38;
+                                                            return `${x},${y}`;
+                                                        })
+                                                        .join(' ')}
+                                                />
+                                            </>
+                                        )}
+                                    </svg>
 
-                            <div
-                                ref={progressRef}
-                                className="group relative mt-1 h-8 cursor-pointer"
-                                onMouseDown={handleProgressMouseDown}
-                            >
-                                <div className="absolute left-0 right-0 top-1/2 h-2 -translate-y-1/2 rounded-full bg-slate-300" />
-                                <div
-                                    className="absolute left-0 top-1/2 h-2 -translate-y-1/2 rounded-full bg-cyan-600"
-                                    style={{ width: `${progressPercent}%` }}
-                                />
-
-                                {filteredActivity.map((event, index) => {
-                                    const time = (event.timestamp - replayBaseTime) / 1000;
-                                    if (time < 0 || durationSeconds <= 0) return null;
-                                    const percent = Math.min(100, Math.max(0, (time / durationSeconds) * 100));
-                                    const markerKey = `marker-${index}-${event.timestamp}`;
-                                    const color = getEventColor(event);
-                                    const isFrustration =
-                                        event.frustrationKind || event.type === 'rage_tap' || event.gestureType === 'dead_tap';
-
-                                    return (
+                                    <div
+                                        ref={progressRef}
+                                        className="group relative mt-1 h-8 cursor-pointer"
+                                        onMouseDown={handleProgressMouseDown}
+                                    >
+                                        <div className="absolute left-0 right-0 top-1/2 h-2 -translate-y-1/2 rounded-full bg-slate-300" />
                                         <div
-                                            key={markerKey}
-                                            role="button"
-                                            tabIndex={0}
-                                            className={`absolute top-1/2 -translate-y-1/2 cursor-pointer rounded-full transition ${isFrustration ? 'z-20 h-2.5 w-2.5' : 'z-10 h-2 w-2'
-                                                } ${hoveredMarker?.markerKey === markerKey
-                                                    ? 'scale-150 shadow-[0_0_0_4px_rgba(15,23,42,0.15)]'
-                                                    : 'hover:scale-125'
-                                                }`}
-                                            style={{ left: `${percent}%`, backgroundColor: color }}
-                                            onClick={(eventClick) => {
-                                                eventClick.currentTarget.blur();
-                                                handleSeekToTime(Math.max(0, time));
-                                            }}
-                                            onMouseEnter={() => setHoveredMarker({ markerKey, ...event, x: percent })}
-                                            onMouseLeave={() => setHoveredMarker(null)}
-                                            onKeyDown={(eventKey) => {
-                                                if (eventKey.key === 'Enter' || eventKey.key === ' ') {
-                                                    eventKey.preventDefault();
-                                                    handleSeekToTime(Math.max(0, time));
-                                                }
-                                            }}
+                                            className="absolute left-0 top-1/2 h-2 -translate-y-1/2 rounded-full bg-cyan-600"
+                                            style={{ width: `${progressPercent}%` }}
                                         />
-                                    );
-                                })}
 
-                                {hoveredMarker && (
-                                    <MarkerTooltip
-                                        visible={true}
-                                        x={hoveredMarker.x}
-                                        type={hoveredMarker.type || 'gesture'}
-                                        name={hoveredMarker.name}
-                                        target={hoveredMarker.targetLabel || hoveredMarker.properties?.targetLabel}
-                                        timestamp={formatEventTime(hoveredMarker.timestamp)}
-                                        statusCode={hoveredMarker.properties?.statusCode}
-                                        success={hoveredMarker.properties?.success}
-                                        duration={hoveredMarker.properties?.duration}
-                                    />
-                                )}
+                                        {filteredActivity.map((event, index) => {
+                                            const time = (event.timestamp - replayBaseTime) / 1000;
+                                            if (time < 0 || durationSeconds <= 0) return null;
+                                            const percent = Math.min(100, Math.max(0, (time / durationSeconds) * 100));
+                                            const markerKey = `marker-${index}-${event.timestamp}`;
+                                            const color = getEventColor(event);
+                                            const isFrustration =
+                                                event.frustrationKind || event.type === 'rage_tap' || event.gestureType === 'dead_tap';
 
-                                <div
-                                    className={`absolute top-1/2 h-4 w-4 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-cyan-600 bg-white shadow transition ${isDragging ? 'scale-110' : 'group-hover:scale-105'
-                                        }`}
-                                    style={{ left: `${progressPercent}%` }}
-                                />
-                            </div>
-                        </div>
+                                            return (
+                                                <div
+                                                    key={markerKey}
+                                                    role="button"
+                                                    tabIndex={0}
+                                                    className={`absolute top-1/2 -translate-y-1/2 cursor-pointer rounded-full transition ${isFrustration ? 'z-20 h-2.5 w-2.5' : 'z-10 h-2 w-2'
+                                                        } ${hoveredMarker?.markerKey === markerKey
+                                                            ? 'scale-150 shadow-[0_0_0_4px_rgba(15,23,42,0.15)]'
+                                                            : 'hover:scale-125'
+                                                        }`}
+                                                    style={{ left: `${percent}%`, backgroundColor: color }}
+                                                    onClick={(eventClick) => {
+                                                        eventClick.currentTarget.blur();
+                                                        handleSeekToTime(Math.max(0, time));
+                                                    }}
+                                                    onMouseEnter={() => setHoveredMarker({ markerKey, ...event, x: percent })}
+                                                    onMouseLeave={() => setHoveredMarker(null)}
+                                                    onKeyDown={(eventKey) => {
+                                                        if (eventKey.key === 'Enter' || eventKey.key === ' ') {
+                                                            eventKey.preventDefault();
+                                                            handleSeekToTime(Math.max(0, time));
+                                                        }
+                                                    }}
+                                                />
+                                            );
+                                        })}
+
+                                        {hoveredMarker && (
+                                            <MarkerTooltip
+                                                visible={true}
+                                                x={hoveredMarker.x}
+                                                type={hoveredMarker.type || 'gesture'}
+                                                name={hoveredMarker.name}
+                                                target={hoveredMarker.targetLabel || hoveredMarker.properties?.targetLabel}
+                                                timestamp={formatEventTime(hoveredMarker.timestamp)}
+                                                statusCode={hoveredMarker.properties?.statusCode}
+                                                success={hoveredMarker.properties?.success}
+                                                duration={hoveredMarker.properties?.duration}
+                                            />
+                                        )}
+
+                                        <div
+                                            className={`absolute top-1/2 h-4 w-4 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-cyan-600 bg-white shadow transition ${isDragging ? 'scale-110' : 'group-hover:scale-105'
+                                                }`}
+                                            style={{ left: `${progressPercent}%` }}
+                                        />
+                                    </div>
+                                </div>
                             </>
                         ) : (
                             <div className="border-b border-slate-200 bg-white px-4 py-4 text-sm text-slate-600">
@@ -2315,8 +2464,8 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
                         )}
                     </section>
 
-                    
-                <section className="flex flex-col overflow-hidden rounded-2xl border border-slate-300 bg-white shadow-sm xl:col-span-5 min-h-[580px]">
+
+                    <section className="flex flex-col overflow-hidden rounded-2xl border border-slate-300 bg-white shadow-sm xl:col-span-5 min-h-[580px]">
                         <div className="flex shrink-0 border-b border-slate-200 bg-slate-50">
                             <button
                                 onClick={() => setActiveWorkbenchTab('timeline')}
@@ -2339,252 +2488,398 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
                                 <Code className="h-4 w-4" />
                                 DOM
                             </button>
+                            <button
+                                onClick={() => setActiveWorkbenchTab('metadata')}
+                                className={`flex flex-1 items-center justify-center gap-2 border-b-2 px-4 py-3 text-sm font-bold transition ${activeWorkbenchTab === 'metadata' ? 'border-cyan-600 bg-white text-cyan-700 shadow-[0_2px_10px_rgba(0,0,0,0.02)]' : 'border-transparent text-slate-500 hover:bg-slate-100/50 hover:text-slate-700'}`}
+                            >
+                                <Database className="h-4 w-4" />
+                                Metadata
+                            </button>
                         </div>
                         <div className="relative flex min-h-0 flex-1 flex-col bg-white">
                             {activeWorkbenchTab === 'timeline' && (
                                 <div className="absolute inset-0 flex flex-col">
-                        <div className="border-b border-slate-200 bg-slate-50 px-4 py-3">
-                            <div className="flex items-center justify-between gap-2">
-                                <div>
-                                    <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">Activity Stream</p>
-                                    <h3 className="text-sm font-bold text-slate-900">All actions, logs, and failures in one timeline</h3>
-                                </div>
-                                <button
-                                    onClick={downloadSessionLogs}
-                                    disabled={logEvents.length === 0}
-                                    className={`flex h-8 items-center gap-1.5 rounded-lg border px-2 text-[11px] font-semibold transition ${logEvents.length === 0
-                                            ? 'cursor-not-allowed border-slate-200 bg-slate-100 text-slate-400'
-                                            : 'border-slate-300 bg-white text-slate-700 hover:border-slate-900 hover:text-slate-900'
-                                        }`}
-                                    title={logEvents.length > 0 ? 'Download session logs' : 'No logs available'}
-                                >
-                                    <Download className="h-3.5 w-3.5" />
-                                    Export logs
-                                </button>
-                            </div>
-
-                            <div className="mt-3">
-                                <div className="relative">
-                                    <input
-                                        type="text"
-                                        value={activitySearch}
-                                        onChange={(event) => setActivitySearch(event.target.value)}
-                                        placeholder="Search events, targets, messages, or endpoints"
-                                        className="h-9 w-full rounded-lg border border-slate-300 bg-white px-3 pr-8 text-xs font-medium text-slate-800 placeholder:text-slate-400 focus:border-cyan-600 focus:outline-none focus:ring-2 focus:ring-cyan-500/20"
-                                    />
-                                    {activitySearch.trim() && (
-                                        <button
-                                            onClick={() => setActivitySearch('')}
-                                            className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-0.5 text-slate-400 transition hover:text-slate-700"
-                                            aria-label="Clear search"
-                                        >
-                                            <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                                            </svg>
-                                        </button>
-                                    )}
-                                </div>
-
-                                <div className="mt-2 flex gap-1.5 overflow-x-auto pb-1">
-                                    {activityTabs.map((filter) => (
-                                        <button
-                                            key={filter.id}
-                                            onClick={() => setActivityFilter(filter.id)}
-                                            className={`shrink-0 rounded-md border px-2 py-1 text-[11px] font-semibold transition ${activityFilter === filter.id
-                                                    ? 'border-slate-900 bg-slate-900 text-white'
-                                                    : 'border-slate-300 bg-white text-slate-700 hover:border-slate-900 hover:text-slate-900'
-                                                }`}
-                                        >
-                                            {filter.label}
-                                            <span className="ml-1 rounded bg-slate-900/10 px-1 py-0.5 text-[10px] font-bold">
-                                                {formatCountCompact(filter.count)}
-                                            </span>
-                                        </button>
-                                    ))}
-                                </div>
-                            </div>
-                        </div>
-
-                        <div className="min-h-0 flex-1 overflow-y-auto bg-white">
-                            {filteredActivity.length === 0 ? (
-                                <div className="flex h-full flex-col items-center justify-center px-6 text-center text-slate-500">
-                                    <AlertTriangle className="h-8 w-8 text-slate-300" />
-                                    <p className="mt-2 text-sm font-semibold text-slate-700">No matching events</p>
-                                    <p className="mt-1 text-xs">Try a different filter or clear the search query.</p>
-                                </div>
-                            ) : (
-                                filteredActivity.map((event, index) => {
-                                    const isNetwork = event.type === 'network_request';
-                                    const isLog = isLogEvent(event);
-                                    const faultMarker = getFaultMarker(event);
-                                    const logLevel = getLogLevel(event);
-                                    const color = getEventColor(event);
-                                    const Icon = getEventIcon(event);
-                                    const timeStr = formatEventTime(event.timestamp);
-                                    const seekTime = Math.max(0, (event.timestamp - replayBaseTime) / 1000);
-                                    const isHighlighted = Math.abs(seekTime - currentPlaybackTime) < 0.75;
-                                    const title = isNetwork
-                                        ? `${event.name || event.properties?.method || 'API Request'}`
-                                        : faultMarker
-                                            ? `Fault ${faultMarker}`
-                                            : isLog
-                                            ? `Console ${logLevel}`
-                                            : event.type.replace(/_/g, ' ');
-                                    const detail = faultMarker
-                                        ? getFaultConsoleSummary(event)
-                                        : isLog
-                                        ? event.message || event.properties?.message || event.name || 'Console message'
-                                        : event.targetLabel ||
-                                        event.properties?.targetLabel ||
-                                        event.properties?.urlPath ||
-                                        event.name ||
-                                        event.screen ||
-                                        JSON.stringify(event.properties || {});
-
-                                    return (
-                                        <button
-                                            key={`${event.timestamp}-${index}`}
-                                            onClick={() => handleSeekToTime(seekTime)}
-                                            className={`block w-full border-b border-slate-100 px-3 py-2 text-left transition ${isHighlighted
-                                                    ? 'bg-cyan-50 ring-1 ring-inset ring-cyan-200'
-                                                    : 'hover:bg-slate-50'
-                                                }`}
-                                        >
-                                            <div className="flex items-start gap-2.5">
-                                                <div className="mt-0.5 shrink-0">
-                                                    {isNetwork ? (
-                                                        <span
-                                                            className={`inline-flex rounded border px-1 py-0.5 font-mono text-[9px] font-bold ${event.properties?.success
-                                                                    ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
-                                                                    : 'border-red-200 bg-red-50 text-red-700'
-                                                                }`}
-                                                        >
-                                                            {event.properties?.statusCode || 'ERR'}
-                                                        </span>
-                                                    ) : faultMarker ? (
-                                                        <span className={`inline-flex rounded border px-1 py-0.5 text-[9px] font-bold uppercase ${getFaultBadgeStyles(faultMarker)}`}>
-                                                            {faultMarker}
-                                                        </span>
-                                                    ) : isLog ? (
-                                                        <span className={`inline-flex rounded border px-1 py-0.5 text-[9px] font-bold uppercase ${getLogBadgeStyles(logLevel)}`}>
-                                                            {logLevel}
-                                                        </span>
-                                                    ) : (
-                                                        <span className="inline-flex h-4 w-4 items-center justify-center rounded border border-slate-200" style={{ backgroundColor: color }}>
-                                                            <Icon className="h-2.5 w-2.5 text-white" />
-                                                        </span>
-                                                    )}
-                                                </div>
-
-                                                <div className="min-w-0 flex-1">
-                                                    <div className="flex items-center justify-between gap-2">
-                                                        <p className="truncate text-[11px] font-semibold text-slate-800">{title}</p>
-                                                        <span className="shrink-0 rounded bg-slate-100 px-1 py-0.5 font-mono text-[10px] font-bold text-slate-500">
-                                                            {timeStr}
-                                                        </span>
-                                                    </div>
-                                                    <p className="mt-0.5 line-clamp-2 break-words text-xs font-medium text-slate-600">
-                                                        <HighlightedText text={String(detail)} search={activitySearch} />
-                                                    </p>
-                                                    {typeof event.properties?.duration === 'number' && event.properties.duration > 0 && (
-                                                        <span
-                                                            className={`mt-1 inline-flex rounded px-1.5 py-0.5 font-mono text-[10px] font-semibold ${event.properties.duration > 1000
-                                                                    ? 'bg-red-100 text-red-700'
-                                                                    : event.properties.duration > 500
-                                                                        ? 'bg-amber-100 text-amber-700'
-                                                                        : 'bg-slate-100 text-slate-600'
-                                                                }`}
-                                                        >
-                                                            {event.properties.duration} ms
-                                                        </span>
-                                                    )}
-                                                </div>
+                                    <div className="border-b border-slate-200 bg-slate-50 px-4 py-3">
+                                        <div className="flex items-center justify-between gap-2">
+                                            <div>
+                                                <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">Activity Stream</p>
+                                                <h3 className="text-sm font-bold text-slate-900">All actions, logs, and failures in one timeline</h3>
                                             </div>
-                                        </button>
-                                    );
-                                })
-                            )}
-                        </div>
-                            </div>
+                                            <div className="flex items-center gap-2">
+                                                <button
+                                                    onClick={copyTimelineEvents}
+                                                    disabled={allTimelineEvents.length === 0}
+                                                    className={`flex h-8 items-center gap-1.5 rounded-lg border px-2 text-[11px] font-semibold transition ${allTimelineEvents.length === 0
+                                                        ? 'cursor-not-allowed border-slate-200 bg-slate-100 text-slate-400'
+                                                        : timelineCopied
+                                                            ? 'border-emerald-500 bg-emerald-600 text-white'
+                                                            : 'border-slate-300 bg-white text-slate-700 hover:border-slate-900 hover:text-slate-900'
+                                                        }`}
+                                                    title={allTimelineEvents.length > 0 ? 'Copy all timeline events' : 'No events available'}
+                                                >
+                                                    {timelineCopied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+                                                    {timelineCopied ? 'Copied' : 'COPY'}
+                                                </button>
+                                                <button
+                                                    onClick={downloadTimelineEvents}
+                                                    disabled={allTimelineEvents.length === 0}
+                                                    className={`flex h-8 items-center gap-1.5 rounded-lg border px-2 text-[11px] font-semibold transition ${allTimelineEvents.length === 0
+                                                        ? 'cursor-not-allowed border-slate-200 bg-slate-100 text-slate-400'
+                                                        : 'border-slate-300 bg-white text-slate-700 hover:border-slate-900 hover:text-slate-900'
+                                                        }`}
+                                                    title={allTimelineEvents.length > 0 ? 'Download all timeline events' : 'No events available'}
+                                                >
+                                                    <Download className="h-3.5 w-3.5" />
+                                                    EXPORT
+                                                </button>
+                                            </div>
+                                        </div>
+
+                                        <div className="mt-3">
+                                            <div className="relative">
+                                                <input
+                                                    type="text"
+                                                    value={activitySearch}
+                                                    onChange={(event) => setActivitySearch(event.target.value)}
+                                                    placeholder="Search events, targets, messages, or endpoints"
+                                                    className="h-9 w-full rounded-lg border border-slate-300 bg-white px-3 pr-8 text-xs font-medium text-slate-800 placeholder:text-slate-400 focus:border-cyan-600 focus:outline-none focus:ring-2 focus:ring-cyan-500/20"
+                                                />
+                                                {activitySearch.trim() && (
+                                                    <button
+                                                        onClick={() => setActivitySearch('')}
+                                                        className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-0.5 text-slate-400 transition hover:text-slate-700"
+                                                        aria-label="Clear search"
+                                                    >
+                                                        <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                                        </svg>
+                                                    </button>
+                                                )}
+                                            </div>
+
+                                            <div className="mt-2 flex gap-1.5 overflow-x-auto pb-1">
+                                                {activityTabs.map((filter) => (
+                                                    <button
+                                                        key={filter.id}
+                                                        onClick={() => setActivityFilter(filter.id)}
+                                                        className={`shrink-0 rounded-md border px-2 py-1 text-[11px] font-semibold transition ${activityFilter === filter.id
+                                                            ? 'border-slate-900 bg-slate-900 text-white'
+                                                            : 'border-slate-300 bg-white text-slate-700 hover:border-slate-900 hover:text-slate-900'
+                                                            }`}
+                                                    >
+                                                        {filter.label}
+                                                        <span className="ml-1 rounded bg-slate-900/10 px-1 py-0.5 text-[10px] font-bold">
+                                                            {formatCountCompact(filter.count)}
+                                                        </span>
+                                                    </button>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div ref={activityViewportRef} className="min-h-0 flex-1 overflow-y-auto bg-white">
+                                        {filteredActivity.length === 0 ? (
+                                            <div className="flex h-full flex-col items-center justify-center px-6 text-center text-slate-500">
+                                                <AlertTriangle className="h-8 w-8 text-slate-300" />
+                                                <p className="mt-2 text-sm font-semibold text-slate-700">No matching events</p>
+                                                <p className="mt-1 text-xs">Try a different filter or clear the search query.</p>
+                                            </div>
+                                        ) : (
+                                            filteredActivity.map((event, index) => {
+                                                const isNetwork = event.type === 'network_request';
+                                                const isLog = isLogEvent(event);
+                                                const faultMarker = getFaultMarker(event);
+                                                const logLevel = getLogLevel(event);
+                                                const color = getEventColor(event);
+                                                const Icon = getEventIcon(event);
+                                                const timeStr = formatEventTime(event.timestamp);
+                                                const seekTime = Math.max(0, (event.timestamp - replayBaseTime) / 1000);
+                                                const isHighlighted = index === activeActivityIndex;
+                                                const title = isNetwork
+                                                    ? `${event.name || event.properties?.method || 'API Request'}`
+                                                    : faultMarker
+                                                        ? `Fault ${faultMarker}`
+                                                        : isLog
+                                                            ? `Console ${logLevel}`
+                                                            : event.type === 'custom'
+                                                                ? event.name || 'Custom Event'
+                                                                : event.type.replace(/_/g, ' ');
+                                                const detail = faultMarker
+                                                    ? getFaultConsoleSummary(event)
+                                                    : isLog
+                                                        ? event.message || event.properties?.message || event.name || 'Console message'
+                                                        : event.targetLabel ||
+                                                        event.properties?.targetLabel ||
+                                                        event.properties?.urlPath ||
+                                                        event.name ||
+                                                        event.screen ||
+                                                        JSON.stringify(event.properties || {});
+
+                                                return (
+                                                    <button
+                                                        key={`${event.timestamp}-${index}`}
+                                                        data-activity-index={index}
+                                                        onClick={() => handleSeekToTime(seekTime)}
+                                                        className={`block w-full border-b border-slate-100 px-3 py-2 text-left transition ${isHighlighted
+                                                            ? 'bg-cyan-50 ring-1 ring-inset ring-cyan-200'
+                                                            : 'hover:bg-slate-50'
+                                                            }`}
+                                                    >
+                                                        <div className="flex items-start gap-2.5">
+                                                            <div className="mt-0.5 shrink-0">
+                                                                {isNetwork ? (
+                                                                    <span
+                                                                        className={`inline-flex rounded border px-1 py-0.5 font-mono text-[9px] font-bold ${event.properties?.success
+                                                                            ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                                                                            : 'border-red-200 bg-red-50 text-red-700'
+                                                                            }`}
+                                                                    >
+                                                                        {event.properties?.statusCode || 'ERR'}
+                                                                    </span>
+                                                                ) : faultMarker ? (
+                                                                    <span className={`inline-flex rounded border px-1 py-0.5 text-[9px] font-bold uppercase ${getFaultBadgeStyles(faultMarker)}`}>
+                                                                        {faultMarker}
+                                                                    </span>
+                                                                ) : isLog ? (
+                                                                    <span className={`inline-flex rounded border px-1 py-0.5 text-[9px] font-bold uppercase ${getLogBadgeStyles(logLevel)}`}>
+                                                                        {logLevel}
+                                                                    </span>
+                                                                ) : (
+                                                                    <span className="inline-flex h-4 w-4 items-center justify-center rounded border border-slate-200" style={{ backgroundColor: color }}>
+                                                                        <Icon className="h-2.5 w-2.5 text-white" />
+                                                                    </span>
+                                                                )}
+                                                            </div>
+
+                                                            <div className="min-w-0 flex-1">
+                                                                <div className="flex items-center justify-between gap-2">
+                                                                    <p className="truncate text-[11px] font-semibold text-slate-800">{title}</p>
+                                                                    <span className="shrink-0 rounded bg-slate-100 px-1 py-0.5 font-mono text-[10px] font-bold text-slate-500">
+                                                                        {timeStr}
+                                                                    </span>
+                                                                </div>
+                                                                <p className="mt-0.5 line-clamp-2 break-words text-xs font-medium text-slate-600">
+                                                                    <HighlightedText text={String(detail)} search={activitySearch} />
+                                                                </p>
+                                                                {typeof event.properties?.duration === 'number' && event.properties.duration > 0 && (
+                                                                    <span
+                                                                        className={`mt-1 inline-flex rounded px-1.5 py-0.5 font-mono text-[10px] font-semibold ${event.properties.duration > 1000
+                                                                            ? 'bg-red-100 text-red-700'
+                                                                            : event.properties.duration > 500
+                                                                                ? 'bg-amber-100 text-amber-700'
+                                                                                : 'bg-slate-100 text-slate-600'
+                                                                            }`}
+                                                                    >
+                                                                        {event.properties.duration} ms
+                                                                    </span>
+                                                                )}
+                                                            </div>
+                                                        </div>
+                                                    </button>
+                                                );
+                                            })
+                                        )}
+                                    </div>
+                                </div>
                             )}
                             {activeWorkbenchTab === 'console' && (
                                 <div className="absolute inset-0 flex flex-col bg-slate-950">
-                        <div className="border-b border-slate-800 px-4 py-3">
-                            <div className="flex items-center justify-between gap-2">
-                                <div>
-                                    <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">Runtime Console</p>
-                                    <h3 className="text-sm font-bold text-white">Logs synced to playback timestamp</h3>
-                                </div>
-                                <div className="flex items-center gap-2">
-                                    <span className="rounded border border-slate-700 bg-slate-900 px-2 py-1 font-mono text-[10px] text-slate-300">
-                                        {terminalVisibleRows.length}/{terminalLogRows.length}
-                                    </span>
-                                    <button
-                                        onClick={copyVisibleTerminalLogs}
-                                        disabled={!visibleTerminalLogText.trim()}
-                                        className={`rounded-lg border px-2 py-1 text-[11px] font-semibold transition ${visibleTerminalLogText.trim()
-                                                ? terminalCopied
-                                                    ? 'border-emerald-500 bg-emerald-600 text-white'
-                                                    : 'border-slate-600 bg-slate-900 text-slate-200 hover:border-slate-400'
-                                                : 'cursor-not-allowed border-slate-700 bg-slate-900 text-slate-500'
-                                            }`}
-                                    >
-                                        {terminalCopied ? 'Copied' : 'Copy visible'}
-                                    </button>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div ref={terminalViewportRef} className="min-h-0 flex-1 overflow-y-auto px-4 py-3 font-mono text-[11px] leading-5">
-                            {terminalVisibleRows.length === 0 ? (
-                                <p className="text-slate-500">No console logs at this playback point.</p>
-                            ) : (
-                                <div className="space-y-0.5">
-                                    {terminalVisibleRows.map((row) => (
-                                        <div key={row.id} className="whitespace-pre-wrap break-words">
-                                            <span className="text-slate-500">[{formatPlaybackTime(row.relativeSeconds)}]</span>{' '}
-                                            {row.marker ? (
-                                                <span className={`font-semibold ${getFaultTerminalClass(row.marker)}`}>[{row.marker}]</span>
-                                            ) : (
-                                                <span className={`font-semibold ${getTerminalLevelClass(row.level)}`}>[{row.level.toUpperCase()}]</span>
-                                            )}{' '}
-                                            <span className="text-slate-100">{row.message}</span>
+                                    <div className="border-b border-slate-800 px-4 py-3">
+                                        <div className="flex items-center justify-between gap-2">
+                                            <div>
+                                                <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">Runtime Console</p>
+                                                <h3 className="text-sm font-bold text-white">Logs synced to playback timestamp</h3>
+                                            </div>
+                                            <div className="flex items-center gap-2">
+                                                <span className="rounded border border-slate-700 bg-slate-900 px-2 py-1 font-mono text-[10px] text-slate-300">
+                                                    {terminalVisibleRows.length}/{terminalLogRows.length}
+                                                </span>
+                                                <button
+                                                    onClick={copyAllTerminalLogs}
+                                                    disabled={terminalLogRows.length === 0}
+                                                    className={`flex h-8 items-center gap-1.5 rounded-lg border px-2 text-[11px] font-semibold transition ${terminalLogRows.length > 0
+                                                        ? terminalCopied
+                                                            ? 'border-emerald-500 bg-emerald-600 text-white'
+                                                            : 'border-slate-600 bg-slate-900 text-slate-200 hover:border-slate-400'
+                                                        : 'cursor-not-allowed border-slate-700 bg-slate-900 text-slate-500'
+                                                        }`}
+                                                    title="Copy all console logs (including those not yet visible at current time)"
+                                                >
+                                                    {terminalCopied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+                                                    {terminalCopied ? 'Copied' : 'COPY'}
+                                                </button>
+                                                <button
+                                                    onClick={downloadAllTerminalLogs}
+                                                    disabled={terminalLogRows.length === 0}
+                                                    className={`flex h-8 items-center gap-1.5 rounded-lg border px-2 text-[11px] font-semibold transition ${terminalLogRows.length > 0
+                                                        ? 'border-slate-600 bg-slate-900 text-slate-200 hover:border-slate-400'
+                                                        : 'cursor-not-allowed border-slate-700 bg-slate-900 text-slate-500'
+                                                        }`}
+                                                    title="Download all console logs"
+                                                >
+                                                    <Download className="h-3.5 w-3.5" />
+                                                    EXPORT
+                                                </button>
+                                            </div>
                                         </div>
-                                    ))}
+                                    </div>
+
+                                    <div ref={terminalViewportRef} className="min-h-0 flex-1 overflow-y-auto px-4 py-3 font-mono text-[11px] leading-5">
+                                        {terminalVisibleRows.length === 0 ? (
+                                            <p className="text-slate-500">No console logs at this playback point.</p>
+                                        ) : (
+                                            <div className="space-y-0.5">
+                                                {terminalVisibleRows.map((row) => (
+                                                    <div key={row.id} className="whitespace-pre-wrap break-words">
+                                                        <span className="text-slate-500">[{formatPlaybackTime(row.relativeSeconds)}]</span>{' '}
+                                                        {row.marker ? (
+                                                            <span className={`font-semibold ${getFaultTerminalClass(row.marker)}`}>[{row.marker}]</span>
+                                                        ) : (
+                                                            <span className={`font-semibold ${getTerminalLevelClass(row.level)}`}>[{row.level.toUpperCase()}]</span>
+                                                        )}{' '}
+                                                        <span className="text-slate-100">{row.message}</span>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        )}
+                                    </div>
                                 </div>
-                            )}
-                        </div>
-                            </div>
                             )}
                             {activeWorkbenchTab === 'inspector' && (
                                 <div className="absolute inset-0 flex flex-col bg-slate-50">
-                        <div className="border-b border-slate-200 bg-slate-50 px-4 py-3">
-                            <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">View Inspector</p>
-                            <h3 className="text-sm font-bold text-slate-900">Hierarchy synced with playback</h3>
-                        </div>
+                                    <div className="border-b border-slate-200 bg-slate-50 px-4 py-3">
+                                        <div className="flex items-center justify-between gap-2">
+                                            <div>
+                                                <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">View Inspector</p>
+                                                <h3 className="text-sm font-bold text-slate-900">Hierarchy synced with playback</h3>
+                                            </div>
+                                            <div className="flex items-center gap-2">
+                                                <button
+                                                    onClick={copyDOMHierarchy}
+                                                    disabled={hierarchySnapshots.length === 0}
+                                                    className={`flex h-8 items-center gap-1.5 rounded-lg border px-2 text-[11px] font-semibold transition ${hierarchySnapshots.length === 0
+                                                        ? 'cursor-not-allowed border-slate-200 bg-slate-100 text-slate-400'
+                                                        : domCopied
+                                                            ? 'border-emerald-500 bg-emerald-600 text-white'
+                                                            : 'border-slate-300 bg-white text-slate-700 hover:border-slate-900 hover:text-slate-900'
+                                                        }`}
+                                                    title={hierarchySnapshots.length > 0 ? 'Copy current hierarchy JSON' : 'No hierarchy data'}
+                                                >
+                                                    {domCopied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+                                                    {domCopied ? 'Copied' : 'COPY'}
+                                                </button>
+                                                <button
+                                                    onClick={downloadDOMHierarchy}
+                                                    disabled={hierarchySnapshots.length === 0}
+                                                    className={`flex h-8 items-center gap-1.5 rounded-lg border px-2 text-[11px] font-semibold transition ${hierarchySnapshots.length === 0
+                                                        ? 'cursor-not-allowed border-slate-200 bg-slate-100 text-slate-400'
+                                                        : 'border-slate-300 bg-white text-slate-700 hover:border-slate-900 hover:text-slate-900'
+                                                        }`}
+                                                    title={hierarchySnapshots.length > 0 ? 'Download current hierarchy as JSON' : 'No hierarchy data'}
+                                                >
+                                                    <Download className="h-3.5 w-3.5" />
+                                                    EXPORT
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
 
-                        <div className="min-h-0 flex-1">
-                            {hierarchySnapshots.length > 0 ? (
-                                <DOMInspector
-                                    hierarchySnapshots={hierarchySnapshots}
-                                    currentTime={currentPlaybackTime}
-                                    sessionStartTime={fullSession?.startTime || 0}
-                                    deviceWidth={fullSession?.deviceInfo?.screenWidth || 375}
-                                    deviceHeight={fullSession?.deviceInfo?.screenHeight || 812}
-                                    className="h-full"
-                                />
-                            ) : (
-                                <div className="flex h-full flex-col items-center justify-center bg-slate-50 px-5 text-center text-slate-500">
-                                    <Layers className="h-10 w-10 text-slate-300" />
-                                    <p className="mt-2 text-sm font-semibold text-slate-800">Hierarchy unavailable</p>
-                                    <p className="mt-1 text-xs leading-5">
-                                        This session did not include view hierarchy snapshots.
-                                        Replay, activity, and network evidence remain fully available.
-                                    </p>
+                                    <div className="min-h-0 flex-1">
+                                        {hierarchySnapshots.length > 0 ? (
+                                            <DOMInspector
+                                                hierarchySnapshots={hierarchySnapshots}
+                                                currentTime={currentPlaybackTime}
+                                                sessionStartTime={fullSession?.startTime || 0}
+                                                deviceWidth={fullSession?.deviceInfo?.screenWidth || 375}
+                                                deviceHeight={fullSession?.deviceInfo?.screenHeight || 812}
+                                                className="h-full"
+                                            />
+                                        ) : (
+                                            <div className="flex h-full flex-col items-center justify-center bg-slate-50 px-5 text-center text-slate-500">
+                                                <Layers className="h-10 w-10 text-slate-300" />
+                                                <p className="mt-2 text-sm font-semibold text-slate-800">Hierarchy unavailable</p>
+                                                <p className="mt-1 text-xs leading-5">
+                                                    This session did not include view hierarchy snapshots.
+                                                    Replay, activity, and network evidence remain fully available.
+                                                </p>
+                                            </div>
+                                        )}
+                                    </div>
                                 </div>
                             )}
-                        </div>
-                                                    </div>
+                            {activeWorkbenchTab === 'metadata' && (
+                                <div className="absolute inset-0 flex flex-col bg-slate-50 overflow-auto">
+                                    <div className="border-b border-slate-200 bg-slate-50 px-4 py-3 sticky top-0 z-10">
+                                        <div className="flex items-center justify-between gap-2">
+                                            <div>
+                                                <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">Session Metadata</p>
+                                                <h3 className="text-sm font-bold text-slate-900">Custom properties</h3>
+                                            </div>
+                                            <div className="flex items-center gap-2">
+                                                <button
+                                                    onClick={copyMetadata}
+                                                    disabled={!hasMetadata}
+                                                    className={`flex h-8 items-center gap-1.5 rounded-lg border px-2 text-[11px] font-semibold transition ${!hasMetadata
+                                                        ? 'cursor-not-allowed border-slate-200 bg-slate-100 text-slate-400'
+                                                        : metadataCopied
+                                                            ? 'border-emerald-500 bg-emerald-600 text-white'
+                                                            : 'border-slate-300 bg-white text-slate-700 hover:border-slate-900 hover:text-slate-900'
+                                                        }`}
+                                                    title={hasMetadata ? 'Copy metadata JSON' : 'No metadata'}
+                                                >
+                                                    {metadataCopied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+                                                    {metadataCopied ? 'Copied' : 'COPY'}
+                                                </button>
+                                                <button
+                                                    onClick={downloadMetadata}
+                                                    disabled={!hasMetadata}
+                                                    className={`flex h-8 items-center gap-1.5 rounded-lg border px-2 text-[11px] font-semibold transition ${!hasMetadata
+                                                        ? 'cursor-not-allowed border-slate-200 bg-slate-100 text-slate-400'
+                                                        : 'border-slate-300 bg-white text-slate-700 hover:border-slate-900 hover:text-slate-900'
+                                                        }`}
+                                                    title={hasMetadata ? 'Download metadata JSON' : 'No metadata'}
+                                                >
+                                                    <Download className="h-3.5 w-3.5" />
+                                                    EXPORT
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div className="p-4">
+                                        {!(fullSession as any)?.metadata || Object.keys((fullSession as any).metadata).length === 0 ? (
+                                            <div className="flex flex-col items-center justify-center p-8 text-center text-slate-500">
+                                                <Database className="h-10 w-10 text-slate-300 mb-3" />
+                                                <p className="text-sm font-semibold text-slate-800">No metadata found</p>
+                                                <p className="mt-1 text-xs leading-5">
+                                                    This session does not have any custom user properties associated with it.
+                                                </p>
+                                            </div>
+                                        ) : (
+                                            <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
+                                                <table className="w-full text-left text-sm text-slate-600">
+                                                    <thead className="bg-slate-50 text-xs font-semibold uppercase tracking-wider text-slate-500">
+                                                        <tr>
+                                                            <th className="px-4 py-3 border-b border-slate-200">Key</th>
+                                                            <th className="px-4 py-3 border-b border-slate-200">Value</th>
+                                                        </tr>
+                                                    </thead>
+                                                    <tbody className="divide-y divide-slate-100">
+                                                        {Object.entries((fullSession as any).metadata).map(([key, value]) => (
+                                                            <tr key={key} className="hover:bg-slate-50 transition-colors">
+                                                                <td className="px-4 py-2.5 font-mono text-xs font-medium text-slate-900">
+                                                                    {key}
+                                                                </td>
+                                                                <td className="px-4 py-2.5 font-mono text-xs text-slate-600">
+                                                                    {typeof value === 'object' ? JSON.stringify(value) : String(value)}
+                                                                </td>
+                                                            </tr>
+                                                        ))}
+                                                    </tbody>
+                                                </table>
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
                             )}
                         </div>
                     </section>

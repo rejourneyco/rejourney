@@ -26,14 +26,15 @@ import {
   Loader,
   Gauge,
   Timer,
-  MousePointerClick
+  MousePointerClick,
+  Database
 } from 'lucide-react';
 import { DashboardPageHeader } from '../../components/ui/DashboardPageHeader';
 import { TimeFilter, TimeRange, DEFAULT_TIME_RANGE } from '../../components/ui/TimeFilter';
 import { NeoBadge } from '../../components/ui/neo/NeoBadge';
 import { NeoButton } from '../../components/ui/neo/NeoButton';
 import { NeoCard } from '../../components/ui/neo/NeoCard';
-import { getSessionsPaginated } from '../../services/api';
+import { getSessionsPaginated, getAvailableFilters } from '../../services/api';
 import { useDemoMode } from '../../context/DemoModeContext';
 import { useSessionData } from '../../context/SessionContext';
 import { useSafeTeam } from '../../context/TeamContext';
@@ -83,6 +84,13 @@ export const RecordingsList: React.FC = () => {
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [hasMore, setHasMore] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+
+  // Advanced Filters
+  const [availableFilters, setAvailableFilters] = useState<{ events: string[]; metadata: Record<string, string[]> }>({ events: [], metadata: {} });
+  const [eventNameFilter, setEventNameFilter] = useState('');
+  const [metaKeyFilter, setMetaKeyFilter] = useState('');
+  const [metaValueFilter, setMetaValueFilter] = useState('');
+
   const [filter, setFilter] = useState<'all' | 'crashes' | 'anrs' | 'errors' | 'rage' | 'dead_taps' | 'failed_funnel' | 'slow_start' | 'slow_api'>('all');
   const [timeRange, setTimeRange] = useState<TimeRange>(DEFAULT_TIME_RANGE);
   const [sortConfigs, setSortConfigs] = useState<SortConfig[]>([{ key: 'date', direction: 'desc' }]);
@@ -140,6 +148,9 @@ export const RecordingsList: React.FC = () => {
         limit: 100, // Fetch 100 at a time for better UX
         timeRange: timeRange === 'all' ? undefined : timeRange,
         projectId: selectedProjectId,
+        metaKey: metaKeyFilter ? metaKeyFilter : undefined,
+        metaValue: metaValueFilter ? metaValueFilter : undefined,
+        eventName: eventNameFilter ? eventNameFilter : undefined,
       });
 
       if (requestId !== activeRequestIdRef.current) return;
@@ -163,10 +174,10 @@ export const RecordingsList: React.FC = () => {
         setIsLoadingMore(false);
       }
     }
-  }, [timeRange, isDemoMode, demoSessions, selectedProjectId, isContextLoading, isProjectFromCurrentTeam]);
+  }, [timeRange, isDemoMode, demoSessions, selectedProjectId, isContextLoading, isProjectFromCurrentTeam, metaKeyFilter, metaValueFilter, eventNameFilter]);
 
   // Initial fetch and refetch when time range or project changes
-  const fetchScopeKey = `${isDemoMode ? 'demo' : 'live'}:${timeRange}:${currentTeam?.id || 'no-team'}:${selectedProjectId || 'no-project'}:${isContextLoading ? 'loading' : 'ready'}:${projects.length}:${isProjectFromCurrentTeam ? 'valid' : 'invalid'}`;
+  const fetchScopeKey = `${isDemoMode ? 'demo' : 'live'}:${timeRange}:${currentTeam?.id || 'no-team'}:${selectedProjectId || 'no-project'}:${isContextLoading ? 'loading' : 'ready'}:${projects.length}:${isProjectFromCurrentTeam ? 'valid' : 'invalid'}:${metaKeyFilter}:${metaValueFilter}:${eventNameFilter}`;
 
   useEffect(() => {
     const requestId = ++activeRequestIdRef.current;
@@ -178,6 +189,40 @@ export const RecordingsList: React.FC = () => {
     fetchSessions(undefined, requestId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fetchScopeKey]);
+
+  // Load available metadata keys/values and event names for filter dropdowns
+  const prevProjectIdRef = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    if (isDemoMode || !selectedProjectId || !isProjectFromCurrentTeam) {
+      setAvailableFilters({ events: [], metadata: {} });
+      setEventNameFilter('');
+      setMetaKeyFilter('');
+      setMetaValueFilter('');
+      prevProjectIdRef.current = undefined;
+      return;
+    }
+    const projectChanged = prevProjectIdRef.current !== selectedProjectId;
+    prevProjectIdRef.current = selectedProjectId;
+    if (projectChanged) {
+      setEventNameFilter('');
+      setMetaKeyFilter('');
+      setMetaValueFilter('');
+    }
+    let cancelled = false;
+    getAvailableFilters(selectedProjectId)
+      .then((data) => {
+        if (!cancelled) {
+          setAvailableFilters(data);
+        }
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          console.error('Failed to load available filters:', err);
+          setAvailableFilters({ events: [], metadata: {} });
+        }
+      });
+    return () => { cancelled = true; };
+  }, [isDemoMode, selectedProjectId, isProjectFromCurrentTeam]);
 
   const handleLoadMore = useCallback(async () => {
     if (nextCursor && !isLoadingMore) {
@@ -355,15 +400,60 @@ export const RecordingsList: React.FC = () => {
           icon={<Layers className="w-6 h-6" />}
           iconColor="bg-indigo-500"
         >
-          <div className="relative max-w-xs w-full hidden md:block group">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-900 group-focus-within:text-indigo-600 transition-colors" />
-            <input
-              type="text"
-              placeholder="SEARCH SESSION..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-10 pr-4 py-2 bg-white border border-slate-100/80 shadow-sm border border-slate-200 rounded-lg font-bold text-sm uppercase placeholder:text-slate-400 focus:outline-none focus:translate-x-[1px] focus:translate-y-[1px] focus:shadow-none transition-all"
-            />
+          <div className="flex items-center gap-2 w-full hidden md:flex flex-wrap pt-2 pb-1">
+            <div className="relative flex-1 group min-w-[200px]">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-900 group-focus-within:text-indigo-600 transition-colors" />
+              <input
+                type="text"
+                placeholder="SEARCH SESSION..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full pl-10 pr-4 py-2 bg-white border border-slate-100/80 shadow-sm border border-slate-200 rounded-lg font-bold text-sm uppercase placeholder:text-slate-400 focus:outline-none focus:translate-x-[1px] focus:translate-y-[1px] focus:shadow-none transition-all"
+              />
+            </div>
+
+            <div className="flex gap-2 items-center text-xs font-semibold">
+              {/* Event Filter */}
+              <select
+                value={eventNameFilter}
+                onChange={(e) => setEventNameFilter(e.target.value)}
+                className="bg-white border border-slate-200 shadow-sm rounded-lg px-3 py-2 uppercase outline-none focus:border-indigo-500 font-bold max-w-[200px] text-ellipsis"
+              >
+                <option value="">ALL EVENTS</option>
+                {availableFilters.events.map(event => (
+                  <option key={event} value={event}>{event}</option>
+                ))}
+              </select>
+
+              {/* Metadata Key Filter */}
+              <select
+                value={metaKeyFilter}
+                onChange={(e) => {
+                  setMetaKeyFilter(e.target.value);
+                  setMetaValueFilter(''); // reset value when key changes
+                }}
+                className="bg-white border border-slate-200 shadow-sm rounded-lg px-3 py-2 uppercase outline-none focus:border-indigo-500 font-bold max-w-[200px] text-ellipsis"
+              >
+                <option value="">ALL METADATA</option>
+                {Object.keys(availableFilters.metadata).map(key => (
+                  <option key={key} value={key}>{key}</option>
+                ))}
+              </select>
+
+              {/* Metadata Value Filter (only shown if a key is selected) */}
+              {metaKeyFilter && (
+                <select
+                  value={metaValueFilter}
+                  onChange={(e) => setMetaValueFilter(e.target.value)}
+                  className="bg-white border border-slate-200 shadow-sm rounded-lg px-3 py-2 uppercase outline-none focus:border-indigo-500 font-bold max-w-[200px] text-ellipsis"
+                >
+                  <option value="">ANY VALUE</option>
+                  {(availableFilters.metadata[metaKeyFilter] || []).map(val => (
+                    <option key={val} value={val}>{val}</option>
+                  ))}
+                </select>
+              )}
+            </div>
           </div>
 
           <TimeFilter value={timeRange} onChange={setTimeRange} />
@@ -429,9 +519,9 @@ export const RecordingsList: React.FC = () => {
               <div className="hidden xl:block w-24 text-right px-2"><SortableHeader label="API Lat." sortKey="apiResponse" align="right" /></div>
               <div className="hidden xl:block w-24 text-right px-2"><SortableHeader label="API Err" sortKey="apiError" align="right" /></div>
 
-              {/* Reason Recorded */}
+              {/* Notes */}
               <div className="w-56 flex justify-end gap-1 px-2">
-                <SortableHeader label="Reason Recorded" sortKey="crashes" align="right" />
+                <SortableHeader label="Notes" sortKey="crashes" align="right" />
               </div>
               <div className="w-10"></div>
               <div className="w-10"></div>
@@ -578,13 +668,14 @@ export const RecordingsList: React.FC = () => {
                       ) : <span className="text-slate-300 text-xs">-</span>}
                     </div>
 
-                    {/* Reason Recorded */}
+                    {/* Notes */}
                     <div className="w-56 flex justify-end gap-1 px-2 items-center flex-wrap">
+                      {session.isFirstSession && <NeoBadge variant="info" size="sm">NEW</NeoBadge>}
                       {!hasIssues && <NeoBadge variant="success" size="sm">HEALTHY</NeoBadge>}
                       {(session.crashCount || 0) > 0 && <NeoBadge variant="danger" size="sm">CRASH</NeoBadge>}
-                      {((session as any).anrCount || 0) > 0 && <NeoBadge variant="anr" size="sm">ANR</NeoBadge>}
-                      {((session as any).errorCount || 0) > 0 && <NeoBadge variant="warning" size="sm">ERR</NeoBadge>}
-                      {(session.rageTapCount || 0) > 0 && <NeoBadge variant="rage" size="sm">RAGE</NeoBadge>}
+                      {((session as any).anrCount || 0) > 0 && <NeoBadge variant="warning" size="sm">ANR</NeoBadge>}
+                      {((session as any).errorCount || 0) > 0 && <NeoBadge variant="warning" size="sm">ERRORS</NeoBadge>}
+                      {(session.rageTapCount || 0) > 0 && <NeoBadge variant="danger" size="sm">RAGE TAP</NeoBadge>}
                       {hasDeadTaps && <NeoBadge variant="dead_tap" size="sm">DEAD TAP</NeoBadge>}
                       {hasSlowStart && <NeoBadge variant="slow_start" size="sm">SLOW</NeoBadge>}
                       {hasSlowApi && <NeoBadge variant="slow_api" size="sm">API</NeoBadge>}

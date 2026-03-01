@@ -40,7 +40,6 @@ type WarehouseProject = ApiProject & {
   errorsTotal: number;
   crashesTotal: number;
   anrsTotal: number;
-  avgUxScoreAllTime: number;
   apiErrorsTotal: number;
   apiTotalCount: number;
   rageTapTotal: number;
@@ -83,15 +82,13 @@ function computeHealthScore(project: {
   errorsTotal: number;
   crashesTotal: number;
   anrsTotal: number;
-  avgUxScoreAllTime: number;
   apiErrorsTotal: number;
   apiTotalCount: number;
   rageTapTotal: number;
 }): number {
   if (project.sessionsTotal <= 0) return 60;
   const hasAnyMetricSignal = (
-    project.avgUxScoreAllTime > 0
-    || project.errorsTotal > 0
+    project.errorsTotal > 0
     || project.crashesTotal > 0
     || project.anrsTotal > 0
     || project.apiTotalCount > 0
@@ -105,7 +102,6 @@ function computeHealthScore(project: {
   const rageTapRate = project.rageTapTotal / sessionsCount;
   const apiErrorRate = project.apiTotalCount > 0 ? project.apiErrorsTotal / project.apiTotalCount : 0;
 
-  const uxScore = project.avgUxScoreAllTime > 0 ? project.avgUxScoreAllTime : 70;
   const reliabilityScore = clamp(100 - (errorRate * 120), 0, 100);
   const stabilityScore = clamp(100 - (crashAnrRate * 250), 0, 100);
   const apiReliabilityScore = project.apiTotalCount > 0
@@ -114,11 +110,10 @@ function computeHealthScore(project: {
   const interactionStabilityScore = clamp(100 - (rageTapRate * 160), 0, 100);
 
   const score = (
-    (uxScore * 0.35)
-    + (reliabilityScore * 0.2)
-    + (stabilityScore * 0.25)
-    + (apiReliabilityScore * 0.15)
-    + (interactionStabilityScore * 0.05)
+    (reliabilityScore * 0.3)
+    + (stabilityScore * 0.4)
+    + (apiReliabilityScore * 0.2)
+    + (interactionStabilityScore * 0.1)
   );
 
   return Math.round(clamp(score, 0, 100));
@@ -185,7 +180,6 @@ function normalizeWarehouseProjects(projects: ApiProject[]): WarehouseProject[] 
       errorsTotal: project.errorsTotal ?? 0,
       crashesTotal: project.crashesTotal ?? 0,
       anrsTotal: project.anrsTotal ?? 0,
-      avgUxScoreAllTime: project.avgUxScoreAllTime ?? 0,
       apiErrorsTotal: project.apiErrorsTotal ?? 0,
       apiTotalCount: project.apiTotalCount ?? 0,
       rageTapTotal: project.rageTapTotal ?? 0,
@@ -257,7 +251,6 @@ const WarehouseContent: React.FC = () => {
         errorsTotal: project.errorsLast7Days ?? 0,
         crashesTotal: 0,
         anrsTotal: 0,
-        avgUxScoreAllTime: 70,
         apiErrorsTotal: 0,
         apiTotalCount: 0,
         rageTapTotal: 0,

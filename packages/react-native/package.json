@@ -92,6 +92,26 @@
         "@react-navigation/native": ">=6.0.0",
         "expo-router": ">=3.0.0"
     },
+    "peerDependenciesMeta": {
+        "expo-router": {
+            "optional": true
+        }
+    },
+    "exports": {
+        ".": {
+            "types": "./lib/typescript/index.d.ts",
+            "react-native": "./lib/module/index.js",
+            "import": "./lib/module/index.js",
+            "require": "./lib/commonjs/index.js"
+        },
+        "./expo-router": {
+            "types": "./lib/typescript/expoRouterTracking.d.ts",
+            "react-native": "./lib/module/expoRouterTracking.js",
+            "import": "./lib/module/expoRouterTracking.js",
+            "require": "./lib/commonjs/expoRouterTracking.js",
+            "default": "./lib/module/expoRouterTracking.js"
+        }
+    },
     "codegenConfig": {
         "name": "RejourneySpec",
         "type": "modules",

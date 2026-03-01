@@ -36,6 +36,20 @@ let lastAutoFinalizeAt = 0;
 
 let isRunning = true;
 
+// Avoid duplicate prewarm calls when multiple artifacts land close together.
+const prewarmInFlight = new Set<string>();
+const PREWARM_FRAMES_ON_INGEST = (process.env.RJ_PREWARM_FRAMES_ON_INGEST ?? 'false').toLowerCase() === 'true';
+const PREWARM_FRAMES_SAMPLE_RATE = Number(process.env.RJ_PREWARM_FRAMES_SAMPLE_RATE ?? 0);
+
+function shouldPrewarmFrames(): boolean {
+    if (!PREWARM_FRAMES_ON_INGEST) return false;
+    // Default is 0 (disabled even if env accidentally set without sample rate).
+    const rate = Number.isFinite(PREWARM_FRAMES_SAMPLE_RATE) ? PREWARM_FRAMES_SAMPLE_RATE : 0;
+    if (rate <= 0) return false;
+    if (rate >= 1) return true;
+    return Math.random() < rate;
+}
+
 type StaleSessionRow = {
     sessionId: string;
     projectId: string;
@@ -307,16 +321,23 @@ async function processArtifactJob(job: any): Promise<boolean> {
                 logger.error({ err, sessionId: session.id }, 'Promotion evaluation failed after final job');
             });
 
-            // Pre-extract screenshot frames in worker path so replay open stays fast.
-            prewarmSessionScreenshotFrames(session.id)
-                .then((ok) => {
-                    if (ok) {
-                        logger.info({ sessionId: session.id }, 'Prewarmed screenshot frames after ingest completion');
-                    }
-                })
-                .catch((err) => {
-                    logger.warn({ err, sessionId: session.id }, 'Failed to prewarm screenshot frames');
-                });
+            // Pre-extracting frames at ingest time can be very expensive at scale.
+            // Keep it opt-in + sampled. By default this does nothing.
+            if (shouldPrewarmFrames() && !prewarmInFlight.has(session.id)) {
+                prewarmInFlight.add(session.id);
+                prewarmSessionScreenshotFrames(session.id)
+                    .then((ok) => {
+                        if (ok) {
+                            logger.info({ sessionId: session.id }, 'Prewarmed screenshot frames after ingest completion');
+                        }
+                    })
+                    .catch((err) => {
+                        logger.warn({ err, sessionId: session.id }, 'Failed to prewarm screenshot frames');
+                    })
+                    .finally(() => {
+                        prewarmInFlight.delete(session.id);
+                    });
+            }
 
             // LAZY FUNNEL LEARNING
             // Randomly trigger funnel analysis (5% chance) to keep the "Happy Path" up to date
@@ -927,6 +948,72 @@ async function processEventsArtifact(job: any, session: any, metrics: any, proje
         log.debug({ anrCount: anrEvents.length }, 'ANR events saved to anrs table');
     }
 
+    // Process custom events and metadata
+    const customEventsForStorage: any[] = [];
+    const metadataUpdates: Record<string, any> = {};
+
+    for (const event of eventsData) {
+        const type = (event.type || '').toLowerCase();
+        const eventName = (event.name || '').toLowerCase();
+
+        // Native SDK sends metadata as: {type: "custom", name: "$user_property", payload: "{...}"}
+        // Also handle if sent directly as type: "$user_property"
+        if (type === '$user_property' || eventName === '$user_property') {
+            let props = event.properties || event.payload || {};
+            // Native SDK sends payload as JSON string — parse it
+            if (typeof props === 'string') {
+                try { props = JSON.parse(props); } catch { props = {}; }
+            }
+            if (props.key && props.value !== undefined) {
+                metadataUpdates[props.key] = props.value;
+            } else {
+                // Filter out internal fields before merging
+                const { key: _k, value: _v, ...rest } = props;
+                Object.assign(metadataUpdates, rest);
+            }
+        }
+        else if (type === 'custom' || (![
+            'navigation', 'screen_view', 'motion', 'scroll_motion', 'pan_motion',
+            'touch', 'tap', 'scroll', 'gesture', 'rage_tap', 'dead_tap',
+            'api_call', 'network_request', 'error', 'anr',
+            'keyboard_typing', 'keyboard_show', 'keyboard_hide', 'input', 'text_input',
+            'app_startup', 'user_identity_changed', 'app_foreground', 'app_background', 'session_start'
+        ].includes(type) && !type.startsWith('$') && !eventName.startsWith('$'))) {
+            customEventsForStorage.push(event);
+        }
+    }
+
+    if (customEventsForStorage.length > 0 || Object.keys(metadataUpdates).length > 0) {
+        try {
+            const updates: any = {};
+
+            if (customEventsForStorage.length > 0) {
+                updates.events = sql`
+                    CASE 
+                        WHEN jsonb_typeof(${sessions.events}) = 'array' AND jsonb_array_length(${sessions.events}) < 2000 THEN 
+                            ${sessions.events} || ${JSON.stringify(customEventsForStorage)}::jsonb
+                        ELSE ${sessions.events}
+                    END
+                `;
+            }
+
+            if (Object.keys(metadataUpdates).length > 0) {
+                updates.metadata = sql`${sessions.metadata} || ${JSON.stringify(metadataUpdates)}::jsonb`;
+            }
+
+            await db.update(sessions)
+                .set(updates)
+                .where(eq(sessions.id, job.sessionId));
+
+            log.debug({
+                customEventsCount: customEventsForStorage.length,
+                metadataKeysCount: Object.keys(metadataUpdates).length
+            }, 'Updated session custom events and metadata');
+        } catch (err) {
+            log.error({ err }, 'Failed to update session custom events and metadata');
+        }
+    }
+
     log.debug({ eventsCount: eventsData.length, touchCount, rageTapCount }, 'Events artifact processed');
 }
 
@@ -1259,9 +1346,26 @@ async function shutdown(signal: string) {
 process.on('SIGTERM', () => shutdown('SIGTERM'));
 process.on('SIGINT', () => shutdown('SIGINT'));
 
+// On startup, reset any jobs left stuck in 'processing' from a prior crash/restart.
+// Without this, finalizeStaleSessions is permanently blocked for affected sessions
+// because its HAVING clause requires sum(pending+processing) = 0.
+async function recoverStuckJobs(): Promise<void> {
+    try {
+        const result = await db.update(ingestJobs)
+            .set({ status: 'pending', updatedAt: new Date() })
+            .where(eq(ingestJobs.status, 'processing'));
+        const count = (result as any).rowCount ?? 0;
+        if (count > 0) {
+            logger.info({ count }, '♻️ Reset stuck processing jobs back to pending');
+        }
+    } catch (err) {
+        logger.error({ err }, 'Failed to recover stuck processing jobs');
+    }
+}
+
 // Start worker
 logger.info('🔄 Ingest worker started (optimized)');
-pollJobs().catch((err) => {
+recoverStuckJobs().then(() => pollJobs()).catch((err) => {
     logger.error({ err }, 'Ingest worker fatal error');
     process.exit(1);
 });

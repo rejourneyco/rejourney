@@ -5,7 +5,7 @@
  */
 
 import { Router } from 'express';
-import { eq, and, inArray, gte, lt, isNull, desc } from 'drizzle-orm';
+import { eq, and, inArray, gte, lt, isNull, desc, sql } from 'drizzle-orm';
 
 import { db, sessions, sessionMetrics, recordingArtifacts, projects, teamMembers, crashes, anrs, errors } from '../db/client.js';
 import { gunzipSync } from 'zlib';
@@ -141,27 +141,27 @@ function buildSessionBasePayload(
     metrics: any,
     screenshotFrames: Array<{ timestamp: number; url: string; index: number }>
 ) {
-    const hasRecording = screenshotFrames.length > 0;
-    const playbackMode = hasRecording ? 'screenshots' : 'none';
+        const hasRecording = screenshotFrames.length > 0;
+        const playbackMode = hasRecording ? 'screenshots' : 'none';
 
-    return {
-        id: session.id,
-        projectId: session.projectId,
-        userId: session.userDisplayId || null,
-        anonymousId: session.anonymousDisplayId || session.anonymousHash,
-        anonymousDisplayName: session.deviceId && !session.userDisplayId ? generateAnonymousName(session.deviceId) : null,
-        platform: session.platform,
-        appVersion: session.appVersion,
-        hasRecording,
-        playbackMode,
-        deviceInfo: {
-            model: session.deviceModel,
-            os: session.platform,
-            systemVersion: session.osVersion,
+        return {
+            id: session.id,
+            projectId: session.projectId,
+            userId: session.userDisplayId || null,
+            anonymousId: session.anonymousDisplayId || session.anonymousHash,
+            anonymousDisplayName: session.deviceId && !session.userDisplayId ? generateAnonymousName(session.deviceId) : null,
+            platform: session.platform,
             appVersion: session.appVersion,
-        },
-        osVersion: session.osVersion,
-        geoLocation: session.geoCity
+            hasRecording,
+            playbackMode,
+            deviceInfo: {
+                model: session.deviceModel,
+                os: session.platform,
+                systemVersion: session.osVersion,
+                appVersion: session.appVersion,
+            },
+            osVersion: session.osVersion,
+            geoLocation: session.geoCity
             ? {
                 city: session.geoCity,
                 region: session.geoRegion,
@@ -172,33 +172,35 @@ function buildSessionBasePayload(
                 timezone: session.geoTimezone,
             }
             : null,
-        startTime: session.startedAt.getTime(),
-        endTime: session.endedAt?.getTime(),
-        duration: session.durationSeconds,
-        backgroundTime: session.backgroundTimeSeconds ?? 0,
-        playableDuration: session.durationSeconds ?? 0,
-        status: session.status,
-        events: [] as any[],
-        networkRequests: [] as any[],
-        batches: [] as any[],
-        artifactUrls: {
-            events: null as string | null,
-            eventsBatches: [] as string[],
-        },
-        screenshotFrames,
-        hierarchySnapshots: [] as Array<{ timestamp: number; screenName: string | null; rootElement: any }>,
-        metrics: buildMetricsPayload(metrics),
-        crashes: [] as any[],
-        anrs: [] as any[],
-        retentionTier: session.retentionTier,
-        retentionDays: session.retentionDays,
-        recordingDeleted: session.recordingDeleted,
-        recordingDeletedAt: session.recordingDeletedAt?.toISOString() ?? null,
-        isReplayExpired: session.isReplayExpired,
-        replayPromoted: session.replayPromoted,
-        replayPromotedReason: session.replayPromotedReason ?? null,
-        replayPromotionScore: session.replayPromotionScore ?? 0,
-    };
+            startTime: session.startedAt.getTime(),
+            endTime: session.endedAt?.getTime(),
+            duration: session.durationSeconds,
+            backgroundTime: session.backgroundTimeSeconds ?? 0,
+            playableDuration: session.durationSeconds ?? 0,
+            status: session.status,
+            // Session-level JSONB metadata and custom events stored in the sessions table
+            metadata: session.metadata,
+            events: [] as any[],
+            networkRequests: [] as any[],
+            batches: [] as any[],
+            artifactUrls: {
+                events: null as string | null,
+                eventsBatches: [] as string[],
+            },
+            screenshotFrames,
+            hierarchySnapshots: [] as Array<{ timestamp: number; screenName: string | null; rootElement: any }>,
+            metrics: buildMetricsPayload(metrics),
+            crashes: [] as any[],
+            anrs: [] as any[],
+            retentionTier: session.retentionTier,
+            retentionDays: session.retentionDays,
+            recordingDeleted: session.recordingDeleted,
+            recordingDeletedAt: session.recordingDeletedAt?.toISOString() ?? null,
+            isReplayExpired: session.isReplayExpired,
+            replayPromoted: session.replayPromoted,
+            replayPromotedReason: session.replayPromotedReason ?? null,
+            replayPromotionScore: session.replayPromotionScore ?? 0,
+        };
 }
 
 async function computeSessionStats(
@@ -519,7 +521,35 @@ async function loadTimelinePayload(session: any, artifactsList: any[]) {
         }),
     ]);
 
-    const allEvents = parsedEventsBatches.flat();
+    // Core Telemetry events from artifacts
+    const artifactEvents = parsedEventsBatches.flat();
+
+    // Custom app-level events persisted on the session record (sessions.events JSONB).
+    // These typically come from Rejourney.logEvent() and are not always included in
+    // the raw telemetry artifacts, so we merge them here for the timeline.
+    const sessionEventsJson: any = (session as any).events;
+    const sessionEvents: any[] = Array.isArray(sessionEventsJson) ? sessionEventsJson : [];
+
+    // Avoid double-including custom events that already exist in the artifact payloads.
+    const seenCustomKeys = new Set<string>();
+    for (const e of artifactEvents) {
+        const type = (e?.type || '').toString().toLowerCase();
+        if (type === 'custom') {
+            const key = `${e.name ?? ''}|${e.timestamp ?? ''}`;
+            seenCustomKeys.add(key);
+        }
+    }
+
+    const extraSessionEvents: any[] = [];
+    for (const e of sessionEvents) {
+        const type = (e?.type || '').toString().toLowerCase();
+        if (type !== 'custom') continue;
+        const key = `${e.name ?? ''}|${e.timestamp ?? ''}`;
+        if (seenCustomKeys.has(key)) continue;
+        extraSessionEvents.push(e);
+    }
+
+    const allEvents = [...artifactEvents, ...extraSessionEvents];
     const allNetwork = parsedNetworkBatches.flat();
 
     const sessionStartMs = session.startedAt.getTime();
@@ -765,7 +795,7 @@ router.get(
     sessionAuth,
     dashboardRateLimiter,
     asyncHandler(async (req, res) => {
-        const { timeRange, projectId, platform, status, limit = 50, offset = 0, cursor, sortBy } = req.query as any;
+        const { timeRange, projectId, platform, status, limit = 50, offset = 0, cursor, sortBy, metaKey, metaValue, eventName } = req.query as any;
         const parsedLimit = Math.min(parseInt(limit) || 50, 200); // Max 200 per request
 
         // Get user's accessible project IDs
@@ -804,11 +834,37 @@ router.get(
         if (status) conditions.push(eq(sessions.status, status));
         if (cursor) conditions.push(lt(sessions.id, cursor));
 
-        // Get sessions with metrics
+        if (metaKey) {
+            if (metaValue !== undefined && metaValue !== '') {
+                // If value is provided, match both key and value
+                let parsedValue: any = metaValue;
+                if (metaValue === 'true') parsedValue = true;
+                else if (metaValue === 'false') parsedValue = false;
+                else if (!isNaN(Number(metaValue))) parsedValue = Number(metaValue);
+
+                conditions.push(sql`${sessions.metadata} @> ${JSON.stringify({ [metaKey]: parsedValue })}::jsonb`);
+            } else {
+                // If only key is provided, match if the JSON object just contains the key
+                conditions.push(sql`${sessions.metadata} ? ${metaKey}`);
+            }
+        }
+
+        if (eventName) {
+            // Find sessions where the events array contains an object with "name" matching the eventName
+            conditions.push(sql`${sessions.events} @> ${JSON.stringify([{ name: eventName }])}::jsonb`);
+        }
+
+        // Get sessions with metrics and isFirstSession calculation
         const sessionsList = await db
             .select({
                 session: sessions,
                 metrics: sessionMetrics,
+                isFirstSession: sql<boolean>`NOT EXISTS (
+                    SELECT 1 FROM ${sessions} AS previous_sessions 
+                    WHERE previous_sessions.device_id = ${sessions.deviceId} 
+                      AND previous_sessions.project_id = ${sessions.projectId}
+                      AND previous_sessions.started_at < ${sessions.startedAt}
+                )`,
             })
             .from(sessions)
             .leftJoin(sessionMetrics, eq(sessions.id, sessionMetrics.sessionId))
@@ -823,7 +879,7 @@ router.get(
         const nextCursor = hasMore ? resultSessions[resultSessions.length - 1].session.id : null;
 
         // Transform to API format
-        const sessionsData = resultSessions.map(({ session: s, metrics: m }) => ({
+        const sessionsData = resultSessions.map(({ session: s, metrics: m, isFirstSession }) => ({
             id: s.id,
             projectId: s.projectId,
             userId: s.userDisplayId || null,
@@ -841,6 +897,7 @@ router.get(
             // playableDuration is now same as durationSeconds (background already excluded)
             playableDuration: s.durationSeconds ?? 0,
             status: s.status,
+            isFirstSession,
             // Metrics
             touchCount: m?.touchCount ?? 0,
             scrollCount: m?.scrollCount ?? 0,
@@ -1068,7 +1125,7 @@ router.get(
             isReplayExpired: session.isReplayExpired,
             recordingDeleted: session.recordingDeleted,
         }, '[sessions] Screenshot extraction debug');
-        
+
         if (screenshotArtifacts.length > 0 && !session.isReplayExpired && !session.recordingDeleted) {
             // Extract frames from screenshot archives
             logger.info({ sessionId: session.id }, '[sessions] Attempting to extract screenshot frames');
@@ -1251,6 +1308,8 @@ router.get(
             // playableDuration is now same as durationSeconds (background already excluded at ingest time)
             playableDuration: session.durationSeconds ?? 0,
             status: session.status,
+            // Session-level JSONB metadata accumulated from custom "$user_property" events
+            metadata: session.metadata,
             events: mergedEvents,
             networkRequests: [
                 ...allNetwork.map(n => ({ ...n, timestamp: n.timestamp || Date.now() })),

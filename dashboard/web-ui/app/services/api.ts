@@ -222,7 +222,7 @@ export interface ApiSession {
     uniqueScreensCount: number;
     interactionScore: number;
     explorationScore: number;
-    uxScore: number;
+    rageTaps: number;
     customEventCount?: number;
     crashCount?: number;
   };
@@ -254,7 +254,6 @@ export interface ApiSessionSummary {
   appStartupTimeMs?: number;
   interactionScore?: number;
   explorationScore?: number;
-  uxScore?: number;
   screensVisited?: string[];
   funnelCompleted?: boolean;
   deepestFunnelStep?: number;
@@ -497,7 +496,7 @@ export function transformToRecordingSession(session: ApiSession | ApiSessionSumm
     uniqueScreensCount: 0,
     interactionScore: 50,
     explorationScore: 50,
-    uxScore: 70,
+    errors: 0,
     customEventCount: 0,
     crashCount: 0,
   };
@@ -525,12 +524,6 @@ export function transformToRecordingSession(session: ApiSession | ApiSessionSumm
 
 
 
-  const uxScore = summary.uxScore
-    ?? metrics.uxScore
-    ?? calculateUxScoreFromSession(
-      { ...session, screensVisited, metrics: session.metrics },
-      session.stats
-    );
 
   return {
     id: session.id,
@@ -564,7 +557,6 @@ export function transformToRecordingSession(session: ApiSession | ApiSessionSumm
 
     interactionScore,
     explorationScore,
-    uxScore,
     status: 'ready' as const,
     // Geo data if available
     geoLocation: session.geoLocation,
@@ -615,6 +607,9 @@ export async function getSessionsPaginated(params: {
   timeRange?: string;
   projectId?: string;
   platform?: string;
+  metaKey?: string;
+  metaValue?: string;
+  eventName?: string;
 }): Promise<{ sessions: any[]; nextCursor: string | null; hasMore: boolean }> {
   // Demo mode: return static demo sessions
   if (isDemoMode()) {
@@ -625,7 +620,7 @@ export async function getSessionsPaginated(params: {
     };
   }
 
-  const { cursor, limit = 50, timeRange, projectId, platform } = params;
+  const { cursor, limit = 50, timeRange, projectId, platform, metaKey, metaValue, eventName } = params;
 
   const queryParams = new URLSearchParams();
   if (cursor) queryParams.set('cursor', cursor);
@@ -633,6 +628,9 @@ export async function getSessionsPaginated(params: {
   if (timeRange) queryParams.set('timeRange', timeRange);
   if (projectId) queryParams.set('projectId', projectId);
   if (platform) queryParams.set('platform', platform);
+  if (metaKey) queryParams.set('metaKey', metaKey);
+  if (metaValue) queryParams.set('metaValue', metaValue);
+  if (eventName) queryParams.set('eventName', eventName);
 
   const endpoint = `/api/sessions?${queryParams.toString()}`;
 
@@ -737,6 +735,13 @@ export async function getProjects(): Promise<ApiProject[]> {
   const projects = data.projects;
   if (!projects) return [];
   return Array.isArray(projects) ? projects : [projects];
+}
+
+/**
+ * Get available custom events and metadata for a project
+ */
+export async function getAvailableFilters(projectId: string): Promise<{ events: string[]; metadata: Record<string, string[]> }> {
+  return fetchJson<{ events: string[]; metadata: Record<string, string[]> }>(`/api/projects/${projectId}/available-filters`);
 }
 
 /**
@@ -1347,7 +1352,7 @@ export interface DataExport {
     date: string;
     platform: string | null;
     durationSeconds: number | null;
-    uxScore: number | null;
+    errors: number;
     projectName: string | null;
   }>;
   metadata: {
@@ -2475,6 +2480,10 @@ export interface GrowthObservability {
     slow: number;
     crash: number;
   }>;
+  customEvents?: Array<{
+    name: string;
+    count: number;
+  }>;
 }
 
 export async function getGrowthObservability(projectId?: string, timeRange?: string): Promise<GrowthObservability> {
@@ -2509,6 +2518,11 @@ export interface ObservabilityDeepMetrics {
     frustrationFreeSessionRate: number;
     degradedSessionRate: number;
     apiFailureRate: number;
+    platformBreakdown?: Array<{
+      platform: string;
+      crashFreeSessionRate: number;
+      anrFreeSessionRate: number;
+    }>;
   };
   performance: {
     apiApdex: number | null;

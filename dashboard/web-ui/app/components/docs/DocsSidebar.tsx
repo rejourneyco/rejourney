@@ -26,6 +26,7 @@ const NAVIGATION: NavCategory[] = [
                     { label: "3 Line Setup", href: "/docs/reactnative/overview#3-line-setup", isRoute: false },
                     { label: "Screen Tracking", href: "/docs/reactnative/overview#screen-tracking", isRoute: false },
                     { label: "User Identification", href: "/docs/reactnative/overview#user-identification", isRoute: false },
+                    { label: "Custom Events & Metadata", href: "/docs/reactnative/overview#custom-events-metadata", isRoute: false },
                     { label: "Privacy Controls", href: "/docs/reactnative/overview#privacy-controls", isRoute: false },
                 ]
             }
@@ -137,11 +138,11 @@ export function DocsSidebar({ className }: { className?: string }) {
             // For sub-routes (e.g. /docs/selfhosted)
             // We want exact matches for routes to avoid "Overview" staying active
             if (normalizedHref.startsWith('/docs/')) {
-                return normalizedPath === normalizedHref;
+                return normalizedPath === normalizedHref && !activeHash;
             }
 
             // For root routes like /contribute
-            return normalizedPath === normalizedHref;
+            return normalizedPath === normalizedHref && !activeHash;
         } else {
             // For hash links - check if we're on the right page and hash matches
             if (href.includes('#')) {

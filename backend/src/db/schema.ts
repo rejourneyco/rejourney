@@ -16,6 +16,7 @@ import {
     timestamp,
     date,
     json,
+    jsonb,
     uniqueIndex,
     index,
     primaryKey,
@@ -230,6 +231,9 @@ export const appAllTimeStats = pgTable('app_all_time_stats', {
     // Geo Breakdown
     geoCountryBreakdown: json('geo_country_breakdown').$type<Record<string, number>>().default({}),
 
+    // Custom Events
+    customEventBreakdown: json('custom_event_breakdown').$type<Record<string, number>>().default({}),
+
     // Unique Users
     uniqueUserCount: bigint('unique_user_count', { mode: 'bigint' }).default(sql`0`),
 
@@ -351,13 +355,20 @@ export const sessions = pgTable(
 
         // Server-side enforcement: SDK sampling decision (for rejecting visual replay uploads)
         isSampledIn: boolean('is_sampled_in').default(true).notNull(),
+
+        // Session events and metadata
+        events: jsonb('events').default([]).notNull(),
+        metadata: jsonb('metadata').default({}).notNull(),
     },
     (table) => [
         index('sessions_project_started_idx').on(table.projectId, table.startedAt),
         index('sessions_status_idx').on(table.status),
         index('sessions_user_display_id_idx').on(table.userDisplayId),
         index('sessions_anonymous_hash_idx').on(table.anonymousHash),
+        index('sessions_events_idx').using('gin', table.events),
+        index('sessions_metadata_idx').using('gin', table.metadata),
     ]
+
 );
 
 export const sessionMetrics = pgTable('session_metrics', {
@@ -642,6 +653,9 @@ export const appDailyStats = pgTable(
 
         // Geo Breakdown
         geoCountryBreakdown: json('geo_country_breakdown').$type<Record<string, number>>().default({}),
+
+        // Custom Events
+        customEventBreakdown: json('custom_event_breakdown').$type<Record<string, number>>().default({}),
 
         // Unique Users
         uniqueUserCount: integer('unique_user_count').default(0).notNull(),

@@ -11,13 +11,28 @@ import { useAppSlice } from '@/slices';
 import { getUserAsync } from '@/services';
 import Provider from '@/providers';
 import { User } from '@/types';
-import { initRejourney, startRejourney } from 'rejourney';
+import { Rejourney } from 'rejourney';
 
-initRejourney('rj_b6075c32a139fac7d444f86054e3dd25', {
-  apiUrl: 'http://10.146.214.243:3000', // Update this to your local backend IP
+Rejourney.init('rj_b6075c32a139fac7d444f86054e3dd25', {
+  apiUrl: 'http://10.43.91.67:3000', // Update this to your local backend IP
   debug: true,
+  autoTrackExpoRouter: false,
+  autoScreenTracking: false,
 });
-startRejourney();
+
+// Set some initial session metadata for testing
+Rejourney.setMetadata({
+  plan: 'pro',
+  platform: 'boilerplate',
+  env: 'development',
+});
+
+// Log an event for SDK initialization
+Rejourney.logEvent('boilerplate_initialized', {
+  timestamp: new Date().toISOString(),
+});
+
+Rejourney.start();
 
 // keep the splash screen visible while complete fetching resources
 SplashScreen.preventAutoHideAsync();

@@ -67,6 +67,7 @@ async function computeDailyRollup(projectId: string, date: Date): Promise<void> 
                 inputCount: sessionMetrics.inputCount,
                 screensVisited: sessionMetrics.screensVisited,
                 apiAvgResponseMs: sessionMetrics.apiAvgResponseMs,
+                events: sessions.events,
             })
             .from(sessions)
             .leftJoin(sessionMetrics, eq(sessions.id, sessionMetrics.sessionId))
@@ -103,6 +104,7 @@ async function computeDailyRollup(projectId: string, date: Date): Promise<void> 
         const entryScreenBreakdown: Record<string, number> = {};
         const exitScreenBreakdown: Record<string, number> = {};
         const geoCountryBreakdown: Record<string, number> = {};
+        const customEventBreakdown: Record<string, number> = {};
         const uniqueUserIds: string[] = [];
         const uniqueUserSet = new Set<string>();
 
@@ -140,6 +142,14 @@ async function computeDailyRollup(projectId: string, date: Date): Promise<void> 
             // Geo country breakdown
             if (s.geoCountry) {
                 geoCountryBreakdown[s.geoCountry] = (geoCountryBreakdown[s.geoCountry] || 0) + 1;
+            }
+
+            // Custom Events breakdown
+            const evs = Array.isArray(s.events) ? s.events : [];
+            for (const ev of evs) {
+                if (ev && ev.type === 'custom' && typeof ev.name === 'string') {
+                    customEventBreakdown[ev.name] = (customEventBreakdown[ev.name] || 0) + 1;
+                }
             }
 
             // Unique users tracking
@@ -258,6 +268,7 @@ async function computeDailyRollup(projectId: string, date: Date): Promise<void> 
                 entryScreenBreakdown,
                 exitScreenBreakdown,
                 geoCountryBreakdown,
+                customEventBreakdown,
                 uniqueUserCount: uniqueUserSet.size,
                 uniqueUserIds,
             })
@@ -298,6 +309,7 @@ async function computeDailyRollup(projectId: string, date: Date): Promise<void> 
                     entryScreenBreakdown,
                     exitScreenBreakdown,
                     geoCountryBreakdown,
+                    customEventBreakdown,
                     uniqueUserCount: uniqueUserSet.size,
                     uniqueUserIds,
                 },
@@ -344,6 +356,7 @@ async function computeDailyRollup(projectId: string, date: Date): Promise<void> 
             const aggEntryScreenBreakdown: Record<string, number> = {};
             const aggExitScreenBreakdown: Record<string, number> = {};
             const aggGeoCountryBreakdown: Record<string, number> = {};
+            const aggCustomEventBreakdown: Record<string, number> = {};
 
             // Helper to merge breakdowns
             const mergeBreakdowns = (target: Record<string, number>, source: Record<string, number> | null) => {
@@ -385,6 +398,7 @@ async function computeDailyRollup(projectId: string, date: Date): Promise<void> 
                 mergeBreakdowns(aggEntryScreenBreakdown, d.entryScreenBreakdown);
                 mergeBreakdowns(aggExitScreenBreakdown, d.exitScreenBreakdown);
                 mergeBreakdowns(aggGeoCountryBreakdown, d.geoCountryBreakdown);
+                mergeBreakdowns(aggCustomEventBreakdown, d.customEventBreakdown);
             }
 
             // 2. Count distinct users (Expensive but necessary for accuracy)
@@ -429,6 +443,7 @@ async function computeDailyRollup(projectId: string, date: Date): Promise<void> 
                     entryScreenBreakdown: aggEntryScreenBreakdown,
                     exitScreenBreakdown: aggExitScreenBreakdown,
                     geoCountryBreakdown: aggGeoCountryBreakdown,
+                    customEventBreakdown: aggCustomEventBreakdown,
                     uniqueUserCount: BigInt(totalUsers),
                 })
                 .onConflictDoUpdate({
@@ -462,6 +477,7 @@ async function computeDailyRollup(projectId: string, date: Date): Promise<void> 
                         entryScreenBreakdown: aggEntryScreenBreakdown,
                         exitScreenBreakdown: aggExitScreenBreakdown,
                         geoCountryBreakdown: aggGeoCountryBreakdown,
+                        customEventBreakdown: aggCustomEventBreakdown,
                         uniqueUserCount: BigInt(totalUsers),
                         updatedAt: new Date()
                     }

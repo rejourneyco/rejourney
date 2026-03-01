@@ -17,10 +17,20 @@ const REJOURNEY_ENABLED = true;
 
 // Conditionally initialize Rejourney without statically importing the package
 if (REJOURNEY_ENABLED) {
-  const { initRejourney, startRejourney } = require('rejourney');
+  const { Rejourney, initRejourney, startRejourney } = require('rejourney');
   initRejourney('rj_9cdda278b8bfae7ab6d3d9d340e29882', {
-    apiUrl: 'http://10.146.214.243:3000',
+    apiUrl: 'http://10.43.91.67:3000',
     debug: true,
+  });
+  Rejourney.setMetadata('plan', 'premium');
+  Rejourney.setMetadata({
+    role: 'tester',
+    segment: 'beta',
+    last_login: Date.now()
+  });
+  Rejourney.logEvent('app_initialized', {
+    hasAuth: false,
+    theme: 'dark'
   });
   startRejourney();
 }

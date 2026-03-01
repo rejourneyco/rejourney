@@ -130,6 +130,32 @@ class TelemetryPipeline private constructor(private val context: Context) {
         }
     }
     
+    /**
+     * Pause the heartbeat timer when the app goes to background.
+     * This prevents the pipeline from uploading empty event batches
+     * while backgrounded, which would inflate session duration.
+     */
+    fun pause() {
+        heartbeatRunnable?.let { mainHandler.removeCallbacks(it) }
+        heartbeatRunnable = null
+    }
+    
+    /**
+     * Resume the heartbeat timer when the app returns to foreground.
+     */
+    fun resume() {
+        if (heartbeatRunnable != null) return
+        mainHandler.post {
+            heartbeatRunnable = object : Runnable {
+                override fun run() {
+                    dispatchNow()
+                    mainHandler.postDelayed(this, 5000)
+                }
+            }
+            mainHandler.postDelayed(heartbeatRunnable!!, 5000)
+        }
+    }
+    
     fun shutdown() {
         heartbeatRunnable?.let { mainHandler.removeCallbacks(it) }
         heartbeatRunnable = null

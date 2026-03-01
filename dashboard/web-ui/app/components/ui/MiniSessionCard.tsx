@@ -39,12 +39,23 @@ export const MiniSessionCard: React.FC<MiniSessionCardProps> = ({
     const [imageUrl, setImageUrl] = useState<string | null>(null);
     const [imageLoaded, setImageLoaded] = useState(false);
 
-    // Use coverPhotoUrl from API response. Don't auto-generate URL as many sessions lack video artifacts.
-    // Pages that need cover photos should provide coverPhotoUrl explicitly.
-    const coverUrl = session.coverPhotoUrl
-        ? (session.coverPhotoUrl.startsWith('http')
-            ? session.coverPhotoUrl
-            : `${API_BASE_URL}${session.coverPhotoUrl}`)
+    // Prefer API-provided cover URL, but fall back to the standard cover endpoint when an id is available.
+    // (404s are expected for sessions without visual artifacts; we treat them as "no preview".)
+    const normalizedCoverPath = (() => {
+        const raw = session.coverPhotoUrl && session.coverPhotoUrl.trim().length > 0
+            ? session.coverPhotoUrl.trim()
+            : (session.id ? `/api/sessions/cover/${session.id}` : null);
+        if (!raw) return null;
+        // Normalize legacy path: /api/sessions/:id/cover -> /api/sessions/cover/:id
+        const legacyMatch = raw.match(/^\/api\/sessions\/([^/]+)\/cover$/);
+        if (legacyMatch) return `/api/sessions/cover/${legacyMatch[1]}`;
+        return raw;
+    })();
+
+    const coverUrl = normalizedCoverPath
+        ? (normalizedCoverPath.startsWith('http')
+            ? normalizedCoverPath
+            : `${API_BASE_URL}${normalizedCoverPath}`)
         : null;
 
     useEffect(() => {

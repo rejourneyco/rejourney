@@ -146,6 +146,7 @@ export interface AutoTrackingConfig {
   collectDeviceInfo?: boolean;
   maxSessionDurationMs?: number;
   detectDeadTaps?: boolean;
+  autoTrackExpoRouter?: boolean;
 }
 
 let isInitialized = false;
@@ -209,6 +210,7 @@ export function initAutoTracking(
     trackReactNativeErrors: true,
     trackConsoleLogs: true,
     collectDeviceInfo: true,
+    autoTrackExpoRouter: true,
     maxSessionDurationMs: trackingConfig.maxSessionDurationMs,
     ...trackingConfig,
   };
@@ -703,10 +705,26 @@ function restoreConsoleHandlers(): void {
 }
 
 let navigationPollingInterval: ReturnType<typeof setInterval> | null = null;
+/** Interval ID from optional expo-router entry; cleared in cleanupNavigationTracking */
+let expoRouterPollingIntervalId: ReturnType<typeof setInterval> | null = null;
 let lastDetectedScreen = '';
 let navigationSetupDone = false;
-let navigationPollingErrors = 0;
-const MAX_POLLING_ERRORS = 10; // Stop polling after 10 consecutive errors
+
+/**
+ * Register the polling interval from the optional expo-router entry so we can clear it on cleanup.
+ * Used by src/expoRouterTracking.ts (only loaded when app imports '@rejourneyco/react-native/expo-router').
+ */
+export function setExpoRouterPollingInterval(id: ReturnType<typeof setInterval> | null): void {
+  expoRouterPollingIntervalId = id;
+}
+
+/**
+ * Check if Expo Router auto-tracking is enabled in the current configuration.
+ * Used by src/expoRouterTracking.ts.
+ */
+export function isExpoRouterTrackingEnabled(): boolean {
+  return config.autoTrackExpoRouter !== false;
+}
 
 /**
  * Track a navigation state change from React Navigation.
@@ -803,101 +821,97 @@ export function useNavigationTracking() {
 }
 
 /**
- * Setup automatic Expo Router tracking
- * 
- * For Expo apps using expo-router - works automatically.
- * For bare React Native apps - use trackNavigationState instead.
+ * Setup automatic navigation tracking.
+ *
+ * Expo Router: not set up here to avoid pulling expo-router into the main bundle
+ * (Metro resolves require() at build time, which causes "Requiring unknown module"
+ * in apps that use Expo + react-navigation without expo-router). If you use
+ * expo-router, add: import '@rejourneyco/react-native/expo-router';
+ *
+ * For React Navigation (non–expo-router), use trackNavigationState() on your
+ * NavigationContainer's onStateChange.
  */
 function setupNavigationTracking(): void {
   if (navigationSetupDone) return;
   navigationSetupDone = true;
 
-  if (__DEV__) {
-    logger.debug('Setting up navigation tracking...');
+  // Auto-detect expo-router and set up screen tracking if available.
+  // This is safe: if expo-router isn't installed, the require fails silently.
+  // We defer slightly so the router has time to initialize after JS bundle load.
+  if (config.autoTrackExpoRouter !== false) {
+    tryAutoSetupExpoRouter();
   }
-
-  let attempts = 0;
-  const maxAttempts = 5;
-
-  const trySetup = () => {
-    attempts++;
-    if (__DEV__) {
-      logger.debug('Navigation setup attempt', attempts, 'of', maxAttempts);
-    }
-
-    const success = trySetupExpoRouter();
-
-    if (success) {
-      if (__DEV__) {
-        logger.debug('Expo Router setup: SUCCESS on attempt', attempts);
-      }
-    } else if (attempts < maxAttempts) {
-      const delay = 200 * attempts;
-      if (__DEV__) {
-        logger.debug('Expo Router not ready, retrying in', delay, 'ms');
-      }
-      setTimeout(trySetup, delay);
-    } else {
-      if (__DEV__) {
-        logger.debug('Expo Router setup: FAILED after', maxAttempts, 'attempts');
-        logger.debug('For manual navigation tracking, use trackNavigationState() on your NavigationContainer');
-      }
-    }
-  };
-
-  setTimeout(trySetup, 200);
 }
 
 /**
-   * Set up Expo Router auto-tracking by polling the internal router store
-   * 
-   * Supports both expo-router v3 (store.rootState) and v6+ (store.state, store.navigationRef)
-   */
-function trySetupExpoRouter(): boolean {
-  try {
-    const expoRouter = require('expo-router');
-    const router = expoRouter.router;
+ * Attempt to auto-detect and set up expo-router screen tracking.
+ * Uses a retry mechanism because the router may not be ready immediately
+ * after JS bundle load.
+ */
+function tryAutoSetupExpoRouter(attempt: number = 0, maxAttempts: number = 5): void {
+  const delay = 200 * (attempt + 1); // 200, 400, 600, 800, 1000ms
 
-    if (!router) {
-      if (__DEV__) {
-        logger.debug('Expo Router: router object not found');
+  setTimeout(() => {
+    try {
+      // Dynamic require wrapped in a variable to prevent Metro from statically resolving it
+      const EXPO_ROUTER = 'expo-router';
+      const expoRouter = require(EXPO_ROUTER);
+
+      if (!expoRouter?.router) {
+        // expo-router exists but router not ready yet — retry
+        if (attempt < maxAttempts - 1) {
+          tryAutoSetupExpoRouter(attempt + 1, maxAttempts);
+        }
+        return;
       }
-      return false;
-    }
 
-    if (__DEV__) {
-      logger.debug('Expo Router: Setting up navigation tracking');
+      // Router is ready — set up the polling-based screen tracker
+      setupExpoRouterPolling(expoRouter.router);
+    } catch {
+      // expo-router not installed — this is fine, just means the app
+      // uses bare React Navigation or no navigation at all.
+      if (__DEV__ && attempt === 0) {
+        logger.debug('Expo Router not detected, skipping auto screen tracking. Use trackNavigationState() for React Navigation.');
+      }
     }
+  }, delay);
+}
 
+/**
+ * Poll expo-router state for screen changes.
+ * Inlined from expoRouterTracking.ts so no separate import is needed.
+ */
+function setupExpoRouterPolling(router: any): void {
+  // Guard against double-setup (core auto-detection + legacy expoRouterTracking.ts import)
+  if (expoRouterPollingIntervalId != null) return;
+
+  const MAX_POLLING_ERRORS = 10;
+  let pollingErrors = 0;
+
+  try {
     const { normalizeScreenName, getScreenNameFromPath } = require('./navigation');
 
-    navigationPollingInterval = setInterval(() => {
+    const intervalId = setInterval(() => {
       try {
-        let state = null;
-        let stateSource = '';
+        let state: any = null;
+
         if (typeof router.getState === 'function') {
           state = router.getState();
-          stateSource = 'router.getState()';
-        } else if ((router as any).rootState) {
-          state = (router as any).rootState;
-          stateSource = 'router.rootState';
+        } else if (router.rootState) {
+          state = router.rootState;
         }
 
         if (!state) {
           try {
-            const storeModule = require('expo-router/build/global-state/router-store');
+            const STORE_PATH = 'expo-router/build/global-state/router-store';
+            const storeModule = require(STORE_PATH);
             if (storeModule?.store) {
               state = storeModule.store.state;
-              if (state) stateSource = 'store.state';
-
               if (!state && storeModule.store.navigationRef?.current) {
                 state = storeModule.store.navigationRef.current.getRootState?.();
-                if (state) stateSource = 'navigationRef.getRootState()';
               }
-
               if (!state) {
                 state = storeModule.store.rootState || storeModule.store.initialState;
-                if (state) stateSource = 'store.rootState/initialState';
               }
             }
           } catch {
@@ -907,10 +921,10 @@ function trySetupExpoRouter(): boolean {
 
         if (!state) {
           try {
-            const imperative = require('expo-router/build/imperative-api');
+            const IMPERATIVE_PATH = 'expo-router/build/imperative-api';
+            const imperative = require(IMPERATIVE_PATH);
             if (imperative?.router) {
               state = imperative.router.getState?.();
-              if (state) stateSource = 'imperative-api';
             }
           } catch {
             // Ignore
@@ -918,55 +932,45 @@ function trySetupExpoRouter(): boolean {
         }
 
         if (state) {
-          navigationPollingErrors = 0;
-          navigationPollingErrors = 0;
-          const screenName = extractScreenNameFromRouterState(state, getScreenNameFromPath, normalizeScreenName);
+          pollingErrors = 0;
+          const screenName = extractScreenNameFromRouterState(
+            state,
+            getScreenNameFromPath,
+            normalizeScreenName
+          );
           if (screenName && screenName !== lastDetectedScreen) {
-            if (__DEV__) {
-              logger.debug('Screen changed:', lastDetectedScreen, '->', screenName, `(source: ${stateSource})`);
-            }
             lastDetectedScreen = screenName;
             trackScreen(screenName);
           }
         } else {
-          navigationPollingErrors++;
-          if (__DEV__ && navigationPollingErrors === 1) {
-            logger.debug('Expo Router: Could not get navigation state');
-          }
-          if (navigationPollingErrors >= MAX_POLLING_ERRORS) {
-            cleanupNavigationTracking();
+          pollingErrors++;
+          if (pollingErrors >= MAX_POLLING_ERRORS) {
+            clearInterval(intervalId);
+            expoRouterPollingIntervalId = null;
           }
         }
-      } catch (e) {
-        navigationPollingErrors++;
-        if (__DEV__ && navigationPollingErrors === 1) {
-          logger.debug('Expo Router polling error:', e);
-        }
-        if (navigationPollingErrors >= MAX_POLLING_ERRORS) {
-          cleanupNavigationTracking();
+      } catch {
+        pollingErrors++;
+        if (pollingErrors >= MAX_POLLING_ERRORS) {
+          clearInterval(intervalId);
+          expoRouterPollingIntervalId = null;
         }
       }
     }, 500);
 
-    return true;
-  } catch (e) {
-    if (__DEV__) {
-      logger.debug('Expo Router not available:', e);
-    }
-    return false;
+    expoRouterPollingIntervalId = intervalId;
+  } catch {
+    // navigation module not available — ignore
   }
 }
 
 /**
- * Extract screen name from Expo Router navigation state
- * 
- * Handles complex nested structures like Drawer → Tabs → Stack
- * by recursively accumulating segments from each navigation level.
+ * Extract the active screen name from expo-router navigation state.
  */
 function extractScreenNameFromRouterState(
   state: any,
-  getScreenNameFromPath: (path: string, segments: string[]) => string,
-  normalizeScreenName: (name: string) => string,
+  getScreenNameFromPathFn: (path: string, segments: string[]) => string,
+  normalizeScreenNameFn: (name: string) => string,
   accumulatedSegments: string[] = []
 ): string | null {
   if (!state?.routes) return null;
@@ -979,13 +983,13 @@ function extractScreenNameFromRouterState(
   if (route.state) {
     return extractScreenNameFromRouterState(
       route.state,
-      getScreenNameFromPath,
-      normalizeScreenName,
+      getScreenNameFromPathFn,
+      normalizeScreenNameFn,
       newSegments
     );
   }
 
-  const cleanSegments = newSegments.filter(s => !s.startsWith('(') && !s.endsWith(')'));
+  const cleanSegments = newSegments.filter((s) => !s.startsWith('(') && !s.endsWith(')'));
 
   if (cleanSegments.length === 0) {
     for (let i = newSegments.length - 1; i >= 0; i--) {
@@ -998,7 +1002,7 @@ function extractScreenNameFromRouterState(
   }
 
   const pathname = '/' + cleanSegments.join('/');
-  return getScreenNameFromPath(pathname, newSegments);
+  return getScreenNameFromPathFn(pathname, newSegments);
 }
 
 /**
@@ -1009,9 +1013,12 @@ function cleanupNavigationTracking(): void {
     clearInterval(navigationPollingInterval);
     navigationPollingInterval = null;
   }
+  if (expoRouterPollingIntervalId != null) {
+    clearInterval(expoRouterPollingIntervalId);
+    expoRouterPollingIntervalId = null;
+  }
   navigationSetupDone = false;
   lastDetectedScreen = '';
-  navigationPollingErrors = 0;
 }
 
 /**

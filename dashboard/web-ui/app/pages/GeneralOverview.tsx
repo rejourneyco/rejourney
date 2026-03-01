@@ -1,6 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
     Activity,
+    ChevronLeft,
+    ChevronRight,
     MessageSquareWarning,
 } from 'lucide-react';
 import {
@@ -609,6 +611,9 @@ export const GeneralOverview: React.FC = () => {
     const [geoSummary, setGeoSummary] = useState<GeoSummary | null>(null);
     const [issues, setIssues] = useState<Issue[]>([]);
     const [sessions, setSessions] = useState<RecordingSession[]>([]);
+    const [topIssuesPage, setTopIssuesPage] = useState(0);
+
+    const TOP_ISSUES_PAGE_SIZE = 5;
 
     useEffect(() => {
         if (!selectedProject?.id) {
@@ -708,6 +713,10 @@ export const GeneralOverview: React.FC = () => {
         return () => {
             isCancelled = true;
         };
+    }, [selectedProject?.id, timeRange]);
+
+    useEffect(() => {
+        setTopIssuesPage(0);
     }, [selectedProject?.id, timeRange]);
 
     const trendChartData = useMemo<TrendChartRow[]>(() => {
@@ -823,6 +832,7 @@ export const GeneralOverview: React.FC = () => {
 
     const crashFreeRate = deepMetrics?.reliability?.crashFreeSessionRate ?? null;
     const anrFreeRate = deepMetrics?.reliability?.anrFreeSessionRate ?? null;
+    const platformBreakdown = deepMetrics?.reliability?.platformBreakdown ?? [];
 
     const avgEngagementTime = useMemo(() => {
         if (!trendChartData.length) return '0s';
@@ -1145,62 +1155,38 @@ export const GeneralOverview: React.FC = () => {
         return cards;
     }, [trendComparison, healthShift, deepMetrics]);
 
-    const keyEvents = useMemo(() => {
-        const events: Array<{ name: string; count: number }> = [];
+    const customEvents = useMemo(() => {
+        return overviewObs?.customEvents || [];
+    }, [overviewObs]);
 
-        if (overviewObs?.firstSessionStats) {
-            const first = overviewObs.firstSessionStats;
-            events.push(
-                { name: 'First Open Sessions', count: Number(first.total || 0) },
-                { name: 'First Session Crashes', count: Number(first.withCrash || 0) },
-                { name: 'First Session ANRs', count: Number(first.withAnr || 0) },
-                { name: 'First Session Rage Taps', count: Number(first.withRageTaps || 0) },
-                { name: 'First Session Slow API', count: Number(first.withSlowApi || 0) },
-            );
-        }
-
-        if (overviewObs?.sessionHealth) {
-            events.push(
-                { name: 'Crash Sessions', count: Number(overviewObs.sessionHealth.crash || 0) },
-                { name: 'Error Sessions', count: Number(overviewObs.sessionHealth.error || 0) },
-                { name: 'Rage Sessions', count: Number(overviewObs.sessionHealth.rage || 0) },
-            );
-        }
-
-        if (deepMetrics?.ingestHealth) {
-            events.push(
-                { name: 'Upload Failure Sessions', count: Number(deepMetrics.ingestHealth.sessionsWithUploadFailures || 0) },
-                { name: 'Heavy Retry Sessions', count: Number(deepMetrics.ingestHealth.sessionsWithHeavyRetries || 0) },
-            );
-        }
-
-        if (overviewObs?.growthKillers?.length) {
-            for (const killer of overviewObs.growthKillers.slice(0, 4)) {
-                events.push({ name: killer.reason, count: Number(killer.affectedSessions || 0) });
-            }
-        }
-
-        return events
-            .filter((event) => Number.isFinite(event.count) && event.count > 0)
-            .sort((a, b) => b.count - a.count)
-            .slice(0, 8);
-    }, [overviewObs, deepMetrics]);
-
-    const maxKeyEventCount = useMemo(
-        () => keyEvents.reduce((max, item) => Math.max(max, item.count), 0),
-        [keyEvents],
+    const maxCustomEventCount = useMemo(
+        () => customEvents.reduce((max, item) => Math.max(max, item.count), 0),
+        [customEvents],
     );
 
-    const topIssues = useMemo(
-        () =>
-            [...issues]
-                .sort((a, b) => {
-                    if (b.eventCount !== a.eventCount) return b.eventCount - a.eventCount;
-                    return new Date(b.lastSeen).getTime() - new Date(a.lastSeen).getTime();
-                })
-                .slice(0, 8),
-        [issues],
-    );
+    const sortedIssues = useMemo(() => {
+        return [...issues].sort((a, b) => {
+            if (b.eventCount !== a.eventCount) return b.eventCount - a.eventCount;
+            return new Date(b.lastSeen).getTime() - new Date(a.lastSeen).getTime();
+        });
+    }, [issues]);
+
+    const topIssuesTotalPages = useMemo(() => {
+        if (sortedIssues.length === 0) return 0;
+        return Math.max(1, Math.ceil(sortedIssues.length / TOP_ISSUES_PAGE_SIZE));
+    }, [sortedIssues.length]);
+
+    useEffect(() => {
+        if (topIssuesTotalPages === 0) return;
+        if (topIssuesPage <= topIssuesTotalPages - 1) return;
+        setTopIssuesPage(Math.max(0, topIssuesTotalPages - 1));
+    }, [topIssuesPage, topIssuesTotalPages]);
+
+    const topIssues = useMemo(() => {
+        if (sortedIssues.length === 0) return [];
+        const start = topIssuesPage * TOP_ISSUES_PAGE_SIZE;
+        return sortedIssues.slice(start, start + TOP_ISSUES_PAGE_SIZE);
+    }, [sortedIssues, topIssuesPage]);
 
     const recommendedSessions = useMemo(
         () => buildRecommendedSessions(sessions),
@@ -1467,15 +1453,31 @@ export const GeneralOverview: React.FC = () => {
                                         </tr>
                                     </thead>
                                     <tbody>
-                                        <tr className="border-b border-slate-50">
-                                            <td className="py-2 text-slate-700">{selectedProject?.name ?? 'App'}</td>
-                                            <td className="py-2 text-right text-slate-700 font-medium">
-                                                {crashFreeRate !== null ? `${crashFreeRate.toFixed(1)}%` : 'N/A'}
-                                            </td>
-                                            <td className="py-2 text-right text-slate-700 font-medium">
-                                                {anrFreeRate !== null ? `${anrFreeRate.toFixed(1)}%` : 'N/A'}
-                                            </td>
-                                        </tr>
+                                        {platformBreakdown.length > 0 ? (
+                                            platformBreakdown.map((platformData) => (
+                                                <tr key={platformData.platform} className="border-b border-slate-50">
+                                                    <td className="py-2 text-slate-700 capitalize">
+                                                        {selectedProject?.name ?? 'App'} ({platformData.platform})
+                                                    </td>
+                                                    <td className="py-2 text-right text-slate-700 font-medium">
+                                                        {platformData.crashFreeSessionRate !== null ? `${platformData.crashFreeSessionRate.toFixed(1)}%` : 'N/A'}
+                                                    </td>
+                                                    <td className="py-2 text-right text-slate-700 font-medium">
+                                                        {platformData.anrFreeSessionRate !== null ? `${platformData.anrFreeSessionRate.toFixed(1)}%` : 'N/A'}
+                                                    </td>
+                                                </tr>
+                                            ))
+                                        ) : (
+                                            <tr className="border-b border-slate-50">
+                                                <td className="py-2 text-slate-700">{selectedProject?.name ?? 'App'}</td>
+                                                <td className="py-2 text-right text-slate-700 font-medium">
+                                                    {crashFreeRate !== null ? `${crashFreeRate.toFixed(1)}%` : 'N/A'}
+                                                </td>
+                                                <td className="py-2 text-right text-slate-700 font-medium">
+                                                    {anrFreeRate !== null ? `${anrFreeRate.toFixed(1)}%` : 'N/A'}
+                                                </td>
+                                            </tr>
+                                        )}
                                     </tbody>
                                 </table>
                             </GA4Card>
@@ -1582,16 +1584,16 @@ export const GeneralOverview: React.FC = () => {
                         </div>
 
                         <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-                            <GA4Card title="Key risk events by impact">
-                                {keyEvents.length > 0 ? (
-                                    <div className="space-y-2">
-                                        {keyEvents.map((event) => {
-                                            const width = maxKeyEventCount > 0
-                                                ? Math.max(8, Math.round((event.count / maxKeyEventCount) * 100))
+                            <GA4Card title="Custom Events">
+                                {customEvents.length > 0 ? (
+                                    <div className="space-y-2 max-h-[300px] overflow-y-auto pr-2">
+                                        {customEvents.map((event) => {
+                                            const width = maxCustomEventCount > 0
+                                                ? Math.max(8, Math.round((event.count / maxCustomEventCount) * 100))
                                                 : 0;
 
                                             return (
-                                                <div key={event.name}>
+                                                <div key={event.name} className="py-1">
                                                     <div className="mb-1 flex justify-between text-xs">
                                                         <span className="truncate text-slate-700" title={event.name}>{event.name}</span>
                                                         <span className="font-semibold text-slate-900">{formatCompact(event.count)}</span>
@@ -1605,7 +1607,7 @@ export const GeneralOverview: React.FC = () => {
                                     </div>
                                 ) : (
                                     <div className="py-4 text-center text-xs text-slate-400">
-                                        No key events available for this filter.
+                                        No custom events observed for this filter.
                                     </div>
                                 )}
                             </GA4Card>
@@ -1657,9 +1659,42 @@ export const GeneralOverview: React.FC = () => {
                         <section className="space-y-3">
                             <div className="flex items-center justify-between">
                                 <h2 className="text-base font-semibold text-slate-900">Top Issues</h2>
-                                <NeoBadge variant="neutral" size="sm" className="shadow-none border-slate-200">
-                                    {topIssues.length} of {issues.length}
-                                </NeoBadge>
+                                <div className="flex items-center gap-2">
+                                    {topIssuesTotalPages > 1 && (
+                                        <div className="flex items-center gap-1">
+                                            <button
+                                                type="button"
+                                                onClick={() => setTopIssuesPage((prev) => Math.max(0, prev - 1))}
+                                                disabled={topIssuesPage === 0}
+                                                className={`flex h-8 w-8 items-center justify-center rounded-lg border text-slate-700 transition ${topIssuesPage === 0
+                                                    ? 'cursor-not-allowed border-slate-200 bg-slate-100 text-slate-400'
+                                                    : 'border-slate-300 bg-white hover:border-slate-900 hover:text-slate-900'
+                                                    }`}
+                                                aria-label="Previous issues page"
+                                            >
+                                                <ChevronLeft className="h-4 w-4" />
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={() => setTopIssuesPage((prev) => Math.min(topIssuesTotalPages - 1, prev + 1))}
+                                                disabled={topIssuesPage >= topIssuesTotalPages - 1}
+                                                className={`flex h-8 w-8 items-center justify-center rounded-lg border text-slate-700 transition ${topIssuesPage >= topIssuesTotalPages - 1
+                                                    ? 'cursor-not-allowed border-slate-200 bg-slate-100 text-slate-400'
+                                                    : 'border-slate-300 bg-white hover:border-slate-900 hover:text-slate-900'
+                                                    }`}
+                                                aria-label="Next issues page"
+                                            >
+                                                <ChevronRight className="h-4 w-4" />
+                                            </button>
+                                        </div>
+                                    )}
+                                    <NeoBadge variant="neutral" size="sm" className="shadow-none border-slate-200">
+                                        Page {sortedIssues.length === 0 ? '0/0' : `${topIssuesPage + 1}/${topIssuesTotalPages}`}
+                                    </NeoBadge>
+                                    <NeoBadge variant="neutral" size="sm" className="shadow-none border-slate-200">
+                                        {sortedIssues.length} total
+                                    </NeoBadge>
+                                </div>
                             </div>
 
                             {topIssues.length === 0 ? (
@@ -1756,119 +1791,119 @@ export const GeneralOverview: React.FC = () => {
                                     <div className="pointer-events-none absolute inset-y-0 right-0 z-10 w-12 bg-gradient-to-l from-white via-white/80 to-transparent" />
                                     <div className="overflow-x-auto pb-3">
                                         <div className="flex min-w-max snap-x snap-mandatory gap-3 pl-3 pr-4">
-                                        {recommendedSessions.map((rec) => {
-                                            const anonymousNickname = getAnonymousNickname(rec.session);
-                                            const nicknameStyle = anonymousNickname
-                                                ? (anonymousNicknameStyleMap[anonymousNickname] || getAnonymousNicknameStyle(anonymousNickname))
-                                                : '';
-                                            const locationLabel = getSessionLocationLabel(rec.session);
-                                            const audienceLabel = rec.session.userId ? 'Identified user' : 'Device-only user';
-                                            return (
-                                                <article
-                                                    key={rec.session.id}
-                                                    className="group w-[360px] snap-start rounded-2xl border border-slate-200/80 bg-gradient-to-b from-white to-slate-50/60 p-3 shadow-sm transition-all hover:border-slate-300 hover:shadow-md"
-                                                >
-                                                <div className="flex items-start justify-between gap-2">
-                                                    <div className="min-w-0">
-                                                        <span
-                                                            className={`inline-flex items-center rounded-md border px-2 py-1 text-[10px] font-semibold uppercase tracking-wide ${RECOMMENDED_SESSION_PRIORITY_STYLES[rec.priority]}`}
-                                                        >
-                                                            {rec.category}
-                                                        </span>
-                                                        <div className="mt-1 flex flex-wrap items-center gap-1.5">
-                                                            {anonymousNickname ? (
-                                                                <span
-                                                                    className={`inline-flex max-w-[200px] items-center truncate rounded-md border px-2 py-0.5 text-[10px] font-semibold ${nicknameStyle}`}
-                                                                    title={anonymousNickname}
-                                                                >
-                                                                    {anonymousNickname}
-                                                                </span>
-                                                            ) : (
-                                                                <span className="inline-flex items-center rounded-md border border-slate-200 bg-slate-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-600">
-                                                                    {audienceLabel}
-                                                                </span>
-                                                            )}
-                                                            <span className="inline-flex items-center rounded-md border border-slate-200 bg-slate-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-600">
-                                                                {rec.session.platform.toUpperCase()}
-                                                            </span>
-                                                        </div>
-                                                        <div className="mt-1 truncate text-[11px] text-slate-500">{locationLabel}</div>
-                                                    </div>
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => navigate(`${pathPrefix}/sessions/${rec.session.id}`)}
-                                                        className="rounded-md border border-slate-300 bg-white px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-slate-700 transition-colors hover:border-slate-900 hover:text-slate-900"
+                                            {recommendedSessions.map((rec) => {
+                                                const anonymousNickname = getAnonymousNickname(rec.session);
+                                                const nicknameStyle = anonymousNickname
+                                                    ? (anonymousNicknameStyleMap[anonymousNickname] || getAnonymousNicknameStyle(anonymousNickname))
+                                                    : '';
+                                                const locationLabel = getSessionLocationLabel(rec.session);
+                                                const audienceLabel = rec.session.userId ? 'Identified user' : 'Device-only user';
+                                                return (
+                                                    <article
+                                                        key={rec.session.id}
+                                                        className="group w-[360px] snap-start rounded-2xl border border-slate-200/80 bg-gradient-to-b from-white to-slate-50/60 p-3 shadow-sm transition-all hover:border-slate-300 hover:shadow-md"
                                                     >
-                                                        Open
-                                                    </button>
-                                                </div>
-
-                                                <p className="mt-2 min-h-[2rem] text-xs leading-relaxed text-slate-600">
-                                                    {rec.reason}
-                                                </p>
-
-                                                <div className="mt-2 grid grid-cols-3 gap-2 text-[10px]">
-                                                    <div className="rounded-lg border border-slate-200/80 bg-white/90 px-2 py-1.5">
-                                                        <div className="text-slate-400">Duration</div>
-                                                        <div className="font-semibold text-slate-700">{formatDuration(rec.session.durationSeconds || 0)}</div>
-                                                    </div>
-                                                    <div className="rounded-lg border border-slate-200/80 bg-white/90 px-2 py-1.5">
-                                                        <div className="text-slate-400">Signals</div>
-                                                        <div className="font-semibold text-slate-700">{issueSignalsForSession(rec.session)}</div>
-                                                    </div>
-                                                    <div className="rounded-lg border border-slate-200/80 bg-white/90 px-2 py-1.5">
-                                                        <div className="text-slate-400">Last Seen</div>
-                                                        <div className="font-semibold text-slate-700">{formatLastSeen(rec.session.startedAt)}</div>
-                                                    </div>
-                                                </div>
-
-                                                <div className="mt-3 flex items-start justify-between gap-3 rounded-xl border border-slate-200/80 bg-white/80 p-2.5">
-                                                    <div className="min-w-0 flex-1">
-                                                        <div className="truncate text-[11px] font-semibold uppercase tracking-wide text-slate-700">
-                                                            {rec.session.deviceModel || 'Unknown device'}
-                                                        </div>
-                                                        <div className="text-[10px] text-slate-500">
-                                                            {formatLastSeen(rec.session.startedAt)}
-                                                        </div>
-                                                        <div className="mt-1.5 flex min-w-0 flex-wrap gap-1.5">
-                                                            {rec.session.appVersion && (
-                                                                <span className="inline-flex items-center rounded border border-slate-200 bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-600">
-                                                                    v{rec.session.appVersion}
+                                                        <div className="flex items-start justify-between gap-2">
+                                                            <div className="min-w-0">
+                                                                <span
+                                                                    className={`inline-flex items-center rounded-md border px-2 py-1 text-[10px] font-semibold uppercase tracking-wide ${RECOMMENDED_SESSION_PRIORITY_STYLES[rec.priority]}`}
+                                                                >
+                                                                    {rec.category}
                                                                 </span>
-                                                            )}
-                                                            {rec.session.networkType && (
-                                                                <span className="inline-flex items-center rounded border border-slate-200 bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-600">
-                                                                    {rec.session.networkType}
-                                                                </span>
-                                                            )}
-                                                            <span className="inline-flex items-center rounded border border-slate-200 bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium uppercase text-slate-600">
-                                                                {rec.session.platform}
-                                                            </span>
+                                                                <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                                                                    {anonymousNickname ? (
+                                                                        <span
+                                                                            className={`inline-flex max-w-[200px] items-center truncate rounded-md border px-2 py-0.5 text-[10px] font-semibold ${nicknameStyle}`}
+                                                                            title={anonymousNickname}
+                                                                        >
+                                                                            {anonymousNickname}
+                                                                        </span>
+                                                                    ) : (
+                                                                        <span className="inline-flex items-center rounded-md border border-slate-200 bg-slate-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-600">
+                                                                            {audienceLabel}
+                                                                        </span>
+                                                                    )}
+                                                                    <span className="inline-flex items-center rounded-md border border-slate-200 bg-slate-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-600">
+                                                                        {rec.session.platform.toUpperCase()}
+                                                                    </span>
+                                                                </div>
+                                                                <div className="mt-1 truncate text-[11px] text-slate-500">{locationLabel}</div>
+                                                            </div>
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => navigate(`${pathPrefix}/sessions/${rec.session.id}`)}
+                                                                className="rounded-md border border-slate-300 bg-white px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-slate-700 transition-colors hover:border-slate-900 hover:text-slate-900"
+                                                            >
+                                                                Open
+                                                            </button>
                                                         </div>
-                                                    </div>
-                                                    <MiniSessionCard
-                                                        session={{
-                                                            id: rec.session.id,
-                                                            deviceModel: rec.session.deviceModel,
-                                                            createdAt: rec.session.startedAt,
-                                                            coverPhotoUrl:
-                                                                rec.session.replayPromoted !== false
-                                                                    ? `/api/sessions/${rec.session.id}/cover`
-                                                                    : null,
-                                                        }}
-                                                        onClick={() =>
-                                                            navigate(`${pathPrefix}/sessions/${rec.session.id}`)
-                                                        }
-                                                        size="xs"
-                                                        showMeta={false}
-                                                        className="p-0"
-                                                    />
-                                                </div>
-                                                </article>
-                                            );
-                                        })}
+
+                                                        <p className="mt-2 min-h-[2rem] text-xs leading-relaxed text-slate-600">
+                                                            {rec.reason}
+                                                        </p>
+
+                                                        <div className="mt-2 grid grid-cols-3 gap-2 text-[10px]">
+                                                            <div className="rounded-lg border border-slate-200/80 bg-white/90 px-2 py-1.5">
+                                                                <div className="text-slate-400">Duration</div>
+                                                                <div className="font-semibold text-slate-700">{formatDuration(rec.session.durationSeconds || 0)}</div>
+                                                            </div>
+                                                            <div className="rounded-lg border border-slate-200/80 bg-white/90 px-2 py-1.5">
+                                                                <div className="text-slate-400">Signals</div>
+                                                                <div className="font-semibold text-slate-700">{issueSignalsForSession(rec.session)}</div>
+                                                            </div>
+                                                            <div className="rounded-lg border border-slate-200/80 bg-white/90 px-2 py-1.5">
+                                                                <div className="text-slate-400">Last Seen</div>
+                                                                <div className="font-semibold text-slate-700">{formatLastSeen(rec.session.startedAt)}</div>
+                                                            </div>
+                                                        </div>
+
+                                                        <div className="mt-3 flex items-start justify-between gap-3 rounded-xl border border-slate-200/80 bg-white/80 p-2.5">
+                                                            <div className="min-w-0 flex-1">
+                                                                <div className="truncate text-[11px] font-semibold uppercase tracking-wide text-slate-700">
+                                                                    {rec.session.deviceModel || 'Unknown device'}
+                                                                </div>
+                                                                <div className="text-[10px] text-slate-500">
+                                                                    {formatLastSeen(rec.session.startedAt)}
+                                                                </div>
+                                                                <div className="mt-1.5 flex min-w-0 flex-wrap gap-1.5">
+                                                                    {rec.session.appVersion && (
+                                                                        <span className="inline-flex items-center rounded border border-slate-200 bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-600">
+                                                                            v{rec.session.appVersion}
+                                                                        </span>
+                                                                    )}
+                                                                    {rec.session.networkType && (
+                                                                        <span className="inline-flex items-center rounded border border-slate-200 bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-600">
+                                                                            {rec.session.networkType}
+                                                                        </span>
+                                                                    )}
+                                                                    <span className="inline-flex items-center rounded border border-slate-200 bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium uppercase text-slate-600">
+                                                                        {rec.session.platform}
+                                                                    </span>
+                                                                </div>
+                                                            </div>
+                                                            <MiniSessionCard
+                                                                session={{
+                                                                    id: rec.session.id,
+                                                                    deviceModel: rec.session.deviceModel,
+                                                                    createdAt: rec.session.startedAt,
+                                                                    coverPhotoUrl:
+                                                                        rec.session.replayPromoted !== false
+                                                                            ? `/api/sessions/cover/${rec.session.id}`
+                                                                            : null,
+                                                                }}
+                                                                onClick={() =>
+                                                                    navigate(`${pathPrefix}/sessions/${rec.session.id}`)
+                                                                }
+                                                                size="xs"
+                                                                showMeta={false}
+                                                                className="p-0"
+                                                            />
+                                                        </div>
+                                                    </article>
+                                                );
+                                            })}
+                                        </div>
                                     </div>
-                                </div>
                                 </div>
                             )}
                         </section>

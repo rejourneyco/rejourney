@@ -101,6 +101,25 @@ public final class TelemetryPipeline: NSObject {
         NotificationCenter.default.addObserver(self, selector: #selector(_appSuspending), name: UIApplication.willTerminateNotification, object: nil)
     }
     
+    /// Pause the heartbeat timer when the app goes to background.
+    /// This prevents the pipeline from uploading empty event batches
+    /// while backgrounded, which would inflate session duration.
+    @objc public func pause() {
+        _heartbeat?.invalidate()
+        _heartbeat = nil
+    }
+    
+    /// Resume the heartbeat timer when the app returns to foreground.
+    @objc public func resume() {
+        guard _heartbeat == nil else { return }
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self._heartbeat = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in
+                self?.dispatchNow()
+            }
+        }
+    }
+    
     @objc public func shutdown() {
         _heartbeat?.invalidate()
         _heartbeat = nil
@@ -207,9 +226,13 @@ public final class TelemetryPipeline: NSObject {
         let isConstrained = ReplayOrchestrator.shared.networkIsConstrained
         let isExpensive = ReplayOrchestrator.shared.networkIsExpensive
         
+        // Prefer detailed hardware model (e.g. "iPhone16,1") when available,
+        // falling back to the generic UIDevice.model ("iPhone", "iPad", etc.).
+        let hardwareModel = (DeviceRegistrar.shared.gatherDeviceProfile()["hwModel"] as? String) ?? device.model
+        
         let meta: [String: Any] = [
             "platform": "ios",
-            "model": device.model,
+            "model": hardwareModel,
             "osVersion": device.systemVersion,
             "vendorId": device.identifierForVendor?.uuidString ?? "",
             "time": Date().timeIntervalSince1970,
@@ -276,9 +299,12 @@ public final class TelemetryPipeline: NSObject {
         let appVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "unknown"
         let appId = Bundle.main.bundleIdentifier ?? "unknown"
         
+        // Prefer detailed hardware model from DeviceRegistrar when available.
+        let hardwareModel = (DeviceRegistrar.shared.gatherDeviceProfile()["hwModel"] as? String) ?? device.model
+        
         let meta: [String: Any] = [
             "platform": "ios",
-            "model": device.model,
+            "model": hardwareModel,
             "osVersion": device.systemVersion,
             "vendorId": device.identifierForVendor?.uuidString ?? "",
             "time": Date().timeIntervalSince1970,

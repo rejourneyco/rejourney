@@ -712,4 +712,57 @@ router.delete(
     })
 );
 
+/**
+ * Get available custom events and metadata keys/values for a project
+ * GET /api/projects/:id/available-filters
+ */
+router.get(
+    '/:id/available-filters',
+    sessionAuth,
+    validate(projectIdParamSchema, 'params'),
+    requireProjectAccess,
+    asyncHandler(async (req, res) => {
+        const projectId = req.params.id;
+
+        // Query distinct custom event types from the sessions events jsonb array
+        // We use jsonb_array_elements and extract the 'type' field where type is 'custom'
+        // or where type doesn't match standard internal types in the future. For now, 
+        // ingestWorker saves 'custom_name' explicitly or preserves the 'type' field from client.
+        const eventsQuery = await db.execute(sql`
+            SELECT DISTINCT elem->>'name' as event_name
+            FROM ${sessions}, jsonb_array_elements(events) as elem
+            WHERE project_id = ${projectId} AND elem->>'name' IS NOT NULL
+            LIMIT 1000
+        `);
+
+        // Query distinct metadata keys and values
+        // We use jsonb_each_text to get all key-value pairs
+        const metadataQuery = await db.execute(sql`
+            SELECT DISTINCT key as meta_key, value as meta_value
+            FROM ${sessions}, jsonb_each_text(metadata)
+            WHERE project_id = ${projectId}
+            LIMIT 1000
+        `);
+
+        const availableEvents = Array.isArray(eventsQuery) ? eventsQuery.map((row: any) => row.event_name as string).filter(Boolean) : (eventsQuery as any).rows?.map((row: any) => row.event_name as string).filter(Boolean) || [];
+
+        // Group metadata values by key
+        const availableMetadata: Record<string, string[]> = {};
+        const metaRows = Array.isArray(metadataQuery) ? metadataQuery : (metadataQuery as any).rows || [];
+        metaRows.forEach((row: any) => {
+            const key = row.meta_key as string;
+            const value = row.meta_value as string;
+            if (key && value) {
+                if (!availableMetadata[key]) availableMetadata[key] = [];
+                availableMetadata[key].push(value);
+            }
+        });
+
+        res.json({
+            events: availableEvents,
+            metadata: availableMetadata
+        });
+    })
+);
+
 export default router;

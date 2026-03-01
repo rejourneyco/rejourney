@@ -38,13 +38,66 @@ public class RejourneyURLProtocol: URLProtocol, URLSessionDataDelegate, URLSessi
     
     @objc public static func enable() {
         URLProtocol.registerClass(RejourneyURLProtocol.self)
-        // Hook into default session configs
-        if let method = class_getInstanceMethod(URLSessionConfiguration.self, #selector(getter: URLSessionConfiguration.protocolClasses)) {
-            let original = method_getImplementation(method)
-            // Note: Safest swizzling approach for URLSessionConfiguration here is complex,
-            // standard approach is registering the protocol which covers shared sessions and simple setups.
-        }
+        
+        // Swizzle URLSessionConfiguration.protocolClasses to automatically inject our protocol
+        // into custom sessions (e.g. used by SDWebImage, AlamoFire, etc.)
+        swizzleProtocolClasses()
     }
+    
+    private static var isSwizzled = false
+    
+    /// Store the original IMP so we can call through to it safely.
+    private static var originalProtocolClassesIMP: IMP?
+    
+    private static func swizzleProtocolClasses() {
+        guard !isSwizzled else { return }
+        
+        let configClass: AnyClass = URLSessionConfiguration.self
+        let originalSel = #selector(getter: URLSessionConfiguration.protocolClasses)
+        let swizzledSel = #selector(RejourneyURLProtocol.rj_protocolClasses)
+        
+        guard let originalMethod = class_getInstanceMethod(configClass, originalSel),
+              let swizzledMethod = class_getInstanceMethod(RejourneyURLProtocol.self, swizzledSel) else {
+            return
+        }
+        
+        // Add the swizzled method onto URLSessionConfiguration itself so that
+        // method_exchangeImplementations works within a single class.
+        let didAdd = class_addMethod(
+            configClass,
+            swizzledSel,
+            method_getImplementation(swizzledMethod),
+            method_getTypeEncoding(swizzledMethod)
+        )
+        
+        if didAdd, let addedMethod = class_getInstanceMethod(configClass, swizzledSel) {
+            originalProtocolClassesIMP = method_getImplementation(originalMethod)
+            method_exchangeImplementations(originalMethod, addedMethod)
+        }
+        
+        isSwizzled = true
+    }
+    
+    /// Replacement getter injected into URLSessionConfiguration.
+    /// After exchange, `self` IS a URLSessionConfiguration instance.
+    @objc private func rj_protocolClasses() -> [AnyClass]? {
+        // Call through to the original implementation via the saved IMP
+        typealias OriginalFunc = @convention(c) (AnyObject, Selector) -> [AnyClass]?
+        var classes: [AnyClass] = []
+        
+        if let imp = RejourneyURLProtocol.originalProtocolClassesIMP {
+            let original = unsafeBitCast(imp, to: OriginalFunc.self)
+            classes = original(self, #selector(getter: URLSessionConfiguration.protocolClasses)) ?? []
+        }
+        
+        // Inject our protocol at the beginning if not already present
+        if !classes.contains(where: { $0 == RejourneyURLProtocol.self }) {
+            classes.insert(RejourneyURLProtocol.self, at: 0)
+        }
+        
+        return classes
+    }
+
     
     @objc public static func disable() {
         URLProtocol.unregisterClass(RejourneyURLProtocol.self)

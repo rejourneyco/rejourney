@@ -252,33 +252,51 @@ export function MarkdownContent({ content, onAIPromptRender }: MarkdownContentPr
                     ),
                     // Style blockquotes - handle Alerts
                     blockquote: ({ children }) => {
-                        // Extract text to check for alert
-                        // This is a bit tricky with React children, doing a best effort check
-                        let alertType = null;
+                        // Regular expression to match the alert tag
+                        const alertRegex = /^\s*\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\]/i;
+                        let alertType: string | null = null;
 
-                        // We need to inspect the children to find [!NOTE] etc.
-                        // ReactMarkdown usually wraps text in <p>
-                        const childArray = Array.isArray(children) ? children : [children];
+                        // Deeply traverse children to look for the alert tag and strip it
+                        const processChildren = (nodes: any): any => {
+                            const nodeArray = React.Children.toArray(nodes);
 
-                        // Simple recursive search for string content
-                        const findContent = (nodes: any[]): string => {
-                            return nodes.map(node => {
-                                if (typeof node === 'string') return node;
-                                if (node?.props?.children) {
-                                    return Array.isArray(node.props.children)
-                                        ? findContent(node.props.children)
-                                        : findContent([node.props.children]);
+                            // Check if the first node (or its first descendant) contains the tag
+                            if (nodeArray.length > 0) {
+                                const firstNode = nodeArray[0];
+
+                                if (typeof firstNode === 'string') {
+                                    const match = firstNode.match(alertRegex);
+                                    if (match) {
+                                        alertType = match[1].toLowerCase();
+                                        // Remove the tag from this string
+                                        const remainingText = firstNode.replace(alertRegex, '').trimStart();
+                                        // Replace the original string with the stripped version
+                                        const newArray = [...nodeArray];
+                                        if (remainingText) {
+                                            newArray[0] = remainingText;
+                                        } else {
+                                            newArray.shift(); // Remove entirely if empty
+                                        }
+                                        return newArray;
+                                    }
+                                } else if (React.isValidElement(firstNode) && (firstNode.props as any).children) {
+                                    // Recurse into the first node's children
+                                    const processedInner = processChildren((firstNode.props as any).children);
+
+                                    // If we found a match during recursion, we need to rebuild this node
+                                    if (alertType) {
+                                        return [
+                                            React.cloneElement(firstNode as React.ReactElement<any>, {}, processedInner),
+                                            ...nodeArray.slice(1)
+                                        ];
+                                    }
                                 }
-                                return '';
-                            }).join('');
+                            }
+
+                            return nodeArray;
                         };
 
-                        const textContent = findContent(childArray);
-                        const match = textContent.match(/^\s*\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\]/i);
-
-                        if (match) {
-                            alertType = match[1].toLowerCase();
-                        }
+                        const processedChildren = processChildren(children);
 
                         if (alertType) {
                             const alertStyles = {
@@ -316,24 +334,15 @@ export function MarkdownContent({ content, onAIPromptRender }: MarkdownContentPr
 
                             const style = alertStyles[alertType as keyof typeof alertStyles] || alertStyles.note;
 
-                            // Remove the alert tag from the display
-                            // We use CSS to hide the first line if it contains the tag, 
-                            // or rely on the user to write clean markdown. 
-                            // A robust solution parses the AST, but for now we'll just styles the blockquote.
-
                             return (
                                 <div className={cn(
-                                    "flex items-start gap-4 p-4 my-6 border-l-4 shadow-sm",
+                                    "flex items-start gap-4 p-4 my-6 border-l-4 shadow-sm rounded-r-md transition-all hover:shadow-md",
                                     style.bg,
                                     style.border
                                 )}>
-                                    {style.icon}
-                                    <div className={cn("prose-p:my-0 text-base", style.text)}>
-                                        {/* We can't easily strip the [!NOTE] here without deeper parsing, 
-                                            so we rely on CSS or accept it shows up. 
-                                            Ideally we'd use remark-github-blockquote-alert plugin.
-                                            For now, let's just render children. */}
-                                        {children}
+                                    <div className="mt-0.5">{style.icon}</div>
+                                    <div className={cn("prose-p:my-0 text-base leading-relaxed flex-1", style.text)}>
+                                        {processedChildren}
                                     </div>
                                 </div>
                             );
@@ -341,7 +350,7 @@ export function MarkdownContent({ content, onAIPromptRender }: MarkdownContentPr
 
                         // Standard blockquote
                         return (
-                            <blockquote className="border-l-4 border-black pl-4 italic text-gray-700 my-6 bg-gray-50 py-2 pr-4">
+                            <blockquote className="border-l-4 border-black pl-4 italic text-gray-700 my-6 bg-gray-50 py-4 pr-4 rounded-r-md">
                                 {children}
                             </blockquote>
                         );

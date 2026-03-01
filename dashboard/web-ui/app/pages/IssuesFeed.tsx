@@ -712,7 +712,7 @@ export const IssuesFeed: React.FC = () => {
                                   Replay {session.id.replace('session_', '').slice(0, 10)}
                                 </div>
                                 <div className="text-[11px] text-slate-500">
-                                  {session.platform.toUpperCase()} · {formatDuration(session.durationSeconds)} · UX {Math.round(session.uxScore)}
+                                  {session.platform.toUpperCase()} · {formatDuration(session.durationSeconds)}
                                 </div>
                               </div>
                               <div className="ml-3 flex items-center gap-2">

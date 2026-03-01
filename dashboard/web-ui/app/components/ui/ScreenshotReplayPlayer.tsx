@@ -124,6 +124,18 @@ interface FrameCache {
   [url: string]: HTMLImageElement;
 }
 
+async function decodeImage(img: HTMLImageElement): Promise<void> {
+  // `decode()` avoids layout jank by waiting for the image to be ready to paint.
+  // Not supported in all browsers; fall back to onload path.
+  try {
+    if (typeof (img as any).decode === 'function') {
+      await (img as any).decode();
+    }
+  } catch {
+    // ignore decode errors; we'll still attempt to draw
+  }
+}
+
 function useScreenshotPlayback(
   frames: ScreenshotFrame[],
   sessionStartTime: number,
@@ -132,6 +144,7 @@ function useScreenshotPlayback(
   isPlaying: boolean,
   setIsPlaying: (playing: boolean) => void,
   onFrameChange: (frameIndex: number, timestamp: number) => void,
+  onTick?: (absoluteTimestamp: number) => void,
   onPreloadProgress?: (loaded: number, total: number) => void
 ) {
   const frameCache = useRef<FrameCache>({});
@@ -142,15 +155,11 @@ function useScreenshotPlayback(
   // Master playback clock (ref) to ensure monotonic progression
   const playbackTimeRef = useRef(0);
 
-  // Sync ref with external current time if needed (e.g. on mount or after seeking)
-  useEffect(() => {
-    if (!isPlaying) {
-      const frame = frames[currentFrameIndex.current];
-      if (frame) {
-        playbackTimeRef.current = (frame.timestamp - sessionStartTime) / 1000;
-      }
-    }
-  }, [isPlaying, frames, sessionStartTime]);
+  // NOTE: playbackTimeRef is managed solely by seekToFrame/seekToTimestamp
+  // and the tick loop.  We intentionally do NOT reset it to the current
+  // frame's timestamp when pausing — doing so would snap the progress bar
+  // back to the last real frame when the user seeks into a gap (background
+  // period where no frames were captured).
 
   // Preload frames
   useEffect(() => {
@@ -170,6 +179,15 @@ function useScreenshotPlayback(
       const frame = frames[i];
       if (!frameCache.current[frame.url]) {
         const img = new Image();
+        img.decoding = 'async';
+        if (i === 0) {
+          // Best-effort: prioritize the very first frame so "open replay" paints fast.
+          try {
+            (img as any).fetchPriority = 'high';
+          } catch {
+            // ignore
+          }
+        }
         img.onload = handleLoad;
         img.onerror = handleLoad; // Count error as "done" for progress
         img.src = frame.url;
@@ -248,6 +266,8 @@ function useScreenshotPlayback(
         onFrameChange(targetIdx, frames[targetIdx].timestamp);
       }
 
+      onTick?.(targetTimestamp);
+
       // Check if reached absolute end of session
       if (playbackTimeRef.current >= sessionDuration) {
         setIsPlaying(false);
@@ -274,11 +294,12 @@ function useScreenshotPlayback(
     if (frames[safeIdx]) {
       playbackTimeRef.current = (frames[safeIdx].timestamp - sessionStartTime) / 1000;
       onFrameChange(safeIdx, frames[safeIdx].timestamp);
+      onTick?.(frames[safeIdx].timestamp);
     }
-  }, [frames, onFrameChange, sessionStartTime]);
+  }, [frames, onFrameChange, onTick, sessionStartTime]);
 
   const seekToTimestamp = useCallback((timestamp: number) => {
-    // Binary search for closest frame
+    // Binary search for closest frame at or before target timestamp
     let left = 0;
     let right = frames.length - 1;
 
@@ -291,17 +312,38 @@ function useScreenshotPlayback(
       }
     }
 
-    seekToFrame(left);
-  }, [frames, seekToFrame]);
+    // Display the closest frame, but keep playbackTimeRef at the user's
+    // requested time — NOT the frame's timestamp. This prevents the progress
+    // bar from jumping backwards when seeking into a gap (e.g. background period
+    // where no frames were captured).
+    const safeIdx = Math.max(0, left);
+    currentFrameIndex.current = safeIdx;
+    playbackTimeRef.current = (timestamp - sessionStartTime) / 1000;
+    if (frames[safeIdx]) {
+      onFrameChange(safeIdx, frames[safeIdx].timestamp);
+    }
+    onTick?.(timestamp);
+  }, [frames, onFrameChange, onTick, sessionStartTime]);
 
   const getImage = useCallback((url: string): HTMLImageElement | null => {
     return frameCache.current[url] || null;
+  }, []);
+
+  const ensureImage = useCallback((url: string): HTMLImageElement => {
+    const cached = frameCache.current[url];
+    if (cached) return cached;
+    const img = new Image();
+    img.decoding = 'async';
+    img.src = url;
+    frameCache.current[url] = img;
+    return img;
   }, []);
 
   return {
     seekToFrame,
     seekToTimestamp,
     getImage,
+    ensureImage,
     currentIndex: currentFrameIndex.current,
   };
 }
@@ -362,6 +404,7 @@ export const ScreenshotReplayPlayer = forwardRef<
   const [isDragging, setIsDragging] = useState(false);
   const [isInBackground, setIsInBackground] = useState(false);
   const [isTerminated, setIsTerminated] = useState(false);
+  const [backgroundStartTimeEvent, setBackgroundStartTimeEvent] = useState<number | null>(null);
   const [touchEvents, setTouchEvents] = useState<TouchEvent[]>([]);
   const [showTouchOverlay, setShowTouchOverlay] = useState(true);
   const [preloadProgress, setPreloadProgress] = useState({ loaded: 0, total: 0 });
@@ -372,6 +415,16 @@ export const ScreenshotReplayPlayer = forwardRef<
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const progressRef = useRef<HTMLDivElement>(null);
+  const screenshotPlaybackRef = useRef<ReturnType<typeof useScreenshotPlayback> | null>(null);
+
+  // Stable refs for values used in handleFrameChange — prevents callback identity
+  // from changing on every render, which would restart the playback animation loop
+  const eventsRef = useRef(events);
+  eventsRef.current = events;
+  const screenshotFramesRef = useRef(screenshotFrames);
+  screenshotFramesRef.current = screenshotFrames;
+  const onTimeUpdateRef = useRef(onTimeUpdate);
+  onTimeUpdateRef.current = onTimeUpdate;
 
   // Calculate session duration
   const sessionDuration = useMemo(() => {
@@ -399,29 +452,54 @@ export const ScreenshotReplayPlayer = forwardRef<
     return 60;
   }, [playbackMode, screenshotFrames, videoSegments, sessionStartTime, sessionEndTime, playableDurationProp]);
 
-  // Frame change handler
-  const handleFrameChange = useCallback((frameIndex: number, timestamp: number) => {
+  // Frame change handler — ONLY updates visual frame index and draws to canvas.
+  // Time, touch overlays, and background state are handled by handleTick.
+  const handleFrameChange = useCallback((frameIndex: number) => {
     setCurrentFrameIndex(frameIndex);
-    const relativeTime = (timestamp - sessionStartTime) / 1000;
-    setCurrentTime(relativeTime);
-    onTimeUpdate?.(relativeTime, sessionDuration);
 
     // Draw frame to canvas
-    if (canvasRef.current && screenshotFrames[frameIndex]) {
+    const frames = screenshotFramesRef.current;
+    if (canvasRef.current && frames[frameIndex]) {
       const ctx = canvasRef.current.getContext('2d');
       if (ctx) {
-        const img = new Image();
-        img.onload = () => {
-          ctx.drawImage(img, 0, 0, canvasRef.current!.width, canvasRef.current!.height);
+        const url = frames[frameIndex].url;
+        // Use the playback cache instead of creating a brand-new Image each frame.
+        const img = screenshotPlaybackRef.current?.ensureImage(url) ?? (() => {
+          const fallback = new Image();
+          fallback.decoding = 'async';
+          fallback.src = url;
+          return fallback;
+        })();
+
+        const draw = async () => {
+          if (!canvasRef.current) return;
+          await decodeImage(img);
+          // Only draw if this frame is still current when decode completes.
+          if (frames[frameIndex]?.url !== url) return;
+          ctx.drawImage(img, 0, 0, canvasRef.current.width, canvasRef.current.height);
         };
-        img.src = screenshotFrames[frameIndex].url;
+
+        // If already loaded, draw synchronously; else wait for load/decode.
+        if (img.complete && img.naturalWidth > 0) {
+          ctx.drawImage(img, 0, 0, canvasRef.current.width, canvasRef.current.height);
+        } else {
+          img.onload = () => { void draw(); };
+          img.onerror = () => { /* ignore draw errors */ };
+        }
       }
     }
+  }, []);
 
-    // Update touch overlay
+  // Tick handler — updates clock, touch overlays, and background state based on absolute time
+  const handleTick = useCallback((absoluteTime: number) => {
+    const relativeTime = (absoluteTime - sessionStartTime) / 1000;
+    setCurrentTime(relativeTime);
+    onTimeUpdateRef.current?.(relativeTime, sessionDuration);
+
+    // Update touch overlay using absolute true time (not frame time)
     if (showTouchOverlay) {
-      const absoluteTime = timestamp;
-      const recentTouches: TouchEvent[] = events
+      const currentEvents = eventsRef.current;
+      const recentTouches: TouchEvent[] = currentEvents
         .filter((e) => {
           const timeDiff = absoluteTime - e.timestamp;
           const isTouch = e.type === 'touch' || e.type === 'gesture';
@@ -445,19 +523,29 @@ export const ScreenshotReplayPlayer = forwardRef<
       setTouchEvents(recentTouches);
     }
 
-    // Check background/termination state
+    // Check background/termination state using absolute true time
     let inBackground = false;
     let terminated = false;
-    for (const event of events) {
-      if (event.timestamp > timestamp) break;
+    let bgStartTime: number | null = null;
+    const currentEvents = eventsRef.current;
+
+    for (const event of currentEvents) {
+      if (event.timestamp > absoluteTime) break;
       const eventType = (event.type || '').toLowerCase();
-      if (eventType === 'app_background') inBackground = true;
-      else if (eventType === 'app_foreground') inBackground = false;
+      if (eventType === 'app_background') {
+        inBackground = true;
+        bgStartTime = event.timestamp;
+      } else if (eventType === 'app_foreground') {
+        inBackground = false;
+        bgStartTime = null;
+      }
       if (eventType === 'app_terminated' || eventType === 'session_end') terminated = true;
     }
+
     setIsInBackground(inBackground);
+    setBackgroundStartTimeEvent(bgStartTime);
     setIsTerminated(terminated);
-  }, [sessionStartTime, sessionDuration, screenshotFrames, events, showTouchOverlay, onTimeUpdate]);
+  }, [sessionStartTime, sessionDuration, showTouchOverlay]);
 
   // Screenshot playback hook
   const screenshotPlayback = useScreenshotPlayback(
@@ -468,8 +556,10 @@ export const ScreenshotReplayPlayer = forwardRef<
     isPlaying && playbackMode === 'screenshots',
     setIsPlaying,
     handleFrameChange,
+    handleTick,
     (loaded, total) => setPreloadProgress({ loaded, total })
   );
+  screenshotPlaybackRef.current = screenshotPlayback;
 
   // Seek to time (seconds relative to session start)
   const seekToTime = useCallback((time: number) => {
@@ -479,6 +569,9 @@ export const ScreenshotReplayPlayer = forwardRef<
     if (playbackMode === 'screenshots') {
       const targetTimestamp = sessionStartTime + clampedTime * 1000;
       screenshotPlayback.seekToTimestamp(targetTimestamp);
+      // Re-apply user's intended time — handleFrameChange may have overwritten
+      // currentTime with the frame's timestamp (which differs during gaps)
+      setCurrentTime(clampedTime);
     } else if (playbackMode === 'video' && videoRef.current) {
       // For video mode, find correct segment and seek
       const absoluteTime = sessionStartTime + clampedTime * 1000;
@@ -696,9 +789,19 @@ export const ScreenshotReplayPlayer = forwardRef<
 
           {/* Background overlay */}
           {isInBackground && !isTerminated && (
-            <div className="absolute inset-0 flex items-center justify-center bg-black/80">
-              <div className="text-center text-white">
-                <div className="text-lg font-medium">App in Background</div>
+            <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/80 z-20">
+              <div className="text-center text-white p-6 bg-gray-900 border border-white/10 rounded-xl shadow-2xl">
+                <div className="mx-auto flex items-center justify-center w-12 h-12 rounded-full bg-blue-500/20 mb-4">
+                  <svg className="w-6 h-6 text-blue-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                </div>
+                <div className="text-xl font-medium mb-2">App in Background</div>
+                {backgroundStartTimeEvent && (
+                  <div className="text-base text-gray-400 font-mono bg-black/50 px-4 py-2 rounded-lg inline-block">
+                    {Math.max(0, Math.floor(((sessionStartTime + currentTime * 1000) - backgroundStartTimeEvent) / 1000))}s elapsed
+                  </div>
+                )}
               </div>
             </div>
           )}

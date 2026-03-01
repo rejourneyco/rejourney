@@ -1215,7 +1215,6 @@ export const demoFullSession = {
         uniqueScreensCount: 3,
         interactionScore: 85,
         explorationScore: 72,
-        uxScore: 78,
     },
 };
 
@@ -1288,7 +1287,6 @@ export const demoIssueSessions: IssueSession[] = [
         deviceModel: 'iPhone 14 Pro',
         platform: 'ios',
         durationSeconds: 145,
-        uxScore: 42,
         createdAt: new Date(Date.now() - 10 * 60 * 1000).toISOString(),
         coverPhotoUrl: null,
     },
@@ -1297,7 +1295,6 @@ export const demoIssueSessions: IssueSession[] = [
         deviceModel: 'Pixel 7',
         platform: 'android',
         durationSeconds: 234,
-        uxScore: 65,
         createdAt: new Date(Date.now() - 25 * 60 * 1000).toISOString(),
         coverPhotoUrl: null,
     },

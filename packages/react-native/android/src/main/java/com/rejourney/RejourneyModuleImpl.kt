@@ -37,8 +37,10 @@ import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.ProcessLifecycleOwner
 import com.facebook.react.bridge.*
+import com.facebook.react.modules.network.OkHttpClientProvider
 import com.rejourney.engine.DeviceRegistrar
 import com.rejourney.engine.DiagnosticLog
+
 import com.rejourney.platform.OEMDetector
 import com.rejourney.platform.SessionLifecycleService
 import com.rejourney.platform.TaskRemovedListener
@@ -155,6 +157,21 @@ class RejourneyModuleImpl(
                     StabilityMonitor.getInstance(reactContext).transmitStoredReport()
                 }
                 
+                // Keep Android network inspector up to date 
+                try {
+                    val client = OkHttpClientProvider.getOkHttpClient()
+                    val hasInterceptor = client.interceptors().any { it is RejourneyNetworkInterceptor }
+                    if (!hasInterceptor) {
+                        val newClient = client.newBuilder()
+                            .addInterceptor(RejourneyNetworkInterceptor())
+                            .build()
+                        OkHttpClientProvider.setOkHttpClientFactory { newClient }
+                        DiagnosticLog.notice("[Rejourney] Successfully registered RejourneyNetworkInterceptor")
+                    }
+                } catch (e: Exception) {
+                    DiagnosticLog.fault("[Rejourney] Failed to register OkHttp interceptor: ${e.message}")
+                }
+                
                 // Android-specific: OEM detection and task removed handling
                 setupOEMSpecificHandling()
                 
@@ -231,6 +248,8 @@ class RejourneyModuleImpl(
                 // Flush pending data
                 TelemetryPipeline.shared?.dispatchNow()
                 SegmentDispatcher.shared.shipPending()
+                // Stop the heartbeat timer to prevent event uploads while backgrounded
+                TelemetryPipeline.shared?.pause()
             }
         }
     }
@@ -253,6 +272,9 @@ class RejourneyModuleImpl(
             backgroundEntryTimeMs = null
 
             DiagnosticLog.notice("[Rejourney] App foregrounded after ${backgroundDuration / 1000}s (timeout: ${SESSION_TIMEOUT_MS / 1000}s)")
+
+            // Resume the heartbeat timer now that we're back in foreground
+            TelemetryPipeline.shared?.resume()
 
             if (backgroundDuration > SESSION_TIMEOUT_MS) {
                 // End current session and start a new one

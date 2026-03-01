@@ -31,6 +31,8 @@ export interface RejourneyConfig {
   maxStorageSize?: number;
   /** Enable automatic screen name detection with React Navigation (default: true) */
   autoScreenTracking?: boolean;
+  /** Enable automatic screen name detection with Expo Router (default: true) */
+  autoTrackExpoRouter?: boolean;
   /** Enable automatic gesture detection (default: true) */
   autoGestureTracking?: boolean;
   /** Enable privacy occlusion for text inputs (default: true) */
@@ -521,7 +523,17 @@ export interface RejourneyNativeModule {
 export interface RejourneyAPI {
   /** SDK version */
   readonly version: string;
-  /** Internal method to start recording session (called by startRejourney) */
+  /**
+   * Initialize Rejourney SDK
+   * @param publicRouteKey - Your public route key from the Rejourney dashboard
+   * @param options - Optional configuration options
+   */
+  init(publicRouteKey: string, options?: Omit<RejourneyConfig, 'publicRouteKey'>): void;
+  /** Start recording (call after user consent) */
+  start(): void;
+  /** Stop recording */
+  stop(): void;
+  /** Internal method to start recording session (called by start() / startRejourney()) */
   _startSession(): Promise<boolean>;
   /** Internal method to stop recording session (called by stopRejourney) */
   _stopSession(): Promise<void>;
@@ -531,8 +543,18 @@ export interface RejourneyAPI {
   setUserIdentity(userId: string): void;
   /** Clear user identity */
   clearUserIdentity(): void;
-  /** Tag current screen */
-  tagScreen(screenName: string, params?: Record<string, unknown>): void;
+  /**
+   * Set custom session metadata.
+   * Can be called with a single key-value pair or an object of properties.
+   * Useful for filtering sessions later (e.g., plan: 'premium', role: 'admin').
+   * Caps at 100 properties per session.
+   * 
+   * @param keyOrProperties Property name string, or an object containing key-value pairs
+   * @param value Property value (if first argument is a string)
+   */
+  setMetadata(keyOrProperties: string | Record<string, string | number | boolean>, value?: string | number | boolean): void;
+  /** Track current screen (manual) */
+  trackScreen(screenName: string, params?: Record<string, unknown>): void;
   /** Mark a view as sensitive (will be occluded in recording) */
   setOccluded(viewRef: { current: any }, occluded?: boolean): void;
   /** Add a tag to current session */
@@ -628,6 +650,22 @@ export interface RejourneyAPI {
    * @param nativeID - The nativeID prop of the view to unmask
    */
   unmaskView(nativeID: string): void;
+
+  /**
+   * Hook for automatic React Navigation tracking.
+   * Pass the returned object to your NavigationContainer props.
+   * 
+   * @example
+   * ```tsx
+   * const navigationTracking = Rejourney.useNavigationTracking();
+   * <NavigationContainer {...navigationTracking}>
+   * ```
+   */
+  useNavigationTracking(): {
+    ref: any;
+    onReady: () => void;
+    onStateChange: (state: any) => void;
+  };
 }
 
 /**
@@ -698,6 +736,8 @@ export interface UseRejourneyResult {
   stopRecording: () => Promise<void>;
   /** Log custom event */
   logEvent: (name: string, properties?: Record<string, unknown>) => void;
+  /** Set custom session metadata */
+  setMetadata: (keyOrProperties: string | Record<string, string | number | boolean>, value?: string | number | boolean) => void;
   /** Error if any */
   error: Error | null;
 }

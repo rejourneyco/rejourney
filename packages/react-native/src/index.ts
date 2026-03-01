@@ -171,6 +171,7 @@ let _autoTracking: {
   resetMetrics: typeof import('./sdk/autoTracking').resetMetrics;
   collectDeviceInfo: typeof import('./sdk/autoTracking').collectDeviceInfo;
   ensurePersistentAnonymousId: typeof import('./sdk/autoTracking').ensurePersistentAnonymousId;
+  useNavigationTracking: typeof import('./sdk/autoTracking').useNavigationTracking;
 } | null = null;
 
 // No-op auto tracking for when SDK is disabled
@@ -185,6 +186,7 @@ const noopAutoTracking = {
   resetMetrics: () => { },
   collectDeviceInfo: async () => ({} as any),
   ensurePersistentAnonymousId: async () => 'anonymous',
+  useNavigationTracking: () => ({ ref: null, onReady: () => { }, onStateChange: () => { } }),
 };
 
 function getAutoTracking() {
@@ -209,6 +211,11 @@ let _appStateSubscription: { remove: () => void } | null = null;
 let _authErrorSubscription: { remove: () => void } | null = null;
 let _currentAppState: string = 'active'; // Default to active, will be updated on init
 let _userIdentity: string | null = null;
+let _backgroundEntryTime: number | null = null; // Track when app went to background
+let _storedMetadata: Record<string, string | number | boolean> = {}; // Accumulate metadata for session rollover
+
+// Session timeout - must match native side (60 seconds)
+const SESSION_TIMEOUT_MS = 60_000;
 
 // Scroll throttling - reduce native bridge calls from 60fps to at most 10/sec
 let _lastScrollTime: number = 0;
@@ -481,7 +488,7 @@ function safeNativeCallSync<T>(
 /**
  * Main Rejourney API (Internal)
  */
-const Rejourney: RejourneyAPI = {
+export const Rejourney: RejourneyAPI = {
   /**
    * SDK Version
    */
@@ -637,6 +644,7 @@ const Rejourney: RejourneyAPI = {
           trackReactNativeErrors: true,
           trackConsoleLogs: _storedConfig?.trackConsoleLogs ?? true,
           collectDeviceInfo: _storedConfig?.collectDeviceInfo !== false,
+          autoTrackExpoRouter: _storedConfig?.autoTrackExpoRouter !== false,
         },
         {
           // Rage tap callback - log as frustration event
@@ -680,6 +688,8 @@ const Rejourney: RejourneyAPI = {
             '/api/ingest/presign',
             '/api/ingest/batch/complete',
             '/api/ingest/session/end',
+            '/api/ingest/segment/presign',
+            '/api/ingest/segment/complete',
             ...(_storedConfig?.networkIgnoreUrls || []),
           ];
 
@@ -806,22 +816,56 @@ const Rejourney: RejourneyAPI = {
   },
 
   /**
-   * Tag the current screen
+  /**
+   * Set custom session metadata.
+   * Can be called with a single key-value pair or an object of properties.
+   * Useful for filtering sessions later (e.g., plan: 'premium', role: 'admin').
+   * Caps at 100 properties per session.
+   * 
+   * @param keyOrProperties Property name string, or an object containing key-value pairs
+   * @param value Property value (if first argument is a string)
+   */
+  setMetadata(keyOrProperties: string | Record<string, string | number | boolean>, value?: string | number | boolean): void {
+    if (typeof keyOrProperties === 'string') {
+      const key = keyOrProperties;
+      if (!key) {
+        getLogger().warn('setMetadata requires a non-empty string key');
+        return;
+      }
+      if (value !== undefined && typeof value !== 'string' && typeof value !== 'number' && typeof value !== 'boolean') {
+        getLogger().warn('setMetadata value must be a string, number, or boolean when using a key string');
+        return;
+      }
+      this.logEvent('$user_property', { key, value });
+      // Track for session rollover restoration
+      _storedMetadata[key] = value!;
+    } else if (keyOrProperties && typeof keyOrProperties === 'object') {
+      const properties = keyOrProperties;
+      const validProps: Record<string, any> = {};
+      for (const [k, v] of Object.entries(properties)) {
+        if (typeof k === 'string' && k &&
+          (typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean')) {
+          validProps[k] = v;
+        }
+      }
+      if (Object.keys(validProps).length > 0) {
+        this.logEvent('$user_property', validProps);
+        // Track for session rollover restoration
+        Object.assign(_storedMetadata, validProps);
+      }
+    } else {
+      getLogger().warn('setMetadata requires a string key and value, or a properties object');
+    }
+  },
+
+  /**
+   * Track current screen (manual)
    * 
    * @param screenName - Screen name
    * @param params - Optional screen parameters
    */
-  tagScreen(screenName: string, _params?: Record<string, unknown>): void {
+  trackScreen(screenName: string, _params?: Record<string, unknown>): void {
     getAutoTracking().trackScreen(screenName);
-    getAutoTracking().notifyStateChange();
-
-    safeNativeCallSync(
-      'tagScreen',
-      () => {
-        getRejourneyNative()!.screenChanged(screenName).catch(() => { });
-      },
-      undefined
-    );
   },
 
   /**
@@ -1271,12 +1315,121 @@ const Rejourney: RejourneyAPI = {
       undefined
     );
   },
+
+  /**
+   * Initialize Rejourney SDK
+   */
+  init(publicRouteKey: string, options?: Omit<RejourneyConfig, 'publicRouteKey'>): void {
+    initRejourney(publicRouteKey, options);
+  },
+
+  /**
+   * Start recording
+   */
+  start(): void {
+    startRejourney();
+  },
+
+  /**
+   * Stop recording
+   */
+  stop(): void {
+    stopRejourney();
+  },
+
+  /**
+   * Hook for automatic React Navigation tracking.
+   */
+  useNavigationTracking() {
+    return getAutoTracking().useNavigationTracking();
+  },
 };
+
+/**
+ * Reinitialize JS-side auto-tracking for a new session after background timeout.
+ *
+ * When the app was in background for >60s the native layer rolls over to a
+ * fresh session automatically.  The JS side must tear down stale tracking
+ * state (metrics, console-log counter, screen history, error handlers) and
+ * re-initialize so that trackScreen, logEvent, setMetadata, etc. work
+ * correctly against the new native session.
+ */
+function _reinitAutoTrackingForNewSession(): void {
+  try {
+    // 1. Tear down old session's auto-tracking state
+    getAutoTracking().cleanupAutoTracking();
+
+    // 2. Re-initialize auto-tracking with the same config
+    getAutoTracking().initAutoTracking(
+      {
+        rageTapThreshold: _storedConfig?.rageTapThreshold ?? 3,
+        rageTapTimeWindow: _storedConfig?.rageTapTimeWindow ?? 500,
+        rageTapRadius: 50,
+        trackJSErrors: true,
+        trackPromiseRejections: true,
+        trackReactNativeErrors: true,
+        trackConsoleLogs: _storedConfig?.trackConsoleLogs ?? true,
+        collectDeviceInfo: _storedConfig?.collectDeviceInfo !== false,
+        autoTrackExpoRouter: _storedConfig?.autoTrackExpoRouter !== false,
+      },
+      {
+        onRageTap: (count: number, x: number, y: number) => {
+          Rejourney.logEvent('frustration', {
+            frustrationKind: 'rage_tap',
+            tapCount: count,
+            x,
+            y,
+          });
+          getLogger().logFrustration(`Rage tap (${count} taps)`);
+        },
+        onError: (error: { message: string; stack?: string; name?: string }) => {
+          getLogger().logError(error.message);
+        },
+        onScreen: (_screenName: string, _previousScreen?: string) => {
+        },
+      }
+    );
+
+    // 3. Re-collect device info for the new session
+    if (_storedConfig?.collectDeviceInfo !== false) {
+      getAutoTracking().collectDeviceInfo().then((deviceInfo) => {
+        Rejourney.logEvent('device_info', deviceInfo as unknown as Record<string, unknown>);
+      }).catch(() => { });
+    }
+
+    // 4. Re-send user identity to the new native session
+    if (_userIdentity) {
+      safeNativeCallSync(
+        'setUserIdentity',
+        () => {
+          getRejourneyNative()!.setUserIdentity(_userIdentity!).catch(() => { });
+        },
+        undefined
+      );
+      getLogger().debug(`Restored user identity '${_userIdentity}' to new session`);
+    }
+
+    // 5. Re-send any stored metadata to the new native session
+    if (Object.keys(_storedMetadata).length > 0) {
+      for (const [key, value] of Object.entries(_storedMetadata)) {
+        if (value !== undefined && value !== null) {
+          Rejourney.setMetadata(key, value);
+        }
+      }
+      getLogger().debug('Restored metadata to new session');
+    }
+
+    getLogger().logLifecycleEvent('JS auto-tracking reinitialized for new session');
+  } catch (error) {
+    getLogger().warn('Failed to reinitialize auto-tracking after session rollover:', error);
+  }
+}
 
 /**
  * Handle app state changes for automatic session management
  * - Pauses recording when app goes to background
  * - Resumes recording when app comes back to foreground
+ * - Reinitializes JS-side auto-tracking when native rolls over to a new session
  * - Cleans up properly when app is terminated
  */
 function handleAppStateChange(nextAppState: string): void {
@@ -1286,9 +1439,24 @@ function handleAppStateChange(nextAppState: string): void {
     if (_currentAppState.match(/active/) && nextAppState === 'background') {
       // App going to background - native module handles this automatically
       getLogger().logLifecycleEvent('App moving to background');
+      _backgroundEntryTime = Date.now();
     } else if (_currentAppState.match(/inactive|background/) && nextAppState === 'active') {
       // App coming back to foreground
       getLogger().logLifecycleEvent('App returning to foreground');
+
+      // Check if we exceeded the session timeout (60s).
+      // Native side will have already ended the old session and started a new
+      // one — we need to reset JS-side auto-tracking state to match.
+      if (_backgroundEntryTime && _isRecording) {
+        const backgroundDurationMs = Date.now() - _backgroundEntryTime;
+        if (backgroundDurationMs > SESSION_TIMEOUT_MS) {
+          getLogger().debug(
+            `Session rollover: background ${Math.round(backgroundDurationMs / 1000)}s > ${SESSION_TIMEOUT_MS / 1000}s timeout`
+          );
+          _reinitAutoTrackingForNewSession();
+        }
+      }
+      _backgroundEntryTime = null;
     }
     _currentAppState = nextAppState;
   } catch (error) {
@@ -1371,8 +1539,10 @@ function setupAuthErrorListener(): void {
         }
       );
     }
-  } catch (error) {
-    getLogger().debug('Auth error listener not available:', error);
+  } catch {
+    // Expected on some architectures where NativeEventEmitter isn't fully supported.
+    // Auth errors are still handled synchronously via native callback — this listener
+    // is purely supplementary. No need to log.
   }
 }
 
@@ -1518,7 +1688,6 @@ export function stopRejourney(): void {
     getLogger().warn('Error stopping Rejourney:', error);
   }
 }
-
 export default Rejourney;
 
 export * from './types';
@@ -1528,7 +1697,6 @@ export {
   trackScroll,
   trackGesture,
   trackInput,
-  trackScreen,
   captureError,
   getSessionMetrics,
 } from './sdk/autoTracking';

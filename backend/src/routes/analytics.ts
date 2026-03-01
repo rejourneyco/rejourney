@@ -2970,7 +2970,8 @@ router.get(
                     firstSessionStats: { total: 0, clean: 0, withCrash: 0, withAnr: 0, withRageTaps: 0, withSlowApi: 0 },
                     newUserGrowth: { acquiredUsers: 0, activeUsers: 0, acquisitionRate: 0, returnedUsers: 0, returnRate: 0 },
                     growthKillers: [],
-                    dailyHealth: []
+                    dailyHealth: [],
+                    customEvents: [],
                 });
                 return;
             }
@@ -2988,7 +2989,8 @@ router.get(
                 firstSessionStats: { total: 0, clean: 0, withCrash: 0, withAnr: 0, withRageTaps: 0, withSlowApi: 0 },
                 newUserGrowth: { acquiredUsers: 0, activeUsers: 0, acquisitionRate: 0, returnedUsers: 0, returnRate: 0 },
                 growthKillers: [],
-                dailyHealth: []
+                dailyHealth: [],
+                customEvents: [],
             });
             return;
         }
@@ -3220,6 +3222,30 @@ router.get(
             .sort((a, b) => a.date.localeCompare(b.date))
             .slice(-30); // Last 30 days
 
+        // Custom Events
+        const dailyConditions = [inArray(appDailyStats.projectId, projectIds)];
+        if (startedAfter) {
+            dailyConditions.push(gte(appDailyStats.date, startedAfter.toISOString().split('T')[0]));
+        }
+
+        const dailyStatsRows = await db
+            .select({ customEventBreakdown: appDailyStats.customEventBreakdown })
+            .from(appDailyStats)
+            .where(and(...dailyConditions));
+
+        const aggregatedCustomEvents: Record<string, number> = {};
+        for (const row of dailyStatsRows) {
+            if (row.customEventBreakdown) {
+                for (const [key, val] of Object.entries(row.customEventBreakdown)) {
+                    aggregatedCustomEvents[key] = (aggregatedCustomEvents[key] || 0) + val;
+                }
+            }
+        }
+
+        const customEvents = Object.entries(aggregatedCustomEvents)
+            .map(([name, count]) => ({ name, count }))
+            .sort((a, b) => b.count - a.count);
+
         const result = {
             sessionHealth,
             firstSessionSuccessRate,
@@ -3233,6 +3259,7 @@ router.get(
             },
             growthKillers,
             dailyHealth: dailyHealthArray,
+            customEvents,
         };
 
         await redis.set(cacheKey, JSON.stringify(result), 'EX', CACHE_TTL);
@@ -3335,6 +3362,7 @@ router.get(
                     frustrationFreeSessionRate: 0,
                     degradedSessionRate: 0,
                     apiFailureRate: 0,
+                    platformBreakdown: [],
                 },
                 performance: {
                     apiApdex: null,
@@ -3400,6 +3428,7 @@ router.get(
                 startedAt: sessions.startedAt,
                 deviceId: sessions.deviceId,
                 appVersion: sessions.appVersion,
+                platform: sessions.platform,
                 replayPromoted: sessions.replayPromoted,
                 crashCount: sessionMetrics.crashCount,
                 anrCount: sessionMetrics.anrCount,
@@ -3443,6 +3472,7 @@ router.get(
                     frustrationFreeSessionRate: 0,
                     degradedSessionRate: 0,
                     apiFailureRate: 0,
+                    platformBreakdown: [],
                 },
                 performance: {
                     apiApdex: null,
@@ -3513,6 +3543,7 @@ router.get(
         const affectedUsers = new Set<string>();
         const networkMap: Record<string, { sessions: number; apiCalls: number; apiErrors: number; latencySum: number; latencySamples: number }> = {};
         const versionMap: Record<string, { sessions: number; degradedSessions: number; crashCount: number; anrCount: number; errorCount: number; latestSeen: Date; firstSeen: Date }> = {};
+        const platformMap: Record<string, { sessions: number; crashCount: number; anrCount: number }> = {};
 
         for (const row of sessionsWithMetrics) {
             const crashCount = toNumber(row.crashCount);
@@ -3599,6 +3630,14 @@ router.get(
                 networkMap[networkType].latencySamples++;
             }
 
+            const sysPlatform = row.platform || 'unknown';
+            if (!platformMap[sysPlatform]) {
+                platformMap[sysPlatform] = { sessions: 0, crashCount: 0, anrCount: 0 };
+            }
+            platformMap[sysPlatform].sessions++;
+            platformMap[sysPlatform].crashCount += crashCount;
+            platformMap[sysPlatform].anrCount += anrCount;
+
             const appVersion = row.appVersion || 'unknown';
             if (!versionMap[appVersion]) {
                 versionMap[appVersion] = {
@@ -3671,6 +3710,15 @@ router.get(
             .slice(0, 8);
 
         const overallDegradedRate = toPercent(degradedSessions, analyzedSessions, 2);
+
+        const platformBreakdown = Object.entries(platformMap)
+            .map(([platform, stats]) => ({
+                platform,
+                crashFreeSessionRate: toPercent(stats.sessions - stats.crashCount, stats.sessions, 2),
+                anrFreeSessionRate: toPercent(stats.sessions - stats.anrCount, stats.sessions, 2),
+            }))
+            .sort((a, b) => a.platform.localeCompare(b.platform));
+
         const releaseRisk = Object.entries(versionMap)
             .map(([version, stats]) => {
                 const failureRate = toPercent(stats.degradedSessions, Math.max(1, stats.sessions), 2);
@@ -3783,8 +3831,9 @@ router.get(
                 anrFreeSessionRate: toPercent(anrFreeSessions, analyzedSessions, 2),
                 errorFreeSessionRate: toPercent(errorFreeSessions, analyzedSessions, 2),
                 frustrationFreeSessionRate: toPercent(frustrationFreeSessions, analyzedSessions, 2),
-                degradedSessionRate: toPercent(degradedSessions, analyzedSessions, 2),
+                degradedSessionRate: overallDegradedRate,
                 apiFailureRate: toPercent(totalApiErrors, Math.max(1, totalApiCalls), 2),
+                platformBreakdown,
             },
             performance: {
                 apiApdex: apdexTotal > 0 ? Number((((apdexSatisfied + apdexTolerating * 0.5) / apdexTotal)).toFixed(3)) : null,

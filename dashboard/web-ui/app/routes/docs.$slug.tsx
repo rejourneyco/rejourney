@@ -10,8 +10,8 @@ import { MarkdownContent } from "~/components/docs/MarkdownContent";
 import { getDocMetadata } from "~/utils/docsConfig";
 
 export const meta: Route.MetaFunction = ({ params, location }) => {
-    // Extract slug parameter - for splat routes (*), use params["*"]
-    const slug = (params as { "*"?: string })["*"] || "";
+    // Single-segment docs route: /docs/:slug
+    const slug = (params as any)?.slug || "";
     const metadata = getDocMetadata(slug);
     const domain = "https://rejourney.co";
     const canonicalUrl = `${domain}${location.pathname}`;
@@ -46,8 +46,8 @@ export const meta: Route.MetaFunction = ({ params, location }) => {
 
 export async function loader({ params }: Route.LoaderArgs) {
     const { loadDocContent, getDocMetadata } = await import("~/utils/docsLoader.server");
-    // Extract slug parameter - for splat routes (*), use params["*"]
-    const slug = (params as { "*"?: string })["*"] || "";
+    // Single-segment docs route: /docs/:slug
+    const slug = (params as any)?.slug || "";
     const content = loadDocContent(slug);
     const metadata = getDocMetadata(slug);
 

@@ -110,6 +110,8 @@ public final class RejourneyImpl: NSObject {
             DiagnosticLog.notice("[Rejourney] ⏸️ Session '\(sid)' paused (app backgrounded)")
             TelemetryPipeline.shared.dispatchNow()
             SegmentDispatcher.shared.shipPending()
+            // Stop the heartbeat timer to prevent event uploads while backgrounded
+            TelemetryPipeline.shared.pause()
         }
     }
 
@@ -138,6 +140,9 @@ public final class RejourneyImpl: NSObject {
         backgroundStartTime = nil
 
         DiagnosticLog.notice("[Rejourney] App foregrounded after \(Int(backgroundDuration))s (timeout: \(Int(sessionTimeoutSeconds))s)")
+
+        // Resume the heartbeat timer now that we're back in foreground
+        TelemetryPipeline.shared.resume()
 
         if backgroundDuration > sessionTimeoutSeconds {
             // End current session and start a new one
