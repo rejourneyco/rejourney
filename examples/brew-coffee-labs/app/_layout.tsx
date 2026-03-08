@@ -19,7 +19,7 @@ const REJOURNEY_ENABLED = true;
 if (REJOURNEY_ENABLED) {
   const { Rejourney, initRejourney, startRejourney } = require('rejourney');
   initRejourney('rj_9cdda278b8bfae7ab6d3d9d340e29882', {
-    apiUrl: 'http://10.43.91.70:3000',
+    apiUrl: 'http://10.43.91.67:3000',
     debug: true,
   });
   Rejourney.setMetadata('plan', 'premium');

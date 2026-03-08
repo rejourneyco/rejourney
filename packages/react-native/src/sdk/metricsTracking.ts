@@ -153,6 +153,9 @@ export function incrementErrorCount(): void {
 }
 
 export function addScreenVisited(screenName: string): void {
+    if (metrics.screensVisited.length >= 500) {
+        metrics.screensVisited.splice(0, metrics.screensVisited.length - 250);
+    }
     metrics.screensVisited.push(screenName);
     metrics.uniqueScreensCount = new Set(metrics.screensVisited).size;
 }

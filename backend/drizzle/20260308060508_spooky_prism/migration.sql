@@ -1,0 +1,1 @@
+ALTER TABLE "teams" ADD COLUMN "bonus_sessions" integer DEFAULT 0 NOT NULL;

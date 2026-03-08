@@ -125,15 +125,17 @@ class SegmentDispatcher private constructor() {
     private val scope = CoroutineScope(workerExecutor.asCoroutineDispatcher() + SupervisorJob())
     
     private val httpClient: OkHttpClient = OkHttpClient.Builder()
-        .connectTimeout(5, TimeUnit.SECONDS) // Short timeout for debugging
+        .connectTimeout(5, TimeUnit.SECONDS)
         .readTimeout(10, TimeUnit.SECONDS)
         .writeTimeout(10, TimeUnit.SECONDS)
-        // Mirror iOS URLProtocol: ensure native upload/auth traffic is captured
-        .addInterceptor(RejourneyNetworkInterceptor())
+        // Intentionally NO RejourneyNetworkInterceptor here: intercepting our
+        // own upload traffic creates redundant network events, wastes bandwidth,
+        // and can cause circular upload→intercept→upload chains.
         .build()
     
     private val retryQueue = mutableListOf<PendingUpload>()
     private val retryLock = ReentrantLock()
+    private val maxRetryQueueSize = 20
     private var active = true
     
     fun configure(replayId: String, apiToken: String?, credential: String?, projectId: String?, isSampledIn: Boolean = true) {
@@ -411,6 +413,9 @@ class SegmentDispatcher private constructor() {
         if (upload.attempt < 3) {
             val retry = upload.copy(attempt = upload.attempt + 1)
             retryLock.withLock {
+                if (retryQueue.size >= maxRetryQueueSize) {
+                    retryQueue.removeAt(0)
+                }
                 retryQueue.add(retry)
             }
             metricsLock.withLock {

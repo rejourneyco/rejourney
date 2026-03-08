@@ -98,13 +98,9 @@ async function getFetchResponseSize(response: Response): Promise<number> {
     if (Number.isFinite(parsed) && parsed > 0) return parsed;
   }
 
-  try {
-    const cloned = response.clone();
-    const buffer = await cloned.arrayBuffer();
-    return buffer.byteLength;
-  } catch {
-    return 0;
-  }
+  // Don't clone+buffer the full body just to measure size when
+  // content-length is missing — this doubles memory for large responses.
+  return 0;
 }
 
 function getXhrResponseSize(xhr: XMLHttpRequest): number {
@@ -403,6 +399,10 @@ function interceptXHR(): void {
     data.t = Date.now();
 
     const onComplete = () => {
+      this.removeEventListener('load', onComplete);
+      this.removeEventListener('error', onComplete);
+      this.removeEventListener('abort', onComplete);
+
       const endTime = Date.now();
 
       const responseBodySize = config.captureSizes ? getXhrResponseSize(this) : 0;

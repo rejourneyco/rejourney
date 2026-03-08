@@ -429,6 +429,9 @@ public final class ReplayOrchestrator: NSObject {
 
     @objc public func logScreenView(_ screenId: String) {
         guard !screenId.isEmpty else { return }
+        if _visitedScreens.count >= 500 {
+            _visitedScreens.removeFirst(_visitedScreens.count - 250)
+        }
         _visitedScreens.append(screenId)
         currentScreenName = screenId
         if hierarchyCaptureEnabled { _captureHierarchy() }

@@ -109,31 +109,111 @@ Rejourney.clearUserIdentity();
 
 ## Custom Events
 
-Use custom events to track key user interactions (taps, flows, funnels) that you want to analyze alongside session replays.
+Track meaningful user actions to understand behavior patterns, debug issues, and filter session replays in the dashboard.
+
+### Basic Usage
 
 ```javascript
 import { Rejourney } from '@rejourneyco/react-native';
 
-// Log a custom event with properties
+// Simple event (name only)
+Rejourney.logEvent('signup_completed');
+
+// Event with properties
 Rejourney.logEvent('button_clicked', { buttonName: 'signup' });
 ```
 
+### API
+
+```typescript
+Rejourney.logEvent(name: string, properties?: Record<string, unknown>)
+```
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `name` | `string` | Yes | Event name — use `snake_case` for consistency |
+| `properties` | `object` | No | Key-value pairs attached to this specific event occurrence |
+
+### Examples
+
+```javascript
+// E-commerce
+Rejourney.logEvent('purchase_completed', {
+  plan: 'pro',
+  amount: 29.99,
+  currency: 'USD'
+});
+
+// Onboarding
+Rejourney.logEvent('onboarding_step', {
+  step: 3,
+  stepName: 'profile_setup',
+  skipped: false
+});
+
+// Feature usage
+Rejourney.logEvent('feature_used', {
+  feature: 'dark_mode',
+  enabled: true
+});
+
+// Errors / edge cases
+Rejourney.logEvent('payment_failed', {
+  errorCode: 'card_declined',
+  retryCount: 2
+});
+```
+
+### How Events Appear in the Dashboard
+
+Custom events are stored per-session and visible in two places:
+
+1. **Session Replay Timeline** — Events appear as markers on the replay timeline so you can jump to the exact moment an action occurred.
+2. **Session Archive Filters** — Filter the session list by:
+   - **Event name** — Find all sessions containing a specific event (e.g. `purchase_completed`)
+   - **Event property** — Narrow further by property key and/or value (e.g. `plan = pro`)
+   - **Event count** — Find sessions with a specific number of custom events (e.g. more than 5 events)
+
+### Best Practices
+
+> [!TIP]
+> - Use consistent naming (`snake_case`, e.g. `button_clicked` not `Button Clicked`)
+> - Keep property values simple (strings, numbers, booleans) — avoid nested objects
+> - Focus on actions that matter for debugging or analytics — don't log everything
+> - Properties are for per-event context. For session-level attributes, use **Metadata** instead
+
+---
+
 ## Metadata
 
-Attach metadata to the session to make filtering and segmentation easier in the dashboard.
+Attach session-level key-value pairs that describe the user or session context. Unlike events, metadata is set once per key and applies to the entire session.
 
 ```javascript
 import { Rejourney } from '@rejourneyco/react-native';
 
-// Set a single metadata property
+// Set a single property
 Rejourney.setMetadata('plan', 'premium');
 
-// Set multiple metadata properties
+// Set multiple properties at once
 Rejourney.setMetadata({
   role: 'admin',
-  segment: 'enterprise'
+  segment: 'enterprise',
+  ab_variant: 'checkout_v2'
 });
 ```
+
+### When to Use Metadata vs Events
+
+| Use Case | Use **Metadata** | Use **Events** |
+|---|---|---|
+| User's subscription plan |  `setMetadata('plan', 'pro')` | |
+| User clicked a button | |  `logEvent('button_clicked', { buttonName: 'signup' })` |
+| A/B test variant |  `setMetadata('ab_variant', 'v2')` | |
+| Purchase completed | |  `logEvent('purchase', { amount: 29 })` |
+| User's role |  `setMetadata('role', 'admin')` | |
+| Onboarding step reached | |  `logEvent('onboarding_step', { step: 3 })` |
+
+**Rule of thumb:** If it describes *who the user is* or *what state they're in*, use metadata. If it describes *something that happened*, use events.
 
 ## Privacy Controls
 

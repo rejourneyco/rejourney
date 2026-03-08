@@ -594,6 +594,7 @@ export interface PaginatedSessionsResponse {
   sessions: any[];
   nextCursor: string | null;
   hasMore: boolean;
+  totalCount: number;
 }
 
 /**
@@ -609,17 +610,23 @@ export async function getSessionsPaginated(params: {
   metaKey?: string;
   metaValue?: string;
   eventName?: string;
-}): Promise<{ sessions: any[]; nextCursor: string | null; hasMore: boolean }> {
+  date?: string;
+  eventCountOp?: string;
+  eventCountValue?: string;
+  eventPropKey?: string;
+  eventPropValue?: string;
+}): Promise<{ sessions: any[]; nextCursor: string | null; hasMore: boolean; totalCount: number }> {
   // Demo mode: return static demo sessions
   if (isDemoMode()) {
     return {
       sessions: demoSessions,
       nextCursor: null,
-      hasMore: false
+      hasMore: false,
+      totalCount: demoSessions.length,
     };
   }
 
-  const { cursor, limit = 50, timeRange, projectId, platform, metaKey, metaValue, eventName } = params;
+  const { cursor, limit = 50, timeRange, projectId, platform, metaKey, metaValue, eventName, date, eventCountOp, eventCountValue, eventPropKey, eventPropValue } = params;
 
   const queryParams = new URLSearchParams();
   if (cursor) queryParams.set('cursor', cursor);
@@ -630,17 +637,23 @@ export async function getSessionsPaginated(params: {
   if (metaKey) queryParams.set('metaKey', metaKey);
   if (metaValue) queryParams.set('metaValue', metaValue);
   if (eventName) queryParams.set('eventName', eventName);
+  if (date) queryParams.set('date', date);
+  if (eventCountOp) queryParams.set('eventCountOp', eventCountOp);
+  if (eventCountValue) queryParams.set('eventCountValue', eventCountValue);
+  if (eventPropKey) queryParams.set('eventPropKey', eventPropKey);
+  if (eventPropValue) queryParams.set('eventPropValue', eventPropValue);
 
   const endpoint = `/api/sessions?${queryParams.toString()}`;
 
   // Don't cache paginated requests since cursor changes
-  const response = await fetchJson<{ sessions: ApiSessionSummary[]; nextCursor: string | null; hasMore: boolean }>(endpoint);
+  const response = await fetchJson<{ sessions: ApiSessionSummary[]; nextCursor: string | null; hasMore: boolean; totalCount: number }>(endpoint);
 
   const sessions = (response?.sessions || []).map(transformToRecordingSession);
   return {
     sessions,
     nextCursor: response.nextCursor,
-    hasMore: response.hasMore
+    hasMore: response.hasMore,
+    totalCount: response.totalCount ?? 0,
   };
 }
 

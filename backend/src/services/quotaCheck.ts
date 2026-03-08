@@ -19,7 +19,6 @@ import {
     FREE_TIER_SESSIONS,
     getTeamBillingPeriod,
     calculateSessionUsage,
-    isFreeTierExhausted,
 } from '../utils/billing.js';
 import { logger } from '../logger.js';
 import { ApiError } from '../middleware/index.js';
@@ -129,6 +128,7 @@ async function fetchTeamSessionData(
             billingCycleAnchor: teams.billingCycleAnchor,
             ownerUserId: teams.ownerUserId,
             stripeSubscriptionId: teams.stripeSubscriptionId,
+            bonusSessions: teams.bonusSessions,
         })
         .from(teams)
         .where(eq(teams.id, teamId))
@@ -173,7 +173,7 @@ async function fetchTeamSessionData(
     return {
         teamId,
         sessionsUsed,
-        sessionLimit: subscription.sessionLimit,
+        sessionLimit: subscription.sessionLimit + (team.bonusSessions ?? 0),
         planName: subscription.planName,
     };
 }
@@ -321,8 +321,20 @@ export async function checkUserFreeTier(userId: string): Promise<{
 }> {
     // Calculate free tier usage dynamically across all free teams
     const sessionsUsed = await calculateOwnerFreeTierUsage(userId);
-    const isExhausted = isFreeTierExhausted(sessionsUsed);
-    const sessionsRemaining = Math.max(0, FREE_TIER_SESSIONS - sessionsUsed);
+
+    // Sum bonus sessions from all free teams owned by this user
+    const ownedFreeTeams = await db
+        .select({ bonusSessions: teams.bonusSessions })
+        .from(teams)
+        .where(and(
+            eq(teams.ownerUserId, userId),
+            isNull(teams.stripeSubscriptionId)
+        ));
+    const totalBonus = ownedFreeTeams.reduce((sum, t) => sum + (t.bonusSessions ?? 0), 0);
+    const effectiveLimit = FREE_TIER_SESSIONS + totalBonus;
+
+    const isExhausted = sessionsUsed >= effectiveLimit;
+    const sessionsRemaining = Math.max(0, effectiveLimit - sessionsUsed);
 
     return {
         canRecord: !isExhausted,

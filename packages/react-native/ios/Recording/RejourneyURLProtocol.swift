@@ -18,22 +18,26 @@ import Foundation
 
 /// Intercepts URLSession network traffic globally for Rejourney Session Replay.
 @objc(RejourneyURLProtocol)
-public class RejourneyURLProtocol: URLProtocol, URLSessionDataDelegate, URLSessionTaskDelegate {
+public class RejourneyURLProtocol: URLProtocol {
     
-    // We tag requests that we've already handled so we don't intercept them repeatedly.
     private static let _handledKey = "co.rejourney.handled"
     
     private var _dataTask: URLSessionDataTask?
     private var _startMs: Int64 = 0
     private var _endMs: Int64 = 0
-    private var _responseData: Data?
     private var _response: URLResponse?
     private var _error: Error?
     
-    // Session used to forward the intercepted request execution
-    private lazy var _session: URLSession = {
-        let config = URLSessionConfiguration.default
-        return URLSession(configuration: config, delegate: self, delegateQueue: nil)
+    /// Shared forwarding session. Uses ephemeral config with protocol classes
+    /// stripped to prevent self-interception, and a delegate adapter that routes
+    /// callbacks to the correct RejourneyURLProtocol instance via a task map.
+    /// This avoids the per-instance URLSession retain cycle that previously
+    /// leaked every intercepted request (~1-3MB each).
+    private static let _delegateAdapter = SessionDelegateAdapter()
+    private static let _sharedSession: URLSession = {
+        let cfg = URLSessionConfiguration.ephemeral
+        cfg.protocolClasses = []
+        return URLSession(configuration: cfg, delegate: _delegateAdapter, delegateQueue: nil)
     }()
     
     @objc public static func enable() {
@@ -130,30 +134,32 @@ public class RejourneyURLProtocol: URLProtocol, URLSessionDataDelegate, URLSessi
         URLProtocol.setProperty(true, forKey: RejourneyURLProtocol._handledKey, in: request)
         
         _startMs = Int64(Date().timeIntervalSince1970 * 1000)
-        _dataTask = _session.dataTask(with: request as URLRequest)
-        _dataTask?.resume()
+        let task = Self._sharedSession.dataTask(with: request as URLRequest)
+        Self._delegateAdapter.register(task: task, protocol: self)
+        _dataTask = task
+        task.resume()
     }
     
     public override func stopLoading() {
-        _dataTask?.cancel()
+        if let task = _dataTask {
+            Self._delegateAdapter.unregister(task: task)
+            task.cancel()
+        }
         _dataTask = nil
     }
     
-    // MARK: - URLSessionDataDelegate
+    // MARK: - Callbacks from SessionDelegateAdapter
     
-    public func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
+    fileprivate func handleDidReceiveData(_ data: Data) {
         client?.urlProtocol(self, didLoad: data)
     }
     
-    public func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive response: URLResponse, completionHandler: @escaping (URLSession.ResponseDisposition) -> Void) {
+    fileprivate func handleDidReceiveResponse(_ response: URLResponse) {
         _response = response
         client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .allowed)
-        completionHandler(.allow)
     }
     
-    // MARK: - URLSessionTaskDelegate
-    
-    public func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+    fileprivate func handleDidComplete(error: Error?) {
         _endMs = Int64(Date().timeIntervalSince1970 * 1000)
         _error = error
         
@@ -162,7 +168,9 @@ public class RejourneyURLProtocol: URLProtocol, URLSessionDataDelegate, URLSessi
         } else {
             client?.urlProtocolDidFinishLoading(self)
         }
-        
+    }
+    
+    fileprivate func handleDidCompleteLogging(task: URLSessionTask) {
         _logRequest(task: task)
     }
     
@@ -212,5 +220,47 @@ public class RejourneyURLProtocol: URLProtocol, URLSessionDataDelegate, URLSessi
         }
         
         TelemetryPipeline.shared.recordNetworkEvent(details: event)
+    }
+}
+
+/// Routes URLSession delegate callbacks to the correct RejourneyURLProtocol
+/// instance using a task-to-protocol map. Uses weak references to avoid
+/// retaining protocol instances that have been stopped by the URL loading system.
+private final class SessionDelegateAdapter: NSObject, URLSessionDataDelegate, URLSessionTaskDelegate {
+    private let _lock = NSLock()
+    private let _taskMap = NSMapTable<URLSessionTask, RejourneyURLProtocol>.strongToWeakObjects()
+    
+    func register(task: URLSessionTask, protocol proto: RejourneyURLProtocol) {
+        _lock.lock()
+        _taskMap.setObject(proto, forKey: task)
+        _lock.unlock()
+    }
+    
+    func unregister(task: URLSessionTask) {
+        _lock.lock()
+        _taskMap.removeObject(forKey: task)
+        _lock.unlock()
+    }
+    
+    private func proto(for task: URLSessionTask) -> RejourneyURLProtocol? {
+        _lock.lock()
+        defer { _lock.unlock() }
+        return _taskMap.object(forKey: task)
+    }
+    
+    func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
+        proto(for: dataTask)?.handleDidReceiveData(data)
+    }
+    
+    func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive response: URLResponse, completionHandler: @escaping (URLSession.ResponseDisposition) -> Void) {
+        proto(for: dataTask)?.handleDidReceiveResponse(response)
+        completionHandler(.allow)
+    }
+    
+    func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+        guard let p = proto(for: task) else { return }
+        p.handleDidComplete(error: error)
+        p.handleDidCompleteLogging(task: task)
+        unregister(task: task)
     }
 }

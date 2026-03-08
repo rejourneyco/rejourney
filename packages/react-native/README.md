@@ -64,21 +64,28 @@ Rejourney.trackScreen('Custom Screen Name');
 
 ## Custom Events & Metadata
 
-You can track custom events and assign metadata to sessions to filter and segment them later.
+Track user actions and attach session-level context for filtering and segmentation in the dashboard.
 
 ```typescript
 import { Rejourney } from '@rejourneyco/react-native';
 
-// Log custom events
-Rejourney.logEvent('button_clicked', { buttonName: 'signup' });
+// Log custom events with optional properties
+Rejourney.logEvent('signup_completed');
+Rejourney.logEvent('purchase_completed', {
+  plan: 'pro',
+  amount: 29.99
+});
 
-// Add custom session metadata
+// Attach session-level metadata (key-value context)
 Rejourney.setMetadata('plan', 'premium');
 Rejourney.setMetadata({
-  role: 'tester',
-  ab_test_group: 'A'
+  role: 'admin',
+  ab_variant: 'checkout_v2'
 });
 ```
+
+**Events** = things that happened (actions, timestamped, can occur multiple times)
+**Metadata** = who the user is / what state they're in (session-level, one value per key)
 
 ## API Reference & Compatibility
 

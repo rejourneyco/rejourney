@@ -1035,6 +1035,9 @@ export function trackScreen(screenName: string): void {
 
   const previousScreen = currentScreen;
   currentScreen = screenName;
+  if (screensVisited.length >= 500) {
+    screensVisited.splice(0, screensVisited.length - 250);
+  }
   screensVisited.push(screenName);
 
   const uniqueScreens = new Set(screensVisited);

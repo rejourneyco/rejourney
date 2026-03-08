@@ -141,27 +141,27 @@ function buildSessionBasePayload(
     metrics: any,
     screenshotFrames: Array<{ timestamp: number; url: string; index: number }>
 ) {
-        const hasRecording = screenshotFrames.length > 0;
-        const playbackMode = hasRecording ? 'screenshots' : 'none';
+    const hasRecording = screenshotFrames.length > 0;
+    const playbackMode = hasRecording ? 'screenshots' : 'none';
 
-        return {
-            id: session.id,
-            projectId: session.projectId,
-            userId: session.userDisplayId || null,
-            anonymousId: session.anonymousDisplayId || session.anonymousHash,
-            anonymousDisplayName: session.deviceId && !session.userDisplayId ? generateAnonymousName(session.deviceId) : null,
-            platform: session.platform,
+    return {
+        id: session.id,
+        projectId: session.projectId,
+        userId: session.userDisplayId || null,
+        anonymousId: session.anonymousDisplayId || session.anonymousHash,
+        anonymousDisplayName: session.deviceId && !session.userDisplayId ? generateAnonymousName(session.deviceId) : null,
+        platform: session.platform,
+        appVersion: session.appVersion,
+        hasRecording,
+        playbackMode,
+        deviceInfo: {
+            model: session.deviceModel,
+            os: session.platform,
+            systemVersion: session.osVersion,
             appVersion: session.appVersion,
-            hasRecording,
-            playbackMode,
-            deviceInfo: {
-                model: session.deviceModel,
-                os: session.platform,
-                systemVersion: session.osVersion,
-                appVersion: session.appVersion,
-            },
-            osVersion: session.osVersion,
-            geoLocation: session.geoCity
+        },
+        osVersion: session.osVersion,
+        geoLocation: session.geoCity
             ? {
                 city: session.geoCity,
                 region: session.geoRegion,
@@ -172,35 +172,35 @@ function buildSessionBasePayload(
                 timezone: session.geoTimezone,
             }
             : null,
-            startTime: session.startedAt.getTime(),
-            endTime: session.endedAt?.getTime(),
-            duration: session.durationSeconds,
-            backgroundTime: session.backgroundTimeSeconds ?? 0,
-            playableDuration: session.durationSeconds ?? 0,
-            status: session.status,
-            // Session-level JSONB metadata and custom events stored in the sessions table
-            metadata: session.metadata,
-            events: [] as any[],
-            networkRequests: [] as any[],
-            batches: [] as any[],
-            artifactUrls: {
-                events: null as string | null,
-                eventsBatches: [] as string[],
-            },
-            screenshotFrames,
-            hierarchySnapshots: [] as Array<{ timestamp: number; screenName: string | null; rootElement: any }>,
-            metrics: buildMetricsPayload(metrics),
-            crashes: [] as any[],
-            anrs: [] as any[],
-            retentionTier: session.retentionTier,
-            retentionDays: session.retentionDays,
-            recordingDeleted: session.recordingDeleted,
-            recordingDeletedAt: session.recordingDeletedAt?.toISOString() ?? null,
-            isReplayExpired: session.isReplayExpired,
-            replayPromoted: session.replayPromoted,
-            replayPromotedReason: session.replayPromotedReason ?? null,
-            replayPromotionScore: session.replayPromotionScore ?? 0,
-        };
+        startTime: session.startedAt.getTime(),
+        endTime: session.endedAt?.getTime(),
+        duration: session.durationSeconds,
+        backgroundTime: session.backgroundTimeSeconds ?? 0,
+        playableDuration: session.durationSeconds ?? 0,
+        status: session.status,
+        // Session-level JSONB metadata and custom events stored in the sessions table
+        metadata: session.metadata,
+        events: [] as any[],
+        networkRequests: [] as any[],
+        batches: [] as any[],
+        artifactUrls: {
+            events: null as string | null,
+            eventsBatches: [] as string[],
+        },
+        screenshotFrames,
+        hierarchySnapshots: [] as Array<{ timestamp: number; screenName: string | null; rootElement: any }>,
+        metrics: buildMetricsPayload(metrics),
+        crashes: [] as any[],
+        anrs: [] as any[],
+        retentionTier: session.retentionTier,
+        retentionDays: session.retentionDays,
+        recordingDeleted: session.recordingDeleted,
+        recordingDeletedAt: session.recordingDeletedAt?.toISOString() ?? null,
+        isReplayExpired: session.isReplayExpired,
+        replayPromoted: session.replayPromoted,
+        replayPromotedReason: session.replayPromotedReason ?? null,
+        replayPromotionScore: session.replayPromotionScore ?? 0,
+    };
 }
 
 async function computeSessionStats(
@@ -695,7 +695,7 @@ router.get(
     sessionAuth,
     dashboardRateLimiter,
     asyncHandler(async (req, res) => {
-        const { timeRange, projectId, platform, status } = req.query as any;
+        const { timeRange, projectId, platform, status, date } = req.query as any;
 
         // Get user's accessible project IDs
         const teamMemberships = await db
@@ -728,7 +728,15 @@ router.get(
             projectId ? eq(sessions.projectId, projectId) : inArray(sessions.projectId, accessibleProjectIds),
         ];
 
-        if (startedAfter) conditions.push(gte(sessions.startedAt, startedAfter));
+        if (date) {
+            const startOfDay = new Date(`${date}T00:00:00.000Z`);
+            const endOfDay = new Date(`${date}T23:59:59.999Z`);
+            conditions.push(gte(sessions.startedAt, startOfDay));
+            conditions.push(lt(sessions.startedAt, endOfDay));
+        } else if (startedAfter) {
+            conditions.push(gte(sessions.startedAt, startedAfter));
+        }
+
         if (platform) conditions.push(eq(sessions.platform, platform));
         if (status) conditions.push(eq(sessions.status, status));
 
@@ -795,8 +803,8 @@ router.get(
     sessionAuth,
     dashboardRateLimiter,
     asyncHandler(async (req, res) => {
-        const { timeRange, projectId, platform, status, limit = 50, offset = 0, cursor, sortBy, metaKey, metaValue, eventName } = req.query as any;
-        const parsedLimit = Math.min(parseInt(limit) || 50, 200); // Max 200 per request
+        const { timeRange, projectId, platform, status, limit = 50, offset = 0, cursor, sortBy, metaKey, metaValue, eventName, date, eventCountOp, eventCountValue, eventPropKey, eventPropValue } = req.query as any;
+        const parsedLimit = Math.min(parseInt(limit) || 50, 300); // Max 300 per request
 
         // Get user's accessible project IDs
         const teamMemberships = await db
@@ -807,7 +815,7 @@ router.get(
         const teamIds = teamMemberships.map((tm) => tm.teamId);
 
         if (teamIds.length === 0) {
-            res.json({ sessions: [], nextCursor: null, hasMore: false });
+            res.json({ sessions: [], nextCursor: null, hasMore: false, totalCount: 0 });
             return;
         }
 
@@ -819,20 +827,27 @@ router.get(
         const accessibleProjectIds = accessibleProjectsList.map((p) => p.id);
 
         if (accessibleProjectIds.length === 0) {
-            res.json({ sessions: [], nextCursor: null, hasMore: false });
+            res.json({ sessions: [], nextCursor: null, hasMore: false, totalCount: 0 });
             return;
         }
 
-        // Build where conditions
+        // Build where conditions (base conditions exclude cursor for COUNT query)
         const startedAfter = getTimeRangeFilter(timeRange);
-        const conditions = [
+        const baseConditions = [
             projectId ? eq(sessions.projectId, projectId) : inArray(sessions.projectId, accessibleProjectIds),
         ];
 
-        if (startedAfter) conditions.push(gte(sessions.startedAt, startedAfter));
-        if (platform) conditions.push(eq(sessions.platform, platform));
-        if (status) conditions.push(eq(sessions.status, status));
-        if (cursor) conditions.push(lt(sessions.id, cursor));
+        if (date) {
+            const startOfDay = new Date(`${date}T00:00:00.000Z`);
+            const endOfDay = new Date(`${date}T23:59:59.999Z`);
+            baseConditions.push(gte(sessions.startedAt, startOfDay));
+            baseConditions.push(lt(sessions.startedAt, endOfDay));
+        } else if (startedAfter) {
+            baseConditions.push(gte(sessions.startedAt, startedAfter));
+        }
+
+        if (platform) baseConditions.push(eq(sessions.platform, platform));
+        if (status) baseConditions.push(eq(sessions.status, status));
 
         if (metaKey) {
             if (metaValue !== undefined && metaValue !== '') {
@@ -842,36 +857,106 @@ router.get(
                 else if (metaValue === 'false') parsedValue = false;
                 else if (!isNaN(Number(metaValue))) parsedValue = Number(metaValue);
 
-                conditions.push(sql`${sessions.metadata} @> ${JSON.stringify({ [metaKey]: parsedValue })}::jsonb`);
+                baseConditions.push(sql`${sessions.metadata} @> ${JSON.stringify({ [metaKey]: parsedValue })}::jsonb`);
             } else {
                 // If only key is provided, match if the JSON object just contains the key
-                conditions.push(sql`${sessions.metadata} ? ${metaKey}`);
+                baseConditions.push(sql`${sessions.metadata} ? ${metaKey}`);
             }
         }
 
         if (eventName) {
-            // Find sessions where the events array contains an object with "name" matching the eventName
-            conditions.push(sql`${sessions.events} @> ${JSON.stringify([{ name: eventName }])}::jsonb`);
+            if (eventPropKey && eventPropValue !== undefined && eventPropValue !== '') {
+                // Match event name AND specific property key=value
+                // e.g. events @> '[{"name": "button_clicked", "properties": {"buttonName": "signup"}}]'
+                let parsedPropValue: any = eventPropValue;
+                if (eventPropValue === 'true') parsedPropValue = true;
+                else if (eventPropValue === 'false') parsedPropValue = false;
+                else if (!isNaN(Number(eventPropValue))) parsedPropValue = Number(eventPropValue);
+                baseConditions.push(sql`${sessions.events} @> ${JSON.stringify([{ name: eventName, properties: { [eventPropKey]: parsedPropValue } }])}::jsonb`);
+            } else if (eventPropKey) {
+                // Match event name AND check if ANY event with that name has the property key (any value)
+                baseConditions.push(sql`EXISTS (
+                    SELECT 1 FROM jsonb_array_elements(${sessions.events}) AS elem
+                    WHERE elem->>'name' = ${eventName}
+                    AND elem->'properties' ? ${eventPropKey}
+                )`);
+            } else {
+                // Just match by event name
+                baseConditions.push(sql`${sessions.events} @> ${JSON.stringify([{ name: eventName }])}::jsonb`);
+            }
+        } else if (eventPropKey) {
+            // No event name specified, but filter by property key across ALL events
+            if (eventPropValue !== undefined && eventPropValue !== '') {
+                let parsedPropValue: any = eventPropValue;
+                if (eventPropValue === 'true') parsedPropValue = true;
+                else if (eventPropValue === 'false') parsedPropValue = false;
+                else if (!isNaN(Number(eventPropValue))) parsedPropValue = Number(eventPropValue);
+                baseConditions.push(sql`EXISTS (
+                    SELECT 1 FROM jsonb_array_elements(${sessions.events}) AS elem
+                    WHERE elem->'properties' @> ${JSON.stringify({ [eventPropKey]: parsedPropValue })}::jsonb
+                )`);
+            } else {
+                // Just check if any event has this property key
+                baseConditions.push(sql`EXISTS (
+                    SELECT 1 FROM jsonb_array_elements(${sessions.events}) AS elem
+                    WHERE elem->'properties' ? ${eventPropKey}
+                )`);
+            }
         }
 
-        // Get sessions with metrics and isFirstSession calculation
-        const sessionsList = await db
-            .select({
-                session: sessions,
-                metrics: sessionMetrics,
-                isFirstSession: sql<boolean>`NOT EXISTS (
-                    SELECT 1 FROM ${sessions} AS previous_sessions 
-                    WHERE previous_sessions.device_id = ${sessions.deviceId} 
-                      AND previous_sessions.project_id = ${sessions.projectId}
-                      AND previous_sessions.started_at < ${sessions.startedAt}
-                )`,
-            })
-            .from(sessions)
-            .leftJoin(sessionMetrics, eq(sessions.id, sessionMetrics.sessionId))
-            .where(and(...conditions))
-            .orderBy(sortBy === 'score' ? desc(sessions.replayPromotionScore) : desc(sessions.startedAt))
-            .limit(parsedLimit + 1)
-            .offset(cursor ? 0 : parseInt(offset) || 0);
+        // Event count comparison filter (uses session_metrics.custom_event_count)
+        const hasEventCountFilter = eventCountOp && eventCountValue !== undefined && eventCountValue !== '';
+        const parsedEventCountValue = hasEventCountFilter ? parseInt(eventCountValue) : NaN;
+        const eventCountCondition = (() => {
+            if (!hasEventCountFilter || isNaN(parsedEventCountValue)) return null;
+            switch (eventCountOp) {
+                case 'eq': return sql`${sessionMetrics.customEventCount} = ${parsedEventCountValue}`;
+                case 'gt': return sql`${sessionMetrics.customEventCount} > ${parsedEventCountValue}`;
+                case 'lt': return sql`${sessionMetrics.customEventCount} < ${parsedEventCountValue}`;
+                case 'gte': return sql`${sessionMetrics.customEventCount} >= ${parsedEventCountValue}`;
+                case 'lte': return sql`${sessionMetrics.customEventCount} <= ${parsedEventCountValue}`;
+                default: return null;
+            }
+        })();
+        if (eventCountCondition) baseConditions.push(eventCountCondition);
+
+        // Pagination conditions (cursor) are only applied to the data query, not the count
+        const dataConditions = [...baseConditions];
+        if (cursor) dataConditions.push(lt(sessions.id, cursor));
+
+        // Run data query and count query in parallel
+        const [sessionsList, countResult] = await Promise.all([
+            db
+                .select({
+                    session: sessions,
+                    metrics: sessionMetrics,
+                    isFirstSession: sql<boolean>`NOT EXISTS (
+                        SELECT 1 FROM ${sessions} AS previous_sessions 
+                        WHERE previous_sessions.device_id = ${sessions.deviceId} 
+                          AND previous_sessions.project_id = ${sessions.projectId}
+                          AND previous_sessions.started_at < ${sessions.startedAt}
+                    )`,
+                })
+                .from(sessions)
+                .leftJoin(sessionMetrics, eq(sessions.id, sessionMetrics.sessionId))
+                .where(and(...dataConditions))
+                .orderBy(sortBy === 'score' ? desc(sessions.replayPromotionScore) : desc(sessions.startedAt))
+                .limit(parsedLimit + 1)
+                .offset(cursor ? 0 : parseInt(offset) || 0),
+            // When event count filter is active, the count query must also join session_metrics
+            eventCountCondition
+                ? db
+                    .select({ count: sql<number>`count(*)::int` })
+                    .from(sessions)
+                    .leftJoin(sessionMetrics, eq(sessions.id, sessionMetrics.sessionId))
+                    .where(and(...baseConditions))
+                : db
+                    .select({ count: sql<number>`count(*)::int` })
+                    .from(sessions)
+                    .where(and(...baseConditions)),
+        ]);
+
+        const totalCount = countResult[0]?.count ?? 0;
 
         // Determine if there are more results
         const hasMore = sessionsList.length > parsedLimit;
@@ -966,6 +1051,7 @@ router.get(
             sessions: sessionsData,
             nextCursor,
             hasMore,
+            totalCount,
         });
     })
 );

@@ -206,9 +206,16 @@ public final class VisualCapture: NSObject {
         // Refresh map detection state (very cheap shallow walk)
         SpecialCases.shared.refreshMapState()
         
-        // Debug-only: confirm capture is running and map state
         if _frameCounter < 5 || _frameCounter % 30 == 0 {
-            DiagnosticLog.trace("[VisualCapture] frame#\(_frameCounter) mapVisible=\(SpecialCases.shared.mapVisible) mapIdle=\(SpecialCases.shared.mapIdle) forced=\(forced)")
+            var info = mach_task_basic_info()
+            var count = mach_msg_type_number_t(MemoryLayout<mach_task_basic_info>.size) / 4
+            let _ = withUnsafeMutablePointer(to: &info) {
+                $0.withMemoryRebound(to: integer_t.self, capacity: Int(count)) {
+                    task_info(mach_task_self_, task_flavor_t(MACH_TASK_BASIC_INFO), $0, &count)
+                }
+            }
+            let memMB = Double(info.resident_size) / 1_048_576.0
+            DiagnosticLog.trace("[VisualCapture] frame#\(_frameCounter) mapVisible=\(SpecialCases.shared.mapVisible) mapIdle=\(SpecialCases.shared.mapIdle) forced=\(forced) residentMB=\(String(format: "%.0f", memMB))")
         }
         
         // Map stutter prevention: when a map view is visible and its camera

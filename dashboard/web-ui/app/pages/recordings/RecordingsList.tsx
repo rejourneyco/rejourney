@@ -13,6 +13,8 @@ import {
   Download,
   ChevronLeft,
   ChevronRight,
+  ChevronsLeft,
+  ChevronsRight,
   Clock,
   Compass,
   Copy,
@@ -27,7 +29,8 @@ import {
   Gauge,
   Timer,
   MousePointerClick,
-  Database
+  Database,
+  X
 } from 'lucide-react';
 import { DashboardPageHeader } from '../../components/ui/DashboardPageHeader';
 import { TimeFilter, TimeRange, DEFAULT_TIME_RANGE } from '../../components/ui/TimeFilter';
@@ -40,7 +43,7 @@ import { useSessionData } from '../../context/SessionContext';
 import { useSafeTeam } from '../../context/TeamContext';
 import { formatGeoDisplay } from '../../utils/geoDisplay';
 
-const ROWS_PER_PAGE = 50;
+const PAGE_SIZE_OPTIONS = [25, 50, 100, 200, 300] as const;
 
 type SortKey = 'date' | 'duration' | 'apiResponse' | 'startup' | 'screens' | 'apiSuccess' | 'apiError' | 'crashes' | 'anrs' | 'errors' | 'rage' | 'network';
 type SortDirection = 'asc' | 'desc';
@@ -83,13 +86,22 @@ export const RecordingsList: React.FC = () => {
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [hasMore, setHasMore] = useState(false);
+  const [totalCount, setTotalCount] = useState<number>(0);
   const [searchQuery, setSearchQuery] = useState('');
+  const [rowsPerPage, setRowsPerPage] = useState(50);
 
   // Advanced Filters
   const [availableFilters, setAvailableFilters] = useState<{ events: string[]; metadata: Record<string, string[]> }>({ events: [], metadata: {} });
   const [eventNameFilter, setEventNameFilter] = useState('');
   const [metaKeyFilter, setMetaKeyFilter] = useState('');
   const [metaValueFilter, setMetaValueFilter] = useState('');
+  const [eventCountOp, setEventCountOp] = useState('');
+  const [eventCountValue, setEventCountValue] = useState('');
+  const [eventPropKey, setEventPropKey] = useState('');
+  const [eventPropValue, setEventPropValue] = useState('');
+
+  const [dateFilter, setDateFilter] = useState('');
+  const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
 
   const [filter, setFilter] = useState<'all' | 'crashes' | 'anrs' | 'errors' | 'rage' | 'dead_taps' | 'failed_funnel' | 'slow_start' | 'slow_api'>('all');
   const [timeRange, setTimeRange] = useState<TimeRange>(DEFAULT_TIME_RANGE);
@@ -111,6 +123,7 @@ export const RecordingsList: React.FC = () => {
       setSessions(demoSessions);
       setNextCursor(null);
       setHasMore(false);
+      setTotalCount(demoSessions.length);
       setIsLoading(false);
       return;
     }
@@ -145,12 +158,17 @@ export const RecordingsList: React.FC = () => {
 
       const result = await getSessionsPaginated({
         cursor,
-        limit: 100, // Fetch 100 at a time for better UX
+        limit: rowsPerPage,
         timeRange: timeRange === 'all' ? undefined : timeRange,
+        date: dateFilter ? dateFilter : undefined,
         projectId: selectedProjectId,
         metaKey: metaKeyFilter ? metaKeyFilter : undefined,
         metaValue: metaValueFilter ? metaValueFilter : undefined,
         eventName: eventNameFilter ? eventNameFilter : undefined,
+        eventCountOp: eventCountOp ? eventCountOp : undefined,
+        eventCountValue: eventCountValue ? eventCountValue : undefined,
+        eventPropKey: eventPropKey ? eventPropKey : undefined,
+        eventPropValue: eventPropValue ? eventPropValue : undefined,
       });
 
       if (requestId !== activeRequestIdRef.current) return;
@@ -162,6 +180,7 @@ export const RecordingsList: React.FC = () => {
         // Replace all sessions
         setSessions(result.sessions);
       }
+      setTotalCount(result.totalCount ?? 0);
 
       setNextCursor(result.nextCursor);
       setHasMore(result.hasMore);
@@ -174,10 +193,10 @@ export const RecordingsList: React.FC = () => {
         setIsLoadingMore(false);
       }
     }
-  }, [timeRange, isDemoMode, demoSessions, selectedProjectId, isContextLoading, isProjectFromCurrentTeam, metaKeyFilter, metaValueFilter, eventNameFilter]);
+  }, [timeRange, isDemoMode, demoSessions, selectedProjectId, isContextLoading, isProjectFromCurrentTeam, metaKeyFilter, metaValueFilter, eventNameFilter, rowsPerPage, dateFilter, eventCountOp, eventCountValue, eventPropKey, eventPropValue]);
 
   // Initial fetch and refetch when time range or project changes
-  const fetchScopeKey = `${isDemoMode ? 'demo' : 'live'}:${timeRange}:${currentTeam?.id || 'no-team'}:${selectedProjectId || 'no-project'}:${isContextLoading ? 'loading' : 'ready'}:${projects.length}:${isProjectFromCurrentTeam ? 'valid' : 'invalid'}:${metaKeyFilter}:${metaValueFilter}:${eventNameFilter}`;
+  const fetchScopeKey = `${isDemoMode ? 'demo' : 'live'}:${timeRange}:${dateFilter}:${currentTeam?.id || 'no-team'}:${selectedProjectId || 'no-project'}:${isContextLoading ? 'loading' : 'ready'}:${projects.length}:${isProjectFromCurrentTeam ? 'valid' : 'invalid'}:${metaKeyFilter}:${metaValueFilter}:${eventNameFilter}:${rowsPerPage}:${eventCountOp}:${eventCountValue}:${eventPropKey}:${eventPropValue}`;
 
   useEffect(() => {
     const requestId = ++activeRequestIdRef.current;
@@ -317,13 +336,19 @@ export const RecordingsList: React.FC = () => {
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchQuery, filter, sortConfigs]);
+  }, [searchQuery, filter, sortConfigs, dateFilter, eventCountOp, eventCountValue, eventPropKey, eventPropValue]);
 
-  const totalPages = Math.ceil(filteredSessions.length / ROWS_PER_PAGE);
+  const totalPages = Math.ceil(filteredSessions.length / rowsPerPage);
   const paginatedSessions = useMemo(() => {
-    const startIndex = (currentPage - 1) * ROWS_PER_PAGE;
-    return filteredSessions.slice(startIndex, startIndex + ROWS_PER_PAGE);
-  }, [filteredSessions, currentPage]);
+    const startIndex = (currentPage - 1) * rowsPerPage;
+    return filteredSessions.slice(startIndex, startIndex + rowsPerPage);
+  }, [filteredSessions, currentPage, rowsPerPage]);
+
+  // Computed display values
+  const startIndex = (currentPage - 1) * rowsPerPage + 1;
+  const endIndex = Math.min(currentPage * rowsPerPage, filteredSessions.length);
+  const hasActiveFilters = searchQuery || filter !== 'all' || eventNameFilter || metaKeyFilter || dateFilter || eventCountOp || eventPropKey;
+  const advancedFilterCount = (eventNameFilter ? 1 : 0) + (metaKeyFilter ? 1 : 0) + (eventCountOp ? 1 : 0) + (eventPropKey ? 1 : 0);
 
   const handleSort = (key: SortKey, multiSort: boolean) => {
     setSortConfigs(prev => {
@@ -393,91 +418,125 @@ export const RecordingsList: React.FC = () => {
       {/* Sticky Header Group */}
       <div className="sticky top-0 z-50 bg-white">
 
-        {/* Main Header */}
+        {/* Main Header — title only, minimal children */}
         <DashboardPageHeader
           title="Session Archive"
-          subtitle="Browse, filter & replay user sessions"
+          subtitle={totalCount > 0 ? `${totalCount.toLocaleString()} total replays` : 'Browse, filter & replay user sessions'}
           icon={<Layers className="w-6 h-6" />}
           iconColor="bg-indigo-500"
         >
-          <div className="flex items-center gap-2 w-full hidden md:flex flex-wrap pt-2 pb-1">
-            <div className="relative flex-1 group min-w-[200px]">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-900 group-focus-within:text-indigo-600 transition-colors" />
-              <input
-                type="text"
-                placeholder="SEARCH SESSION..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full pl-10 pr-4 py-2 bg-white border border-slate-100/80 shadow-sm border border-slate-200 rounded-lg font-bold text-sm uppercase placeholder:text-slate-400 focus:outline-none focus:translate-x-[1px] focus:translate-y-[1px] focus:shadow-none transition-all"
-              />
-            </div>
-
-            <div className="flex gap-2 items-center text-xs font-semibold">
-              {/* Event Filter */}
-              <select
-                value={eventNameFilter}
-                onChange={(e) => setEventNameFilter(e.target.value)}
-                className="bg-white border border-slate-200 shadow-sm rounded-lg px-3 py-2 uppercase outline-none focus:border-indigo-500 font-bold max-w-[200px] text-ellipsis"
-              >
-                <option value="">ALL EVENTS</option>
-                {availableFilters.events.map(event => (
-                  <option key={event} value={event}>{event}</option>
-                ))}
-              </select>
-
-              {/* Metadata Key Filter */}
-              <select
-                value={metaKeyFilter}
-                onChange={(e) => {
-                  setMetaKeyFilter(e.target.value);
-                  setMetaValueFilter(''); // reset value when key changes
-                }}
-                className="bg-white border border-slate-200 shadow-sm rounded-lg px-3 py-2 uppercase outline-none focus:border-indigo-500 font-bold max-w-[200px] text-ellipsis"
-              >
-                <option value="">ALL METADATA</option>
-                {Object.keys(availableFilters.metadata).map(key => (
-                  <option key={key} value={key}>{key}</option>
-                ))}
-              </select>
-
-              {/* Metadata Value Filter (only shown if a key is selected) */}
-              {metaKeyFilter && (
-                <select
-                  value={metaValueFilter}
-                  onChange={(e) => setMetaValueFilter(e.target.value)}
-                  className="bg-white border border-slate-200 shadow-sm rounded-lg px-3 py-2 uppercase outline-none focus:border-indigo-500 font-bold max-w-[200px] text-ellipsis"
-                >
-                  <option value="">ANY VALUE</option>
-                  {(availableFilters.metadata[metaKeyFilter] || []).map(val => (
-                    <option key={val} value={val}>{val}</option>
-                  ))}
-                </select>
-              )}
-            </div>
-          </div>
-
           <TimeFilter value={timeRange} onChange={setTimeRange} />
-
           <button
             onClick={() => {
               const params = new URLSearchParams();
               if (timeRange && timeRange !== 'all') params.append('timeRange', timeRange);
               if (selectedProjectId) params.append('projectId', selectedProjectId);
+              if (dateFilter) params.append('date', dateFilter);
               window.location.href = `/api/sessions/export?${params.toString()}`;
             }}
-            className="bg-slate-900 text-white p-2 border border-slate-100/80 shadow-sm border border-slate-200 hover:bg-slate-800    transition-all rounded-md"
+            className="bg-slate-900 text-white p-2 border border-slate-200 shadow-sm hover:bg-slate-800 transition-all rounded-md"
             title="Export CSV"
           >
             <Download className="w-4 h-4" />
           </button>
         </DashboardPageHeader>
 
-        {/* Filter Bar */}
-        <div className="bg-slate-50 border-b border-slate-100/80 px-6 py-3 overflow-x-auto scrollbar-hide">
-          <div className="flex items-center gap-3 max-w-[1800px] mx-auto">
-            <span className="font-semibold uppercase text-xs mr-2 flex items-center gap-1">
-              <Filter className="w-3 h-3" /> Filters:
-            </span>
+        {/* Search & Controls Row */}
+        <div className="bg-white border-b border-slate-100 px-6 py-2">
+          <div className="flex items-center gap-2 max-w-[1800px] mx-auto">
+            <div className="relative flex-1 group min-w-[180px]">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 group-focus-within:text-indigo-600 transition-colors" />
+              <input
+                type="text"
+                placeholder="SEARCH SESSION, USER, DEVICE..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full pl-10 pr-4 py-2 bg-white border border-slate-200 rounded-lg font-bold text-sm uppercase placeholder:text-slate-400 focus:outline-none focus:border-indigo-400 focus:ring-1 focus:ring-indigo-200 transition-all"
+              />
+            </div>
+
+            <input
+              type="date"
+              value={dateFilter}
+              onChange={(e) => setDateFilter(e.target.value)}
+              className={`bg-white border shadow-sm rounded-lg px-3 py-2 text-xs font-bold outline-none max-w-[150px] ${dateFilter ? 'border-indigo-400 ring-1 ring-indigo-200 text-slate-900' : 'border-slate-200 text-slate-500'}`}
+              title="Filter by specific date"
+            />
+
+            <button
+              onClick={() => setShowAdvancedFilters(!showAdvancedFilters)}
+              className={`flex items-center gap-1.5 px-3 py-2 text-xs font-bold uppercase rounded-lg border shadow-sm transition-colors whitespace-nowrap ${showAdvancedFilters || advancedFilterCount > 0
+                ? 'bg-indigo-50 border-indigo-300 text-indigo-700'
+                : 'bg-white border-slate-200 text-slate-600 hover:text-slate-900'
+                }`}
+            >
+              <Filter className="w-3.5 h-3.5" />
+              Filters
+              {advancedFilterCount > 0 && (
+                <span className="ml-1 px-1.5 py-0.5 text-[9px] font-bold bg-indigo-500 text-white rounded-full leading-none">
+                  {advancedFilterCount}
+                </span>
+              )}
+            </button>
+
+            {hasActiveFilters && (
+              <button
+                onClick={() => {
+                  setSearchQuery('');
+                  setFilter('all');
+                  setEventNameFilter('');
+                  setMetaKeyFilter('');
+                  setMetaValueFilter('');
+                  setDateFilter('');
+                  setEventCountOp('');
+                  setEventCountValue('');
+                  setEventPropKey('');
+                  setEventPropValue('');
+                  setShowAdvancedFilters(false);
+                }}
+                className="flex items-center gap-1 px-2.5 py-2 text-red-600 hover:text-red-700 hover:bg-red-50 rounded-lg transition-all font-bold uppercase text-[10px] border border-red-200"
+                title="Clear all filters"
+              >
+                <X className="w-3 h-3" /> Clear All
+              </button>
+            )}
+          </div>
+
+          {/* Active Filter Summary Pills */}
+          {advancedFilterCount > 0 && !showAdvancedFilters && (
+            <div className="flex items-center gap-2 mt-2 max-w-[1800px] mx-auto">
+              <span className="text-[10px] text-slate-400 font-semibold uppercase">Active:</span>
+              {eventNameFilter && (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-indigo-50 border border-indigo-200 rounded-full text-[10px] font-bold text-indigo-700 uppercase">
+                  Event: {eventNameFilter}
+                  <X className="w-2.5 h-2.5 cursor-pointer hover:text-red-500" onClick={() => setEventNameFilter('')} />
+                </span>
+              )}
+              {eventPropKey && (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-violet-50 border border-violet-200 rounded-full text-[10px] font-bold text-violet-700 uppercase">
+                  Prop: {eventPropKey}{eventPropValue ? ` = ${eventPropValue}` : ''}
+                  <X className="w-2.5 h-2.5 cursor-pointer hover:text-red-500" onClick={() => { setEventPropKey(''); setEventPropValue(''); }} />
+                </span>
+              )}
+              {metaKeyFilter && (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-emerald-50 border border-emerald-200 rounded-full text-[10px] font-bold text-emerald-700 uppercase">
+                  {metaKeyFilter}{metaValueFilter ? ` = ${metaValueFilter}` : ''}
+                  <X className="w-2.5 h-2.5 cursor-pointer hover:text-red-500" onClick={() => { setMetaKeyFilter(''); setMetaValueFilter(''); }} />
+                </span>
+              )}
+              {eventCountOp && (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-amber-50 border border-amber-200 rounded-full text-[10px] font-bold text-amber-700 uppercase">
+                  Events {eventCountOp === 'eq' ? '=' : eventCountOp === 'gt' ? '>' : eventCountOp === 'lt' ? '<' : eventCountOp === 'gte' ? '≥' : '≤'} {eventCountValue}
+                  <X className="w-2.5 h-2.5 cursor-pointer hover:text-red-500" onClick={() => { setEventCountOp(''); setEventCountValue(''); }} />
+                </span>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Issue Filter Pills */}
+        <div className="bg-slate-50 border-b border-slate-100/80 px-6 py-2.5 overflow-x-auto scrollbar-hide">
+          <div className="flex items-center gap-2 max-w-[1800px] mx-auto">
             {[
               { id: 'all', label: 'All', icon: Layers },
               { id: 'crashes', label: 'Crashes', icon: AlertOctagon },
@@ -492,10 +551,10 @@ export const RecordingsList: React.FC = () => {
               <button
                 key={f.id}
                 onClick={() => setFilter(f.id as any)}
-                className={`flex items-center gap-1.5 px-3 py-1.5 font-bold text-[10px] uppercase rounded-md border-2 transition-all whitespace-nowrap shadow-sm border border-slate-200 hover:-translate-y-0.5 hover:shadow-sm border border-slate-200   
+                className={`flex items-center gap-1.5 px-3 py-1.5 font-bold text-[10px] uppercase rounded-md border transition-all whitespace-nowrap shadow-sm hover:-translate-y-0.5
                     ${filter === f.id
-                    ? 'bg-slate-900 text-white border-slate-100/80'
-                    : 'bg-white border-slate-100/80 text-slate-900 hover:bg-indigo-50'}`}
+                    ? 'bg-slate-900 text-white border-slate-800'
+                    : 'bg-white border-slate-200 text-slate-900 hover:bg-indigo-50'}`}
               >
                 <f.icon className="w-3 h-3" />
                 {f.label}
@@ -503,6 +562,113 @@ export const RecordingsList: React.FC = () => {
             ))}
           </div>
         </div>
+
+        {/* Advanced Filters Panel — below issue pills, no overlap */}
+        {showAdvancedFilters && (
+          <div className="bg-white border-b border-slate-200 px-6 py-4">
+            <div className="max-w-[1800px] mx-auto space-y-3">
+              {/* Events Section */}
+              <div className="flex flex-wrap items-center gap-3">
+                <span className="text-[10px] font-bold text-indigo-500 uppercase tracking-wider w-20 shrink-0">🏷️ Events</span>
+                <span className="text-[10px] text-slate-400">Named actions logged by your app</span>
+                <div className="w-px h-5 bg-slate-200 mx-1" />
+                <select
+                  value={eventNameFilter}
+                  onChange={(e) => setEventNameFilter(e.target.value)}
+                  className={`bg-white border shadow-sm rounded-md px-3 py-1.5 uppercase outline-none focus:border-indigo-500 font-bold max-w-[200px] text-ellipsis text-xs ${eventNameFilter ? 'border-indigo-400 ring-1 ring-indigo-200 text-indigo-700' : 'border-slate-200 text-slate-600'}`}
+                >
+                  <option value="">ALL EVENTS</option>
+                  {availableFilters.events.map(event => (
+                    <option key={event} value={event}>{event}</option>
+                  ))}
+                </select>
+
+                <div className="w-px h-5 bg-slate-200 mx-1" />
+
+                <span className="text-[10px] text-slate-400">Count</span>
+                <select
+                  value={eventCountOp}
+                  onChange={(e) => { setEventCountOp(e.target.value); if (!e.target.value) setEventCountValue(''); }}
+                  className={`bg-white border shadow-sm rounded-md px-2 py-1.5 outline-none focus:border-indigo-500 font-bold text-xs w-16 ${eventCountOp ? 'border-amber-400 ring-1 ring-amber-200 text-amber-700' : 'border-slate-200 text-slate-600'}`}
+                >
+                  <option value="">—</option>
+                  <option value="eq">=</option>
+                  <option value="gt">&gt;</option>
+                  <option value="lt">&lt;</option>
+                  <option value="gte">≥</option>
+                  <option value="lte">≤</option>
+                </select>
+                {eventCountOp && (
+                  <input
+                    type="number"
+                    min="0"
+                    value={eventCountValue}
+                    onChange={(e) => setEventCountValue(e.target.value)}
+                    placeholder="0"
+                    className="bg-white border border-slate-200 shadow-sm rounded-md px-2 py-1.5 outline-none focus:border-amber-500 font-bold text-xs w-20 text-amber-700"
+                  />
+                )}
+
+                <div className="w-px h-5 bg-slate-200 mx-1" />
+
+                <span className="text-[10px] text-slate-400">Property</span>
+                <input
+                  type="text"
+                  value={eventPropKey}
+                  onChange={(e) => { setEventPropKey(e.target.value); if (!e.target.value) setEventPropValue(''); }}
+                  placeholder="key"
+                  className={`bg-white border shadow-sm rounded-md px-2 py-1.5 outline-none focus:border-violet-500 font-bold text-xs w-28 ${eventPropKey ? 'border-violet-400 ring-1 ring-violet-200 text-violet-700' : 'border-slate-200 text-slate-600 placeholder:text-slate-400'}`}
+                />
+                {eventPropKey && (
+                  <>
+                    <span className="text-[10px] text-slate-400">=</span>
+                    <input
+                      type="text"
+                      value={eventPropValue}
+                      onChange={(e) => setEventPropValue(e.target.value)}
+                      placeholder="any value"
+                      className={`bg-white border shadow-sm rounded-md px-2 py-1.5 outline-none focus:border-violet-500 font-bold text-xs w-28 ${eventPropValue ? 'border-violet-400 ring-1 ring-violet-200 text-violet-700' : 'border-slate-200 text-slate-600 placeholder:text-slate-400'}`}
+                    />
+                  </>
+                )}
+              </div>
+
+              <div className="border-t border-slate-100" />
+
+              {/* Metadata Section */}
+              <div className="flex flex-wrap items-center gap-3">
+                <span className="text-[10px] font-bold text-emerald-600 uppercase tracking-wider w-20 shrink-0">📋 Metadata</span>
+                <span className="text-[10px] text-slate-400">Key-value pairs set by your app</span>
+                <div className="w-px h-5 bg-slate-200 mx-1" />
+                <select
+                  value={metaKeyFilter}
+                  onChange={(e) => {
+                    setMetaKeyFilter(e.target.value);
+                    setMetaValueFilter('');
+                  }}
+                  className={`bg-white border shadow-sm rounded-md px-3 py-1.5 uppercase outline-none focus:border-emerald-500 font-bold max-w-[200px] text-ellipsis text-xs ${metaKeyFilter ? 'border-emerald-400 ring-1 ring-emerald-200 text-emerald-700' : 'border-slate-200 text-slate-600'}`}
+                >
+                  <option value="">ANY KEY</option>
+                  {Object.keys(availableFilters.metadata).map(key => (
+                    <option key={key} value={key}>{key}</option>
+                  ))}
+                </select>
+
+                <select
+                  value={metaValueFilter}
+                  onChange={(e) => setMetaValueFilter(e.target.value)}
+                  disabled={!metaKeyFilter}
+                  className={`bg-white border shadow-sm rounded-md px-3 py-1.5 uppercase outline-none focus:border-emerald-500 font-bold max-w-[200px] text-ellipsis text-xs ${!metaKeyFilter ? 'opacity-50 cursor-not-allowed border-slate-200' : metaValueFilter ? 'border-emerald-400 ring-1 ring-emerald-200 text-emerald-700' : 'border-slate-200 text-slate-600'}`}
+                >
+                  <option value="">{metaKeyFilter ? 'ANY VALUE' : 'SELECT KEY FIRST'}</option>
+                  {metaKeyFilter && (availableFilters.metadata[metaKeyFilter] || []).map(val => (
+                    <option key={val} value={val}>{val}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Table Header */}
         <div className="bg-white border border-slate-200 shadow-sm rounded-xl overflow-hidden mt-6">
@@ -791,50 +957,93 @@ export const RecordingsList: React.FC = () => {
             })}
           </div>
 
-          {/* Pagination for filtered/sorted results */}
-          {(totalPages > 1 || hasMore) && (
-            <div className="flex items-center justify-between border-t border-slate-200 py-4 mt-4 px-6">
-              <NeoButton
-                variant="secondary"
-                size="sm"
-                onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-                disabled={currentPage === 1 || isLoadingMore}
-              >
-                <ChevronLeft size={14} className="mr-1" /> Previous
-              </NeoButton>
-              <div className="flex flex-col items-center gap-1">
-                <span className="text-[10px] font-bold text-slate-400">
-                  {filteredSessions.length} sessions{hasMore ? ' (more available)' : ''}
+          {/* Pagination & Info Bar */}
+          {filteredSessions.length > 0 && (
+            <div className="flex items-center justify-between border-t border-slate-200 py-4 px-6 flex-wrap gap-3">
+              {/* Left: Showing X-Y of Z */}
+              <div className="flex items-center gap-3">
+                <span className="text-xs font-bold text-slate-500">
+                  Showing <span className="text-slate-900">{startIndex}–{endIndex}</span> of{' '}
+                  <span className="text-slate-900">{filteredSessions.length.toLocaleString()}</span> loaded
+                  {totalCount > filteredSessions.length && (
+                    <span className="text-slate-400"> ({totalCount.toLocaleString()} total)</span>
+                  )}
                 </span>
+                {hasMore && (
+                  <NeoButton
+                    variant="secondary"
+                    size="sm"
+                    onClick={handleLoadMore}
+                    disabled={isLoadingMore}
+                    rightIcon={isLoadingMore ? <Loader size={12} className="animate-spin" /> : undefined}
+                  >
+                    Load More
+                  </NeoButton>
+                )}
               </div>
-              <NeoButton
-                variant="secondary"
-                size="sm"
-                onClick={async () => {
-                  // If we're on the last page and there's more data, load it first
-                  if (currentPage === totalPages && hasMore && !isLoadingMore) {
-                    await handleLoadMore();
-                    // After loading, increment page to show new data
-                    setCurrentPage(p => p + 1);
-                  } else if (currentPage < totalPages) {
-                    // Normal pagination - just go to next page
-                    setCurrentPage(p => p + 1);
-                  }
-                }}
-                disabled={(currentPage === totalPages && !hasMore) || isLoadingMore}
-                rightIcon={isLoadingMore ? <Loader size={14} className="animate-spin" /> : undefined}
-              >
-                Next <ChevronRight size={14} className="ml-1" />
-              </NeoButton>
-            </div>
-          )}
 
-          {/* Show count when no more to load */}
-          {!hasMore && filteredSessions.length > 0 && totalPages <= 1 && (
-            <div className="flex justify-center py-4 border-t border-slate-200">
-              <span className="text-xs font-bold text-slate-400">
-                All {filteredSessions.length} sessions loaded
-              </span>
+              {/* Center: Page Navigation */}
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={() => setCurrentPage(1)}
+                  disabled={currentPage === 1}
+                  className="p-1.5 rounded-md hover:bg-slate-100 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                  title="First page"
+                >
+                  <ChevronsLeft size={14} />
+                </button>
+                <button
+                  onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                  disabled={currentPage === 1}
+                  className="p-1.5 rounded-md hover:bg-slate-100 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                  title="Previous page"
+                >
+                  <ChevronLeft size={14} />
+                </button>
+                <span className="px-3 py-1 text-xs font-bold text-slate-700">
+                  Page {currentPage} of {totalPages || 1}
+                </span>
+                <button
+                  onClick={async () => {
+                    if (currentPage === totalPages && hasMore && !isLoadingMore) {
+                      await handleLoadMore();
+                      setCurrentPage(p => p + 1);
+                    } else if (currentPage < totalPages) {
+                      setCurrentPage(p => p + 1);
+                    }
+                  }}
+                  disabled={(currentPage >= totalPages && !hasMore) || isLoadingMore}
+                  className="p-1.5 rounded-md hover:bg-slate-100 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                  title="Next page"
+                >
+                  <ChevronRight size={14} />
+                </button>
+                <button
+                  onClick={() => setCurrentPage(totalPages)}
+                  disabled={currentPage >= totalPages}
+                  className="p-1.5 rounded-md hover:bg-slate-100 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                  title="Last page"
+                >
+                  <ChevronsRight size={14} />
+                </button>
+              </div>
+
+              {/* Right: Per-page selector */}
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] font-bold text-slate-400 uppercase">Per page:</span>
+                <select
+                  value={rowsPerPage}
+                  onChange={(e) => {
+                    setRowsPerPage(Number(e.target.value));
+                    setCurrentPage(1);
+                  }}
+                  className="bg-white border border-slate-200 shadow-sm rounded-md px-2 py-1 text-xs font-bold outline-none focus:border-indigo-500 cursor-pointer"
+                >
+                  {PAGE_SIZE_OPTIONS.map(size => (
+                    <option key={size} value={size}>{size}</option>
+                  ))}
+                </select>
+              </div>
             </div>
           )}
         </div>

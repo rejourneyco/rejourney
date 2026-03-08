@@ -44,17 +44,21 @@ final class SegmentDispatcher {
     }()
     
     private let httpSession: URLSession = {
-        // Industry standard: Use ephemeral config with explicit connection limits
         let cfg = URLSessionConfiguration.ephemeral
         cfg.httpMaximumConnectionsPerHost = 4
         cfg.waitsForConnectivity = true
         cfg.timeoutIntervalForRequest = 30
         cfg.timeoutIntervalForResource = 60
+        // Strip our own protocol to prevent self-interception. Without this,
+        // every SDK upload is intercepted by RejourneyURLProtocol which
+        // generates redundant network events and wastes resources.
+        cfg.protocolClasses = cfg.protocolClasses?.filter { $0 != RejourneyURLProtocol.self } ?? []
         return URLSession(configuration: cfg)
     }()
     
     private var retryQueue: [PendingUpload] = []
     private let retryLock = NSLock()
+    private let maxRetryQueueSize = 20
     private var active = true
     
     private let metricsLock = NSLock()
@@ -332,6 +336,9 @@ final class SegmentDispatcher {
             var retry = upload
             retry.attempt += 1
             retryLock.lock()
+            if retryQueue.count >= maxRetryQueueSize {
+                retryQueue.removeFirst()
+            }
             retryQueue.append(retry)
             retryLock.unlock()
             

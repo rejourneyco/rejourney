@@ -483,6 +483,10 @@ class ReplayOrchestrator private constructor(private val context: Context) {
 
     fun logScreenView(screenId: String) {
         if (screenId.isEmpty()) return
+        if (visitedScreens.size >= 500) {
+            val excess = visitedScreens.size - 250
+            repeat(excess) { visitedScreens.removeAt(0) }
+        }
         visitedScreens.add(screenId)
         currentScreenName = screenId
         if (hierarchyCaptureEnabled) captureHierarchy()

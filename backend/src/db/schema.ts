@@ -99,6 +99,7 @@ export const teams = pgTable('teams', {
     billingCycleAnchor: timestamp('billing_cycle_anchor'),
     paymentFailedAt: timestamp('payment_failed_at'), // Set when payment fails, cleared on success
     retentionTier: integer('retention_tier').default(0).notNull(), // Default to 0 (uses global/plan default)
+    bonusSessions: integer('bonus_sessions').default(0).notNull(), // Manual override: extra sessions beyond plan limit
     createdAt: timestamp('created_at').defaultNow().notNull(),
     updatedAt: timestamp('updated_at').defaultNow().notNull(),
 });
