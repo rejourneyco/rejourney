@@ -87,7 +87,7 @@ CREATE INDEX IF NOT EXISTS session_backup_log_backed_up_at_idx ON session_backup
 #   3. Recordings haven't been deleted or expired
 
 WHERE_CLAUSES="
-  s.status = 'completed'
+  s.status IN ('ready', 'completed')
   AND s.recording_deleted = false
   AND s.is_replay_expired = false
   AND EXISTS (
