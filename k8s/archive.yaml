@@ -55,12 +55,12 @@ spec:
                   TOTAL=$(psql "$DATABASE_URL" -tAX -c "
                     SELECT COUNT(*)
                     FROM sessions s
-                    WHERE s.status = 'completed'
-                      AND s.recording_deleted = false
-                      AND s.is_replay_expired = false
-                      AND EXISTS (
-                        SELECT 1 FROM recording_artifacts ra
-                        WHERE ra.session_id = s.id
+                      WHERE s.status IN ('ready', 'completed')
+                        AND s.recording_deleted = false
+                        AND s.is_replay_expired = false
+                        AND EXISTS (
+                          SELECT 1 FROM recording_artifacts ra
+                          WHERE ra.session_id = s.id
                           AND ra.kind = 'screenshots'
                           AND ra.status = 'ready'
                       )
@@ -93,7 +93,7 @@ spec:
                   while [ "$ERRORS" -lt 10 ]; do
                     SESSION_IDS=$(psql "$DATABASE_URL" -tAX -c "
                       SELECT s.id FROM sessions s
-                      WHERE s.status = 'completed'
+                      WHERE s.status IN ('ready', 'completed')
                         AND s.recording_deleted = false
                         AND s.is_replay_expired = false
                         AND EXISTS (
