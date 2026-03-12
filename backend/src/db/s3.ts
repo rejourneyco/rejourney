@@ -288,6 +288,46 @@ function getS3ClientForEndpoint(endpoint: StorageEndpoint): S3ClientEntry {
     return entry;
 }
 
+async function streamBodyToBuffer(body: AsyncIterable<Uint8Array>): Promise<Buffer> {
+    const chunks: Uint8Array[] = [];
+    for await (const chunk of body) {
+        chunks.push(chunk);
+    }
+    return Buffer.concat(chunks);
+}
+
+async function putObjectToEndpoint(
+    endpoint: StorageEndpoint,
+    key: string,
+    body: Buffer | string,
+    contentType: string,
+    metadata?: Record<string, string>
+): Promise<void> {
+    const { client, bucket } = getS3ClientForEndpoint(endpoint);
+    await client.send(
+        new PutObjectCommand({
+            Bucket: bucket,
+            Key: key,
+            Body: body,
+            ContentType: contentType,
+            Metadata: metadata,
+        })
+    );
+}
+
+async function headObjectForEndpoint(endpoint: StorageEndpoint, key: string): Promise<number | null> {
+    const { client, bucket } = getS3ClientForEndpoint(endpoint);
+    const response = await client.send(
+        new HeadObjectCommand({
+            Bucket: bucket,
+            Key: key,
+        })
+    );
+
+    const len = response.ContentLength;
+    return typeof len === 'number' && Number.isFinite(len) ? len : null;
+}
+
 // =============================================================================
 // S3 Key Generation
 // =============================================================================
@@ -321,18 +361,9 @@ export async function uploadToS3(
     metadata?: Record<string, string>
 ): Promise<{ success: boolean; endpointId: string; error?: string }> {
     const endpoint = await getEndpointForProject(projectId);
-    const { client, bucket } = getS3ClientForEndpoint(endpoint);
 
     try {
-        await client.send(
-            new PutObjectCommand({
-                Bucket: bucket,
-                Key: key,
-                Body: body,
-                ContentType: contentType,
-                Metadata: metadata,
-            })
-        );
+        await putObjectToEndpoint(endpoint, key, body, contentType, metadata);
 
         logger.debug({ key, endpointId: endpoint.id }, 'Uploaded to S3');
 
@@ -361,17 +392,8 @@ async function uploadToShadows(
     const shadows = await getShadowEndpoints(projectId);
 
     const uploads = shadows.map(async (endpoint) => {
-        const { client, bucket } = getS3ClientForEndpoint(endpoint);
         try {
-            await client.send(
-                new PutObjectCommand({
-                    Bucket: bucket,
-                    Key: key,
-                    Body: body,
-                    ContentType: contentType,
-                    Metadata: metadata,
-                })
-            );
+            await putObjectToEndpoint(endpoint, key, body, contentType, metadata);
             logger.debug({ key, endpointId: endpoint.id }, 'Shadow upload complete');
         } catch (err) {
             logger.warn({ err, key, endpointId: endpoint.id }, 'Shadow upload failed');
@@ -479,6 +501,37 @@ export async function downloadFromS3(
     endpointId: string,
     key: string
 ): Promise<Buffer | null> {
+    const buffer = await downloadRawFromS3(endpointId, key);
+    if (!buffer) {
+        return null;
+    }
+
+    // Decompress if gzipped
+    if (key.endsWith('.gz')) {
+        const zlib = await import('zlib');
+        return new Promise((resolve) => {
+            zlib.gunzip(buffer, (err, result) => {
+                if (err) {
+                    // Not actually gzipped - return raw
+                    logger.warn({ err, key }, 'Failed to decompress, returning raw data');
+                    resolve(buffer);
+                } else {
+                    resolve(result);
+                }
+            });
+        });
+    }
+
+    return buffer;
+}
+
+/**
+ * Download raw data from S3 without automatic decompression.
+ */
+export async function downloadRawFromS3(
+    endpointId: string,
+    key: string
+): Promise<Buffer | null> {
     const endpoint = await getEndpointById(endpointId);
     if (!endpoint) {
         logger.error({ endpointId }, 'Endpoint not found for download');
@@ -498,31 +551,7 @@ export async function downloadFromS3(
         if (!response.Body) {
             return null;
         }
-
-        // Convert stream to buffer
-        const chunks: Uint8Array[] = [];
-        for await (const chunk of response.Body as AsyncIterable<Uint8Array>) {
-            chunks.push(chunk);
-        }
-        const buffer = Buffer.concat(chunks);
-
-        // Decompress if gzipped
-        if (key.endsWith('.gz')) {
-            const zlib = await import('zlib');
-            return new Promise((resolve) => {
-                zlib.gunzip(buffer, (err, result) => {
-                    if (err) {
-                        // Not actually gzipped - return raw
-                        logger.warn({ err, key }, 'Failed to decompress, returning raw data');
-                        resolve(buffer);
-                    } else {
-                        resolve(result);
-                    }
-                });
-            });
-        }
-
-        return buffer;
+        return streamBodyToBuffer(response.Body as AsyncIterable<Uint8Array>);
     } catch (err) {
         logger.error({ err, key, endpointId }, 'Failed to download from S3');
         return null;
@@ -559,6 +588,28 @@ export async function downloadFromS3ForArtifact(
     return downloadFromS3ForProject(projectId, key);
 }
 
+export async function downloadRawFromS3ForProject(
+    projectId: string,
+    key: string
+): Promise<Buffer | null> {
+    const endpoint = await getEndpointForProject(projectId);
+    return downloadRawFromS3(endpoint.id, key);
+}
+
+export async function downloadRawFromS3ForArtifact(
+    projectId: string,
+    key: string,
+    endpointId: string | null | undefined
+): Promise<Buffer | null> {
+    if (endpointId) {
+        const endpoint = await getEndpointById(endpointId);
+        if (endpoint) {
+            return downloadRawFromS3(endpoint.id, key);
+        }
+    }
+    return downloadRawFromS3ForProject(projectId, key);
+}
+
 /**
  * Get object size in bytes without downloading.
  * Useful for debugging storage usage (e.g., total replay size).
@@ -569,20 +620,61 @@ export async function getObjectSizeBytesForProject(
 ): Promise<number | null> {
     try {
         const endpoint = await getEndpointForProject(projectId);
-        const { client, bucket } = getS3ClientForEndpoint(endpoint);
-
-        const response = await client.send(
-            new HeadObjectCommand({
-                Bucket: bucket,
-                Key: key,
-            })
-        );
-
-        const len = response.ContentLength;
-        return typeof len === 'number' && Number.isFinite(len) ? len : null;
+        return await headObjectForEndpoint(endpoint, key);
     } catch (err) {
         logger.debug({ err, projectId, key }, 'Failed to HEAD object size');
         return null;
+    }
+}
+
+export async function getObjectSizeBytesForArtifact(
+    projectId: string,
+    key: string,
+    endpointId: string | null | undefined
+): Promise<number | null> {
+    try {
+        if (endpointId) {
+            const endpoint = await getEndpointById(endpointId);
+            if (endpoint) {
+                return await headObjectForEndpoint(endpoint, key);
+            }
+        }
+
+        return await getObjectSizeBytesForProject(projectId, key);
+    } catch (err) {
+        logger.debug({ err, projectId, key, endpointId }, 'Failed to HEAD object size for artifact');
+        return null;
+    }
+}
+
+export async function uploadToS3ForArtifact(
+    projectId: string,
+    key: string,
+    body: Buffer | string,
+    contentType: string = 'application/octet-stream',
+    metadata?: Record<string, string>,
+    endpointId?: string | null
+): Promise<{ success: boolean; endpointId: string; error?: string }> {
+    try {
+        const endpoint = endpointId
+            ? (await getEndpointById(endpointId)) || await getEndpointForProject(projectId)
+            : await getEndpointForProject(projectId);
+
+        await putObjectToEndpoint(endpoint, key, body, contentType, metadata);
+        logger.debug({ key, endpointId: endpoint.id }, 'Uploaded artifact to S3');
+
+        uploadToShadows(projectId, key, body, contentType, metadata).catch(err => {
+            logger.warn({ err, key }, 'Shadow upload failed');
+        });
+
+        return { success: true, endpointId: endpoint.id };
+    } catch (err) {
+        logger.error({ err, key, projectId, endpointId }, 'Failed to upload artifact to S3');
+        return {
+            success: false,
+            endpointId: endpointId || 'unknown',
+            error: String(err),
+        };
     }
 }
 
@@ -641,6 +733,17 @@ export async function deleteProjectAssets(
     teamId: string
 ): Promise<void> {
     const prefix = `tenant/${teamId}/project/${projectId}/`;
+    await deletePrefixFromS3ForProject(projectId, prefix);
+}
+
+/**
+ * Delete all objects under a specific S3 prefix for a given project.
+ * Uses the project's default endpoint and any shadow endpoints.
+ */
+export async function deletePrefixFromS3ForProject(
+    projectId: string,
+    prefix: string
+): Promise<void> {
     const endpoint = await getEndpointForProject(projectId);
     const { client, bucket } = getS3ClientForEndpoint(endpoint);
 
@@ -680,7 +783,7 @@ export async function deleteProjectAssets(
                         },
                     })
                 );
-                logger.info({ projectId, count: objectsToDelete.length }, 'Deleted batch of S3 assets');
+                logger.info({ projectId, prefix, count: objectsToDelete.length }, 'Deleted batch of S3 assets');
             }
 
             continuationToken = listResponse.NextContinuationToken;
@@ -690,20 +793,20 @@ export async function deleteProjectAssets(
     try {
         // Delete from primary
         await deleteFromBucket(client, bucket);
-        logger.info({ projectId, endpoint: endpoint.id }, 'Primary project assets deleted');
+        logger.info({ projectId, endpoint: endpoint.id, prefix }, 'Primary project assets deleted');
 
         // Delete from shadows
         for (const shadow of shadows) {
             const { client: shadowClient, bucket: shadowBucket } = getS3ClientForEndpoint(shadow);
             try {
                 await deleteFromBucket(shadowClient, shadowBucket);
-                logger.info({ projectId, endpoint: shadow.id }, 'Shadow project assets deleted');
+                logger.info({ projectId, endpoint: shadow.id, prefix }, 'Shadow project assets deleted');
             } catch (err) {
-                logger.error({ err, projectId, endpoint: shadow.id }, 'Failed to delete shadow assets');
+                logger.error({ err, projectId, endpoint: shadow.id, prefix }, 'Failed to delete shadow assets');
             }
         }
     } catch (err) {
-        logger.error({ err, projectId }, 'Failed to delete project assets');
+        logger.error({ err, projectId, prefix }, 'Failed to delete project assets by prefix');
         throw err;
     }
 }

@@ -13,7 +13,7 @@ import { tmpdir } from 'os';
 import { join } from 'path';
 import { gunzipSync } from 'zlib';
 import { db, recordingArtifacts, sessions } from '../db/client.js';
-import { downloadFromS3ForProject } from '../db/s3.js';
+import { downloadFromS3ForArtifact } from '../db/s3.js';
 import { logger } from '../logger.js';
 
 export interface ThumbnailOptions {
@@ -424,6 +424,7 @@ export async function getSessionThumbnail(
             .select({
                 id: recordingArtifacts.id,
                 s3ObjectKey: recordingArtifacts.s3ObjectKey,
+                endpointId: recordingArtifacts.endpointId,
                 kind: recordingArtifacts.kind,
                 status: recordingArtifacts.status,
             })
@@ -449,9 +450,10 @@ export async function getSessionThumbnail(
             // New video segment path - extract thumbnail using FFmpeg
             logger.info({ sessionId, s3Key: videoArtifact.s3ObjectKey }, '[videoThumbnail] Downloading video from S3');
 
-            const videoData = await downloadFromS3ForProject(
+            const videoData = await downloadFromS3ForArtifact(
                 session.projectId,
-                videoArtifact.s3ObjectKey
+                videoArtifact.s3ObjectKey,
+                videoArtifact.endpointId
             );
 
             if (!videoData) {
@@ -480,6 +482,7 @@ export async function getSessionThumbnail(
             .select({
                 id: recordingArtifacts.id,
                 s3ObjectKey: recordingArtifacts.s3ObjectKey,
+                endpointId: recordingArtifacts.endpointId,
                 kind: recordingArtifacts.kind,
                 status: recordingArtifacts.status,
             })
@@ -503,9 +506,10 @@ export async function getSessionThumbnail(
             // Screenshot archive path - extract first frame from tar.gz
             logger.info({ sessionId, s3Key: screenshotArtifact.s3ObjectKey }, '[videoThumbnail] Downloading screenshot archive from S3');
 
-            const archiveData = await downloadFromS3ForProject(
+            const archiveData = await downloadFromS3ForArtifact(
                 session.projectId,
-                screenshotArtifact.s3ObjectKey
+                screenshotArtifact.s3ObjectKey,
+                screenshotArtifact.endpointId
             );
 
             if (!archiveData) {
@@ -595,6 +599,7 @@ export async function getThumbnailAtTimestamp(
             .select({
                 id: recordingArtifacts.id,
                 s3ObjectKey: recordingArtifacts.s3ObjectKey,
+                endpointId: recordingArtifacts.endpointId,
                 startTime: recordingArtifacts.startTime,
                 endTime: recordingArtifacts.endTime,
                 timestamp: recordingArtifacts.timestamp,
@@ -635,9 +640,10 @@ export async function getThumbnailAtTimestamp(
             }
 
             // Download the archive and find the frame closest to target timestamp
-            const archiveData = await downloadFromS3ForProject(
+            const archiveData = await downloadFromS3ForArtifact(
                 session.projectId,
-                bestArtifact.s3ObjectKey
+                bestArtifact.s3ObjectKey,
+                bestArtifact.endpointId
             );
 
             if (archiveData) {
@@ -662,6 +668,7 @@ export async function getThumbnailAtTimestamp(
             .select({
                 id: recordingArtifacts.id,
                 s3ObjectKey: recordingArtifacts.s3ObjectKey,
+                endpointId: recordingArtifacts.endpointId,
                 startTime: recordingArtifacts.startTime,
                 endTime: recordingArtifacts.endTime,
             })
@@ -692,9 +699,10 @@ export async function getThumbnailAtTimestamp(
             const segmentOffsetSec = Math.max(0, (targetTimestampMs - bestSegmentStartMs) / 1000);
 
             // Download and extract
-            const videoData = await downloadFromS3ForProject(
+            const videoData = await downloadFromS3ForArtifact(
                 session.projectId,
-                bestSegment.s3ObjectKey
+                bestSegment.s3ObjectKey,
+                bestSegment.endpointId
             );
 
             if (videoData) {

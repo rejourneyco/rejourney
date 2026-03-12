@@ -467,10 +467,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   <AlertTriangle className="w-3 h-3" /> {getIosBundleIdError(newBundleId)}
                 </p>
               )}
-              <div className="bg-amber-50 text-amber-800 text-[10px] font-bold p-2 border border-amber-200 flex items-start gap-1.5">
-                <AlertTriangle className="w-3 h-3 mt-0.5 shrink-0" />
-                <span>Bundle ID cannot be changed after project creation. Ensure it matches your Xcode project.</span>
-              </div>
             </div>
           )}
 
@@ -491,10 +487,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   <AlertTriangle className="w-3 h-3" /> {getAndroidPackageError(newPackageName)}
                 </p>
               )}
-              <div className="bg-amber-50 text-amber-800 text-[10px] font-bold p-2 border border-amber-200 flex items-start gap-1.5">
-                <AlertTriangle className="w-3 h-3 mt-0.5 shrink-0" />
-                <span>Package name cannot be changed after project creation. Ensure it matches your build.gradle.</span>
-              </div>
             </div>
           )}
         </div>

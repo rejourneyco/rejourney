@@ -14,7 +14,7 @@ import { User } from '@/types';
 import { Rejourney } from 'rejourney';
 
 Rejourney.init('rj_b6075c32a139fac7d444f86054e3dd25', {
-  apiUrl: 'http://10.43.91.67:3000', // Update this to your local backend IP
+  apiUrl: 'http://10.43.91.71:3000', // Update this to your local backend IP
   debug: true,
   autoTrackExpoRouter: false,
   autoScreenTracking: false,

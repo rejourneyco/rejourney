@@ -10,6 +10,7 @@ import { eq, and, isNull } from 'drizzle-orm';
 import { db, userSessions, users, apiKeys, projects, teams, teamMembers } from '../db/client.js';
 import { logger } from '../logger.js';
 
+
 // Extend Express Request type
 declare global {
     namespace Express {
@@ -245,16 +246,18 @@ export async function apiKeyAuth(
                                     .limit(1);
 
                                 if (projectResult && !projectResult.project.deletedAt) {
+                                    const proj = projectResult.project;
+
                                     req.project = {
-                                        id: projectResult.project.id,
-                                        teamId: projectResult.project.teamId,
-                                        name: projectResult.project.name,
-                                        recordingEnabled: projectResult.project.recordingEnabled,
-                                        rejourneyEnabled: (projectResult.project as any).rejourneyEnabled,
+                                        id: proj.id,
+                                        teamId: proj.teamId,
+                                        name: proj.name,
+                                        recordingEnabled: proj.recordingEnabled,
+                                        rejourneyEnabled: (proj as any).rejourneyEnabled,
                                     };
                                     req.apiKey = {
                                         id: 'device-auth',
-                                        projectId: projectResult.project.id,
+                                        projectId: proj.id,
                                         scopes: ['ingest'],
                                     };
 
@@ -282,10 +285,10 @@ export async function apiKeyAuth(
 
         // Hash the key for API key table lookup
         const hashedKey = createHash('sha256').update(projectKey).digest('hex');
-        
-        logger.debug({ 
-            keyPrefix: projectKey.substring(0, 10), 
-            hashedKeyPrefix: hashedKey.substring(0, 16) 
+
+        logger.debug({
+            keyPrefix: projectKey.substring(0, 10),
+            hashedKeyPrefix: hashedKey.substring(0, 16)
         }, 'Looking up key');
 
         // Find API key with project and team
@@ -315,19 +318,21 @@ export async function apiKeyAuth(
                 .limit(1);
 
             if (projectByPubKey && !projectByPubKey.project.deletedAt) {
+                const proj = projectByPubKey.project;
+
                 req.project = {
-                    id: projectByPubKey.project.id,
-                    teamId: projectByPubKey.project.teamId,
-                    name: projectByPubKey.project.name,
-                    recordingEnabled: projectByPubKey.project.recordingEnabled,
-                    rejourneyEnabled: (projectByPubKey.project as any).rejourneyEnabled,
+                    id: proj.id,
+                    teamId: proj.teamId,
+                    name: proj.name,
+                    recordingEnabled: proj.recordingEnabled,
+                    rejourneyEnabled: (proj as any).rejourneyEnabled,
                 };
                 req.apiKey = {
                     id: 'project-public-key',
-                    projectId: projectByPubKey.project.id,
+                    projectId: proj.id,
                     scopes: ['ingest'],
                 };
-                logger.debug({ projectId: projectByPubKey.project.id }, 'Authenticated via project public key fallback');
+                logger.debug({ projectId: proj.id }, 'Authenticated via project public key fallback');
                 next();
                 return;
             }

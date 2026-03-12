@@ -17,7 +17,7 @@ import {
     teams,
     billingUsage,
 } from '../db/client.js';
-import { deleteProjectAssets } from '../db/s3.js';
+import { deleteProjectAssets, deletePrefixFromS3ForProject } from '../db/s3.js';
 import { logger } from '../logger.js';
 import { cancelSubscription } from './stripe.js';
 import { invalidateSessionCache } from './quotaCheck.js';
@@ -41,7 +41,7 @@ export interface TeamDeletionResult {
  *
  * Safety model:
  * 1) Mark project deleted + revoke keys first (blocks new ingest quickly)
- * 2) Purge S3 objects
+ * 2) Purge S3 objects (project assets + root sessions/ caches)
  * 3) Delete non-cascading rows, then delete project row
  */
 export async function hardDeleteProject(target: ProjectDeletionTarget): Promise<void> {
@@ -58,6 +58,16 @@ export async function hardDeleteProject(target: ProjectDeletionTarget): Promise<
 
     // Delete project files from storage (primary + shadow endpoints).
     await deleteProjectAssets(target.id, target.teamId);
+
+    // Explicitly delete cached screenshot frames under sessions/ prefix.
+    const projectSessions = await db
+        .select({ id: sessions.id })
+        .from(sessions)
+        .where(eq(sessions.projectId, target.id));
+
+    for (const session of projectSessions) {
+        await deletePrefixFromS3ForProject(target.id, `sessions/${session.id}/`);
+    }
 
     // Explicitly clean tables that don't have ON DELETE CASCADE.
     await db.transaction(async (tx) => {

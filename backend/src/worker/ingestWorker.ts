@@ -14,12 +14,13 @@ import { evaluateAndPromoteSession } from '../services/replayPromotion.js';
 import { analyzeProjectFunnel } from '../services/funnelAnalysis.js';
 import { updateDeviceUsage } from '../services/recording.js';
 import { createHash } from 'crypto';
-import { downloadFromS3ForArtifact } from '../db/s3.js';
+import { downloadFromS3ForArtifact, getObjectSizeBytesForArtifact } from '../db/s3.js';
 import { logger } from '../logger.js';
 import { pingWorker, checkQueueHealth } from '../services/monitoring.js';
 import { trackErrorAsIssue, trackCrashAsIssue, trackANRAsIssue } from '../services/issueTracker.js';
 import { getUniqueScreenCount, mergeScreenPaths, normalizeScreenPath } from '../utils/screenPaths.js';
 import { invalidateFrameCache, prewarmSessionScreenshotFrames } from '../services/screenshotFrames.js';
+import { ensureHierarchyArtifactCompressed } from '../services/hierarchyArtifactCompression.js';
 
 const POLL_INTERVAL_MS = 500;
 const MAX_ATTEMPTS = 3;
@@ -263,27 +264,51 @@ async function processArtifactJob(job: any): Promise<boolean> {
             .where(eq(recordingArtifacts.id, job.artifactId))
             .limit(1);
 
-        // Download from artifact's endpoint (or project default for legacy artifacts)
-        const data = await downloadFromS3ForArtifact(projectId, s3Key, artifact?.endpointId);
-        if (!data) {
-            log.warn('No data found in S3');
-            await db.update(recordingArtifacts)
-                .set({ status: 'ready', readyAt: new Date() })
-                .where(eq(recordingArtifacts.id, job.artifactId));
-            await db.update(ingestJobs)
-                .set({ status: 'done', updatedAt: new Date() })
-                .where(eq(ingestJobs.id, job.id));
-            return true;
+        let repairedHierarchySize: number | null = null;
+        if (job.kind === 'hierarchy') {
+            const repairResult = await ensureHierarchyArtifactCompressed({
+                projectId,
+                s3Key,
+                endpointId: artifact?.endpointId,
+                artifactId: job.artifactId,
+                sessionId: job.sessionId,
+            });
+            repairedHierarchySize = repairResult.sizeBytes;
+        }
+
+        const actualObjectSize = repairedHierarchySize
+            ?? await getObjectSizeBytesForArtifact(projectId, s3Key, artifact?.endpointId);
+
+        let data: Buffer | null = null;
+        if (job.kind !== 'hierarchy') {
+            // Download from artifact's endpoint (or project default for legacy artifacts)
+            data = await downloadFromS3ForArtifact(projectId, s3Key, artifact?.endpointId);
+            if (!data) {
+                log.warn('No data found in S3');
+                await db.update(recordingArtifacts)
+                    .set({
+                        status: 'ready',
+                        readyAt: new Date(),
+                        ...(typeof actualObjectSize === 'number' && Number.isFinite(actualObjectSize)
+                            ? { sizeBytes: actualObjectSize }
+                            : {}),
+                    })
+                    .where(eq(recordingArtifacts.id, job.artifactId));
+                await db.update(ingestJobs)
+                    .set({ status: 'done', updatedAt: new Date() })
+                    .where(eq(ingestJobs.id, job.id));
+                return true;
+            }
         }
 
         // Process based on kind
         if (job.kind === 'events') {
-            await processEventsArtifact(job, session, metrics, projectId, data, log);
+            await processEventsArtifact(job, session, metrics, projectId, data!, log);
         } else if (job.kind === 'crashes') {
-            await processCrashesArtifact(job, session, projectId, s3Key, data, log);
+            await processCrashesArtifact(job, session, projectId, s3Key, data!, log);
         } else if (job.kind === 'anrs') {
             log.info({ sessionId: session.id, kind: job.kind }, 'Processing ANRs artifact');
-            await processAnrsArtifact(job, session, projectId, s3Key, data, log);
+            await processAnrsArtifact(job, session, projectId, s3Key, data!, log);
         } else if (job.kind === 'screenshots' || job.kind === 'hierarchy') {
             // These jobs can be created during auto-finalization when /segment/complete
             // was never called. Re-apply the same counters as ingest route finalization.
@@ -292,7 +317,13 @@ async function processArtifactJob(job: any): Promise<boolean> {
 
         // Mark artifact + job as done
         await db.update(recordingArtifacts)
-            .set({ status: 'ready', readyAt: new Date() })
+            .set({
+                status: 'ready',
+                readyAt: new Date(),
+                ...(typeof actualObjectSize === 'number' && Number.isFinite(actualObjectSize)
+                    ? { sizeBytes: actualObjectSize }
+                    : {}),
+            })
             .where(eq(recordingArtifacts.id, job.artifactId));
 
         await db.update(ingestJobs)
@@ -1020,7 +1051,7 @@ async function processEventsArtifact(job: any, session: any, metrics: any, proje
 async function processRecoveredReplayArtifact(
     job: any,
     session: any,
-    data: Buffer,
+    data: Buffer | null,
     log: any
 ) {
     const [artifact] = await db
@@ -1035,6 +1066,11 @@ async function processRecoveredReplayArtifact(
     }
 
     if (job.kind === 'screenshots') {
+        if (!data) {
+            log.warn({ artifactId: job.artifactId }, 'Screenshot artifact payload missing while recovering replay counters');
+            return;
+        }
+
         const sizeBytes = Number(data.length || artifact.sizeBytes || 0);
 
         await db.update(sessions)

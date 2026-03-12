@@ -10,7 +10,12 @@ import { eq, and, inArray, gte, lt, isNull, desc, sql } from 'drizzle-orm';
 import { db, sessions, sessionMetrics, recordingArtifacts, projects, teamMembers, crashes, anrs, errors } from '../db/client.js';
 import { gunzipSync } from 'zlib';
 
-import { getSignedDownloadUrlForProject, downloadFromS3ForProject, getObjectSizeBytesForProject } from '../db/s3.js';
+import {
+    getSignedDownloadUrlForProject,
+    downloadFromS3ForArtifact,
+    downloadFromS3ForProject,
+    getObjectSizeBytesForArtifact,
+} from '../db/s3.js';
 import { getSessionScreenshotFrames, type ScreenshotFrameUrlMode } from '../services/screenshotFrames.js';
 import { sessionAuth, asyncHandler, ApiError } from '../middleware/index.js';
 import { validate } from '../middleware/validation.js';
@@ -230,7 +235,7 @@ async function computeSessionStats(
             artifactsMissingSize,
             DETAIL_FETCH_CONCURRENCY,
             async (artifact) => {
-                const size = await getObjectSizeBytesForProject(session.projectId, artifact.s3ObjectKey);
+                const size = await getObjectSizeBytesForArtifact(session.projectId, artifact.s3ObjectKey, artifact.endpointId);
                 return {
                     kind: artifact.kind,
                     size,
@@ -497,7 +502,7 @@ async function loadTimelinePayload(session: any, artifactsList: any[]) {
         db.select().from(errors).where(eq(errors.sessionId, session.id)).orderBy(desc(errors.timestamp)),
         mapWithConcurrency(eventsArtifacts, DETAIL_FETCH_CONCURRENCY, async (artifact) => {
             try {
-                const data = await downloadFromS3ForProject(session.projectId, artifact.s3ObjectKey);
+                const data = await downloadFromS3ForArtifact(session.projectId, artifact.s3ObjectKey, artifact.endpointId);
                 if (!data) return [] as any[];
                 const parsed = JSON.parse(data.toString());
                 if (Array.isArray(parsed)) return parsed;
@@ -509,7 +514,7 @@ async function loadTimelinePayload(session: any, artifactsList: any[]) {
         }),
         mapWithConcurrency(networkArtifacts, DETAIL_FETCH_CONCURRENCY, async (artifact) => {
             try {
-                const data = await downloadFromS3ForProject(session.projectId, artifact.s3ObjectKey);
+                const data = await downloadFromS3ForArtifact(session.projectId, artifact.s3ObjectKey, artifact.endpointId);
                 if (!data) return [] as any[];
                 const parsed = JSON.parse(data.toString());
                 if (Array.isArray(parsed)) return parsed;
@@ -636,7 +641,7 @@ async function loadHierarchyPayload(session: any, artifactsList: any[]) {
         DETAIL_FETCH_CONCURRENCY,
         async (artifact) => {
             try {
-                const data = await downloadFromS3ForProject(session.projectId, artifact.s3ObjectKey);
+                const data = await downloadFromS3ForArtifact(session.projectId, artifact.s3ObjectKey, artifact.endpointId);
                 if (!data) return null;
                 const parsed = JSON.parse(data.toString());
                 const rootElement = parsed.rootElement || parsed.root || parsed;
@@ -1158,7 +1163,7 @@ router.get(
         // Only HEAD objects for the ones missing size_bytes (avoid downloading payloads).
         // Keep it sequential to avoid hammering MinIO in dev.
         for (const a of artifactsMissingSize) {
-            const size = await getObjectSizeBytesForProject(session.projectId, a.s3ObjectKey);
+            const size = await getObjectSizeBytesForArtifact(session.projectId, a.s3ObjectKey, a.endpointId);
             if (typeof size === 'number' && Number.isFinite(size)) {
                 addBytes(a.kind, size);
             }
@@ -1167,7 +1172,7 @@ router.get(
         // Download and parse all event artifacts (always available)
         for (const artifact of eventsArtifacts) {
             try {
-                const data = await downloadFromS3ForProject(session.projectId, artifact.s3ObjectKey);
+                const data = await downloadFromS3ForArtifact(session.projectId, artifact.s3ObjectKey, artifact.endpointId);
                 if (data) {
                     const parsed = JSON.parse(data.toString());
                     if (parsed.events) {
@@ -1186,7 +1191,7 @@ router.get(
         // Download and parse all network artifacts (always available)
         for (const artifact of networkArtifacts) {
             try {
-                const data = await downloadFromS3ForProject(session.projectId, artifact.s3ObjectKey);
+                const data = await downloadFromS3ForArtifact(session.projectId, artifact.s3ObjectKey, artifact.endpointId);
                 if (data) {
                     const parsed = JSON.parse(data.toString());
                     if (Array.isArray(parsed)) {
@@ -1236,7 +1241,7 @@ router.get(
         hierarchyArtifacts.sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
         for (const artifact of hierarchyArtifacts) {
             try {
-                const data = await downloadFromS3ForProject(session.projectId, artifact.s3ObjectKey);
+                const data = await downloadFromS3ForArtifact(session.projectId, artifact.s3ObjectKey, artifact.endpointId);
                 if (data) {
                     const parsed = (() => {
                         // Check for GZip compression (magic bytes: 0x1f 0x8b) or file extension
@@ -1709,7 +1714,7 @@ router.get(
         const s3Key = artifact.artifact.s3ObjectKey;
 
         // Download from S3
-        const data = await downloadFromS3ForProject(artifact.projectId, s3Key);
+        const data = await downloadFromS3ForArtifact(artifact.projectId, s3Key, artifact.artifact.endpointId);
         if (!data) {
             throw ApiError.notFound('Frame data not found in storage');
         }
