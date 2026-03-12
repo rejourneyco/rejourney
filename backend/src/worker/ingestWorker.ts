@@ -999,7 +999,9 @@ async function processEventsArtifact(job: any, session: any, metrics: any, proje
                 metadataUpdates[props.key] = props.value;
             } else {
                 // Filter out internal fields before merging
-                const { key: _k, value: _v, ...rest } = props;
+                const rest = { ...props };
+                delete rest.key;
+                delete rest.value;
                 Object.assign(metadataUpdates, rest);
             }
         }

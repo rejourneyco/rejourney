@@ -212,7 +212,7 @@ let _authErrorSubscription: { remove: () => void } | null = null;
 let _currentAppState: string = 'active'; // Default to active, will be updated on init
 let _userIdentity: string | null = null;
 let _backgroundEntryTime: number | null = null; // Track when app went to background
-let _storedMetadata: Record<string, string | number | boolean> = {}; // Accumulate metadata for session rollover
+const _storedMetadata: Record<string, string | number | boolean> = {}; // Accumulate metadata for session rollover
 
 // Session timeout - must match native side (60 seconds)
 const SESSION_TIMEOUT_MS = 60_000;

@@ -17,7 +17,7 @@ import { z } from 'zod';
 //   • Cannot start or end with .
 //   • No consecutive dots (..)
 
-const IOS_BUNDLE_REGEX = /^[A-Za-z0-9.\-]{1,155}$/;
+const IOS_BUNDLE_REGEX = /^[A-Za-z0-9.-]{1,155}$/;
 const ANDROID_PACKAGE_REGEX = /^[a-zA-Z][a-zA-Z0-9_]*(\.[a-zA-Z][a-zA-Z0-9_]*)+$/;
 
 /** Validate an app identifier (bundle ID or package name). Returns null if valid, error string otherwise. */
