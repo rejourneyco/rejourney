@@ -4,16 +4,18 @@
  * Extracts individual JPEG frames from screenshot archives.
  * Supports both on-demand extraction and Redis caching for performance.
  * 
- * Two archive formats are supported:
- * 
- * iOS (tar.gz): Standard tar archive containing JPEG files named:
+ * Two replay segment formats are supported:
+ *
+ * Legacy tar.gz archive containing JPEG files named:
  *   {sessionEpoch}_1_{frameTimestamp}.jpeg
- * 
- * Android (binary.gz): Custom binary format where each frame is:
+ *
+ * Current binary.gz bundle where each frame is:
  *   [8-byte BE timestamp offset from session epoch]
  *   [4-byte BE JPEG size]
  *   [N bytes raw JPEG data]
  *   Repeated for each frame, then gzip-compressed.
+ *
+ * Client versions in the field may produce either format on either platform.
  * 
  * This service provides:
  * - Frame extraction from both archive formats
@@ -25,7 +27,7 @@
 import { eq, and } from 'drizzle-orm';
 import { gunzipSync } from 'zlib';
 import { db, recordingArtifacts, sessions } from '../db/client.js';
-import { downloadFromS3ForProject, getSignedDownloadUrlForProject, uploadToS3 } from '../db/s3.js';
+import { downloadFromS3ForArtifact, getSignedDownloadUrlForProject, uploadToS3 } from '../db/s3.js';
 import { getRedis } from '../db/redis.js';
 import { logger } from '../logger.js';
 
@@ -60,6 +62,8 @@ export interface ScreenshotSegmentInfo {
     artifactId: string;
     /** Archive S3 key */
     archiveS3Key: string;
+    /** Storage endpoint that owns this archive */
+    endpointId: string | null;
     /** Start time of first frame in this archive */
     startTime: number;
     /** End time of last frame in this archive */
@@ -293,8 +297,8 @@ function parseFrameTimestamp(filename: string): number | null {
  * Extract all frames from a screenshot archive.
  * 
  * Supports two formats:
- * 1. iOS tar.gz — standard tar with named JPEG files
- * 2. Android binary.gz — custom binary: [8-byte ts offset][4-byte size][jpeg] per frame
+ * 1. Legacy tar.gz — standard tar with named JPEG files
+ * 2. Current binary.gz — custom binary: [8-byte ts offset][4-byte size][jpeg] per frame
  * 
  * Format is auto-detected after gzip decompression.
  * 
@@ -467,6 +471,7 @@ export async function getScreenshotSegments(sessionId: string): Promise<Screensh
         .select({
             id: recordingArtifacts.id,
             s3ObjectKey: recordingArtifacts.s3ObjectKey,
+            endpointId: recordingArtifacts.endpointId,
             startTime: recordingArtifacts.startTime,
             endTime: recordingArtifacts.endTime,
             frameCount: recordingArtifacts.frameCount,
@@ -482,6 +487,7 @@ export async function getScreenshotSegments(sessionId: string): Promise<Screensh
     return artifacts.map(a => ({
         artifactId: a.id,
         archiveS3Key: a.s3ObjectKey,
+        endpointId: a.endpointId,
         startTime: a.startTime || 0,
         endTime: a.endTime,
         frameCount: a.frameCount,
@@ -609,7 +615,7 @@ export async function getSessionScreenshotFrames(
     
     for (const segment of segments) {
         // Download archive
-        const archiveData = await downloadFromS3ForProject(session.projectId, segment.archiveS3Key);
+        const archiveData = await downloadFromS3ForArtifact(session.projectId, segment.archiveS3Key, segment.endpointId);
         if (!archiveData) {
             logger.warn({ sessionId, s3Key: segment.archiveS3Key }, '[screenshotFrames] Failed to download archive');
             continue;

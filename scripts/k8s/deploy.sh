@@ -149,8 +149,9 @@ deploy() {
     log "Deploying Ingress..."
     kubectl apply -f "${K8S_DIR}/ingress.yaml"
     
-    log "Deploying Backup CronJob..."
+    log "Deploying Backup CronJobs..."
     kubectl apply -f "${K8S_DIR}/backup.yaml"
+    kubectl apply -f "${K8S_DIR}/archive.yaml"
     
     echo ""
     log "Deployment complete! Run './scripts/k8s/deploy.sh status' to check status."

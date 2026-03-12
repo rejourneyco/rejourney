@@ -17,18 +17,20 @@ import { db, sessions, sessionMetrics, projects, recordingArtifacts, ingestJobs,
 
 import { logger } from '../logger.js';
 import { getRedis, getIdempotencyStatus, setIdempotencyStatus } from '../db/redis.js';
-import { generateS3Key, getSignedUploadUrl } from '../db/s3.js';
+import { generateS3Key, getSignedUploadUrl, getObjectSizeBytesForArtifact } from '../db/s3.js';
 import { apiKeyAuth, requireScope, asyncHandler, ApiError } from '../middleware/index.js';
 import { config } from '../config.js';
 import { validate } from '../middleware/validation.js';
 import { ingestProjectRateLimiter, ingestDeviceRateLimiter } from '../middleware/rateLimit.js';
 import { endSessionSchema } from '../validation/ingest.js';
 import { updateDeviceUsage, ensureIngestSession } from '../services/recording.js';
+
 import { evaluateAndPromoteSession } from '../services/replayPromotion.js';
 import { checkAndEnforceSessionLimit, checkBillingStatus, incrementProjectSessionCount } from '../services/quotaCheck.js';
 import { invalidateFrameCache } from '../services/screenshotFrames.js';
 import { trackCrashAsIssue, trackANRAsIssue } from '../services/issueTracker.js';
 import { enforceIngestByteBudget } from '../services/ingestByteBudget.js';
+import { ensureHierarchyArtifactCompressed } from '../services/hierarchyArtifactCompression.js';
 
 const router = Router();
 
@@ -462,12 +464,16 @@ router.post(
                 .limit(1);
 
             if (artifact) {
-                // Mark artifact as ready
+                // HEAD the actual S3 object to get the real compressed size.
+                // The SDK reports pre-compression payload size which differs from
+                // the actual gzipped object on S3.
+                const s3Size = await getObjectSizeBytesForArtifact(projectId, artifact.s3ObjectKey, artifact.endpointId);
+
                 await db.update(recordingArtifacts)
                     .set({
                         status: 'ready',
                         readyAt: new Date(),
-                        sizeBytes: actualSizeBytes || 0,
+                        sizeBytes: s3Size || actualSizeBytes || 0,
                     })
                     .where(eq(recordingArtifacts.id, artifact.id));
 
@@ -541,7 +547,7 @@ router.post(
  * POST /api/ingest/segment/presign
  *
  * Supports two artifact types:
- * - screenshots: Batch of screenshots as tar.gz archive
+ * - screenshots: Batch of screenshots as a gzipped replay segment (legacy tar archive or current binary frame bundle)
  * - hierarchy: View hierarchy snapshot (.json.gz)
  */
 router.post(
@@ -856,30 +862,44 @@ router.post(
             throw ApiError.notFound('Artifact not found or already completed');
         }
 
-        // Mark artifact as ready
+        let repairedHierarchySize: number | null = null;
+        if (kind === 'hierarchy') {
+            const repairResult = await ensureHierarchyArtifactCompressed({
+                projectId,
+                s3Key: artifact.s3ObjectKey,
+                endpointId: artifact.endpointId,
+                artifactId: artifact.id,
+                sessionId,
+            });
+            repairedHierarchySize = repairResult.sizeBytes;
+        }
+
+        // HEAD the actual S3 object to get the real compressed size.
+        const s3Size = repairedHierarchySize ?? await getObjectSizeBytesForArtifact(projectId, artifact.s3ObjectKey, artifact.endpointId);
+        const verifiedSize = s3Size || actualSizeBytes || artifact.sizeBytes || 0;
+
         await db.update(recordingArtifacts)
             .set({
                 status: 'ready',
                 readyAt: new Date(),
-                sizeBytes: actualSizeBytes || artifact.sizeBytes,
+                sizeBytes: verifiedSize,
                 frameCount: frameCount || artifact.frameCount,
             })
             .where(eq(recordingArtifacts.id, artifact.id));
 
         // Update session metrics based on artifact type
         if (kind === 'screenshots') {
-            // Screenshot-based capture (iOS)
             await db.update(sessions)
                 .set({
                     replaySegmentCount: sql`COALESCE(${sessions.replaySegmentCount}, 0) + 1`,
-                    replayStorageBytes: sql`COALESCE(${sessions.replayStorageBytes}, 0) + ${actualSizeBytes || artifact.sizeBytes || 0}`,
+                    replayStorageBytes: sql`COALESCE(${sessions.replayStorageBytes}, 0) + ${verifiedSize}`,
                 })
                 .where(eq(sessions.id, sessionId));
 
             await db.update(sessionMetrics)
                 .set({
                     screenshotSegmentCount: sql`COALESCE(${sessionMetrics.screenshotSegmentCount}, 0) + 1`,
-                    screenshotTotalBytes: sql`COALESCE(${sessionMetrics.screenshotTotalBytes}, 0) + ${actualSizeBytes || artifact.sizeBytes || 0}`,
+                    screenshotTotalBytes: sql`COALESCE(${sessionMetrics.screenshotTotalBytes}, 0) + ${verifiedSize}`,
                 })
                 .where(eq(sessionMetrics.sessionId, sessionId));
 
@@ -920,7 +940,7 @@ router.post(
         // Device usage tracking
         const deviceId = extractDeviceIdFromToken(req);
         updateDeviceUsage(deviceId, projectId, {
-            bytesUploaded: actualSizeBytes || artifact.sizeBytes || 0,
+            bytesUploaded: verifiedSize,
             requestCount: 1,
         }).catch(() => { });
 
@@ -1201,6 +1221,7 @@ router.post(
             throw ApiError.badRequest('deviceId is required');
         }
 
+
         // Look up project by its public key
         const [project] = await db
             .select({
@@ -1216,6 +1237,8 @@ router.post(
         if (!project || project.deletedAt) {
             throw ApiError.unauthorized('Invalid project key');
         }
+
+
 
         // Build upload token with HMAC signature
         const tokenTTL = 3600; // 1 hour

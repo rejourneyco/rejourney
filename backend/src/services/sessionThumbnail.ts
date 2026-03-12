@@ -8,7 +8,7 @@
 import { and, eq } from 'drizzle-orm';
 import { gunzipSync } from 'zlib';
 import { db, recordingArtifacts, sessions } from '../db/client.js';
-import { downloadFromS3ForProject } from '../db/s3.js';
+import { downloadFromS3ForArtifact } from '../db/s3.js';
 import { logger } from '../logger.js';
 
 export interface ThumbnailOptions {
@@ -198,6 +198,7 @@ export async function getSessionThumbnail(
             .select({
                 id: recordingArtifacts.id,
                 s3ObjectKey: recordingArtifacts.s3ObjectKey,
+                endpointId: recordingArtifacts.endpointId,
             })
             .from(recordingArtifacts)
             .where(
@@ -212,9 +213,10 @@ export async function getSessionThumbnail(
 
         if (!artifact) return null;
 
-        const archiveData = await downloadFromS3ForProject(
+        const archiveData = await downloadFromS3ForArtifact(
             session.projectId,
-            artifact.s3ObjectKey
+            artifact.s3ObjectKey,
+            artifact.endpointId
         );
         if (!archiveData) return null;
 
@@ -245,6 +247,7 @@ export async function getThumbnailAtTimestamp(
         const artifacts = await db
             .select({
                 s3ObjectKey: recordingArtifacts.s3ObjectKey,
+                endpointId: recordingArtifacts.endpointId,
                 startTime: recordingArtifacts.startTime,
                 endTime: recordingArtifacts.endTime,
                 timestamp: recordingArtifacts.timestamp,
@@ -282,9 +285,10 @@ export async function getThumbnailAtTimestamp(
             bestArtifact = artifact;
         }
 
-        const archiveData = await downloadFromS3ForProject(
+        const archiveData = await downloadFromS3ForArtifact(
             session.projectId,
-            bestArtifact.s3ObjectKey
+            bestArtifact.s3ObjectKey,
+            bestArtifact.endpointId
         );
         if (!archiveData) return null;
 

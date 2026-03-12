@@ -19,7 +19,7 @@
 import { eq, and, lt, isNotNull, sql, ne } from 'drizzle-orm';
 import { db, pool, sessions, recordingArtifacts, projects } from '../db/client.js';
 import { logger } from '../logger.js';
-import { deleteFromS3ForProject } from '../db/s3.js';
+import { deleteFromS3ForProject, deletePrefixFromS3ForProject } from '../db/s3.js';
 import { retentionTiers } from '../config.js';
 import { pingWorker } from '../services/monitoring.js';
 import { hardDeleteProject } from '../services/deletion.js';
@@ -134,6 +134,7 @@ async function processExpiredSessions(): Promise<number> {
                         }
 
                         await deleteFromS3ForProject(session.projectId, artifact.s3ObjectKey);
+                        await deletePrefixFromS3ForProject(session.projectId, `sessions/${session.id}/frames/`);
 
                         // Hard delete the screenshot artifact row from DB.
                         await db.delete(recordingArtifacts)
@@ -156,8 +157,8 @@ async function processExpiredSessions(): Promise<number> {
                     .where(eq(sessions.id, session.id));
 
                 processedCount++;
-                logger.info({ 
-                    sessionId: session.id, 
+                logger.info({
+                    sessionId: session.id,
                     tier: tierConfig.tier,
                     deletedScreenshotCount,
                     retainedArtifacts: retainedCount,

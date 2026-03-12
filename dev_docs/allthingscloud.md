@@ -71,3 +71,11 @@ External Beyond:
 │   Postgres    │ │     Redis     │ │  Hetzner S3   │        │   External APIs   │
 │ (Main Data)   │ │ (Cache/Queue) │ │ (Recordings)  │        │  (Stripe / SMTP)  │
 └───────────────┘ └──────────────┘ └────────────────┘        └────────────────────┘
+
+
+Session Backup Deployment Notes:
+
+- The session backup CronJob is deployed from [archive.yaml](/Users/mora/Desktop/Dev-mac/rejourney/k8s/archive.yaml).
+- The source-of-truth script for that job is [session-backup.mjs](/Users/mora/Desktop/Dev-mac/rejourney/scripts/k8s/session-backup.mjs), and GitHub Actions now runs [check-archive-sync.sh](/Users/mora/Desktop/Dev-mac/rejourney/scripts/k8s/check-archive-sync.sh) before `kubectl apply`.
+- A deploy from `main` now updates the backup job logic, including legacy hierarchy gzip repair and archive-friendly screenshot repacking for R2.
+- The live CronJob can be suspended during reset, but the committed manifest controls whether it resumes after the next deploy.

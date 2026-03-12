@@ -15,6 +15,7 @@ import {
   getProject,
   updateProject,
   deleteProject,
+  requestProjectDeletionOtp,
   getApiKeys,
   createApiKey,
   revokeApiKey,
@@ -87,6 +88,10 @@ export const ProjectSettings: React.FC<SettingsProps> = ({ projectId: propProjec
   // Delete state
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [deleteConfirmText, setDeleteConfirmText] = useState('');
+  const [deleteOtpCode, setDeleteOtpCode] = useState('');
+  const [isSendingDeleteOtp, setIsSendingDeleteOtp] = useState(false);
+  const [deleteOtpSent, setDeleteOtpSent] = useState(false);
+  const [deleteOtpMessage, setDeleteOtpMessage] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
 
@@ -298,9 +303,42 @@ export const ProjectSettings: React.FC<SettingsProps> = ({ projectId: propProjec
     }
   };
 
+  const handleSendDeleteOtp = async () => {
+    if (!project) return;
+
+    if (deleteConfirmText !== project.name) {
+      setDeleteError('Project name does not match');
+      return;
+    }
+
+    try {
+      setIsSendingDeleteOtp(true);
+      setDeleteError(null);
+      setDeleteOtpMessage(null);
+
+      const result = await requestProjectDeletionOtp(project.id, {
+        confirmText: deleteConfirmText,
+      });
+
+      setDeleteOtpSent(true);
+      setDeleteOtpMessage(result.devCode
+        ? `OTP sent. Dev code: ${result.devCode}`
+        : 'OTP sent to your email.');
+    } catch (err) {
+      setDeleteError(err instanceof Error ? err.message : 'Failed to send OTP');
+    } finally {
+      setIsSendingDeleteOtp(false);
+    }
+  };
+
   const handleDelete = async () => {
     if (deleteConfirmText !== project?.name) {
       setDeleteError('Project name does not match');
+      return;
+    }
+
+    if (!deleteOtpCode.trim()) {
+      setDeleteError('OTP code is required');
       return;
     }
 
@@ -308,12 +346,13 @@ export const ProjectSettings: React.FC<SettingsProps> = ({ projectId: propProjec
       setIsDeleting(true);
       setDeleteError(null);
 
-      await deleteProject(project.id, { confirmText: deleteConfirmText, otpCode: '' });
+      await deleteProject(project.id, {
+        confirmText: deleteConfirmText,
+        otpCode: deleteOtpCode.trim().toUpperCase(),
+      });
 
-      // Refresh projects list
       await refreshSessions();
 
-      // Navigate to general page (default dashboard view)
       navigate(`${pathPrefix}/general`);
     } catch (err) {
       setDeleteError(err instanceof Error ? err.message : 'Failed to delete project');
@@ -414,84 +453,53 @@ export const ProjectSettings: React.FC<SettingsProps> = ({ projectId: propProjec
               </NeoCard>
             </section>
 
-            {/* App Identifiers - MOVED TO TOP */}
+            {/* App Identifiers */}
             <section className="space-y-4">
-              <div className="flex items-center justify-between">
-                <h2 className="text-xl font-semibold uppercase tracking-tight">App Identifiers</h2>
-                {(!project.bundleId || !project.packageName) && canEdit && (
-                  <NeoBadge variant="warning" size="md">
-                    Action Required
-                  </NeoBadge>
-                )}
-              </div>
+              <h2 className="text-xl font-semibold uppercase tracking-tight">App Identifiers</h2>
               <NeoCard className="p-6">
                 <div className="space-y-6">
                   {/* iOS Bundle ID */}
                   <div className="space-y-3">
-                    <div className="flex items-center justify-between">
-                      <label className="text-sm font-semibold text-slate-900 uppercase tracking-wide flex items-center gap-2">
-                        <Smartphone className="w-4 h-4" />
-                        iOS Bundle ID
-                      </label>
-                      {project.bundleId && (
-                        <NeoBadge variant="success" size="sm">
-                          <Check className="w-3 h-3 mr-1" /> Configured
-                        </NeoBadge>
+                    <label className="text-sm font-semibold text-slate-900 uppercase tracking-wide flex items-center gap-2">
+                      <Smartphone className="w-4 h-4" />
+                      iOS Bundle ID
+                    </label>
+                    <div className="flex gap-2">
+                      <Input
+                        placeholder="com.example.app"
+                        value={(project as any)._newBundleId ?? project.bundleId ?? ''}
+                        onChange={(e) => setProject({ ...project, _newBundleId: e.target.value })}
+                        disabled={!canEdit}
+                        className="font-mono text-sm font-bold flex-1 border border-slate-100/80"
+                      />
+                      {canEdit && (
+                        <NeoButton
+                          variant="primary"
+                          size="md"
+                          disabled={
+                            !((project as any)._newBundleId ?? project.bundleId) ||
+                            (project as any)._newBundleId === project.bundleId ||
+                            ((project as any)._newBundleId !== undefined && !!getIosBundleIdError((project as any)._newBundleId || ''))
+                          }
+                          onClick={async () => {
+                            try {
+                              const value = (project as any)._newBundleId ?? project.bundleId;
+                              await updateProject(project.id, { bundleId: value });
+                              await refreshSessions();
+                              setProject({ ...project, bundleId: value, _newBundleId: undefined });
+                            } catch (err) {
+                              alert(err instanceof Error ? err.message : 'Failed to save');
+                            }
+                          }}
+                        >
+                          <Save className="w-4 h-4 mr-1" /> Save
+                        </NeoButton>
                       )}
                     </div>
-                    {project.bundleId ? (
-                      <div className="bg-slate-50 border-2 border-slate-900 p-4">
-                        <div className="flex items-center justify-between gap-3">
-                          <div className="font-mono text-sm font-bold text-slate-900 break-all flex-1">
-                            {project.bundleId}
-                          </div>
-                          <NeoBadge variant="neutral" size="sm">LOCKED</NeoBadge>
-                        </div>
-                        <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wide mt-2">
-                          Bundle ID is locked and cannot be changed
-                        </p>
-                      </div>
-                    ) : (
-                      <div className="space-y-3">
-                        <div className="bg-amber-50 border-2 border-amber-600 p-4">
-                          <div className="flex items-start gap-2 mb-3">
-                            <AlertTriangle className="w-4 h-4 text-amber-700 mt-0.5 shrink-0" />
-                            <p className="text-xs font-bold text-amber-900 uppercase tracking-wide flex-1">
-                              Bundle ID Required: Add your iOS bundle identifier to enable SDK integration
-                            </p>
-                          </div>
-                          <div className="flex gap-2">
-                            <Input
-                              placeholder="com.example.app"
-                              value={(project as any)._newBundleId || ''}
-                              onChange={(e) => setProject({ ...project, _newBundleId: e.target.value })}
-                              disabled={!canEdit}
-                              className="font-mono text-sm font-bold flex-1 border border-slate-100/80"
-                            />
-                            <NeoButton
-                              variant="primary"
-                              size="md"
-                              disabled={!canEdit || !(project as any)._newBundleId || !!getIosBundleIdError((project as any)._newBundleId || '')}
-                              onClick={async () => {
-                                try {
-                                  await updateProject(project.id, { bundleId: (project as any)._newBundleId });
-                                  await refreshSessions();
-                                  setProject({ ...project, bundleId: (project as any)._newBundleId, _newBundleId: undefined });
-                                } catch (err) {
-                                  alert(err instanceof Error ? err.message : 'Failed to save');
-                                }
-                              }}
-                            >
-                              <Save className="w-4 h-4 mr-1" /> Save Bundle ID
-                            </NeoButton>
-                          </div>
-                          {getIosBundleIdError((project as any)._newBundleId || '') && (
-                            <p className="text-xs font-bold text-red-600 flex items-center gap-1 mt-2 uppercase">
-                              <AlertTriangle className="w-3 h-3" /> {getIosBundleIdError((project as any)._newBundleId || '')}
-                            </p>
-                          )}
-                        </div>
-                      </div>
+                    {(project as any)._newBundleId && getIosBundleIdError((project as any)._newBundleId) && (
+                      <p className="text-xs font-bold text-red-600 flex items-center gap-1 uppercase">
+                        <AlertTriangle className="w-3 h-3" /> {getIosBundleIdError((project as any)._newBundleId)}
+                      </p>
                     )}
                   </div>
 
@@ -500,70 +508,46 @@ export const ProjectSettings: React.FC<SettingsProps> = ({ projectId: propProjec
 
                   {/* Android Package Name */}
                   <div className="space-y-3">
-                    <div className="flex items-center justify-between">
-                      <label className="text-sm font-semibold text-slate-900 uppercase tracking-wide flex items-center gap-2">
-                        <Shield className="w-4 h-4" />
-                        Android Package Name
-                      </label>
-                      {project.packageName && (
-                        <NeoBadge variant="success" size="sm">
-                          <Check className="w-3 h-3 mr-1" /> Configured
-                        </NeoBadge>
+                    <label className="text-sm font-semibold text-slate-900 uppercase tracking-wide flex items-center gap-2">
+                      <Shield className="w-4 h-4" />
+                      Android Package Name
+                    </label>
+                    <div className="flex gap-2">
+                      <Input
+                        placeholder="com.example.app"
+                        value={(project as any)._newPackageName ?? project.packageName ?? ''}
+                        onChange={(e) => setProject({ ...project, _newPackageName: e.target.value })}
+                        disabled={!canEdit}
+                        className="font-mono text-sm font-bold flex-1 border border-slate-100/80"
+                      />
+                      {canEdit && (
+                        <NeoButton
+                          variant="primary"
+                          size="md"
+                          disabled={
+                            !((project as any)._newPackageName ?? project.packageName) ||
+                            (project as any)._newPackageName === project.packageName ||
+                            ((project as any)._newPackageName !== undefined && !!getAndroidPackageError((project as any)._newPackageName || ''))
+                          }
+                          onClick={async () => {
+                            try {
+                              const value = (project as any)._newPackageName ?? project.packageName;
+                              await updateProject(project.id, { packageName: value });
+                              await refreshSessions();
+                              setProject({ ...project, packageName: value, _newPackageName: undefined });
+                            } catch (err) {
+                              alert(err instanceof Error ? err.message : 'Failed to save');
+                            }
+                          }}
+                        >
+                          <Save className="w-4 h-4 mr-1" /> Save
+                        </NeoButton>
                       )}
                     </div>
-                    {project.packageName ? (
-                      <div className="bg-slate-50 border-2 border-slate-900 p-4">
-                        <div className="flex items-center justify-between gap-3">
-                          <div className="font-mono text-sm font-bold text-slate-900 break-all flex-1">
-                            {project.packageName}
-                          </div>
-                          <NeoBadge variant="neutral" size="sm">LOCKED</NeoBadge>
-                        </div>
-                        <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wide mt-2">
-                          Package name is locked and cannot be changed
-                        </p>
-                      </div>
-                    ) : (
-                      <div className="space-y-3">
-                        <div className="bg-amber-50 border-2 border-amber-600 p-4">
-                          <div className="flex items-start gap-2 mb-3">
-                            <AlertTriangle className="w-4 h-4 text-amber-700 mt-0.5 shrink-0" />
-                            <p className="text-xs font-bold text-amber-900 uppercase tracking-wide flex-1">
-                              Package Name Required: Add your Android package name to enable SDK integration
-                            </p>
-                          </div>
-                          <div className="flex gap-2">
-                            <Input
-                              placeholder="com.example.android"
-                              value={(project as any)._newPackageName || ''}
-                              onChange={(e) => setProject({ ...project, _newPackageName: e.target.value })}
-                              disabled={!canEdit}
-                              className="font-mono text-sm font-bold flex-1 border border-slate-100/80"
-                            />
-                            <NeoButton
-                              variant="primary"
-                              size="md"
-                              disabled={!canEdit || !(project as any)._newPackageName || !!getAndroidPackageError((project as any)._newPackageName || '')}
-                              onClick={async () => {
-                                try {
-                                  await updateProject(project.id, { packageName: (project as any)._newPackageName });
-                                  await refreshSessions();
-                                  setProject({ ...project, packageName: (project as any)._newPackageName, _newPackageName: undefined });
-                                } catch (err) {
-                                  alert(err instanceof Error ? err.message : 'Failed to save');
-                                }
-                              }}
-                            >
-                              <Save className="w-4 h-4 mr-1" /> Save Package Name
-                            </NeoButton>
-                          </div>
-                          {getAndroidPackageError((project as any)._newPackageName || '') && (
-                            <p className="text-xs font-bold text-red-600 flex items-center gap-1 mt-2 uppercase">
-                              <AlertTriangle className="w-3 h-3" /> {getAndroidPackageError((project as any)._newPackageName || '')}
-                            </p>
-                          )}
-                        </div>
-                      </div>
+                    {(project as any)._newPackageName && getAndroidPackageError((project as any)._newPackageName) && (
+                      <p className="text-xs font-bold text-red-600 flex items-center gap-1 uppercase">
+                        <AlertTriangle className="w-3 h-3" /> {getAndroidPackageError((project as any)._newPackageName)}
+                      </p>
                     )}
                   </div>
                 </div>
@@ -911,23 +895,33 @@ export const ProjectSettings: React.FC<SettingsProps> = ({ projectId: propProjec
           onClose={() => {
             setShowDeleteModal(false);
             setDeleteConfirmText('');
+            setDeleteOtpCode('');
+            setDeleteOtpSent(false);
+            setDeleteOtpMessage(null);
             setDeleteError(null);
           }}
           title="Delete Project"
           footer={
             <div className="flex gap-2">
-              <NeoButton variant="secondary" onClick={() => setShowDeleteModal(false)}>Cancel</NeoButton>
+              <NeoButton variant="secondary" onClick={() => {
+                setShowDeleteModal(false);
+                setDeleteConfirmText('');
+                setDeleteOtpCode('');
+                setDeleteOtpSent(false);
+                setDeleteOtpMessage(null);
+                setDeleteError(null);
+              }}>Cancel</NeoButton>
               <NeoButton
                 variant="danger"
                 onClick={handleDelete}
-                disabled={isDeleting || deleteConfirmText !== project.name}
+                disabled={isDeleting || deleteConfirmText !== project.name || !deleteOtpCode.trim()}
               >
                 {isDeleting ? 'Deleting...' : 'Permanently Delete'}
               </NeoButton>
             </div>
           }
         >
-          <div className="space-y-6">
+          <div className="space-y-5">
             <div className="bg-red-50 border border-red-200 rounded-md p-4">
               <div className="flex gap-2 text-red-800 font-semibold mb-2 items-center">
                 <AlertTriangle className="w-5 h-5" /> Warning: Final Confirmation
@@ -951,6 +945,36 @@ export const ProjectSettings: React.FC<SettingsProps> = ({ projectId: propProjec
                 className="border-red-200 focus:ring-red-500 focus:border-red-500"
               />
             </div>
+
+            <div className="space-y-2">
+              <NeoButton
+                variant="secondary"
+                onClick={handleSendDeleteOtp}
+                disabled={isSendingDeleteOtp || deleteConfirmText !== project.name}
+                className="w-full"
+              >
+                {isSendingDeleteOtp ? 'Sending OTP...' : deleteOtpSent ? 'Resend OTP' : 'Send OTP to Email'}
+              </NeoButton>
+              {deleteOtpMessage && (
+                <p className="text-sm text-green-700 bg-green-50 border border-green-200 p-2 rounded">{deleteOtpMessage}</p>
+              )}
+            </div>
+
+            {deleteOtpSent && (
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-slate-700">Enter OTP code:</label>
+                <Input
+                  value={deleteOtpCode}
+                  onChange={(e) => {
+                    setDeleteOtpCode(e.target.value);
+                    setDeleteError(null);
+                  }}
+                  placeholder="XXXXXXXXXX"
+                  maxLength={10}
+                  className="border-red-200 focus:ring-red-500 focus:border-red-500 font-mono tracking-widest"
+                />
+              </div>
+            )}
 
             {deleteError && (
               <div className="text-sm text-red-600 bg-red-50 border border-red-100 p-2 rounded">{deleteError}</div>

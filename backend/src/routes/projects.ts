@@ -6,7 +6,7 @@
 
 import { Router } from 'express';
 import { randomBytes } from 'crypto';
-import { eq, and, inArray, gte, isNull, sql, desc, ne } from 'drizzle-orm';
+import { eq, and, inArray, gte, isNull, sql, desc } from 'drizzle-orm';
 import { db, projects, teamMembers, sessions, sessionMetrics, teams, alertSettings, alertRecipients } from '../db/client.js';
 import { getRedis } from '../db/redis.js';
 import { logger } from '../logger.js';
@@ -27,6 +27,14 @@ import {
     assertNoDuplicateContentSpam,
     enforceNewAccountActionLimit,
 } from '../services/abuseDetection.js';
+
+function getProjectPlatforms(project: { bundleId?: string | null; packageName?: string | null; platform?: string | null }): string[] {
+    const platforms: string[] = [];
+    if (project.bundleId) platforms.push('ios');
+    if (project.packageName) platforms.push('android');
+    if (platforms.length === 0 && project.platform) platforms.push(project.platform);
+    return platforms;
+}
 
 const router = Router();
 
@@ -200,7 +208,7 @@ router.get(
 
             return {
                 ...project,
-                platforms: project.platform ? [project.platform] : [],
+                platforms: getProjectPlatforms(project),
                 sessionsTotal,
                 sessionsLast7Days,
                 errorsLast7Days,
@@ -267,67 +275,43 @@ router.post(
         await assertNoDuplicateContentSpam({
             actorId: req.user!.id,
             action: 'project_create',
-            contentParts: [data.name, data.webDomain, data.bundleId, data.packageName],
+            contentParts: [data.name, data.webDomain],
             targetId: teamId,
         });
 
-        // Check for duplicate bundle IDs (if provided)
-        if (data.bundleId) {
-            const [existingBundle] = await db
-                .select({ id: projects.id, name: projects.name })
-                .from(projects)
-                .where(
-                    and(
-                        eq(projects.bundleId, data.bundleId),
-                        isNull(projects.deletedAt)
-                    )
-                )
-                .limit(1);
-
-            if (existingBundle) {
-                throw ApiError.badRequest(
-                    `Bundle ID "${data.bundleId}" is already in use by project "${existingBundle.name}". Each bundle ID must be unique across all projects.`
-                );
+        // Generate public key for SDK (with collision-safe retry)
+        const MAX_KEY_RETRIES = 3;
+        let project: any;
+        for (let attempt = 0; attempt < MAX_KEY_RETRIES; attempt++) {
+            const publicKey = `rj_${randomBytes(16).toString('hex')}`;
+            try {
+                [project] = await db.insert(projects).values({
+                    name: data.name,
+                    teamId,
+                    bundleId: data.bundleId,
+                    packageName: data.packageName,
+                    webDomain: data.webDomain,
+                    platform: data.platforms?.[0],
+                    publicKey,
+                    rejourneyEnabled: data.rejourneyEnabled ?? true,
+                    recordingEnabled: data.recordingEnabled ?? true,
+                    sampleRate: data.sampleRate ?? 100,
+                    healthyReplaysPromoted: data.healthyReplaysPromoted ?? 0.05,
+                    maxRecordingMinutes: data.maxRecordingMinutes ?? 10,
+                }).returning();
+                break; // Success
+            } catch (err: any) {
+                // Unique constraint violation on public_key — retry with a new key
+                if (err.code === '23505' && err.constraint?.includes('public_key')) {
+                    logger.warn({ attempt }, 'Public key collision detected, retrying');
+                    if (attempt === MAX_KEY_RETRIES - 1) {
+                        throw ApiError.internal('Failed to generate unique project key after retries');
+                    }
+                    continue;
+                }
+                throw err; // Re-throw other errors
             }
         }
-
-        // Check for duplicate package names (if provided)
-        if (data.packageName) {
-            const [existingPackage] = await db
-                .select({ id: projects.id, name: projects.name })
-                .from(projects)
-                .where(
-                    and(
-                        eq(projects.packageName, data.packageName),
-                        isNull(projects.deletedAt)
-                    )
-                )
-                .limit(1);
-
-            if (existingPackage) {
-                throw ApiError.badRequest(
-                    `Package name "${data.packageName}" is already in use by project "${existingPackage.name}". Each package name must be unique across all projects.`
-                );
-            }
-        }
-
-        // Generate public key for SDK
-        const publicKey = `rj_${randomBytes(16).toString('hex')}`;
-
-        const [project] = await db.insert(projects).values({
-            name: data.name,
-            teamId,
-            bundleId: data.bundleId,
-            packageName: data.packageName,
-            webDomain: data.webDomain,
-            platform: data.platforms?.[0],
-            publicKey,
-            rejourneyEnabled: data.rejourneyEnabled ?? true,
-            recordingEnabled: data.recordingEnabled ?? true,
-            sampleRate: data.sampleRate ?? 100,
-            healthyReplaysPromoted: data.healthyReplaysPromoted ?? 0.05,
-            maxRecordingMinutes: data.maxRecordingMinutes ?? 10,
-        }).returning();
 
         logger.info({ projectId: project.id, userId: req.user!.id }, 'Project created');
 
@@ -371,7 +355,7 @@ router.post(
         res.status(201).json({
             project: {
                 ...project,
-                platforms: project.platform ? [project.platform] : [],
+                platforms: getProjectPlatforms(project),
             },
         });
     })
@@ -399,7 +383,7 @@ router.get(
 
         res.json({
             ...project,
-            platforms: project.platform ? [project.platform] : [],
+            platforms: getProjectPlatforms(project),
         });
     })
 );
@@ -442,69 +426,11 @@ router.put(
             }
         }
 
-        // Bundle ID and Package Name can only be set if currently empty (immutable once set)
-        let bundleId = undefined;
-        let packageName = undefined;
-
-        if (data.bundleId) {
-            if (currentProject.bundleId) {
-                throw ApiError.badRequest('Bundle ID cannot be changed once set');
-            }
-
-            // Check for duplicate bundle IDs across all projects
-            const [existingBundle] = await db
-                .select({ id: projects.id, name: projects.name })
-                .from(projects)
-                .where(
-                    and(
-                        eq(projects.bundleId, data.bundleId),
-                        isNull(projects.deletedAt),
-                        ne(projects.id, req.params.id) // Exclude current project
-                    )
-                )
-                .limit(1);
-
-            if (existingBundle) {
-                throw ApiError.badRequest(
-                    `Bundle ID "${data.bundleId}" is already in use by project "${existingBundle.name}". Each bundle ID must be unique across all projects.`
-                );
-            }
-
-            bundleId = data.bundleId;
-        }
-
-        if (data.packageName) {
-            if (currentProject.packageName) {
-                throw ApiError.badRequest('Package Name cannot be changed once set');
-            }
-
-            // Check for duplicate package names across all projects
-            const [existingPackage] = await db
-                .select({ id: projects.id, name: projects.name })
-                .from(projects)
-                .where(
-                    and(
-                        eq(projects.packageName, data.packageName),
-                        isNull(projects.deletedAt),
-                        ne(projects.id, req.params.id) // Exclude current project
-                    )
-                )
-                .limit(1);
-
-            if (existingPackage) {
-                throw ApiError.badRequest(
-                    `Package name "${data.packageName}" is already in use by project "${existingPackage.name}". Each package name must be unique across all projects.`
-                );
-            }
-
-            packageName = data.packageName;
-        }
-
         if (
             data.name !== undefined ||
             data.webDomain !== undefined ||
-            bundleId !== undefined ||
-            packageName !== undefined
+            data.bundleId !== undefined ||
+            data.packageName !== undefined
         ) {
             await assertNoDuplicateContentSpam({
                 actorId: req.user!.id,
@@ -512,8 +438,6 @@ router.put(
                 contentParts: [
                     data.name,
                     typeof data.webDomain === 'string' ? data.webDomain : null,
-                    bundleId,
-                    packageName,
                 ],
                 targetId: req.params.id,
             });
@@ -527,8 +451,8 @@ router.put(
         // Only include fields that are explicitly provided
         if (data.name !== undefined) updateData.name = data.name;
         if (data.teamId !== undefined) updateData.teamId = data.teamId;
-        if (bundleId !== undefined) updateData.bundleId = bundleId;
-        if (packageName !== undefined) updateData.packageName = packageName;
+        if (data.bundleId !== undefined) updateData.bundleId = data.bundleId;
+        if (data.packageName !== undefined) updateData.packageName = data.packageName;
         if (data.webDomain !== undefined) updateData.webDomain = data.webDomain;
         if (data.rejourneyEnabled !== undefined) updateData.rejourneyEnabled = data.rejourneyEnabled;
         if (data.recordingEnabled !== undefined) updateData.recordingEnabled = data.recordingEnabled;
@@ -546,9 +470,7 @@ router.put(
             data.maxRecordingMinutes !== undefined ||
             data.recordingEnabled !== undefined ||
             data.rejourneyEnabled !== undefined ||
-            data.healthyReplaysPromoted !== undefined ||
-            bundleId !== undefined ||
-            packageName !== undefined;
+            data.healthyReplaysPromoted !== undefined;
 
         if (shouldInvalidateConfig) {
             try {
@@ -571,7 +493,7 @@ router.put(
         res.json({
             project: {
                 ...project,
-                platforms: project.platform ? [project.platform] : [],
+                platforms: getProjectPlatforms(project),
             },
         });
     })

@@ -10,6 +10,7 @@ import { db, projects } from '../db/client.js';
 import { getRedis } from '../db/redis.js';
 import { asyncHandler, ApiError } from '../middleware/index.js';
 
+
 const router = Router();
 
 /**
@@ -18,15 +19,11 @@ const router = Router();
  * 
  * Unified endpoint for iOS and Android SDKs to fetch project configuration.
  * Uses x-public-key header for authentication.
- * Supports optional bundle ID / package name validation via headers.
  */
 router.get(
     '/config',
     asyncHandler(async (req, res) => {
         const publicKey = req.headers['x-public-key'] as string;
-        const bundleId = req.headers['x-bundle-id'] as string;
-        const packageName = req.headers['x-package-name'] as string;
-        const platform = req.headers['x-platform'] as string;
 
         if (!publicKey) {
             throw ApiError.badRequest('x-public-key header is required');
@@ -39,8 +36,6 @@ router.get(
                 id: string;
                 teamId: string;
                 name: string;
-                bundleId: string | null;
-                packageName: string | null;
                 rejourneyEnabled: boolean;
                 recordingEnabled: boolean;
                 maxRecordingMinutes: number;
@@ -64,8 +59,6 @@ router.get(
                     id: projects.id,
                     teamId: projects.teamId,
                     name: projects.name,
-                    bundleId: projects.bundleId,
-                    packageName: projects.packageName,
                     rejourneyEnabled: projects.rejourneyEnabled,
                     recordingEnabled: projects.recordingEnabled,
                     maxRecordingMinutes: projects.maxRecordingMinutes,
@@ -105,19 +98,7 @@ router.get(
             Math.min(10, project.maxRecordingMinutes ?? 10)
         );
 
-        // SECURITY: Validate bundle ID if provided and project has one configured
-        if (platform === 'ios' && bundleId && project.bundleId) {
-            if (bundleId !== project.bundleId) {
-                throw ApiError.forbidden('Bundle ID mismatch');
-            }
-        }
 
-        // SECURITY: Validate package name if provided and project has one configured
-        if (platform === 'android' && packageName && project.packageName) {
-            if (packageName !== project.packageName) {
-                throw ApiError.forbidden('Package name mismatch');
-            }
-        }
 
         // If Rejourney is disabled, return early with disabled flag
         if (!project.rejourneyEnabled) {

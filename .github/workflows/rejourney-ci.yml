@@ -273,6 +273,8 @@ jobs:
                kubectl wait --for=condition=Available deployment/cert-manager-webhook -n cert-manager --timeout=300s
              fi
 
+             bash scripts/k8s/check-archive-sync.sh
+
              # Apply all other manifests with prune enabled
              # This automatically deletes resources that are no longer in the YAML files
              kubectl apply -f k8s/ \

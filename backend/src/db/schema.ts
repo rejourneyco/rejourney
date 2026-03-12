@@ -164,7 +164,7 @@ export const projects = pgTable(
     },
     (table) => [
         index('projects_team_id_idx').on(table.teamId),
-        index('projects_public_key_idx').on(table.publicKey),
+        uniqueIndex('projects_public_key_idx').on(table.publicKey),
     ]
 );
 
