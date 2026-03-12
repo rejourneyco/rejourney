@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createProjectSchema } from '../validation/projects';
+import { createProjectSchema } from '../validation/projects.js';
 
 describe('Project Validation', () => {
     describe('App Identifier Validation (bundleId / packageName)', () => {
