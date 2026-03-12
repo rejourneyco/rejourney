@@ -2,6 +2,7 @@ import { eq, sql } from 'drizzle-orm';
 import { db, sessions, sessionMetrics, deviceUsage, projects, teams } from '../db/client.js';
 import { logger } from '../logger.js';
 import { lookupGeoIpFromMmdb } from './geoIpMmdb.js';
+import { getRequestIp } from '../utils/requestIp.js';
 
 /**
  * Update device usage metrics (atomic upsert for scalability)
@@ -233,28 +234,10 @@ export async function ensureIngestSession(
 
     // Run GeoIP if provided (and if we grabbed/created a session)
     if (session && req) {
-        // IP extraction with support for various proxy headers
-        // Priority: Cloudflare > X-Forwarded-For > X-Real-IP > socket
-        let clientIp = '';
-
-        // Cloudflare puts the real client IP in CF-Connecting-IP
         const cfConnectingIp = req.headers['cf-connecting-ip'];
         const xForwardedFor = req.headers['x-forwarded-for'];
         const xRealIp = req.headers['x-real-ip'];
-
-        if (cfConnectingIp) {
-            clientIp = Array.isArray(cfConnectingIp) ? cfConnectingIp[0] : cfConnectingIp;
-        } else if (xForwardedFor) {
-            // X-Forwarded-For can have multiple IPs, first is the client
-            const ips = (Array.isArray(xForwardedFor) ? xForwardedFor[0] : xForwardedFor)
-                .split(',')
-                .map((ip: string) => ip.trim());
-            clientIp = ips[0];
-        } else if (xRealIp) {
-            clientIp = Array.isArray(xRealIp) ? xRealIp[0] : xRealIp;
-        } else {
-            clientIp = req.socket?.remoteAddress || req.ip || '';
-        }
+        const clientIp = getRequestIp(req);
 
         logger.debug({
             sessionId: session.id,

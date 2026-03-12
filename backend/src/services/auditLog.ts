@@ -9,6 +9,7 @@ import { db } from '../db/client.js';
 import { auditLogs } from '../db/schema.js';
 import { logger } from '../logger.js';
 import { Request } from 'express';
+import { getRequestIp } from '../utils/requestIp.js';
 
 export type AuditAction =
     | 'plan_changed'
@@ -52,20 +53,6 @@ export interface AuditLogEntry {
 }
 
 /**
- * Extract IP address from request
- */
-function extractIpAddress(req: Request): string {
-    const xForwardedFor = req.headers['x-forwarded-for'];
-    if (xForwardedFor) {
-        const ips = (typeof xForwardedFor === 'string' ? xForwardedFor : xForwardedFor[0])
-            .split(',')
-            .map((ip: string) => ip.trim());
-        return ips[0];
-    }
-    return req.headers['x-real-ip'] as string || req.socket?.remoteAddress || req.ip || '';
-}
-
-/**
  * Create an audit log entry
  * 
  * @param entry - The audit log data
@@ -76,7 +63,7 @@ export async function createAuditLog(
     req?: Request
 ): Promise<void> {
     try {
-        const ipAddress = entry.ipAddress || (req ? extractIpAddress(req) : undefined);
+        const ipAddress = entry.ipAddress || (req ? getRequestIp(req) : undefined);
         const userAgent = entry.userAgent || (req ? req.headers['user-agent'] : undefined);
 
         await db.insert(auditLogs).values({

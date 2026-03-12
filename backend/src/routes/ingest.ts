@@ -31,6 +31,7 @@ import { invalidateFrameCache } from '../services/screenshotFrames.js';
 import { trackCrashAsIssue, trackANRAsIssue } from '../services/issueTracker.js';
 import { enforceIngestByteBudget } from '../services/ingestByteBudget.js';
 import { ensureHierarchyArtifactCompressed } from '../services/hierarchyArtifactCompression.js';
+import { getRequestIp } from '../utils/requestIp.js';
 
 const router = Router();
 
@@ -247,10 +248,11 @@ router.post(
         }
 
         const deviceAuthId = extractDeviceIdFromToken(req);
+        const clientIp = getRequestIp(req);
         await enforceIngestByteBudget({
             projectId,
             deviceId: deviceAuthId,
-            clientIp: req.ip,
+            clientIp,
             bytes: requestedSizeBytes,
             endpoint: 'presign',
         });
@@ -622,10 +624,11 @@ router.post(
 
         // Extract deviceId for session creation
         const segmentDeviceId = extractDeviceIdFromToken(req);
+        const clientIp = getRequestIp(req);
         await enforceIngestByteBudget({
             projectId,
             deviceId: segmentDeviceId,
-            clientIp: req.ip,
+            clientIp,
             bytes: requestedSizeBytes,
             endpoint: 'segment/presign',
         });
