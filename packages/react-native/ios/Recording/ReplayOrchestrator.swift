@@ -235,10 +235,14 @@ public final class ReplayOrchestrator: NSObject {
         ]
         let queueDepthAtFinalize = TelemetryPipeline.shared.getQueueDepth()
 
+        // Capture the current generation so a stale halt posted here won't
+        // stop a new session's capture that starts before this block runs.
+        let haltGeneration = VisualCapture.shared.captureGeneration
+
         // Do local teardown immediately so lifecycle rollover never depends on network latency.
         DispatchQueue.main.async {
             TelemetryPipeline.shared.shutdown()
-            VisualCapture.shared.halt()
+            VisualCapture.shared.halt(expectedGeneration: haltGeneration)
             InteractionRecorder.shared.deactivate()
             FaultTracker.shared.deactivate()
             ResponsivenessWatcher.shared.halt()

@@ -44,6 +44,7 @@ public final class VisualCapture: NSObject {
     private var _deferredUntilCommit = false
     private var _framesDiskPath: URL?
     private var _currentSessionId: String?
+    @objc public private(set) var captureGeneration: Int = 0
     
     // Use OperationQueue like industry standard - serialized, utility QoS
     private let _encodeQueue: OperationQueue = {
@@ -105,7 +106,28 @@ public final class VisualCapture: NSObject {
     }
     
     @objc public func beginCapture(sessionOrigin: UInt64) {
+        // If still in CAPTURING state (halt() from previous session hasn't
+        // run yet), force-halt first to prevent it from stopping the new session.
+        if _stateMachine.currentState == .capturing {
+            DiagnosticLog.trace("[VisualCapture] Force-halting stale capture before starting new session")
+            _stopCaptureTimer()
+            _ = _stateMachine.transition(to: .halted)
+        }
+
         guard _stateMachine.transition(to: .capturing) else { return }
+
+        // Bump generation so any stale halt() becomes a no-op
+        captureGeneration += 1
+
+        // Discard leftover frames from the previous session
+        _stateLock.lock()
+        let staleCount = _screenshots.count
+        if staleCount > 0 {
+            DiagnosticLog.trace("[VisualCapture] Clearing \(staleCount) stale frames from previous session")
+            _screenshots.removeAll()
+        }
+        _stateLock.unlock()
+
         _sessionEpoch = sessionOrigin
         _frameCounter = 0
         
@@ -120,7 +142,13 @@ public final class VisualCapture: NSObject {
         _startCaptureTimer()
     }
     
-    @objc public func halt() {
+    @objc public func halt(expectedGeneration: Int = -1) {
+        // If a specific generation is expected (async/posted halt from a previous
+        // session), skip if a new session has already started capture.
+        if expectedGeneration >= 0 && expectedGeneration != captureGeneration {
+            DiagnosticLog.trace("[VisualCapture] Skipping stale halt (gen=\(expectedGeneration), current=\(captureGeneration))")
+            return
+        }
         guard _stateMachine.transition(to: .halted) else { return }
         _stopCaptureTimer()
         

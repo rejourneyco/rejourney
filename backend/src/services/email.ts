@@ -502,6 +502,78 @@ export async function sendPlanChangeEmail(
 }
 
 /**
+ * Send subscription payment expired email
+ * Sent when a subscription's initial payment was never completed (e.g. 3DS not finished)
+ * and the subscription moved to incomplete_expired.
+ */
+export async function sendSubscriptionExpiredEmail(
+  email: string | string[],
+  teamName: string,
+  planName: string
+): Promise<void> {
+  const transport = getTransporter();
+  if (!transport) return;
+
+  const baseUrl = config.PUBLIC_DASHBOARD_URL || 'https://rejourney.co/dashboard';
+  const billingUrl = `${baseUrl}/dashboard/billing`;
+
+  const sections: EmailSection[] = [
+    {
+      style: 'error',
+      content: `
+        <div style="font-family: monospace; font-size: 12px; margin-bottom: 8px; opacity: 0.7;">PAYMENT NOT COMPLETED</div>
+        <div style="font-weight: 800; font-size: 18px;">Your subscription to ${planName} was not activated</div>
+      `
+    },
+    {
+      style: 'default',
+      content: `
+        <p style="margin-bottom: 16px;">
+          Your recent subscription attempt for <strong>${teamName}</strong> required additional payment verification (such as 3D Secure authentication), which was not completed in time.
+        </p>
+        <p style="margin-bottom: 16px;">
+          <strong>You have not been charged.</strong> Your team has been moved back to the Free plan.
+        </p>
+        <p style="margin-bottom: 0;">
+          To subscribe to the <strong>${planName}</strong> plan, please try again from the billing page and make sure to complete all payment verification steps.
+        </p>
+      `
+    },
+    {
+      style: 'info',
+      content: `
+        <strong>Tip:</strong> If your card keeps requiring verification, try using a different payment method or contact your bank to pre-authorize the payment.
+      `
+    }
+  ];
+
+  const html = generateEmailHtml({
+    title: 'Payment Not Completed',
+    previewText: `Your ${planName} subscription for ${teamName} was not activated — no charge was made`,
+    sections,
+    action: {
+      label: 'Resubscribe Now',
+      url: billingUrl
+    },
+    alertType: 'billing',
+    footerText: `Sent to billing admins of ${teamName}.`,
+    timestamp: new Date()
+  });
+
+  const recipients = Array.isArray(email) ? email.join(',') : email;
+
+  await transport.sendMail({
+    from: config.SMTP_FROM || 'Rejourney Billing <billing@rejourney.co>',
+    to: recipients,
+    subject: `Action Required: ${teamName} subscription payment not completed`,
+    text: `Your subscription to ${planName} for ${teamName} was not activated because payment verification was not completed. You have not been charged. Please resubscribe: ${billingUrl}`,
+    html
+  });
+
+  logger.info({ email: recipients, teamName, planName }, 'Subscription expired email sent');
+}
+
+/**
  * Send team invitation email
  */
 export async function sendTeamInviteEmail(

@@ -79,6 +79,8 @@ class VisualCapture private constructor(private val context: Context) {
     private var deferredUntilCommit = false
     private var framesDiskPath: File? = null
     private var currentSessionId: String? = null
+    @Volatile var captureGeneration: Int = 0
+        private set
     
     private val mainHandler = Handler(Looper.getMainLooper())
     
@@ -103,10 +105,35 @@ class VisualCapture private constructor(private val context: Context) {
     
     fun beginCapture(sessionOrigin: Long) {
         DiagnosticLog.trace("[VisualCapture] beginCapture called, currentActivity=${currentActivity?.get()?.javaClass?.simpleName ?: "null"}, state=${stateMachine.currentState}")
+
+        // If we're still in CAPTURING state (halt() from previous session hasn't
+        // run yet due to async mainHandler.post), force-halt first to prevent the
+        // stale halt from stopping the new session's capture later.
+        if (stateMachine.currentState == CaptureState.CAPTURING) {
+            DiagnosticLog.trace("[VisualCapture] Force-halting stale capture before starting new session")
+            stopCaptureTimer()
+            stateMachine.transition(CaptureState.HALTED)
+        }
+
         if (!stateMachine.transition(CaptureState.CAPTURING)) {
             DiagnosticLog.trace("[VisualCapture] beginCapture REJECTED - state transition failed from ${stateMachine.currentState}")
             return
         }
+
+        // Bump generation so any stale halt() posted by the previous session
+        // (via mainHandler.post) becomes a no-op and doesn't stop this capture.
+        captureGeneration++
+
+        // Discard any frames left over from a previous session to prevent
+        // cross-session frame leakage (frames from session A appearing in session B).
+        stateLock.withLock {
+            val staleCount = screenshots.size
+            if (staleCount > 0) {
+                DiagnosticLog.trace("[VisualCapture] Clearing $staleCount stale frames from previous session")
+                screenshots.clear()
+            }
+        }
+
         sessionEpoch = sessionOrigin
         frameCounter.set(0)
         
@@ -122,7 +149,13 @@ class VisualCapture private constructor(private val context: Context) {
         startCaptureTimer()
     }
     
-    fun halt() {
+    fun halt(expectedGeneration: Int = -1) {
+        // If a specific generation is expected (async/posted halt from a previous
+        // session), skip if a new session has already started capture.
+        if (expectedGeneration >= 0 && expectedGeneration != captureGeneration) {
+            DiagnosticLog.trace("[VisualCapture] Skipping stale halt (gen=$expectedGeneration, current=$captureGeneration)")
+            return
+        }
         if (!stateMachine.transition(CaptureState.HALTED)) return
         stopCaptureTimer()
         

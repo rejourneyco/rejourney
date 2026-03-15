@@ -411,8 +411,8 @@ export async function getTeamSubscription(teamId: string): Promise<TeamSubscript
             hasItems: subscription.items.data.length > 0
         }, 'Retrieved subscription from Stripe');
 
-        if (subscription.status === 'canceled') {
-            // Subscription was canceled. Reconcile stale DB fields so all usage paths
+        if (subscription.status === 'canceled' || subscription.status === 'incomplete_expired') {
+            // Subscription is terminal. Reconcile stale DB fields so all usage paths
             // consistently treat this team as free-tier.
             try {
                 await db
@@ -437,7 +437,25 @@ export async function getTeamSubscription(teamId: string): Promise<TeamSubscript
                 );
             }
 
-            logger.info({ teamId, subscriptionId: subscription.id }, 'Subscription is canceled, returning free plan');
+            logger.info({ teamId, subscriptionId: subscription.id, status: subscription.status }, 'Subscription is terminal, returning free plan');
+            return result;
+        }
+
+        if (subscription.status === 'incomplete') {
+            // Payment hasn't been confirmed yet (e.g. 3DS authentication pending).
+            // Do NOT grant paid-plan access. Return free plan limits but keep the
+            // subscription ID so we can track completion.
+            result.subscriptionId = subscription.id;
+            result.subscriptionStatus = 'incomplete';
+            logger.info({ teamId, subscriptionId: subscription.id }, 'Subscription is incomplete (payment pending), returning free plan limits');
+            return result;
+        }
+
+        if (subscription.status === 'unpaid') {
+            // All retry attempts exhausted. Treat as free-tier until they pay.
+            result.subscriptionId = subscription.id;
+            result.subscriptionStatus = 'unpaid';
+            logger.info({ teamId, subscriptionId: subscription.id }, 'Subscription is unpaid, returning free plan limits');
             return result;
         }
 
@@ -964,12 +982,16 @@ export async function executePlanChange(
                 customer: team.stripeCustomerId,
                 items: [{ price: actualPriceId }],
                 default_payment_method: team.stripePaymentMethodId || undefined,
+                payment_behavior: 'error_if_incomplete',
                 metadata: { teamId },
             });
         } catch (err: any) {
             logger.error({ err, teamId, customerId: team.stripeCustomerId, priceId: actualPriceId }, 'Failed to create Stripe subscription');
             if (err.code === 'resource_missing') {
                 throw new Error(`Stripe price not found: ${actualPriceId}. Make sure the price exists in your Stripe dashboard.`);
+            }
+            if (err.type === 'StripeCardError' || err.code === 'payment_intent_action_required') {
+                throw new Error('Payment requires additional authentication. Please try again or use a different payment method.');
             }
             throw new Error(`Failed to create subscription: ${err.message}`);
         }

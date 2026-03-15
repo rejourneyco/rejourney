@@ -279,10 +279,14 @@ class ReplayOrchestrator private constructor(private val context: Context) {
         )
         val queueDepthAtFinalize = TelemetryPipeline.shared?.getQueueDepth() ?: 0
 
+        // Capture the current generation so a stale halt posted here won't
+        // stop a new session's capture that starts before this block runs.
+        val haltGeneration = VisualCapture.shared?.captureGeneration ?: -1
+
         // Do local teardown immediately so lifecycle rollover never depends on network latency.
         mainHandler.post {
             TelemetryPipeline.shared?.shutdown()
-            VisualCapture.shared?.halt()
+            VisualCapture.shared?.halt(haltGeneration)
             InteractionRecorder.shared?.deactivate()
             StabilityMonitor.shared?.deactivate()
             AnrSentinel.shared?.deactivate()

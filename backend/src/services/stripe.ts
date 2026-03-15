@@ -11,10 +11,10 @@
  */
 
 import Stripe from 'stripe';
-import { eq, and } from 'drizzle-orm';
+import { eq, and, inArray } from 'drizzle-orm';
 import { config, isSelfHosted } from '../config.js';
 import { logger } from '../logger.js';
-import { db, teams, stripeWebhookEvents, billingUsage } from '../db/client.js';
+import { db, teams, stripeWebhookEvents, billingUsage, users, teamMembers } from '../db/client.js';
 
 // =============================================================================
 // Stripe Client Initialization
@@ -370,6 +370,7 @@ export async function createSubscription(
             customer: team.stripeCustomerId,
             items: [{ price: priceId }],
             default_payment_method: team.stripePaymentMethodId,
+            payment_behavior: 'error_if_incomplete',
             metadata: {
                 teamId,
             },
@@ -554,6 +555,10 @@ export async function handleWebhookEvent(event: Stripe.Event): Promise<void> {
 
             case 'invoice.payment_failed':
                 await handleInvoicePaymentFailed(event.data.object as Stripe.Invoice);
+                break;
+
+            case 'invoice.payment_action_required':
+                await handleInvoicePaymentActionRequired(event.data.object as Stripe.Invoice);
                 break;
 
             case 'customer.subscription.updated':
@@ -748,8 +753,67 @@ async function handleInvoicePaymentFailed(invoice: Stripe.Invoice): Promise<void
 }
 
 /**
+ * Handle invoice.payment_action_required event
+ * Fired when the payment requires customer authentication (e.g. 3D Secure).
+ * We ensure the team is NOT provisioned until payment succeeds.
+ */
+async function handleInvoicePaymentActionRequired(invoice: Stripe.Invoice): Promise<void> {
+    const invoiceData = invoice as any;
+    const subscriptionId = typeof invoiceData.subscription === 'string'
+        ? invoiceData.subscription
+        : invoiceData.subscription?.id;
+
+    if (!subscriptionId) {
+        logger.debug({ invoiceId: invoice.id }, 'Payment action required invoice has no subscription');
+        return;
+    }
+
+    // Find team by subscription ID
+    const [team] = await db.select({ id: teams.id, stripePriceId: teams.stripePriceId })
+        .from(teams)
+        .where(eq(teams.stripeSubscriptionId, subscriptionId))
+        .limit(1);
+
+    if (!team) {
+        logger.debug({ subscriptionId, invoiceId: invoice.id }, 'No team found for subscription with pending payment action');
+        return;
+    }
+
+    // If the team was incorrectly provisioned (stripePriceId set while payment
+    // is still pending), revert to free-tier limits.
+    if (team.stripePriceId) {
+        await db.update(teams)
+            .set({ stripePriceId: null, updatedAt: new Date() })
+            .where(eq(teams.id, team.id));
+
+        const { invalidateSessionCache } = await import('./quotaCheck.js');
+        await invalidateSessionCache(team.id);
+
+        logger.warn({
+            teamId: team.id,
+            subscriptionId,
+            invoiceId: invoice.id,
+        }, 'Reverted team to free-tier limits — payment action required but plan was already provisioned');
+    } else {
+        logger.info({
+            teamId: team.id,
+            subscriptionId,
+            invoiceId: invoice.id,
+        }, 'Payment action required — team correctly not provisioned');
+    }
+}
+
+/**
  * Handle subscription created event (from invoice)
- * Sets up initial billing cycle anchor for new subscriptions
+ * Sets up initial billing cycle anchor for new subscriptions.
+ *
+ * IMPORTANT: Only fully provision the team when the subscription is active
+ * or trialing. If the subscription is `incomplete` (e.g. payment requires 3DS
+ * authentication that hasn't been completed yet), we save the subscription ID
+ * so we can track it, but do NOT set stripePriceId — that controls the session
+ * limit and must only be granted after successful payment.
+ * The subsequent `customer.subscription.updated` webhook (status -> active)
+ * will set stripePriceId when payment succeeds.
  */
 async function handleSubscriptionCreated(subscription: Stripe.Subscription): Promise<void> {
     const teamId = subscription.metadata?.teamId;
@@ -762,22 +826,31 @@ async function handleSubscriptionCreated(subscription: Stripe.Subscription): Pro
     try {
         const subData = subscription as any;
         const newAnchor = new Date(subData.current_period_start * 1000);
+        const isPaymentConfirmed = subscription.status === 'active' || subscription.status === 'trialing';
 
-        // Set billing cycle anchor and subscription ID for new subscription
+        const updateFields: Record<string, any> = {
+            stripeSubscriptionId: subscription.id,
+            updatedAt: new Date(),
+        };
+
+        if (isPaymentConfirmed) {
+            updateFields.billingCycleAnchor = newAnchor;
+            updateFields.stripePriceId = subscription.items.data[0]?.price.id || null;
+        }
+
         await db.update(teams)
-            .set({
-                stripeSubscriptionId: subscription.id,
-                billingCycleAnchor: newAnchor,
-                stripePriceId: subscription.items.data[0]?.price.id || null,
-                updatedAt: new Date(),
-            })
+            .set(updateFields)
             .where(eq(teams.id, teamId));
 
         logger.info({
             teamId,
             subscriptionId: subscription.id,
-            anchor: newAnchor,
-        }, 'New subscription created - billing cycle anchor set');
+            status: subscription.status,
+            anchor: isPaymentConfirmed ? newAnchor : null,
+            provisioned: isPaymentConfirmed,
+        }, isPaymentConfirmed
+            ? 'New subscription created - billing cycle anchor set'
+            : 'New subscription created with incomplete payment - waiting for payment confirmation');
     } catch (err) {
         logger.error({ err, subscriptionId: subscription.id }, 'Failed to handle subscription created');
     }
@@ -786,6 +859,10 @@ async function handleSubscriptionCreated(subscription: Stripe.Subscription): Pro
 /**
  * Handle subscription updated event
  * Syncs subscription state (price changes, status changes, scheduled downgrades completing)
+ * 
+ * Also handles the incomplete -> active transition: when payment finally succeeds
+ * after 3DS authentication, this event fires with status=active and we provision
+ * the team at that point.
  * 
  * IMPORTANT: For downgrades, we do NOT reset the billing cycle anchor
  * The billing cycle continues from the same date, only the price changes
@@ -809,6 +886,81 @@ async function handleSubscriptionUpdated(subscription: Stripe.Subscription): Pro
         }
 
         targetTeamId = team.id;
+    }
+
+    // If subscription is not in an active/trialing state, don't provision.
+    // This handles cases where status goes to incomplete, past_due, unpaid, etc.
+    if (subscription.status === 'incomplete' || subscription.status === 'incomplete_expired' || subscription.status === 'unpaid') {
+        // Clear stripePriceId so team doesn't get paid-plan access
+        await db.update(teams)
+            .set({ stripePriceId: null, updatedAt: new Date() })
+            .where(eq(teams.id, targetTeamId));
+
+        const { invalidateSessionCache } = await import('./quotaCheck.js');
+        await invalidateSessionCache(targetTeamId);
+
+        logger.info({
+            teamId: targetTeamId,
+            subscriptionId: subscription.id,
+            status: subscription.status,
+        }, 'Subscription updated to non-active status - team reverted to free-tier limits');
+
+        // Send expiration email when payment window closes without completion
+        if (subscription.status === 'incomplete_expired') {
+            try {
+                const planName = subscription.items.data[0]?.price
+                    ? (typeof subscription.items.data[0].price === 'string'
+                        ? 'your selected'
+                        : (subscription.items.data[0].price.metadata?.plan_name
+                            ? subscription.items.data[0].price.metadata.plan_name.charAt(0).toUpperCase() + subscription.items.data[0].price.metadata.plan_name.slice(1)
+                            : subscription.items.data[0].price.nickname || 'your selected'))
+                    : 'your selected';
+
+                const [teamInfo] = await db
+                    .select({ name: teams.name, billingEmail: teams.billingEmail, ownerUserId: teams.ownerUserId })
+                    .from(teams)
+                    .where(eq(teams.id, targetTeamId))
+                    .limit(1);
+
+                if (teamInfo) {
+                    let recipientEmails: string[] = [];
+
+                    const members = await db
+                        .select({ email: users.email })
+                        .from(teamMembers)
+                        .innerJoin(users, eq(teamMembers.userId, users.id))
+                        .where(and(
+                            eq(teamMembers.teamId, targetTeamId),
+                            inArray(teamMembers.role, ['owner', 'admin', 'billing_admin'])
+                        ));
+                    recipientEmails = members.map(m => m.email).filter(Boolean);
+
+                    if (teamInfo.billingEmail && !recipientEmails.includes(teamInfo.billingEmail)) {
+                        recipientEmails.push(teamInfo.billingEmail);
+                    }
+
+                    if (recipientEmails.length === 0 && teamInfo.ownerUserId) {
+                        const [owner] = await db
+                            .select({ email: users.email })
+                            .from(users)
+                            .where(eq(users.id, teamInfo.ownerUserId))
+                            .limit(1);
+                        if (owner?.email) recipientEmails.push(owner.email);
+                    }
+
+                    recipientEmails = [...new Set(recipientEmails.filter(e => !!e))];
+
+                    if (recipientEmails.length > 0) {
+                        const { sendSubscriptionExpiredEmail } = await import('./email.js');
+                        await sendSubscriptionExpiredEmail(recipientEmails, teamInfo.name || 'Your Team', planName);
+                    }
+                }
+            } catch (emailErr) {
+                logger.error({ err: emailErr, teamId: targetTeamId }, 'Failed to send subscription expired email');
+            }
+        }
+
+        return;
     }
 
     // Get current price ID from subscription
@@ -842,7 +994,7 @@ async function handleSubscriptionUpdated(subscription: Stripe.Subscription): Pro
     };
 
     if (!currentTeam.billingCycleAnchor) {
-        // New subscription - set anchor
+        // New subscription (or incomplete -> active transition) - set anchor
         updateData.billingCycleAnchor = new Date(subData.current_period_start * 1000);
     } else if (!isDowngrade) {
         // Upgrade or other change - update anchor (upgrades already reset it, but sync it)

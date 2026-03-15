@@ -127,6 +127,9 @@ public final class TelemetryPipeline: NSObject {
         
         SegmentDispatcher.shared.halt()
         _appSuspending()
+
+        // Clear pending frame bundles so they don't leak into the next session
+        _frameQueue.clear()
     }
     
     @objc public func finalizeAndShip() {
@@ -146,8 +149,11 @@ public final class TelemetryPipeline: NSObject {
     }
     
     @objc public func submitFrameBundle(payload: Data, filename: String, startMs: UInt64, endMs: UInt64, frameCount: Int) {
+        // Capture the session ID now so frames are always attributed to the
+        // session that was active when they were captured, not when they ship.
+        let capturedSessionId = currentReplayId
         _serialWorker.async {
-            let bundle = PendingFrameBundle(tag: filename, payload: payload, rangeStart: startMs, rangeEnd: endMs, count: frameCount)
+            let bundle = PendingFrameBundle(tag: filename, payload: payload, rangeStart: startMs, rangeEnd: endMs, count: frameCount, sessionId: capturedSessionId)
             self._frameQueue.enqueue(bundle)
             if !self._deferredMode { self._shipPendingFrames() }
         }
@@ -246,7 +252,19 @@ public final class TelemetryPipeline: NSObject {
     }
     
     private func _shipPendingFrames() {
-        guard !_deferredMode, let next = _frameQueue.dequeue(), currentReplayId != nil else { return }
+        guard !_deferredMode, let next = _frameQueue.dequeue() else { return }
+
+        guard currentReplayId != nil else {
+            _frameQueue.requeue(next)
+            return
+        }
+
+        // Drop frames that belong to a session that is no longer active
+        if let bundleSession = next.sessionId, bundleSession != currentReplayId {
+            DiagnosticLog.trace("[TelemetryPipeline] Dropping \(next.count) stale frames from session \(bundleSession)")
+            _shipPendingFrames()
+            return
+        }
         
         SegmentDispatcher.shared.transmitFrameBundle(
             payload: next.payload,
@@ -569,6 +587,7 @@ private struct PendingFrameBundle {
     let rangeStart: UInt64
     let rangeEnd: UInt64
     let count: Int
+    let sessionId: String?
 }
 
 private final class FrameBundleQueue {
@@ -604,5 +623,11 @@ private final class FrameBundleQueue {
         _lock.lock()
         defer { _lock.unlock() }
         _queue.insert(bundle, at: 0)
+    }
+
+    func clear() {
+        _lock.lock()
+        defer { _lock.unlock() }
+        _queue.removeAll()
     }
 }

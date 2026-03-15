@@ -159,9 +159,12 @@ class TelemetryPipeline private constructor(private val context: Context) {
     fun shutdown() {
         heartbeatRunnable?.let { mainHandler.removeCallbacks(it) }
         heartbeatRunnable = null
-        
+
         SegmentDispatcher.shared.halt()
         appSuspending()
+
+        // Clear pending frame bundles so they don't leak into the next session
+        frameQueue.clear()
     }
     
     fun finalizeAndShip() {
@@ -181,9 +184,12 @@ class TelemetryPipeline private constructor(private val context: Context) {
     }
     
     fun submitFrameBundle(payload: ByteArray, filename: String, startMs: Long, endMs: Long, frameCount: Int) {
-        DiagnosticLog.trace("[TelemetryPipeline] submitFrameBundle: $frameCount frames, ${payload.size} bytes, deferredMode=$deferredMode")
+        // Capture the session ID now so frames are always attributed to the
+        // session that was active when they were captured, not when they ship.
+        val capturedSessionId = currentReplayId
+        DiagnosticLog.trace("[TelemetryPipeline] submitFrameBundle: $frameCount frames, ${payload.size} bytes, deferredMode=$deferredMode, session=$capturedSessionId")
         serialWorker.execute {
-            val bundle = PendingFrameBundle(filename, payload, startMs, endMs, frameCount)
+            val bundle = PendingFrameBundle(filename, payload, startMs, endMs, frameCount, capturedSessionId)
             frameQueue.enqueue(bundle)
             if (!deferredMode) shipPendingFrames()
         }
@@ -233,9 +239,21 @@ class TelemetryPipeline private constructor(private val context: Context) {
             DiagnosticLog.trace("[TelemetryPipeline] shipPendingFrames: no frames in queue")
             return
         }
-        if (currentReplayId == null) {
-            DiagnosticLog.caution("[TelemetryPipeline] shipPendingFrames: no currentReplayId, requeueing")
+
+        // Determine which session these frames belong to. Prefer the session ID
+        // captured at enqueue time; fall back to the current active session.
+        val targetSession = next.sessionId ?: currentReplayId
+        if (targetSession == null) {
+            DiagnosticLog.caution("[TelemetryPipeline] shipPendingFrames: no session ID, requeueing")
             frameQueue.requeue(next)
+            return
+        }
+
+        // Drop frames that belong to a session that is no longer active —
+        // they would be uploaded under the wrong session and cause flickering.
+        if (next.sessionId != null && next.sessionId != currentReplayId && currentReplayId != null) {
+            DiagnosticLog.trace("[TelemetryPipeline] shipPendingFrames: dropping ${next.count} stale frames from session ${next.sessionId} (current=${currentReplayId})")
+            serialWorker.execute { shipPendingFrames() }
             return
         }
         
@@ -641,7 +659,8 @@ private data class PendingFrameBundle(
     val payload: ByteArray,
     val rangeStart: Long,
     val rangeEnd: Long,
-    val count: Int
+    val count: Int,
+    val sessionId: String? = null
 )
 
 private class FrameBundleQueue(private val maxPending: Int) {
@@ -671,4 +690,8 @@ private class FrameBundleQueue(private val maxPending: Int) {
     }
     
     fun size(): Int = queue.size
+
+    fun clear() {
+        lock.withLock { queue.clear() }
+    }
 }

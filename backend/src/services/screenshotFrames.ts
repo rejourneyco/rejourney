@@ -555,6 +555,7 @@ export async function getSessionScreenshotFrames(
         .select({
             projectId: sessions.projectId,
             startedAt: sessions.startedAt,
+            endedAt: sessions.endedAt,
         })
         .from(sessions)
         .where(eq(sessions.id, sessionId))
@@ -566,12 +567,20 @@ export async function getSessionScreenshotFrames(
     }
     
     const sessionStartTime = session.startedAt.getTime();
+    const sessionEndTime = session.endedAt?.getTime() ?? null;
     
     // Check cache first
     if (!skipCache) {
         const cached = await getCachedFrameIndex(sessionId);
         if (cached) {
-            let framesToReturn = cached.frames;
+            // Apply session-window filter to cached frames too (cache may predate this fix)
+            const cachedUpper = sessionEndTime ? sessionEndTime + 5000 : Infinity;
+            let framesToReturn = cached.frames.filter(
+                f => f.timestamp >= sessionStartTime && f.timestamp <= cachedUpper
+            );
+            // Reassign indices after filtering
+            framesToReturn.forEach((f, idx) => { f.index = idx; });
+
             if (offset > 0) {
                 framesToReturn = framesToReturn.slice(offset);
             }
@@ -587,7 +596,7 @@ export async function getSessionScreenshotFrames(
             );
 
             return {
-                totalFrames: cached.totalFrames,
+                totalFrames: framesToReturn.length,
                 sessionStartTime: cached.sessionStartTime,
                 frames: framesWithUrls,
                 cached: true,
@@ -665,9 +674,34 @@ export async function getSessionScreenshotFrames(
     
     // Sort all frames by timestamp
     allFrames.sort((a, b) => a.timestamp - b.timestamp);
-    allFrames.forEach((f, idx) => {
+
+    // Filter out frames that fall outside the session time window.
+    // Cross-session frame leakage can occur when the SDK doesn't fully flush
+    // its screenshot buffer before a new session starts, causing frames from
+    // the previous session to be uploaded under the new session ID.
+    const preFilterCount = allFrames.length;
+    const lowerBound = sessionStartTime;
+    const upperBound = sessionEndTime ? sessionEndTime + 5000 : Infinity; // 5s grace for upload lag
+    const filteredFrames = allFrames.filter(f => f.timestamp >= lowerBound && f.timestamp <= upperBound);
+
+    if (filteredFrames.length < preFilterCount) {
+        logger.warn({
+            sessionId,
+            removed: preFilterCount - filteredFrames.length,
+            total: preFilterCount,
+            sessionStartTime,
+            sessionEndTime,
+        }, '[screenshotFrames] Filtered out-of-window frames (cross-session leakage)');
+    }
+
+    // Reassign indices after filtering
+    filteredFrames.forEach((f, idx) => {
         f.index = idx;
     });
+
+    // Replace allFrames with filtered set
+    allFrames.length = 0;
+    allFrames.push(...filteredFrames);
     
     // Cache the frame index
     const cacheEntry: CachedFrameIndex = {

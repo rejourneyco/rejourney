@@ -1048,12 +1048,30 @@ async function main() {
     return;
   }
 
+  let cleanedUp = false;
   const heartbeat = setInterval(() => {
     refreshRunLock(ownerId).catch((error) => {
       warn(`Failed to refresh run lock: ${error.message}`);
     });
   }, config.lockHeartbeatMs);
   heartbeat.unref();
+
+  const cleanup = async () => {
+    if (cleanedUp) return;
+    cleanedUp = true;
+    clearInterval(heartbeat);
+    await releaseRunLock(ownerId);
+  };
+
+  const handleSignal = (signal) => {
+    warn(`Received ${signal}; releasing run lock before exit`);
+    cleanup()
+      .catch((error) => warn(`Failed to release run lock during ${signal}: ${error.message}`))
+      .finally(() => process.exit(signal === 'SIGINT' ? 130 : 143));
+  };
+
+  process.once('SIGTERM', () => handleSignal('SIGTERM'));
+  process.once('SIGINT', () => handleSignal('SIGINT'));
 
   try {
     const totalEligible = await countEligibleSessions();
@@ -1117,8 +1135,7 @@ async function main() {
 
     log(`Session backup complete: ${backedUp} sessions backed up, ${errors} failed this run, ~${Math.round(totalBytes / 1024 / 1024)} MB total`);
   } finally {
-    clearInterval(heartbeat);
-    await releaseRunLock(ownerId);
+    await cleanup();
   }
 }
 

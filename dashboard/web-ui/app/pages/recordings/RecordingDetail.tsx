@@ -1043,21 +1043,27 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
 
 
     // Screenshot frames (primary playback mode for iOS)
-    // Normalize timestamps to be relative to session start time
+    // Normalize timestamps to be relative to session start time.
+    // Also filter out frames that fall outside the session window —
+    // cross-session frame leakage can cause frames from a previous
+    // session to appear, producing flickering during playback.
     const screenshotFrames = useMemo(() => {
         const rawFrames = fullSession?.screenshotFrames || [];
         if (rawFrames.length === 0 || !fullSession?.startTime) return [];
 
         const sessionStart = fullSession.startTime;
+        const sessionEnd = fullSession.endTime ?? Infinity;
+        const upperBound = sessionEnd === Infinity ? Infinity : sessionEnd + 5000;
+
         return rawFrames
+            .filter(f => f.timestamp >= sessionStart && f.timestamp <= upperBound)
             .map((f, idx) => ({
                 ...f,
-                // relativeTime is seconds from session start (for playback)
                 relativeTime: (f.timestamp - sessionStart) / 1000,
             }))
             .sort((a, b) => a.timestamp - b.timestamp)
             .map((f, idx) => ({ ...f, index: idx }));
-    }, [fullSession?.screenshotFrames, fullSession?.startTime]);
+    }, [fullSession?.screenshotFrames, fullSession?.startTime, fullSession?.endTime]);
 
     const videoSegments = useMemo(() => {
         const rawSegments = fullSession?.videoSegments || [];
@@ -1150,7 +1156,7 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
 
             if (screenshotFrames.length === 0) return;
             const newTime = percent * durationSeconds;
-            // Binary search for closest frame by relativeTime
+            // Binary search for closest frame at or before the target time
             let left = 0;
             let right = screenshotFrames.length - 1;
             while (left < right) {
@@ -1162,7 +1168,12 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
                 }
             }
             setCurrentFrameIndex(left);
-            setCurrentPlaybackTime(screenshotFrames[left].relativeTime);
+            // Use the user's target time, not the frame's time — prevents the
+            // progress bar from snapping backward to the nearest frame.
+            setCurrentPlaybackTime(newTime);
+            // Immediately sync the ref so the animation tick loop doesn't
+            // overwrite the seek with the old position before React re-renders.
+            currentPlaybackTimeRef.current = newTime;
         },
         [durationSeconds, screenshotFrames]
     );
@@ -1196,7 +1207,7 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
         (seconds: number) => {
             if (screenshotFrames.length === 0) return;
             const targetTime = Math.max(0, Math.min(currentPlaybackTime + seconds, durationSeconds));
-            // Binary search for closest frame by relativeTime
+            // Binary search for closest frame at or before the target time
             let left = 0;
             let right = screenshotFrames.length - 1;
             while (left < right) {
@@ -1209,7 +1220,8 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
             }
             const idx = Math.max(0, Math.min(left, screenshotFrames.length - 1));
             setCurrentFrameIndex(idx);
-            setCurrentPlaybackTime(screenshotFrames[idx].relativeTime);
+            setCurrentPlaybackTime(targetTime);
+            currentPlaybackTimeRef.current = targetTime;
         },
         [currentPlaybackTime, screenshotFrames, durationSeconds]
     );
@@ -1218,7 +1230,8 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
     const restart = useCallback(() => {
         if (screenshotFrames.length === 0) return;
         setCurrentFrameIndex(0);
-        setCurrentPlaybackTime(0); // relativeTime of first frame is always 0
+        setCurrentPlaybackTime(0);
+        currentPlaybackTimeRef.current = 0;
         setIsPlaying(true);
     }, [screenshotFrames]);
 
@@ -1478,7 +1491,9 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
         }
     }, [playbackMode, screenshotFrames, currentFrameIndex]);
 
-    // Seek to frame by relativeTime (for screenshot mode)
+    // Seek to a specific time in screenshot mode.
+    // Displays the closest frame at or before the target time, but keeps the
+    // progress bar at the exact requested position.
     const seekToScreenshotFrame = useCallback((targetRelativeTime: number) => {
         if (screenshotFrames.length === 0) return;
 
@@ -1496,7 +1511,8 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
         }
 
         setCurrentFrameIndex(left);
-        setCurrentPlaybackTime(screenshotFrames[left].relativeTime);
+        setCurrentPlaybackTime(targetRelativeTime);
+        currentPlaybackTimeRef.current = targetRelativeTime;
     }, [screenshotFrames]);
 
     // Seek helper used by timeline and activity interactions
