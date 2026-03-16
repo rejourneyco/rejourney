@@ -5,15 +5,18 @@ import { useTeam } from '../context/TeamContext';
 import { Button } from '../components/ui/Button';
 import { getInvitationByToken, acceptInvitation, ApiTeamInvitation } from '../services/api';
 
+const LOGIN_REDIRECT_GUARD_KEY = 'rejourney_login_redirect_guard';
+
 export const InviteAccept: React.FC = () => {
     const { token } = useParams<{ token: string }>();
     const navigate = useNavigate();
-    const { user, isLoading: authLoading } = useAuth();
+    const { user, isLoading: authLoading, logout } = useAuth();
     const { refreshTeams } = useTeam();
 
     const [invitation, setInvitation] = useState<ApiTeamInvitation | null>(null);
     const [isLoading, setIsLoading] = useState(true);
     const [isAccepting, setIsAccepting] = useState(false);
+    const [isSwitchingAccount, setIsSwitchingAccount] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [success, setSuccess] = useState(false);
     const [alreadyAccepted, setAlreadyAccepted] = useState(false);
@@ -23,7 +26,7 @@ export const InviteAccept: React.FC = () => {
             localStorage.setItem('selectedTeamId', teamId);
         }
 
-        await refreshTeams();
+        await refreshTeams(teamId);
 
         const go = () => navigate('/dashboard/general');
         if (delayMs > 0) {
@@ -102,11 +105,19 @@ export const InviteAccept: React.FC = () => {
     };
 
     // Redirect to login if not authenticated
-    const handleLogin = () => {
-        // Store the current URL to redirect back after login
-        const returnUrl = window.location.pathname;
+    const handleLogin = async () => {
+        // Preserve the full invite URL so the next account returns here after login.
+        const returnUrl = `${window.location.pathname}${window.location.search}${window.location.hash}`;
         localStorage.setItem('returnUrl', returnUrl);
-        navigate('/login');
+        sessionStorage.setItem(LOGIN_REDIRECT_GUARD_KEY, '1');
+        setError(null);
+        setIsSwitchingAccount(true);
+
+        if (user) {
+            await logout();
+        }
+
+        navigate('/login', { replace: true });
     };
 
     // Show loading state
@@ -238,8 +249,13 @@ export const InviteAccept: React.FC = () => {
                                             <div className="p-4 bg-yellow-50 border-2 border-yellow-500 text-yellow-700 text-sm">
                                                 <strong>Email mismatch:</strong> You're logged in as <strong>{user.email}</strong>, but this invitation was sent to <strong>{invitation?.email}</strong>.
                                             </div>
-                                            <Button onClick={handleLogin} variant="secondary" className="w-full">
-                                                Log in with a different account
+                                            <Button
+                                                onClick={handleLogin}
+                                                disabled={isSwitchingAccount}
+                                                variant="secondary"
+                                                className="w-full"
+                                            >
+                                                {isSwitchingAccount ? 'Redirecting...' : 'Log in with a different account'}
                                             </Button>
                                         </div>
                                     )}
@@ -274,8 +290,13 @@ export const InviteAccept: React.FC = () => {
                                         <div className="p-4 bg-yellow-50 border-2 border-yellow-500 text-yellow-700 text-sm">
                                             <strong>Email mismatch:</strong> You're logged in as <strong>{user.email}</strong>, but this invitation was sent to <strong>{invitation?.email}</strong>.
                                         </div>
-                                        <Button onClick={handleLogin} variant="secondary" className="w-full">
-                                            Log in with a different account
+                                        <Button
+                                            onClick={handleLogin}
+                                            disabled={isSwitchingAccount}
+                                            variant="secondary"
+                                            className="w-full"
+                                        >
+                                            {isSwitchingAccount ? 'Redirecting...' : 'Log in with a different account'}
                                         </Button>
                                     </div>
                                 )

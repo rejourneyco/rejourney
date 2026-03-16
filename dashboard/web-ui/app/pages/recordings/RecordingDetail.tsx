@@ -638,15 +638,6 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
         try {
             setIsLoading(true);
             setHierarchySnapshots([]);
-            // Use proxied frame URLs to avoid browser access issues with internal/private S3 endpoints.
-            const coreMark = `replay_core_${id}`;
-            if (typeof performance !== 'undefined') performance.mark(coreMark);
-            const coreData = await api.getSessionCore(id, { frameUrlMode: 'proxy' });
-            if (typeof performance !== 'undefined') {
-                performance.measure(`replay:getSessionCore:${id}`, coreMark);
-            }
-            setFullSession(coreData as any);
-            setIsLoading(false);
 
             const transformHierarchySnapshots = (rawSnapshots: any[], sessionLike: any): HierarchySnapshot[] => {
                 if (!Array.isArray(rawSnapshots) || rawSnapshots.length === 0) return [];
@@ -671,12 +662,24 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
                     .sort((a: HierarchySnapshot, b: HierarchySnapshot) => a.timestamp - b.timestamp);
             };
 
-            // Load heavier replay data after first paint.
-            const [timelineResult, hierarchyResult, statsResult] = await Promise.allSettled([
+            const coreMark = `replay_core_${id}`;
+            if (typeof performance !== 'undefined') performance.mark(coreMark);
+
+            const [coreResult, timelineResult, hierarchyResult, statsResult] = await Promise.allSettled([
+                api.getSessionCore(id, { frameUrlMode: 'proxy' }),
                 api.getSessionTimeline(id),
                 api.getSessionHierarchy(id),
                 api.getSessionStats(id),
             ]);
+
+            if (coreResult.status === 'fulfilled') {
+                if (typeof performance !== 'undefined') {
+                    performance.measure(`replay:getSessionCore:${id}`, coreMark);
+                }
+                setFullSession(coreResult.value as any);
+            } else {
+                console.error('Failed to fetch session core:', coreResult.reason);
+            }
 
             setFullSession((prev) => {
                 if (!prev || prev.id !== id) return prev;

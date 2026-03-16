@@ -607,6 +607,7 @@ export async function getSessionsPaginated(params: {
   timeRange?: string;
   projectId?: string;
   platform?: string;
+  promoted?: boolean;
   metaKey?: string;
   metaValue?: string;
   eventName?: string;
@@ -626,7 +627,7 @@ export async function getSessionsPaginated(params: {
     };
   }
 
-  const { cursor, limit = 50, timeRange, projectId, platform, metaKey, metaValue, eventName, date, eventCountOp, eventCountValue, eventPropKey, eventPropValue } = params;
+  const { cursor, limit = 50, timeRange, projectId, platform, promoted, metaKey, metaValue, eventName, date, eventCountOp, eventCountValue, eventPropKey, eventPropValue } = params;
 
   const queryParams = new URLSearchParams();
   if (cursor) queryParams.set('cursor', cursor);
@@ -634,6 +635,7 @@ export async function getSessionsPaginated(params: {
   if (timeRange) queryParams.set('timeRange', timeRange);
   if (projectId) queryParams.set('projectId', projectId);
   if (platform) queryParams.set('platform', platform);
+  if (promoted) queryParams.set('promoted', 'true');
   if (metaKey) queryParams.set('metaKey', metaKey);
   if (metaValue) queryParams.set('metaValue', metaValue);
   if (eventName) queryParams.set('eventName', eventName);
@@ -2167,6 +2169,7 @@ export interface GeoIssueLocation {
   lat: number;
   lng: number;
   sessions: number;
+  uniqueUsers: number;
   issues: {
     crashes: number;
     anrs: number;
@@ -2181,6 +2184,7 @@ export interface GeoIssueLocation {
 export interface GeoIssueCountry {
   country: string;
   sessions: number;
+  uniqueUsers: number;
   crashes: number;
   anrs: number;
   errors: number;

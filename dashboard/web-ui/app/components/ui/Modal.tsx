@@ -10,6 +10,8 @@ interface ModalProps {
   footer?: React.ReactNode;
   showCloseButton?: boolean;
   size?: 'sm' | 'md' | 'lg' | 'xl';
+  panelClassName?: string;
+  bodyClassName?: string;
 }
 
 export const Modal: React.FC<ModalProps> = ({
@@ -19,7 +21,9 @@ export const Modal: React.FC<ModalProps> = ({
   children,
   footer,
   showCloseButton = true,
-  size = 'md'
+  size = 'md',
+  panelClassName = '',
+  bodyClassName = '',
 }) => {
   if (!isOpen) return null;
 
@@ -32,7 +36,7 @@ export const Modal: React.FC<ModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/50 backdrop-blur-sm animate-in fade-in duration-200">
-      <div className={`bg-white text-slate-900 border-2 border-slate-900 shadow-[8px_8px_0_0_#0f172a] ${sizeClasses[size]} w-full mx-4 max-h-[90vh] overflow-hidden flex flex-col animate-in zoom-in-95 duration-200`}>
+      <div className={`bg-white text-slate-900 border-2 border-slate-900 shadow-[8px_8px_0_0_#0f172a] ${sizeClasses[size]} w-full mx-4 max-h-[90vh] overflow-hidden flex flex-col animate-in zoom-in-95 duration-200 ${panelClassName}`}>
         {(title || showCloseButton) && (
           <div className="border-b-2 border-slate-900 p-4 flex justify-between items-center bg-slate-50">
             <h2 className="text-lg font-black font-mono uppercase tracking-tight text-slate-900">{title}</h2>
@@ -47,7 +51,7 @@ export const Modal: React.FC<ModalProps> = ({
             )}
           </div>
         )}
-        <div className="p-6 flex-1 overflow-y-auto">{children}</div>
+        <div className={`p-6 flex-1 overflow-y-auto ${bodyClassName}`}>{children}</div>
         {footer && <div className="border-t-2 border-slate-900 p-4 flex justify-end gap-3 bg-slate-50">{footer}</div>}
       </div>
     </div>

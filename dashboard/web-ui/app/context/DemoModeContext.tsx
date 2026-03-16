@@ -73,7 +73,7 @@ interface DemoTeamContextValue {
     isLoading: boolean;
     error: string | null;
     setCurrentTeam: (team: ApiTeam) => void;
-    refreshTeams: () => Promise<void>;
+    refreshTeams: (preferredTeamId?: string | null) => Promise<ApiTeam[]>;
     refreshMembers: () => Promise<void>;
 }
 
@@ -97,7 +97,7 @@ export function DemoTeamProvider({ children }: { children: ReactNode }) {
         isLoading: false,
         error: null,
         setCurrentTeam: () => { },
-        refreshTeams: async () => { },
+        refreshTeams: async () => [demoTeam],
         refreshMembers: async () => { },
     };
 

@@ -23,6 +23,7 @@ import { dashboardRateLimiter, networkRateLimiter } from '../middleware/rateLimi
 import { sessionIdParamSchema, networkGroupBySchema } from '../validation/sessions.js';
 import { generateAnonymousName } from '../utils/anonymousName.js';
 import { logger } from '../logger.js';
+import { getRedis } from '../db/redis.js';
 
 const router = Router();
 
@@ -48,6 +49,8 @@ function getTimeRangeFilter(timeRange?: string): Date | undefined {
 const DETAIL_FETCH_CONCURRENCY = Number(process.env.RJ_REPLAY_DETAIL_FETCH_CONCURRENCY ?? 6);
 const frameModeFromEnv = (process.env.RJ_REPLAY_FRAME_URL_MODE || 'proxy').toLowerCase();
 const DEFAULT_FRAME_URL_MODE: ScreenshotFrameUrlMode = frameModeFromEnv === 'signed' ? 'signed' : 'proxy';
+const SESSION_CORE_CACHE_TTL_SECONDS = Number(process.env.RJ_SESSION_CORE_CACHE_TTL_SECONDS ?? 300);
+const FRAME_AUTH_CACHE_TTL_SECONDS = Number(process.env.RJ_FRAME_AUTH_CACHE_TTL_SECONDS ?? 60);
 
 function resolveFrameUrlMode(raw: unknown): ScreenshotFrameUrlMode {
     if (typeof raw !== 'string') return DEFAULT_FRAME_URL_MODE;
@@ -102,6 +105,48 @@ async function getAuthorizedSession(userId: string, sessionId: string) {
 
     if (!membership) {
         throw ApiError.forbidden('No access to this session');
+    }
+
+    return sessionResult;
+}
+
+async function getAuthorizedSessionForFrames(userId: string, sessionId: string) {
+    const cacheKey = `session_frame_auth:${sessionId}:${userId}`;
+    try {
+        const redis = getRedis();
+        const cachedProjectId = await redis.get(cacheKey);
+        if (cachedProjectId) {
+            const [session] = await db
+                .select({
+                    session: sessions,
+                })
+                .from(sessions)
+                .where(and(eq(sessions.id, sessionId), eq(sessions.projectId, cachedProjectId)))
+                .limit(1);
+
+            if (session) {
+                return {
+                    session: session.session,
+                    metrics: null,
+                    teamId: null,
+                };
+            }
+        }
+    } catch (err) {
+        logger.warn({ err, sessionId, userId }, '[sessions] Frame auth cache lookup failed, falling back to DB');
+    }
+
+    const sessionResult = await getAuthorizedSession(userId, sessionId);
+
+    try {
+        const redis = getRedis();
+        await redis.setex(
+            `session_frame_auth:${sessionId}:${userId}`,
+            FRAME_AUTH_CACHE_TTL_SECONDS,
+            sessionResult.session.projectId
+        );
+    } catch (err) {
+        logger.warn({ err, sessionId, userId }, '[sessions] Failed to cache frame auth projectId');
     }
 
     return sessionResult;
@@ -808,7 +853,7 @@ router.get(
     sessionAuth,
     dashboardRateLimiter,
     asyncHandler(async (req, res) => {
-        const { timeRange, projectId, platform, status, limit = 50, offset = 0, cursor, sortBy, metaKey, metaValue, eventName, date, eventCountOp, eventCountValue, eventPropKey, eventPropValue } = req.query as any;
+        const { timeRange, projectId, platform, status, limit = 50, offset = 0, cursor, sortBy, promoted, metaKey, metaValue, eventName, date, eventCountOp, eventCountValue, eventPropKey, eventPropValue } = req.query as any;
         const parsedLimit = Math.min(parseInt(limit) || 50, 300); // Max 300 per request
 
         // Get user's accessible project IDs
@@ -853,6 +898,7 @@ router.get(
 
         if (platform) baseConditions.push(eq(sessions.platform, platform));
         if (status) baseConditions.push(eq(sessions.status, status));
+        if (promoted === 'true') baseConditions.push(eq(sessions.replayPromoted, true));
 
         if (metaKey) {
             if (metaValue !== undefined && metaValue !== '') {
@@ -1526,6 +1572,20 @@ router.get(
     asyncHandler(async (req, res) => {
         const { session, metrics } = await getAuthorizedSession(req.user!.id, req.params.id);
         const artifactsList = await getReadyArtifacts(session.id);
+
+        const cacheKey = `session_core:${session.id}`;
+        try {
+            const redis = getRedis();
+            const cached = await redis.get(cacheKey);
+            if (cached) {
+                res.setHeader('X-Replay-Core-Cache', 'hit');
+                res.type('json').send(cached);
+                return;
+            }
+        } catch (err) {
+            logger.warn({ err, sessionId: session.id }, '[sessions] Failed to read session core cache');
+        }
+
         const screenshotArtifacts = artifactsList.filter((a) => a.kind === 'screenshots');
 
         let screenshotFrames: Array<{ timestamp: number; url: string; index: number }> = [];
@@ -1539,10 +1599,19 @@ router.get(
 
         const basePayload = buildSessionBasePayload(session, metrics, screenshotFrames);
         const stats = await computeSessionStats(session, metrics, artifactsList, false);
-        res.json({
+        const responseBody = {
             ...basePayload,
             stats,
-        });
+        };
+
+        res.json(responseBody);
+
+        try {
+            const redis = getRedis();
+            await redis.setex(cacheKey, SESSION_CORE_CACHE_TTL_SECONDS, JSON.stringify(responseBody));
+        } catch (err) {
+            logger.warn({ err, sessionId: session.id }, '[sessions] Failed to write session core cache');
+        }
     })
 );
 
@@ -1814,10 +1883,24 @@ router.get(
     dashboardRateLimiter,
     asyncHandler(async (req, res) => {
         const { sessionId } = req.params;
+        const requestStartedAt = Date.now();
         const timeOffset = parseFloat(req.query.t as string) || 0.5;
         const absoluteTimestampMs = req.query.ts ? parseInt(req.query.ts as string, 10) : null;
         const width = parseInt(req.query.w as string, 10) || 375;
         const format: 'jpeg' = 'jpeg';
+
+        logger.info(
+            {
+                sessionId,
+                userId: req.user!.id,
+                query: req.query,
+                timeOffset,
+                absoluteTimestampMs,
+                width,
+                format,
+            },
+            '[sessions] Thumbnail request received'
+        );
 
         // Verify session access
         const [session] = await db
@@ -1827,8 +1910,14 @@ router.get(
             .limit(1);
 
         if (!session) {
+            logger.warn({ sessionId, userId: req.user!.id }, '[sessions] Thumbnail request session not found');
             throw ApiError.notFound('Session not found');
         }
+
+        logger.info(
+            { sessionId, projectId: session.projectId, userId: req.user!.id },
+            '[sessions] Thumbnail request session resolved'
+        );
 
         // Verify user has access to project
         const teamMemberships = await db
@@ -1838,8 +1927,19 @@ router.get(
 
         const teamIds = teamMemberships.map(m => m.teamId);
         if (teamIds.length === 0) {
+            logger.warn({ sessionId, userId: req.user!.id }, '[sessions] Thumbnail request denied because user has no team memberships');
             throw ApiError.forbidden('Access denied');
         }
+
+        logger.info(
+            {
+                sessionId,
+                userId: req.user!.id,
+                teamMembershipCount: teamIds.length,
+                teamIds,
+            },
+            '[sessions] Thumbnail request team memberships resolved'
+        );
 
         const [project] = await db
             .select({ id: projects.id })
@@ -1851,8 +1951,27 @@ router.get(
             .limit(1);
 
         if (!project) {
+            logger.warn(
+                {
+                    sessionId,
+                    projectId: session.projectId,
+                    userId: req.user!.id,
+                    teamIds,
+                },
+                '[sessions] Thumbnail request denied because project is not accessible to user'
+            );
             throw ApiError.forbidden('Access denied');
         }
+
+        logger.info(
+            {
+                sessionId,
+                projectId: session.projectId,
+                userId: req.user!.id,
+                durationMs: Date.now() - requestStartedAt,
+            },
+            '[sessions] Thumbnail request authorization succeeded'
+        );
 
         // Import thumbnail service
         const { getSessionThumbnail, getThumbnailAtTimestamp } = await import('../services/sessionThumbnail.js');
@@ -1861,27 +1980,89 @@ router.get(
 
         // If absolute timestamp provided, use getThumbnailAtTimestamp for screen-specific frames
         if (absoluteTimestampMs && !isNaN(absoluteTimestampMs)) {
+            logger.info(
+                {
+                    sessionId,
+                    projectId: session.projectId,
+                    absoluteTimestampMs,
+                    width,
+                    format,
+                },
+                '[sessions] Attempting timestamped thumbnail extraction'
+            );
             thumbnail = await getThumbnailAtTimestamp(sessionId, absoluteTimestampMs, {
                 width,
                 format,
             });
+            logger.info(
+                {
+                    sessionId,
+                    projectId: session.projectId,
+                    absoluteTimestampMs,
+                    thumbnailFound: Boolean(thumbnail),
+                    durationMs: Date.now() - requestStartedAt,
+                },
+                '[sessions] Timestamped thumbnail extraction finished'
+            );
         }
 
         // Fallback to first available screenshot extraction
         if (!thumbnail) {
+            logger.info(
+                {
+                    sessionId,
+                    projectId: session.projectId,
+                    absoluteTimestampMs,
+                    timeOffset,
+                    width,
+                    format,
+                },
+                '[sessions] Falling back to generic session thumbnail extraction'
+            );
             thumbnail = await getSessionThumbnail(sessionId, {
                 timeOffset,
                 width,
                 format,
             });
+            logger.info(
+                {
+                    sessionId,
+                    projectId: session.projectId,
+                    thumbnailFound: Boolean(thumbnail),
+                    durationMs: Date.now() - requestStartedAt,
+                },
+                '[sessions] Generic thumbnail extraction finished'
+            );
         }
 
         if (!thumbnail) {
+            logger.warn(
+                {
+                    sessionId,
+                    projectId: session.projectId,
+                    absoluteTimestampMs,
+                    timeOffset,
+                    width,
+                    format,
+                    durationMs: Date.now() - requestStartedAt,
+                },
+                '[sessions] Thumbnail request returning 404 because no thumbnail was available'
+            );
             throw ApiError.notFound('No thumbnail available for this session');
         }
 
         res.setHeader('Content-Type', 'image/jpeg');
         res.setHeader('Cache-Control', 'public, max-age=86400'); // 24 hours
+        logger.info(
+            {
+                sessionId,
+                projectId: session.projectId,
+                responseBytes: thumbnail.length,
+                absoluteTimestampMs,
+                durationMs: Date.now() - requestStartedAt,
+            },
+            '[sessions] Thumbnail request succeeded'
+        );
         res.send(thumbnail);
     })
 );
@@ -1967,8 +2148,8 @@ router.get(
         const sessionId = req.params.id;
         const frameTimestamp = req.params.frameTimestamp;
 
-        // Verify session access before serving frame bytes.
-        const { session } = await getAuthorizedSession(req.user!.id, sessionId);
+        // Verify session access before serving frame bytes (with Redis-backed cache).
+        const { session } = await getAuthorizedSessionForFrames(req.user!.id, sessionId);
 
         // Construct frame S3 key
         const frameKey = `sessions/${sessionId}/frames/${frameTimestamp}.jpg`;

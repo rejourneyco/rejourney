@@ -993,6 +993,13 @@ router.get(
     sessionAuth,
     asyncHandler(async (req, res) => {
         const { timeRange, projectId, issueType } = req.query;
+        const sessionIdentity = sql<string>`coalesce(
+            nullif(${sessions.userDisplayId}, ''),
+            nullif(${sessions.anonymousHash}, ''),
+            nullif(${sessions.anonymousDisplayId}, ''),
+            nullif(${sessions.deviceId}, ''),
+            ${sessions.id}
+        )`;
 
         // Get accessible projects for user
         const membership = await db
@@ -1002,7 +1009,20 @@ router.get(
 
         const teamIds = membership.map(m => m.teamId);
         if (teamIds.length === 0) {
-            res.json({ locations: [], summary: { totalIssues: 0, byType: {} } });
+            res.json({
+                locations: [],
+                countries: [],
+                summary: {
+                    totalIssues: 0,
+                    byType: {
+                        crashes: 0,
+                        anrs: 0,
+                        errors: 0,
+                        rageTaps: 0,
+                        apiErrors: 0,
+                    },
+                },
+            });
             return;
         }
 
@@ -1016,7 +1036,20 @@ router.get(
             : accessibleProjects.map(p => p.id);
 
         if (projectIds.length === 0) {
-            res.json({ locations: [], summary: { totalIssues: 0, byType: {} } });
+            res.json({
+                locations: [],
+                countries: [],
+                summary: {
+                    totalIssues: 0,
+                    byType: {
+                        crashes: 0,
+                        anrs: 0,
+                        errors: 0,
+                        rageTaps: 0,
+                        apiErrors: 0,
+                    },
+                },
+            });
             return;
         }
 
@@ -1041,9 +1074,6 @@ router.get(
             }
         }
 
-        // Import required tables
-        const { sessions, sessionMetrics } = await import('../db/client.js');
-
         // Query sessions with geo data and their associated issues
         const conditions = [
             inArray(sessions.projectId, projectIds),
@@ -1060,7 +1090,8 @@ router.get(
                 city: sessions.geoCity,
                 latitude: sql<number>`min(${sessions.geoLatitude})`,
                 longitude: sql<number>`min(${sessions.geoLongitude})`,
-                sessionsCount: sql<number>`count(*)`,
+                sessionsCount: sql<number>`count(*)::int`,
+                uniqueUsersCount: sql<number>`count(distinct ${sessionIdentity})::int`,
                 crashCount: sql<number>`sum(${sessionMetrics.crashCount})`,
                 anrCount: sql<number>`sum(${sessionMetrics.anrCount})`,
                 errorCount: sql<number>`sum(${sessionMetrics.errorCount})`,
@@ -1075,6 +1106,7 @@ router.get(
         // Aggregate by country and city for the UI
         type IssueAggregation = {
             sessions: number;
+            uniqueUsers: number;
             crashes: number;
             anrs: number;
             errors: number;
@@ -1084,6 +1116,7 @@ router.get(
             lng?: number;
             cities: Record<string, {
                 sessions: number;
+                uniqueUsers: number;
                 crashes: number;
                 anrs: number;
                 errors: number;
@@ -1126,6 +1159,7 @@ router.get(
             if (!countryMap[row.country]) {
                 countryMap[row.country] = {
                     sessions: 0,
+                    uniqueUsers: 0,
                     crashes: 0,
                     anrs: 0,
                     errors: 0,
@@ -1138,6 +1172,7 @@ router.get(
             }
             const c = countryMap[row.country];
             c.sessions += Number(row.sessionsCount);
+            c.uniqueUsers += Number(row.uniqueUsersCount);
             c.crashes += rowCrashes;
             c.anrs += rowAnrs;
             c.errors += rowErrors;
@@ -1147,6 +1182,7 @@ router.get(
             if (row.city) {
                 c.cities[row.city] = {
                     sessions: Number(row.sessionsCount),
+                    uniqueUsers: Number(row.uniqueUsersCount),
                     crashes: rowCrashes,
                     anrs: rowAnrs,
                     errors: rowErrors,
@@ -1171,6 +1207,7 @@ router.get(
                         lat: data.lat,
                         lng: data.lng,
                         sessions: data.sessions,
+                        uniqueUsers: data.uniqueUsers,
                         issues: {
                             crashes: data.crashes,
                             anrs: data.anrs,
@@ -1190,6 +1227,7 @@ router.get(
                         lat: cityData.lat!,
                         lng: cityData.lng!,
                         sessions: cityData.sessions,
+                        uniqueUsers: cityData.uniqueUsers,
                         issues: {
                             crashes: cityData.crashes,
                             anrs: cityData.anrs,
@@ -1207,6 +1245,7 @@ router.get(
             .map(([country, data]) => ({
                 country,
                 sessions: data.sessions,
+                uniqueUsers: data.uniqueUsers,
                 crashes: data.crashes,
                 anrs: data.anrs,
                 errors: data.errors,
@@ -2101,7 +2140,11 @@ router.get(
         const { apiEndpointDailyStats } = await import('../db/client.js');
 
         // Build query conditions
-        const conditions = [inArray(apiEndpointDailyStats.projectId, projectIds)];
+        const lastRolledUpDate = await getLastRolledUpDate();
+        const conditions = [
+            inArray(apiEndpointDailyStats.projectId, projectIds),
+            lte(apiEndpointDailyStats.date, lastRolledUpDate),
+        ];
         if (startDate) {
             conditions.push(gte(apiEndpointDailyStats.date, startDate));
         }
@@ -2230,6 +2273,7 @@ router.get(
 
         // Import apiEndpointDailyStats
         const { apiEndpointDailyStats } = await import('../db/client.js');
+        const lastRolledUpDate = await getLastRolledUpDate();
 
         // Query from rollup table grouped by region (SCALABLE)
         const regionStats = await db
@@ -2241,7 +2285,8 @@ router.get(
             .from(apiEndpointDailyStats)
             .where(and(
                 eq(apiEndpointDailyStats.projectId, projectId),
-                gte(apiEndpointDailyStats.date, startDateStr)
+                gte(apiEndpointDailyStats.date, startDateStr),
+                lte(apiEndpointDailyStats.date, lastRolledUpDate)
             ))
             .groupBy(apiEndpointDailyStats.region);
 

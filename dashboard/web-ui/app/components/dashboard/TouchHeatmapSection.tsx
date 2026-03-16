@@ -16,6 +16,16 @@ import { API_BASE_URL, getCsrfToken } from '../../config';
 import { TimeRange } from '../ui/TimeFilter';
 import { usePathPrefix } from '../../hooks/usePathPrefix';
 
+const TOUCH_HEATMAP_DEBUG_PREFIX = '[TouchHeatmapDebug]';
+
+function heatmapDebug(message: string, details?: unknown): void {
+    if (details !== undefined) {
+        console.log(`${TOUCH_HEATMAP_DEBUG_PREFIX} ${message}`, details);
+        return;
+    }
+    console.log(`${TOUCH_HEATMAP_DEBUG_PREFIX} ${message}`);
+}
+
 const convertHeic = async (blob: Blob): Promise<Blob> => {
     const heic2any = (await import('heic2any')).default;
     const converted = await heic2any({ blob, toType: 'image/jpeg', quality: 0.8 });
@@ -226,30 +236,76 @@ const HeatmapPreview: React.FC<{ screen: EnrichedHeatmapScreen; compact?: boolea
 
     useEffect(() => {
         let cancelled = false;
+        const fetchStartedAt = Date.now();
         setLoadError(null);
         setImageLoaded(false);
         setDownloadProgress(0);
 
+        heatmapDebug('HeatmapPreview effect start', {
+            screenName: screen.name,
+            compact,
+            screenshotUrl: screen.screenshotUrl,
+            fullCoverUrl,
+            hotspotCount: screen.touchHotspots?.length ?? 0,
+            evidenceSessionId: screen.evidenceSessionId,
+        });
+
         if (blobUrlRef.current) {
+            heatmapDebug('Revoking previous blob URL before loading next screenshot', {
+                screenName: screen.name,
+                previousBlobUrl: blobUrlRef.current,
+            });
             URL.revokeObjectURL(blobUrlRef.current);
             blobUrlRef.current = null;
         }
         setBlobUrl(null);
 
-        if (!fullCoverUrl) return () => undefined;
+        if (!fullCoverUrl) {
+            heatmapDebug('Skipping screenshot fetch because no screenshot URL is available', {
+                screenName: screen.name,
+                screenshotUrl: screen.screenshotUrl,
+            });
+            return () => undefined;
+        }
 
         const csrfToken = getCsrfToken() || '';
         const separator = fullCoverUrl.includes('?') ? '&' : '?';
         const fetchUrl = `${fullCoverUrl}${separator}_cb=${Date.now()}`;
 
         const fetchWithProgress = async () => {
+            heatmapDebug('Fetching screenshot blob', {
+                screenName: screen.name,
+                fetchUrl,
+                csrfTokenPresent: Boolean(csrfToken),
+                requestedAt: new Date(fetchStartedAt).toISOString(),
+            });
+
             const response = await fetch(fetchUrl, {
                 credentials: 'include',
                 cache: 'no-store',
                 headers: { Accept: 'image/*', 'X-CSRF-Token': csrfToken },
             });
 
+            heatmapDebug('Screenshot fetch response received', {
+                screenName: screen.name,
+                fetchUrl,
+                status: response.status,
+                statusText: response.statusText,
+                ok: response.ok,
+                contentType: response.headers.get('Content-Type'),
+                contentLength: response.headers.get('Content-Length'),
+                cacheControl: response.headers.get('Cache-Control'),
+            });
+
             if (!response.ok) {
+                const responseText = await response.text().catch(() => '');
+                console.error(`${TOUCH_HEATMAP_DEBUG_PREFIX} Screenshot fetch failed`, {
+                    screenName: screen.name,
+                    fetchUrl,
+                    status: response.status,
+                    statusText: response.statusText,
+                    responseText,
+                });
                 throw new Error(`HTTP ${response.status}: ${response.statusText}`);
             }
 
@@ -264,6 +320,7 @@ const HeatmapPreview: React.FC<{ screen: EnrichedHeatmapScreen; compact?: boolea
             const reader = response.body.getReader();
             const chunks: ArrayBuffer[] = [];
             let receivedLength = 0;
+            let lastLoggedProgress = -1;
 
             while (true) {
                 const { done, value } = await reader.read();
@@ -274,9 +331,28 @@ const HeatmapPreview: React.FC<{ screen: EnrichedHeatmapScreen; compact?: boolea
                 chunks.push(chunk.buffer);
                 receivedLength += value.length;
                 if (contentLength > 0) {
-                    setDownloadProgress(Math.round((receivedLength / contentLength) * 100));
+                    const progress = Math.round((receivedLength / contentLength) * 100);
+                    setDownloadProgress(progress);
+                    if (progress >= lastLoggedProgress + 20 || progress === 100) {
+                        lastLoggedProgress = progress;
+                        heatmapDebug('Screenshot download progress', {
+                            screenName: screen.name,
+                            fetchUrl,
+                            progress,
+                            receivedLength,
+                            contentLength,
+                        });
+                    }
                 }
             }
+
+            heatmapDebug('Screenshot download complete', {
+                screenName: screen.name,
+                fetchUrl,
+                totalBytes: receivedLength,
+                contentType,
+                durationMs: Date.now() - fetchStartedAt,
+            });
 
             return { blob: new Blob(chunks), contentType };
         };
@@ -286,7 +362,20 @@ const HeatmapPreview: React.FC<{ screen: EnrichedHeatmapScreen; compact?: boolea
                 if (!result || cancelled) return;
                 const { blob, contentType } = result;
 
+                heatmapDebug('Screenshot blob ready', {
+                    screenName: screen.name,
+                    fetchUrl,
+                    blobSize: blob.size,
+                    blobType: blob.type,
+                    contentType,
+                });
+
                 if (blob.size === 0) {
+                    console.error(`${TOUCH_HEATMAP_DEBUG_PREFIX} Empty image blob received`, {
+                        screenName: screen.name,
+                        fetchUrl,
+                        contentType,
+                    });
                     setLoadError('Empty image received');
                     return;
                 }
@@ -294,8 +383,25 @@ const HeatmapPreview: React.FC<{ screen: EnrichedHeatmapScreen; compact?: boolea
                 let displayBlob = blob;
                 if (isHeicContentType(contentType)) {
                     try {
+                        heatmapDebug('Converting HEIC screenshot to JPEG', {
+                            screenName: screen.name,
+                            fetchUrl,
+                            blobSize: blob.size,
+                            contentType,
+                        });
                         displayBlob = await convertHeic(blob);
+                        heatmapDebug('HEIC conversion complete', {
+                            screenName: screen.name,
+                            fetchUrl,
+                            convertedSize: displayBlob.size,
+                            convertedType: displayBlob.type,
+                        });
                     } catch {
+                        console.error(`${TOUCH_HEATMAP_DEBUG_PREFIX} HEIC conversion failed`, {
+                            screenName: screen.name,
+                            fetchUrl,
+                            contentType,
+                        });
                         if (!cancelled) setLoadError('HEIC conversion failed');
                         return;
                     }
@@ -305,9 +411,22 @@ const HeatmapPreview: React.FC<{ screen: EnrichedHeatmapScreen; compact?: boolea
                 const objectUrl = URL.createObjectURL(displayBlob);
                 blobUrlRef.current = objectUrl;
                 setBlobUrl(objectUrl);
+                heatmapDebug('Created object URL for screenshot preview', {
+                    screenName: screen.name,
+                    fetchUrl,
+                    objectUrl,
+                    finalBlobSize: displayBlob.size,
+                    durationMs: Date.now() - fetchStartedAt,
+                });
             })
             .catch((error: unknown) => {
                 if (cancelled) return;
+                console.error(`${TOUCH_HEATMAP_DEBUG_PREFIX} Screenshot preview pipeline failed`, {
+                    screenName: screen.name,
+                    fetchUrl,
+                    error,
+                    durationMs: Date.now() - fetchStartedAt,
+                });
                 if (error instanceof Error) {
                     setLoadError(error.message || 'Failed to load screenshot');
                     return;
@@ -317,6 +436,11 @@ const HeatmapPreview: React.FC<{ screen: EnrichedHeatmapScreen; compact?: boolea
 
         return () => {
             cancelled = true;
+            heatmapDebug('HeatmapPreview cleanup', {
+                screenName: screen.name,
+                fetchUrl,
+                durationMs: Date.now() - fetchStartedAt,
+            });
             if (blobUrlRef.current) {
                 URL.revokeObjectURL(blobUrlRef.current);
                 blobUrlRef.current = null;
@@ -350,8 +474,21 @@ const HeatmapPreview: React.FC<{ screen: EnrichedHeatmapScreen; compact?: boolea
                             src={blobUrl}
                             alt={screen.name}
                             className={`absolute inset-0 h-full w-full object-cover transition-opacity duration-200 ${imageLoaded ? 'opacity-95' : 'opacity-0'}`}
-                            onLoad={() => setImageLoaded(true)}
-                            onError={() => setLoadError('Failed to load image')}
+                            onLoad={() => {
+                                heatmapDebug('Screenshot image element loaded successfully', {
+                                    screenName: screen.name,
+                                    blobUrl,
+                                });
+                                setImageLoaded(true);
+                            }}
+                            onError={(event) => {
+                                console.error(`${TOUCH_HEATMAP_DEBUG_PREFIX} Screenshot image element failed to render`, {
+                                    screenName: screen.name,
+                                    blobUrl,
+                                    currentSrc: event.currentTarget.currentSrc,
+                                });
+                                setLoadError('Failed to load image');
+                            }}
                         />
                     ) : (
                         <div className="absolute inset-0 flex flex-col items-center justify-center bg-gradient-to-b from-slate-700 to-slate-900 p-4 text-center">
@@ -446,6 +583,14 @@ export const TouchHeatmapSection: React.FC<TouchHeatmapSectionProps> = ({
             .then(([allTimeResult, frictionResult]) => {
                 if (cancelled) return;
 
+                heatmapDebug('Touch heatmap data fetch settled', {
+                    projectId: selectedProject.id,
+                    timeRange,
+                    normalizedRange: range,
+                    allTimeStatus: allTimeResult.status,
+                    frictionStatus: frictionResult.status,
+                });
+
                 const failedSections: string[] = [];
                 const allTime = allTimeResult.status === 'fulfilled'
                     ? allTimeResult.value
@@ -526,12 +671,37 @@ export const TouchHeatmapSection: React.FC<TouchHeatmapSectionProps> = ({
                         || screen.touchHotspots.length > 0
                     ));
 
+                heatmapDebug('Touch heatmap screens merged', {
+                    projectId: selectedProject.id,
+                    allTimeScreenCount: allTime.screens?.length ?? 0,
+                    frictionScreenCount: friction.screens?.length ?? 0,
+                    mergedScreenCount: mergedScreens.length,
+                    sampleScreens: mergedScreens.slice(0, 10).map((screen) => ({
+                        name: screen.name,
+                        screenshotUrl: screen.screenshotUrl,
+                        evidenceSessionId: screen.evidenceSessionId,
+                        hotspotCount: screen.touchHotspots.length,
+                        rangeVisits: screen.rangeVisits,
+                    })),
+                });
+
                 setScreens(mergedScreens);
                 setLastUpdated(allTime.lastUpdated || '');
 
                 if (failedSections.length > 0) {
+                    console.warn(`${TOUCH_HEATMAP_DEBUG_PREFIX} Partial touch heatmap data failure`, {
+                        projectId: selectedProject.id,
+                        failedSections,
+                    });
                     setPartialError(`Some heatmap sources are unavailable (${failedSections.join(', ')}).`);
                 }
+            })
+            .catch((error) => {
+                console.error(`${TOUCH_HEATMAP_DEBUG_PREFIX} Unexpected error while building touch heatmap state`, {
+                    projectId: selectedProject.id,
+                    timeRange,
+                    error,
+                });
             })
             .finally(() => {
                 if (!cancelled) setIsLoading(false);

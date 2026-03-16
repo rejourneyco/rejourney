@@ -36,6 +36,7 @@ interface GeoMarker {
     lat: number;
     lng: number;
     sessions: number;
+    uniqueUsers: number;
     avgLatencyMs?: number;
     latencyTier: LatencyTier;
     markerSize: number;
@@ -214,6 +215,7 @@ export const Geo: React.FC = () => {
                     lat: loc.lat,
                     lng: loc.lng,
                     sessions: loc.sessions || 0,
+                    uniqueUsers: loc.uniqueUsers || 0,
                     avgLatencyMs,
                     latencyTier,
                     markerSize: getMarkerSize(loc.sessions || 0, maxSessions),
@@ -311,7 +313,7 @@ export const Geo: React.FC = () => {
                                                     ? `0 0 0 2px ${marker.style.ring}, 0 3px 8px rgba(15,23,42,0.24)`
                                                     : '0 1px 3px rgba(15,23,42,0.24)',
                                             }}
-                                            aria-label={`${marker.city}, ${marker.country}: ${marker.sessions.toLocaleString()} active users, ${formatLatency(marker.avgLatencyMs)} avg latency`}
+                                            aria-label={`${marker.city}, ${marker.country}: ${marker.uniqueUsers.toLocaleString()} unique users, ${marker.sessions.toLocaleString()} sessions, ${formatLatency(marker.avgLatencyMs)} avg latency`}
                                             onMouseEnter={() => setHoveredMarkerId(marker.id)}
                                             onMouseLeave={() => setHoveredMarkerId((prev) => (prev === marker.id ? null : prev))}
                                         />
@@ -334,7 +336,9 @@ export const Geo: React.FC = () => {
                                             {hoveredMarker.city}, {hoveredMarker.country}
                                         </div>
                                         <div className="flex items-center gap-2 text-slate-600">
-                                            <span>{hoveredMarker.sessions.toLocaleString()} users</span>
+                                            <span>{hoveredMarker.uniqueUsers.toLocaleString()} unique users</span>
+                                            <span className="h-1 w-1 rounded-full bg-slate-300" />
+                                            <span>{hoveredMarker.sessions.toLocaleString()} sessions</span>
                                             <span className="h-1 w-1 rounded-full bg-slate-300" />
                                             <span style={{ color: hoveredMarker.style.solid }}>{formatLatency(hoveredMarker.avgLatencyMs)}</span>
                                         </div>

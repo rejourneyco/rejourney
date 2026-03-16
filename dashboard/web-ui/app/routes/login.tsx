@@ -31,6 +31,7 @@ declare global {
 }
 
 type LoginStep = 'email' | 'otp';
+const LOGIN_REDIRECT_GUARD_KEY = 'rejourney_login_redirect_guard';
 
 export const meta: Route.MetaFunction = () => [
     { title: "Sign In - Rejourney" },
@@ -54,9 +55,26 @@ export default function LoginPage() {
     const turnstileRef = useRef<HTMLDivElement>(null);
     const turnstileWidgetId = useRef<string | null>(null);
 
+    useEffect(() => {
+        if (typeof window === 'undefined') return;
+        if (authLoading || isAuthenticated) return;
+
+        // Clear any one-time redirect suppression once we know the user is
+        // fully logged out and ready to start a fresh auth flow.
+        sessionStorage.removeItem(LOGIN_REDIRECT_GUARD_KEY);
+    }, [isAuthenticated, authLoading]);
+
     // Redirect if already authenticated
     useEffect(() => {
         if (!authLoading && isAuthenticated) {
+            const suppressRedirect = typeof window !== 'undefined'
+                ? sessionStorage.getItem(LOGIN_REDIRECT_GUARD_KEY)
+                : null;
+            if (suppressRedirect) {
+                sessionStorage.removeItem(LOGIN_REDIRECT_GUARD_KEY);
+                return;
+            }
+
             const returnUrl = localStorage.getItem('returnUrl');
             if (returnUrl) {
                 localStorage.removeItem('returnUrl');
@@ -173,13 +191,9 @@ export default function LoginPage() {
         try {
             const success = await login(email, otp);
             if (success) {
-                const returnUrl = localStorage.getItem('returnUrl');
-                if (returnUrl) {
-                    localStorage.removeItem('returnUrl');
-                    navigate(returnUrl);
-                } else {
-                    navigate('/dashboard/general');
-                }
+                // Post-login routing is handled by the auth effect above so
+                // returnUrl is applied exactly once for invite flows.
+                return;
             } else {
                 setError(authError || 'Invalid verification code');
             }

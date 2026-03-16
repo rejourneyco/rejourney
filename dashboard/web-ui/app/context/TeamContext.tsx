@@ -5,7 +5,7 @@
  * Teams own projects and billing.
  */
 
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { getTeams, getTeamMembers, ApiTeam, ApiTeamMember, clearCache } from '../services/api';
 import { useAuth } from './AuthContext';
 
@@ -16,7 +16,7 @@ interface TeamContextValue {
   isLoading: boolean;
   error: string | null;
   setCurrentTeam: (team: ApiTeam) => void;
-  refreshTeams: () => Promise<void>;
+  refreshTeams: (preferredTeamId?: string | null) => Promise<ApiTeam[]>;
   refreshMembers: () => Promise<void>;
 }
 
@@ -65,7 +65,7 @@ export function useSafeTeam(): TeamContextValue {
       isLoading: false,
       error: null,
       setCurrentTeam: () => { },
-      refreshTeams: async () => { },
+      refreshTeams: async () => [],
       refreshMembers: async () => { },
     };
   }
@@ -83,28 +83,46 @@ export function TeamProvider({ children }: Props) {
   const [teamMembers, setTeamMembers] = useState<ApiTeamMember[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const latestRefreshRequestIdRef = useRef(0);
+  const currentTeamIdRef = useRef<string | null>(null);
 
-  const refreshTeams = useCallback(async () => {
+  useEffect(() => {
+    currentTeamIdRef.current = currentTeam?.id ?? null;
+  }, [currentTeam?.id]);
+
+  const refreshTeams = useCallback(async (preferredTeamId?: string | null): Promise<ApiTeam[]> => {
     // SSR guard - skip during server-side rendering
     if (typeof window === 'undefined') {
-      return;
+      return [];
     }
+    const requestId = ++latestRefreshRequestIdRef.current;
     try {
       setIsLoading(true);
       setError(null);
       const fetchedTeams = await getTeams();
+      if (requestId !== latestRefreshRequestIdRef.current) {
+        return fetchedTeams;
+      }
+
       setTeams(fetchedTeams);
 
       // Always ensure a team is selected if teams exist
       if (fetchedTeams.length > 0) {
+        const preferredTeam = preferredTeamId
+          ? fetchedTeams.find(t => t.id === preferredTeamId)
+          : null;
         // Check localStorage for previously selected team
         const savedTeamId = typeof window !== 'undefined' ? localStorage.getItem('selectedTeamId') : null;
         const savedTeam = savedTeamId
           ? fetchedTeams.find(t => t.id === savedTeamId)
           : null;
+        const currentSelectedTeam = currentTeamIdRef.current
+          ? fetchedTeams.find(t => t.id === currentTeamIdRef.current)
+          : null;
 
-        // If saved team found, use it; otherwise use first team (default team)
-        const teamToSelect = savedTeam || fetchedTeams[0];
+        // Prefer an explicit team request, then any saved/current selection,
+        // and finally fall back to the first team from the API.
+        const teamToSelect = preferredTeam || savedTeam || currentSelectedTeam || fetchedTeams[0];
 
         // Always set current team to ensure it's available for new accounts
         setCurrentTeamState(teamToSelect);
@@ -118,13 +136,20 @@ export function TeamProvider({ children }: Props) {
           localStorage.removeItem('selectedTeamId');
         }
       }
+      return fetchedTeams;
     } catch (err) {
+      if (requestId !== latestRefreshRequestIdRef.current) {
+        return [];
+      }
       console.error('Failed to fetch teams:', err);
       setError(err instanceof Error ? err.message : 'Failed to load teams');
+      return [];
     } finally {
-      setIsLoading(false);
+      if (requestId === latestRefreshRequestIdRef.current) {
+        setIsLoading(false);
+      }
     }
-  }, []); // No dependencies - SSR guard handles client-side check
+  }, []); // SSR guard handles client-side check
 
   const refreshMembers = useCallback(async () => {
     if (!currentTeam) {

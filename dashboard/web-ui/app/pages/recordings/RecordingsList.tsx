@@ -162,6 +162,7 @@ export const RecordingsList: React.FC = () => {
         timeRange: timeRange === 'all' ? undefined : timeRange,
         date: dateFilter ? dateFilter : undefined,
         projectId: selectedProjectId,
+        promoted: true,
         metaKey: metaKeyFilter ? metaKeyFilter : undefined,
         metaValue: metaValueFilter ? metaValueFilter : undefined,
         eventName: eventNameFilter ? eventNameFilter : undefined,

@@ -689,9 +689,10 @@ router.get(
 
             logger.info({ userId: existingUser.id, email: normalizedEmail }, 'User logged in via GitHub');
 
-            // Redirect to dashboard
+            // Return to the dashboard login route first so the frontend can
+            // honor any saved returnUrl (for example, invite acceptance flows).
             const dashboardUrl = config.PUBLIC_DASHBOARD_URL || 'https://rejourney.co';
-            res.redirect(`${dashboardUrl}/dashboard/general`);
+            res.redirect(`${dashboardUrl}/login`);
 
         } catch (error) {
             const dashboardUrl = config.PUBLIC_DASHBOARD_URL || 'https://rejourney.co';

@@ -18,6 +18,7 @@
 
 import { eq, and, lt, isNotNull, sql, ne } from 'drizzle-orm';
 import { db, pool, sessions, recordingArtifacts, projects } from '../db/client.js';
+import { getRedis } from '../db/redis.js';
 import { logger } from '../logger.js';
 import { deleteFromS3ForProject, deletePrefixFromS3ForProject } from '../db/s3.js';
 import { retentionTiers } from '../config.js';
@@ -183,6 +184,43 @@ async function processExpiredSessions(): Promise<number> {
 }
 
 /**
+ * Clean up orphaned recording_artifacts rows.
+ *
+ * These can accumulate when a previous retention run successfully deleted the
+ * S3 data and marked the session as recordingDeleted=true, but the subsequent
+ * DB artifact deletion failed (transient error, crash, etc.).
+ * Heatmap endpoints join with sessions.recordingDeleted now, but cleaning
+ * up the orphans keeps the table tidy and prevents stale artifact queries.
+ */
+async function cleanupOrphanedArtifacts(): Promise<number> {
+    const orphaned = await db
+        .select({ id: recordingArtifacts.id, sessionId: recordingArtifacts.sessionId })
+        .from(recordingArtifacts)
+        .innerJoin(sessions, eq(sessions.id, recordingArtifacts.sessionId))
+        .where(and(
+            eq(recordingArtifacts.kind, 'screenshots'),
+            eq(sessions.recordingDeleted, true)
+        ))
+        .limit(BATCH_SIZE);
+
+    let cleaned = 0;
+    for (const row of orphaned) {
+        try {
+            await db.delete(recordingArtifacts).where(eq(recordingArtifacts.id, row.id));
+            cleaned++;
+        } catch (err) {
+            logger.error({ err, artifactId: row.id, sessionId: row.sessionId }, 'Failed to delete orphaned artifact');
+        }
+    }
+
+    if (cleaned > 0) {
+        logger.info({ cleaned }, 'Cleaned up orphaned screenshot artifacts from deleted sessions');
+    }
+
+    return cleaned;
+}
+
+/**
  * Process projects marked for deletion (soft deleted)
  * GDPR Compliance:
  * 1. Delete all assets from S3 (recursive)
@@ -228,11 +266,33 @@ async function runWorker(): Promise<void> {
     while (isRunning) {
         try {
             const expiredCount = await processExpiredSessions();
+            const orphanedCount = await cleanupOrphanedArtifacts();
             const deletedProjectCount = await processDeletedProjects();
-            const processedCount = expiredCount + deletedProjectCount;
+            const processedCount = expiredCount + deletedProjectCount + orphanedCount;
 
             if (processedCount > 0) {
-                logger.info({ processedCount }, 'Retention worker completed cycle');
+                logger.info({ expiredCount, orphanedCount, deletedProjectCount }, 'Retention worker completed cycle');
+            }
+
+            // Invalidate cached heatmap responses so stale screenshot URLs
+            // are regenerated on the next request.
+            if (expiredCount > 0 || orphanedCount > 0) {
+                try {
+                    const redis = getRedis();
+                    const keysToDelete: string[] = [];
+                    let cursor = '0';
+                    do {
+                        const [next, keys] = await redis.scan(cursor, 'MATCH', 'insights:*heatmap*', 'COUNT', 200);
+                        cursor = next;
+                        keysToDelete.push(...keys);
+                    } while (cursor !== '0');
+                    if (keysToDelete.length > 0) {
+                        await redis.del(...keysToDelete);
+                        logger.info({ count: keysToDelete.length }, 'Invalidated heatmap caches after retention cleanup');
+                    }
+                } catch (err) {
+                    logger.warn({ err }, 'Failed to invalidate heatmap caches (non-critical)');
+                }
             }
 
             await pingWorker('retentionWorker', 'up', `processed=${processedCount}`);

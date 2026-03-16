@@ -65,25 +65,6 @@ export const ProjectLayout: React.FC<AppLayoutProps> = ({ children, pathPrefix =
   const hasNoProjectsForCurrentTeam = !projectsLoading && !teamsLoading && !!currentTeam && projects.length === 0 && !sessionError;
   const shouldShowNoProjectState = hasNoProjectsForCurrentTeam && isProjectDependentRoute;
 
-  // Handle first-time users with no projects
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-    // Only trigger after loading if the current team has no projects.
-    // IMPORTANT: skip when there's an API error — empty could be a transient failure.
-    if (!hasNoProjectsForCurrentTeam || !currentTeam?.id) return;
-
-    // Scope the one-time modal per team so creating/switching teams still prompts correctly.
-    const modalSeenKey = `hasShownFirstProjectModal:${currentTeam.id}`;
-    if (sessionStorage.getItem(modalSeenKey)) return;
-
-    sessionStorage.setItem(modalSeenKey, 'true');
-    const timer = window.setTimeout(() => {
-      window.dispatchEvent(new CustomEvent('openAddProjectModal'));
-    }, 450);
-
-    return () => window.clearTimeout(timer);
-  }, [hasNoProjectsForCurrentTeam, currentTeam?.id]);
-
   // Listen for project/team creation events to refresh list
   useEffect(() => {
     const handleProjectCreated = (event: any) => {

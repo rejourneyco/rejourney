@@ -222,6 +222,8 @@ router.get(
 
         // Get available screenshot artifacts for these sessions
         // We only need one valid frame per session to check availability
+        // IMPORTANT: Filter out sessions with recordingDeleted=true to avoid
+        // orphaned artifacts whose S3 data has been removed by retention worker
         const frameArtifacts = uniqueSessionIds.length > 0
             ? await db
                 .select({
@@ -229,12 +231,13 @@ router.get(
                     sessionId: recordingArtifacts.sessionId,
                 })
                 .from(recordingArtifacts)
+                .innerJoin(sessions, eq(sessions.id, recordingArtifacts.sessionId))
                 .where(and(
                     inArray(recordingArtifacts.sessionId, uniqueSessionIds),
                     eq(recordingArtifacts.kind, 'screenshots'),
-                    eq(recordingArtifacts.status, 'ready')
+                    eq(recordingArtifacts.status, 'ready'),
+                    eq(sessions.recordingDeleted, false)
                 ))
-                // Limit strictly to avoid massive results, but enough to cover screens
                 .limit(2000)
             : [];
 
@@ -543,6 +546,7 @@ router.get(
         }, '[alltime-heatmap] Sample session IDs from heatmap data');
 
         // First, try to get artifacts for sample session IDs
+        // Filter out sessions with recordingDeleted=true to avoid orphaned artifacts
         const sampleFrameArtifacts = uniqueSessionIds.length > 0
             ? await db
                 .select({
@@ -552,10 +556,12 @@ router.get(
                     status: recordingArtifacts.status,
                 })
                 .from(recordingArtifacts)
+                .innerJoin(sessions, eq(sessions.id, recordingArtifacts.sessionId))
                 .where(and(
                     inArray(recordingArtifacts.sessionId, uniqueSessionIds),
                     eq(recordingArtifacts.kind, 'screenshots'),
-                    eq(recordingArtifacts.status, 'ready')
+                    eq(recordingArtifacts.status, 'ready'),
+                    eq(sessions.recordingDeleted, false)
                 ))
                 .limit(500)
             : [];
@@ -596,7 +602,10 @@ router.get(
                     eq(recordingArtifacts.kind, 'screenshots'),
                     eq(recordingArtifacts.status, 'ready')
                 ))
-                .where(inArray(sessions.projectId, projectIds))
+                .where(and(
+                    inArray(sessions.projectId, projectIds),
+                    eq(sessions.recordingDeleted, false)
+                ))
                 .orderBy(desc(sessions.createdAt))
                 .limit(500);
 
@@ -856,7 +865,10 @@ router.get(
             }
         }
 
-        const apiConditions = [inArray(apiEndpointDailyStats.projectId, projectIds)];
+        const apiConditions = [
+            inArray(apiEndpointDailyStats.projectId, projectIds),
+            lte(apiEndpointDailyStats.date, lastRolledUpDate),
+        ];
         if (startStr) {
             apiConditions.push(gte(apiEndpointDailyStats.date, startStr));
         }
