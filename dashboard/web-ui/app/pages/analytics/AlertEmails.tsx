@@ -7,6 +7,7 @@ import { NeoBadge } from '../../components/ui/neo/NeoBadge';
 import { DashboardPageHeader } from '../../components/ui/DashboardPageHeader';
 import { Link } from 'react-router';
 import { usePathPrefix } from '../../hooks/usePathPrefix';
+import { DashboardGhostLoader } from '~/components/ui/DashboardGhostLoader';
 
 // Alert settings types
 interface AlertSettings {
@@ -240,7 +241,13 @@ export const AlertEmails: React.FC = () => {
     const [isLoadingLogs, setIsLoadingLogs] = useState(false);
 
     useEffect(() => {
-        if (!selectedProject?.id) return;
+        if (!selectedProject?.id) {
+            setIsLoading(false);
+            setSettings(null);
+            setRecipients([]);
+            setAvailableMembers([]);
+            return;
+        }
         loadData();
     }, [selectedProject?.id]);
 
@@ -359,11 +366,7 @@ export const AlertEmails: React.FC = () => {
     };
 
     if (isLoading) {
-        return (
-            <div className="p-8 flex items-center justify-center min-h-[50vh]">
-                <div className="text-sm text-slate-500 font-mono animate-pulse">LOADING ALERT SETTINGS...</div>
-            </div>
-        );
+        return <DashboardGhostLoader variant="alerts" />;
     }
 
     const nonRecipientMembers = availableMembers.filter(m => !m.isRecipient);

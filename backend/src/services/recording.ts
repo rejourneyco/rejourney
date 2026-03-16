@@ -3,6 +3,11 @@ import { db, sessions, sessionMetrics, deviceUsage, projects, teams } from '../d
 import { logger } from '../logger.js';
 import { lookupGeoIpFromMmdb } from './geoIpMmdb.js';
 import { getRequestIp } from '../utils/requestIp.js';
+import {
+    FREE_VIDEO_RETENTION_TIER,
+    getVideoRetentionDetailsForTier,
+    normalizeVideoRetentionTier,
+} from './videoRetention.js';
 
 /**
  * Update device usage metrics (atomic upsert for scalability)
@@ -199,7 +204,7 @@ export async function ensureIngestSession(
         }
 
         // Get the project and team to inherit the team's retention tier
-        let teamRetentionTier = 0; // default 0 implies using the global/plan defaults
+        let teamRetentionTier = FREE_VIDEO_RETENTION_TIER;
         const [projectInfo] = await db
             .select({ retentionTier: teams.retentionTier })
             .from(projects)
@@ -208,8 +213,10 @@ export async function ensureIngestSession(
             .limit(1);
 
         if (projectInfo && projectInfo.retentionTier !== undefined) {
-            teamRetentionTier = projectInfo.retentionTier;
+            teamRetentionTier = normalizeVideoRetentionTier(projectInfo.retentionTier);
         }
+
+        const videoRetention = await getVideoRetentionDetailsForTier(teamRetentionTier);
 
         [session] = await db.insert(sessions).values({
             id: sessionId,
@@ -223,7 +230,8 @@ export async function ensureIngestSession(
             anonymousDisplayId,
             deviceId: metadata?.deviceId || null,  // Set deviceId on session creation for funny anonymous names
             startedAt,
-            retentionTier: teamRetentionTier,
+            retentionTier: videoRetention.tier,
+            retentionDays: videoRetention.days,
             isSampledIn: metadata?.isSampledIn ?? true,  // Default to true for backward compatibility
         }).returning();
 

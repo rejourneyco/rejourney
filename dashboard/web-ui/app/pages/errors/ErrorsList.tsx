@@ -21,6 +21,7 @@ import { DashboardPageHeader } from '../../components/ui/DashboardPageHeader';
 import { NeoBadge } from '../../components/ui/neo/NeoBadge';
 import { NeoButton } from '../../components/ui/neo/NeoButton';
 import { NeoCard } from '../../components/ui/neo/NeoCard';
+import { DashboardGhostLoader } from '~/components/ui/DashboardGhostLoader';
 
 interface ErrorGroup {
   fingerprint: string;
@@ -58,7 +59,11 @@ export const ErrorsList: React.FC = () => {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (!isDemoMode && !currentProject) return;
+    if (!isDemoMode && !currentProject) {
+      setErrors([]);
+      setLoading(false);
+      return;
+    }
 
     const fetchErrors = async () => {
       setLoading(true);
@@ -178,11 +183,7 @@ export const ErrorsList: React.FC = () => {
   }, [focusId, loading, errorGroups]);
 
   if (loading || contextLoading) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-transparent">
-        <div className="text-2xl font-semibold uppercase tracking-tight animate-pulse">Loading...</div>
-      </div>
-    );
+    return <DashboardGhostLoader variant="list" />;
   }
 
   return (

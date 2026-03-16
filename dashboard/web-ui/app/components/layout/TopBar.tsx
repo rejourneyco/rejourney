@@ -25,7 +25,7 @@ export const TopBar: React.FC<TopBarProps> = ({ currentProject }) => {
   const [lastRefreshTime, setLastRefreshTime] = useState<Date>(new Date());
   const [refreshCompletedPulse, setRefreshCompletedPulse] = useState(false);
   const [teamUsage, setTeamUsage] = useState<TeamUsage | null>(null);
-  const [teamPlan, setTeamPlan] = useState<{ planName: string; sessionLimit: number } | null>(null);
+  const [teamPlan, setTeamPlan] = useState<{ planName: string; sessionLimit: number; videoRetentionLabel: string } | null>(null);
   const [copiedKey, setCopiedKey] = useState(false);
   const [copiedDocs, setCopiedDocs] = useState(false);
   const refreshPulseTimeoutRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -52,6 +52,7 @@ export const TopBar: React.FC<TopBarProps> = ({ currentProject }) => {
             setTeamPlan({
               planName: planData.planName || 'free',
               sessionLimit: planData.sessionLimit || 5000,
+              videoRetentionLabel: planData.videoRetentionLabel || '7 days',
             });
           }
 
@@ -89,6 +90,7 @@ export const TopBar: React.FC<TopBarProps> = ({ currentProject }) => {
           setTeamPlan({
             planName: planData.planName || 'free',
             sessionLimit: planData.sessionLimit || 5000,
+            videoRetentionLabel: planData.videoRetentionLabel || '7 days',
           });
         }
         setTeamUsage(usageData?.usage ?? null);
@@ -114,6 +116,7 @@ export const TopBar: React.FC<TopBarProps> = ({ currentProject }) => {
               setTeamPlan({
                 planName: planData.planName || 'free',
                 sessionLimit: planData.sessionLimit || 5000,
+                videoRetentionLabel: planData.videoRetentionLabel || '7 days',
               });
             }
             setTeamUsage(usageData?.usage ?? null);
@@ -197,13 +200,10 @@ export const TopBar: React.FC<TopBarProps> = ({ currentProject }) => {
                     {platform}
                   </span>
                 ))}
-                {(currentProject.sessionsLast7Days > 0 || currentProject.errorsLast7Days > 0) && (
-                  <>
-                    <span className="text-slate-300 mx-1">•</span>
-                    <span className="font-mono text-[10px] font-bold text-slate-500">
-                      {currentProject.sessionsLast7Days} sessions
-                    </span>
-                  </>
+                {teamPlan?.videoRetentionLabel && (
+                  <span className="flex items-center gap-1 rounded-sm border border-amber-200 bg-amber-50 px-1.5 py-0 text-[10px] font-semibold uppercase text-amber-700">
+                    {teamPlan.videoRetentionLabel} video retention
+                  </span>
                 )}
               </div>
             </div>

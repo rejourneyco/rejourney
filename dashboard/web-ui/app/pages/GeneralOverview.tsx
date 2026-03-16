@@ -40,6 +40,7 @@ import { useSharedAnalyticsTimeRange } from '../hooks/useSharedAnalyticsTimeRang
 import { NeoBadge } from '../components/ui/neo/NeoBadge';
 import { MiniSessionCard } from '../components/ui/MiniSessionCard';
 import { Issue, RecordingSession } from '../types';
+import { DashboardGhostLoader } from '~/components/ui/DashboardGhostLoader';
 
 const toObservabilityRange = (value: TimeRange): string | undefined => {
     if (value === 'all') return undefined;
@@ -1220,6 +1221,10 @@ export const GeneralOverview: React.FC = () => {
         );
     }, [trendChartData, overviewObs, deepMetrics, engagementTrends, geoSummary, issues.length, sessions.length]);
 
+    if (isLoading && selectedProject?.id) {
+        return <DashboardGhostLoader variant="overview" />;
+    }
+
     return (
         <div className="min-h-screen bg-transparent font-sans text-slate-900 pb-12">
             <DashboardPageHeader
@@ -1238,15 +1243,6 @@ export const GeneralOverview: React.FC = () => {
                 {!selectedProject?.id && (
                     <div className="rounded-2xl border border-amber-200 bg-amber-50 p-5 text-sm text-amber-900">
                         Select a project to view general diagnostics.
-                    </div>
-                )}
-
-                {isLoading && (
-                    <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-                        <div className="flex items-center gap-3 text-sm text-slate-600">
-                            <Activity className="h-4 w-4 animate-pulse text-blue-600" />
-                            Loading general analytics...
-                        </div>
                     </div>
                 )}
 

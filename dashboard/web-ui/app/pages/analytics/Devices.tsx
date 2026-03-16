@@ -34,6 +34,7 @@ import { DataWatermarkBanner } from '../../components/dashboard/DataWatermarkBan
 import { DashboardPageHeader } from '../../components/ui/DashboardPageHeader';
 import { TimeFilter, TimeRange, DEFAULT_TIME_RANGE } from '../../components/ui/TimeFilter';
 import { KpiCardItem, KpiCardsGrid, computePeriodDeltaFromSeries } from '../../components/dashboard/KpiCardsGrid';
+import { DashboardGhostLoader } from '~/components/ui/DashboardGhostLoader';
 
 type DeviceRiskRow = DeviceSummary['devices'][number] & {
     incidentRatePer100: number;
@@ -405,17 +406,8 @@ export const Devices: React.FC = () => {
         ];
     }, [trends, timeRange, topThreeDeviceShare, data, dominantPlatform, compatibilityHotspotCount, matrixHotspots, rolloutGateReleaseCount, topRelease]);
 
-    if (isLoading) {
-        return (
-            <div className="min-h-[50vh] flex items-center justify-center">
-                <div className="rounded-3xl border border-slate-100/80 bg-white ring-1 ring-slate-900/5 p-6 text-sm text-slate-600 shadow-sm">
-                    <div className="flex items-center gap-3">
-                        <Activity className="h-4 w-4 animate-pulse text-blue-600" />
-                        Loading device analytics...
-                    </div>
-                </div>
-            </div>
-        );
+    if (isLoading && selectedProject?.id) {
+        return <DashboardGhostLoader variant="analytics" />;
     }
 
     return (

@@ -95,8 +95,8 @@ export interface RecordingSession {
   recordingDeleted?: boolean;
   recordingDeletedAt?: string | null;
   retentionDays?: number;
-  // Retention tier: 1=14d(free), 2=30d, 3=90d, 4=365d, 5=unlimited
-  retentionTier?: 1 | 2 | 3 | 4 | 5;
+  // Retention tier for replay media retention
+  retentionTier?: 1 | 2 | 3 | 4 | 5 | 6;
   // Computed flag indicating if the replay is expired (S3 objects deleted)
   isReplayExpired?: boolean;
   // Replay promotion status - indicates if visual replay artifacts were uploaded for this session

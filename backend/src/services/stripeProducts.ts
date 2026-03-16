@@ -18,6 +18,13 @@ import { logger } from '../logger.js';
 import { db, teams, projects, projectUsage, users, teamMembers } from '../db/client.js';
 import { getTeamBillingPeriod } from '../utils/billing.js';
 import { ApiError } from '../middleware/errorHandler.js';
+import {
+    FREE_VIDEO_RETENTION_TIER,
+    getVideoRetentionDetailsForTier,
+    normalizeVideoRetentionTier,
+    parseVideoRetentionTier,
+    syncTeamVideoRetention,
+} from './videoRetention.js';
 
 // =============================================================================
 // Types
@@ -29,6 +36,9 @@ export interface StripePlan {
     name: string;           // Product name (e.g., 'Starter')
     displayName: string;    // Display name
     sessionLimit: number;   // From price metadata
+    videoRetentionTier: number;
+    videoRetentionDays: number;
+    videoRetentionLabel: string;
     priceCents: number;     // Unit amount
     interval: 'month' | 'year';
     isCustom: boolean;      // Custom enterprise price
@@ -42,6 +52,9 @@ export interface TeamSubscriptionInfo {
     planName: string;
     displayName: string;
     sessionLimit: number;
+    videoRetentionTier: number;
+    videoRetentionDays: number;
+    videoRetentionLabel: string;
     priceCents: number;
     isCustom: boolean;
     subscriptionId: string | null;
@@ -102,6 +115,11 @@ const PRICE_CACHE_TTL_MS = 1 * 60 * 1000; // 1 minutes
 
 let stripe: Stripe | null = null;
 
+function logStripePlanConsole(level: 'warn' | 'error', message: string, details: Record<string, unknown>): void {
+    const logFn = level === 'error' ? console.error : console.warn;
+    logFn(`[stripe-plans] ${message}`, details);
+}
+
 function getStripe(): Stripe | null {
     if (isSelfHosted) return null;
 
@@ -153,24 +171,84 @@ export async function getStripePlans(forceRefresh = false): Promise<StripePlan[]
         });
 
         const plans: StripePlan[] = [];
+        const skippedPrices: Array<Record<string, unknown>> = [];
 
         for (const price of prices.data) {
+            const product = price.product as Stripe.Product | string | null;
+            const productDetails = product && typeof product !== 'string'
+                ? {
+                    productId: product.id,
+                    productName: product.name,
+                    productActive: product.active,
+                    productMetadata: product.metadata,
+                }
+                : {
+                    productId: typeof product === 'string' ? product : null,
+                    productName: null,
+                    productActive: null,
+                    productMetadata: null,
+                };
+
             // Skip prices without session_limit metadata
             const sessionLimit = price.metadata?.session_limit;
             if (!sessionLimit) {
-                logger.debug({ priceId: price.id, priceName: price.nickname }, 'Skipping price without session_limit metadata');
+                const skipDetails = {
+                    reason: 'missing_session_limit',
+                    priceId: price.id,
+                    priceName: price.nickname,
+                    priceMetadata: price.metadata,
+                    ...productDetails,
+                };
+                skippedPrices.push(skipDetails);
+                logger.warn(skipDetails, 'Skipping Stripe price without session_limit metadata');
+                logStripePlanConsole('warn', 'Skipping Stripe price without session_limit metadata', skipDetails);
+                continue;
+            }
+
+            const retentionTier = parseVideoRetentionTier(price.metadata?.retention_tier);
+            if (!retentionTier) {
+                const skipDetails = {
+                    reason: 'missing_or_invalid_retention_tier',
+                    priceId: price.id,
+                    priceName: price.nickname,
+                    rawRetentionTier: price.metadata?.retention_tier ?? null,
+                    priceMetadata: price.metadata,
+                    ...productDetails,
+                };
+                skippedPrices.push(skipDetails);
+                logger.error(skipDetails, 'Skipping Stripe price without valid retention_tier metadata');
+                logStripePlanConsole('error', 'Skipping Stripe price without valid retention_tier metadata', skipDetails);
                 continue;
             }
 
             // Get product info
-            const product = price.product as Stripe.Product;
             if (!product || typeof product === 'string') {
-                logger.debug({ priceId: price.id }, 'Skipping price with invalid product');
+                const skipDetails = {
+                    reason: 'invalid_product',
+                    priceId: price.id,
+                    priceName: price.nickname,
+                    productRef: price.product,
+                    priceMetadata: price.metadata,
+                };
+                skippedPrices.push(skipDetails);
+                logger.error(skipDetails, 'Skipping Stripe price with invalid product expansion');
+                logStripePlanConsole('error', 'Skipping Stripe price with invalid product expansion', skipDetails);
                 continue;
             }
 
             if (!product.active) {
-                logger.debug({ priceId: price.id, productId: product.id, productName: product.name }, 'Skipping inactive product');
+                const skipDetails = {
+                    reason: 'inactive_product',
+                    priceId: price.id,
+                    priceName: price.nickname,
+                    productId: product.id,
+                    productName: product.name,
+                    priceMetadata: price.metadata,
+                    productMetadata: product.metadata,
+                };
+                skippedPrices.push(skipDetails);
+                logger.warn(skipDetails, 'Skipping Stripe price because its product is inactive');
+                logStripePlanConsole('warn', 'Skipping Stripe price because its product is inactive', skipDetails);
                 continue;
             }
 
@@ -194,12 +272,17 @@ export async function getStripePlans(forceRefresh = false): Promise<StripePlan[]
                     ? price.metadata.plan_name.charAt(0).toUpperCase() + price.metadata.plan_name.slice(1)
                     : planName.charAt(0).toUpperCase() + planName.slice(1);
 
+            const videoRetention = await getVideoRetentionDetailsForTier(retentionTier);
+
             const plan: StripePlan = {
                 priceId: price.id,
                 productId: product.id,
                 name: planName,
                 displayName: displayName,
                 sessionLimit: parseInt(sessionLimit),
+                videoRetentionTier: videoRetention.tier,
+                videoRetentionDays: videoRetention.days,
+                videoRetentionLabel: videoRetention.label,
                 priceCents: price.unit_amount || 0,
                 interval: price.recurring?.interval === 'year' ? 'year' : 'month',
                 isCustom: product.metadata?.is_custom === 'true' || price.metadata?.is_custom === 'true',
@@ -211,10 +294,21 @@ export async function getStripePlans(forceRefresh = false): Promise<StripePlan[]
                 planName: plan.name,
                 productName: product.name,
                 sessionLimit: plan.sessionLimit,
+                videoRetentionTier: plan.videoRetentionTier,
                 priceCents: plan.priceCents
             }, 'Found Stripe plan');
 
             plans.push(plan);
+        }
+
+        if (prices.data.length > 0 && plans.length === 0) {
+            const errorDetails = {
+                activeStripePriceCount: prices.data.length,
+                skippedPriceCount: skippedPrices.length,
+                skippedPrices,
+            };
+            logger.error(errorDetails, 'Stripe returned active prices, but none produced a paid billing plan');
+            logStripePlanConsole('error', 'Stripe returned active prices, but none produced a paid billing plan', errorDetails);
         }
 
         // Sort by sort order
@@ -229,14 +323,33 @@ export async function getStripePlans(forceRefresh = false): Promise<StripePlan[]
         priceCache = plans;
         priceCacheExpiry = Date.now() + PRICE_CACHE_TTL_MS;
 
+        if (plans.length === 1 && plans[0]?.priceId === 'free' && prices.data.length > 0) {
+            const errorDetails = {
+                activeStripePriceCount: prices.data.length,
+                skippedPriceCount: skippedPrices.length,
+                skippedPrices,
+            };
+            logger.error(errorDetails, 'Stripe billing plans resolved to free-only despite active Stripe prices');
+            logStripePlanConsole('error', 'Stripe billing plans resolved to free-only despite active Stripe prices', errorDetails);
+        }
+
         logger.info({
             planCount: plans.length,
-            plans: plans.map(p => ({ name: p.name, priceId: p.priceId, sessionLimit: p.sessionLimit }))
+            plans: plans.map(p => ({
+                name: p.name,
+                priceId: p.priceId,
+                sessionLimit: p.sessionLimit,
+                videoRetentionTier: p.videoRetentionTier,
+            })),
+            skippedPriceCount: skippedPrices.length,
         }, 'Fetched Stripe plans');
         return plans;
 
     } catch (err) {
         logger.error({ err }, 'Failed to fetch Stripe plans');
+        logStripePlanConsole('error', 'Failed to fetch Stripe plans', {
+            error: err instanceof Error ? err.message : String(err),
+        });
         // Return cached if available, otherwise just free plan
         return priceCache || [getFreePlan()];
     }
@@ -288,6 +401,9 @@ function getFreePlan(): StripePlan {
         name: 'free',
         displayName: 'Free',
         sessionLimit: FREE_TIER_SESSIONS,
+        videoRetentionTier: FREE_VIDEO_RETENTION_TIER,
+        videoRetentionDays: 7,
+        videoRetentionLabel: '7 days',
         priceCents: 0,
         interval: 'month',
         isCustom: false,
@@ -348,6 +464,9 @@ export async function getTeamSubscription(teamId: string): Promise<TeamSubscript
         planName: 'free',
         displayName: 'Free',
         sessionLimit: FREE_TIER_SESSIONS,
+        videoRetentionTier: FREE_VIDEO_RETENTION_TIER,
+        videoRetentionDays: 7,
+        videoRetentionLabel: '7 days',
         priceCents: 0,
         isCustom: false,
         subscriptionId: null,
@@ -375,6 +494,9 @@ export async function getTeamSubscription(teamId: string): Promise<TeamSubscript
                     result.planName = plan.name;
                     result.displayName = plan.displayName;
                     result.sessionLimit = plan.sessionLimit;
+                    result.videoRetentionTier = plan.videoRetentionTier;
+                    result.videoRetentionDays = plan.videoRetentionDays;
+                    result.videoRetentionLabel = plan.videoRetentionLabel;
                     result.priceCents = plan.priceCents;
                     result.isCustom = plan.isCustom;
                     result.subscriptionId = team.stripeSubscriptionId;
@@ -473,6 +595,9 @@ export async function getTeamSubscription(teamId: string): Promise<TeamSubscript
                         result.planName = plan.name;
                         result.displayName = plan.displayName;
                         result.sessionLimit = plan.sessionLimit;
+                        result.videoRetentionTier = plan.videoRetentionTier;
+                        result.videoRetentionDays = plan.videoRetentionDays;
+                        result.videoRetentionLabel = plan.videoRetentionLabel;
                         result.priceCents = plan.priceCents;
                         result.isCustom = plan.isCustom;
                         result.subscriptionId = team.stripeSubscriptionId;
@@ -498,6 +623,8 @@ export async function getTeamSubscription(teamId: string): Promise<TeamSubscript
 
         // Get session limit from price metadata
         const sessionLimit = parseInt(price.metadata?.session_limit || '0') || FREE_TIER_SESSIONS;
+        const retentionTier = normalizeVideoRetentionTier(parseVideoRetentionTier(price.metadata?.retention_tier));
+        const videoRetention = await getVideoRetentionDetailsForTier(retentionTier);
 
         result.priceId = price.id;
         result.productId = product.id;
@@ -509,6 +636,9 @@ export async function getTeamSubscription(teamId: string): Promise<TeamSubscript
             ? planNameFromMeta.charAt(0).toUpperCase() + planNameFromMeta.slice(1)
             : product.name;
         result.sessionLimit = sessionLimit;
+        result.videoRetentionTier = videoRetention.tier;
+        result.videoRetentionDays = videoRetention.days;
+        result.videoRetentionLabel = videoRetention.label;
         result.priceCents = price.unit_amount || 0;
         result.isCustom = product.metadata?.is_custom === 'true';
         result.subscriptionId = subscription.id;
@@ -605,6 +735,9 @@ export async function getTeamSubscription(teamId: string): Promise<TeamSubscript
                     result.planName = plan.name;
                     result.displayName = plan.displayName;
                     result.sessionLimit = plan.sessionLimit;
+                    result.videoRetentionTier = plan.videoRetentionTier;
+                    result.videoRetentionDays = plan.videoRetentionDays;
+                    result.videoRetentionLabel = plan.videoRetentionLabel;
                     result.priceCents = plan.priceCents;
                     result.isCustom = plan.isCustom;
                     result.subscriptionId = team.stripeSubscriptionId;
@@ -837,6 +970,9 @@ export async function previewPlanChange(
             name: currentSub.planName,
             displayName: currentSub.displayName,
             sessionLimit: currentSub.sessionLimit,
+            videoRetentionTier: currentSub.videoRetentionTier,
+            videoRetentionDays: currentSub.videoRetentionDays,
+            videoRetentionLabel: currentSub.videoRetentionLabel,
             priceCents: currentSub.priceCents,
             interval: 'month' as const,
             isCustom: currentSub.isCustom,
@@ -1203,6 +1339,10 @@ export async function executePlanChange(
         logger.warn({ err, teamId }, 'Failed to invalidate session cache');
     }
 
+    if (preview.changeType === 'new' || preview.changeType === 'upgrade') {
+        await syncTeamVideoRetention(teamId, plan.videoRetentionTier);
+    }
+
     logger.info({
         teamId,
         subscriptionId: subscription.id,
@@ -1345,6 +1485,8 @@ export async function cancelSubscription(
                 updatedAt: new Date(),
             })
             .where(eq(teams.id, teamId));
+
+        await syncTeamVideoRetention(teamId, FREE_VIDEO_RETENTION_TIER);
     }
 
     logger.info({ teamId, immediate }, 'Subscription canceled');

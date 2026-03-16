@@ -17,11 +17,10 @@
  */
 
 import { eq, and, lt, isNotNull, sql, ne } from 'drizzle-orm';
-import { db, pool, sessions, recordingArtifacts, projects } from '../db/client.js';
+import { db, pool, sessions, recordingArtifacts, projects, retentionPolicies } from '../db/client.js';
 import { getRedis } from '../db/redis.js';
 import { logger } from '../logger.js';
 import { deleteFromS3ForProject, deletePrefixFromS3ForProject } from '../db/s3.js';
-import { retentionTiers } from '../config.js';
 import { pingWorker } from '../services/monitoring.js';
 import { hardDeleteProject } from '../services/deletion.js';
 
@@ -69,11 +68,15 @@ async function processExpiredSessions(): Promise<number> {
     let skippedNonScreenshotKeys = 0;
 
     const now = new Date();
+    const policies = await db
+        .select({
+            tier: retentionPolicies.tier,
+            days: retentionPolicies.retentionDays,
+        })
+        .from(retentionPolicies);
 
     // For each retention tier, find expired sessions
-    for (const tierConfig of retentionTiers) {
-        if (tierConfig.days === null) continue; // Unlimited retention
-
+    for (const tierConfig of policies) {
         const expiryDate = new Date(now.getTime() - tierConfig.days * 24 * 60 * 60 * 1000);
 
         // Find expired sessions that still have replay recordings.

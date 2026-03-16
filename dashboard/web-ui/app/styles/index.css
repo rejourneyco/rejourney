@@ -358,3 +358,24 @@
 .dashboard-modern [class*="border-blue-300"] {
   border-color: #bfdef4 !important;
 }
+
+@keyframes dashboard-ghost-shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+.dashboard-ghost-block {
+  background-image: linear-gradient(
+    90deg,
+    #e2e8f0 0%,
+    #f8fafc 38%,
+    #e2e8f0 76%
+  );
+  background-size: 200% 100%;
+  animation: dashboard-ghost-shimmer 1.5s linear infinite;
+}

@@ -49,6 +49,7 @@ import {
   getAvailablePlans,
   BillingPlan,
 } from '../../services/api';
+import { DashboardGhostLoader } from '~/components/ui/DashboardGhostLoader';
 
 const PLAN_DESCRIPTIONS: Record<string, string> = {
   free: 'Perfect for Stable Monthly Rejourney',
@@ -351,13 +352,19 @@ export const BillingSettings: React.FC = () => {
 
   const isNearLimit = usagePercent >= 80;
   const isAtLimit = usagePercent >= 100;
+  const isInitialBillingLoading = Boolean(currentTeam)
+    && isLoadingBilling
+    && !teamPlan
+    && !sessionUsage
+    && !stripeStatus
+    && paymentMethods.length === 0;
 
   if (teamsLoading) {
-    return (
-      <SettingsLayout title="Billing" description="Loading...">
-        <div className="h-32 bg-slate-100 border-2 border-slate-200 animate-pulse"></div>
-      </SettingsLayout>
-    );
+    return <DashboardGhostLoader variant="settings" />;
+  }
+
+  if (isInitialBillingLoading) {
+    return <DashboardGhostLoader variant="settings" />;
   }
 
   if (!currentTeam) {
@@ -543,10 +550,10 @@ export const BillingSettings: React.FC = () => {
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 pt-4">
           {(availablePlans.length > 0 ? availablePlans : [
-            { name: 'free', displayName: 'Free', sessionLimit: 5000, priceCents: 0 },
-            { name: 'starter', displayName: 'Starter', sessionLimit: 25000, priceCents: 500 },
-            { name: 'growth', displayName: 'Growth', sessionLimit: 100000, priceCents: 1500 },
-            { name: 'pro', displayName: 'Pro', sessionLimit: 350000, priceCents: 3500 },
+            { name: 'free', displayName: 'Free', sessionLimit: 5000, videoRetentionTier: 1, videoRetentionDays: 7, videoRetentionLabel: '7 days', priceCents: 0 },
+            { name: 'starter', displayName: 'Starter', sessionLimit: 25000, videoRetentionTier: 2, videoRetentionDays: 14, videoRetentionLabel: '14 days', priceCents: 500 },
+            { name: 'growth', displayName: 'Growth', sessionLimit: 100000, videoRetentionTier: 3, videoRetentionDays: 30, videoRetentionLabel: '30 days', priceCents: 1500 },
+            { name: 'pro', displayName: 'Pro', sessionLimit: 350000, videoRetentionTier: 4, videoRetentionDays: 60, videoRetentionLabel: '60 days', priceCents: 3500 },
           ]).map((plan) => {
             const currentPlanName = teamPlan?.planName?.toLowerCase() || 'free';
             const isCurrentPlan = currentPlanName === plan.name;
@@ -601,6 +608,13 @@ export const BillingSettings: React.FC = () => {
                       </span>
                     </div>
                     <p className="text-[10px] font-bold text-slate-400 mt-1 ml-4">per month</p>
+                    <div className="mt-3 flex items-center gap-2">
+                      <div className="w-2 h-2 bg-slate-400" />
+                      <span className="text-sm font-semibold text-slate-900">
+                        {plan.videoRetentionLabel} Video Retention
+                      </span>
+                    </div>
+                    <p className="text-[10px] font-bold text-slate-400 mt-1 ml-4">replay media only</p>
                   </div>
 
                   {isCurrentPlan ? (
@@ -803,6 +817,24 @@ export const BillingSettings: React.FC = () => {
                         </span>
                       </div>
                     </div>
+                  </div>
+
+                  <div className="p-4 bg-slate-50 border-2 border-slate-200">
+                    <div className="flex justify-between items-center">
+                      <span className="font-bold text-slate-600">Video Retention</span>
+                      <div className="text-right">
+                        <span className="line-through text-slate-400 mr-2">
+                          {planChangeModal.preview.currentPlan.videoRetentionLabel}
+                        </span>
+                        <span className={`font-semibold ${planChangeModal.preview.changeType === 'upgrade' || planChangeModal.preview.changeType === 'new'
+                          ? 'text-emerald-600'
+                          : 'text-amber-600'
+                          }`}>
+                          {planChangeModal.preview.newPlan.videoRetentionLabel}
+                        </span>
+                      </div>
+                    </div>
+                    <p className="text-[11px] font-bold text-slate-400 mt-2">Replay media only. Events and analytics are retained separately.</p>
                   </div>
 
 

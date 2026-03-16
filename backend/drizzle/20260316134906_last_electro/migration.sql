@@ -1,0 +1,1 @@
+ALTER TABLE "teams" ALTER COLUMN "retention_tier" SET DEFAULT 1;

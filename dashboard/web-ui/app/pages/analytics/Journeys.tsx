@@ -30,6 +30,7 @@ import { TimeFilter, TimeRange, DEFAULT_TIME_RANGE } from '../../components/ui/T
 import { SankeyEvidenceSession, SankeyJourney } from '../../components/analytics/SankeyJourney';
 import { KpiCardItem, KpiCardsGrid, computePeriodDeltaFromSeries } from '../../components/dashboard/KpiCardsGrid';
 import { TouchHeatmapSection } from '../../components/dashboard/TouchHeatmapSection';
+import { DashboardGhostLoader } from '~/components/ui/DashboardGhostLoader';
 import {
     getInsightsTrends,
     getJourneyObservability,
@@ -705,6 +706,10 @@ export const Journeys: React.FC = () => {
 
     const hasData = Boolean(data && totalSessions > 0);
 
+    if (isLoading && selectedProject?.id) {
+        return <DashboardGhostLoader variant="analytics" />;
+    }
+
     return (
         <div className="min-h-screen font-sans text-slate-900 bg-transparent">
             <div className="sticky top-0 z-30 bg-white">
@@ -724,15 +729,6 @@ export const Journeys: React.FC = () => {
                 {!selectedProject?.id && (
                     <div className="rounded-2xl border border-amber-200 bg-amber-50 p-5 text-sm text-amber-900">
                         Select a project to load journey analytics.
-                    </div>
-                )}
-
-                {isLoading && (
-                    <div className="rounded-3xl border border-slate-100/80 bg-white ring-1 ring-slate-900/5 p-6 shadow-sm">
-                        <div className="flex items-center gap-3 text-sm text-slate-600">
-                            <Activity className="h-4 w-4 animate-pulse text-blue-600" />
-                            Loading journey analytics...
-                        </div>
                     </div>
                 )}
 

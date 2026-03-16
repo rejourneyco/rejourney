@@ -15,6 +15,11 @@ import { eq, and, inArray } from 'drizzle-orm';
 import { config, isSelfHosted } from '../config.js';
 import { logger } from '../logger.js';
 import { db, teams, stripeWebhookEvents, billingUsage, users, teamMembers } from '../db/client.js';
+import {
+    FREE_VIDEO_RETENTION_TIER,
+    parseVideoRetentionTier,
+    syncTeamVideoRetention,
+} from './videoRetention.js';
 
 // =============================================================================
 // Stripe Client Initialization
@@ -594,6 +599,37 @@ export async function handleWebhookEvent(event: Stripe.Event): Promise<void> {
     }
 }
 
+async function resolveSubscriptionRetentionTier(
+    subscription: Stripe.Subscription
+): Promise<number> {
+    const itemPrice = subscription.items.data[0]?.price;
+    const metadataTier = typeof itemPrice === 'string'
+        ? null
+        : parseVideoRetentionTier(itemPrice.metadata?.retention_tier);
+
+    if (metadataTier) {
+        return metadataTier;
+    }
+
+    const priceId = typeof itemPrice === 'string' ? itemPrice : itemPrice?.id;
+    if (!priceId) {
+        return FREE_VIDEO_RETENTION_TIER;
+    }
+
+    const client = getStripe();
+    if (!client) {
+        return FREE_VIDEO_RETENTION_TIER;
+    }
+
+    try {
+        const price = await client.prices.retrieve(priceId);
+        return parseVideoRetentionTier(price.metadata?.retention_tier) ?? FREE_VIDEO_RETENTION_TIER;
+    } catch (err) {
+        logger.warn({ err, priceId }, 'Failed to retrieve Stripe price for video retention sync');
+        return FREE_VIDEO_RETENTION_TIER;
+    }
+}
+
 /**
  * Handle checkout.session.completed webhook
  * Called when a Stripe Checkout Session completes successfully
@@ -842,6 +878,11 @@ async function handleSubscriptionCreated(subscription: Stripe.Subscription): Pro
             .set(updateFields)
             .where(eq(teams.id, teamId));
 
+        if (isPaymentConfirmed) {
+            const retentionTier = await resolveSubscriptionRetentionTier(subscription);
+            await syncTeamVideoRetention(teamId, retentionTier);
+        }
+
         logger.info({
             teamId,
             subscriptionId: subscription.id,
@@ -895,6 +936,8 @@ async function handleSubscriptionUpdated(subscription: Stripe.Subscription): Pro
         await db.update(teams)
             .set({ stripePriceId: null, updatedAt: new Date() })
             .where(eq(teams.id, targetTeamId));
+
+        await syncTeamVideoRetention(targetTeamId, FREE_VIDEO_RETENTION_TIER);
 
         const { invalidateSessionCache } = await import('./quotaCheck.js');
         await invalidateSessionCache(targetTeamId);
@@ -1006,6 +1049,9 @@ async function handleSubscriptionUpdated(subscription: Stripe.Subscription): Pro
         .set(updateData)
         .where(eq(teams.id, targetTeamId));
 
+    const retentionTier = await resolveSubscriptionRetentionTier(subscription);
+    await syncTeamVideoRetention(targetTeamId, retentionTier);
+
     // Invalidate cache when subscription changes
     const { invalidateSessionCache } = await import('./quotaCheck.js');
     await invalidateSessionCache(targetTeamId);
@@ -1053,6 +1099,8 @@ async function handleSubscriptionDeleted(subscription: Stripe.Subscription): Pro
             updatedAt: new Date(),
         })
         .where(eq(teams.id, targetTeamId));
+
+    await syncTeamVideoRetention(targetTeamId, FREE_VIDEO_RETENTION_TIER);
 
     // Invalidate cache
     const { invalidateSessionCache } = await import('./quotaCheck.js');

@@ -6,14 +6,15 @@
 
 import { Router } from 'express';
 import { randomBytes } from 'crypto';
-import { eq, and, count, sql, isNull, inArray } from 'drizzle-orm';
-import { db, teams, teamMembers, teamInvitations, users, projects, sessions } from '../db/client.js';
+import { eq, and, count, sql, isNull } from 'drizzle-orm';
+import { db, teams, teamMembers, teamInvitations, users, projects } from '../db/client.js';
 import { logger } from '../logger.js';
 import { sessionAuth, requireTeamAccess, requireTeamAdmin, requireTeamOwner, asyncHandler, ApiError } from '../middleware/index.js';
 import { validate } from '../middleware/validation.js';
 import { dashboardRateLimiter, writeApiRateLimiter, inviteRateLimiter } from '../middleware/rateLimit.js';
 import { sendTeamInviteEmail } from '../services/email.js';
 import { auditFromRequest } from '../services/auditLog.js';
+import { syncTeamVideoRetention } from '../services/videoRetention.js';
 import { hardDeleteTeam } from '../services/deletion.js';
 import { sendDeletionOtp, verifyDeletionOtp } from '../services/deleteOtp.js';
 import { isDisposableEmail } from '../utils/disposableEmail.js';
@@ -183,20 +184,10 @@ router.put(
 
         // Retroactively apply retention tier to all existing un-deleted sessions for this team's projects
         if (req.body.retentionTier !== undefined) {
-            const teamProjects = await db.select({ id: projects.id }).from(projects).where(eq(projects.teamId, team.id));
-            const projectIds = teamProjects.map((p: any) => p.id);
-
-            if (projectIds.length > 0) {
-                await db.update(sessions)
-                    .set({ retentionTier: req.body.retentionTier })
-                    .where(
-                        and(
-                            inArray(sessions.projectId, projectIds),
-                            eq(sessions.recordingDeleted, false)
-                        )
-                    );
-                logger.info({ teamId: team.id, projectCount: projectIds.length, retentionTier: req.body.retentionTier }, 'Retroactively updated retention tier for existing team sessions');
-            }
+            const retention = await syncTeamVideoRetention(team.id, req.body.retentionTier, {
+                backfillSessions: true,
+            });
+            logger.info({ teamId: team.id, retentionTier: retention.tier, retentionDays: retention.days }, 'Retroactively updated team video retention');
         }
 
         logger.info({ teamId: team.id, userId: req.user!.id }, 'Team updated');

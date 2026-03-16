@@ -86,15 +86,15 @@ export const PricingTable: React.FC = () => {
                 <div className="flex flex-wrap gap-8 mb-8 font-black uppercase text-[10px] tracking-widest">
                     <div className="flex items-center gap-2">
                         <div className="w-2 h-2 bg-black" />
-                        <span>All Sessions Observed & Only Record Problems</span>
+                        <span>All Sessions Recorded</span>
                     </div>
                     <div className="flex items-center gap-2">
                         <div className="w-2 h-2 bg-black" />
-                        <span>Unlimited Data Retention & 7-Day Video Retention</span>
+                        <span>Unlimited Data Retention</span>
                     </div>
                     <div className="flex items-center gap-2">
                         <div className="w-2 h-2 bg-black" />
-                        <span>Infinite Meta-Data & Analytics</span>
+                        <span>Unlimited Meta-Data & Analytics</span>
                     </div>
                     <div className="flex items-center gap-2">
                         <div className="w-2 h-2 bg-black" />
@@ -110,10 +110,10 @@ export const PricingTable: React.FC = () => {
                             <p className="font-black uppercase tracking-widest text-sm">Loading Plans...</p>
                         </div>
                     ) : (availablePlans.length > 0 ? availablePlans : [
-                        { name: 'free', displayName: 'Free', sessionLimit: 5000, priceCents: 0 },
-                        { name: 'starter', displayName: 'Starter', sessionLimit: 25000, priceCents: 500 },
-                        { name: 'growth', displayName: 'Growth', sessionLimit: 100000, priceCents: 1500 },
-                        { name: 'pro', displayName: 'Pro', sessionLimit: 350000, priceCents: 3500 },
+                        { name: 'free', displayName: 'Free', sessionLimit: 5000, videoRetentionTier: 1, videoRetentionDays: 7, videoRetentionLabel: '7 days', priceCents: 0 },
+                        { name: 'starter', displayName: 'Starter', sessionLimit: 25000, videoRetentionTier: 2, videoRetentionDays: 14, videoRetentionLabel: '14 days', priceCents: 500 },
+                        { name: 'growth', displayName: 'Growth', sessionLimit: 100000, videoRetentionTier: 3, videoRetentionDays: 30, videoRetentionLabel: '30 days', priceCents: 1500 },
+                        { name: 'pro', displayName: 'Pro', sessionLimit: 350000, videoRetentionTier: 4, videoRetentionDays: 60, videoRetentionLabel: '60 days', priceCents: 3500 },
                     ]).map((plan) => {
                         const savings = SAVINGS_LABELS[plan.name];
                         const price = plan.priceCents / 100;
@@ -143,9 +143,13 @@ export const PricingTable: React.FC = () => {
                                             {formatNumber(plan.sessionLimit)} Sessions / month
                                         </span>
                                     </div>
-                                    <p className="text-xs font-bold leading-relaxed opacity-70">
-                                        Full access to all features and analytics tools.
-                                    </p>
+                                    <div className="flex items-center gap-2">
+                                        <div className="w-4 h-4 border-2 border-black bg-white" />
+                                        <span className="font-black uppercase text-sm">
+                                            {plan.videoRetentionLabel} Video Retention
+                                        </span>
+                                    </div>
+              
                                 </div>
 
                                 <Link
@@ -214,4 +218,3 @@ export const PricingTable: React.FC = () => {
         </section>
     );
 };
-

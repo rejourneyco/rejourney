@@ -42,6 +42,7 @@ import { useDemoMode } from '../../context/DemoModeContext';
 import { useSessionData } from '../../context/SessionContext';
 import { useSafeTeam } from '../../context/TeamContext';
 import { formatGeoDisplay } from '../../utils/geoDisplay';
+import { DashboardGhostLoader } from '~/components/ui/DashboardGhostLoader';
 
 const PAGE_SIZE_OPTIONS = [25, 50, 100, 200, 300] as const;
 
@@ -403,15 +404,8 @@ export const RecordingsList: React.FC = () => {
     setExpandedSessionId(expandedSessionId === sessionId ? null : sessionId);
   };
 
-  if (isLoading) {
-    return (
-      <div className="flex flex-col items-center justify-center min-h-screen bg-transparent">
-        <div className="text-2xl font-semibold uppercase tracking-tighter animate-bounce">
-          <Activity className="w-12 h-12 mb-4 mx-auto" />
-          Loading Archive...
-        </div>
-      </div>
-    );
+  if (isLoading && (selectedProjectId || isContextLoading)) {
+    return <DashboardGhostLoader variant="list" />;
   }
 
   return (
