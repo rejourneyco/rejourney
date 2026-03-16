@@ -11,6 +11,7 @@ import {
     type GeoIssuesSummary,
 } from '../../services/api';
 import { config } from '../../config';
+import { DashboardGhostLoader } from '~/components/ui/DashboardGhostLoader';
 
 // @ts-ignore: mapbox-gl default export typing can vary across versions
 import mapboxgl from 'mapbox-gl';
@@ -230,6 +231,10 @@ export const Geo: React.FC = () => {
         [markers, hoveredMarkerId]
     );
 
+    if (isLoading && selectedProject?.id) {
+        return <DashboardGhostLoader variant="map" />;
+    }
+
     return (
         <div className="min-h-screen font-sans text-slate-900 bg-transparent flex flex-col">
             <div className="sticky top-0 z-30 bg-white border-b border-slate-200">
@@ -245,10 +250,6 @@ export const Geo: React.FC = () => {
             <div className="flex-1 w-full bg-white relative">
                 {!selectedProject?.id ? (
                     <div className="absolute inset-0 flex items-center justify-center text-sm text-slate-500">Select a project.</div>
-                ) : isLoading ? (
-                    <div className="absolute inset-0 flex items-center justify-center text-slate-500">
-                        <Activity className="h-6 w-6 animate-pulse" />
-                    </div>
                 ) : !MAPBOX_TOKEN ? (
                     <div className="absolute inset-0 flex items-center justify-center text-center text-sm text-rose-500 px-4">
                         <ShieldAlert className="h-5 w-5 mr-2" />

@@ -490,7 +490,6 @@ export async function canUserRecord(userId: string, teamId: string): Promise<{
  */
 router.get(
     '/plans',
-    sessionAuth,
     asyncHandler(async (req, res) => {
         const forceRefresh = req.query.forceRefresh === 'true';
 
@@ -505,6 +504,12 @@ router.get(
             planNames: plans.map(p => p.name)
         }, 'Returning available plans');
 
+        // Billing plans come from Stripe and can change outside the app,
+        // so avoid browser/HTTP caches masking the live response.
+        res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+        res.setHeader('Pragma', 'no-cache');
+        res.setHeader('Expires', '0');
+
         res.json({
             plans: plans.map((plan: StripePlan) => ({
                 priceId: plan.priceId,
@@ -513,6 +518,9 @@ router.get(
                 displayName: plan.displayName,
                 priceCents: plan.priceCents,
                 sessionLimit: plan.sessionLimit,
+                videoRetentionTier: plan.videoRetentionTier,
+                videoRetentionDays: plan.videoRetentionDays,
+                videoRetentionLabel: plan.videoRetentionLabel,
                 interval: plan.interval,
                 isCustom: plan.isCustom,
             })),
@@ -568,6 +576,9 @@ router.get(
                 displayName: subscription.displayName,
                 priceCents: subscription.priceCents,
                 sessionLimit: subscription.sessionLimit,
+                videoRetentionTier: subscription.videoRetentionTier,
+                videoRetentionDays: subscription.videoRetentionDays,
+                videoRetentionLabel: subscription.videoRetentionLabel,
                 isCustom: subscription.isCustom,
                 subscriptionId: subscription.subscriptionId,
                 subscriptionStatus: subscription.subscriptionStatus,

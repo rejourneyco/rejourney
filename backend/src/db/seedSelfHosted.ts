@@ -33,6 +33,7 @@ async function main() {
         { tier: 3, days: 3650 },
         { tier: 4, days: 3650 },
         { tier: 5, days: 3650 },
+        { tier: 6, days: 3650 },
     ];
 
     for (const policy of retentionPolicyData) {

@@ -21,6 +21,7 @@ import { NeoBadge } from '../../components/ui/neo/NeoBadge';
 import { NeoButton } from '../../components/ui/neo/NeoButton';
 import { NeoCard } from '../../components/ui/neo/NeoCard';
 import { api, CrashReport } from '../../services/api';
+import { DashboardGhostLoader } from '~/components/ui/DashboardGhostLoader';
 
 interface CrashGroup {
   name: string;
@@ -185,11 +186,7 @@ export const CrashesList: React.FC = () => {
   }, [expandedGroup, selectedProject?.id, crashGroups, crashDetails]);
 
   if (isLoading) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-transparent">
-        <div className="text-2xl font-semibold uppercase tracking-tight animate-pulse">Loading...</div>
-      </div>
-    );
+    return <DashboardGhostLoader variant="list" />;
   }
 
   return (

@@ -843,6 +843,9 @@ export interface BillingPlan {
   name: string;
   displayName: string;
   sessionLimit: number;
+  videoRetentionTier: number;
+  videoRetentionDays: number;
+  videoRetentionLabel: string;
   priceCents: number;
   isCustom?: boolean;
 }
@@ -851,6 +854,9 @@ export interface TeamPlanInfo {
   planName: string;
   displayName: string;
   sessionLimit: number;
+  videoRetentionTier: number;
+  videoRetentionDays: number;
+  videoRetentionLabel: string;
   priceCents: number;
   isCustom: boolean;
   subscriptionId?: string | null; // Stripe subscription ID (null for free plan)
@@ -930,12 +936,18 @@ export interface PlanChangePreview {
     name: string;
     displayName: string;
     sessionLimit: number;
+    videoRetentionTier: number;
+    videoRetentionDays: number;
+    videoRetentionLabel: string;
     priceCents: number;
   }; // Always present (free plan if no subscription)
   newPlan: {
     name: string;
     displayName: string;
     sessionLimit: number;
+    videoRetentionTier: number;
+    videoRetentionDays: number;
+    videoRetentionLabel: string;
     priceCents: number;
   };
   changeType: 'upgrade' | 'downgrade' | 'same' | 'new';

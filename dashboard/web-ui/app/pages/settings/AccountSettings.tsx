@@ -7,6 +7,7 @@ import { NeoBadge } from '../../components/ui/neo/NeoBadge';
 import { SettingsLayout } from '../../components/layout/SettingsLayout';
 import { LogOut, Mail, Calendar, CheckCircle, AlertCircle, Zap, UserCircle, Download, Clock, Gift, CreditCard } from 'lucide-react';
 import { getFreeTierStatus, FreeTierStatus, getDataExportStatus, exportUserData, DataExportStatus } from '../../services/api';
+import { DashboardGhostLoader } from '~/components/ui/DashboardGhostLoader';
 
 export const AccountSettings: React.FC = () => {
   const { user, logout } = useAuth();
@@ -83,6 +84,11 @@ export const AccountSettings: React.FC = () => {
     const diffMs = nextDate.getTime() - now.getTime();
     return Math.ceil(diffMs / (24 * 60 * 60 * 1000));
   };
+  const isInitialAccountLoading = Boolean(user)
+    && isLoadingFreeTier
+    && isLoadingExportStatus
+    && !freeTierStatus
+    && !exportStatus;
 
   if (!user) {
     return (
@@ -92,6 +98,10 @@ export const AccountSettings: React.FC = () => {
         </div>
       </SettingsLayout>
     );
+  }
+
+  if (isInitialAccountLoading) {
+    return <DashboardGhostLoader variant="settings" />;
   }
 
   return (
@@ -294,4 +304,3 @@ export const AccountSettings: React.FC = () => {
 };
 
 export default AccountSettings;
-

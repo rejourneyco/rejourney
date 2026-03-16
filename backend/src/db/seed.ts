@@ -53,11 +53,12 @@ async function main() {
     // =========================================================================
     // Tier-based retention for session data cleanup
     const retentionPolicyData = [
-        { tier: 1, days: 7 },    // Basic: 1 week retention
-        { tier: 2, days: 30 },   // Standard: 1 month retention
-        { tier: 3, days: 90 },   // Professional: 3 months retention
-        { tier: 4, days: 365 },  // Enterprise: 1 year retention
-        { tier: 5, days: 3650 }, // Unlimited: ~10 years (effectively unlimited)
+        { tier: 1, days: 7 },
+        { tier: 2, days: 14 },
+        { tier: 3, days: 30 },
+        { tier: 4, days: 60 },
+        { tier: 5, days: 3650 },
+        { tier: 6, days: 36500 },
     ];
 
     for (const policy of retentionPolicyData) {
@@ -75,7 +76,7 @@ async function main() {
             await db.insert(retentionPolicies).values({
                 tier: policy.tier,
                 retentionDays: policy.days,
-            });
+            }).onConflictDoNothing();
         }
     }
     console.log('✅ Retention policies seeded');
@@ -122,7 +123,7 @@ async function main() {
             await db.insert(storageEndpoints).values({
                 projectId: null, // Global default
                 ...endpointData,
-            });
+            }).onConflictDoNothing();
             console.log('✅ Default storage endpoint seeded');
             console.log(`   Endpoint: ${s3Endpoint}`);
             console.log(`   Bucket: ${s3Bucket}`);
@@ -179,7 +180,7 @@ async function main() {
                 teamId: team.id,
                 userId: testUser.id,
                 role: 'owner',
-            });
+            }).onConflictDoNothing();
 
             // Note: Quota table removed. Session limits are handled by Stripe or defaults.
 
@@ -207,7 +208,7 @@ async function main() {
                 maskedKey: `rj_...${apiKeyValue.slice(-8)}`,
                 name: 'Development Key',
                 scopes: ['ingest'],
-            });
+            }).onConflictDoNothing();
 
             // Create default alert settings for the project
             await db.insert(alertSettings).values({
@@ -219,13 +220,13 @@ async function main() {
                 errorSpikeThresholdPercent: 50, // 50% increase triggers alert
                 apiDegradationThresholdPercent: 100, // 2x latency triggers alert
                 apiLatencyThresholdMs: 3000, // 3 second threshold
-            });
+            }).onConflictDoNothing();
 
             // Add test user as alert recipient
             await db.insert(alertRecipients).values({
                 projectId: project.id,
                 userId: testUser.id,
-            });
+            }).onConflictDoNothing();
 
             console.log('✅ Test user, team, project, and alert settings created');
             console.log(`   Email: ${testEmail}`);
@@ -265,7 +266,7 @@ async function main() {
                             errorSpikeThresholdPercent: 50,
                             apiDegradationThresholdPercent: 100,
                             apiLatencyThresholdMs: 3000,
-                        });
+                        }).onConflictDoNothing();
                         console.log(`   ✅ Created alert settings for project: ${project.name}`);
                     }
 
@@ -283,7 +284,7 @@ async function main() {
                         await db.insert(alertRecipients).values({
                             projectId: project.id,
                             userId: testUser.id,
-                        });
+                        }).onConflictDoNothing();
                         console.log(`   ✅ Added test user as alert recipient for: ${project.name}`);
                     }
                 }

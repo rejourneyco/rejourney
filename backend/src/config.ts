@@ -201,9 +201,9 @@ export const rateLimits = {
 // Retention tiers
 export const retentionTiers = [
     { tier: 1, days: 7 },  // Free
-    { tier: 2, days: 30 },
-    { tier: 3, days: 90 },
-    { tier: 4, days: 365 },
+    { tier: 2, days: 14 },
+    { tier: 3, days: 30 },
+    { tier: 4, days: 60 },
     { tier: 5, days: 3650 },
     { tier: 6, days: 36500 }, // Unlimited (100 years)
 ];

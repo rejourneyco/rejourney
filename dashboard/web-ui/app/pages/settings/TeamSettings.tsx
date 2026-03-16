@@ -37,6 +37,7 @@ import {
   resendInvitation,
   ApiTeamInvitation,
 } from '../../services/api';
+import { DashboardGhostLoader } from '~/components/ui/DashboardGhostLoader';
 
 export const TeamSettings: React.FC = () => {
   const { user } = useAuth();
@@ -298,11 +299,7 @@ export const TeamSettings: React.FC = () => {
   };
 
   if (teamsLoading) {
-    return (
-      <SettingsLayout title="Team" description="Loading...">
-        <div className="h-32 bg-slate-100 border-2 border-slate-200 animate-pulse"></div>
-      </SettingsLayout>
-    );
+    return <DashboardGhostLoader variant="settings" />;
   }
 
   if (!currentTeam) {

@@ -9,6 +9,7 @@ import { NeoCard } from '../../components/ui/neo/NeoCard';
 import { NeoBadge } from '../../components/ui/neo/NeoBadge';
 import { Input } from '../../components/ui/Input';
 import { Modal } from '../../components/ui/Modal';
+import { DashboardGhostLoader } from '~/components/ui/DashboardGhostLoader';
 import { Copy, Plus, Trash2, Key, AlertTriangle, CheckCircle, Shield, Info, Check, Settings, Save, AlertOctagon, Smartphone, Clock } from 'lucide-react';
 import { getAndroidPackageError, getIosBundleIdError } from '../../utils/validation';
 import {
@@ -362,11 +363,7 @@ export const ProjectSettings: React.FC<SettingsProps> = ({ projectId: propProjec
   };
 
   if (loading) {
-    return (
-      <div className="p-8 flex justify-center">
-        <div className="animate-spin h-8 w-8 border-4 border-slate-200 border-t-slate-800 rounded-full"></div>
-      </div>
-    );
+    return <DashboardGhostLoader variant="settings" />;
   }
 
   if (error || !project) {

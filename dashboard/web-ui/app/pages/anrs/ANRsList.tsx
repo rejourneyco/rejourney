@@ -21,6 +21,7 @@ import { DashboardPageHeader } from '../../components/ui/DashboardPageHeader';
 import { NeoBadge } from '../../components/ui/neo/NeoBadge';
 import { NeoButton } from '../../components/ui/neo/NeoButton';
 import { NeoCard } from '../../components/ui/neo/NeoCard';
+import { DashboardGhostLoader } from '~/components/ui/DashboardGhostLoader';
 
 const formatCompact = (value: number): string => {
   if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`;
@@ -50,7 +51,11 @@ export const ANRsList: React.FC = () => {
 
   useEffect(() => {
     const fetchAnrs = async () => {
-      if (!isDemoMode && !currentProject?.id) return;
+      if (!isDemoMode && !currentProject?.id) {
+        setAnrs([]);
+        setIsLoading(false);
+        return;
+      }
 
       setIsLoading(true);
       try {
@@ -120,11 +125,7 @@ export const ANRsList: React.FC = () => {
   }, [focusId, isLoading, anrs]);
 
   if (isLoading) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-transparent">
-        <div className="text-2xl font-semibold uppercase tracking-tight animate-pulse">Loading...</div>
-      </div>
-    );
+    return <DashboardGhostLoader variant="list" />;
   }
 
   return (
