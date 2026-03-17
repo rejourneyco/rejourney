@@ -156,7 +156,7 @@ export const projects = pgTable(
         rejourneyEnabled: boolean('rejourney_enabled').default(true).notNull(),
         recordingEnabled: boolean('recording_enabled').default(true).notNull(),
         maxRecordingMinutes: integer('max_recording_minutes').default(10).notNull(),
-        // Replay promotion: healthy session promotion rate (0.0 - 1.0)
+        // Legacy replay promotion setting kept for schema compatibility
         healthyReplaysPromoted: doublePrecision('healthy_replays_promoted').default(0.05).notNull(),
         deletedAt: timestamp('deleted_at'),
         createdAt: timestamp('created_at').defaultNow().notNull(),
@@ -330,7 +330,7 @@ export const sessions = pgTable(
         recordingDeletedAt: timestamp('recording_deleted_at'),
         isReplayExpired: boolean('is_replay_expired').default(false).notNull(),
 
-        // Replay promotion status
+        // Legacy replay availability fields kept for schema compatibility
         replayPromoted: boolean('replay_promoted').default(false).notNull(),
         replayPromotedReason: varchar('replay_promoted_reason', { length: 50 }),
         replayPromotedAt: timestamp('replay_promoted_at'),
@@ -344,7 +344,7 @@ export const sessions = pgTable(
         geoLongitude: doublePrecision('geo_longitude'),
         geoTimezone: varchar('geo_timezone', { length: 100 }),
 
-        // Replay ranking
+        // Legacy replay ranking field kept for schema compatibility
         replayPromotionScore: doublePrecision('replay_promotion_score'),
 
         createdAt: timestamp('created_at').defaultNow().notNull(),

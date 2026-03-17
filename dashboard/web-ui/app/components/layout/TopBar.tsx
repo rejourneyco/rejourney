@@ -6,7 +6,7 @@ import { useAuth } from '../../context/AuthContext';
 import { useTeam } from '../../context/TeamContext';
 import { usePathPrefix } from '../../hooks/usePathPrefix';
 import { getTeamBillingUsage, getTeamPlan, TeamUsage, clearCache } from '../../services/api';
-import { RefreshCw, User as UserIcon, LogOut, ChevronDown, CreditCard, Copy, BookOpen, Check } from 'lucide-react';
+import { RefreshCw, User as UserIcon, LogOut, ChevronDown, CreditCard, Copy, BookOpen, Check, Menu } from 'lucide-react';
 import { AI_INTEGRATION_PROMPT } from '../../constants/aiPrompts';
 import { DASHBOARD_MANUAL_REFRESH_COMPLETE, DASHBOARD_MANUAL_REFRESH_START } from '../../constants/events';
 
@@ -184,6 +184,15 @@ export const TopBar: React.FC<TopBarProps> = ({ currentProject }) => {
   return (
     <div className="dashboard-topbar flex flex-wrap items-start justify-between gap-x-4 gap-y-2 border-b border-slate-200 bg-white px-4 py-2 font-sans sm:px-6">
       <div className="flex min-w-0 flex-1 items-center gap-3 sm:gap-6">
+        {/* Mobile Menu Button */}
+        <button
+          onClick={() => window.dispatchEvent(new CustomEvent('toggleMobileSidebar'))}
+          className="mr-1 flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-500 hover:bg-slate-50 md:hidden"
+          aria-label="Toggle sidebar"
+        >
+          <Menu className="h-5 w-5" />
+        </button>
+
         {/* Logo */}
         <Link to="/" className="shrink-0 hover:opacity-80 transition-opacity">
           <img src="/rejourneyIcon-removebg-preview.png" alt="Rejourney" className="w-8 h-8 object-contain" />

@@ -60,6 +60,7 @@ import kotlin.concurrent.withLock
  */
 sealed class SessionState {
     object Idle : SessionState()
+    data class Starting(val sessionId: String, val startTimeMs: Long) : SessionState()
     data class Active(val sessionId: String, val startTimeMs: Long) : SessionState()
     data class Paused(val sessionId: String, val startTimeMs: Long) : SessionState()
     object Terminated : SessionState()
@@ -488,9 +489,16 @@ class RejourneyModuleImpl(
             // Check if already active
             stateLock.withLock {
                 val currentState = state
-                if (currentState is SessionState.Active) {
-                    promise.resolve(createResultMap(true, currentState.sessionId))
-                    return@post
+                when (currentState) {
+                    is SessionState.Active -> {
+                        promise.resolve(createResultMap(true, currentState.sessionId))
+                        return@post
+                    }
+                    is SessionState.Starting -> {
+                        promise.resolve(createResultMap(true, currentState.sessionId))
+                        return@post
+                    }
+                    else -> Unit
                 }
             }
 
@@ -522,10 +530,10 @@ class RejourneyModuleImpl(
                 DiagnosticLog.fault("[Rejourney] CRITICAL: No current activity available for capture!")
             }
 
-            // Pre-generate session ID to ensure consistency between JS and native
-            val sid = "session_${System.currentTimeMillis()}_${java.util.UUID.randomUUID().toString().replace("-", "").lowercase()}"
-            ReplayOrchestrator.shared?.replayId = sid
-            TelemetryPipeline.shared?.currentReplayId = sid
+            val pendingSessionId = "session_${System.currentTimeMillis()}_${java.util.UUID.randomUUID().toString().replace("-", "").lowercase()}"
+            stateLock.withLock {
+                state = SessionState.Starting(pendingSessionId, System.currentTimeMillis())
+            }
 
             // Begin replay
             ReplayOrchestrator.shared?.beginReplay(
@@ -539,6 +547,7 @@ class RejourneyModuleImpl(
 
             // Allow orchestrator time to spin up
             mainHandler.postDelayed({
+                val sid = ReplayOrchestrator.shared?.replayId ?: pendingSessionId
                 stateLock.withLock {
                     state = SessionState.Active(sid, System.currentTimeMillis())
                 }

@@ -24,8 +24,6 @@ import { validate } from '../middleware/validation.js';
 import { ingestProjectRateLimiter, ingestDeviceRateLimiter } from '../middleware/rateLimit.js';
 import { endSessionSchema } from '../validation/ingest.js';
 import { updateDeviceUsage, ensureIngestSession } from '../services/recording.js';
-
-import { evaluateAndPromoteSession } from '../services/replayPromotion.js';
 import { checkAndEnforceSessionLimit, checkBillingStatus, incrementProjectSessionCount } from '../services/quotaCheck.js';
 import { invalidateFrameCache } from '../services/screenshotFrames.js';
 import { trackCrashAsIssue, trackANRAsIssue } from '../services/issueTracker.js';
@@ -161,8 +159,6 @@ function buildSdkTelemetryMergeSet(sdk: NormalizedSdkTelemetry): Record<string, 
 
     return updates;
 }
-
-// NOTE: evaluateAndPromoteSession is now imported from ../services/replayPromotion.js
 
 // Helper functions moved to services/recording.ts
 
@@ -1133,12 +1129,6 @@ router.post(
             minutesRecorded,
         }).catch(() => { });
 
-        // Evaluate session for promotion - this is THE single place where promotion is decided
-        // Uses the unified function that waits for ingest jobs and evaluates with complete metrics
-        if (!session.replayPromoted) {
-            await evaluateAndPromoteSession(session.id, projectId, durationSeconds);
-        }
-
         logger.info({
             sessionId: session.id,
             durationSeconds,
@@ -1152,12 +1142,11 @@ router.post(
 );
 
 /**
- * Evaluate session for replay promotion
+ * Check whether replay data exists for a session
  * POST /api/ingest/replay/evaluate
  * 
- * Called by SDK to check/trigger promotion evaluation.
- * Uses the unified evaluateAndPromoteSession function which waits for
- * ingest jobs to complete before evaluating with complete metrics.
+ * Compatibility shim for native SDKs that still ask whether a session
+ * should surface as replayable. This no longer mutates session state.
  */
 router.post(
     '/replay/evaluate',
@@ -1171,29 +1160,31 @@ router.post(
             throw ApiError.badRequest('sessionId is required');
         }
 
-        // Verify session belongs to project
-        const [session] = await db
-            .select()
+        const [sessionResult] = await db
+            .select({
+                session: sessions,
+                metrics: sessionMetrics,
+            })
             .from(sessions)
+            .leftJoin(sessionMetrics, eq(sessions.id, sessionMetrics.sessionId))
             .where(eq(sessions.id, sessionId))
             .limit(1);
 
-        if (!session || session.projectId !== projectId) {
+        if (!sessionResult || sessionResult.session.projectId !== projectId) {
             throw ApiError.notFound('Session not found');
         }
 
-        // Use the unified evaluation function
-        // This waits for ingest jobs, fetches complete metrics, and evaluates
-        const result = await evaluateAndPromoteSession(
-            sessionId,
-            projectId,
-            session.durationSeconds ?? 0
-        );
+        const hasSuccessfulRecording =
+            Number(
+                sessionResult.metrics?.screenshotSegmentCount
+                ?? sessionResult.session.replaySegmentCount
+                ?? 0
+            ) > 0;
 
         res.json({
-            promoted: result.promoted,
-            reason: result.reason,
-            score: result.score,
+            promoted: hasSuccessfulRecording,
+            reason: hasSuccessfulRecording ? 'successful_recording' : 'no_recording_data',
+            score: hasSuccessfulRecording ? 1 : 0,
         });
     })
 );

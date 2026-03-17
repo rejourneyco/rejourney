@@ -279,10 +279,14 @@ function getSessionLocationLabel(session: RecordingSession): string {
     return 'Unknown location';
 }
 
+function hasSuccessfulRecording(session: RecordingSession): boolean {
+    return Boolean(session.hasSuccessfulRecording ?? session.replayPromoted);
+}
+
 function buildRecommendedSessions(sessions: RecordingSession[]): RecommendedSession[] {
     if (sessions.length === 0) return [];
 
-    const replayReady = sessions.filter((s) => s.replayPromoted !== false && !s.isReplayExpired);
+    const replayReady = sessions.filter((s) => hasSuccessfulRecording(s) && !s.isReplayExpired);
     const pool = replayReady.length > 0 ? replayReady : sessions;
 
     const picks: RecommendedSession[] = [];
@@ -1887,7 +1891,7 @@ export const GeneralOverview: React.FC = () => {
                                                                     deviceModel: rec.session.deviceModel,
                                                                     createdAt: rec.session.startedAt,
                                                                     coverPhotoUrl:
-                                                                        rec.session.replayPromoted !== false
+                                                                        hasSuccessfulRecording(rec.session)
                                                                             ? `/api/sessions/cover/${rec.session.id}`
                                                                             : null,
                                                                 }}

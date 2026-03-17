@@ -10,7 +10,6 @@
 
 import { eq, and, or, isNull, lte, asc, sql } from 'drizzle-orm';
 import { db, pool, ingestJobs, sessions, sessionMetrics, projects, recordingArtifacts, crashes, anrs, errors, appDailyStats, apiEndpointDailyStats, screenTouchHeatmaps } from '../db/client.js';
-import { evaluateAndPromoteSession } from '../services/replayPromotion.js';
 import { analyzeProjectFunnel } from '../services/funnelAnalysis.js';
 import { updateDeviceUsage } from '../services/recording.js';
 import { createHash } from 'crypto';
@@ -39,17 +38,6 @@ let isRunning = true;
 
 // Avoid duplicate prewarm calls when multiple artifacts land close together.
 const prewarmInFlight = new Set<string>();
-const PREWARM_FRAMES_ON_INGEST = (process.env.RJ_PREWARM_FRAMES_ON_INGEST ?? 'false').toLowerCase() === 'true';
-const PREWARM_FRAMES_SAMPLE_RATE = Number(process.env.RJ_PREWARM_FRAMES_SAMPLE_RATE ?? 0);
-
-function shouldPrewarmFrames(): boolean {
-    if (!PREWARM_FRAMES_ON_INGEST) return false;
-    // Default is 0 (disabled even if env accidentally set without sample rate).
-    const rate = Number.isFinite(PREWARM_FRAMES_SAMPLE_RATE) ? PREWARM_FRAMES_SAMPLE_RATE : 0;
-    if (rate <= 0) return false;
-    if (rate >= 1) return true;
-    return Math.random() < rate;
-}
 
 type StaleSessionRow = {
     sessionId: string;
@@ -193,14 +181,6 @@ async function finalizeStaleSessions(): Promise<void> {
 
         logger.info({ sessionId: row.sessionId, durationSeconds, endedAt }, 'Auto-finalized session');
 
-        // Evaluate promotion with the same scoring path used by /session/end
-        // so replay decisions stay consistent across close paths.
-        try {
-            const result = await evaluateAndPromoteSession(row.sessionId, row.projectId, durationSeconds);
-            logger.info({ sessionId: row.sessionId, promoted: result.promoted, reason: result.reason }, 'Auto-finalize promotion evaluated');
-        } catch (err) {
-            logger.error({ sessionId: row.sessionId, err }, 'Failed to evaluate promotion after auto-finalize');
-        }
     }
 }
 
@@ -345,16 +325,7 @@ async function processArtifactJob(job: any): Promise<boolean> {
             );
 
         if (Number(pendingResult?.count ?? 0) === 0) {
-            // Trigger promotion evaluation immediately
-            // This replaces the 5s polling loop in evaluation service
-            logger.info({ sessionId: session.id }, 'No more pending ingest jobs, triggering promotion evaluation');
-            evaluateAndPromoteSession(session.id, projectId, session.durationSeconds || 0).catch(err => {
-                logger.error({ err, sessionId: session.id }, 'Promotion evaluation failed after final job');
-            });
-
-            // Pre-extracting frames at ingest time can be very expensive at scale.
-            // Keep it opt-in + sampled. By default this does nothing.
-            if (shouldPrewarmFrames() && !prewarmInFlight.has(session.id)) {
+            if (!prewarmInFlight.has(session.id)) {
                 prewarmInFlight.add(session.id);
                 prewarmSessionScreenshotFrames(session.id)
                     .then((ok) => {

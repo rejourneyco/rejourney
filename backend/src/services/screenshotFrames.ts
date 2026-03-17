@@ -27,7 +27,7 @@
 import { eq, and } from 'drizzle-orm';
 import { gunzipSync } from 'zlib';
 import { db, recordingArtifacts, sessions } from '../db/client.js';
-import { downloadFromS3ForArtifact, getSignedDownloadUrlForProject, uploadToS3 } from '../db/s3.js';
+import { downloadFromS3ForArtifact, getSignedDownloadUrlForProject } from '../db/s3.js';
 import { getRedis } from '../db/redis.js';
 import { logger } from '../logger.js';
 
@@ -85,6 +85,11 @@ export interface SessionScreenshotFrames {
     }>;
     /** Whether frames were served from cache */
     cached: boolean;
+    /** Whether the frame index is still building or fully ready */
+    status: 'ready' | 'building';
+    /** Progress across screenshot archives */
+    processedSegments: number;
+    totalSegments: number;
 }
 
 export type ScreenshotFrameUrlMode = 'signed' | 'proxy' | 'none';
@@ -98,6 +103,8 @@ interface ScreenshotFrameResponse {
 interface SessionScreenshotFrameOptions {
     /** Skip cache lookup */
     skipCache?: boolean;
+    /** Build the frame index if it is missing from cache */
+    buildOnCacheMiss?: boolean;
     /** Max frames to return (for pagination) */
     limit?: number;
     /** Offset for pagination */
@@ -400,12 +407,15 @@ export async function extractFramesFromArchive(
 const FRAME_CACHE_PREFIX = 'screenshot_frames:';
 const FRAME_CACHE_TTL = Number(process.env.RJ_SCREENSHOT_FRAME_CACHE_TTL_SECONDS ?? 86_400); // 24h default
 const URL_SIGN_CONCURRENCY = Number(process.env.RJ_SCREENSHOT_URL_SIGN_CONCURRENCY ?? 16);
-const FRAME_UPLOAD_CONCURRENCY = Number(process.env.RJ_SCREENSHOT_FRAME_UPLOAD_CONCURRENCY ?? 8);
+const frameBuildInFlight = new Set<string>();
 
 interface CachedFrameIndex {
     sessionId: string;
     totalFrames: number;
     sessionStartTime: number;
+    status: 'ready' | 'building';
+    processedSegments: number;
+    totalSegments: number;
     frames: Array<{
         timestamp: number;
         s3Key: string;
@@ -545,6 +555,7 @@ export async function getSessionScreenshotFrames(
 ): Promise<SessionScreenshotFrames | null> {
     const {
         skipCache = false,
+        buildOnCacheMiss = true,
         limit,
         offset = 0,
         urlMode = 'signed',
@@ -596,12 +607,19 @@ export async function getSessionScreenshotFrames(
             );
 
             return {
-                totalFrames: framesToReturn.length,
+                totalFrames: cached.totalFrames,
                 sessionStartTime: cached.sessionStartTime,
                 frames: framesWithUrls,
                 cached: true,
+                status: cached.status,
+                processedSegments: cached.processedSegments,
+                totalSegments: cached.totalSegments,
             };
         }
+    }
+
+    if (!buildOnCacheMiss) {
+        return null;
     }
     
     // Get screenshot archive artifacts
@@ -611,6 +629,17 @@ export async function getSessionScreenshotFrames(
         logger.info({ sessionId }, '[screenshotFrames] No screenshot segments found');
         return null;
     }
+
+    await cacheFrameIndex(sessionId, {
+        sessionId,
+        totalFrames: 0,
+        sessionStartTime,
+        status: 'building',
+        processedSegments: 0,
+        totalSegments: segments.length,
+        frames: [],
+        extractedAt: Date.now(),
+    });
     
     // Extract frames from all archives
     const allFrames: Array<{
@@ -622,49 +651,52 @@ export async function getSessionScreenshotFrames(
     
     let globalIndex = 0;
     
-    for (const segment of segments) {
+    for (let segmentIndex = 0; segmentIndex < segments.length; segmentIndex++) {
+        const segment = segments[segmentIndex];
         // Download archive
         const archiveData = await downloadFromS3ForArtifact(session.projectId, segment.archiveS3Key, segment.endpointId);
         if (!archiveData) {
             logger.warn({ sessionId, s3Key: segment.archiveS3Key }, '[screenshotFrames] Failed to download archive');
+            await cacheFrameIndex(sessionId, {
+                sessionId,
+                totalFrames: allFrames.length,
+                sessionStartTime,
+                status: 'building',
+                processedSegments: segmentIndex + 1,
+                totalSegments: segments.length,
+                frames: allFrames,
+                extractedAt: Date.now(),
+            });
             continue;
         }
         
         // Extract frames (pass sessionStartTime for Android binary format)
         const frames = await extractFramesFromArchive(archiveData, sessionStartTime);
         
-        // Upload individual frames to S3 for direct access (bounded concurrency).
-        const uploadedFrames = await mapWithConcurrency(
-            frames,
-            FRAME_UPLOAD_CONCURRENCY,
-            async (frame) => {
-                const frameS3Key = `sessions/${sessionId}/frames/${frame.timestamp}.jpg`;
-                const uploadResult = await uploadToS3(
-                    session.projectId,
-                    frameS3Key,
-                    frame.data,
-                    'image/jpeg'
-                );
-
-                if (!uploadResult.success) {
-                    return null;
-                }
-
-                return {
-                    timestamp: frame.timestamp,
-                    s3Key: frameS3Key,
-                    index: 0,
-                    sizeBytes: frame.data.length,
-                };
-            }
-        );
+        // Map extracted frames to the expected cache structure without uploading to S3
+        const uploadedFrames = frames.map(frame => ({
+            timestamp: frame.timestamp,
+            s3Key: `sessions/${sessionId}/frames/${frame.timestamp}.jpg`, // Keep virtual path for proxy identification if needed
+            index: 0,
+            sizeBytes: frame.data.length,
+        }));
 
         for (const uploaded of uploadedFrames) {
-            if (!uploaded) continue;
             uploaded.index = globalIndex;
             allFrames.push(uploaded);
             globalIndex++;
         }
+
+        await cacheFrameIndex(sessionId, {
+            sessionId,
+            totalFrames: allFrames.length,
+            sessionStartTime,
+            status: 'building',
+            processedSegments: segmentIndex + 1,
+            totalSegments: segments.length,
+            frames: allFrames,
+            extractedAt: Date.now(),
+        });
     }
     
     if (allFrames.length === 0) {
@@ -708,6 +740,9 @@ export async function getSessionScreenshotFrames(
         sessionId,
         totalFrames: allFrames.length,
         sessionStartTime,
+        status: 'ready',
+        processedSegments: segments.length,
+        totalSegments: segments.length,
         frames: allFrames,
         extractedAt: Date.now(),
     };
@@ -741,6 +776,9 @@ export async function getSessionScreenshotFrames(
         sessionStartTime,
         frames: framesWithUrls,
         cached: false,
+        status: 'ready',
+        processedSegments: segments.length,
+        totalSegments: segments.length,
     };
 }
 
@@ -806,6 +844,10 @@ export async function getScreenshotFrameCount(sessionId: string): Promise<number
  */
 export async function prewarmSessionScreenshotFrames(sessionId: string): Promise<boolean> {
     try {
+        if (frameBuildInFlight.has(sessionId)) {
+            return true;
+        }
+        frameBuildInFlight.add(sessionId);
         const result = await getSessionScreenshotFrames(sessionId, {
             skipCache: false,
             urlMode: 'none',
@@ -814,5 +856,18 @@ export async function prewarmSessionScreenshotFrames(sessionId: string): Promise
     } catch (err) {
         logger.warn({ err, sessionId }, '[screenshotFrames] Failed to prewarm screenshot frames');
         return false;
+    } finally {
+        frameBuildInFlight.delete(sessionId);
     }
+}
+
+export function isSessionScreenshotFramePrewarmInFlight(sessionId: string): boolean {
+    return frameBuildInFlight.has(sessionId);
+}
+
+export function triggerSessionScreenshotFramePrewarm(sessionId: string) {
+    if (frameBuildInFlight.has(sessionId)) return;
+    prewarmSessionScreenshotFrames(sessionId).catch((err) => {
+        logger.warn({ err, sessionId }, '[screenshotFrames] Background prewarm failed');
+    });
 }

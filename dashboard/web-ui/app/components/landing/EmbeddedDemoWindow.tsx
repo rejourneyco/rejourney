@@ -70,8 +70,7 @@ export const EmbeddedDemoWindow: React.FC = () => {
                         <div className="relative bg-gray-100">
                             <iframe
                                 src="/demo"
-                                className="w-full border-0"
-                                style={{ height: '75vh', minHeight: '500px', maxHeight: '800px' }}
+                                className="w-full border-0 h-[500px] sm:h-[600px] md:h-[75vh] md:min-h-[600px] md:max-h-[800px]"
                                 title="Rejourney Dashboard Demo"
                                 loading="lazy"
                             />

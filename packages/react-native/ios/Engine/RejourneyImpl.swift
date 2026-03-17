@@ -27,6 +27,7 @@ public final class RejourneyImpl: NSObject {
 
     private enum SessionState {
         case idle
+        case starting(sessionId: String, startTime: TimeInterval)
         case active(sessionId: String, startTime: TimeInterval)
         case paused(sessionId: String, startTime: TimeInterval)
         case terminated
@@ -353,12 +354,14 @@ public final class RejourneyImpl: NSObject {
             }
 
             self.stateLock.lock()
-            if case .active(let sid, _) = self.state {
+            switch self.state {
+            case .active(let sid, _), .starting(let sid, _):
                 self.stateLock.unlock()
                 resolve(["success": true, "sessionId": sid])
                 return
+            default:
+                self.stateLock.unlock()
             }
-            self.stateLock.unlock()
 
             if !userId.isEmpty && userId != "anonymous" && !userId.hasPrefix("anon_") {
                 self.currentUserIdentity = userId
@@ -376,11 +379,17 @@ public final class RejourneyImpl: NSObject {
             // Activate native network interception
             RejourneyURLProtocol.enable()
 
+            let pendingSessionId = "session_\(Int(Date().timeIntervalSince1970 * 1000))_\(UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased())"
+            let pendingStart = Date().timeIntervalSince1970
+            self.stateLock.lock()
+            self.state = .starting(sessionId: pendingSessionId, startTime: pendingStart)
+            self.stateLock.unlock()
+
             ReplayOrchestrator.shared.beginReplay(apiToken: publicKey, serverEndpoint: apiUrl, captureSettings: config)
 
             // Allow orchestrator time to spin up
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                let sid = ReplayOrchestrator.shared.replayId ?? UUID().uuidString
+                let sid = ReplayOrchestrator.shared.replayId ?? pendingSessionId
                 let start = Date().timeIntervalSince1970
 
                 self.stateLock.lock()

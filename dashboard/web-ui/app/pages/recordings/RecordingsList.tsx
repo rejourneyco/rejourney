@@ -16,7 +16,6 @@ import {
   ChevronsLeft,
   ChevronsRight,
   Clock,
-  Compass,
   Copy,
   Check,
   Play,
@@ -43,6 +42,11 @@ import { useSessionData } from '../../context/SessionContext';
 import { useSafeTeam } from '../../context/TeamContext';
 import { formatGeoDisplay } from '../../utils/geoDisplay';
 import { DashboardGhostLoader } from '~/components/ui/DashboardGhostLoader';
+import {
+  matchesSessionArchiveIssueFilter,
+  SESSION_ARCHIVE_ISSUE_FILTER_OPTIONS,
+  type SessionArchiveIssueFilter,
+} from './sessionArchiveFilters';
 
 const PAGE_SIZE_OPTIONS = [25, 50, 100, 200, 300] as const;
 
@@ -76,6 +80,20 @@ const NetworkIcon: React.FC<{ type: string | undefined }> = ({ type }) => {
   return <Globe className="w-3 h-3" />;
 };
 
+const ISSUE_FILTER_ICONS: Record<SessionArchiveIssueFilter, React.ComponentType<{ className?: string }>> = {
+  all: Layers,
+  crashes: AlertOctagon,
+  errors: AlertTriangle,
+  anrs: Clock,
+  rage: Zap,
+  dead_taps: MousePointerClick,
+  slow_start: Timer,
+  slow_api: Gauge,
+};
+
+const hasSuccessfulRecording = (session: any): boolean =>
+  Boolean(session?.hasSuccessfulRecording ?? session?.replayPromoted ?? ((session?.stats?.screenshotSegmentCount ?? 0) > 0));
+
 export const RecordingsList: React.FC = () => {
   const navigate = useNavigate();
   const pathPrefix = usePathPrefix();
@@ -104,7 +122,7 @@ export const RecordingsList: React.FC = () => {
   const [dateFilter, setDateFilter] = useState('');
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
 
-  const [filter, setFilter] = useState<'all' | 'crashes' | 'anrs' | 'errors' | 'rage' | 'dead_taps' | 'failed_funnel' | 'slow_start' | 'slow_api'>('all');
+  const [filter, setFilter] = useState<SessionArchiveIssueFilter>('all');
   const [timeRange, setTimeRange] = useState<TimeRange>(DEFAULT_TIME_RANGE);
   const [sortConfigs, setSortConfigs] = useState<SortConfig[]>([{ key: 'date', direction: 'desc' }]);
   const [currentPage, setCurrentPage] = useState(1);
@@ -120,11 +138,12 @@ export const RecordingsList: React.FC = () => {
   const fetchSessions = useCallback(async (cursor?: string | null, requestId: number = activeRequestIdRef.current) => {
     // Demo mode: use static demo sessions
     if (isDemoMode) {
+      const demoFilteredSessions = demoSessions.filter((session) => hasSuccessfulRecording(session) && matchesSessionArchiveIssueFilter(session, filter));
       if (requestId !== activeRequestIdRef.current) return;
-      setSessions(demoSessions);
+      setSessions(demoFilteredSessions);
       setNextCursor(null);
       setHasMore(false);
-      setTotalCount(demoSessions.length);
+      setTotalCount(demoFilteredSessions.length);
       setIsLoading(false);
       return;
     }
@@ -163,7 +182,8 @@ export const RecordingsList: React.FC = () => {
         timeRange: timeRange === 'all' ? undefined : timeRange,
         date: dateFilter ? dateFilter : undefined,
         projectId: selectedProjectId,
-        promoted: true,
+        hasRecording: true,
+        issueFilter: filter,
         metaKey: metaKeyFilter ? metaKeyFilter : undefined,
         metaValue: metaValueFilter ? metaValueFilter : undefined,
         eventName: eventNameFilter ? eventNameFilter : undefined,
@@ -195,10 +215,10 @@ export const RecordingsList: React.FC = () => {
         setIsLoadingMore(false);
       }
     }
-  }, [timeRange, isDemoMode, demoSessions, selectedProjectId, isContextLoading, isProjectFromCurrentTeam, metaKeyFilter, metaValueFilter, eventNameFilter, rowsPerPage, dateFilter, eventCountOp, eventCountValue, eventPropKey, eventPropValue]);
+  }, [timeRange, isDemoMode, demoSessions, selectedProjectId, isContextLoading, isProjectFromCurrentTeam, filter, metaKeyFilter, metaValueFilter, eventNameFilter, rowsPerPage, dateFilter, eventCountOp, eventCountValue, eventPropKey, eventPropValue]);
 
   // Initial fetch and refetch when time range or project changes
-  const fetchScopeKey = `${isDemoMode ? 'demo' : 'live'}:${timeRange}:${dateFilter}:${currentTeam?.id || 'no-team'}:${selectedProjectId || 'no-project'}:${isContextLoading ? 'loading' : 'ready'}:${projects.length}:${isProjectFromCurrentTeam ? 'valid' : 'invalid'}:${metaKeyFilter}:${metaValueFilter}:${eventNameFilter}:${rowsPerPage}:${eventCountOp}:${eventCountValue}:${eventPropKey}:${eventPropValue}`;
+  const fetchScopeKey = `${isDemoMode ? 'demo' : 'live'}:${timeRange}:${dateFilter}:${currentTeam?.id || 'no-team'}:${selectedProjectId || 'no-project'}:${isContextLoading ? 'loading' : 'ready'}:${projects.length}:${isProjectFromCurrentTeam ? 'valid' : 'invalid'}:${filter}:${metaKeyFilter}:${metaValueFilter}:${eventNameFilter}:${rowsPerPage}:${eventCountOp}:${eventCountValue}:${eventPropKey}:${eventPropValue}`;
 
   useEffect(() => {
     const requestId = ++activeRequestIdRef.current;
@@ -251,13 +271,12 @@ export const RecordingsList: React.FC = () => {
     }
   }, [nextCursor, isLoadingMore, fetchSessions]);
 
-  // Client-side filtering for search and issue types
-  // Only show sessions that were promoted for replay (have video recordings)
+  // Client-side filtering for search and sorting across the currently loaded chunk.
+  // Issue pills are applied server-side so they operate on the full archive.
+  // Only show sessions with successful screenshot recordings.
   const filteredSessions = useMemo(() => {
     let result = sessions.filter(session => {
-      // Only show promoted sessions (ones that have video recordings)
-      // Non-promoted sessions never had video uploaded and shouldn't appear in archive
-      if (!session.replayPromoted) return false;
+      if (!hasSuccessfulRecording(session)) return false;
 
       const matchesSearch =
         session.id.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -266,18 +285,6 @@ export const RecordingsList: React.FC = () => {
         (session.deviceModel && session.deviceModel.toLowerCase().includes(searchQuery.toLowerCase()));
 
       if (!matchesSearch) return false;
-      if (filter === 'crashes') return (session.crashCount || 0) > 0;
-      if (filter === 'anrs') return ((session as any).anrCount || 0) > 0;
-      if (filter === 'errors') return ((session as any).errorCount || 0) > 0;
-      if (filter === 'rage') return (session.rageTapCount || 0) > 3;
-      if (filter === 'dead_taps') return ((session as any).deadTapCount || 0) > 0;
-      if (filter === 'slow_start') return ((session as any).appStartupTimeMs || 0) > 3000;
-      if (filter === 'slow_api') return (session.apiAvgResponseMs || 0) > 1000;
-      if (filter === 'failed_funnel') {
-        // Check if the session was promoted specifically because of a failed funnel
-        // OR check manually if we want to detect it on the fly (but reason is better)
-        return session.replayPromotedReason === 'failed_funnel';
-      }
       return true;
     });
 
@@ -327,7 +334,7 @@ export const RecordingsList: React.FC = () => {
     });
 
     return result;
-  }, [sessions, searchQuery, filter, sortConfigs]);
+  }, [sessions, searchQuery, sortConfigs]);
 
   const handleCopyUserId = (e: React.MouseEvent, userId: string) => {
     e.stopPropagation();
@@ -427,6 +434,15 @@ export const RecordingsList: React.FC = () => {
               if (timeRange && timeRange !== 'all') params.append('timeRange', timeRange);
               if (selectedProjectId) params.append('projectId', selectedProjectId);
               if (dateFilter) params.append('date', dateFilter);
+              params.append('hasRecording', 'true');
+              if (filter !== 'all') params.append('issueFilter', filter);
+              if (metaKeyFilter) params.append('metaKey', metaKeyFilter);
+              if (metaValueFilter) params.append('metaValue', metaValueFilter);
+              if (eventNameFilter) params.append('eventName', eventNameFilter);
+              if (eventCountOp) params.append('eventCountOp', eventCountOp);
+              if (eventCountValue) params.append('eventCountValue', eventCountValue);
+              if (eventPropKey) params.append('eventPropKey', eventPropKey);
+              if (eventPropValue) params.append('eventPropValue', eventPropValue);
               window.location.href = `/api/sessions/export?${params.toString()}`;
             }}
             className="bg-slate-900 text-white p-2 border border-slate-200 shadow-sm hover:bg-slate-800 transition-all rounded-md"
@@ -532,29 +548,22 @@ export const RecordingsList: React.FC = () => {
         {/* Issue Filter Pills */}
         <div className="bg-slate-50 border-b border-slate-100/80 px-6 py-2.5 overflow-x-auto scrollbar-hide">
           <div className="flex items-center gap-2 max-w-[1800px] mx-auto">
-            {[
-              { id: 'all', label: 'All', icon: Layers },
-              { id: 'crashes', label: 'Crashes', icon: AlertOctagon },
-              { id: 'errors', label: 'Errors', icon: AlertTriangle },
-              { id: 'anrs', label: 'ANRs', icon: Clock },
-              { id: 'rage', label: 'Rage', icon: Zap },
-              { id: 'dead_taps', label: 'Dead Taps', icon: MousePointerClick },
-              { id: 'slow_start', label: 'Slow Start', icon: Timer },
-              { id: 'slow_api', label: 'Slow API', icon: Gauge },
-              { id: 'failed_funnel', label: 'Failed Funnel', icon: Compass },
-            ].map((f) => (
-              <button
-                key={f.id}
-                onClick={() => setFilter(f.id as any)}
-                className={`flex items-center gap-1.5 px-3 py-1.5 font-bold text-[10px] uppercase rounded-md border transition-all whitespace-nowrap shadow-sm hover:-translate-y-0.5
+            {SESSION_ARCHIVE_ISSUE_FILTER_OPTIONS.map((f) => {
+              const Icon = ISSUE_FILTER_ICONS[f.id];
+              return (
+                <button
+                  key={f.id}
+                  onClick={() => setFilter(f.id)}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 font-bold text-[10px] uppercase rounded-md border transition-all whitespace-nowrap shadow-sm hover:-translate-y-0.5
                     ${filter === f.id
                     ? 'bg-slate-900 text-white border-slate-800'
                     : 'bg-white border-slate-200 text-slate-900 hover:bg-indigo-50'}`}
-              >
-                <f.icon className="w-3 h-3" />
-                {f.label}
-              </button>
-            ))}
+                >
+                  <Icon className="w-3 h-3" />
+                  {f.label}
+                </button>
+              );
+            })}
           </div>
         </div>
 
@@ -723,7 +732,6 @@ export const RecordingsList: React.FC = () => {
               const hasSlowStart = ((session as any).appStartupTimeMs || 0) > 3000;
               const hasSlowApi = (session.apiAvgResponseMs || 0) > 1000;
               const durationMinutes = session.durationSeconds / 60;
-              const hasLowExp = session.replayPromotedReason === 'failed_funnel';
               const hasDeadTaps = ((session as any).deadTapCount || 0) > 0;
               const geoDisplay = formatGeoDisplay((session as any).geoLocation);
 
@@ -734,7 +742,7 @@ export const RecordingsList: React.FC = () => {
                 ((session as any).errorCount || 0) > 0 ||
                 (session.rageTapCount || 0) > 0 ||
                 hasDeadTaps ||
-                hasSlowStart || hasSlowApi || hasLowExp;
+                hasSlowStart || hasSlowApi;
 
               return (
                 <div
@@ -840,7 +848,6 @@ export const RecordingsList: React.FC = () => {
                       {hasDeadTaps && <NeoBadge variant="dead_tap" size="sm">DEAD TAP</NeoBadge>}
                       {hasSlowStart && <NeoBadge variant="slow_start" size="sm">SLOW</NeoBadge>}
                       {hasSlowApi && <NeoBadge variant="slow_api" size="sm">API</NeoBadge>}
-                      {hasLowExp && <NeoBadge variant="low_exp" size="sm">FAILED FUNNEL</NeoBadge>}
                     </div>
 
                     {/* Play Action */}

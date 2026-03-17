@@ -296,7 +296,6 @@ router.post(
                     rejourneyEnabled: data.rejourneyEnabled ?? true,
                     recordingEnabled: data.recordingEnabled ?? true,
                     sampleRate: data.sampleRate ?? 100,
-                    healthyReplaysPromoted: data.healthyReplaysPromoted ?? 0.05,
                     maxRecordingMinutes: data.maxRecordingMinutes ?? 10,
                 }).returning();
                 break; // Success
@@ -457,7 +456,6 @@ router.put(
         if (data.rejourneyEnabled !== undefined) updateData.rejourneyEnabled = data.rejourneyEnabled;
         if (data.recordingEnabled !== undefined) updateData.recordingEnabled = data.recordingEnabled;
         if (data.sampleRate !== undefined) updateData.sampleRate = data.sampleRate;
-        if (data.healthyReplaysPromoted !== undefined) updateData.healthyReplaysPromoted = data.healthyReplaysPromoted;
         if (data.maxRecordingMinutes !== undefined) updateData.maxRecordingMinutes = data.maxRecordingMinutes;
 
         const [project] = await db.update(projects)
@@ -469,8 +467,7 @@ router.put(
             data.sampleRate !== undefined ||
             data.maxRecordingMinutes !== undefined ||
             data.recordingEnabled !== undefined ||
-            data.rejourneyEnabled !== undefined ||
-            data.healthyReplaysPromoted !== undefined;
+            data.rejourneyEnabled !== undefined;
 
         if (shouldInvalidateConfig) {
             try {

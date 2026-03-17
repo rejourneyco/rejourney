@@ -16,7 +16,12 @@ import {
     downloadFromS3ForProject,
     getObjectSizeBytesForArtifact,
 } from '../db/s3.js';
-import { getSessionScreenshotFrames, type ScreenshotFrameUrlMode } from '../services/screenshotFrames.js';
+import {
+    getScreenshotFrameCount,
+    getSessionScreenshotFrames,
+    triggerSessionScreenshotFramePrewarm,
+    type ScreenshotFrameUrlMode,
+} from '../services/screenshotFrames.js';
 import { sessionAuth, asyncHandler, ApiError } from '../middleware/index.js';
 import { validate } from '../middleware/validation.js';
 import { dashboardRateLimiter, networkRateLimiter } from '../middleware/rateLimit.js';
@@ -24,6 +29,11 @@ import { sessionIdParamSchema, networkGroupBySchema } from '../validation/sessio
 import { generateAnonymousName } from '../utils/anonymousName.js';
 import { logger } from '../logger.js';
 import { getRedis } from '../db/redis.js';
+import {
+    getSessionArchiveIssueFilterCondition,
+    normalizeSessionArchiveIssueFilter,
+    sessionArchiveIssueFilterUsesMetrics,
+} from '../services/sessionArchiveFilters.js';
 
 const router = Router();
 
@@ -44,6 +54,156 @@ function getTimeRangeFilter(timeRange?: string): Date | undefined {
 
     const ms = ranges[timeRange];
     return ms ? new Date(now - ms) : undefined;
+}
+
+function buildSessionArchiveBaseConditions(
+    filters: {
+        timeRange?: string;
+        projectId?: string;
+        platform?: string;
+        status?: string;
+        hasRecording?: string;
+        promoted?: string;
+        metaKey?: string;
+        metaValue?: string;
+        eventName?: string;
+        date?: string;
+        eventCountOp?: string;
+        eventCountValue?: string;
+        eventPropKey?: string;
+        eventPropValue?: string;
+        issueFilter?: string;
+    },
+    accessibleProjectIds: string[]
+) {
+    const {
+        timeRange,
+        projectId,
+        platform,
+        status,
+        hasRecording,
+        promoted,
+        metaKey,
+        metaValue,
+        eventName,
+        date,
+        eventCountOp,
+        eventCountValue,
+        eventPropKey,
+        eventPropValue,
+        issueFilter,
+    } = filters;
+
+    const startedAfter = getTimeRangeFilter(timeRange);
+    const baseConditions = [
+        projectId ? eq(sessions.projectId, projectId) : inArray(sessions.projectId, accessibleProjectIds),
+    ];
+
+    if (date) {
+        const startOfDay = new Date(`${date}T00:00:00.000Z`);
+        const endOfDay = new Date(`${date}T23:59:59.999Z`);
+        baseConditions.push(gte(sessions.startedAt, startOfDay));
+        baseConditions.push(lt(sessions.startedAt, endOfDay));
+    } else if (startedAfter) {
+        baseConditions.push(gte(sessions.startedAt, startedAfter));
+    }
+
+    if (platform) baseConditions.push(eq(sessions.platform, platform));
+    if (status) baseConditions.push(eq(sessions.status, status));
+
+    const recordingFilter = hasRecording ?? promoted;
+    if (recordingFilter === 'true') {
+        baseConditions.push(
+            sql`coalesce(${sessionMetrics.screenshotSegmentCount}, 0) > 0`
+        );
+    }
+
+    if (metaKey) {
+        if (metaValue !== undefined && metaValue !== '') {
+            let parsedValue: any = metaValue;
+            if (metaValue === 'true') parsedValue = true;
+            else if (metaValue === 'false') parsedValue = false;
+            else if (!isNaN(Number(metaValue))) parsedValue = Number(metaValue);
+
+            baseConditions.push(sql`${sessions.metadata} @> ${JSON.stringify({ [metaKey]: parsedValue })}::jsonb`);
+        } else {
+            baseConditions.push(sql`${sessions.metadata} ? ${metaKey}`);
+        }
+    }
+
+    if (eventName) {
+        if (eventPropKey && eventPropValue !== undefined && eventPropValue !== '') {
+            let parsedPropValue: any = eventPropValue;
+            if (eventPropValue === 'true') parsedPropValue = true;
+            else if (eventPropValue === 'false') parsedPropValue = false;
+            else if (!isNaN(Number(eventPropValue))) parsedPropValue = Number(eventPropValue);
+            baseConditions.push(sql`${sessions.events} @> ${JSON.stringify([{ name: eventName, properties: { [eventPropKey]: parsedPropValue } }])}::jsonb`);
+        } else if (eventPropKey) {
+            baseConditions.push(sql`EXISTS (
+                SELECT 1 FROM jsonb_array_elements(${sessions.events}) AS elem
+                WHERE elem->>'name' = ${eventName}
+                AND elem->'properties' ? ${eventPropKey}
+            )`);
+        } else {
+            baseConditions.push(sql`${sessions.events} @> ${JSON.stringify([{ name: eventName }])}::jsonb`);
+        }
+    } else if (eventPropKey) {
+        if (eventPropValue !== undefined && eventPropValue !== '') {
+            let parsedPropValue: any = eventPropValue;
+            if (eventPropValue === 'true') parsedPropValue = true;
+            else if (eventPropValue === 'false') parsedPropValue = false;
+            else if (!isNaN(Number(eventPropValue))) parsedPropValue = Number(eventPropValue);
+            baseConditions.push(sql`EXISTS (
+                SELECT 1 FROM jsonb_array_elements(${sessions.events}) AS elem
+                WHERE elem->'properties' @> ${JSON.stringify({ [eventPropKey]: parsedPropValue })}::jsonb
+            )`);
+        } else {
+            baseConditions.push(sql`EXISTS (
+                SELECT 1 FROM jsonb_array_elements(${sessions.events}) AS elem
+                WHERE elem->'properties' ? ${eventPropKey}
+            )`);
+        }
+    }
+
+    const hasEventCountFilter = eventCountOp && eventCountValue !== undefined && eventCountValue !== '';
+    const parsedEventCountValue = hasEventCountFilter ? parseInt(eventCountValue) : NaN;
+    const eventCountCondition = (() => {
+        if (!hasEventCountFilter || isNaN(parsedEventCountValue)) return null;
+        switch (eventCountOp) {
+            case 'eq': return sql`${sessionMetrics.customEventCount} = ${parsedEventCountValue}`;
+            case 'gt': return sql`${sessionMetrics.customEventCount} > ${parsedEventCountValue}`;
+            case 'lt': return sql`${sessionMetrics.customEventCount} < ${parsedEventCountValue}`;
+            case 'gte': return sql`${sessionMetrics.customEventCount} >= ${parsedEventCountValue}`;
+            case 'lte': return sql`${sessionMetrics.customEventCount} <= ${parsedEventCountValue}`;
+            default: return null;
+        }
+    })();
+    if (eventCountCondition) baseConditions.push(eventCountCondition);
+
+    const normalizedIssueFilter = normalizeSessionArchiveIssueFilter(issueFilter);
+    const issueFilterCondition = getSessionArchiveIssueFilterCondition(normalizedIssueFilter);
+    if (issueFilterCondition) baseConditions.push(issueFilterCondition);
+
+    return {
+        baseConditions,
+        needsMetricsJoin: Boolean(
+            recordingFilter === 'true'
+            || eventCountCondition
+            || sessionArchiveIssueFilterUsesMetrics(normalizedIssueFilter)
+        ),
+    };
+}
+
+function hasSuccessfulRecording(session: any, metrics?: any): boolean {
+    return Number(metrics?.screenshotSegmentCount ?? session?.replaySegmentCount ?? 0) > 0;
+}
+
+function getReplayCompatibilityReason(successfulRecording: boolean): string | null {
+    return successfulRecording ? 'successful_recording' : null;
+}
+
+function getReplayCompatibilityScore(successfulRecording: boolean): number {
+    return successfulRecording ? 1 : 0;
 }
 
 const DETAIL_FETCH_CONCURRENCY = Number(process.env.RJ_REPLAY_DETAIL_FETCH_CONCURRENCY ?? 6);
@@ -193,6 +353,7 @@ function buildSessionBasePayload(
 ) {
     const hasRecording = screenshotFrames.length > 0;
     const playbackMode = hasRecording ? 'screenshots' : 'none';
+    const successfulRecording = hasSuccessfulRecording(session, metrics);
 
     return {
         id: session.id,
@@ -247,9 +408,62 @@ function buildSessionBasePayload(
         recordingDeleted: session.recordingDeleted,
         recordingDeletedAt: session.recordingDeletedAt?.toISOString() ?? null,
         isReplayExpired: session.isReplayExpired,
-        replayPromoted: session.replayPromoted,
-        replayPromotedReason: session.replayPromotedReason ?? null,
-        replayPromotionScore: session.replayPromotionScore ?? 0,
+        hasSuccessfulRecording: successfulRecording,
+        replayPromoted: successfulRecording,
+        replayPromotedReason: getReplayCompatibilityReason(successfulRecording),
+        replayPromotionScore: getReplayCompatibilityScore(successfulRecording),
+    };
+}
+
+async function loadScreenshotReplayBootstrap(
+    session: any,
+    screenshotArtifactCount: number,
+    frameUrlMode: ScreenshotFrameUrlMode
+) {
+    const hasRecording = screenshotArtifactCount > 0 && !session.isReplayExpired && !session.recordingDeleted;
+    if (!hasRecording) {
+        return {
+            hasRecording: false,
+            playbackMode: 'none' as const,
+            screenshotFrames: [] as Array<{ timestamp: number; url: string; index: number }>,
+            screenshotFramesStatus: 'none' as const,
+            screenshotFrameCount: 0,
+            processedSegments: 0,
+            totalSegments: 0,
+        };
+    }
+
+    const screenshotFrameCount = await getScreenshotFrameCount(session.id);
+    const framesResult = await getSessionScreenshotFrames(session.id, {
+        urlMode: frameUrlMode,
+        buildOnCacheMiss: false,
+    });
+
+    if (!framesResult) {
+        triggerSessionScreenshotFramePrewarm(session.id);
+        return {
+            hasRecording: true,
+            playbackMode: 'screenshots' as const,
+            screenshotFrames: [] as Array<{ timestamp: number; url: string; index: number }>,
+            screenshotFramesStatus: 'preparing' as const,
+            screenshotFrameCount,
+            processedSegments: 0,
+            totalSegments: screenshotArtifactCount,
+        };
+    }
+
+    if (framesResult.status === 'building') {
+        triggerSessionScreenshotFramePrewarm(session.id);
+    }
+
+    return {
+        hasRecording: true,
+        playbackMode: 'screenshots' as const,
+        screenshotFrames: framesResult.frames,
+        screenshotFramesStatus: framesResult.status === 'ready' ? 'ready' as const : 'preparing' as const,
+        screenshotFrameCount: Math.max(screenshotFrameCount, framesResult.totalFrames),
+        processedSegments: framesResult.processedSegments,
+        totalSegments: framesResult.totalSegments,
     };
 }
 
@@ -745,7 +959,23 @@ router.get(
     sessionAuth,
     dashboardRateLimiter,
     asyncHandler(async (req, res) => {
-        const { timeRange, projectId, platform, status, date } = req.query as any;
+        const {
+            timeRange,
+            projectId,
+            platform,
+            status,
+            hasRecording,
+            promoted,
+            metaKey,
+            metaValue,
+            eventName,
+            date,
+            eventCountOp,
+            eventCountValue,
+            eventPropKey,
+            eventPropValue,
+            issueFilter,
+        } = req.query as any;
 
         // Get user's accessible project IDs
         const teamMemberships = await db
@@ -772,23 +1002,26 @@ router.get(
             return;
         }
 
-        // Build where conditions
-        const startedAfter = getTimeRangeFilter(timeRange);
-        const conditions = [
-            projectId ? eq(sessions.projectId, projectId) : inArray(sessions.projectId, accessibleProjectIds),
-        ];
-
-        if (date) {
-            const startOfDay = new Date(`${date}T00:00:00.000Z`);
-            const endOfDay = new Date(`${date}T23:59:59.999Z`);
-            conditions.push(gte(sessions.startedAt, startOfDay));
-            conditions.push(lt(sessions.startedAt, endOfDay));
-        } else if (startedAfter) {
-            conditions.push(gte(sessions.startedAt, startedAfter));
-        }
-
-        if (platform) conditions.push(eq(sessions.platform, platform));
-        if (status) conditions.push(eq(sessions.status, status));
+        const { baseConditions } = buildSessionArchiveBaseConditions(
+            {
+                timeRange,
+                projectId,
+                platform,
+                status,
+                hasRecording,
+                promoted,
+                metaKey,
+                metaValue,
+                eventName,
+                date,
+                eventCountOp,
+                eventCountValue,
+                eventPropKey,
+                eventPropValue,
+                issueFilter,
+            },
+            accessibleProjectIds
+        );
 
         // Get sessions with metrics - NO LIMIT for export
         const sessionsList = await db
@@ -798,7 +1031,7 @@ router.get(
             })
             .from(sessions)
             .leftJoin(sessionMetrics, eq(sessions.id, sessionMetrics.sessionId))
-            .where(and(...conditions))
+            .where(and(...baseConditions))
             .orderBy(desc(sessions.startedAt));
 
         // Set Headers for CSV Download
@@ -853,7 +1086,26 @@ router.get(
     sessionAuth,
     dashboardRateLimiter,
     asyncHandler(async (req, res) => {
-        const { timeRange, projectId, platform, status, limit = 50, offset = 0, cursor, sortBy, promoted, metaKey, metaValue, eventName, date, eventCountOp, eventCountValue, eventPropKey, eventPropValue } = req.query as any;
+        const {
+            timeRange,
+            projectId,
+            platform,
+            status,
+            limit = 50,
+            offset = 0,
+            cursor,
+            hasRecording,
+            promoted,
+            metaKey,
+            metaValue,
+            eventName,
+            date,
+            eventCountOp,
+            eventCountValue,
+            eventPropKey,
+            eventPropValue,
+            issueFilter,
+        } = req.query as any;
         const parsedLimit = Math.min(parseInt(limit) || 50, 300); // Max 300 per request
 
         // Get user's accessible project IDs
@@ -881,95 +1133,26 @@ router.get(
             return;
         }
 
-        // Build where conditions (base conditions exclude cursor for COUNT query)
-        const startedAfter = getTimeRangeFilter(timeRange);
-        const baseConditions = [
-            projectId ? eq(sessions.projectId, projectId) : inArray(sessions.projectId, accessibleProjectIds),
-        ];
-
-        if (date) {
-            const startOfDay = new Date(`${date}T00:00:00.000Z`);
-            const endOfDay = new Date(`${date}T23:59:59.999Z`);
-            baseConditions.push(gte(sessions.startedAt, startOfDay));
-            baseConditions.push(lt(sessions.startedAt, endOfDay));
-        } else if (startedAfter) {
-            baseConditions.push(gte(sessions.startedAt, startedAfter));
-        }
-
-        if (platform) baseConditions.push(eq(sessions.platform, platform));
-        if (status) baseConditions.push(eq(sessions.status, status));
-        if (promoted === 'true') baseConditions.push(eq(sessions.replayPromoted, true));
-
-        if (metaKey) {
-            if (metaValue !== undefined && metaValue !== '') {
-                // If value is provided, match both key and value
-                let parsedValue: any = metaValue;
-                if (metaValue === 'true') parsedValue = true;
-                else if (metaValue === 'false') parsedValue = false;
-                else if (!isNaN(Number(metaValue))) parsedValue = Number(metaValue);
-
-                baseConditions.push(sql`${sessions.metadata} @> ${JSON.stringify({ [metaKey]: parsedValue })}::jsonb`);
-            } else {
-                // If only key is provided, match if the JSON object just contains the key
-                baseConditions.push(sql`${sessions.metadata} ? ${metaKey}`);
-            }
-        }
-
-        if (eventName) {
-            if (eventPropKey && eventPropValue !== undefined && eventPropValue !== '') {
-                // Match event name AND specific property key=value
-                // e.g. events @> '[{"name": "button_clicked", "properties": {"buttonName": "signup"}}]'
-                let parsedPropValue: any = eventPropValue;
-                if (eventPropValue === 'true') parsedPropValue = true;
-                else if (eventPropValue === 'false') parsedPropValue = false;
-                else if (!isNaN(Number(eventPropValue))) parsedPropValue = Number(eventPropValue);
-                baseConditions.push(sql`${sessions.events} @> ${JSON.stringify([{ name: eventName, properties: { [eventPropKey]: parsedPropValue } }])}::jsonb`);
-            } else if (eventPropKey) {
-                // Match event name AND check if ANY event with that name has the property key (any value)
-                baseConditions.push(sql`EXISTS (
-                    SELECT 1 FROM jsonb_array_elements(${sessions.events}) AS elem
-                    WHERE elem->>'name' = ${eventName}
-                    AND elem->'properties' ? ${eventPropKey}
-                )`);
-            } else {
-                // Just match by event name
-                baseConditions.push(sql`${sessions.events} @> ${JSON.stringify([{ name: eventName }])}::jsonb`);
-            }
-        } else if (eventPropKey) {
-            // No event name specified, but filter by property key across ALL events
-            if (eventPropValue !== undefined && eventPropValue !== '') {
-                let parsedPropValue: any = eventPropValue;
-                if (eventPropValue === 'true') parsedPropValue = true;
-                else if (eventPropValue === 'false') parsedPropValue = false;
-                else if (!isNaN(Number(eventPropValue))) parsedPropValue = Number(eventPropValue);
-                baseConditions.push(sql`EXISTS (
-                    SELECT 1 FROM jsonb_array_elements(${sessions.events}) AS elem
-                    WHERE elem->'properties' @> ${JSON.stringify({ [eventPropKey]: parsedPropValue })}::jsonb
-                )`);
-            } else {
-                // Just check if any event has this property key
-                baseConditions.push(sql`EXISTS (
-                    SELECT 1 FROM jsonb_array_elements(${sessions.events}) AS elem
-                    WHERE elem->'properties' ? ${eventPropKey}
-                )`);
-            }
-        }
-
-        // Event count comparison filter (uses session_metrics.custom_event_count)
-        const hasEventCountFilter = eventCountOp && eventCountValue !== undefined && eventCountValue !== '';
-        const parsedEventCountValue = hasEventCountFilter ? parseInt(eventCountValue) : NaN;
-        const eventCountCondition = (() => {
-            if (!hasEventCountFilter || isNaN(parsedEventCountValue)) return null;
-            switch (eventCountOp) {
-                case 'eq': return sql`${sessionMetrics.customEventCount} = ${parsedEventCountValue}`;
-                case 'gt': return sql`${sessionMetrics.customEventCount} > ${parsedEventCountValue}`;
-                case 'lt': return sql`${sessionMetrics.customEventCount} < ${parsedEventCountValue}`;
-                case 'gte': return sql`${sessionMetrics.customEventCount} >= ${parsedEventCountValue}`;
-                case 'lte': return sql`${sessionMetrics.customEventCount} <= ${parsedEventCountValue}`;
-                default: return null;
-            }
-        })();
-        if (eventCountCondition) baseConditions.push(eventCountCondition);
+        const { baseConditions, needsMetricsJoin } = buildSessionArchiveBaseConditions(
+            {
+                timeRange,
+                projectId,
+                platform,
+                status,
+                hasRecording,
+                promoted,
+                metaKey,
+                metaValue,
+                eventName,
+                date,
+                eventCountOp,
+                eventCountValue,
+                eventPropKey,
+                eventPropValue,
+                issueFilter,
+            },
+            accessibleProjectIds
+        );
 
         // Pagination conditions (cursor) are only applied to the data query, not the count
         const dataConditions = [...baseConditions];
@@ -991,11 +1174,10 @@ router.get(
                 .from(sessions)
                 .leftJoin(sessionMetrics, eq(sessions.id, sessionMetrics.sessionId))
                 .where(and(...dataConditions))
-                .orderBy(sortBy === 'score' ? desc(sessions.replayPromotionScore) : desc(sessions.startedAt))
+                .orderBy(desc(sessions.startedAt))
                 .limit(parsedLimit + 1)
                 .offset(cursor ? 0 : parseInt(offset) || 0),
-            // When event count filter is active, the count query must also join session_metrics
-            eventCountCondition
+            needsMetricsJoin
                 ? db
                     .select({ count: sql<number>`count(*)::int` })
                     .from(sessions)
@@ -1015,88 +1197,90 @@ router.get(
         const nextCursor = hasMore ? resultSessions[resultSessions.length - 1].session.id : null;
 
         // Transform to API format
-        const sessionsData = resultSessions.map(({ session: s, metrics: m, isFirstSession }) => ({
-            id: s.id,
-            projectId: s.projectId,
-            userId: s.userDisplayId || null,
-            anonymousId: s.anonymousDisplayId || s.anonymousHash,
-            deviceId: s.deviceId,
-            anonymousDisplayName: s.deviceId && !s.userDisplayId ? generateAnonymousName(s.deviceId) : null,
-            platform: s.platform,
-            appVersion: s.appVersion,
-            deviceModel: s.deviceModel,
-            osVersion: s.osVersion,
-            startedAt: s.startedAt.toISOString(),
-            endedAt: s.endedAt?.toISOString(),
-            durationSeconds: s.durationSeconds,
-            backgroundTimeSeconds: s.backgroundTimeSeconds ?? 0,
-            // playableDuration is now same as durationSeconds (background already excluded)
-            playableDuration: s.durationSeconds ?? 0,
-            status: s.status,
-            isFirstSession,
-            // Metrics
-            touchCount: m?.touchCount ?? 0,
-            scrollCount: m?.scrollCount ?? 0,
-            gestureCount: m?.gestureCount ?? 0,
-            inputCount: m?.inputCount ?? 0,
-            errorCount: m?.errorCount ?? 0,
-            rageTapCount: m?.rageTapCount ?? 0,
-            deadTapCount: m?.deadTapCount ?? 0,
-            apiSuccessCount: m?.apiSuccessCount ?? 0,
-            apiErrorCount: m?.apiErrorCount ?? 0,
-            apiTotalCount: m?.apiTotalCount ?? 0,
-            apiAvgResponseMs: m?.apiAvgResponseMs ?? 0,
-            interactionScore: m?.interactionScore ?? 0,
-            explorationScore: m?.explorationScore ?? 0,
-            uxScore: m?.uxScore ?? 0,
-            screensVisited: m?.screensVisited ?? [],
-
-            customEventCount: m?.customEventCount ?? 0,
-            crashCount: m?.crashCount ?? 0,
-            anrCount: m?.anrCount ?? 0,
-            appStartupTimeMs: m?.appStartupTimeMs ?? null,
-            // Network
-            networkType: m?.networkType ?? null,
-            cellularGeneration: m?.cellularGeneration ?? null,
-            // Geo
-            geoLocation: s.geoCity
-                ? {
-                    city: s.geoCity,
-                    region: s.geoRegion,
-                    country: s.geoCountry,
-                    countryCode: s.geoCountryCode,
-                    latitude: s.geoLatitude,
-                    longitude: s.geoLongitude,
-                    timezone: s.geoTimezone,
-                }
-                : null,
-            // Retention
-            retentionTier: s.retentionTier,
-            retentionDays: s.retentionDays,
-            recordingDeleted: s.recordingDeleted,
-            recordingDeletedAt: s.recordingDeletedAt?.toISOString() ?? null,
-            isReplayExpired: s.isReplayExpired,
-            // Replay promotion status
-            replayPromoted: s.replayPromoted,
-            replayPromotedReason: s.replayPromotedReason ?? null,
-            replayPromotionScore: s.replayPromotionScore ?? 0,
-            // Stats
-            stats: {
-                duration: String(s.durationSeconds ?? 0),
-                durationMinutes: String(((s.durationSeconds ?? 0) / 60).toFixed(2)),
-                eventCount: m?.totalEvents ?? 0,
-                screenshotSegmentCount: m?.screenshotSegmentCount ?? 0,
-                totalSizeKB: String(((m?.eventsSizeBytes ?? 0) + (m?.screenshotTotalBytes ?? 0)) / 1024),
-                eventsSizeKB: String((m?.eventsSizeBytes ?? 0) / 1024),
-                screenshotSizeKB: String((m?.screenshotTotalBytes ?? 0) / 1024),
-                networkStats: {
-                    total: m?.apiTotalCount ?? 0,
-                    successful: m?.apiSuccessCount ?? 0,
-                    failed: m?.apiErrorCount ?? 0,
-                    avgDuration: m?.apiAvgResponseMs ?? 0,
+        const sessionsData = resultSessions.map(({ session: s, metrics: m, isFirstSession }) => {
+            const successfulRecording = hasSuccessfulRecording(s, m);
+            return {
+                id: s.id,
+                projectId: s.projectId,
+                userId: s.userDisplayId || null,
+                anonymousId: s.anonymousDisplayId || s.anonymousHash,
+                deviceId: s.deviceId,
+                anonymousDisplayName: s.deviceId && !s.userDisplayId ? generateAnonymousName(s.deviceId) : null,
+                platform: s.platform,
+                appVersion: s.appVersion,
+                deviceModel: s.deviceModel,
+                osVersion: s.osVersion,
+                startedAt: s.startedAt.toISOString(),
+                endedAt: s.endedAt?.toISOString(),
+                durationSeconds: s.durationSeconds,
+                backgroundTimeSeconds: s.backgroundTimeSeconds ?? 0,
+                // playableDuration is now same as durationSeconds (background already excluded)
+                playableDuration: s.durationSeconds ?? 0,
+                status: s.status,
+                isFirstSession,
+                // Metrics
+                touchCount: m?.touchCount ?? 0,
+                scrollCount: m?.scrollCount ?? 0,
+                gestureCount: m?.gestureCount ?? 0,
+                inputCount: m?.inputCount ?? 0,
+                errorCount: m?.errorCount ?? 0,
+                rageTapCount: m?.rageTapCount ?? 0,
+                deadTapCount: m?.deadTapCount ?? 0,
+                apiSuccessCount: m?.apiSuccessCount ?? 0,
+                apiErrorCount: m?.apiErrorCount ?? 0,
+                apiTotalCount: m?.apiTotalCount ?? 0,
+                apiAvgResponseMs: m?.apiAvgResponseMs ?? 0,
+                interactionScore: m?.interactionScore ?? 0,
+                explorationScore: m?.explorationScore ?? 0,
+                uxScore: m?.uxScore ?? 0,
+                screensVisited: m?.screensVisited ?? [],
+                customEventCount: m?.customEventCount ?? 0,
+                crashCount: m?.crashCount ?? 0,
+                anrCount: m?.anrCount ?? 0,
+                appStartupTimeMs: m?.appStartupTimeMs ?? null,
+                // Network
+                networkType: m?.networkType ?? null,
+                cellularGeneration: m?.cellularGeneration ?? null,
+                // Geo
+                geoLocation: s.geoCity
+                    ? {
+                        city: s.geoCity,
+                        region: s.geoRegion,
+                        country: s.geoCountry,
+                        countryCode: s.geoCountryCode,
+                        latitude: s.geoLatitude,
+                        longitude: s.geoLongitude,
+                        timezone: s.geoTimezone,
+                    }
+                    : null,
+                // Retention
+                retentionTier: s.retentionTier,
+                retentionDays: s.retentionDays,
+                recordingDeleted: s.recordingDeleted,
+                recordingDeletedAt: s.recordingDeletedAt?.toISOString() ?? null,
+                isReplayExpired: s.isReplayExpired,
+                hasSuccessfulRecording: successfulRecording,
+                replayPromoted: successfulRecording,
+                replayPromotedReason: getReplayCompatibilityReason(successfulRecording),
+                replayPromotionScore: getReplayCompatibilityScore(successfulRecording),
+                // Stats
+                stats: {
+                    duration: String(s.durationSeconds ?? 0),
+                    durationMinutes: String(((s.durationSeconds ?? 0) / 60).toFixed(2)),
+                    eventCount: m?.totalEvents ?? 0,
+                    screenshotSegmentCount: m?.screenshotSegmentCount ?? 0,
+                    totalSizeKB: String(((m?.eventsSizeBytes ?? 0) + (m?.screenshotTotalBytes ?? 0)) / 1024),
+                    eventsSizeKB: String((m?.eventsSizeBytes ?? 0) / 1024),
+                    screenshotSizeKB: String((m?.screenshotTotalBytes ?? 0) / 1024),
+                    networkStats: {
+                        total: m?.apiTotalCount ?? 0,
+                        successful: m?.apiSuccessCount ?? 0,
+                        failed: m?.apiErrorCount ?? 0,
+                        avgDuration: m?.apiAvgResponseMs ?? 0,
+                    },
                 },
-            },
-        }));
+            };
+        });
 
         res.json({
             sessions: sessionsData,
@@ -1409,6 +1593,7 @@ router.get(
         // A session without segments may still have analytics data (events, metrics)
         const hasRecording = screenshotFrames.length > 0;
         const playbackMode = screenshotFrames.length > 0 ? 'screenshots' : 'none';
+        const successfulRecording = hasSuccessfulRecording(session, metrics);
 
         res.json({
             id: session.id,
@@ -1552,10 +1737,10 @@ router.get(
             recordingDeleted: session.recordingDeleted,
             recordingDeletedAt: session.recordingDeletedAt?.toISOString() ?? null,
             isReplayExpired: session.isReplayExpired,
-            // Replay promotion status
-            replayPromoted: session.replayPromoted,
-            replayPromotedReason: session.replayPromotedReason ?? null,
-            replayPromotionScore: session.replayPromotionScore ?? 0,
+            hasSuccessfulRecording: successfulRecording,
+            replayPromoted: successfulRecording,
+            replayPromotedReason: getReplayCompatibilityReason(successfulRecording),
+            replayPromotionScore: getReplayCompatibilityScore(successfulRecording),
         });
     })
 );
@@ -1587,30 +1772,36 @@ router.get(
         }
 
         const screenshotArtifacts = artifactsList.filter((a) => a.kind === 'screenshots');
+        const frameUrlMode = resolveFrameUrlMode(req.query.frameUrlMode);
+        const replayBootstrap = await loadScreenshotReplayBootstrap(
+            session,
+            screenshotArtifacts.length,
+            frameUrlMode
+        );
 
-        let screenshotFrames: Array<{ timestamp: number; url: string; index: number }> = [];
-        if (screenshotArtifacts.length > 0 && !session.isReplayExpired && !session.recordingDeleted) {
-            const frameUrlMode = resolveFrameUrlMode(req.query.frameUrlMode);
-            const framesResult = await getSessionScreenshotFrames(session.id, { urlMode: frameUrlMode });
-            if (framesResult) {
-                screenshotFrames = framesResult.frames;
-            }
-        }
-
-        const basePayload = buildSessionBasePayload(session, metrics, screenshotFrames);
+        const basePayload = buildSessionBasePayload(session, metrics, replayBootstrap.screenshotFrames);
         const stats = await computeSessionStats(session, metrics, artifactsList, false);
         const responseBody = {
             ...basePayload,
+            hasRecording: replayBootstrap.hasRecording,
+            playbackMode: replayBootstrap.playbackMode,
+            screenshotFrames: replayBootstrap.screenshotFrames,
+            screenshotFramesStatus: replayBootstrap.screenshotFramesStatus,
+            screenshotFrameCount: replayBootstrap.screenshotFrameCount,
+            screenshotFramesProcessedSegments: replayBootstrap.processedSegments,
+            screenshotFramesTotalSegments: replayBootstrap.totalSegments,
             stats,
         };
 
         res.json(responseBody);
 
-        try {
-            const redis = getRedis();
-            await redis.setex(cacheKey, SESSION_CORE_CACHE_TTL_SECONDS, JSON.stringify(responseBody));
-        } catch (err) {
-            logger.warn({ err, sessionId: session.id }, '[sessions] Failed to write session core cache');
+        if (replayBootstrap.screenshotFramesStatus !== 'preparing') {
+            try {
+                const redis = getRedis();
+                await redis.setex(cacheKey, SESSION_CORE_CACHE_TTL_SECONDS, JSON.stringify(responseBody));
+            } catch (err) {
+                logger.warn({ err, sessionId: session.id }, '[sessions] Failed to write session core cache');
+            }
         }
     })
 );
@@ -1646,6 +1837,36 @@ router.get(
         const artifactsList = await getReadyArtifacts(session.id);
         const hierarchySnapshots = await loadHierarchyPayload(session, artifactsList);
         res.json({ hierarchySnapshots });
+    })
+);
+
+/**
+ * Get screenshot frame bootstrap/progress payload
+ * GET /api/session/:id/frames
+ */
+router.get(
+    '/:id/frames',
+    sessionAuth,
+    validate(sessionIdParamSchema, 'params'),
+    dashboardRateLimiter,
+    asyncHandler(async (req, res) => {
+        const { session } = await getAuthorizedSession(req.user!.id, req.params.id);
+        const artifactsList = await getReadyArtifacts(session.id);
+        const screenshotArtifacts = artifactsList.filter((a) => a.kind === 'screenshots');
+        const frameUrlMode = resolveFrameUrlMode(req.query.frameUrlMode);
+        const replayBootstrap = await loadScreenshotReplayBootstrap(
+            session,
+            screenshotArtifacts.length,
+            frameUrlMode
+        );
+
+        res.json({
+            screenshotFrames: replayBootstrap.screenshotFrames,
+            screenshotFramesStatus: replayBootstrap.screenshotFramesStatus,
+            screenshotFrameCount: replayBootstrap.screenshotFrameCount,
+            screenshotFramesProcessedSegments: replayBootstrap.processedSegments,
+            screenshotFramesTotalSegments: replayBootstrap.totalSegments,
+        });
     })
 );
 
@@ -1725,10 +1946,8 @@ router.get(
 
 
 /**
- * Get frame image by artifact ID
- * GET /api/session/frame/:sessionId/:artifactId
- * 
- * Serves raw frame data (HEIC or JPEG). Client-side decoding handles HEIC conversion.
+ * Get frame image by timestamp (proxy)
+ * GET /api/session/frame/:sessionId/:timestamp
  */
 router.get(
     '/frame/:sessionId/:artifactId',
@@ -1737,132 +1956,135 @@ router.get(
     asyncHandler(async (req, res) => {
         const { sessionId, artifactId: rawArtifactId } = req.params;
 
-        const artifactId = rawArtifactId.replace(/\.json\.gz$/, '').replace(/\.jpg$/, '');
+        // The parameter is now typically the timestamp, e.g. "1710000000000" or "1710000000000.jpg"
+        const isTimestamp = /^\d+(\.jpg)?$/.test(rawArtifactId);
+        const targetTimestampMs = isTimestamp ? parseInt(rawArtifactId.replace(/\.jpg$/, ''), 10) : NaN;
 
-        // Get user's accessible project IDs
+        const redis = getRedis();
+        let cacheKey = '';
+        
+        if (isTimestamp && !isNaN(targetTimestampMs)) {
+            cacheKey = `screenshot_frame_data:${sessionId}:${targetTimestampMs}`;
+            try {
+                // ioredis getBuffer is required for binary data
+                const cachedFrame = await redis.getBuffer(cacheKey);
+                if (cachedFrame) {
+                    res.setHeader('Content-Type', 'image/jpeg');
+                    res.setHeader('Cache-Control', 'public, max-age=31536000');
+                    return res.send(cachedFrame);
+                }
+            } catch (err) {
+                logger.warn({ err, sessionId }, '[sessions] Failed to read frame from Redis cache');
+            }
+        }
+
+        // Access check
         const teamMemberships = await db
             .select({ teamId: teamMembers.teamId })
             .from(teamMembers)
             .where(eq(teamMembers.userId, req.user!.id));
 
         const teamIds = teamMemberships.map((tm) => tm.teamId);
+        if (teamIds.length === 0) throw ApiError.notFound('Frame not found');
 
-        if (teamIds.length === 0) {
-            throw ApiError.notFound('Frame not found');
-        }
-
-        const accessibleProjectsList = await db
-            .select({ id: projects.id })
-            .from(projects)
-            .where(and(inArray(projects.teamId, teamIds), isNull(projects.deletedAt)));
-
-        const accessibleProjectIds = accessibleProjectsList.map((p) => p.id);
-
-        // Find the artifact with access check
-        const [artifact] = await db
-            .select({
-                artifact: recordingArtifacts,
-                projectId: sessions.projectId,
-            })
-            .from(recordingArtifacts)
-            .innerJoin(sessions, eq(recordingArtifacts.sessionId, sessions.id))
-            .where(
-                and(
-                    eq(recordingArtifacts.id, artifactId),
-                    eq(recordingArtifacts.sessionId, sessionId),
-                    eq(recordingArtifacts.kind, 'frames'),
-                    inArray(sessions.projectId, accessibleProjectIds)
-                )
-            )
+        const [session] = await db
+            .select({ projectId: sessions.projectId, startedAt: sessions.startedAt })
+            .from(sessions)
+            .where(and(eq(sessions.id, sessionId), inArray(sessions.projectId, 
+                db.select({ id: projects.id }).from(projects).where(and(inArray(projects.teamId, teamIds), isNull(projects.deletedAt)))
+            )))
             .limit(1);
 
-        if (!artifact) {
-            throw ApiError.notFound('Frame not found');
+        if (!session) throw ApiError.notFound('Frame not found');
+        const sessionStartMs = session.startedAt.getTime();
+
+        // If it was a legacy artifact ID, act as normal S3 fetch
+        if (!isTimestamp || isNaN(targetTimestampMs)) {
+            const artifactId = rawArtifactId.replace(/\.json\.gz$/, '').replace(/\.jpg$/, '');
+            const [artifact] = await db
+                .select()
+                .from(recordingArtifacts)
+                .where(and(eq(recordingArtifacts.id, artifactId), eq(recordingArtifacts.sessionId, sessionId), eq(recordingArtifacts.kind, 'frames')))
+                .limit(1);
+
+            if (!artifact) throw ApiError.notFound('Frame not found');
+
+            const data = await downloadFromS3ForArtifact(session.projectId, artifact.s3ObjectKey, artifact.endpointId);
+            if (!data) throw ApiError.notFound('Frame data not found in storage');
+            
+            res.setHeader('Content-Type', 'image/jpeg');
+            res.setHeader('Cache-Control', 'public, max-age=31536000');
+            return res.send(data);
         }
 
-        const s3Key = artifact.artifact.s3ObjectKey;
+        // On cache miss, fetch the screenshot archive that contains this timestamp
+        const artifacts = await db
+            .select({
+                id: recordingArtifacts.id,
+                s3ObjectKey: recordingArtifacts.s3ObjectKey,
+                endpointId: recordingArtifacts.endpointId,
+                startTime: recordingArtifacts.startTime,
+                endTime: recordingArtifacts.endTime,
+                timestamp: recordingArtifacts.timestamp,
+            })
+            .from(recordingArtifacts)
+            .where(
+                and(
+                    eq(recordingArtifacts.sessionId, sessionId),
+                    eq(recordingArtifacts.kind, 'screenshots'),
+                    eq(recordingArtifacts.status, 'ready')
+                )
+            )
+            .orderBy(recordingArtifacts.timestamp);
 
-        // Download from S3
-        const data = await downloadFromS3ForArtifact(artifact.projectId, s3Key, artifact.artifact.endpointId);
-        if (!data) {
-            throw ApiError.notFound('Frame data not found in storage');
-        }
+        if (artifacts.length === 0) throw ApiError.notFound('No ready screenshot artifacts found for session');
 
-        const dataStr = data.toString();
-
-        // Handle JSON artifact format (with embedded base64 image)
-        try {
-            const parsed = JSON.parse(dataStr);
-
-            // Handle JSON artifacts that wrap a base64 image
-            if (parsed.data && typeof parsed.data === 'string') {
-                const dataUrl = parsed.data;
-                let mimeType = 'image/jpeg';
-
-                const isHeic = dataUrl.startsWith('data:image/heic;base64,') || parsed.format === 'heic';
-                const isWebp = dataUrl.startsWith('data:image/webp;base64,') || parsed.format === 'webp';
-
-                if (isHeic) {
-                    // Extract base64 HEIC data and serve as HEIC (client will decode)
-                    let base64Data = dataUrl;
-                    if (base64Data.includes(',')) {
-                        base64Data = base64Data.split(',')[1];
-                    }
-                    const heicBuffer = Buffer.from(base64Data, 'base64');
-                    res.setHeader('Content-Type', 'image/heic');
-                    res.setHeader('Cache-Control', 'public, max-age=31536000');
-                    res.send(heicBuffer);
-                    return;
-                }
-
-                if (isWebp) {
-                    // Extract base64 WebP data and serve as WebP (browsers natively support)
-                    let base64Data = dataUrl;
-                    if (base64Data.includes(',')) {
-                        base64Data = base64Data.split(',')[1];
-                    }
-                    const webpBuffer = Buffer.from(base64Data, 'base64');
-                    res.setHeader('Content-Type', 'image/webp');
-                    res.setHeader('Cache-Control', 'public, max-age=31536000');
-                    res.send(webpBuffer);
-                    return;
-                }
-
-                // Non-HEIC image in JSON wrapper
-                const commaIndex = dataUrl.indexOf(',');
-                const base64Part = commaIndex >= 0 ? dataUrl.slice(commaIndex + 1) : dataUrl;
-
-                if (commaIndex >= 0 && dataUrl.startsWith('data:')) {
-                    const prefix = dataUrl.slice(5, commaIndex);
-                    const semicolonIndex = prefix.indexOf(';');
-                    mimeType = semicolonIndex >= 0 ? prefix.slice(0, semicolonIndex) : prefix;
-                }
-
-                const imageBuffer = Buffer.from(base64Part, 'base64');
-
-                res.setHeader('Content-Type', mimeType || 'image/jpeg');
-                res.setHeader('Cache-Control', 'public, max-age=31536000');
-                res.send(imageBuffer);
-                return;
+        let bestArtifact = artifacts[0];
+        for (const artifact of artifacts) {
+            const artifactStartMs = artifact.startTime ?? artifact.timestamp ?? sessionStartMs;
+            const artifactEndMs = artifact.endTime ?? artifactStartMs + 10_000;
+            
+            if (targetTimestampMs >= artifactStartMs && targetTimestampMs <= artifactEndMs) {
+                bestArtifact = artifact;
+                break;
             }
-        } catch {
-            // Not JSON, fall through to raw data
+            if (artifactStartMs > targetTimestampMs) break;
+            bestArtifact = artifact;
         }
 
-        // Fallback: serve raw data
-        let contentType = 'image/jpeg';
+        const archiveData = await downloadFromS3ForArtifact(session.projectId, bestArtifact.s3ObjectKey, bestArtifact.endpointId);
+        if (!archiveData) throw ApiError.notFound('Screenshot archive not found in storage');
 
-        if (s3Key.endsWith('.json.gz')) {
-            contentType = 'application/json';
-        } else if (s3Key.includes('webp')) {
-            contentType = 'image/webp';
-        } else if (s3Key.includes('heic')) {
-            contentType = 'image/heic';
+        // Extract all frames and cache them!
+        const { extractFramesFromArchive } = await import('../services/screenshotFrames.js');
+        const frames = await extractFramesFromArchive(archiveData, sessionStartMs);
+        
+        let targetFrameData: Buffer | null = null;
+        let minDiff = Number.MAX_SAFE_INTEGER;
+
+        // Cache all extracted frames for immediate playback
+        for (const frame of frames) {
+            const frameCacheKey = `screenshot_frame_data:${sessionId}:${frame.timestamp}`;
+            try {
+                // Cache for 10 minutes - typical replay session duration
+                await redis.setex(frameCacheKey, 600, frame.data);
+            } catch (err) {
+                logger.warn({ err, sessionId }, '[sessions] Failed to write extracted frame to Redis cache');
+            }
+
+            // Also search for the requested frame
+            const diff = Math.abs(frame.timestamp - targetTimestampMs);
+            if (diff < minDiff) {
+                minDiff = diff;
+                targetFrameData = frame.data;
+            }
         }
 
-        res.setHeader('Content-Type', contentType);
+        if (!targetFrameData) throw ApiError.notFound('Frame data not found inside archive');
+
+        res.setHeader('Content-Type', 'image/jpeg');
         res.setHeader('Cache-Control', 'public, max-age=31536000');
-        res.send(data);
+        return res.send(targetFrameData);
     })
 );
 

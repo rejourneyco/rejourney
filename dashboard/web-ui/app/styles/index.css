@@ -78,6 +78,10 @@
     @apply border-border;
   }
 
+  html, body {
+    overflow-x: hidden;
+  }
+
   body {
     @apply text-foreground antialiased;
     background-color: var(--dashboard-canvas);

@@ -1101,106 +1101,58 @@ export const demoFrictionHeatmap: FrictionHeatmap = {
 // Detailed Session Data (for RecordingDetail page)
 // ================================================================================
 
-import { realEvents } from './realSessionData';
+import { demoReplayFixture } from './demoReplayData';
 
-// Process real events
-const networkRequests = realEvents
-    .filter((e: any) => e.type === 'network_request')
-    .map((e: any) => ({
-        requestId: e.requestId || `req-${Math.random()}`,
-        timestamp: e.timestamp,
-        method: e.method || 'GET',
-        url: e.url || '',
-        urlPath: e.urlPath,
-        urlHost: e.urlHost,
-        statusCode: e.statusCode || 0,
-        duration: e.duration || 0,
-        success: e.success ?? (e.statusCode < 400),
-        requestBodySize: e.requestBodySize,
-        responseBodySize: e.responseBodySize,
-        errorMessage: e.errorMessage
-    }));
-
-// Filter out network requests from main event stream to avoid duplication
-// (The frontend re-combines them on the timeline)
-const sessionEvents = realEvents.filter((e: any) => e.type !== 'network_request');
+const networkRequests = demoReplayFixture.networkRequests;
+const sessionEvents = demoReplayFixture.events;
+const screenshotFrames = demoReplayFixture.screenshotFrames.map((frame: any) => ({
+    timestamp: frame.timestamp,
+    url: `/demo/${DEMO_FEATURED_SESSION_ID}/frames/${frame.file}`,
+    index: frame.index,
+}));
+const identifiedUserId =
+    demoReplayFixture.events.find((event: any) => event.type === 'user_identity_changed' && event.userId)?.userId ||
+    'demo-user';
+const deadTapCount = demoReplayFixture.events.filter((event: any) => event.frustrationKind === 'dead_tap').length;
+const explorationScore = Math.min(100, 40 + demoReplayFixture.screensVisited.length * 5);
+const interactionScore = Math.min(
+    100,
+    45 + Math.round((demoReplayFixture.metrics.touchCount + demoReplayFixture.metrics.gestureCount) / 5)
+);
 
 export const demoFullSession = {
     id: DEMO_FEATURED_SESSION_ID,
-    userId: 'user-789',
+    userId: identifiedUserId,
     hasRecording: true,
-    playbackMode: 'video' as const,
-    deviceInfo: {
-        model: 'iPhone 15 Pro',
-        manufacturer: 'Apple',
-        os: 'iOS',
-        osVersion: '17.2',
-        screenWidth: 393,
-        screenHeight: 852,
-        pixelRatio: 3,
-        appVersion: '2.4.1',
-        locale: 'en-US',
-        timezone: 'America/Los_Angeles',
-    },
-    geoLocation: {
-        ip: '192.168.1.1',
-        country: 'United States',
-        countryCode: 'US',
-        region: 'California',
-        city: 'San Francisco',
-        latitude: 37.7749,
-        longitude: -122.4194,
-        timezone: 'America/Los_Angeles',
-    },
-    startTime: 1769126989388,
-    endTime: 1769126989388 + 42000,
-    duration: 42,
+    hasSuccessfulRecording: true,
+    playbackMode: 'screenshots' as const,
+    deviceInfo: demoReplayFixture.deviceInfo,
+    geoLocation: demoReplayFixture.geoLocation,
+    startTime: demoReplayFixture.startTime,
+    endTime: demoReplayFixture.endTime,
+    duration: demoReplayFixture.durationSeconds,
     replayPromoted: true,
-    videoSegments: [
-        {
-            url: `/demo/${DEMO_FEATURED_SESSION_ID}/segments/1769126989700.mp4`,
-            startTime: 1769126989700,
-            endTime: 1769126989388 + 42000,
-            frameCount: null,
-        },
-    ],
+    hierarchySnapshots: demoReplayFixture.hierarchySnapshots,
+    screenshotFrames,
+    screenshotFramesStatus: 'ready' as const,
+    screenshotFrameCount: demoReplayFixture.screenshotFrameCount,
+    screenshotFramesProcessedSegments: demoReplayFixture.screenshotFramesProcessedSegments,
+    screenshotFramesTotalSegments: demoReplayFixture.screenshotFramesTotalSegments,
     events: sessionEvents,
-    networkRequests: networkRequests,
+    networkRequests,
     batches: [],
-    stats: {
-        duration: '0:42',
-        durationMinutes: '0.7',
-        eventCount: sessionEvents.length,
-        frameCount: 45,
-        screenshotSegmentCount: 0,
-        totalSizeKB: '1820',
-        kbPerMinute: '3640',
-        eventsSizeKB: '140',
-        screenshotSizeKB: '1780',
-        networkStats: {
-            total: networkRequests.length,
-            successful: networkRequests.filter((r: any) => r.success).length,
-            failed: networkRequests.filter((r: any) => !r.success).length,
-            avgDuration: 245,
-            totalBytes: 45678,
-        },
-    },
+    stats: demoReplayFixture.stats,
     metrics: {
-        totalEvents: sessionEvents.length,
-        touchCount: sessionEvents.filter((e: any) => e.type === 'touch' || e.type === 'gesture').length,
-        scrollCount: 12,
-        gestureCount: 3,
-        inputCount: 2,
-        navigationCount: sessionEvents.filter((e: any) => e.type === 'navigation' || e.type === 'screen_view').length,
-        errorCount: 1,
+        ...demoReplayFixture.metrics,
         rageTapCount: 0,
-        apiSuccessCount: networkRequests.filter((r: any) => r.success).length,
-        apiErrorCount: networkRequests.filter((r: any) => !r.success).length,
+        deadTapCount,
+        apiSuccessCount: networkRequests.filter((request: any) => request.success).length,
+        apiErrorCount: networkRequests.filter((request: any) => !request.success).length,
         apiTotalCount: networkRequests.length,
-        screensVisited: ['Login', 'Dashboard', 'Settings'],
-        uniqueScreensCount: 3,
-        interactionScore: 85,
-        explorationScore: 72,
+        screensVisited: demoReplayFixture.screensVisited,
+        uniqueScreensCount: demoReplayFixture.screensVisited.length,
+        interactionScore,
+        explorationScore,
     },
 };
 

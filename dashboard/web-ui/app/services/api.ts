@@ -159,6 +159,9 @@ export function clearCache(key?: string): void {
 export interface ApiSession {
   id: string;
   userId: string;
+  hasSuccessfulRecording?: boolean;
+  replayPromoted?: boolean;
+  replayPromotedReason?: string | null;
   deviceInfo: {
     model?: string;
     manufacturer?: string;
@@ -187,6 +190,16 @@ export interface ApiSession {
   events: any[];
   networkRequests: any[];
   batches: any[];
+  screenshotFrames?: Array<{
+    timestamp: number;
+    url: string;
+    index: number;
+  }>;
+  screenshotFramesStatus?: 'ready' | 'preparing' | 'none';
+  screenshotFrameCount?: number;
+  screenshotFramesProcessedSegments?: number;
+  screenshotFramesTotalSegments?: number;
+  playbackMode?: 'screenshots' | 'video' | 'none';
   stats: {
     duration: string;
     durationMinutes: string;
@@ -230,6 +243,9 @@ export interface ApiSession {
 export interface ApiSessionSummary {
   id: string;
   userId: string;
+  hasSuccessfulRecording?: boolean;
+  replayPromoted?: boolean;
+  replayPromotedReason?: string | null;
   deviceInfo: ApiSession['deviceInfo'];
   geoLocation?: ApiSession['geoLocation'];
   startTime: number;
@@ -302,10 +318,6 @@ export async function getSessions(): Promise<ApiSessionSummary[]> {
 export async function getSession(sessionId: string): Promise<ApiSession> {
   // Demo mode: check for mock session
   if (isDemoMode()) {
-    // For the featured demo session, return data with real hierarchy from .gz files
-    if (sessionId === demoApiData.demoFullSession.id) {
-      return await getDemoSessionWithRealHierarchy(sessionId);
-    }
     return demoApiData.demoFullSession as unknown as ApiSession;
   }
   return fetchWithCache<ApiSession>(`/api/session/${sessionId}`);
@@ -326,20 +338,49 @@ export interface ApiSessionStats {
   stats: ApiSession['stats'];
 }
 
+export interface ApiSessionFrames {
+  screenshotFrames: Array<{
+    timestamp: number;
+    url: string;
+    index: number;
+  }>;
+  screenshotFramesStatus: 'ready' | 'preparing' | 'none';
+  screenshotFrameCount: number;
+  screenshotFramesProcessedSegments: number;
+  screenshotFramesTotalSegments: number;
+}
+
 export async function getSessionCore(
   sessionId: string,
   options?: { frameUrlMode?: 'signed' | 'proxy' | 'none' }
 ): Promise<ApiSession> {
   if (isDemoMode()) {
-    if (sessionId === demoApiData.demoFullSession.id) {
-      return await getDemoSessionWithRealHierarchy(sessionId);
-    }
     return demoApiData.demoFullSession as unknown as ApiSession;
   }
   const params = new URLSearchParams();
   if (options?.frameUrlMode) params.set('frameUrlMode', options.frameUrlMode);
   const suffix = params.toString() ? `?${params.toString()}` : '';
   return fetchWithCache<ApiSession>(`/api/session/${sessionId}/core${suffix}`);
+}
+
+export async function getSessionFrames(
+  sessionId: string,
+  options?: { frameUrlMode?: 'signed' | 'proxy' | 'none' }
+): Promise<ApiSessionFrames> {
+  if (isDemoMode()) {
+    const demo = demoApiData.demoFullSession as any;
+    return {
+      screenshotFrames: demo.screenshotFrames || [],
+      screenshotFramesStatus: demo.screenshotFramesStatus || 'none',
+      screenshotFrameCount: demo.screenshotFrameCount || demo.screenshotFrames?.length || 0,
+      screenshotFramesProcessedSegments: demo.screenshotFramesProcessedSegments || 0,
+      screenshotFramesTotalSegments: demo.screenshotFramesTotalSegments || 0,
+    };
+  }
+  const params = new URLSearchParams();
+  if (options?.frameUrlMode) params.set('frameUrlMode', options.frameUrlMode);
+  const suffix = params.toString() ? `?${params.toString()}` : '';
+  return fetchJson<ApiSessionFrames>(`/api/session/${sessionId}/frames${suffix}`);
 }
 
 export async function getSessionTimeline(sessionId: string): Promise<ApiSessionTimeline> {
@@ -566,8 +607,10 @@ export function transformToRecordingSession(session: ApiSession | ApiSessionSumm
     recordingDeletedAt: (session as any).recordingDeletedAt ?? null,
     retentionDays: (session as any).retentionDays ?? 14,
     customEventCount: (summary.customEventCount ?? metrics.customEventCount ?? 0),
-    // Replay promotion status - determines if visual replay artifacts were uploaded
-    replayPromoted: (session as any).replayPromoted ?? false,
+    // Canonical replay availability flag derived from successful screenshot capture.
+    hasSuccessfulRecording: (session as any).hasSuccessfulRecording ?? (session as any).replayPromoted ?? false,
+    // Compatibility aliases for older UI code paths.
+    replayPromoted: (session as any).hasSuccessfulRecording ?? (session as any).replayPromoted ?? false,
     replayPromotedReason: (session as any).replayPromotedReason ?? null,
 
     isReplayExpired: (session as any).isReplayExpired ?? false,
@@ -607,7 +650,9 @@ export async function getSessionsPaginated(params: {
   timeRange?: string;
   projectId?: string;
   platform?: string;
+  hasRecording?: boolean;
   promoted?: boolean;
+  issueFilter?: 'all' | 'crashes' | 'anrs' | 'errors' | 'rage' | 'dead_taps' | 'slow_start' | 'slow_api';
   metaKey?: string;
   metaValue?: string;
   eventName?: string;
@@ -627,7 +672,25 @@ export async function getSessionsPaginated(params: {
     };
   }
 
-  const { cursor, limit = 50, timeRange, projectId, platform, promoted, metaKey, metaValue, eventName, date, eventCountOp, eventCountValue, eventPropKey, eventPropValue } = params;
+  const {
+    cursor,
+    limit = 50,
+    timeRange,
+    projectId,
+    platform,
+    hasRecording,
+    promoted,
+    issueFilter,
+    metaKey,
+    metaValue,
+    eventName,
+    date,
+    eventCountOp,
+    eventCountValue,
+    eventPropKey,
+    eventPropValue,
+  } = params;
+  const recordingFilter = hasRecording ?? promoted;
 
   const queryParams = new URLSearchParams();
   if (cursor) queryParams.set('cursor', cursor);
@@ -635,7 +698,8 @@ export async function getSessionsPaginated(params: {
   if (timeRange) queryParams.set('timeRange', timeRange);
   if (projectId) queryParams.set('projectId', projectId);
   if (platform) queryParams.set('platform', platform);
-  if (promoted) queryParams.set('promoted', 'true');
+  if (recordingFilter) queryParams.set('hasRecording', 'true');
+  if (issueFilter && issueFilter !== 'all') queryParams.set('issueFilter', issueFilter);
   if (metaKey) queryParams.set('metaKey', metaKey);
   if (metaValue) queryParams.set('metaValue', metaValue);
   if (eventName) queryParams.set('eventName', eventName);
@@ -2817,6 +2881,7 @@ export const api = {
   getSessions,
   getSession,
   getSessionCore,
+  getSessionFrames,
   getSessionTimeline,
   getSessionHierarchy,
   getSessionStats,

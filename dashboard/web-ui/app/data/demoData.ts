@@ -6,9 +6,10 @@
  */
 
 import { Project, RecordingSession, ProjectDailyStats } from '../types';
+import { demoReplayFixture } from './demoReplayData';
 
 // Featured session ID - this will use the real recording from the backend
-export const DEMO_FEATURED_SESSION_ID = 'session_1769126989388_555B08ED';
+export const DEMO_FEATURED_SESSION_ID = 'session_1773776620852_4474dcb8c2634e99b379b6c14f0b641a';
 
 // Demo team for team context
 export const DEMO_TEAM = {
@@ -57,45 +58,44 @@ export const demoSessions: RecordingSession[] = [
     {
         id: DEMO_FEATURED_SESSION_ID,
         projectId: 'demo-project-001',
-        startedAt: new Date(1769126989388).toISOString(),
-        endedAt: new Date(1769126989388 + 30000).toISOString(), // Assume 30s for now
-        durationSeconds: 30, // Updated later if known
+        startedAt: new Date(demoReplayFixture.startTime).toISOString(),
+        endedAt: new Date(demoReplayFixture.endTime).toISOString(),
+        durationSeconds: demoReplayFixture.durationSeconds,
         platform: 'ios',
-        appVersion: '2.3.1',
-        deviceModel: 'iPhone 15 Pro',
-        osVersion: '17.2',
-        userId: 'user_premium_001',
+        appVersion: demoReplayFixture.deviceInfo.appVersion,
+        deviceModel: demoReplayFixture.deviceInfo.model,
+        osVersion: demoReplayFixture.deviceInfo.osVersion,
+        userId: (
+            demoReplayFixture.events.find((event: any) => event.type === 'user_identity_changed' && event.userId)?.userId ||
+            'demo-user'
+        ),
         deviceId: 'demo-device-001',
-        geoLocation: {
-            city: 'Austin',
-            region: 'Texas',
-            country: 'United States',
-            countryCode: 'US',
-            latitude: 30.2672,
-            longitude: -97.7431
-        },
-        totalEvents: 256,
-        errorCount: 2,
-        touchCount: 89,
-        scrollCount: 67,
-        gestureCount: 12,
-        inputCount: 8,
-        apiSuccessCount: 44,
-        apiErrorCount: 3,
-        apiTotalCount: 47,
-        apiAvgResponseMs: 245,
-        rageTapCount: 3,
-        deadTapCount: 1,
-        screensVisited: ['Home', 'Products', 'Product Detail', 'Cart', 'Checkout'],
-        interactionScore: 82,
-        explorationScore: 75,
-        customEventCount: 5,
+        geoLocation: demoReplayFixture.geoLocation,
+        totalEvents: demoReplayFixture.metrics.totalEvents,
+        errorCount: demoReplayFixture.metrics.errorCount,
+        touchCount: demoReplayFixture.metrics.touchCount,
+        scrollCount: demoReplayFixture.metrics.scrollCount,
+        gestureCount: demoReplayFixture.metrics.gestureCount,
+        inputCount: demoReplayFixture.metrics.inputCount,
+        apiSuccessCount: demoReplayFixture.stats.networkStats.successful,
+        apiErrorCount: demoReplayFixture.stats.networkStats.failed,
+        apiTotalCount: demoReplayFixture.stats.networkStats.total,
+        apiAvgResponseMs: demoReplayFixture.stats.networkStats.avgDuration,
+        rageTapCount: 0,
+        deadTapCount: demoReplayFixture.events.filter((event: any) => event.frustrationKind === 'dead_tap').length,
+        screensVisited: demoReplayFixture.screensVisited,
+        interactionScore: 79,
+        explorationScore: 64,
+        customEventCount: demoReplayFixture.metrics.customEventCount,
         crashCount: 0,
         anrCount: 0,
-        appStartupTimeMs: 850,
+        appStartupTimeMs: Math.round(
+            demoReplayFixture.events.find((event: any) => event.type === 'app_startup')?.durationMs || 0
+        ),
         networkType: 'wifi',
         status: 'ready',
-        replayPromoted: true // Ensure it shows up in filtered lists
+        hasSuccessfulRecording: true,
+        replayPromoted: true
     },
     // Session with crash
     {

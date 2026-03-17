@@ -1784,7 +1784,7 @@ PODS:
     - React-logger (= 0.76.7)
     - React-perflogger (= 0.76.7)
     - React-utils (= 0.76.7)
-  - rejourney (1.0.12):
+  - rejourney (1.0.13):
     - React-Core
     - ReactCommon/turbomodule/core
   - RNCAsyncStorage (2.2.0):
@@ -2589,7 +2589,7 @@ SPEC CHECKSUMS:
   React-utils: 0342746d2cf989cf5e0d1b84c98cfa152edbdf3f
   ReactCodegen: e1c019dc68733dd2c5d3b263b4a6dc72002c0045
   ReactCommon: 81e0744ee33adfd6d586141b927024f488bc49ea
-  rejourney: 7b71e39b02aa32041f9245e411f7a8f6e7cd1326
+  rejourney: d0de5bf1babd906de70d9c4086eb535a65948cd7
   RNCAsyncStorage: f27db574d8d0d56438ec4e9ba345872f2d0f29f4
   RNCMaskedView: 8542667cb39fff458c1a1a3f9e70205042636129
   RNGestureHandler: 16ef3dc2d7ecb09f240f25df5255953c4098819b

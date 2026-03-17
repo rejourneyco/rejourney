@@ -74,6 +74,19 @@ export const Sidebar: React.FC<SidebarProps> = ({
   // Project created modal state
   const [showProjectCreatedModal, setShowProjectCreatedModal] = useState(false);
   const [createdProject, setCreatedProject] = useState<Project | null>(null);
+  const [isMobileOpen, setIsMobileOpen] = useState(false);
+
+  React.useEffect(() => {
+    const handleToggleMobile = () => setIsMobileOpen(prev => !prev);
+    const handleCloseMobile = () => setIsMobileOpen(false);
+    window.addEventListener('toggleMobileSidebar', handleToggleMobile);
+    window.addEventListener('closeMobileSidebar', handleCloseMobile);
+    
+    return () => {
+      window.removeEventListener('toggleMobileSidebar', handleToggleMobile);
+      window.removeEventListener('closeMobileSidebar', handleCloseMobile);
+    };
+  }, []);
 
   React.useEffect(() => {
     const handleOpenAddProjectModal = () => {
@@ -155,7 +168,19 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   return (
     <>
-      <div className="dashboard-sidebar w-[280px] h-screen flex flex-col">
+      {/* Mobile backdrop */}
+      {isMobileOpen && (
+        <div 
+          className="fixed inset-0 z-40 bg-slate-900/50 backdrop-blur-sm md:hidden"
+          onClick={() => setIsMobileOpen(false)}
+        />
+      )}
+
+      <div className={`
+        dashboard-sidebar w-[280px] h-screen flex flex-col
+        fixed md:relative z-50 bg-[#0f172a] transition-transform duration-300 ease-in-out
+        ${isMobileOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}
+      `}>
         {/* Brand & Team Switcher */}
         <div className="p-4 border-b border-slate-700/80 bg-transparent">
           <Link
@@ -163,6 +188,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             onClick={() => {
               setShowTeamSelector(false);
               setShowAppSelector(false);
+              setIsMobileOpen(false);
             }}
             className={`mb-3 flex w-full items-center justify-between rounded-md border px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.12em] transition-colors ${isWarehouseActive
               ? 'border-sky-400/70 bg-sky-500/15 text-sky-100'
@@ -212,6 +238,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                         if (onTeamChange) onTeamChange(team);
                         setShowTeamSelector(false);
                         setShowAppSelector(false);
+                        setIsMobileOpen(false);
                         navigate(p('/general'));
                       }}
                       className={`w-full text-left px-3 py-2 text-sm font-medium hover:bg-slate-700/70 flex items-center justify-between group border-b border-slate-700 last:border-0 ${currentTeam?.id === team.id ? 'bg-sky-600/20 text-sky-100' : 'text-slate-200'}`}
@@ -267,6 +294,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                       onClick={() => {
                         onProjectChange(project);
                         setShowAppSelector(false);
+                        setIsMobileOpen(false);
                       }}
                       className={`w-full text-left px-3 py-2 text-sm font-medium flex items-center justify-between border-b border-slate-700 last:border-0 ${currentProject?.id === project.id ? 'bg-sky-600/20 text-sky-100' : 'text-slate-200 hover:bg-slate-700/70'
                         }`}
@@ -305,6 +333,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     <Link
                       key={item.path}
                       to={item.path}
+                      onClick={() => setIsMobileOpen(false)}
                       className={`
                         flex items-center gap-3 px-3 py-2 text-sm font-medium transition-colors rounded-md border relative
                         ${isActive(item.path)

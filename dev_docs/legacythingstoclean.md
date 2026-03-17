@@ -1,0 +1,1 @@
+1) repaly promotion column in session table

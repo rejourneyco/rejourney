@@ -44,7 +44,7 @@ import DOMInspector, { HierarchySnapshot } from '../../components/ui/DOMInspecto
 import { TouchOverlay, TouchEvent } from '../../components/ui/TouchOverlay';
 import { MarkerTooltip } from '../../components/ui/MarkerTooltip';
 import { VideoReplayPlayer, VideoReplayPlayerRef } from '../../components/ui/VideoReplayPlayer';
-import { SessionLoadingOverlay } from '../../components/recordings/SessionLoadingOverlay';
+import { SessionLoadingOverlay, SessionLoadingOverlayProps } from '../../components/recordings/SessionLoadingOverlay';
 import { formatGeoDisplay } from '../../utils/geoDisplay';
 
 // ============================================================================
@@ -128,6 +128,10 @@ interface FullSession {
         url: string;
         index: number;
     }[];
+    screenshotFramesStatus?: 'ready' | 'preparing' | 'none';
+    screenshotFrameCount?: number;
+    screenshotFramesProcessedSegments?: number;
+    screenshotFramesTotalSegments?: number;
     /** Video segments for demo video playback */
     videoSegments?: Array<{
         url: string;
@@ -579,12 +583,28 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
     const pathPrefix = usePathPrefix();
     const isDemoReplay = pathPrefix === '/demo';
 
+    const handleBackClick = (e: React.MouseEvent) => {
+        e.preventDefault();
+        // If we navigated here from within the app, go back to preserve state
+        if (window.history.state && window.history.state.idx > 0) {
+            navigate(-1);
+        } else {
+            // Otherwise, default to the sessions list
+            navigate(`${pathPrefix}/sessions`);
+        }
+    };
+
     // State
     const [fullSession, setFullSession] = useState<FullSession | null>(null);
-    const [isLoading, setIsLoading] = useState(true);
+    const [isCoreLoading, setIsCoreLoading] = useState(true);
+    const [isTimelineLoading, setIsTimelineLoading] = useState(true);
+    const [isHierarchyLoading, setIsHierarchyLoading] = useState(true);
+    const [isStatsLoading, setIsStatsLoading] = useState(true);
+    const [isFramesLoading, setIsFramesLoading] = useState(false);
     const [activityFilter, setActivityFilter] = useState<string>('all');
     const [currentPlaybackTime, setCurrentPlaybackTime] = useState<number>(0);
     const [activeWorkbenchTab, setActiveWorkbenchTab] = useState<'timeline' | 'console' | 'inspector' | 'metadata'>('timeline');
+    const [revealAllLogs, setRevealAllLogs] = useState(false);
 
     // Replay player state
     const [isPlaying, setIsPlaying] = useState(false);
@@ -615,6 +635,8 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
     const activityViewportRef = useRef<HTMLDivElement>(null);
     const terminalViewportRef = useRef<HTMLDivElement>(null);
     const replayPlayerRef = useRef<VideoReplayPlayerRef | null>(null);
+    const activeReplayRequestRef = useRef(0);
+    const framePollTimeoutRef = useRef<number | null>(null);
 
     // Ref-based playback state to avoid stale closures in animation loop
     const currentPlaybackTimeRef = useRef<number>(0);
@@ -635,8 +657,20 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
     // Fetch full session data
     const fetchFullSession = useCallback(async () => {
         if (!id) return;
+        const requestId = activeReplayRequestRef.current + 1;
+        activeReplayRequestRef.current = requestId;
+
+        if (framePollTimeoutRef.current) {
+            window.clearTimeout(framePollTimeoutRef.current);
+            framePollTimeoutRef.current = null;
+        }
+
         try {
-            setIsLoading(true);
+            setIsCoreLoading(true);
+            setIsTimelineLoading(true);
+            setIsHierarchyLoading(true);
+            setIsStatsLoading(true);
+            setIsFramesLoading(false);
             setHierarchySnapshots([]);
 
             const transformHierarchySnapshots = (rawSnapshots: any[], sessionLike: any): HierarchySnapshot[] => {
@@ -665,54 +699,158 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
             const coreMark = `replay_core_${id}`;
             if (typeof performance !== 'undefined') performance.mark(coreMark);
 
-            const [coreResult, timelineResult, hierarchyResult, statsResult] = await Promise.allSettled([
-                api.getSessionCore(id, { frameUrlMode: 'proxy' }),
-                api.getSessionTimeline(id),
-                api.getSessionHierarchy(id),
-                api.getSessionStats(id),
-            ]);
+            const scheduleFramePoll = (delayMs: number) => {
+                if (framePollTimeoutRef.current) {
+                    window.clearTimeout(framePollTimeoutRef.current);
+                }
 
-            if (coreResult.status === 'fulfilled') {
+                framePollTimeoutRef.current = window.setTimeout(async () => {
+                    try {
+                        const framesResult = await api.getSessionFrames(id, { frameUrlMode: 'proxy' });
+                        if (activeReplayRequestRef.current !== requestId) return;
+
+                        setFullSession((prev) => {
+                            if (!prev || prev.id !== id) return prev;
+                            return {
+                                ...prev,
+                                screenshotFrames: framesResult.screenshotFrames || prev.screenshotFrames || [],
+                                screenshotFramesStatus: framesResult.screenshotFramesStatus,
+                                screenshotFrameCount: framesResult.screenshotFrameCount,
+                                screenshotFramesProcessedSegments: framesResult.screenshotFramesProcessedSegments,
+                                screenshotFramesTotalSegments: framesResult.screenshotFramesTotalSegments,
+                            };
+                        });
+
+                        const stillPreparing = framesResult.screenshotFramesStatus === 'preparing';
+                        setIsFramesLoading(stillPreparing);
+                        if (stillPreparing) {
+                            scheduleFramePoll(framesResult.screenshotFrames.length > 0 ? 1800 : 700);
+                        } else {
+                            framePollTimeoutRef.current = null;
+                        }
+                    } catch (err) {
+                        if (activeReplayRequestRef.current !== requestId) return;
+                        console.error('Failed to fetch session frames:', err);
+                        setIsFramesLoading(true);
+                        scheduleFramePoll(2000);
+                    }
+                }, delayMs);
+            };
+
+            const corePromise = api.getSessionCore(id, { frameUrlMode: 'proxy' });
+            const timelinePromise = api.getSessionTimeline(id);
+            const hierarchyPromise = api.getSessionHierarchy(id);
+            const statsPromise = api.getSessionStats(id);
+
+            try {
+                const coreResult = await corePromise;
+                if (activeReplayRequestRef.current !== requestId) return;
+
                 if (typeof performance !== 'undefined') {
                     performance.measure(`replay:getSessionCore:${id}`, coreMark);
                 }
-                setFullSession(coreResult.value as any);
-            } else {
-                console.error('Failed to fetch session core:', coreResult.reason);
+
+                setFullSession(coreResult as any);
+                const preparingFrames =
+                    coreResult.playbackMode === 'screenshots' &&
+                    coreResult.screenshotFramesStatus === 'preparing';
+                setIsFramesLoading(preparingFrames);
+                if (preparingFrames) {
+                    scheduleFramePoll(0);
+                }
+            } catch (err) {
+                if (activeReplayRequestRef.current !== requestId) return;
+                console.error('Failed to fetch session core:', err);
+            } finally {
+                if (activeReplayRequestRef.current === requestId) {
+                    setIsCoreLoading(false);
+                }
             }
 
-            setFullSession((prev) => {
-                if (!prev || prev.id !== id) return prev;
-                const next: any = { ...prev };
+            timelinePromise
+                .then((timelineResult) => {
+                    if (activeReplayRequestRef.current !== requestId) return;
+                    setFullSession((prev) => {
+                        if (!prev || prev.id !== id) return prev;
+                        return {
+                            ...prev,
+                            events: timelineResult.events || [],
+                            networkRequests: timelineResult.networkRequests || [],
+                            crashes: timelineResult.crashes || [],
+                            anrs: timelineResult.anrs || [],
+                        };
+                    });
+                })
+                .catch((err) => {
+                    if (activeReplayRequestRef.current !== requestId) return;
+                    console.error('Failed to fetch session timeline:', err);
+                })
+                .finally(() => {
+                    if (activeReplayRequestRef.current === requestId) {
+                        setIsTimelineLoading(false);
+                    }
+                });
 
-                if (timelineResult.status === 'fulfilled') {
-                    next.events = timelineResult.value.events || [];
-                    next.networkRequests = timelineResult.value.networkRequests || [];
-                    next.crashes = timelineResult.value.crashes || [];
-                    next.anrs = timelineResult.value.anrs || [];
-                }
+            hierarchyPromise
+                .then((hierarchyResult) => {
+                    if (activeReplayRequestRef.current !== requestId) return;
+                    setFullSession((prev) => {
+                        if (!prev || prev.id !== id) return prev;
+                        const next: any = {
+                            ...prev,
+                            hierarchySnapshots: hierarchyResult.hierarchySnapshots || [],
+                        };
+                        setHierarchySnapshots(transformHierarchySnapshots(next.hierarchySnapshots, next));
+                        return next;
+                    });
+                })
+                .catch((err) => {
+                    if (activeReplayRequestRef.current !== requestId) return;
+                    console.error('Failed to fetch session hierarchy:', err);
+                })
+                .finally(() => {
+                    if (activeReplayRequestRef.current === requestId) {
+                        setIsHierarchyLoading(false);
+                    }
+                });
 
-                if (hierarchyResult.status === 'fulfilled') {
-                    next.hierarchySnapshots = hierarchyResult.value.hierarchySnapshots || [];
-                    setHierarchySnapshots(transformHierarchySnapshots(next.hierarchySnapshots, next));
-                }
-
-                if (statsResult.status === 'fulfilled') {
-                    next.stats = statsResult.value.stats || next.stats;
-                }
-
-                return next;
-            });
+            statsPromise
+                .then((statsResult) => {
+                    if (activeReplayRequestRef.current !== requestId) return;
+                    setFullSession((prev) => {
+                        if (!prev || prev.id !== id) return prev;
+                        return {
+                            ...prev,
+                            stats: statsResult.stats || prev.stats,
+                        } as any;
+                    });
+                })
+                .catch((err) => {
+                    if (activeReplayRequestRef.current !== requestId) return;
+                    console.error('Failed to fetch session stats:', err);
+                })
+                .finally(() => {
+                    if (activeReplayRequestRef.current === requestId) {
+                        setIsStatsLoading(false);
+                    }
+                });
         } catch (err) {
             console.error('Failed to fetch session:', err);
-        } finally {
-            setIsLoading(false);
         }
     }, [id]);
 
     useEffect(() => {
         fetchFullSession();
     }, [fetchFullSession]);
+
+    useEffect(() => {
+        return () => {
+            if (framePollTimeoutRef.current) {
+                window.clearTimeout(framePollTimeoutRef.current);
+                framePollTimeoutRef.current = null;
+            }
+        };
+    }, []);
 
     // Detect rage taps for touch overlay and timeline
     // This detects 3+ taps in same area within 1.5s as rage taps
@@ -885,13 +1023,15 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
     }, [logEvents, replayBaseTime]);
 
     const visibleTerminalLogRows = useMemo(
-        () => terminalLogRows.filter((entry) => entry.relativeSeconds <= currentPlaybackTime + 0.05),
-        [terminalLogRows, currentPlaybackTime]
+        () => revealAllLogs
+            ? terminalLogRows
+            : terminalLogRows.filter((entry) => entry.relativeSeconds <= currentPlaybackTime + 0.05),
+        [terminalLogRows, currentPlaybackTime, revealAllLogs]
     );
 
     const terminalVisibleRows = useMemo(
-        () => visibleTerminalLogRows.slice(-250),
-        [visibleTerminalLogRows]
+        () => revealAllLogs ? visibleTerminalLogRows : visibleTerminalLogRows.slice(-250),
+        [visibleTerminalLogRows, revealAllLogs]
     );
 
     const visibleTerminalLogText = useMemo(
@@ -1073,9 +1213,34 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
         return [...rawSegments].sort((a, b) => a.startTime - b.startTime);
     }, [fullSession?.videoSegments]);
 
+    const visualReplayPreparing = Boolean(
+        fullSession?.playbackMode === 'screenshots' &&
+        (fullSession?.screenshotFramesStatus === 'preparing' || isFramesLoading) &&
+        screenshotFrames.length === 0
+    );
+
+    const displayedFrameCount = Math.max(
+        screenshotFrames.length,
+        fullSession?.screenshotFrameCount || 0
+    );
+    const replayPreparationProgressPercent =
+        fullSession?.screenshotFramesTotalSegments && fullSession.screenshotFramesTotalSegments > 0
+            ? Math.max(
+                0,
+                Math.min(
+                    100,
+                    Math.round(
+                        ((fullSession?.screenshotFramesProcessedSegments || 0) /
+                            fullSession.screenshotFramesTotalSegments) * 100
+                    )
+                )
+            )
+            : null;
+    const secondaryDataLoading = isTimelineLoading || isHierarchyLoading || isStatsLoading;
+
     // Determine playback mode
     const playbackMode = useMemo(() => {
-        if (fullSession?.playbackMode === 'screenshots' && screenshotFrames.length > 0) {
+        if (fullSession?.playbackMode === 'screenshots' && (screenshotFrames.length > 0 || visualReplayPreparing)) {
             return 'screenshots' as const;
         }
         if (fullSession?.playbackMode === 'video' && videoSegments.length > 0) {
@@ -1088,10 +1253,10 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
             return 'video' as const;
         }
         return 'none' as const;
-    }, [fullSession?.playbackMode, screenshotFrames, videoSegments]);
+    }, [fullSession?.playbackMode, screenshotFrames, videoSegments, visualReplayPreparing]);
 
     // Has any visual recording?
-    const hasRecording = playbackMode !== 'none';
+    const hasRecording = playbackMode !== 'none' || visualReplayPreparing;
 
     // Get device dimensions - try multiple fallbacks for Android compatibility
     // Android may not always have deviceInfo.screenWidth/Height or hierarchy snapshots
@@ -1665,8 +1830,20 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
     // ========================================================================
 
     // Loading state
-    if (isLoading) {
-        return <SessionLoadingOverlay />;
+    // Show the loading overlay while ANY main component is still preparing.
+    // The overlay itself computes an exact 0-100% progress score dynamically.
+    if ((isCoreLoading && !fullSession) || visualReplayPreparing || isTimelineLoading || isHierarchyLoading) {
+        return (
+            <SessionLoadingOverlay
+                isCoreLoading={isCoreLoading}
+                isTimelineLoading={isTimelineLoading}
+                isHierarchyLoading={isHierarchyLoading}
+                isStatsLoading={isStatsLoading}
+                isFramesLoading={isFramesLoading || visualReplayPreparing}
+                framesProcessed={(fullSession as FullSession | null)?.screenshotFramesProcessedSegments}
+                framesTotal={(fullSession as FullSession | null)?.screenshotFramesTotalSegments}
+            />
+        );
     }
 
     if (!session && !fullSession) {
@@ -1871,14 +2048,20 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
 
     // Recording availability checks
     const recordingDeleted = (fullSession as any)?.recordingDeleted || session?.recordingDeleted || false;
-    const replayPromoted = (fullSession as any)?.replayPromoted || session?.replayPromoted || false;
+    const hasSuccessfulRecording =
+        (fullSession as any)?.hasSuccessfulRecording
+        ?? (session as any)?.hasSuccessfulRecording
+        ?? (fullSession as any)?.replayPromoted
+        ?? session?.replayPromoted
+        ?? false;
     const isReplayExpired = (fullSession as any)?.isReplayExpired || session?.isReplayExpired || recordingDeleted;
     // Determine the reason why replay is unavailable (if it is)
-    const replayUnavailableReason: 'deleted' | 'not_promoted' | null =
+    const replayUnavailableReason: 'deleted' | 'no_recording_data' | null =
         recordingDeleted ? 'deleted' :
-            !replayPromoted ? 'not_promoted' :
+            !hasSuccessfulRecording ? 'no_recording_data' :
                 null;
-    const playbackDisabled = !hasRecording || isReplayExpired || Boolean(replayUnavailableReason);
+    const playbackDisabled = !hasRecording || visualReplayPreparing || isReplayExpired || Boolean(replayUnavailableReason);
+    const replayPosterUrl = id ? `/api/session/cover/${id}` : null;
     const sortedSessions = [...sessions].sort((a, b) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime());
     const currentSessionIndex = sortedSessions.findIndex((item) => item.id === id);
     const previousSessionId = currentSessionIndex > 0 ? sortedSessions[currentSessionIndex - 1]?.id : null;
@@ -2024,13 +2207,13 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
             <div className="sticky top-0 z-40 border-b border-slate-200/80 bg-white/90 backdrop-blur-md">
                 <div className="mx-auto flex w-full max-w-[1920px] flex-col gap-4 px-4 py-4 xl:flex-row xl:items-center xl:justify-between">
                     <div className="flex min-w-0 items-start gap-3">
-                        <Link
-                            to={`${pathPrefix}/sessions`}
+                        <button
+                            onClick={handleBackClick}
                             className="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-slate-300 bg-white text-slate-700 transition hover:border-slate-900 hover:text-slate-900"
                             aria-label="Back to sessions"
                         >
                             <ArrowLeft className="h-4 w-4" />
-                        </Link>
+                        </button>
 
                         <div className="min-w-0">
                             <div className="flex flex-wrap items-center gap-2">
@@ -2112,12 +2295,23 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
                                     <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-cyan-200">Replay Theater</p>
                                 </div>
                                 <div className="flex flex-wrap items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide text-slate-200">
+                                    {secondaryDataLoading ? (
+                                        <span className="rounded border border-cyan-300/30 bg-cyan-400/10 px-2 py-1 text-cyan-100">
+                                            Syncing details
+                                        </span>
+                                    ) : null}
                                     <span className="rounded border border-white/20 bg-white/10 px-2 py-1">
-                                        {playbackMode === 'video' ? `${videoSegments.length} segments` : `${screenshotFrames.length} frames`}
+                                        {playbackMode === 'video' ? `${videoSegments.length} segments` : `${displayedFrameCount} frames`}
                                     </span>
                                     <span className="rounded border border-white/20 bg-white/10 px-2 py-1">{allTimelineEvents.length} events</span>
                                     <span className="rounded border border-white/20 bg-white/10 px-2 py-1">
-                                        {playbackMode === 'screenshots' ? 'Image Replay' : playbackMode === 'video' ? 'Video Replay' : 'No Visual Replay'}
+                                        {visualReplayPreparing
+                                            ? 'Preparing Replay'
+                                            : playbackMode === 'screenshots'
+                                                ? 'Image Replay'
+                                                : playbackMode === 'video'
+                                                    ? 'Video Replay'
+                                                    : 'No Visual Replay'}
                                     </span>
                                 </div>
                             </div>
@@ -2133,9 +2327,9 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
                                             <p className="mt-2 text-xs leading-5 text-slate-600">
                                                 Visual media was removed by retention policy, but timeline events, logs, and network traces are still available.
                                             </p>
-                                        ) : replayUnavailableReason === 'not_promoted' ? (
+                                        ) : replayUnavailableReason === 'no_recording_data' ? (
                                             <p className="mt-2 text-xs leading-5 text-slate-600">
-                                                This session was not promoted for replay capture OR was lost in a bad crash. You can still inspect all telemetry.
+                                                No screenshot recording was successfully uploaded for this session. You can still inspect all telemetry.
                                             </p>
                                         ) : (
                                             <p className="mt-2 text-xs leading-5 text-slate-600">
@@ -2706,9 +2900,22 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
                                         <div className="flex items-center justify-between gap-2">
                                             <div>
                                                 <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">Runtime Console</p>
-                                                <h3 className="text-sm font-bold text-white">Logs synced to playback timestamp</h3>
+                                                <h3 className="text-sm font-bold text-white">
+                                                    {revealAllLogs ? 'Displaying all session logs' : 'Logs synced to playback timestamp'}
+                                                </h3>
                                             </div>
                                             <div className="flex items-center gap-2">
+                                                <button
+                                                    onClick={() => setRevealAllLogs(!revealAllLogs)}
+                                                    className={`flex h-8 items-center gap-1.5 rounded-lg border px-2 text-[11px] font-semibold transition ${revealAllLogs
+                                                        ? 'border-cyan-500 bg-cyan-600 text-white'
+                                                        : 'border-slate-600 bg-slate-900 text-slate-200 hover:border-slate-400'
+                                                        }`}
+                                                    title={revealAllLogs ? 'Sync to playback' : 'Reveal all logs in session'}
+                                                >
+                                                    {revealAllLogs ? <Zap className="h-3.5 w-3.5" /> : <ListFilter className="h-3.5 w-3.5" />}
+                                                    {revealAllLogs ? 'SYNC TO PLAYBACK' : 'REVEAL ALL'}
+                                                </button>
                                                 <span className="rounded border border-slate-700 bg-slate-900 px-2 py-1 font-mono text-[10px] text-slate-300">
                                                     {terminalVisibleRows.length}/{terminalLogRows.length}
                                                 </span>

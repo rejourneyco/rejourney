@@ -76,20 +76,16 @@ Flow Index:
                      feeds canUserRecord() and billing dashboards
 
 
-[B4] Promotion Branch (Replay Visibility, NOT Billing)
+[B4] Replay Visibility Branch (Screenshot Presence, NOT Billing)
 
 ┌──────────────────────────────────────────────────────────────────────────────┐
 │                         POST /api/ingest/session/end                         │
 │                                      │                                       │
 │                                      ▼                                       │
-│                        evaluateAndPromoteSession()                           │
+│                 Replay visibility no longer mutates at session end           │
 │                                      │                                       │
-│                    ┌─────────────────┴─────────────────┐                     │
-│                    ▼                                   ▼                     │
-│           promoted = true                      promoted = false              │
-│      sessions.replay_promoted = true      sessions.replay_promoted = false  │
-│                                                                              │
-│      Redis replay_rate:* window counters throttle promotion reasons          │
+│             Session appears in replay archive iff screenshot data exists     │
+│                session_metrics.screenshot_segment_count > 0                  │
 │                                                                              │
 │                      Billing usage is unchanged here.                        │
 │            Billing was already counted in [B2] on session creation.          │
@@ -191,9 +187,7 @@ SDK screenshots
    -> incrementProjectSessionCount (+1)
    -> project_usage updated
    -> /api/ingest/segment/complete
-   -> /api/ingest/session/end
-   -> evaluateAndPromoteSession
-      ├─ promoted true  -> appears in replay archive
-      └─ promoted false -> hidden from replay archive
+   -> session_metrics.screenshot_segment_count += 1
+   -> replay archive visibility becomes true
 
-In both promotion outcomes above, billing usage remains counted.
+Billing usage remains counted independently of replay visibility.

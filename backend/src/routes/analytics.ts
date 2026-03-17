@@ -2607,7 +2607,7 @@ router.get(
                 apiTotalCount: sessionMetrics.apiTotalCount,
                 apiAvgResponseMs: sessionMetrics.apiAvgResponseMs,
                 errorCount: sessionMetrics.errorCount,
-                replayPromoted: sessions.replayPromoted,
+                screenshotSegmentCount: sessionMetrics.screenshotSegmentCount,
             })
             .from(sessions)
             .leftJoin(sessionMetrics, eq(sessions.id, sessionMetrics.sessionId))
@@ -2704,7 +2704,7 @@ router.get(
             const apiTotal = Number(s.apiTotalCount || 0);
             const apiLatency = Number(s.apiAvgResponseMs || 0);
             const duration = Number(s.durationSeconds || 0);
-            const hasReplay = Boolean(s.replayPromoted);
+            const hasReplay = Number(s.screenshotSegmentCount || 0) > 0;
             const hasError = crashes > 0 || anrs > 0 || apiErrors > 0;
 
             // Time to failure metrics
@@ -3482,7 +3482,6 @@ router.get(
                 deviceId: sessions.deviceId,
                 appVersion: sessions.appVersion,
                 platform: sessions.platform,
-                replayPromoted: sessions.replayPromoted,
                 crashCount: sessionMetrics.crashCount,
                 anrCount: sessionMetrics.anrCount,
                 errorCount: sessionMetrics.errorCount,
@@ -3562,7 +3561,7 @@ router.get(
 
         const toNumber = (value: number | null | undefined): number => Number(value || 0);
         const hasVisualReplay = (row: typeof sessionsWithMetrics[number]): boolean =>
-            Boolean(row.replayPromoted || toNumber(row.screenshotSegmentCount) > 0);
+            toNumber(row.screenshotSegmentCount) > 0;
 
         let crashFreeSessions = 0;
         let anrFreeSessions = 0;
