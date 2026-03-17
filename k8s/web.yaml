@@ -76,11 +76,11 @@ spec:
                   optional: true
           resources:
             requests:
-              cpu: 50m
-              memory: 192Mi
+              cpu: 100m
+              memory: 256Mi
             limits:
-              cpu: 300m
-              memory: 320Mi
+              cpu: 500m
+              memory: 512Mi
           livenessProbe:
             httpGet:
               path: /

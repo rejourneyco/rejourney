@@ -227,12 +227,13 @@ function buildBackedUpFilterClause() {
         )`;
 }
 
-async function withRetry(fn, label) {
+async function withRetry(fn, label, options = {}) {
+  const shouldRetry = options.shouldRetry || (() => true);
   for (let attempt = 1; attempt <= config.maxRetries; attempt++) {
     try {
       return await fn();
     } catch (err) {
-      if (attempt === config.maxRetries) throw err;
+      if (attempt === config.maxRetries || !shouldRetry(err)) throw err;
       const delayMs = 1000 * Math.pow(2, attempt - 1);
       warn(`${label}: attempt ${attempt}/${config.maxRetries} failed (${err.message}), retrying in ${delayMs}ms`);
       await new Promise((r) => setTimeout(r, delayMs));
@@ -912,10 +913,14 @@ async function processSession(session) {
         let repairStatus = 'unchanged';
         let backupFormat = 'mirrored_source';
         let backupFrameCount = artifact.frameCount;
-        await withRetry(async () => {
-          await downloadSourceArtifact(artifact.s3ObjectKey, tempPath);
-          sourceSize = await verifyDownload(tempPath, artifactLabel);
-        }, `download ${artifactLabel}`);
+        await withRetry(
+          async () => {
+            await downloadSourceArtifact(artifact.s3ObjectKey, tempPath);
+            sourceSize = await verifyDownload(tempPath, artifactLabel);
+          },
+          `download ${artifactLabel}`,
+          { shouldRetry: (error) => !isSourceNotFound(error) },
+        );
 
         const repairResult = await maybeRepairLegacyHierarchyArtifact(tempPath, artifact, artifactLabel);
         sourceSize = repairResult.sizeBytes;

@@ -123,7 +123,7 @@ export default function PrivacyPolicy() {
 
                             <h3 id="retention" className="text-base font-semibold mt-6 mb-2">6. Data Retention</h3>
                             <p>
-                                <strong>Session Replays:</strong> Automatically deleted after 7 days.
+                                <strong>Session Replays:</strong> Automatically deleted after 7 days on free plan, otherwise retained for the duration detailed in your subscription.
                             </p>
                             <p>
                                 <strong>Metadata & Analytics:</strong> Retained for the duration of your subscription to provide historical insights.

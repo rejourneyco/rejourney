@@ -31,8 +31,15 @@ function loadClarityScript(): void {
 
 export function ClarityConsentBanner() {
     const [consentState, setConsentState] = useState<ConsentState>("loading");
+    const [isEmbedded, setIsEmbedded] = useState(false);
 
     useEffect(() => {
+        // Don't show consent banner when embedded in iframe (e.g. demo on landing page)
+        // to avoid duplicate banners; parent page handles consent
+        if (typeof window !== "undefined" && window.self !== window.top) {
+            setIsEmbedded(true);
+        }
+
         const storedValue = window.localStorage.getItem(CONSENT_STORAGE_KEY);
 
         if (storedValue === "accepted") {
@@ -60,7 +67,7 @@ export function ClarityConsentBanner() {
         setConsentState("rejected");
     };
 
-    if (consentState !== "pending") {
+    if (isEmbedded || consentState !== "pending") {
         return null;
     }
 

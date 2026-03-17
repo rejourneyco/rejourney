@@ -48,13 +48,13 @@ spec:
           image: postgres:18-alpine
           args:
             - -c
-            - shared_buffers=128MB
+            - shared_buffers=256MB
             - -c
-            - effective_cache_size=256MB
+            - effective_cache_size=1GB
             - -c
-            - work_mem=2MB
+            - work_mem=4MB
             - -c
-            - maintenance_work_mem=32MB
+            - maintenance_work_mem=128MB
           ports:
             - containerPort: 5432
           env:
@@ -77,11 +77,11 @@ spec:
               value: /var/lib/postgresql/data/pgdata
           resources:
             requests:
-              cpu: 100m
-              memory: 384Mi
-            limits:
-              cpu: 500m
+              cpu: 250m
               memory: 512Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
           volumeMounts:
             - name: postgres-data
               mountPath: /var/lib/postgresql/data
