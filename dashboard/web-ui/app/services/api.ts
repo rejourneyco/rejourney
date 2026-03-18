@@ -115,7 +115,8 @@ async function fetchJson<T>(endpoint: string, options: RequestInit = {}): Promis
 
 // Cache for API responses
 const cache = new Map<string, { data: any; timestamp: number }>();
-const CACHE_TTL = 30000; // 30 seconds
+const CACHE_TTL = 60000; // 60 seconds - helps tab switching feel instant when returning
+const WORKSPACE_CACHE_TTL = 120000; // 2 minutes - workspace rarely changes
 
 /**
  * Fetch with caching and error handling
@@ -123,13 +124,15 @@ const CACHE_TTL = 30000; // 30 seconds
 async function fetchWithCache<T>(
   endpoint: string,
   options: RequestInit = {},
-  cacheKey?: string
+  cacheKey?: string,
+  ttlMs?: number
 ): Promise<T> {
   const key = cacheKey || endpoint;
+  const ttl = ttlMs ?? CACHE_TTL;
 
   // Check cache
   const cached = cache.get(key);
-  if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
+  if (cached && Date.now() - cached.timestamp < ttl) {
     return cached.data as T;
   }
 
@@ -817,8 +820,8 @@ export async function getProjects(): Promise<ApiProject[]> {
 /**
  * Get available custom events and metadata for a project
  */
-export async function getAvailableFilters(projectId: string): Promise<{ events: string[]; metadata: Record<string, string[]> }> {
-  return fetchJson<{ events: string[]; metadata: Record<string, string[]> }>(`/api/projects/${projectId}/available-filters`);
+export async function getAvailableFilters(projectId: string): Promise<{ events: string[]; eventPropertyKeys: string[]; metadata: Record<string, string[]> }> {
+  return fetchJson<{ events: string[]; eventPropertyKeys: string[]; metadata: Record<string, string[]> }>(`/api/projects/${projectId}/available-filters`);
 }
 
 /**
@@ -1761,7 +1764,7 @@ export async function getIssues(projectId: string, timeRange: string = '30d', se
   if (searchQuery) params.set('search', searchQuery);
   if (issueType) params.set('type', issueType);
 
-  return fetchJson<{ issues: Issue[], stats: any, total: number }>(`/api/general?${params.toString()}`);
+  return fetchWithCache<{ issues: Issue[], stats: any, total: number }>(`/api/general?${params.toString()}`);
 }
 
 /**
@@ -2840,6 +2843,7 @@ export interface WorkspaceState {
 
 /**
  * Get workspace state (tabs, active tab, recently closed)
+ * Uses longer cache (2 min) since workspace rarely changes - avoids slow loads when switching tabs.
  */
 export async function getWorkspace(
   teamId: string,
@@ -2847,11 +2851,13 @@ export async function getWorkspace(
   workspaceKey: string = 'default'
 ): Promise<WorkspaceState> {
   const params = new URLSearchParams({ teamId, projectId, key: workspaceKey });
-  return fetchJson<WorkspaceState>(`/api/workspace?${params.toString()}`);
+  const endpoint = `/api/workspace?${params.toString()}`;
+  return fetchWithCache<WorkspaceState>(endpoint, {}, endpoint, WORKSPACE_CACHE_TTL);
 }
 
 /**
  * Save workspace state (tabs, active tab, recently closed)
+ * Clears workspace cache so next load gets fresh data.
  */
 export async function saveWorkspace(
   teamId: string,
@@ -2872,6 +2878,9 @@ export async function saveWorkspace(
       workspaceKey,
     }),
   });
+  // Invalidate workspace cache so next getWorkspace returns fresh data
+  const params = new URLSearchParams({ teamId, projectId, key: workspaceKey });
+  clearCache(`/api/workspace?${params.toString()}`);
 }
 
 /**

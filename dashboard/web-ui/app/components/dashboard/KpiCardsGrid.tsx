@@ -389,7 +389,7 @@ export const KpiCardsGrid: React.FC<KpiCardsGridProps> = ({
                     const deltaLabel = card.delta?.label ?? comparisonLabel;
 
                     return (
-                        <NeoCard key={card.id} className="bg-white">
+                        <NeoCard key={card.id} className="bg-white !px-6 !pt-4 !pb-4">
                             <div className="flex items-start justify-between gap-2">
                                 <div className="text-xs font-medium text-slate-500">
                                     {card.label}

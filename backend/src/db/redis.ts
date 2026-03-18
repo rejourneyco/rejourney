@@ -296,6 +296,64 @@ export async function setSessionLimitCache(
 }
 
 /**
+ * Workspace cache - speeds up tab switching by avoiding DB hit on every workspace load
+ * Key: workspace:{userId}:{teamId}:{projectId}:{workspaceKey}
+ * TTL: 2 minutes; invalidated on save
+ */
+const WORKSPACE_CACHE_TTL_SECONDS = 120;
+
+function workspaceCacheKey(userId: string, teamId: string, projectId: string, workspaceKey: string): string {
+    return `workspace:${userId}:${teamId}:${projectId}:${workspaceKey}`;
+}
+
+export async function getWorkspaceCache(
+    userId: string,
+    teamId: string,
+    projectId: string,
+    workspaceKey: string
+): Promise<string | null> {
+    const redisClient = getRedis();
+    const key = workspaceCacheKey(userId, teamId, projectId, workspaceKey);
+    try {
+        return await redisClient.get(key);
+    } catch (err) {
+        logger.warn({ err, userId, teamId }, 'Failed to get workspace cache');
+        return null;
+    }
+}
+
+export async function setWorkspaceCache(
+    userId: string,
+    teamId: string,
+    projectId: string,
+    workspaceKey: string,
+    payload: string
+): Promise<void> {
+    const redisClient = getRedis();
+    const key = workspaceCacheKey(userId, teamId, projectId, workspaceKey);
+    try {
+        await redisClient.setex(key, WORKSPACE_CACHE_TTL_SECONDS, payload);
+    } catch (err) {
+        logger.warn({ err, userId, teamId }, 'Failed to set workspace cache');
+    }
+}
+
+export async function invalidateWorkspaceCache(
+    userId: string,
+    teamId: string,
+    projectId: string,
+    workspaceKey: string = 'default'
+): Promise<void> {
+    const redisClient = getRedis();
+    const key = workspaceCacheKey(userId, teamId, projectId, workspaceKey);
+    try {
+        await redisClient.del(key);
+    } catch (err) {
+        logger.warn({ err, userId, teamId }, 'Failed to invalidate workspace cache');
+    }
+}
+
+/**
  * Invalidate team session limit cache (call after billing updates or session count changes)
  */
 export async function invalidateSessionLimitCache(

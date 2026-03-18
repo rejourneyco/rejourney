@@ -665,6 +665,17 @@ router.get(
 
         const availableEvents = Array.isArray(eventsQuery) ? eventsQuery.map((row: any) => row.event_name as string).filter(Boolean) : (eventsQuery as any).rows?.map((row: any) => row.event_name as string).filter(Boolean) || [];
 
+        // Query distinct event property keys (from events[].properties)
+        const eventPropsQuery = await db.execute(sql`
+            SELECT DISTINCT kv.key as prop_key
+            FROM ${sessions},
+                 jsonb_array_elements(events) as elem,
+                 jsonb_each(COALESCE(elem->'properties', '{}'::jsonb)) as kv(key, value)
+            WHERE project_id = ${projectId}
+            LIMIT 500
+        `);
+        const eventPropertyKeys = Array.isArray(eventPropsQuery) ? eventPropsQuery.map((row: any) => row.prop_key as string).filter(Boolean) : (eventPropsQuery as any).rows?.map((row: any) => row.prop_key as string).filter(Boolean) || [];
+
         // Group metadata values by key
         const availableMetadata: Record<string, string[]> = {};
         const metaRows = Array.isArray(metadataQuery) ? metadataQuery : (metadataQuery as any).rows || [];
@@ -679,6 +690,7 @@ router.get(
 
         res.json({
             events: availableEvents,
+            eventPropertyKeys,
             metadata: availableMetadata
         });
     })

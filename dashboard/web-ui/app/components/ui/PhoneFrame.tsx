@@ -27,11 +27,11 @@ export const PhoneFrame: React.FC<PhoneFrameProps> = ({
         <div className={`relative inline-block ${className}`} style={{ width, height }}>
             {/* Outer frame (dark bezel) */}
             <div
-                className="absolute inset-0 rounded-[2rem] bg-slate-900 shadow-xl"
+                className="absolute inset-0 rounded-[1.25rem] bg-slate-900 shadow-xl"
                 style={{ padding: 4 * scale }}
             >
                 {/* Screen area */}
-                <div className="w-full h-full bg-black rounded-[1.75rem] overflow-hidden relative">
+                <div className="w-full h-full bg-black rounded-[1.1rem] overflow-hidden relative">
                     {/* Dynamic Island notch */}
                     <div
                         className="absolute top-2 left-1/2 -translate-x-1/2 bg-black rounded-full z-20 flex items-center justify-center"
