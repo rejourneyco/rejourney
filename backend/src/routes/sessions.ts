@@ -1457,11 +1457,11 @@ router.get(
             }, '[sessions] Screenshot frames extraction result');
             if (framesResult && framesResult.frames.length > 0) {
                 // Use proxy URLs instead of direct S3 URLs to avoid CSP issues
-                // Frontend will fetch via /api/sessions/:sessionId/frame/:timestamp
+                // Frontend will fetch via the archive-backed frame extractor route.
                 screenshotFrames = framesResult.frames.map(f => ({
                     timestamp: f.timestamp,
                     // Use relative URL that will be resolved by the API base URL
-                    url: `/api/sessions/${session.id}/frame/${f.timestamp}`,
+                    url: `/api/session/frame/${session.id}/${f.timestamp}`,
                     index: f.index,
                 }));
             }

@@ -517,7 +517,8 @@ async function buildFrameResponses(
     if (urlMode === 'proxy') {
         return frames.map((f) => ({
             timestamp: f.timestamp,
-            url: `/api/sessions/${sessionId}/frame/${f.timestamp}`,
+            // Use the archive-backed extractor route; individual frame JPEGs are no longer uploaded to S3.
+            url: `/api/session/frame/${sessionId}/${f.timestamp}`,
             index: f.index,
         }));
     }
