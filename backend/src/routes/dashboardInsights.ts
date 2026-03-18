@@ -15,7 +15,7 @@ import { sessionAuth } from '../middleware/auth.js';
 
 const router = Router();
 const redis = getRedis();
-const CACHE_TTL = 180; // 3 minutes for insights
+const CACHE_TTL = 300; // 5 minutes - matches analytics, reduces cold cache on tab switch
 
 /**
  * Returns the last date (YYYY-MM-DD) for which daily rollups are guaranteed

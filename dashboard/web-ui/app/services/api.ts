@@ -1746,7 +1746,9 @@ export async function getInsightsTrends(projectId?: string, timeRange?: string):
   const params = new URLSearchParams();
   if (projectId) params.set('projectId', projectId);
   if (timeRange) params.set('timeRange', timeRange);
-  return fetchWithCache<InsightsTrends>(`/api/insights/trends?${params.toString()}`);
+  const endpoint = `/api/insights/trends?${params.toString()}`;
+  // 2 min cache - KPI cards depend on this, keep warm for snappy tab switching
+  return fetchWithCache<InsightsTrends>(endpoint, {}, endpoint, 120000);
 }
 
 /**

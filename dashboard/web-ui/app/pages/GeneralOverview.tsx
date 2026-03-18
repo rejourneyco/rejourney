@@ -641,8 +641,24 @@ export const GeneralOverview: React.FC = () => {
 
         const obsRange = toObservabilityRange(timeRange);
 
+        // Phase 1: Load trends first (uses pre-aggregated appDailyStats, fast + Redis cached)
+        // KPI cards render as soon as trends arrives instead of waiting for all 7 endpoints
+        api.getInsightsTrends(selectedProject.id, timeRange)
+            .then((trendData) => {
+                if (isCancelled) return;
+                setTrends(trendData);
+                setIsLoading(false);
+            })
+            .catch(() => {
+                if (!isCancelled) {
+                    setTrends(null);
+                    setPartialError('Activity trends unavailable.');
+                    setIsLoading(false);
+                }
+            });
+
+        // Phase 2: Load heavier endpoints in parallel (don't block KPI render)
         Promise.allSettled([
-            api.getInsightsTrends(selectedProject.id, timeRange),
             getGrowthObservability(selectedProject.id, obsRange),
             getObservabilityDeepMetrics(selectedProject.id, obsRange),
             getUserEngagementTrends(selectedProject.id, obsRange),
@@ -653,68 +669,60 @@ export const GeneralOverview: React.FC = () => {
                 timeRange,
                 limit: 120,
             }),
-        ])
-            .then(([trendData, obsData, deepData, engagementData, geoData, issueData, replayData]) => {
-                if (isCancelled) return;
+        ]).then(([obsData, deepData, engagementData, geoData, issueData, replayData]) => {
+            if (isCancelled) return;
 
-                const failedSections: string[] = [];
+            const failedSections: string[] = [];
 
-                if (trendData.status === 'fulfilled') {
-                    setTrends(trendData.value);
-                } else {
-                    failedSections.push('activity trends');
-                    setTrends(null);
-                }
+            if (obsData.status === 'fulfilled') {
+                setOverviewObs(obsData.value);
+            } else {
+                failedSections.push('observability');
+                setOverviewObs(null);
+            }
 
-                if (obsData.status === 'fulfilled') {
-                    setOverviewObs(obsData.value);
-                } else {
-                    failedSections.push('observability');
-                    setOverviewObs(null);
-                }
+            if (deepData.status === 'fulfilled') {
+                setDeepMetrics(deepData.value);
+            } else {
+                failedSections.push('deep metrics');
+                setDeepMetrics(null);
+            }
 
-                if (deepData.status === 'fulfilled') {
-                    setDeepMetrics(deepData.value);
-                } else {
-                    failedSections.push('deep metrics');
-                    setDeepMetrics(null);
-                }
+            if (engagementData.status === 'fulfilled') {
+                setEngagementTrends(engagementData.value);
+            } else {
+                failedSections.push('engagement segments');
+                setEngagementTrends(null);
+            }
 
-                if (engagementData.status === 'fulfilled') {
-                    setEngagementTrends(engagementData.value);
-                } else {
-                    failedSections.push('engagement segments');
-                    setEngagementTrends(null);
-                }
+            if (geoData.status === 'fulfilled') {
+                setGeoSummary(geoData.value);
+            } else {
+                failedSections.push('geographic activity');
+                setGeoSummary(null);
+            }
 
-                if (geoData.status === 'fulfilled') {
-                    setGeoSummary(geoData.value);
-                } else {
-                    failedSections.push('geographic activity');
-                    setGeoSummary(null);
-                }
+            if (issueData.status === 'fulfilled') {
+                setIssues(issueData.value.issues || []);
+            } else {
+                failedSections.push('top issues');
+                setIssues([]);
+            }
 
-                if (issueData.status === 'fulfilled') {
-                    setIssues(issueData.value.issues || []);
-                } else {
-                    failedSections.push('top issues');
-                    setIssues([]);
-                }
+            if (replayData.status === 'fulfilled') {
+                setSessions((replayData.value.sessions || []) as RecordingSession[]);
+            } else {
+                failedSections.push('recommended sessions');
+                setSessions([]);
+            }
 
-                if (replayData.status === 'fulfilled') {
-                    setSessions((replayData.value.sessions || []) as RecordingSession[]);
-                } else {
-                    failedSections.push('recommended sessions');
-                    setSessions([]);
-                }
-
-                if (failedSections.length > 0) {
-                    setPartialError(`Some general widgets are unavailable (${failedSections.join(', ')}).`);
-                }
-            })
-            .finally(() => {
-                if (!isCancelled) setIsLoading(false);
-            });
+            if (failedSections.length > 0) {
+                setPartialError((prev) => {
+                    const msg = `Some widgets unavailable (${failedSections.join(', ')}).`;
+                    return prev ? `${prev} ${msg}` : msg;
+                });
+            }
+        });
 
         return () => {
             isCancelled = true;
