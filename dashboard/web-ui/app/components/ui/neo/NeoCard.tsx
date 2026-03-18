@@ -18,7 +18,7 @@ export const NeoCard: React.FC<NeoCardProps> = ({
     disablePadding = false,
     ...props
 }) => {
-    const baseStyles = "transition-all duration-200 rounded-xl";
+    const baseStyles = "transition-all duration-200 rounded-lg";
     const variants = {
         default: "dashboard-card-surface hover:shadow-sm",
         flat: "dashboard-card-surface shadow-none bg-white",
@@ -29,7 +29,7 @@ export const NeoCard: React.FC<NeoCardProps> = ({
         return (
             <div className={`${baseStyles} ${variants.monitor} ${className}`} {...props}>
                 {/* Monitor Screen Effect - Modernized */}
-                <div className="bg-white border border-slate-700 h-full relative overflow-hidden shadow-inner rounded-xl">
+                <div className="bg-white border border-slate-700 h-full relative overflow-hidden shadow-inner rounded-lg">
                     {children}
                 </div>
                 {/* Monitor Base - Subtle */}

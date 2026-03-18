@@ -43,7 +43,6 @@ import { api } from '../../services/api';
 import DOMInspector, { HierarchySnapshot } from '../../components/ui/DOMInspector';
 import { TouchOverlay, TouchEvent } from '../../components/ui/TouchOverlay';
 import { MarkerTooltip } from '../../components/ui/MarkerTooltip';
-import { VideoReplayPlayer, VideoReplayPlayerRef } from '../../components/ui/VideoReplayPlayer';
 import { SessionLoadingOverlay, SessionLoadingOverlayProps } from '../../components/recordings/SessionLoadingOverlay';
 import { formatGeoDisplay } from '../../utils/geoDisplay';
 
@@ -92,8 +91,8 @@ interface FullSession {
     id: string;
     userId: string;
     hasRecording?: boolean;
-    /** 'screenshots' | 'video' | 'none' - determines playback mode */
-    playbackMode?: 'screenshots' | 'video' | 'none';
+    /** 'screenshots' | 'none' - determines playback mode */
+    playbackMode?: 'screenshots' | 'none';
     deviceInfo: {
         model?: string;
         systemName?: string;
@@ -132,13 +131,6 @@ interface FullSession {
     screenshotFrameCount?: number;
     screenshotFramesProcessedSegments?: number;
     screenshotFramesTotalSegments?: number;
-    /** Video segments for demo video playback */
-    videoSegments?: Array<{
-        url: string;
-        startTime: number;
-        endTime: number | null;
-        frameCount: number | null;
-    }>;
     hierarchySnapshots?: {
         timestamp: number;
         screenName: string | null;
@@ -634,7 +626,6 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
     const progressRef = useRef<HTMLDivElement>(null);
     const activityViewportRef = useRef<HTMLDivElement>(null);
     const terminalViewportRef = useRef<HTMLDivElement>(null);
-    const replayPlayerRef = useRef<VideoReplayPlayerRef | null>(null);
     const activeReplayRequestRef = useRef(0);
     const framePollTimeoutRef = useRef<number | null>(null);
 
@@ -1095,17 +1086,6 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
             }
         }
 
-        // Video segments duration (demo and legacy video sessions)
-        if (fullSession?.videoSegments && fullSession.videoSegments.length > 0) {
-            const firstSegment = fullSession.videoSegments[0];
-            const lastSegment = fullSession.videoSegments[fullSession.videoSegments.length - 1];
-            const fallbackEnd = fullSession.endTime || firstSegment.startTime;
-            const lastSegmentEnd = lastSegment.endTime || fallbackEnd;
-            if (lastSegmentEnd > firstSegment.startTime) {
-                candidates.push((lastSegmentEnd - firstSegment.startTime) / 1000);
-            }
-        }
-
         // Session end time (fallback, may include background time)
         if (fullSession?.endTime && fullSession.endTime > sessionStart) {
             let duration = (fullSession.endTime - sessionStart) / 1000;
@@ -1208,11 +1188,6 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
             .map((f, idx) => ({ ...f, index: idx }));
     }, [fullSession?.screenshotFrames, fullSession?.startTime, fullSession?.endTime]);
 
-    const videoSegments = useMemo(() => {
-        const rawSegments = fullSession?.videoSegments || [];
-        return [...rawSegments].sort((a, b) => a.startTime - b.startTime);
-    }, [fullSession?.videoSegments]);
-
     const visualReplayPreparing = Boolean(
         fullSession?.playbackMode === 'screenshots' &&
         (fullSession?.screenshotFramesStatus === 'preparing' || isFramesLoading) &&
@@ -1238,22 +1213,16 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
             : null;
     const secondaryDataLoading = isTimelineLoading || isHierarchyLoading || isStatsLoading;
 
-    // Determine playback mode
+    // Determine playback mode (screenshot-only)
     const playbackMode = useMemo(() => {
         if (fullSession?.playbackMode === 'screenshots' && (screenshotFrames.length > 0 || visualReplayPreparing)) {
             return 'screenshots' as const;
         }
-        if (fullSession?.playbackMode === 'video' && videoSegments.length > 0) {
-            return 'video' as const;
-        }
         if (screenshotFrames.length > 0) {
             return 'screenshots' as const;
         }
-        if (videoSegments.length > 0) {
-            return 'video' as const;
-        }
         return 'none' as const;
-    }, [fullSession?.playbackMode, screenshotFrames, videoSegments, visualReplayPreparing]);
+    }, [fullSession?.playbackMode, screenshotFrames, visualReplayPreparing]);
 
     // Has any visual recording?
     const hasRecording = playbackMode !== 'none' || visualReplayPreparing;
@@ -1430,19 +1399,13 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
     // Screenshot Playback Effects
     // ============================================================================
 
-    // Initialize currentPlaybackTime when screenshot mode loads
+    // Reset playback to 0:00 when switching sessions
     useEffect(() => {
-        if (playbackMode !== 'screenshots' || screenshotFrames.length === 0) return;
-        if (!fullSession?.startTime) return;
-
-        // Set initial playback time to the first frame's relative time
-        const firstFrameRelativeTime = (screenshotFrames[0].timestamp - fullSession.startTime) / 1000;
-        // Only initialize if we haven't moved from the default 0 yet
-        if (currentPlaybackTime === 0 && currentFrameIndex === 0) {
-
-            setCurrentPlaybackTime(Math.max(0, firstFrameRelativeTime));
-        }
-    }, [playbackMode, screenshotFrames, fullSession?.startTime, currentPlaybackTime, currentFrameIndex]);
+        setCurrentPlaybackTime(0);
+        setCurrentFrameIndex(0);
+        currentPlaybackTimeRef.current = 0;
+        currentFrameIndexRef.current = 0;
+    }, [id]);
 
     // Preload screenshot frames
     useEffect(() => {
@@ -1686,14 +1649,8 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
     // Seek helper used by timeline and activity interactions
     const handleSeekToTime = useCallback((time: number) => {
         const clampedTime = Math.max(0, Math.min(time, durationSeconds));
-        if (playbackMode === 'video') {
-            const sessionStartMs = fullSession?.startTime || replayBaseTime;
-            replayPlayerRef.current?.seekTo(sessionStartMs + clampedTime * 1000);
-            setCurrentPlaybackTime(clampedTime);
-            return;
-        }
         seekToScreenshotFrame(clampedTime);
-    }, [seekToScreenshotFrame, playbackMode, durationSeconds, fullSession?.startTime, replayBaseTime]);
+    }, [seekToScreenshotFrame, durationSeconds]);
 
     const formatPlaybackTime = formatPlaybackClock;
 
@@ -2061,7 +2018,6 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
             !hasSuccessfulRecording ? 'no_recording_data' :
                 null;
     const playbackDisabled = !hasRecording || visualReplayPreparing || isReplayExpired || Boolean(replayUnavailableReason);
-    const replayPosterUrl = id ? `/api/session/cover/${id}` : null;
     const sortedSessions = [...sessions].sort((a, b) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime());
     const currentSessionIndex = sortedSessions.findIndex((item) => item.id === id);
     const previousSessionId = currentSessionIndex > 0 ? sortedSessions[currentSessionIndex - 1]?.id : null;
@@ -2301,7 +2257,7 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
                                         </span>
                                     ) : null}
                                     <span className="rounded border border-white/20 bg-white/10 px-2 py-1">
-                                        {playbackMode === 'video' ? `${videoSegments.length} segments` : `${displayedFrameCount} frames`}
+                                        {displayedFrameCount} frames
                                     </span>
                                     <span className="rounded border border-white/20 bg-white/10 px-2 py-1">{allTimelineEvents.length} events</span>
                                     <span className="rounded border border-white/20 bg-white/10 px-2 py-1">
@@ -2309,9 +2265,7 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
                                             ? 'Preparing Replay'
                                             : playbackMode === 'screenshots'
                                                 ? 'Image Replay'
-                                                : playbackMode === 'video'
-                                                    ? 'Video Replay'
-                                                    : 'No Visual Replay'}
+                                                : 'No Visual Replay'}
                                     </span>
                                 </div>
                             </div>
@@ -2337,24 +2291,6 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
                                             </p>
                                         )}
                                     </div>
-                                ) : playbackMode === 'video' ? (
-                                    <div className="w-full max-w-[320px]">
-                                        <VideoReplayPlayer
-                                            ref={replayPlayerRef}
-                                            sessionId={fullSession?.id || id || 'demo-session'}
-                                            segments={videoSegments}
-                                            events={allTimelineEvents}
-                                            crashes={(fullSession as any)?.crashes || []}
-                                            anrs={(fullSession as any)?.anrs || []}
-                                            sessionStartTime={fullSession?.startTime || replayBaseTime}
-                                            sessionEndTime={fullSession?.endTime}
-                                            playableDuration={durationSeconds}
-                                            deviceWidth={deviceWidth}
-                                            deviceHeight={deviceHeight}
-                                            onTimeUpdate={(time) => setCurrentPlaybackTime(time)}
-                                            className="w-[320px] max-w-[80vw]"
-                                        />
-                                    </div>
                                 ) : (
                                     <div className="relative">
                                         <div className="absolute -top-6 left-1/2 z-10 flex -translate-x-1/2 items-center gap-1 rounded-full border border-slate-700 bg-slate-900 px-2 py-0.5 text-[10px] font-semibold text-slate-200">
@@ -2365,7 +2301,7 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
                                         <div className="relative w-[320px] max-w-[80vw] rounded-[2.8rem] border border-slate-700 bg-slate-950 p-2 shadow-[0_22px_55px_rgba(15,23,42,0.35)]">
                                             <div className="rounded-[2.3rem] bg-slate-900 p-1.5">
                                                 <div
-                                                    className="relative overflow-hidden rounded-[2rem] bg-white"
+                                                    className="relative overflow-hidden rounded-[2rem] bg-slate-900"
                                                     style={{ aspectRatio: `${deviceWidth} / ${deviceHeight}` }}
                                                 >
                                                     {platform === 'android' ? (
@@ -2377,11 +2313,21 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
                                                         </div>
                                                     )}
 
+                                                    {/* First frame as poster - shows immediately while canvas loads */}
+                                                    {screenshotFrames[0]?.url && (
+                                                        <img
+                                                            src={screenshotFrames[0].url}
+                                                            alt=""
+                                                            className="absolute inset-0 h-full w-full object-cover"
+                                                            style={{ zIndex: 0 }}
+                                                        />
+                                                    )}
                                                     <canvas
                                                         ref={canvasRef}
                                                         width={deviceWidth}
                                                         height={deviceHeight}
-                                                        className="absolute inset-0 h-full w-full bg-slate-100 object-cover"
+                                                        className="absolute inset-0 h-full w-full object-cover"
+                                                        style={{ zIndex: 1 }}
                                                     />
 
                                                     {showTouchOverlay && (
@@ -2664,16 +2610,7 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
                                     </div>
                                 </div>
                             </>
-                        ) : (
-                            <div className="border-b border-slate-200 bg-white px-4 py-4 text-sm text-slate-600">
-                                <div className="flex flex-wrap items-center justify-between gap-2">
-                                    <span>Video replay is active. Use the player controls to seek and adjust speed.</span>
-                                    <span className="rounded-md border border-slate-300 bg-slate-100 px-2 py-1 font-mono text-xs font-semibold text-slate-700">
-                                        {formatPlaybackTime(currentPlaybackTime)} / {formatPlaybackTime(effectiveDuration)}
-                                    </span>
-                                </div>
-                            </div>
-                        )}
+                        ) : null}
                     </section>
 
 

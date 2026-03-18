@@ -1578,11 +1578,8 @@ export const GeneralOverview: React.FC = () => {
                                         </tbody>
                                     </table>
                                 </div>
-                                <div className="mt-2 flex items-center justify-between">
-                                    <span className="text-[10px] text-slate-400">Week 0 = first active week for that cohort</span>
-                                    <Link to={`${pathPrefix}/analytics/journeys`} className="text-xs text-blue-600 hover:underline">
-                                        View journeys →
-                                    </Link>
+                                <div className="mt-2 text-[10px] text-slate-400">
+                                    Week 0 = first active week for that cohort
                                 </div>
                             </GA4Card>
                         </div>

@@ -29,10 +29,10 @@ export const ModernPhoneFrame: React.FC<ModernPhoneFrameProps> = ({
         <div className={`relative ${config.width} ${className}`}>
             {/* Device Frame */}
             <div
-                className={`${config.height} rounded-[2rem] bg-black ${config.bezel} relative overflow-hidden shadow-lg ring-1 ring-black/20 transition-all duration-300 ease-out hover:shadow-xl`}
+                className={`${config.height} rounded-[1.25rem] bg-black ${config.bezel} relative overflow-hidden shadow-lg ring-1 ring-black/20 transition-all duration-300 ease-out hover:shadow-xl`}
             >
                 {/* Screen Container */}
-                <div className="relative w-full h-full rounded-[1.7rem] overflow-hidden bg-white">
+                <div className="relative w-full h-full rounded-[1.1rem] overflow-hidden bg-white">
                     {/* Dynamic Island / Notch */}
                     <div 
                         className="absolute top-2 left-1/2 -translate-x-1/2 bg-black rounded-full z-20 pointer-events-none" 

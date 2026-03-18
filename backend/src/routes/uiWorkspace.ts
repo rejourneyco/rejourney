@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { and, eq } from 'drizzle-orm';
 import { v4 as uuidv4 } from 'uuid';
 import { db, teamMembers, uiWorkspaces, projects } from '../db/client.js';
+import { getWorkspaceCache, setWorkspaceCache, invalidateWorkspaceCache } from '../db/redis.js';
 import { sessionAuth, asyncHandler, ApiError } from '../middleware/index.js';
 import { validate } from '../middleware/validation.js';
 import { writeApiRateLimiter } from '../middleware/rateLimit.js';
@@ -87,8 +88,16 @@ router.get(
     validate(workspaceQuerySchema, 'query'),
     asyncHandler(async (req, res) => {
         const { teamId, projectId, key = 'default' } = req.query as any;
+        const workspaceKey = key || 'default';
         await assertTeamAccess(teamId, req.user!.id);
         await assertProjectAccess(projectId, teamId);
+
+        // Try Redis cache first - avoids DB hit on tab switch
+        const cached = await getWorkspaceCache(req.user!.id, teamId, projectId, workspaceKey);
+        if (cached) {
+            res.setHeader('Content-Type', 'application/json');
+            return res.send(cached);
+        }
 
         const [workspace] = await db
             .select()
@@ -98,27 +107,23 @@ router.get(
                     eq(uiWorkspaces.userId, req.user!.id),
                     eq(uiWorkspaces.teamId, teamId),
                     eq(uiWorkspaces.projectId, projectId),
-                    eq(uiWorkspaces.workspaceKey, key || 'default')
+                    eq(uiWorkspaces.workspaceKey, workspaceKey)
                 )
             )
             .limit(1);
 
-        if (!workspace) {
-            res.json({
-                tabs: [],
-                activeTabId: null,
-                recentlyClosed: [],
-                workspaceKey: key || 'default',
-            });
-            return;
-        }
+        const payload = !workspace
+            ? { tabs: [], activeTabId: null, recentlyClosed: [], workspaceKey }
+            : {
+                  tabs: normalizeTabs(workspace.tabs as any[]),
+                  activeTabId: normalizeWorkspaceTabId(workspace.activeTabId),
+                  recentlyClosed: normalizeTabs(workspace.recentlyClosed as any[]),
+                  workspaceKey: workspace.workspaceKey,
+              };
 
-        res.json({
-            tabs: normalizeTabs(workspace.tabs as any[]),
-            activeTabId: normalizeWorkspaceTabId(workspace.activeTabId),
-            recentlyClosed: normalizeTabs(workspace.recentlyClosed as any[]),
-            workspaceKey: workspace.workspaceKey,
-        });
+        const json = JSON.stringify(payload);
+        await setWorkspaceCache(req.user!.id, teamId, projectId, workspaceKey, json);
+        return res.json(payload);
     })
 );
 
@@ -154,6 +159,7 @@ router.put(
                 set: payload,
             });
 
+        await invalidateWorkspaceCache(req.user!.id, body.teamId, body.projectId, body.workspaceKey || 'default');
         res.json({ ok: true, workspace: payload });
     })
 );
@@ -222,6 +228,7 @@ router.post(
                 },
             });
 
+        await invalidateWorkspaceCache(req.user!.id, body.teamId, body.projectId, body.workspaceKey || 'default');
         res.json({ ok: true, tab: tabToRestore });
     })
 );
@@ -285,6 +292,7 @@ router.delete(
                 },
             });
 
+        await invalidateWorkspaceCache(req.user!.id, teamId, projectId, key || 'default');
         res.json({ ok: true, tabs: remainingTabs, activeTabId: newActive, recentlyClosed: newRecentlyClosed });
     })
 );
@@ -341,6 +349,7 @@ router.post(
                 },
             });
 
+        await invalidateWorkspaceCache(req.user!.id, body.teamId, body.projectId, body.workspaceKey || 'default');
         res.json({ ok: true, tabs: newOrder });
     })
 );
