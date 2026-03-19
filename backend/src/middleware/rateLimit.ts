@@ -9,6 +9,17 @@ import { checkRateLimit, isRedisConnected, getRedis } from '../db/redis.js';
 import { rateLimits } from '../config.js';
 import { logger } from '../logger.js';
 
+/**
+ * ioredis uses "reconnecting" (and "connect") after idle drops or network blips.
+ * Treating only ready|connecting as usable caused 503 on all dashboard routes until
+ * reconnect finished — e.g. /api/projects after tab idle in k8s.
+ */
+function isRedisClientUsable(redisClient: ReturnType<typeof getRedis>): boolean {
+    if (isRedisConnected()) return true;
+    const s = redisClient.status;
+    return s === 'ready' || s === 'connecting' || s === 'connect' || s === 'reconnecting';
+}
+
 interface RateLimitOptions {
     windowMs: number;
     max: number;
@@ -30,11 +41,9 @@ export function rateLimit(options: RateLimitOptions) {
             return;
         }
 
-        // Check Redis connection status
-        // Use both the flag and the client status to be more reliable
         const redisClient = getRedis();
-        const redisReady = isRedisConnected() || redisClient.status === 'ready' || redisClient.status === 'connecting';
-        
+        const redisReady = isRedisClientUsable(redisClient);
+
         if (!redisReady) {
             if (failOpen) {
                 logger.warn('Redis unavailable, rate limit bypassed (fail-open)');
@@ -89,11 +98,12 @@ export function rateLimit(options: RateLimitOptions) {
  */
 
 // Dashboard API rate limiter (per user)
-// SECURITY: fail-closed to prevent abuse when Redis is down
+// failOpen: Redis outages or reconnect windows must not brick the authenticated dashboard
+// (same idea as dashboardStatsRateLimiter). Abuse risk is limited to logged-in users.
 export const dashboardRateLimiter = rateLimit({
     ...rateLimits.dashboard.perUser,
     keyGenerator: (req) => `rate:dash:${req.user?.id || req.ip}`,
-    failOpen: false,
+    failOpen: true,
     message: 'Too many requests. Please slow down.',
 });
 

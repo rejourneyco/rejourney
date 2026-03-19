@@ -113,6 +113,34 @@ async function fetchJson<T>(endpoint: string, options: RequestInit = {}): Promis
   return response.json() as Promise<T>;
 }
 
+/** True for errors that often clear after idle (stale connections, LB blips). */
+function isTransientApiError(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  if (err.message === 'Unauthorized') return false;
+  const msg = err.message;
+  if (/Failed to fetch|NetworkError|Load failed|network error|timed out/i.test(msg)) return true;
+  if (/^API error: 502\b|^API error: 503\b|^API error: 504\b/i.test(msg)) return true;
+  return false;
+}
+
+async function fetchJsonWithTransientRetry<T>(
+  endpoint: string,
+  options: RequestInit = {},
+  maxAttempts = 3
+): Promise<T> {
+  let last: unknown;
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    try {
+      return await fetchJson<T>(endpoint, options);
+    } catch (e) {
+      last = e;
+      if (attempt === maxAttempts - 1 || !isTransientApiError(e)) throw e;
+      await new Promise((r) => setTimeout(r, 300 * (attempt + 1)));
+    }
+  }
+  throw last;
+}
+
 // Cache for API responses
 const cache = new Map<string, { data: any; timestamp: number }>();
 const CACHE_TTL = 60000; // 60 seconds - helps tab switching feel instant when returning
@@ -811,7 +839,9 @@ export interface CreateProjectRequest {
  * Get all projects
  */
 export async function getProjects(): Promise<ApiProject[]> {
-  const data = await fetchJson<{ projects: ApiProject[] | ApiProject | undefined }>('/api/projects');
+  const data = await fetchJsonWithTransientRetry<{ projects: ApiProject[] | ApiProject | undefined }>(
+    '/api/projects'
+  );
   const projects = data.projects;
   if (!projects) return [];
   return Array.isArray(projects) ? projects : [projects];

@@ -116,10 +116,10 @@ spec:
           resources:
             requests:
               cpu: 25m
-              memory: 64Mi
+              memory: 48Mi
             limits:
               cpu: 100m
-              memory: 160Mi
+              memory: 112Mi
       volumes:
         - name: proc
           hostPath:

@@ -87,7 +87,7 @@ interface Props {
 
 export function SessionDataProvider({ children }: Props) {
   const { currentTeam, isLoading: isTeamLoading } = useSafeTeam();
-  const { isAuthenticated, isLoading: isAuthLoading } = useAuth();
+  const { isAuthenticated, isLoading: isAuthLoading, refreshUser } = useAuth();
   const demoMode = useDemoMode();
   const [sessions, setSessions] = useState<RecordingSession[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
@@ -142,6 +142,11 @@ export function SessionDataProvider({ children }: Props) {
 
   // Request guard to avoid stale responses overwriting state after team/project switches.
   const latestRequestIdRef = React.useRef(0);
+  // Last good project list — used when /api/projects fails so we do not wipe the sidebar.
+  const projectsRef = React.useRef<Project[]>([]);
+  useEffect(() => {
+    projectsRef.current = projects;
+  }, [projects]);
 
   // Fetch sessions from API (skip in demo mode)
   const fetchSessions = useCallback(async (options: { silent?: boolean } = {}) => {
@@ -176,7 +181,8 @@ export function SessionDataProvider({ children }: Props) {
 
       const apiSessions = sessionsResult.status === 'fulfilled' ? sessionsResult.value : (() => { partialErrors.push('sessions'); return []; })();
       const stats = statsResult.status === 'fulfilled' ? statsResult.value : (() => { partialErrors.push('stats'); return { totalSessions: 0, avgDuration: 0, errorRate: 0 }; })();
-      const apiProjects = projectsResult.status === 'fulfilled' ? projectsResult.value : (() => { partialErrors.push('projects'); return []; })();
+      const projectsOk = projectsResult.status === 'fulfilled';
+      const apiProjects = projectsOk ? projectsResult.value : (() => { partialErrors.push('projects'); return [] as ApiProject[]; })();
       const trends = trendsResult.status === 'fulfilled' ? trendsResult.value : (() => { partialErrors.push('trends'); return { daily: [] }; })();
 
       if (partialErrors.length > 0) {
@@ -188,13 +194,26 @@ export function SessionDataProvider({ children }: Props) {
         }
       }
 
-      // Filter projects to only those belonging to the current team
-      const teamProjects = currentTeam
-        ? apiProjects.filter(p => !p.teamId || p.teamId === currentTeam.id)
-        : apiProjects;
+      // Project list + ids for session filtering: on /api/projects failure keep last good list (sidebar stays usable).
+      let teamProjectIds: Set<string>;
+      let convertedProjects: Project[];
 
-      // Filter sessions to only those for the team's projects
-      const teamProjectIds = new Set(teamProjects.map(p => p.id));
+      if (projectsOk) {
+        const teamProjects = currentTeam
+          ? apiProjects.filter(p => !p.teamId || p.teamId === currentTeam.id)
+          : apiProjects;
+        convertedProjects = teamProjects.map(apiProjectToProject);
+        setProjects(convertedProjects);
+        teamProjectIds = new Set(convertedProjects.map(p => p.id));
+      } else {
+        const fallback = currentTeam
+          ? projectsRef.current.filter(p => !p.teamId || p.teamId === currentTeam.id)
+          : projectsRef.current;
+        convertedProjects = fallback;
+        teamProjectIds = new Set(fallback.map(p => p.id));
+      }
+
+      // Filter sessions to only those for the team's projects (use fallback ids if projects request failed)
       const filteredSessions = currentTeam
         ? apiSessions.filter(s => teamProjectIds.has((s as any).projectId || (s as any).appId))
         : apiSessions;
@@ -217,8 +236,6 @@ export function SessionDataProvider({ children }: Props) {
       setSessions(filteredSessions);
       setDailyStats(convertedDailyStats);
 
-      const convertedProjects = teamProjects.map(apiProjectToProject);
-      setProjects(convertedProjects);
       setDashboardStats({
         totalSessions: stats.totalSessions,
         avgDuration: stats.avgDuration,
@@ -226,7 +243,7 @@ export function SessionDataProvider({ children }: Props) {
       });
 
       // Auto-select project from localStorage (scoped per team) or default to first one
-      if (convertedProjects.length > 0) {
+      if (projectsOk && convertedProjects.length > 0) {
         const key = selectedProjectStorageKey(currentTeam?.id);
         const savedProjectId = localStorage.getItem(key);
         const projectToSelect = savedProjectId
@@ -234,7 +251,7 @@ export function SessionDataProvider({ children }: Props) {
           : convertedProjects[0];
         setSelectedProjectState(projectToSelect);
         localStorage.setItem(key, projectToSelect.id);
-      } else if (projectsResult.status === 'fulfilled') {
+      } else if (projectsOk && convertedProjects.length === 0) {
         // Only clear project selection if we successfully fetched and got 0 projects.
         // If the projects fetch FAILED, keep the previous selection (stale is better than wrong).
         setSelectedProjectState(null);
@@ -317,6 +334,47 @@ export function SessionDataProvider({ children }: Props) {
     }, 30000);
     return () => clearInterval(interval);
   }, []); // Empty deps - interval doesn't need to be recreated
+
+  // After idle tabs, the first request often hits a closed keep-alive connection (ingress/LB)
+  // or needs a fresh auth check. Refetch when the tab is shown again or restored from bfcache.
+  useEffect(() => {
+    if (demoMode.isDemoMode) return;
+
+    let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const runRefetch = () => {
+      if (isTeamLoading || isAuthLoading || !isAuthenticated) return;
+      clearCache();
+      void refreshUser().finally(() => {
+        fetchSessionsRef.current({ silent: true });
+      });
+    };
+
+    const scheduleRefetch = () => {
+      if (debounceTimer) clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(runRefetch, 400);
+    };
+
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        scheduleRefetch();
+      }
+    };
+
+    const onPageShow = (e: PageTransitionEvent) => {
+      if (e.persisted) {
+        scheduleRefetch();
+      }
+    };
+
+    document.addEventListener('visibilitychange', onVisibility);
+    window.addEventListener('pageshow', onPageShow);
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibility);
+      window.removeEventListener('pageshow', onPageShow);
+      if (debounceTimer) clearTimeout(debounceTimer);
+    };
+  }, [demoMode.isDemoMode, isTeamLoading, isAuthLoading, isAuthenticated, refreshUser]);
 
   // Wrapper to set selected project and persist
   const setSelectedProject = useCallback((project: Project | null) => {

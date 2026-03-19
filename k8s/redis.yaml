@@ -54,15 +54,20 @@ spec:
             - notice
             - --dir
             - /data
+            # Stay below cgroup memory limit so the kernel does not OOMKill the pod
+            - --maxmemory
+            - "580mb"
+            - --maxmemory-policy
+            - allkeys-lru
           ports:
             - containerPort: 6379
           resources:
             requests:
-              cpu: 10m
-              memory: 32Mi
+              cpu: 50m
+              memory: 192Mi
             limits:
-              cpu: 100m
-              memory: 64Mi
+              cpu: 500m
+              memory: 816Mi
           volumeMounts:
             - name: redis-data
               mountPath: /data
@@ -72,14 +77,18 @@ spec:
                 - redis-cli
                 - ping
             initialDelaySeconds: 10
-            periodSeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
           readinessProbe:
             exec:
               command:
                 - redis-cli
                 - ping
             initialDelaySeconds: 5
-            periodSeconds: 3
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
       volumes:
         - name: redis-data
           persistentVolumeClaim:
