@@ -9,6 +9,7 @@ import { eq, and, desc, asc, sql, or, ilike, gte, inArray } from 'drizzle-orm';
 import { db, issues, issueEvents, projects, teamMembers, users, errors, crashes, anrs, sessions, recordingArtifacts, sessionMetrics, apiEndpointDailyStats, screenTouchHeatmaps } from '../db/client.js';
 import { sessionAuth, asyncHandler, ApiError } from '../middleware/index.js';
 import { writeApiRateLimiter } from '../middleware/rateLimit.js';
+import { excludeInternalToolEndpointTraffic } from '../utils/internalToolEndpointFilter.js';
 
 const router = Router();
 
@@ -881,7 +882,8 @@ router.post(
                 .from(apiEndpointDailyStats)
                 .where(and(
                     eq(apiEndpointDailyStats.projectId, projectId),
-                    gte(apiEndpointDailyStats.date, recentDate)
+                    gte(apiEndpointDailyStats.date, recentDate),
+                    excludeInternalToolEndpointTraffic(apiEndpointDailyStats.endpoint),
                 ))
                 .groupBy(apiEndpointDailyStats.endpoint)
                 .having(sql`sum(${apiEndpointDailyStats.sumLatencyMs})::float / NULLIF(sum(${apiEndpointDailyStats.totalCalls}), 0) > 500 OR (sum(${apiEndpointDailyStats.totalErrors})::float / NULLIF(sum(${apiEndpointDailyStats.totalCalls}), 0)) > 0.05`);

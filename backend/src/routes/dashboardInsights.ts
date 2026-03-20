@@ -12,6 +12,8 @@ import { getRedis } from '../db/redis.js';
 import { asyncHandler, ApiError } from '../middleware/index.js';
 import { logger } from '../logger.js';
 import { sessionAuth } from '../middleware/auth.js';
+import { excludeInternalToolEndpointTraffic } from '../utils/internalToolEndpointFilter.js';
+import { boundedTimeRangeToDays } from '../utils/analyticsTimeRange.js';
 
 const router = Router();
 const redis = getRedis();
@@ -758,18 +760,14 @@ router.get(
         const normalizedTimeRange = typeof timeRange === 'string' ? timeRange : undefined;
 
         // Redis caching for fast page loads
-        const cacheKey = `insights:trends:${projectIds.sort().join(',')}:${normalizedTimeRange || '30d'}`;
+        const cacheKey = `insights:trends:${projectIds.sort().join(',')}:${normalizedTimeRange || '30d'}:v4-time-windows`;
         const cached = await redis.get(cacheKey);
         if (cached) {
             res.json(JSON.parse(cached));
             return;
         }
 
-        const days = normalizedTimeRange === '24h' ? 1
-            : normalizedTimeRange === '7d' ? 7
-                : normalizedTimeRange === '30d' ? 30
-                    : normalizedTimeRange === '90d' ? 90
-                        : undefined;
+        const days = normalizedTimeRange ? boundedTimeRangeToDays(normalizedTimeRange) : undefined;
 
         // For bounded windows fetch extra 30 days to compute MAU.
         // "all" intentionally loads the full available timeline.
@@ -868,6 +866,7 @@ router.get(
         const apiConditions = [
             inArray(apiEndpointDailyStats.projectId, projectIds),
             lte(apiEndpointDailyStats.date, lastRolledUpDate),
+            excludeInternalToolEndpointTraffic(apiEndpointDailyStats.endpoint),
         ];
         if (startStr) {
             apiConditions.push(gte(apiEndpointDailyStats.date, startStr));

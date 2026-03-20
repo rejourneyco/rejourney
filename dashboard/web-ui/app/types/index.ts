@@ -2,14 +2,15 @@ export type Plan = "free" | "paid";
 export type Platform = "ios" | "android";
 export type SessionStatus = "recording" | "processing" | "ready" | "error";
 
-// Time range options for filtering sessions and stats
-export type TimeRange = "24h" | "7d" | "30d" | "90d" | "1y" | "all";
+// Time range options for filtering sessions and stats (align with components/ui/TimeFilter)
+export type TimeRange = "24h" | "7d" | "30d" | "90d" | "180d" | "1y" | "all";
 
 export const TIME_RANGE_OPTIONS: { value: TimeRange; label: string }[] = [
   { value: "24h", label: "24h" },
   { value: "7d", label: "7d" },
   { value: "30d", label: "30d" },
   { value: "90d", label: "90d" },
+  { value: "180d", label: "180d" },
   { value: "1y", label: "1y" },
   { value: "all", label: "All time" },
 ];

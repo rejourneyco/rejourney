@@ -7,6 +7,7 @@
 
 import { eq, and, gte, sql, desc } from 'drizzle-orm';
 import { db, alertSettings, alertRecipients, alertHistory, emailLogs, projects, users, issues, apiEndpointDailyStats } from '../db/client.js';
+import { excludeInternalToolEndpointTraffic } from '../utils/internalToolEndpointFilter.js';
 import { logger } from '../logger.js';
 import { config } from '../config.js';
 import {
@@ -527,7 +528,8 @@ export async function triggerApiDegradationAlert(
             .from(apiEndpointDailyStats)
             .where(and(
                 eq(apiEndpointDailyStats.projectId, projectId),
-                eq(apiEndpointDailyStats.date, today)
+                eq(apiEndpointDailyStats.date, today),
+                excludeInternalToolEndpointTraffic(apiEndpointDailyStats.endpoint),
             ))
             .orderBy(desc(apiEndpointDailyStats.p50LatencyMs))
             .limit(5);

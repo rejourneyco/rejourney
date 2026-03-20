@@ -18,6 +18,7 @@ import { logger } from '../logger.js';
 import { pingWorker, checkQueueHealth } from '../services/monitoring.js';
 import { trackErrorAsIssue, trackCrashAsIssue, trackANRAsIssue } from '../services/issueTracker.js';
 import { getUniqueScreenCount, mergeScreenPaths, normalizeScreenPath } from '../utils/screenPaths.js';
+import { shouldExcludeNetworkEventFromProductAnalytics } from '../utils/internalToolEndpointFilter.js';
 import { invalidateFrameCache, prewarmSessionScreenshotFrames } from '../services/screenshotFrames.js';
 import { ensureHierarchyArtifactCompressed } from '../services/hierarchyArtifactCompression.js';
 
@@ -638,6 +639,14 @@ async function processEventsArtifact(job: any, session: any, metrics: any, proje
         } else if (type === 'dead_tap' || gestureType === 'dead_tap') {
             deadTapCount++;
         } else if (type === 'api_call' || type === 'network_request') {
+            if (shouldExcludeNetworkEventFromProductAnalytics(event)) {
+                continue;
+            }
+
+            const method = (event.method || 'GET').toUpperCase();
+            let url = event.url || event.endpoint || '';
+            try { url = new URL(url).pathname; } catch { /* use as-is if not valid URL */ }
+
             networkTotalCount++;
             if (event.duration && typeof event.duration === 'number') {
                 networkTotalDuration += event.duration;
@@ -650,9 +659,6 @@ async function processEventsArtifact(job: any, session: any, metrics: any, proje
                 networkErrorCount++;
             }
 
-            const method = (event.method || 'GET').toUpperCase();
-            let url = event.url || event.endpoint || '';
-            try { url = new URL(url).pathname; } catch { /* use as-is if not valid URL */ }
             if (url) {
                 const endpoint = `${method} ${url}`;
                 if (!endpointStats[endpoint]) endpointStats[endpoint] = { calls: 0, errors: 0, latencySum: 0 };

@@ -47,6 +47,8 @@ const TIMELINE_POINTS_BY_RANGE: Record<TimeRange, number> = {
   '7d': 14,
   '30d': 30,
   '90d': 45,
+  '180d': 52,
+  '1y': 60,
   all: 60,
 };
 
@@ -61,7 +63,15 @@ interface UserReplayBucket {
 }
 
 function isValidTimeRange(value: string | null): value is TimeRange {
-  return value === '24h' || value === '7d' || value === '30d' || value === '90d' || value === 'all';
+  return (
+    value === '24h' ||
+    value === '7d' ||
+    value === '30d' ||
+    value === '90d' ||
+    value === '180d' ||
+    value === '1y' ||
+    value === 'all'
+  );
 }
 
 function compactNumber(value: number): string {

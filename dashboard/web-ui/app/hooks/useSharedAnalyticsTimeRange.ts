@@ -2,7 +2,15 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { DEFAULT_TIME_RANGE, TimeRange } from '../components/ui/TimeFilter';
 
 function isTimeRange(value: string): value is TimeRange {
-    return value === '24h' || value === '7d' || value === '30d' || value === '90d' || value === 'all';
+    return (
+        value === '24h' ||
+        value === '7d' ||
+        value === '30d' ||
+        value === '90d' ||
+        value === '180d' ||
+        value === '1y' ||
+        value === 'all'
+    );
 }
 
 export function useSharedAnalyticsTimeRange(projectId?: string | null) {

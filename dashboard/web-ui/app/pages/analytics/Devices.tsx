@@ -66,6 +66,7 @@ const toTrendsRange = (value: TimeRange): string => {
     if (value === '24h') return '7d';
     if (value === '7d') return '30d';
     if (value === '30d') return '90d';
+    if (value === '90d' || value === '180d' || value === '1y') return value;
     return 'all';
 };
 

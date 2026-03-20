@@ -2,6 +2,8 @@ import React, { useEffect, useMemo, useState } from 'react';
 import {
     Activity,
     ChevronDown,
+    ChevronLeft,
+    ChevronRight,
     ChevronUp,
     Globe,
     Search,
@@ -59,6 +61,9 @@ type ReleaseMarker = {
 const ONE_DAY_MS = 24 * 60 * 60 * 1000;
 const MAX_RELEASE_MARKERS = 10;
 
+const ENDPOINT_TABLE_PAGE_SIZES = [25, 50, 100, 200] as const;
+const DEFAULT_ENDPOINT_TABLE_PAGE_SIZE = 100;
+
 const toApiRange = (value: TimeRange): string | undefined => {
     if (value === 'all') return undefined;
     return value;
@@ -66,7 +71,7 @@ const toApiRange = (value: TimeRange): string | undefined => {
 
 const toTrendsRange = (value: TimeRange): string => {
     if (value === '24h') return '7d';
-    if (value === 'all') return '90d';
+    if (value === 'all') return 'all';
     return value;
 };
 
@@ -239,6 +244,8 @@ export const ApiAnalytics: React.FC = () => {
     const [searchQuery, setSearchQuery] = useState('');
     const [sortKey, setSortKey] = useState<keyof EndpointRisk>('riskScore');
     const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
+    const [endpointTablePage, setEndpointTablePage] = useState(1);
+    const [endpointPageSize, setEndpointPageSize] = useState<number>(DEFAULT_ENDPOINT_TABLE_PAGE_SIZE);
 
     const [endpointStats, setEndpointStats] = useState<ApiEndpointStats | null>(null);
     const [regionStats, setRegionStats] = useState<RegionPerformance | null>(null);
@@ -359,6 +366,24 @@ export const ApiAnalytics: React.FC = () => {
         if (!q) return endpointRisks;
         return endpointRisks.filter((endpoint) => endpoint.endpoint.toLowerCase().includes(q));
     }, [endpointRisks, searchQuery]);
+
+    const endpointTableTotalPages = Math.max(1, Math.ceil(filteredEndpoints.length / endpointPageSize));
+    const endpointTablePageClamped = Math.min(endpointTablePage, endpointTableTotalPages);
+
+    const paginatedEndpoints = useMemo(() => {
+        const start = (endpointTablePageClamped - 1) * endpointPageSize;
+        return filteredEndpoints.slice(start, start + endpointPageSize);
+    }, [filteredEndpoints, endpointTablePageClamped, endpointPageSize]);
+
+    useEffect(() => {
+        setEndpointTablePage(1);
+    }, [searchQuery, sortKey, sortOrder, timeRange, selectedProject?.id]);
+
+    useEffect(() => {
+        if (endpointTablePage > endpointTableTotalPages) {
+            setEndpointTablePage(endpointTableTotalPages);
+        }
+    }, [endpointTablePage, endpointTableTotalPages]);
 
     const slowEndpointChart = useMemo(() => endpointStats?.slowestEndpoints?.slice(0, 6) || [], [endpointStats]);
     const errorEndpointChart = useMemo(() => endpointStats?.erroringEndpoints?.slice(0, 6) || [], [endpointStats]);
@@ -891,7 +916,18 @@ export const ApiAnalytics: React.FC = () => {
 
                         <section className="rounded-3xl border border-slate-100/80 bg-white ring-1 ring-slate-900/5 p-5 shadow-sm">
                             <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                                <h2 className="text-lg font-semibold text-slate-900">Endpoint Activity Database</h2>
+                                <div>
+                                    <h2 className="text-lg font-semibold text-slate-900">Endpoint Activity Database</h2>
+                                    {filteredEndpoints.length > endpointPageSize && (
+                                        <p className="mt-1 max-w-xl text-xs text-slate-500">
+                                            Showing {endpointPageSize} rows per page —{' '}
+                                            <span className="font-medium text-slate-600">
+                                                {filteredEndpoints.length.toLocaleString()} endpoints
+                                            </span>{' '}
+                                            in this range. Use <span className="font-medium">Rows per page</span> and the arrows under the table to see the rest.
+                                        </p>
+                                    )}
+                                </div>
                                 <div className="relative w-full md:w-[360px]">
                                     <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
                                     <input
@@ -982,23 +1018,88 @@ export const ApiAnalytics: React.FC = () => {
                                         </tr>
                                     </thead>
                                     <tbody className="divide-y divide-slate-100">
-                                        {filteredEndpoints.slice(0, 40).map((endpoint) => (
-                                            <tr key={endpoint.endpoint} className="transition-colors hover:bg-slate-50">
-                                                <td className="px-4 py-3 pr-4 font-mono text-[12px] font-semibold text-slate-900">{endpoint.endpoint}</td>
-                                                <td className="px-4 py-3 pr-4 text-right text-slate-700">{formatCompact(endpoint.totalCalls)}</td>
-                                                <td className="px-4 py-3 pr-4 text-right text-slate-700">{formatCompact(endpoint.totalErrors)}</td>
-                                                <td className={`px-4 py-3 pr-4 text-right font-semibold ${getFailRateToneClass(endpoint.errorRate)}`}>{endpoint.errorRate.toFixed(2)}%</td>
-                                                <td className={`px-4 py-3 pr-4 text-right font-semibold ${getLatencyToneClass(endpoint.avgLatencyMs)}`}>{endpoint.avgLatencyMs} ms</td>
-                                                <td className="px-4 py-3 pr-4 text-right">
-                                                    <span className={`inline-flex rounded-full border px-2 py-0.5 text-xs font-semibold ${getRiskBadgeClass(endpoint.riskScore)}`}>
-                                                        {endpoint.riskScore.toFixed(1)}
-                                                    </span>
+                                        {paginatedEndpoints.length === 0 ? (
+                                            <tr>
+                                                <td colSpan={6} className="px-4 py-8 text-center text-sm text-slate-500">
+                                                    No endpoints match your filter.
                                                 </td>
                                             </tr>
-                                        ))}
+                                        ) : (
+                                            paginatedEndpoints.map((endpoint) => (
+                                                <tr key={endpoint.endpoint} className="transition-colors hover:bg-slate-50">
+                                                    <td className="px-4 py-3 pr-4 font-mono text-[12px] font-semibold text-slate-900">{endpoint.endpoint}</td>
+                                                    <td className="px-4 py-3 pr-4 text-right text-slate-700">{formatCompact(endpoint.totalCalls)}</td>
+                                                    <td className="px-4 py-3 pr-4 text-right text-slate-700">{formatCompact(endpoint.totalErrors)}</td>
+                                                    <td className={`px-4 py-3 pr-4 text-right font-semibold ${getFailRateToneClass(endpoint.errorRate)}`}>{endpoint.errorRate.toFixed(2)}%</td>
+                                                    <td className={`px-4 py-3 pr-4 text-right font-semibold ${getLatencyToneClass(endpoint.avgLatencyMs)}`}>{endpoint.avgLatencyMs} ms</td>
+                                                    <td className="px-4 py-3 pr-4 text-right">
+                                                        <span className={`inline-flex rounded-full border px-2 py-0.5 text-xs font-semibold ${getRiskBadgeClass(endpoint.riskScore)}`}>
+                                                            {endpoint.riskScore.toFixed(1)}
+                                                        </span>
+                                                    </td>
+                                                </tr>
+                                            ))
+                                        )}
                                     </tbody>
                                 </table>
                             </div>
+
+                            {filteredEndpoints.length > 0 && (
+                                <div className="mt-4 flex flex-col gap-3 border-t border-slate-100 pt-4 sm:flex-row sm:items-center sm:justify-between">
+                                    <p className="text-sm text-slate-600">
+                                        Showing{' '}
+                                        <span className="font-semibold text-slate-900">
+                                            {(endpointTablePageClamped - 1) * endpointPageSize + 1}
+                                            –
+                                            {Math.min(endpointTablePageClamped * endpointPageSize, filteredEndpoints.length)}
+                                        </span>{' '}
+                                        of <span className="font-semibold text-slate-900">{filteredEndpoints.length.toLocaleString()}</span> endpoints
+                                    </p>
+                                    <div className="flex flex-wrap items-center gap-3">
+                                        <label className="flex items-center gap-2 text-sm text-slate-600">
+                                            <span className="whitespace-nowrap">Rows per page</span>
+                                            <select
+                                                value={endpointPageSize}
+                                                onChange={(e) => {
+                                                    const next = Number(e.target.value);
+                                                    setEndpointPageSize(next);
+                                                    setEndpointTablePage(1);
+                                                }}
+                                                className="rounded-xl border border-slate-200 bg-white px-2 py-1.5 text-sm text-slate-800 outline-none focus:border-blue-300"
+                                            >
+                                                {ENDPOINT_TABLE_PAGE_SIZES.map((n) => (
+                                                    <option key={n} value={n}>
+                                                        {n}
+                                                    </option>
+                                                ))}
+                                            </select>
+                                        </label>
+                                        <div className="flex items-center gap-1">
+                                            <button
+                                                type="button"
+                                                aria-label="Previous page"
+                                                disabled={endpointTablePageClamped <= 1}
+                                                onClick={() => setEndpointTablePage((p) => Math.max(1, p - 1))}
+                                                className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-700 transition hover:bg-slate-50 disabled:pointer-events-none disabled:opacity-40"
+                                            >
+                                                <ChevronLeft className="h-4 w-4" />
+                                            </button>
+                                            <span className="min-w-[7rem] px-2 text-center text-sm tabular-nums text-slate-700">
+                                                Page {endpointTablePageClamped} / {endpointTableTotalPages}
+                                            </span>
+                                            <button
+                                                type="button"
+                                                aria-label="Next page"
+                                                disabled={endpointTablePageClamped >= endpointTableTotalPages}
+                                                onClick={() => setEndpointTablePage((p) => Math.min(endpointTableTotalPages, p + 1))}
+                                                className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-700 transition hover:bg-slate-50 disabled:pointer-events-none disabled:opacity-40"
+                                            >
+                                                <ChevronRight className="h-4 w-4" />
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
                         </section>
                     </>
                 )}

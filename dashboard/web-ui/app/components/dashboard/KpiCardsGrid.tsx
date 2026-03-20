@@ -57,6 +57,8 @@ const WINDOW_DAYS_BY_RANGE: Record<TimeRange, number> = {
     '7d': 7,
     '30d': 30,
     '90d': 90,
+    '180d': 180,
+    '1y': 365,
     all: 30,
 };
 
@@ -65,6 +67,8 @@ export function getKpiComparisonLabel(timeRange: TimeRange): string {
     if (timeRange === '7d') return 'vs previous week';
     if (timeRange === '30d') return 'vs previous 30d';
     if (timeRange === '90d') return 'vs previous 90d';
+    if (timeRange === '180d') return 'vs previous 180d';
+    if (timeRange === '1y') return 'vs previous year';
     return 'vs previous cycle';
 }
 

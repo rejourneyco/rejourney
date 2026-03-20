@@ -14,6 +14,11 @@ import { asyncHandler, ApiError } from '../middleware/index.js';
 import { sessionAuth } from '../middleware/auth.js';
 import { writeApiRateLimiter } from '../middleware/rateLimit.js';
 import { runDailyRollup, backfillDailyStats } from '../jobs/statsAggregator.js';
+import {
+    shouldExcludeFromEndpointProductAnalytics,
+    excludeInternalToolEndpointTraffic,
+} from '../utils/internalToolEndpointFilter.js';
+import { ANALYTICS_LONG_WINDOW_DAYS, boundedTimeRangeToDays } from '../utils/analyticsTimeRange.js';
 
 const router = Router();
 const redis = getRedis();
@@ -1306,7 +1311,7 @@ router.get(
         }
 
         // Build cache key
-        const cacheKey = `analytics:latency-geo:${projectIds.sort().join(',')}:${timeRange || 'all'}`;
+        const cacheKey = `analytics:latency-geo:${projectIds.sort().join(',')}:${timeRange || 'all'}:v2-time-windows`;
         const cached = await redis.get(cacheKey);
         if (cached) {
             res.json(JSON.parse(cached));
@@ -1315,12 +1320,9 @@ router.get(
 
         // Build time filter
         let startedAfter: Date | undefined;
-        if (timeRange && timeRange !== 'all') {
-            const days = timeRange === '24h' ? 1 :
-                timeRange === '7d' ? 7 :
-                    timeRange === '30d' ? 30 :
-                        timeRange === '90d' ? 90 : undefined;
-            if (days) {
+        if (timeRange && timeRange !== 'all' && typeof timeRange === 'string') {
+            const days = boundedTimeRangeToDays(timeRange);
+            if (days !== undefined) {
                 startedAfter = new Date();
                 startedAfter.setDate(startedAfter.getDate() - days);
             }
@@ -2118,18 +2120,18 @@ router.get(
             return;
         }
 
-        const cacheKey = `analytics:api-endpoint-stats:${projectIds.sort().join(',')}:${timeRange || 'all'}`;
+        const cacheKey = `analytics:api-endpoint-stats:${projectIds.sort().join(',')}:${timeRange || 'all'}:v7-time-windows`;
         const cached = await redis.get(cacheKey);
         if (cached) {
             res.json(JSON.parse(cached));
             return;
         }
 
-        // Date filter
+        // Date filter (180d / 1y / 365d supported; unknown → full rollup history)
         let startDate: string | undefined;
-        if (timeRange) {
-            const days = timeRange === '24h' ? 1 : timeRange === '7d' ? 7 : timeRange === '30d' ? 30 : timeRange === '90d' ? 90 : undefined;
-            if (days) {
+        if (timeRange && typeof timeRange === 'string') {
+            const days = boundedTimeRangeToDays(timeRange);
+            if (days !== undefined) {
                 const d = new Date();
                 d.setDate(d.getDate() - days);
                 startDate = d.toISOString().split('T')[0];
@@ -2164,6 +2166,7 @@ router.get(
         const endpointMap: Record<string, { totalCalls: number; totalErrors: number; sumLatencyMs: number }> = {};
 
         for (const s of stats) {
+            if (shouldExcludeFromEndpointProductAnalytics(s.endpoint)) continue;
             if (!endpointMap[s.endpoint]) {
                 endpointMap[s.endpoint] = { totalCalls: 0, totalErrors: 0, sumLatencyMs: 0 };
             }
@@ -2256,17 +2259,22 @@ router.get(
         }
 
         // Cache check - v2 for rollup-based implementation
-        const cacheKey = `analytics:region-performance:${projectId}:${timeRange || '30d'}:v2`;
+        const cacheKey = `analytics:region-performance:${projectId}:${timeRange || '30d'}:v5-long-window`;
         const cached = await redis.get(cacheKey);
         if (cached) {
             res.json(JSON.parse(cached));
             return;
         }
 
-        // Time filter for rollup query
-        const days = timeRange === '7d' ? 7 :
-            timeRange === '90d' ? 90 :
-                timeRange === 'max' || timeRange === 'all' ? 365 : 30; // Default 30 days
+        // Time filter for rollup query (all/max → long cap; was 365d)
+        const tr = typeof timeRange === 'string' ? timeRange : '30d';
+        const bounded = boundedTimeRangeToDays(tr);
+        const days =
+            bounded !== undefined
+                ? bounded
+                : tr === 'all' || tr === 'max'
+                    ? ANALYTICS_LONG_WINDOW_DAYS
+                    : 30;
         const startDate = new Date();
         startDate.setDate(startDate.getDate() - days);
         const startDateStr = startDate.toISOString().split('T')[0];
@@ -2286,7 +2294,8 @@ router.get(
             .where(and(
                 eq(apiEndpointDailyStats.projectId, projectId),
                 gte(apiEndpointDailyStats.date, startDateStr),
-                lte(apiEndpointDailyStats.date, lastRolledUpDate)
+                lte(apiEndpointDailyStats.date, lastRolledUpDate),
+                excludeInternalToolEndpointTraffic(apiEndpointDailyStats.endpoint),
             ))
             .groupBy(apiEndpointDailyStats.region);
 

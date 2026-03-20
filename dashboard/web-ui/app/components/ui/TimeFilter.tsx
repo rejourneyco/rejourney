@@ -1,6 +1,6 @@
 import React from 'react';
 
-export type TimeRange = '24h' | '7d' | '30d' | '90d' | 'all';
+export type TimeRange = '24h' | '7d' | '30d' | '90d' | '180d' | '1y' | 'all';
 export const DEFAULT_TIME_RANGE: TimeRange = '30d';
 
 export const TIME_RANGE_OPTIONS: { value: TimeRange; label: string }[] = [
@@ -8,6 +8,8 @@ export const TIME_RANGE_OPTIONS: { value: TimeRange; label: string }[] = [
     { value: '7d', label: '7d' },
     { value: '30d', label: '30d' },
     { value: '90d', label: '90d' },
+    { value: '180d', label: '180d' },
+    { value: '1y', label: '1Y' },
     { value: 'all', label: 'All' },
 ];
 
