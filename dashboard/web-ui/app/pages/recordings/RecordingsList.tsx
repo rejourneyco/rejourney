@@ -735,7 +735,9 @@ export const RecordingsList: React.FC = () => {
               const hasDeadTaps = ((session as any).deadTapCount || 0) > 0;
               const geoDisplay = formatGeoDisplay((session as any).geoLocation);
 
-              const isProcessing = session.durationSeconds === 0;
+              const hasReplay = hasSuccessfulRecording(session);
+              const isProcessing = session.status === 'processing';
+              const isReplayBlocked = isProcessing && !hasReplay;
 
               const hasIssues = (session.crashCount || 0) > 0 ||
                 ((session as any).anrCount || 0) > 0 ||
@@ -752,14 +754,14 @@ export const RecordingsList: React.FC = () => {
                 >
                     {/* Visual Indicator */}
                     <td className="w-10 py-2.5 pl-4 pr-2 align-middle text-center">
-                      <div className={`w-2.5 h-2.5 rounded-sm mx-auto ${isProcessing ? 'bg-slate-400 animate-pulse' : hasIssues ? 'bg-amber-500' : 'bg-emerald-500'}`} />
+                      <div className={`w-2.5 h-2.5 rounded-sm mx-auto ${isReplayBlocked ? 'bg-slate-400 animate-pulse' : hasIssues ? 'bg-amber-500' : 'bg-emerald-500'}`} />
                     </td>
 
                     {/* User & Device */}
                     <td className="py-2.5 px-3 align-middle overflow-hidden min-w-0">
                       <div className="flex items-center gap-2 min-w-0">
                         <h3
-                          className={`font-semibold text-sm text-slate-900 font-mono truncate shrink min-w-0 ${isProcessing ? 'opacity-50' : ''}`}
+                          className={`font-semibold text-sm text-slate-900 font-mono truncate shrink min-w-0 ${isReplayBlocked ? 'opacity-50' : ''}`}
                           title={userId}
                         >
                           {displayUserId}
@@ -773,7 +775,7 @@ export const RecordingsList: React.FC = () => {
                           </button>
                         )}
                       </div>
-                      <div className={`flex items-center gap-2 text-[10px] text-slate-600 uppercase font-medium tracking-tight mt-0.5 min-w-0 overflow-hidden ${isProcessing ? 'opacity-50' : ''}`}>
+                      <div className={`flex items-center gap-2 text-[10px] text-slate-600 uppercase font-medium tracking-tight mt-0.5 min-w-0 overflow-hidden ${isReplayBlocked ? 'opacity-50' : ''}`}>
                         <span className="truncate min-w-0">{session.deviceModel || 'Unknown Device'}</span>
                         <span className="w-1 h-1 bg-slate-900"></span>
                         <span>v{session.appVersion || '?.?.?'}</span>
@@ -788,7 +790,7 @@ export const RecordingsList: React.FC = () => {
 
                     {/* Location */}
                     <td className="hidden lg:table-cell py-2.5 px-3 align-middle w-36 overflow-hidden">
-                      <div className={`leading-tight ${isProcessing ? 'opacity-50' : ''}`}>
+                      <div className={`leading-tight ${isReplayBlocked ? 'opacity-50' : ''}`}>
                         {geoDisplay.hasLocation ? (
                           <>
                             <div className="flex items-center gap-1.5 text-xs font-bold text-slate-900">
@@ -807,9 +809,13 @@ export const RecordingsList: React.FC = () => {
 
                     {/* Duration */}
                     <td className="hidden md:table-cell py-2.5 px-3 align-middle text-right w-24">
-                      {isProcessing ? (
+                      {isReplayBlocked ? (
                         <span className="text-[9px] font-semibold text-indigo-600 bg-indigo-50 border border-indigo-200 px-1 py-0.5 animate-pulse rounded-sm">
                           LIVE INGEST
+                        </span>
+                      ) : isProcessing ? (
+                        <span className="text-[9px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-1 py-0.5 rounded-sm">
+                          LIVE REPLAY
                         </span>
                       ) : (
                         <span className="text-xs font-mono font-medium text-slate-700 bg-slate-100 border border-slate-200 px-1.5 py-0.5 rounded">
@@ -859,15 +865,15 @@ export const RecordingsList: React.FC = () => {
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
-                          if (!isProcessing) {
+                          if (!isReplayBlocked) {
                             navigate(`${pathPrefix}/sessions/${session.id}`);
                           }
                         }}
-                        disabled={isProcessing}
-                        className={`inline-flex items-center justify-center p-1.5 rounded transition-colors group/play ${isProcessing ? 'cursor-not-allowed opacity-40 text-slate-300' : 'text-slate-600 hover:text-slate-900'}`}
-                        title={isProcessing ? "Session is still processing" : "Open Replay"}
+                        disabled={isReplayBlocked}
+                        className={`inline-flex items-center justify-center p-1.5 rounded transition-colors group/play ${isReplayBlocked ? 'cursor-not-allowed opacity-40 text-slate-300' : 'text-slate-600 hover:text-slate-900'}`}
+                        title={isReplayBlocked ? "Session is still processing" : isProcessing ? "Open Live Replay" : "Open Replay"}
                       >
-                        <Play size={16} className={isProcessing ? "" : "group-hover/play:fill-current"} />
+                        <Play size={16} className={isReplayBlocked ? "" : "group-hover/play:fill-current"} />
                       </button>
                     </td>
 
@@ -948,12 +954,14 @@ export const RecordingsList: React.FC = () => {
                             <NeoButton
                               variant="primary"
                               size="sm"
-                              onClick={() => !isProcessing && navigate(`${pathPrefix}/sessions/${session.id}`)}
-                              className={`w-full justify-center ${isProcessing ? 'opacity-50 cursor-not-allowed' : ''}`}
-                              disabled={isProcessing}
+                              onClick={() => !isReplayBlocked && navigate(`${pathPrefix}/sessions/${session.id}`)}
+                              className={`w-full justify-center ${isReplayBlocked ? 'opacity-50 cursor-not-allowed' : ''}`}
+                              disabled={isReplayBlocked}
                             >
-                              {isProcessing ? (
+                              {isReplayBlocked ? (
                                 <><Loader size={12} className="animate-spin mr-2" /> Live Ingesting...</>
+                              ) : isProcessing ? (
+                                <><Play size={12} fill="currentColor" className="mr-2" /> Open Live Replay</>
                               ) : (
                                 <><Play size={12} fill="currentColor" className="mr-2" /> Open Replay</>
                               )}
