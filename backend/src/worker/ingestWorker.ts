@@ -389,11 +389,26 @@ async function recoverStuckJobs(): Promise<void> {
     }
 }
 
+function startArtifactLifecycleBackfill(): void {
+    logger.info('Starting artifact lifecycle backfill in background');
+
+    void backfillArtifactDrivenLifecycleState()
+        .then(() => {
+            logger.info('Artifact lifecycle backfill completed');
+        })
+        .catch((err) => {
+            logger.error({ err }, 'Artifact lifecycle backfill failed');
+        });
+}
+
 // Start worker
 logger.info('Ingest worker started');
 recoverStuckJobs()
-    .then(() => backfillArtifactDrivenLifecycleState())
-    .then(() => pollJobs())
+    .then(() => {
+        startArtifactLifecycleBackfill();
+        logger.info('Ingest worker polling loop started');
+        return pollJobs();
+    })
     .catch((err) => {
     logger.error({ err }, 'Ingest worker fatal error');
     process.exit(1);
