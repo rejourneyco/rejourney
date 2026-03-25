@@ -67,6 +67,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: '24' 
@@ -74,6 +76,17 @@ jobs:
       - name: Install dependencies
         working-directory: ./backend
         run: npm ci --ignore-scripts
+
+      - name: Schema / Migration Guard
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            git fetch origin "${{ github.base_ref }}" --depth=1
+            bash scripts/check-schema-migration.sh --range "origin/${{ github.base_ref }}...HEAD"
+          elif [ -n "${{ github.event.before }}" ] && [ "${{ github.event.before }}" != "0000000000000000000000000000000000000000" ]; then
+            bash scripts/check-schema-migration.sh --range "${{ github.event.before }}...HEAD"
+          else
+            bash scripts/check-schema-migration.sh
+          fi
 
       - name: Lint
         working-directory: ./backend
@@ -237,82 +250,8 @@ jobs:
                git fetch origin main
                git reset --hard origin/main
              fi
-                          # Update manifests with the correct image tag
-              # Scoped replacement to ensure we only touch the images
-              sed -i "s|image: ghcr.io/${{ github.repository }}/api:.*|image: ghcr.io/${{ github.repository }}/api:${IMAGE_TAG}|g" k8s/*.yaml
-              sed -i "s|image: ghcr.io/${{ github.repository }}/web:.*|image: ghcr.io/${{ github.repository }}/web:${IMAGE_TAG}|g" k8s/*.yaml
-              sed -i "s|image: ghcr.io/${{ github.repository }}/migration:.*|image: ghcr.io/${{ github.repository }}/migration:${IMAGE_TAG}|g" k8s/*.yaml
              
-             # Delete old migration/setup jobs and WAIT for them to be fully removed
-             # --wait=true ensures the Job is completely gone before we re-apply
-             echo "🗑️ Deleting old migration jobs..."
-             kubectl delete job db-migrate db-seed db-setup -n rejourney --ignore-not-found --wait=true --timeout=60s
-             
-             # Also delete any leftover pods from previous job runs
-             kubectl delete pods -n rejourney -l job-name=db-setup --ignore-not-found --wait=true --timeout=30s || true
-             kubectl delete pods -n rejourney -l job-name=db-migrate --ignore-not-found --wait=true --timeout=30s || true
-             kubectl delete pods -n rejourney -l job-name=db-seed --ignore-not-found --wait=true --timeout=30s || true
-             
-             echo "✅ Old migration jobs cleaned up"
-
-             # Apply all manifests with pruning (removes deleted resources automatically)
-             # Uses label selector to only prune resources we manage
-             # First apply namespace (not pruned)
-             kubectl apply -f k8s/namespace.yaml
-
-             # Configure Traefik to trust Cloudflare headers for real client IP forwarding
-             # This goes to kube-system namespace, separate from the pruned apply
-             kubectl apply -f k8s/traefik-config.yaml
-
-             # Auto-install cert-manager if missing (Required for SSL)
-             if ! kubectl get namespace cert-manager &> /dev/null; then
-               echo "🔒 cert-manager not found. Installing..."
-               kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.16.2/cert-manager.yaml
-               
-               echo "⏳ Waiting for cert-manager to be ready..."
-               kubectl wait --for=condition=Available deployment/cert-manager-webhook -n cert-manager --timeout=300s
-             fi
-
-             bash scripts/k8s/check-archive-sync.sh
-
-             # Apply all other manifests with prune enabled
-             # This automatically deletes resources that are no longer in the YAML files
-             kubectl apply -f k8s/ \
-               --prune \
-               -l app.kubernetes.io/part-of=rejourney \
-               --prune-allowlist=core/v1/ConfigMap \
-               --prune-allowlist=core/v1/Service \
-               --prune-allowlist=apps/v1/Deployment \
-               --prune-allowlist=apps/v1/StatefulSet \
-               --prune-allowlist=networking.k8s.io/v1/Ingress \
-               --prune-allowlist=traefik.io/v1alpha1/Middleware \
-               --prune-allowlist=batch/v1/CronJob \
-               --prune-allowlist=batch/v1/Job
-             
-             # Wait for postgres to be ready before migration runs
-             echo "⏳ Waiting for PostgreSQL to be ready..."
-             kubectl wait --for=condition=ready pod -l app=postgres -n rejourney --timeout=120s || {
-               echo "⚠️ PostgreSQL not ready, checking status..."
-               kubectl describe pod -l app=postgres -n rejourney
-             }
-             
-             # Wait for migration job to complete before restarting services
-             # Job has init container to wait for postgres, so give it extra time
-             echo "⏳ Waiting for db-setup migration job to complete..."
-             kubectl wait --for=condition=complete job/db-setup -n rejourney --timeout=360s || {
-               echo "⚠️ Migration job did not complete in time. Checking status..."
-               kubectl describe job db-setup -n rejourney
-               kubectl logs job/db-setup -n rejourney -c wait-postgres --tail=20 || true
-               kubectl logs job/db-setup -n rejourney -c setup --tail=50 || true
-               echo "❌ Migration may have failed - proceeding with deployment but check logs!"
-             }
-             
-             # Restart deployments to force pulling latest images
-             kubectl rollout restart deployment api -n rejourney
-             kubectl rollout restart deployment web -n rejourney
-             kubectl rollout restart deployment ingest-worker -n rejourney
-             kubectl rollout restart deployment retention-worker -n rejourney
-             kubectl rollout restart deployment alert-worker -n rejourney || echo "Alert worker might be in progress..."
+             bash scripts/k8s/deploy-release.sh "${IMAGE_TAG}" "${{ github.repository }}"
              
              # Clean up old images
              echo "🧹 Cleaning up old images..."
@@ -336,9 +275,9 @@ jobs:
              echo "  → Cleaning stale debug pods..."
              kubectl get pods -n rejourney --no-headers -o custom-columns=":metadata.name" | grep "^debug-" | xargs -r kubectl delete pod -n rejourney --ignore-not-found || true
              
-             # 3. Clean up old completed jobs (keep last 3)
+             # 3. Clean up old completed job pods (keep last 3)
              echo "  → Cleaning old job pods..."
-             kubectl get pods -n rejourney -o name | grep -E 'postgres-backup-|db-setup|db-migrate|db-seed' | head -n -3 | xargs -r kubectl delete -n rejourney --ignore-not-found || true
+             kubectl get pods -n rejourney -o name | grep -E 'postgres-backup-|db-setup' | head -n -3 | xargs -r kubectl delete -n rejourney --ignore-not-found || true
              
              # 4. Clean containerd garbage (exited containers)
              echo "  → Cleaning exited containers..."

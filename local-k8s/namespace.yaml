@@ -1,0 +1,11 @@
+# Local Rejourney Kubernetes Namespace
+
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: rejourney-local
+  labels:
+    app.kubernetes.io/name: rejourney-local
+    app.kubernetes.io/part-of: rejourney
+    app.kubernetes.io/environment: local

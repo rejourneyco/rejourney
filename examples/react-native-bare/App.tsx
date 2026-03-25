@@ -20,6 +20,7 @@ import {
   TouchableOpacity,
   ScrollView,
   useColorScheme,
+  NativeModules,
 } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { NavigationContainer } from '@react-navigation/native';
@@ -27,6 +28,17 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { initRejourney, startRejourney, useNavigationTracking, Mask } from 'rejourney';
 
 const Stack = createNativeStackNavigator();
+
+function getApiUrl(): string {
+  const scriptUrl = NativeModules.SourceCode?.scriptURL;
+  const match = typeof scriptUrl === 'string' ? scriptUrl.match(/^https?:\/\/([^/:]+)/) : null;
+
+  if (match?.[1]) {
+    return `http://${match[1]}:3000`;
+  }
+
+  return 'http://127.0.0.1:3000';
+}
 
 // Home Screen
 function HomeScreen({ navigation }: any) {
@@ -155,12 +167,11 @@ function App() {
     try {
       console.log('[App] Initializing Rejourney SDK...');
       initRejourney('rj_054c62bfc50b9e1afd18bfdf8c389dc2', {
-        apiUrl: 'http://192.168.4.33:3000',
+        apiUrl: getApiUrl(),
         debug: true,
       });
 
       // Enable debug logging to see all SDK logs
-      const { NativeModules } = require('react-native');
       if (NativeModules.Rejourney) {
         NativeModules.Rejourney.setLogLevel('DEBUG', (success: boolean) => {
           if (success) {

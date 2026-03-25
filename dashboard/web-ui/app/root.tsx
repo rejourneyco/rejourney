@@ -77,6 +77,17 @@ export const meta: Route.MetaFunction = () => [
 ];
 
 export function Layout({ children }: { children: React.ReactNode }) {
+    const runtimeEnv = {
+        VITE_STRIPE_PUBLISHABLE_KEY:
+            (typeof window !== "undefined" ? window.ENV?.VITE_STRIPE_PUBLISHABLE_KEY : undefined)
+            ?? (typeof process !== "undefined" ? process.env.VITE_STRIPE_PUBLISHABLE_KEY : undefined)
+            ?? import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY,
+        VITE_MAPBOX_TOKEN:
+            (typeof window !== "undefined" ? window.ENV?.VITE_MAPBOX_TOKEN : undefined)
+            ?? (typeof process !== "undefined" ? process.env.VITE_MAPBOX_TOKEN : undefined)
+            ?? import.meta.env.VITE_MAPBOX_TOKEN,
+    };
+
     return (
         <html lang="en">
             <head>
@@ -142,10 +153,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
                 />
                 <script
                     dangerouslySetInnerHTML={{
-                        __html: `window.ENV = ${JSON.stringify({
-                            VITE_STRIPE_PUBLISHABLE_KEY: process.env.VITE_STRIPE_PUBLISHABLE_KEY,
-                            VITE_MAPBOX_TOKEN: process.env.VITE_MAPBOX_TOKEN,
-                        })}`,
+                        __html: `window.ENV = ${JSON.stringify(runtimeEnv)}`,
                     }}
                 />
                 <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer />

@@ -10,12 +10,12 @@
 import { Router } from 'express';
 import { eq, and, inArray, isNull, desc, sum } from 'drizzle-orm';
 import { db, projects, projectUsage, billingUsage, teams } from '../db/client.js';
-import { isSelfHosted } from '../config.js';
 import { getTeamBillingPeriodDates } from '../utils/billing.js';
 import { sessionAuth, requireTeamAccess, asyncHandler } from '../middleware/index.js';
 import { validate } from '../middleware/validation.js';
 import { writeApiRateLimiter } from '../middleware/rateLimit.js';
 import { teamIdParamSchema } from '../validation/teams.js';
+import { isStripeEnabled } from '../services/stripe.js';
 import { getTeamSubscription } from '../services/stripeProducts.js';
 import { getTeamSessionUsage } from '../services/quotaCheck.js';
 
@@ -141,7 +141,7 @@ router.get(
             billing: {
                 cycleStart: billingPeriod.start.toISOString(),
                 cycleEnd: billingPeriod.end.toISOString(),
-                selfHosted: isSelfHosted,
+                selfHosted: !isStripeEnabled(),
             },
             projectCount: projectIds.length,
         });

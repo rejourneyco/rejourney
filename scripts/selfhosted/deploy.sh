@@ -1,365 +1,321 @@
 #!/bin/bash
-# ============================================================
-# Rejourney Self-Hosted Deployment Script
-# ============================================================
-# Deploys Rejourney with:
-#   - Automatic HTTPS via Traefik + Let's Encrypt
-#   - Secure auto-generated passwords
-#   - No exposed internal ports
-#
-# Usage:
-#   ./scripts/selfhosted/deploy.sh          # Interactive setup
-#   ./scripts/selfhosted/deploy.sh update   # Update images
-#   ./scripts/selfhosted/deploy.sh status   # Check status
-#   ./scripts/selfhosted/deploy.sh logs     # View logs
-#   ./scripts/selfhosted/deploy.sh stop     # Stop all services
-# ============================================================
 
-set -e
+set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 COMPOSE_FILE="$ROOT_DIR/docker-compose.selfhosted.yml"
 ENV_FILE="$ROOT_DIR/.env.selfhosted"
 
-# Colors for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
-NC='\033[0m' # No Color
+NC='\033[0m'
 
 print_header() {
-    echo ""
-    echo -e "${BLUE}╔════════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${BLUE}║            REJOURNEY SELF-HOSTED DEPLOYMENT                ║${NC}"
-    echo -e "${BLUE}╚════════════════════════════════════════════════════════════╝${NC}"
-    echo ""
+  echo ""
+  echo -e "${BLUE}╔════════════════════════════════════════════════════════════╗${NC}"
+  echo -e "${BLUE}║             REJOURNEY SELF-HOSTED OPERATOR               ║${NC}"
+  echo -e "${BLUE}╚════════════════════════════════════════════════════════════╝${NC}"
+  echo ""
 }
 
-print_success() { echo -e "${GREEN}✅ $1${NC}"; }
-print_warning() { echo -e "${YELLOW}⚠️  $1${NC}"; }
-print_error() { echo -e "${RED}❌ $1${NC}"; }
-print_info() { echo -e "${BLUE}ℹ️  $1${NC}"; }
+print_success() { echo -e "${GREEN}✔ $1${NC}"; }
+print_warning() { echo -e "${YELLOW}! $1${NC}"; }
+print_error() { echo -e "${RED}x $1${NC}"; }
+print_info() { echo -e "${BLUE}i $1${NC}"; }
 
 generate_secret() {
-    openssl rand -hex 32
+  openssl rand -hex 32
 }
 
 generate_password() {
-    openssl rand -base64 24 | tr -d '/+=' | head -c 24
+  openssl rand -base64 32 | tr -d '/+=' | head -c 32
 }
 
 check_prerequisites() {
-    echo "🔍 Checking prerequisites..."
-    
-    # Docker
-    if ! command -v docker &> /dev/null; then
-        print_error "Docker is not installed"
-        echo "   Install: curl -fsSL https://get.docker.com | sh"
-        exit 1
-    fi
-    print_success "Docker installed"
-    
-    # Docker Compose
-    if docker compose version &> /dev/null 2>&1; then
-        COMPOSE_CMD="docker compose"
-    elif command -v docker-compose &> /dev/null; then
-        COMPOSE_CMD="docker-compose"
-    else
-        print_error "Docker Compose is not installed"
-        exit 1
-    fi
-    print_success "Docker Compose installed"
-    
-    # OpenSSL for secret generation
-    if ! command -v openssl &> /dev/null; then
-        print_error "OpenSSL is not installed (required for generating secrets)"
-        exit 1
-    fi
-    print_success "OpenSSL installed"
-    
-    echo ""
+  if ! command -v docker >/dev/null 2>&1; then
+    print_error "Docker is not installed"
+    exit 1
+  fi
+
+  if docker compose version >/dev/null 2>&1; then
+    COMPOSE_BIN=(docker compose)
+  elif command -v docker-compose >/dev/null 2>&1; then
+    COMPOSE_BIN=(docker-compose)
+  else
+    print_error "Docker Compose is not installed"
+    exit 1
+  fi
+
+  if ! command -v openssl >/dev/null 2>&1; then
+    print_error "OpenSSL is required to generate secrets"
+    exit 1
+  fi
+}
+
+load_env() {
+  if [ ! -f "$ENV_FILE" ]; then
+    print_error "Missing $ENV_FILE. Run ./scripts/selfhosted/deploy.sh install first."
+    exit 1
+  fi
+
+  set -a
+  source "$ENV_FILE"
+  set +a
+
+  STORAGE_BACKEND="${STORAGE_BACKEND:-minio}"
+  BASE_DOMAIN="${BASE_DOMAIN:-${DASHBOARD_DOMAIN:-}}"
+  WWW_DOMAIN="${WWW_DOMAIN:-www.${BASE_DOMAIN}}"
+  INGEST_DOMAIN="${INGEST_DOMAIN:-ingest.${BASE_DOMAIN}}"
+  PROFILE_ARGS=()
+  if [ "$STORAGE_BACKEND" = "minio" ]; then
+    PROFILE_ARGS+=(--profile minio)
+  fi
+}
+
+compose_cmd() {
+  load_env
+  "${COMPOSE_BIN[@]}" -f "$COMPOSE_FILE" --env-file "$ENV_FILE" "${PROFILE_ARGS[@]}" "$@"
 }
 
 setup_environment() {
-    if [ -f "$ENV_FILE" ]; then
-        print_warning "Environment file already exists: $ENV_FILE"
-        read -p "Overwrite and regenerate secrets? (y/N): " confirm
-        if [[ ! "$confirm" =~ ^[Yy]$ ]]; then
-            print_info "Using existing configuration"
-            return
-        fi
+  if [ -f "$ENV_FILE" ]; then
+    print_warning "Configuration already exists at $ENV_FILE"
+    read -r -p "Overwrite it and regenerate secrets? (y/N): " confirm
+    if [[ ! "$confirm" =~ ^[Yy]$ ]]; then
+      print_info "Keeping existing configuration"
+      return
     fi
-    
-    echo ""
-    echo "📝 Interactive Setup"
-    echo "===================="
-    echo ""
-    
-    # Get domain information
-    read -p "Dashboard domain (e.g., yourdomain.com): " DASHBOARD_DOMAIN
-    read -p "API domain (e.g., api.yourdomain.com): " API_DOMAIN
-    read -p "Let's Encrypt email for SSL certificates: " LETSENCRYPT_EMAIL
-    
-    # Storage choice
-    echo ""
-    echo "Storage Options:"
-    echo "  1) Built-in MinIO (simpler, good for getting started)"
-    echo "  2) External S3 (AWS, Cloudflare R2, Hetzner, Wasabi)"
-    read -p "Choose storage option [1]: " STORAGE_CHOICE
-    STORAGE_CHOICE=${STORAGE_CHOICE:-1}
-    
-    USE_MINIO="true"
-    S3_ENDPOINT="http://minio:9000"
-    
-    if [ "$STORAGE_CHOICE" == "2" ]; then
-        USE_MINIO="false"
-        echo ""
-        read -p "S3 Endpoint URL: " S3_ENDPOINT
-        read -p "S3 Bucket Name: " S3_BUCKET_INPUT
-        read -p "S3 Region: " S3_REGION_INPUT
-        read -p "S3 Access Key ID: " S3_ACCESS_KEY_INPUT
-        read -sp "S3 Secret Access Key: " S3_SECRET_KEY_INPUT
-        echo ""
-    fi
-    
-    echo ""
-    echo "🔐 Generating secure secrets..."
-    
-    # Generate all secrets
-    POSTGRES_PASSWORD=$(generate_password)
-    REDIS_PASSWORD=$(generate_password)
-    MINIO_PASSWORD=$(generate_password)
-    JWT_SECRET=$(generate_secret)
-    JWT_SIGNING_KEY=$(generate_secret)
-    INGEST_HMAC_SECRET=$(generate_secret)
-    STORAGE_ENCRYPTION_KEY=$(generate_secret)
-    
-    # Create .env file
-    cat > "$ENV_FILE" << EOF
-# ===================================================
-# REJOURNEY SELF-HOSTED PRODUCTION CONFIGURATION
-# Generated: $(date)
-# ===================================================
+  fi
 
-# DOMAINS
+  echo "Base domain (example: example.com)"
+  read -r -p "> " BASE_DOMAIN
+  echo "Let's Encrypt email"
+  read -r -p "> " LETSENCRYPT_EMAIL
+
+  DASHBOARD_DOMAIN="$BASE_DOMAIN"
+  WWW_DOMAIN="www.$BASE_DOMAIN"
+  API_DOMAIN="api.$BASE_DOMAIN"
+  INGEST_DOMAIN="ingest.$BASE_DOMAIN"
+
+  echo ""
+  print_info "Self-hosted hostnames:"
+  echo "  Dashboard: https://$DASHBOARD_DOMAIN"
+  echo "  WWW redirect: https://$WWW_DOMAIN -> https://$DASHBOARD_DOMAIN"
+  echo "  API: https://$API_DOMAIN"
+  echo "  Ingest upload relay: https://$INGEST_DOMAIN"
+
+  echo ""
+  echo "Storage backend:"
+  echo "  1) Built-in MinIO (recommended default)"
+  echo "  2) External S3-compatible storage"
+  read -r -p "Choose storage backend [1]: " STORAGE_CHOICE
+  STORAGE_CHOICE="${STORAGE_CHOICE:-1}"
+
+  STORAGE_BACKEND="minio"
+  S3_ENDPOINT_VALUE="http://minio:9000"
+  S3_PUBLIC_ENDPOINT_VALUE=""
+  S3_BUCKET_VALUE="rejourney"
+  S3_REGION_VALUE="us-east-1"
+  S3_ACCESS_KEY_VALUE="rejourney"
+  S3_SECRET_KEY_VALUE=""
+  MINIO_ROOT_USER_VALUE="rejourney"
+  MINIO_ROOT_PASSWORD_VALUE="$(generate_password)"
+
+  if [ "$STORAGE_CHOICE" = "2" ]; then
+    STORAGE_BACKEND="s3"
+    echo "External S3 endpoint URL"
+    read -r -p "> " S3_ENDPOINT_VALUE
+    echo "Optional public endpoint URL for direct signed downloads (leave blank to reuse endpoint)"
+    read -r -p "> " S3_PUBLIC_ENDPOINT_VALUE
+    echo "Bucket name"
+    read -r -p "> " S3_BUCKET_VALUE
+    echo "Region [us-east-1]"
+    read -r -p "> " S3_REGION_VALUE
+    S3_REGION_VALUE="${S3_REGION_VALUE:-us-east-1}"
+    echo "Access key ID"
+    read -r -p "> " S3_ACCESS_KEY_VALUE
+    read -r -s -p "Secret access key: " S3_SECRET_KEY_VALUE
+    echo ""
+    MINIO_ROOT_USER_VALUE=""
+    MINIO_ROOT_PASSWORD_VALUE=""
+  else
+    S3_SECRET_KEY_VALUE="$MINIO_ROOT_PASSWORD_VALUE"
+  fi
+
+  POSTGRES_PASSWORD="$(generate_password)"
+  REDIS_PASSWORD="$(generate_password)"
+  JWT_SECRET="$(generate_secret)"
+  JWT_SIGNING_KEY="$(generate_secret)"
+  INGEST_HMAC_SECRET="$(generate_secret)"
+  STORAGE_ENCRYPTION_KEY="$(generate_secret)"
+
+  cat > "$ENV_FILE" <<ENV
+# Rejourney self-hosted configuration
+# Generated: $(date -u +"%Y-%m-%d %H:%M:%S UTC")
+
+BASE_DOMAIN=$BASE_DOMAIN
 DASHBOARD_DOMAIN=$DASHBOARD_DOMAIN
+WWW_DOMAIN=$WWW_DOMAIN
 API_DOMAIN=$API_DOMAIN
+INGEST_DOMAIN=$INGEST_DOMAIN
 PUBLIC_DASHBOARD_URL=https://$DASHBOARD_DOMAIN
 PUBLIC_API_URL=https://$API_DOMAIN
-PUBLIC_INGEST_URL=https://$API_DOMAIN
+PUBLIC_INGEST_URL=https://$INGEST_DOMAIN
 DASHBOARD_ORIGIN=https://$DASHBOARD_DOMAIN
 LETSENCRYPT_EMAIL=$LETSENCRYPT_EMAIL
 
-# DATABASE
 POSTGRES_USER=rejourney
 POSTGRES_PASSWORD=$POSTGRES_PASSWORD
 POSTGRES_DB=rejourney
 DATABASE_URL=postgresql://rejourney:$POSTGRES_PASSWORD@postgres:5432/rejourney
 
-# REDIS
 REDIS_PASSWORD=$REDIS_PASSWORD
 REDIS_URL=redis://:$REDIS_PASSWORD@redis:6379/0
 
-# S3 STORAGE
-USE_MINIO=$USE_MINIO
-EOF
+STORAGE_BACKEND=$STORAGE_BACKEND
+MINIO_ROOT_USER=$MINIO_ROOT_USER_VALUE
+MINIO_ROOT_PASSWORD=$MINIO_ROOT_PASSWORD_VALUE
+S3_ENDPOINT=$S3_ENDPOINT_VALUE
+S3_PUBLIC_ENDPOINT=$S3_PUBLIC_ENDPOINT_VALUE
+S3_BUCKET=$S3_BUCKET_VALUE
+S3_REGION=$S3_REGION_VALUE
+S3_ACCESS_KEY_ID=$S3_ACCESS_KEY_VALUE
+S3_SECRET_ACCESS_KEY=$S3_SECRET_KEY_VALUE
 
-    if [ "$USE_MINIO" == "true" ]; then
-        cat >> "$ENV_FILE" << EOF
-MINIO_ROOT_USER=admin
-MINIO_ROOT_PASSWORD=$MINIO_PASSWORD
-S3_ENDPOINT=http://minio:9000
-S3_PUBLIC_ENDPOINT=
-S3_BUCKET=rejourney
-S3_REGION=us-east-1
-S3_ACCESS_KEY_ID=admin
-S3_SECRET_ACCESS_KEY=$MINIO_PASSWORD
-EOF
-    else
-        cat >> "$ENV_FILE" << EOF
-S3_ENDPOINT=$S3_ENDPOINT
-S3_PUBLIC_ENDPOINT=$S3_ENDPOINT
-S3_BUCKET=${S3_BUCKET_INPUT:-rejourney}
-S3_REGION=${S3_REGION_INPUT:-us-east-1}
-S3_ACCESS_KEY_ID=$S3_ACCESS_KEY_INPUT
-S3_SECRET_ACCESS_KEY=$S3_SECRET_KEY_INPUT
-EOF
-    fi
-    
-    cat >> "$ENV_FILE" << EOF
-
-# APPLICATION SECRETS
 JWT_SECRET=$JWT_SECRET
 JWT_SIGNING_KEY=$JWT_SIGNING_KEY
 INGEST_HMAC_SECRET=$INGEST_HMAC_SECRET
 STORAGE_ENCRYPTION_KEY=$STORAGE_ENCRYPTION_KEY
 
-# OPTIONAL: EMAIL (configure for team invites, alerts)
 SMTP_HOST=
 SMTP_PORT=587
 SMTP_USER=
 SMTP_PASS=
-SMTP_FROM=noreply@$DASHBOARD_DOMAIN
+SMTP_FROM=noreply@$BASE_DOMAIN
 SMTP_SECURE=true
 
-# OPTIONAL: GITHUB OAUTH
 GITHUB_CLIENT_ID=
 GITHUB_CLIENT_SECRET=
 
-# DOCKER
-IMAGE_TAG=latest
-EOF
+TURNSTILE_SITE_KEY=
+TURNSTILE_SECRET_KEY=
 
-    chmod 600 "$ENV_FILE"
-    print_success "Configuration saved to $ENV_FILE"
-    print_warning "Back up this file securely - it contains all your secrets!"
-    echo ""
+STRIPE_SECRET_KEY=
+STRIPE_WEBHOOK_SECRET=
+
+IMAGE_TAG=latest
+LOG_LEVEL=info
+ENV
+
+  chmod 600 "$ENV_FILE"
+  print_success "Wrote $ENV_FILE"
+  print_warning "Back this file up securely. It contains all secrets for the deployment."
 }
 
-deploy() {
-    echo "🚀 Deploying Rejourney..."
-    
-    cd "$ROOT_DIR"
-    
-    # Determine which profile to use
-    source "$ENV_FILE"
-    if [ "$USE_MINIO" == "true" ]; then
-        PROFILE="--profile minio"
-        print_info "Using built-in MinIO for storage"
-    else
-        PROFILE="--profile external-s3"
-        print_info "Using external S3 storage"
-    fi
-    
-    # Pull latest images
-    echo ""
-    echo "📦 Pulling Docker images..."
-    $COMPOSE_CMD -f "$COMPOSE_FILE" --env-file "$ENV_FILE" $PROFILE pull
-    
-    # Start services
-    echo ""
-    echo "🔄 Starting services..."
-    $COMPOSE_CMD -f "$COMPOSE_FILE" --env-file "$ENV_FILE" $PROFILE up -d
-    
-    # Wait for services to be healthy
-    echo ""
-    echo "⏳ Waiting for services to start..."
-    sleep 10
-    
-    # Run database migrations
-    echo ""
-    echo "🗄️  Running database migrations..."
-    $COMPOSE_CMD -f "$COMPOSE_FILE" --env-file "$ENV_FILE" $PROFILE exec -T api npm run db:migrate || true
-    
-    echo ""
-    print_success "Deployment complete!"
-    echo ""
-    echo "📊 Service Status:"
-    $COMPOSE_CMD -f "$COMPOSE_FILE" --env-file "$ENV_FILE" $PROFILE ps
-    echo ""
-    echo "🌐 Your Rejourney instance is available at:"
-    echo "   Dashboard: https://$DASHBOARD_DOMAIN"
-    echo "   API:       https://$API_DOMAIN"
-    echo ""
-    echo "📝 Next steps:"
-    echo "   1. Ensure DNS is pointing to this server"
-    echo "   2. Wait a few minutes for SSL certificates"
-    echo "   3. Create your first account at https://$DASHBOARD_DOMAIN"
-    echo ""
+pull_images() {
+  print_info "Pulling container images"
+  compose_cmd pull
+}
+
+start_infrastructure() {
+  print_info "Starting infrastructure services"
+  compose_cmd up -d traefik postgres redis
+
+  if [ "$STORAGE_BACKEND" = "minio" ]; then
+    compose_cmd up -d minio
+    print_info "Ensuring MinIO bucket exists"
+    compose_cmd rm -sf minio-setup >/dev/null 2>&1 || true
+    compose_cmd up --no-deps minio-setup
+  fi
+}
+
+run_bootstrap() {
+  print_info "Running schema, seed, and storage endpoint bootstrap"
+  compose_cmd rm -sf bootstrap >/dev/null 2>&1 || true
+  compose_cmd up --no-deps bootstrap
+}
+
+start_application_services() {
+  print_info "Starting API, upload relay, web, and workers"
+  compose_cmd up -d api ingest-upload web ingest-worker retention-worker alert-worker
+}
+
+deploy_stack() {
+  pull_images
+  start_infrastructure
+  run_bootstrap
+  start_application_services
+  print_success "Deployment complete"
+  echo ""
+  echo "Dashboard: https://$DASHBOARD_DOMAIN"
+  echo "WWW redirect: https://$WWW_DOMAIN"
+  echo "API: https://$API_DOMAIN"
+  echo "Ingest: https://$INGEST_DOMAIN"
 }
 
 show_status() {
-    cd "$ROOT_DIR"
-    if [ -f "$ENV_FILE" ]; then
-        source "$ENV_FILE"
-        PROFILE=$([ "$USE_MINIO" == "true" ] && echo "--profile minio" || echo "--profile external-s3")
-    else
-        PROFILE=""
-    fi
-    $COMPOSE_CMD -f "$COMPOSE_FILE" --env-file "$ENV_FILE" $PROFILE ps
+  compose_cmd ps
+  echo ""
+  echo "Dashboard: ${PUBLIC_DASHBOARD_URL}"
+  echo "API: ${PUBLIC_API_URL}"
+  echo "Ingest: ${PUBLIC_INGEST_URL}"
 }
 
 show_logs() {
-    cd "$ROOT_DIR"
-    SERVICE=${2:-}
-    if [ -f "$ENV_FILE" ]; then
-        source "$ENV_FILE"
-        PROFILE=$([ "$USE_MINIO" == "true" ] && echo "--profile minio" || echo "--profile external-s3")
-    else
-        PROFILE=""
-    fi
-    if [ -n "$SERVICE" ]; then
-        $COMPOSE_CMD -f "$COMPOSE_FILE" --env-file "$ENV_FILE" $PROFILE logs -f "$SERVICE"
-    else
-        $COMPOSE_CMD -f "$COMPOSE_FILE" --env-file "$ENV_FILE" $PROFILE logs -f
-    fi
-}
-
-update_services() {
-    echo "🔄 Updating Rejourney..."
-    cd "$ROOT_DIR"
-    
-    if [ -f "$ENV_FILE" ]; then
-        source "$ENV_FILE"
-        PROFILE=$([ "$USE_MINIO" == "true" ] && echo "--profile minio" || echo "--profile external-s3")
-    else
-        print_error "No configuration found. Run setup first."
-        exit 1
-    fi
-    
-    # Pull new images
-    $COMPOSE_CMD -f "$COMPOSE_FILE" --env-file "$ENV_FILE" $PROFILE pull
-    
-    # Rolling restart
-    $COMPOSE_CMD -f "$COMPOSE_FILE" --env-file "$ENV_FILE" $PROFILE up -d
-    
-    # Run migrations
-    echo "Running database migrations..."
-    $COMPOSE_CMD -f "$COMPOSE_FILE" --env-file "$ENV_FILE" $PROFILE exec -T api npm run db:migrate || true
-    
-    print_success "Update complete!"
+  local service="${2:-}"
+  if [ -n "$service" ]; then
+    compose_cmd logs -f "$service"
+  else
+    compose_cmd logs -f
+  fi
 }
 
 stop_services() {
-    echo "🛑 Stopping Rejourney..."
-    cd "$ROOT_DIR"
-    
-    if [ -f "$ENV_FILE" ]; then
-        source "$ENV_FILE"
-        PROFILE=$([ "$USE_MINIO" == "true" ] && echo "--profile minio" || echo "--profile external-s3")
-    else
-        PROFILE=""
-    fi
-    
-    $COMPOSE_CMD -f "$COMPOSE_FILE" --env-file "$ENV_FILE" $PROFILE down
-    print_success "All services stopped"
+  print_info "Stopping self-hosted services without deleting data"
+  compose_cmd stop
+  print_success "Services stopped"
 }
 
-# ============================================================
-# MAIN
-# ============================================================
+update_services() {
+  print_info "Updating self-hosted stack"
+  deploy_stack
+}
 
-print_header
+main() {
+  print_header
+  check_prerequisites
 
-case "${1:-}" in
-    status)
-        show_status
-        ;;
-    logs)
-        show_logs "$@"
-        ;;
+  case "${1:-install}" in
+    install)
+      setup_environment
+      load_env
+      deploy_stack
+      ;;
     update)
-        check_prerequisites
-        update_services
-        ;;
+      load_env
+      update_services
+      ;;
+    status)
+      load_env
+      show_status
+      ;;
+    logs)
+      load_env
+      show_logs "$@"
+      ;;
     stop)
-        stop_services
-        ;;
+      load_env
+      stop_services
+      ;;
     *)
-        check_prerequisites
-        setup_environment
-        deploy
-        ;;
-esac
+      print_error "Unknown command: ${1:-}"
+      echo "Usage: ./scripts/selfhosted/deploy.sh [install|update|status|logs|stop]"
+      exit 1
+      ;;
+  esac
+}
+
+main "$@"

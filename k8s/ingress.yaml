@@ -225,6 +225,13 @@ spec:
     - host: ingest.rejourney.co
       http:
         paths:
+          - path: /upload
+            pathType: Prefix
+            backend:
+              service:
+                name: ingest-upload
+                port:
+                  number: 3001
           - path: /
             pathType: Prefix
             backend:

@@ -22,7 +22,6 @@ const envSchema = z.object({
   JWT_SECRET: z.string().optional(),
   JWT_SIGNING_KEY: z.string().optional(),
   TURNSTILE_SECRET_KEY: z.string().optional(),
-  SELF_HOSTED_MODE: z.coerce.boolean().optional().default(false),
   TURNSTILE_SITE_KEY: z.string().optional(),
   OAUTH_REDIRECT_BASE: z.string().optional(),
   GITHUB_CLIENT_ID: z.string().optional(),
@@ -70,4 +69,3 @@ export function loadEnv(): Env {
   cachedEnv = merged;
   return cachedEnv;
 }
-

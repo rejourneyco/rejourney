@@ -19,6 +19,7 @@ import {
 } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { eq, and, isNull, desc } from 'drizzle-orm';
+import type { Readable } from 'stream';
 import { config } from '../config.js';
 import { logger } from '../logger.js';
 import { safeDecrypt } from '../services/crypto.js';
@@ -49,6 +50,28 @@ interface S3ClientEntry {
     client: S3Client;
     publicClient: S3Client;
     bucket: string;
+}
+
+function resolveInternalEndpointUrl(endpoint: StorageEndpoint): string {
+    if (!config.S3_ENDPOINT) {
+        return endpoint.endpointUrl;
+    }
+
+    try {
+        const parsed = new URL(endpoint.endpointUrl);
+
+        // Local-k8s stores the in-cluster MinIO service name in the database, but
+        // our host-run API/upload/worker processes must talk to the host-mapped
+        // endpoint from .env instead. Production endpoints never use the plain
+        // "minio" hostname, so this stays a local-only compatibility rewrite.
+        if (parsed.hostname === 'minio') {
+            return config.S3_ENDPOINT;
+        }
+    } catch {
+        return endpoint.endpointUrl;
+    }
+
+    return endpoint.endpointUrl;
 }
 
 // =============================================================================
@@ -100,24 +123,7 @@ export async function getEndpointForProject(projectId: string): Promise<StorageE
     }
 
     if (endpoints.length === 0) {
-        // Simple fallback for Self-Hosted: If no database record exists,
-        // use the .env variables to create a "virtual" endpoint.
-        if (config.SELF_HOSTED_MODE && config.S3_ENDPOINT && config.S3_BUCKET) {
-            return {
-                id: 'env-fallback',
-                projectId: null,
-                endpointUrl: config.S3_ENDPOINT,
-                bucket: config.S3_BUCKET,
-                region: config.S3_REGION,
-                accessKeyId: config.S3_ACCESS_KEY_ID || null,
-                keyRef: config.S3_SECRET_ACCESS_KEY || null,
-                priority: 100,
-                active: true,
-                shadow: false,
-            } as StorageEndpoint;
-        }
-
-        throw new Error('No storage endpoint configured. Populate storage_endpoints table or run db:seed.');
+        throw new Error('No storage endpoint configured. Populate storage_endpoints and rerun bootstrap.');
     }
 
     // Single endpoint - no load balancing needed
@@ -152,25 +158,8 @@ function selectWeightedRandom(endpoints: StorageEndpoint[]): StorageEndpoint {
 
 /**
  * Get storage endpoint by ID (for downloads from specific location)
- * Handles 'env-fallback' for self-hosted when no storage_endpoints rows exist.
  */
 export async function getEndpointById(endpointId: string): Promise<StorageEndpoint | null> {
-    // env-fallback is a virtual endpoint (self-hosted .env fallback)
-    if (endpointId === 'env-fallback' && config.SELF_HOSTED_MODE && config.S3_ENDPOINT && config.S3_BUCKET) {
-        return {
-            id: 'env-fallback',
-            projectId: null,
-            endpointUrl: config.S3_ENDPOINT,
-            bucket: config.S3_BUCKET,
-            region: config.S3_REGION,
-            accessKeyId: config.S3_ACCESS_KEY_ID || null,
-            keyRef: config.S3_SECRET_ACCESS_KEY || null,
-            priority: 100,
-            active: true,
-            shadow: false,
-        } as StorageEndpoint;
-    }
-
     // Check all caches first
     for (const [, cached] of endpointCache) {
         if (cached.endpoint.id === endpointId && cached.expiresAt > Date.now()) {
@@ -227,34 +216,18 @@ function getS3ClientForEndpoint(endpoint: StorageEndpoint): S3ClientEntry {
         return existing;
     }
 
-    // Resolve credentials
-    // For Self-Hosted: prefer stored, fall back to process.env (simpler)
-    // For Production: enforce stored in database (schema relies on this)
-    const accessKeyId = config.SELF_HOSTED_MODE
-        ? (endpoint.accessKeyId || config.S3_ACCESS_KEY_ID)
-        : endpoint.accessKeyId;
+    const accessKeyId = endpoint.accessKeyId;
+    const secretAccessKey = safeDecrypt(endpoint.keyRef);
+    const region = endpoint.region || undefined;
 
-    const secretAccessKey = config.SELF_HOSTED_MODE
-        ? (safeDecrypt(endpoint.keyRef) || config.S3_SECRET_ACCESS_KEY)
-        : safeDecrypt(endpoint.keyRef);
-
-    const region = (config.SELF_HOSTED_MODE
-        ? (endpoint.region || config.S3_REGION)
-        : endpoint.region) || undefined;
-
-    // Validate S3 credentials are available
     if (!accessKeyId || !secretAccessKey) {
-        const mode = config.SELF_HOSTED_MODE ? 'Self-Hosted' : 'Production';
         throw new Error(
-            `S3 credentials missing for ${mode}. ` +
-            (config.SELF_HOSTED_MODE
-                ? 'Set S3_ACCESS_KEY_ID and S3_SECRET_ACCESS_KEY in .env.'
-                : 'Configure accessKeyId and keyRef in the storage_endpoints table.')
+            'S3 credentials missing for storage endpoint. Configure accessKeyId and keyRef in the storage_endpoints table.',
         );
     }
 
     const clientConfig = {
-        endpoint: endpoint.endpointUrl,
+        endpoint: resolveInternalEndpointUrl(endpoint),
         region,
         credentials: {
             accessKeyId,
@@ -310,6 +283,27 @@ async function putObjectToEndpoint(
             Key: key,
             Body: body,
             ContentType: contentType,
+            Metadata: metadata,
+        })
+    );
+}
+
+async function putObjectStreamToEndpoint(
+    endpoint: StorageEndpoint,
+    key: string,
+    body: Readable,
+    contentType: string,
+    contentLength?: number,
+    metadata?: Record<string, string>
+): Promise<void> {
+    const { client, bucket } = getS3ClientForEndpoint(endpoint);
+    await client.send(
+        new PutObjectCommand({
+            Bucket: bucket,
+            Key: key,
+            Body: body,
+            ContentType: contentType,
+            ...(typeof contentLength === 'number' ? { ContentLength: contentLength } : {}),
             Metadata: metadata,
         })
     );
@@ -407,35 +401,31 @@ async function uploadToShadows(
 // Presigned URL Generation
 // =============================================================================
 
-/**
- * Get signed URL for uploading to project's endpoint
- */
-export async function getSignedUploadUrl(
+export async function uploadStreamToS3ForArtifact(
     projectId: string,
     key: string,
-    contentType: string,
-    expiresInSeconds: number = 3600,
-    contentEncoding?: string
-): Promise<{ url: string; endpointId: string } | null> {
+    body: Readable,
+    contentType: string = 'application/octet-stream',
+    endpointId?: string | null,
+    contentLength?: number,
+    metadata?: Record<string, string>
+): Promise<{ success: boolean; endpointId: string; error?: string }> {
     try {
-        const endpoint = await getEndpointForProject(projectId);
-        const { publicClient, bucket } = getS3ClientForEndpoint(endpoint);
+        const endpoint = endpointId
+            ? (await getEndpointById(endpointId)) || await getEndpointForProject(projectId)
+            : await getEndpointForProject(projectId);
 
-        const command = new PutObjectCommand({
-            Bucket: bucket,
-            Key: key,
-            ContentType: contentType,
-            ...(contentEncoding ? { ContentEncoding: contentEncoding } : {}),
-        });
+        await putObjectStreamToEndpoint(endpoint, key, body, contentType, contentLength, metadata);
+        logger.debug({ key, endpointId: endpoint.id }, 'Uploaded artifact stream to S3');
 
-        const url = await getSignedUrl(publicClient, command, {
-            expiresIn: expiresInSeconds,
-        });
-
-        return { url, endpointId: endpoint.id };
+        return { success: true, endpointId: endpoint.id };
     } catch (err) {
-        logger.error({ err, key }, 'Failed to generate signed upload URL');
-        return null;
+        logger.error({ err, key, projectId, endpointId }, 'Failed to upload artifact stream to S3');
+        return {
+            success: false,
+            endpointId: endpointId || 'unknown',
+            error: String(err),
+        };
     }
 }
 

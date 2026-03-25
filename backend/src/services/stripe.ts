@@ -12,7 +12,7 @@
 
 import Stripe from 'stripe';
 import { eq, and, inArray } from 'drizzle-orm';
-import { config, isSelfHosted } from '../config.js';
+import { config } from '../config.js';
 import { logger } from '../logger.js';
 import { db, teams, stripeWebhookEvents, billingUsage, users, teamMembers } from '../db/client.js';
 import {
@@ -26,17 +26,17 @@ import {
 // =============================================================================
 
 let stripe: Stripe | null = null;
+let loggedStripeDisabled = false;
 
 /**
  * Initialize Stripe client if not in self-hosted mode and keys are configured
  */
 function getStripe(): Stripe | null {
-    if (isSelfHosted) {
-        return null;
-    }
-
     if (!config.STRIPE_SECRET_KEY) {
-        logger.warn('STRIPE_SECRET_KEY not configured - Stripe disabled');
+        if (!loggedStripeDisabled) {
+            logger.warn('STRIPE_SECRET_KEY not configured - Stripe disabled');
+            loggedStripeDisabled = true;
+        }
         return null;
     }
 

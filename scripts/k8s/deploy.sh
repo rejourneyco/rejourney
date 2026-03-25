@@ -155,7 +155,7 @@ deploy() {
     
     echo ""
     log "Deployment complete! Run './scripts/k8s/deploy.sh status' to check status."
-    log "Run the migration job: kubectl create -f ${K8S_DIR}/api.yaml (db-migrate job)"
+    log "Database bootstrap is handled by the db-setup job in k8s/api.yaml."
 }
 
 update() {

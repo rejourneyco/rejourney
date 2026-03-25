@@ -9,11 +9,12 @@ RUN apt-get update && apt-get install -y ca-certificates && rm -rf /var/lib/apt/
 # Install global tools
 RUN npm install -g drizzle-kit@beta tsx
 
-# Copy source and config
+# Copy source, config, and bootstrap scripts
 COPY backend/drizzle.config.ts .
 COPY backend/package.json .
 COPY backend/drizzle ./drizzle
 COPY backend/src ./src
+COPY backend/scripts ./scripts
 
 # Install ALL production dependencies locally (zod, drizzle-orm, pg, etc.)
 # This ensures seed scripts have everything they need

@@ -10,6 +10,7 @@ import { URLSearchParams } from 'react-native-url-polyfill';
 import { View } from 'react-native';
 
 import { useColorScheme } from '@/hooks/useColorScheme';
+import { API_URL } from '@/config';
 import React from 'react';
 
 // Toggle Rejourney SDK on/off across the app
@@ -18,8 +19,8 @@ const REJOURNEY_ENABLED = true;
 // Conditionally initialize Rejourney without statically importing the package
 if (REJOURNEY_ENABLED) {
   const { Rejourney, initRejourney, startRejourney } = require('rejourney');
-  initRejourney('rj_9cdda278b8bfae7ab6d3d9d340e29882', {
-    apiUrl: 'http://192.168.4.33:3000',
+  initRejourney('rj_10f00d654fc9a5b19cb011e1995c92c7', {
+    apiUrl: API_URL,
     debug: true,
   });
   Rejourney.setMetadata('plan', 'premium');

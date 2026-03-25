@@ -22,37 +22,36 @@ import fs from 'fs';
 /**
  * Load environment variables based on environment and priority:
  * 1. Process environment (already set - includes Docker Compose env vars)
- * 2. .env.local (if exists, prioritized in development)
+ * 2. .env.k8s.local / .env.local (if present, prioritized in development)
  * 3. .env (if exists)
  */
 function initializeEnv() {
-    // Skip file loading if running in Docker (environment vars passed via Docker Compose)
+    // Skip file loading if running in Docker (environment vars passed via container env)
     if (process.env.DOCKER_ENV === 'true') {
         return;
     }
 
-    // Current directory is backend root (where package.json is)
-    const envLocalPath = path.resolve(process.cwd(), '.env.local');
-    const envPath = path.resolve(process.cwd(), '.env');
+    const cwd = process.cwd();
+    const candidates: string[] = [];
 
-    // Parent directory (repo root)
-    const parentEnvLocalPath = path.resolve(process.cwd(), '../.env.local');
-
-    // In development, try .env.local first (prioritize local backend -> root .env.local)
     if (process.env.NODE_ENV !== 'production') {
-        if (fs.existsSync(envLocalPath)) {
-            dotenv.config({ path: envLocalPath });
-        } else if (fs.existsSync(parentEnvLocalPath)) {
-            dotenv.config({ path: parentEnvLocalPath });
-        }
+        candidates.push(
+            path.resolve(cwd, '.env.k8s.local'),
+            path.resolve(cwd, '.env.local'),
+            path.resolve(cwd, '../.env.k8s.local'),
+            path.resolve(cwd, '../.env.local'),
+        );
     }
 
-    // Load .env if it exists
-    if (fs.existsSync(envPath)) {
-        dotenv.config({ path: envPath });
-    } else {
-        // Fallback to standard dotenv.config() which looks for .env in cwd
-        dotenv.config();
+    candidates.push(
+        path.resolve(cwd, '.env'),
+        path.resolve(cwd, '../.env'),
+    );
+
+    for (const candidate of candidates) {
+        if (fs.existsSync(candidate)) {
+            dotenv.config({ path: candidate });
+        }
     }
 }
 
@@ -70,9 +69,8 @@ const envSchema = z.object({
     // Redis
     REDIS_URL: z.string().default('redis://localhost:6379/0'),
 
-    // S3/MinIO (Self-Hosted fallback or Initial Seed only)
-    // In Production (SELF_HOSTED_MODE=false), these are ignored after the initial db:seed.
-    // In Self-Hosted (SELF_HOSTED_MODE=true), these act as a "virtual" default if the database is empty.
+    // S3/MinIO bootstrap inputs.
+    // Runtime storage routing is database-backed via storage_endpoints.
     S3_ENDPOINT: z.string().optional(),
     S3_REGION: z.string().default('us-east-1'),
     S3_BUCKET: z.string().optional(),
@@ -102,10 +100,7 @@ const envSchema = z.object({
     GITHUB_CLIENT_SECRET: z.string().optional(),
     OAUTH_REDIRECT_BASE: z.string().optional(),
 
-    // Self-hosted mode
-    SELF_HOSTED_MODE: z.string().transform(v => v === 'true').default('true'),
-
-    // Stripe (optional for hosted)
+    // Stripe (optional)
     STRIPE_SECRET_KEY: z.string().optional(),
     STRIPE_WEBHOOK_SECRET: z.string().optional(),
 
@@ -151,7 +146,6 @@ export const config = loadConfig();
 export const isDevelopment = config.NODE_ENV === 'development';
 export const isProduction = config.NODE_ENV === 'production';
 export const isTest = config.NODE_ENV === 'test';
-export const isSelfHosted = config.SELF_HOSTED_MODE;
 
 // Rate limit defaults (increased for dashboard with many parallel requests)
 export const rateLimits = {

@@ -11,10 +11,11 @@ import { useAppSlice } from '@/slices';
 import { getUserAsync } from '@/services';
 import Provider from '@/providers';
 import { User } from '@/types';
+import config from '@/utils/config';
 import { Rejourney } from 'rejourney';
 
-Rejourney.init('rj_b6075c32a139fac7d444f86054e3dd25', {
-  apiUrl: 'http://192.168.4.33:3000', // Update this to your local backend IP
+Rejourney.init('rj_eb4d722475a240f9c69bd2846f17c8b8', {
+  apiUrl: config.apiUrl || 'http://127.0.0.1:3000',
   debug: true,
   autoTrackExpoRouter: false,
   autoScreenTracking: false,

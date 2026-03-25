@@ -5,7 +5,6 @@
  */
 
 import { Router, raw } from 'express';
-import { isSelfHosted } from '../config.js';
 import { logger } from '../logger.js';
 import { constructWebhookEvent, handleWebhookEvent, isStripeEnabled } from '../services/stripe.js';
 import { ApiError, asyncHandler } from '../middleware/index.js';
@@ -29,9 +28,8 @@ router.post(
             hasBody: !!req.body 
         }, 'Stripe webhook endpoint hit');
 
-        // Return 503 if Stripe is disabled (self-hosted mode)
-        if (isSelfHosted || !isStripeEnabled()) {
-            logger.warn({ isSelfHosted, isStripeEnabled: isStripeEnabled() }, 'Stripe webhook received but Stripe is not enabled');
+        if (!isStripeEnabled()) {
+            logger.warn({ isStripeEnabled: isStripeEnabled() }, 'Stripe webhook received but Stripe is not enabled');
             throw ApiError.serviceUnavailable('Stripe is not enabled');
         }
 

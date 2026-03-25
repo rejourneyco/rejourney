@@ -1,0 +1,386 @@
+import { and, eq, inArray, isNull, lte, or, sql } from 'drizzle-orm';
+import { db, ingestJobs, recordingArtifacts, sessions } from '../db/client.js';
+import { logger } from '../logger.js';
+import {
+    ABANDONED_ARTIFACT_TTL_MS,
+    STALE_PROCESSING_JOB_TTL_MS,
+} from './ingestUploadRelay.js';
+import { markSessionIngestActivity } from './sessionReconciliation.js';
+
+type PendingArtifactParams = {
+    sessionId: string;
+    kind: string;
+    s3ObjectKey: string;
+    endpointId?: string | null;
+    clientUploadId: string;
+    declaredSizeBytes?: number | null;
+    timestamp?: number | null;
+    startTime?: number | null;
+    endTime?: number | null;
+    frameCount?: number | null;
+};
+
+type CompleteArtifactParams = {
+    projectId: string;
+    clientUploadId: string;
+    actualSizeBytes?: number | null;
+    frameCount?: number | null;
+};
+
+type QueueArtifactJobResult = {
+    queued: boolean;
+    alreadyCompleted: boolean;
+};
+
+async function ensureArtifactProcessingJob(artifact: any): Promise<QueueArtifactJobResult> {
+    const [existingJob] = await db.select().from(ingestJobs)
+        .where(eq(ingestJobs.artifactId, artifact.id))
+        .limit(1);
+
+    if (!existingJob) {
+        await db.insert(ingestJobs).values({
+            projectId: artifact.projectId,
+            sessionId: artifact.sessionId,
+            artifactId: artifact.id,
+            kind: artifact.kind,
+            payloadRef: artifact.s3ObjectKey,
+            status: 'pending',
+        });
+        return { queued: true, alreadyCompleted: false };
+    }
+
+    if (existingJob.status === 'done' && artifact.status === 'ready') {
+        return { queued: false, alreadyCompleted: true };
+    }
+
+    if (existingJob.status === 'pending' || existingJob.status === 'processing') {
+        return { queued: false, alreadyCompleted: false };
+    }
+
+    await db.update(ingestJobs)
+        .set({
+            status: 'pending',
+            nextRunAt: null,
+            errorMsg: null,
+            startedAt: null,
+            completedAt: null,
+            workerId: null,
+            updatedAt: new Date(),
+        })
+        .where(eq(ingestJobs.id, existingJob.id));
+
+    return { queued: true, alreadyCompleted: false };
+}
+
+async function getArtifactWithSessionByUploadId(projectId: string, clientUploadId: string) {
+    const [artifactResult] = await db.select({
+        artifact: recordingArtifacts,
+        session: sessions,
+    })
+        .from(recordingArtifacts)
+        .innerJoin(sessions, eq(recordingArtifacts.sessionId, sessions.id))
+        .where(and(
+            eq(recordingArtifacts.clientUploadId, clientUploadId),
+            eq(sessions.projectId, projectId),
+        ))
+        .limit(1);
+
+    return artifactResult;
+}
+
+async function getArtifactWithSessionById(artifactId: string) {
+    const [artifactResult] = await db.select({
+        artifact: recordingArtifacts,
+        session: sessions,
+    })
+        .from(recordingArtifacts)
+        .innerJoin(sessions, eq(recordingArtifacts.sessionId, sessions.id))
+        .where(eq(recordingArtifacts.id, artifactId))
+        .limit(1);
+
+    return artifactResult;
+}
+
+export async function registerPendingArtifact(params: PendingArtifactParams) {
+    await markSessionIngestActivity(params.sessionId, { reopen: true });
+
+    const [artifact] = await db.insert(recordingArtifacts).values({
+        sessionId: params.sessionId,
+        kind: params.kind,
+        s3ObjectKey: params.s3ObjectKey,
+        clientUploadId: params.clientUploadId,
+        endpointId: params.endpointId ?? null,
+        declaredSizeBytes: params.declaredSizeBytes ?? null,
+        status: 'pending',
+        timestamp: params.timestamp ?? null,
+        startTime: params.startTime ?? null,
+        endTime: params.endTime ?? null,
+        frameCount: params.frameCount ?? null,
+    }).returning();
+
+    logger.info({
+        sessionId: params.sessionId,
+        artifactId: artifact.id,
+        kind: params.kind,
+        clientUploadId: params.clientUploadId,
+        s3ObjectKey: params.s3ObjectKey,
+        endpointId: params.endpointId ?? null,
+    }, 'artifact.presigned');
+
+    return artifact;
+}
+
+export async function markArtifactUploadStored(params: {
+    artifactId: string;
+    sizeBytes?: number | null;
+    contentType?: string | null;
+}) {
+    const artifactResult = await getArtifactWithSessionById(params.artifactId);
+    if (!artifactResult) {
+        logger.warn({ artifactId: params.artifactId }, 'artifact.upload_missing');
+        return {
+            ignored: true,
+            queued: false,
+            alreadyCompleted: false,
+        };
+    }
+
+    const { artifact, session } = artifactResult;
+    const uploadedAt = new Date();
+    const nextStatus = artifact.status === 'ready' ? 'ready' : 'uploaded';
+    const resolvedSizeBytes = params.sizeBytes ?? artifact.sizeBytes ?? artifact.declaredSizeBytes ?? null;
+
+    await db.update(recordingArtifacts)
+        .set({
+            status: nextStatus,
+            sizeBytes: resolvedSizeBytes,
+            uploadCompletedAt: artifact.uploadCompletedAt ?? uploadedAt,
+        })
+        .where(eq(recordingArtifacts.id, artifact.id));
+
+    await markSessionIngestActivity(session.id, { at: uploadedAt });
+
+    const jobState = nextStatus === 'ready'
+        ? { queued: false, alreadyCompleted: true }
+        : await ensureArtifactProcessingJob({
+            ...artifact,
+            projectId: session.projectId,
+            status: nextStatus,
+        });
+
+    logger.info({
+        projectId: session.projectId,
+        sessionId: session.id,
+        artifactId: artifact.id,
+        kind: artifact.kind,
+        s3ObjectKey: artifact.s3ObjectKey,
+        endpointId: artifact.endpointId ?? null,
+        sizeBytes: resolvedSizeBytes,
+        contentType: params.contentType ?? null,
+        queued: jobState.queued,
+        alreadyCompleted: jobState.alreadyCompleted,
+    }, 'artifact.upload_stored');
+
+    return {
+        ignored: false,
+        queued: jobState.queued,
+        alreadyCompleted: jobState.alreadyCompleted,
+        sessionId: session.id,
+        artifactId: artifact.id,
+        projectId: session.projectId,
+    };
+}
+
+export async function completeArtifactUpload(params: CompleteArtifactParams) {
+    const artifactResult = await getArtifactWithSessionByUploadId(params.projectId, params.clientUploadId);
+
+    if (!artifactResult) {
+        logger.warn({
+            projectId: params.projectId,
+            clientUploadId: params.clientUploadId,
+        }, 'artifact.complete_missing');
+        return {
+            success: true,
+            ignored: true,
+            queued: false,
+            alreadyCompleted: false,
+        };
+    }
+
+    const { artifact, session } = artifactResult;
+    const acknowledgedAt = new Date();
+
+    await markSessionIngestActivity(session.id, { at: acknowledgedAt });
+
+    if (params.frameCount !== undefined && params.frameCount !== null) {
+        await db.update(recordingArtifacts)
+            .set({
+                frameCount: params.frameCount,
+            })
+            .where(eq(recordingArtifacts.id, artifact.id));
+    }
+
+    let jobState: QueueArtifactJobResult = { queued: false, alreadyCompleted: false };
+    if (artifact.status === 'uploaded') {
+        jobState = await ensureArtifactProcessingJob({
+            ...artifact,
+            projectId: session.projectId,
+        });
+    } else if (artifact.status === 'ready') {
+        jobState = { queued: false, alreadyCompleted: true };
+    }
+
+    logger.info({
+        projectId: params.projectId,
+        sessionId: session.id,
+        artifactId: artifact.id,
+        kind: artifact.kind,
+        clientUploadId: params.clientUploadId,
+        actualSizeBytes: params.actualSizeBytes ?? null,
+        frameCount: params.frameCount ?? null,
+        artifactStatus: artifact.status,
+        queued: jobState.queued,
+        alreadyCompleted: jobState.alreadyCompleted,
+    }, 'artifact.complete_received');
+
+    return {
+        success: true,
+        ignored: false,
+        queued: jobState.queued,
+        alreadyCompleted: jobState.alreadyCompleted,
+    };
+}
+
+export async function queueRecoverableArtifacts(limit = 100): Promise<number> {
+    const rows = await db.select({
+        artifact: recordingArtifacts,
+        projectId: sessions.projectId,
+        jobStatus: ingestJobs.status,
+    })
+        .from(recordingArtifacts)
+        .innerJoin(sessions, eq(recordingArtifacts.sessionId, sessions.id))
+        .leftJoin(ingestJobs, eq(ingestJobs.artifactId, recordingArtifacts.id))
+        .where(and(
+            eq(recordingArtifacts.status, 'uploaded'),
+            or(
+                isNull(ingestJobs.id),
+                sql`${ingestJobs.status} in ('failed', 'dlq', 'done')`
+            ),
+        ))
+        .limit(limit);
+
+    let queued = 0;
+    for (const row of rows) {
+        const jobState = await ensureArtifactProcessingJob({
+            ...row.artifact,
+            projectId: row.projectId,
+        });
+        if (jobState.queued) {
+            queued += 1;
+            logger.info({
+                sessionId: row.artifact.sessionId,
+                artifactId: row.artifact.id,
+                kind: row.artifact.kind,
+                previousJobStatus: row.jobStatus ?? null,
+            }, 'artifact.queued');
+        }
+    }
+
+    return queued;
+}
+
+export async function abandonExpiredPendingArtifacts(limit = 100): Promise<number> {
+    const cutoff = new Date(Date.now() - ABANDONED_ARTIFACT_TTL_MS);
+    const rows = await db.select({
+        id: recordingArtifacts.id,
+        sessionId: recordingArtifacts.sessionId,
+        kind: recordingArtifacts.kind,
+        clientUploadId: recordingArtifacts.clientUploadId,
+        s3ObjectKey: recordingArtifacts.s3ObjectKey,
+    })
+        .from(recordingArtifacts)
+        .where(and(
+            eq(recordingArtifacts.status, 'pending'),
+            isNull(recordingArtifacts.uploadCompletedAt),
+            lte(recordingArtifacts.createdAt, cutoff),
+        ))
+        .limit(limit);
+
+    if (rows.length === 0) {
+        return 0;
+    }
+
+    const now = new Date();
+    const ids = rows.map((row) => row.id);
+
+    await db.update(recordingArtifacts)
+        .set({ status: 'abandoned' })
+        .where(inArray(recordingArtifacts.id, ids));
+
+    await db.update(ingestJobs)
+        .set({
+            status: 'failed',
+            errorMsg: 'Upload abandoned before relay receipt',
+            completedAt: now,
+            startedAt: null,
+            workerId: null,
+            updatedAt: now,
+        })
+        .where(and(
+            inArray(ingestJobs.artifactId, ids),
+            sql`${ingestJobs.status} in ('pending', 'processing')`,
+        ));
+
+    for (const row of rows) {
+        logger.warn({
+            sessionId: row.sessionId,
+            artifactId: row.id,
+            kind: row.kind,
+            clientUploadId: row.clientUploadId,
+            s3ObjectKey: row.s3ObjectKey,
+        }, 'artifact.abandoned');
+    }
+
+    return rows.length;
+}
+
+export async function requeueStaleProcessingJobs(limit = 100): Promise<number> {
+    const cutoff = new Date(Date.now() - STALE_PROCESSING_JOB_TTL_MS);
+    const rows = await db.select({
+        id: ingestJobs.id,
+        artifactId: ingestJobs.artifactId,
+        sessionId: ingestJobs.sessionId,
+        kind: ingestJobs.kind,
+        workerId: ingestJobs.workerId,
+        startedAt: ingestJobs.startedAt,
+    })
+        .from(ingestJobs)
+        .where(and(
+            eq(ingestJobs.status, 'processing'),
+            lte(ingestJobs.startedAt, cutoff),
+        ))
+        .limit(limit);
+
+    for (const row of rows) {
+        await db.update(ingestJobs)
+            .set({
+                status: 'pending',
+                nextRunAt: null,
+                startedAt: null,
+                workerId: null,
+                updatedAt: new Date(),
+            })
+            .where(eq(ingestJobs.id, row.id));
+
+        logger.warn({
+            jobId: row.id,
+            artifactId: row.artifactId,
+            sessionId: row.sessionId,
+            kind: row.kind,
+            workerId: row.workerId,
+            startedAt: row.startedAt,
+        }, 'artifact.retry');
+    }
+
+    return rows.length;
+}
