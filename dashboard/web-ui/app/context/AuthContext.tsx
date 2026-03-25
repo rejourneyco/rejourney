@@ -163,7 +163,7 @@ export function AuthProvider({ children }: Props) {
             totalSessionsUsed: userData.totalSessionsUsed ?? 0,
             storageBytesUsed: userData.storageBytesUsed ?? 0,
             storageLimitBytes: userData.storageLimitBytes ?? 10 * 1024 * 1024 * 1024,
-            isSelfHosted: userData.isSelfHosted ?? true,
+            isSelfHosted: userData.isSelfHosted ?? false,
             emailVerified: userData.emailVerified ?? true,
           });
           setError(null);
@@ -351,4 +351,3 @@ export function AuthProvider({ children }: Props) {
 }
 
 export default AuthProvider;
-

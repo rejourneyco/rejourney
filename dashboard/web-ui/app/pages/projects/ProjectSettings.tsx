@@ -24,8 +24,6 @@ import {
   CreatedApiKey
 } from '../../services/api';
 
-const isSelfHosted = import.meta.env.VITE_SELF_HOSTED === 'true';
-
 interface SettingsProps {
   projectId?: string;
 }
@@ -34,6 +32,7 @@ export const ProjectSettings: React.FC<SettingsProps> = ({ projectId: propProjec
   const { projects, refreshSessions, selectedProject } = useSessionData();
   const { currentTeam, teamMembers } = useTeam();
   const { user } = useAuth();
+  const isSelfHosted = !!user?.isSelfHosted;
   const navigate = useNavigate();
   const location = useLocation();
   const pathPrefix = usePathPrefix();

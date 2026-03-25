@@ -13,7 +13,7 @@ import { Router } from 'express';
 import { eq } from 'drizzle-orm';
 import { db, users, teams } from '../db/client.js';
 import { logger } from '../logger.js';
-import { isSelfHosted, config } from '../config.js';
+import { config } from '../config.js';
 import { sessionAuth, requireTeamAccess, requireBillingAdmin, asyncHandler, ApiError } from '../middleware/index.js';
 import { validate } from '../middleware/validation.js';
 import { adminRateLimiter } from '../middleware/rateLimit.js';
@@ -73,7 +73,7 @@ router.get(
 
         res.json({
             enabled: isStripeEnabled(),
-            selfHosted: isSelfHosted,
+            selfHosted: !isStripeEnabled(),
             hasCustomer: !!team?.stripeCustomerId,
             hasPaymentMethod,
             paymentFailed: !!team?.paymentFailedAt,
@@ -97,7 +97,7 @@ router.post(
     requireBillingAdmin,
     adminRateLimiter,
     asyncHandler(async (req, res) => {
-        if (isSelfHosted || !isStripeEnabled()) {
+        if (!isStripeEnabled()) {
             throw ApiError.serviceUnavailable('Stripe is not enabled');
         }
 
@@ -145,7 +145,7 @@ router.get(
     validate(teamIdParamSchema, 'params'),
     requireTeamAccess,
     asyncHandler(async (req, res) => {
-        if (isSelfHosted || !isStripeEnabled()) {
+        if (!isStripeEnabled()) {
             throw ApiError.serviceUnavailable('Stripe is not enabled');
         }
 
@@ -189,7 +189,7 @@ router.post(
     requireBillingAdmin,
     adminRateLimiter,
     asyncHandler(async (req, res) => {
-        if (isSelfHosted || !isStripeEnabled()) {
+        if (!isStripeEnabled()) {
             throw ApiError.serviceUnavailable('Stripe is not enabled');
         }
 
@@ -225,7 +225,7 @@ router.post(
     requireBillingAdmin,
     adminRateLimiter,
     asyncHandler(async (req, res) => {
-        if (isSelfHosted || !isStripeEnabled()) {
+        if (!isStripeEnabled()) {
             throw ApiError.serviceUnavailable('Stripe is not enabled');
         }
 
@@ -275,7 +275,7 @@ router.delete(
     requireBillingAdmin,
     adminRateLimiter,
     asyncHandler(async (req, res) => {
-        if (isSelfHosted || !isStripeEnabled()) {
+        if (!isStripeEnabled()) {
             throw ApiError.serviceUnavailable('Stripe is not enabled');
         }
 
@@ -304,7 +304,7 @@ router.post(
     validate(teamIdParamSchema, 'params'),
     requireBillingAdmin,
     asyncHandler(async (req, res) => {
-        if (isSelfHosted || !isStripeEnabled()) {
+        if (!isStripeEnabled()) {
             throw ApiError.serviceUnavailable('Stripe is not enabled');
         }
 
@@ -345,7 +345,7 @@ router.post(
     validate(teamIdParamSchema, 'params'),
     requireBillingAdmin,
     asyncHandler(async (req, res) => {
-        if (isSelfHosted || !isStripeEnabled()) {
+        if (!isStripeEnabled()) {
             throw ApiError.serviceUnavailable('Stripe is not enabled');
         }
 

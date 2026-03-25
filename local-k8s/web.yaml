@@ -1,0 +1,92 @@
+# Local dashboard deployment for full-cluster parity
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: web
+  namespace: rejourney-local
+  labels:
+    app: web
+    app.kubernetes.io/part-of: rejourney
+spec:
+  type: ClusterIP
+  ports:
+    - port: 80
+      targetPort: 8080
+  selector:
+    app: web
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web
+  namespace: rejourney-local
+  labels:
+    app.kubernetes.io/part-of: rejourney
+spec:
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app: web
+  template:
+    metadata:
+      labels:
+        app: web
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+      containers:
+        - name: web
+          image: rejourney-local/web:dev
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8080
+          env:
+            - name: NODE_ENV
+              value: "production"
+            - name: NODE_OPTIONS
+              value: "--max-old-space-size=256"
+            - name: PORT
+              value: "8080"
+            - name: API_URL
+              value: "http://api:3000"
+            - name: VITE_STRIPE_PUBLISHABLE_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: stripe-secret
+                  key: VITE_STRIPE_PUBLISHABLE_KEY
+                  optional: true
+            - name: VITE_MAPBOX_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: mapbox-secret
+                  key: VITE_MAPBOX_TOKEN
+                  optional: true
+          resources:
+            requests:
+              cpu: 50m
+              memory: 192Mi
+            limits:
+              cpu: 300m
+              memory: 384Mi
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10

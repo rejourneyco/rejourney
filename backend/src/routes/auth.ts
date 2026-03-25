@@ -9,7 +9,7 @@ import { createHash, randomBytes } from 'crypto';
 import { eq, gt, and, sql, desc } from 'drizzle-orm';
 import { db, users, teams, teamMembers, otpTokens, userSessions, sessions, sessionMetrics, projects } from '../db/client.js';
 import { logger } from '../logger.js';
-import { config, isSelfHosted } from '../config.js';
+import { config } from '../config.js';
 import { validate, asyncHandler, ApiError, sessionAuth } from '../middleware/index.js';
 import {
     otpSendRateLimiter,
@@ -30,6 +30,7 @@ import {
     enforceCredentialStuffingGuards,
     recordFailedAuthAttempt,
 } from '../services/abuseDetection.js';
+import { isStripeEnabled } from '../services/stripe.js';
 
 const router = Router();
 
@@ -387,8 +388,7 @@ router.get(
                 totalMinutesUsed: 0,
                 storageBytesUsed: 0,
                 storageLimitBytes: 10 * 1024 * 1024 * 1024, // 10GB default
-                // Self-hosted flag
-                isSelfHosted,
+                isSelfHosted: !isStripeEnabled(),
                 // Properly formatted date
                 createdAt: user.createdAt.toISOString(),
                 // User's teams

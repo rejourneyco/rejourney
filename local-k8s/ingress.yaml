@@ -1,0 +1,88 @@
+# Local ingress for full-cluster parity
+
+---
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: security-headers
+  namespace: rejourney-local
+  labels:
+    app.kubernetes.io/part-of: rejourney
+spec:
+  headers:
+    frameDeny: false
+    customFrameOptionsValue: "SAMEORIGIN"
+    contentTypeNosniff: true
+    browserXssFilter: true
+    referrerPolicy: "strict-origin-when-cross-origin"
+    contentSecurityPolicy: "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://challenges.cloudflare.com https://js.stripe.com https://m.stripe.network https://static.cloudflareinsights.com https://www.clarity.ms https://scripts.clarity.ms; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: https: http: blob:; font-src 'self' data: https://fonts.gstatic.com; connect-src 'self' http://api.localtest.me ws://api.localtest.me http://ingest.localtest.me https://api.stripe.com https://m.stripe.network https://api.mapbox.com https://events.mapbox.com https://*.tiles.mapbox.com https://www.clarity.ms https://*.clarity.ms https://c.bing.com; media-src 'self' http://127.0.0.1:9000 http://localhost:9000 blob: data:; worker-src 'self' blob:; frame-src 'self' https://challenges.cloudflare.com https://js.stripe.com https://hooks.stripe.com; frame-ancestors 'self'; base-uri 'self'; form-action 'self';"
+    customResponseHeaders:
+      X-Powered-By: ""
+      Server: ""
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: rejourney-local-web
+  namespace: rejourney-local
+  labels:
+    app.kubernetes.io/part-of: rejourney
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: web
+    traefik.ingress.kubernetes.io/router.middlewares: rejourney-local-security-headers@kubernetescrd
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: rejourney.localtest.me
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: web
+                port:
+                  number: 80
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: rejourney-local-api
+  namespace: rejourney-local
+  labels:
+    app.kubernetes.io/part-of: rejourney
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: web
+    traefik.ingress.kubernetes.io/router.middlewares: rejourney-local-security-headers@kubernetescrd
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: api.localtest.me
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: api
+                port:
+                  number: 3000
+    - host: ingest.localtest.me
+      http:
+        paths:
+          - path: /upload
+            pathType: Prefix
+            backend:
+              service:
+                name: ingest-upload
+                port:
+                  number: 3001
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: api
+                port:
+                  number: 3000

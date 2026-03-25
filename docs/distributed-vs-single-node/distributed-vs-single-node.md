@@ -1,59 +1,96 @@
 # Distributed vs Single-Node Cloud
 
-Rejourney is designed for the modern cloud. We offer two distinct deployment models, both of which are self-hosted on your own infrastructure (Cloud VPS or On-Premise).
+Rejourney supports two official self-hosted deployment shapes:
+
+- **Single-node Docker Compose** for one server or VPS
+- **Distributed K3s** for production clusters and horizontal scaling
+
+Both now use the same core backend model:
+
+- storage endpoints are database-backed
+- ingest uploads go through the backend-owned upload relay
+- workers process verified artifacts
+- replay visibility is artifact-driven
+
+---
 
 ## Feature Comparison
 
 | Feature | Distributed Cloud | Single-Node Cloud |
-|---------|--------------------|----------------|
-| **Platform** | K3s (Kubernetes) | Docker Compose |
-| **Setup** | k8s/ directory | docker-compose.selfhosted.yml |
-| **Scale** | Multi-node, auto-scaling | Single-node / VPS |
-| **S3 Source** | Database Schema | Environment Variables |
-| **Secrets Management** | K8s Secrets | Direct .env mapping |
-| **Encryption** | Always enabled | Optional / Portable |
-| **Backups** | Automated R2 CronJobs | User-defined |
+|---------|--------------------|-------------------|
+| Platform | K3s | Docker Compose |
+| Scale | Multi-node | Single-node |
+| Public entrypoints | Traefik ingress | Traefik container |
+| Upload path | API + ingest-upload service | API + ingest-upload service |
+| Storage source of truth | `storage_endpoints` table | `storage_endpoints` table |
+| Default object storage | External S3 | Built-in MinIO |
+| External S3 support | Yes | Yes |
+| Secret encryption | `STORAGE_ENCRYPTION_KEY` | `STORAGE_ENCRYPTION_KEY` |
+| Update flow | k8s deploy + jobs | `deploy.sh update` |
 
 ---
 
-## Configuration & S3 Logic
+## Shared Storage Model
 
-### Distributed Cloud (Managed via Schema)
-In the Distributed Cloud deployment, the database schema is the absolute source of truth. 
+In both deployment models, runtime storage configuration comes from Postgres, not from an env fallback.
 
-* **Storage Endpoints**: All S3 configurations (endpoint, bucket, access keys) are stored in the storage_endpoints table.
-* **Multi-Bucket Suport**: This allows the system to support multiple S3 buckets across different projects or regions without needing to restart services or update environment variables.
-* **Redundancy**: Supports "Shadow Endpoints," where the backend automatically pipes recording data to multiple storage providers simultaneously for failover.
-* **Security**: The STORAGE_ENCRYPTION_KEY is used to encrypt S3 secret keys before they are saved to the database.
-* **Management**: Use the [manage-s3-endpoints.mjs](https://github.com/rejourneyco/rejourney/blob/main/scripts/k8s/manage-s3-endpoints.mjs) interactive script to add new storage providers to your live cluster without downtime.
+That means:
 
-### Single-Node Cloud (Simplified Fallback)
-For self-hosted developers, we prioritize simplicity.
+- the active object storage endpoint is stored in `storage_endpoints`
+- secret access keys are encrypted into `key_ref`
+- runtime reads the database row
+- bootstrap/install scripts are responsible for syncing `.env` input into the database row
 
-* **Frictionless Setup**: If the storage_endpoints table is empty (e.g., a fresh install), the app automatically falls back to the S3 variables in the .env file.
-* **No Seed Required**: A "virtual endpoint" is created at runtime, so users don't have to worry about the database records unless they want more complex routing.
+This makes self-hosted Docker much closer to prod and local-k8s than the old fallback model.
 
 ---
 
-## Secrets Synchronization
-Managing secrets in a distributed environment can be tedious, so we use a dedicated utility script.
+## When to Choose Single-Node Docker Compose
 
-1. It reads your local .env file.
-2. It distributes secrets into the correct Kubernetes namespaces:
-    * **rejourney**: App secrets, Database, S3, SMTP.
-    * **kube-system**: Traefik dashboard basic auth and ingress controllers.
-3. It ensures that sensitive values like JWT_SECRET and STORAGE_ENCRYPTION_KEY are always present before allowing a deployment.
+Choose Docker Compose when:
 
-Command to sync:
-```bash
-./scripts/k8s/k8s-sync-secrets.sh prod .env
-```
+- you are deploying to one VPS or bare-metal host
+- you want the fastest install path
+- you want built-in MinIO by default
+- you do not need multi-node scaling or Kubernetes operations
+
+Official entrypoints:
+
+- `docker-compose.selfhosted.yml`
+- `scripts/selfhosted/deploy.sh`
+- `docs/selfhosted/README.md`
 
 ---
 
-## Scaling Strategy
-* **Distributed workload**: Kubernetes distributes the workload across multiple physical VPS nodes.
-* **Isolated Workers**: Unlike the single-node version where everything runs on one machine, the Distributed Cloud breaks out the Ingest, Billing, and Alert workers into their own pods.
-* **Dynamic Resource Allocation**: This allows you to scale the Ingest worker up during high traffic while keeping the API pod lean.
+## When to Choose Distributed K3s
 
-Detailed information about automated testing and deployment can be found in the [CI/CD Documentation](/docs/architecture/ci-cd).
+Choose K3s when:
+
+- you need multiple nodes
+- you want Kubernetes-native ops and secret handling
+- you want to scale API, upload, and worker services independently
+- you want rolling deploys and stronger infra isolation
+
+The K3s path lives under `k8s/` and `scripts/k8s/`.
+
+---
+
+## Operational Difference
+
+The main difference is not data model anymore. It is operational shape:
+
+- Compose: one machine, one Docker network, one operator script
+- K3s: multiple pods, namespaces, cluster ingress, Kubernetes jobs and secrets
+
+---
+
+## Practical Guidance
+
+Start with single-node Compose if you want to self-host quickly.
+
+Move to K3s when you need:
+
+- more throughput
+- rolling cluster deploys
+- horizontal scaling
+- more resilient infrastructure separation

@@ -34,6 +34,10 @@ import {
     normalizeSessionArchiveIssueFilter,
     sessionArchiveIssueFilterUsesMetrics,
 } from '../services/sessionArchiveFilters.js';
+import {
+    hasSuccessfulRecording,
+    readyScreenshotArtifactsConditionSql,
+} from '../services/replayAvailability.js';
 
 const router = Router();
 
@@ -113,9 +117,7 @@ function buildSessionArchiveBaseConditions(
 
     const recordingFilter = hasRecording ?? promoted;
     if (recordingFilter === 'true') {
-        baseConditions.push(
-            sql`coalesce(${sessionMetrics.screenshotSegmentCount}, 0) > 0`
-        );
+        baseConditions.push(eq(sessions.replayAvailable, true));
     }
 
     if (metaKey) {
@@ -187,15 +189,10 @@ function buildSessionArchiveBaseConditions(
     return {
         baseConditions,
         needsMetricsJoin: Boolean(
-            recordingFilter === 'true'
-            || eventCountCondition
+            eventCountCondition
             || sessionArchiveIssueFilterUsesMetrics(normalizedIssueFilter)
         ),
     };
-}
-
-function hasSuccessfulRecording(session: any, metrics?: any): boolean {
-    return Number(metrics?.screenshotSegmentCount ?? session?.replaySegmentCount ?? 0) > 0;
 }
 
 function getReplayCompatibilityReason(successfulRecording: boolean): string | null {
@@ -349,11 +346,12 @@ function buildMetricsPayload(metrics: any) {
 function buildSessionBasePayload(
     session: any,
     metrics: any,
-    screenshotFrames: Array<{ timestamp: number; url: string; index: number }>
+    screenshotFrames: Array<{ timestamp: number; url: string; index: number }>,
+    readyScreenshotArtifacts = false
 ) {
     const hasRecording = screenshotFrames.length > 0;
     const playbackMode = hasRecording ? 'screenshots' : 'none';
-    const successfulRecording = hasSuccessfulRecording(session, metrics);
+    const successfulRecording = hasSuccessfulRecording(session, metrics, readyScreenshotArtifacts);
 
     return {
         id: session.id,
@@ -420,7 +418,7 @@ async function loadScreenshotReplayBootstrap(
     screenshotArtifactCount: number,
     frameUrlMode: ScreenshotFrameUrlMode
 ) {
-    const hasRecording = screenshotArtifactCount > 0 && !session.isReplayExpired && !session.recordingDeleted;
+    const hasRecording = Boolean(session.replayAvailable) && !session.isReplayExpired && !session.recordingDeleted;
     if (!hasRecording) {
         return {
             hasRecording: false,
@@ -1164,6 +1162,7 @@ router.get(
                 .select({
                     session: sessions,
                     metrics: sessionMetrics,
+                    readyScreenshotArtifacts: readyScreenshotArtifactsConditionSql(sessions.id),
                     isFirstSession: sql<boolean>`NOT EXISTS (
                         SELECT 1 FROM ${sessions} AS previous_sessions 
                         WHERE previous_sessions.device_id = ${sessions.deviceId} 
@@ -1197,8 +1196,8 @@ router.get(
         const nextCursor = hasMore ? resultSessions[resultSessions.length - 1].session.id : null;
 
         // Transform to API format
-        const sessionsData = resultSessions.map(({ session: s, metrics: m, isFirstSession }) => {
-            const successfulRecording = hasSuccessfulRecording(s, m);
+        const sessionsData = resultSessions.map(({ session: s, metrics: m, readyScreenshotArtifacts, isFirstSession }) => {
+            const successfulRecording = hasSuccessfulRecording(s, m, Boolean(readyScreenshotArtifacts));
             return {
                 id: s.id,
                 projectId: s.projectId,
@@ -1589,11 +1588,10 @@ router.get(
 
         const mergedEvents = mergeEventsWithFaults(normalizedEvents, faultEvents);
 
-        // Determine if this session has replay data (screenshots only).
-        // A session without segments may still have analytics data (events, metrics)
-        const hasRecording = screenshotFrames.length > 0;
-        const playbackMode = screenshotFrames.length > 0 ? 'screenshots' : 'none';
-        const successfulRecording = hasSuccessfulRecording(session, metrics);
+        const readyScreenshotArtifacts = artifactsList.some((artifact) => artifact.kind === 'screenshots');
+        const hasRecording = Boolean(session.replayAvailable) && !session.isReplayExpired && !session.recordingDeleted;
+        const playbackMode = hasRecording ? 'screenshots' : 'none';
+        const successfulRecording = hasSuccessfulRecording(session, metrics, readyScreenshotArtifacts);
 
         res.json({
             id: session.id,
@@ -1779,7 +1777,12 @@ router.get(
             frameUrlMode
         );
 
-        const basePayload = buildSessionBasePayload(session, metrics, replayBootstrap.screenshotFrames);
+        const basePayload = buildSessionBasePayload(
+            session,
+            metrics,
+            replayBootstrap.screenshotFrames,
+            screenshotArtifacts.length > 0
+        );
         const stats = await computeSessionStats(session, metrics, artifactsList, false);
         const responseBody = {
             ...basePayload,

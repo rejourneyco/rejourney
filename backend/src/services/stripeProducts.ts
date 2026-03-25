@@ -13,7 +13,7 @@
 
 import Stripe from 'stripe';
 import { eq, and, inArray, isNull } from 'drizzle-orm';
-import { config, isSelfHosted } from '../config.js';
+import { config } from '../config.js';
 import { logger } from '../logger.js';
 import { db, teams, projects, projectUsage, users, teamMembers } from '../db/client.js';
 import { getTeamBillingPeriod } from '../utils/billing.js';
@@ -108,6 +108,7 @@ const PLAN_ORDER = ['free', 'starter', 'growth', 'pro'];
 let priceCache: StripePlan[] | null = null;
 let priceCacheExpiry: number = 0;
 const PRICE_CACHE_TTL_MS = 1 * 60 * 1000; // 1 minutes
+let loggedStripeDisabled = false;
 
 // =============================================================================
 // Stripe Client
@@ -121,10 +122,11 @@ function logStripePlanConsole(level: 'warn' | 'error', message: string, details:
 }
 
 function getStripe(): Stripe | null {
-    if (isSelfHosted) return null;
-
     if (!config.STRIPE_SECRET_KEY) {
-        logger.warn('STRIPE_SECRET_KEY not configured - Stripe disabled');
+        if (!loggedStripeDisabled) {
+            logger.warn('STRIPE_SECRET_KEY not configured - Stripe disabled');
+            loggedStripeDisabled = true;
+        }
         return null;
     }
 

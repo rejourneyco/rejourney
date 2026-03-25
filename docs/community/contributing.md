@@ -10,8 +10,11 @@ This is a monorepo managed by npm workspaces.
 
 1. **Node.js** >= 18.0.0
 2. **npm** or **yarn** (workspaces work with both)
-3. **iOS**: Xcode and CocoaPods
-4. **Android**: Android Studio and JDK 17
+3. **Docker Desktop**
+4. **kubectl**
+5. **k3d**
+6. **iOS**: Xcode and CocoaPods
+7. **Android**: Android Studio and JDK 17
 
 ## Initial Setup
 
@@ -42,24 +45,42 @@ Or for a clean build:
 npm run build:clean
 ```
 
-## Backend Development (Local Docker)
+## Backend Development (Local Kubernetes)
 
-Rejourney uses Docker to run the backend and its dependencies (PostgreSQL, Redis, MinIO) locally.
+Rejourney uses `local-k8s/` for local development so the runtime stays close to the production Kubernetes setup while still keeping the daily loop fast.
 
-### 1. Configure `.env.local`
+### 1. Configure `.env.k8s.local`
 
-Copy the example environment file and update it with your settings:
+Copy the local Kubernetes environment template:
 
 ```bash
-cp .env.example .env.local
+cp local-k8s/env.example .env.k8s.local
 ```
 
-### 2. Start Services
+### 2. Start The Hybrid Dev Stack
 
-You can use the provided local scripts:
+```bash
+npm run dev
+```
 
-- **Start/Rebuild**: `./scripts/local/rebuild.sh`
-- **Stop**: `./scripts/local/stop.sh`
+That flow:
+
+- Creates a local `k3d` cluster if needed
+- Applies `local-k8s/namespace.yaml`, `postgres.yaml`, `redis.yaml`, and `minio.yaml`
+- Syncs `.env.k8s.local` into Kubernetes secrets
+- Runs the API, dashboard, and workers from source on your host machine
+
+For a full in-cluster parity run:
+
+```bash
+npm run dev:full
+```
+
+To stop the local stack:
+
+```bash
+npm run dev:down
+```
 
 ### 3. IP Address Configuration (Physical Device Testing)
 
@@ -75,7 +96,7 @@ ipconfig getifaddr en0
 
 Or find it in **System Settings > WiFi > [Your Network] Details**.
 
-#### Update `.env.local`
+#### Update `.env.k8s.local`
 
 The following variables **MUST** use your local IP address (e.g., `http://192.168.1.5:3000`) instead of `localhost`:
 
@@ -91,13 +112,15 @@ The following variables **MUST** use your local IP address (e.g., `http://192.16
 > [!IMPORTANT]
 > Failure to set these correctly will result in "Connection Refused" errors on physical devices or broken image/video links in the dashboard.
 
-#### Example Configuration (`.env.local`)
+`npm run dev` updates these LAN-facing values automatically through `scripts/local-k8s/update-ips.sh`, and it also writes the example app env files used by the Expo apps.
+
+#### Example Configuration (`.env.k8s.local`)
 
 Assuming your computer's IP address is `192.168.1.100`:
 
 ```env
-# Object storage (MinIO local - accessible from physical devices)
-S3_ENDPOINT=http://minio:9000
+# Object storage (host access to local-k8s MinIO)
+S3_ENDPOINT=http://127.0.0.1:9000
 S3_PUBLIC_ENDPOINT=http://192.168.1.100:9000
 
 # Public URLs
@@ -107,6 +130,19 @@ PUBLIC_INGEST_URL=http://192.168.1.100:3000
 DASHBOARD_ORIGIN=http://192.168.1.100:8080
 OAUTH_REDIRECT_BASE=http://192.168.1.100:3000
 ```
+
+### 4. Local Kubernetes Files
+
+The local Kubernetes manifests intentionally mirror the production `k8s/` layout:
+
+- `local-k8s/namespace.yaml`
+- `local-k8s/postgres.yaml`
+- `local-k8s/redis.yaml`
+- `local-k8s/minio.yaml`
+- `local-k8s/api.yaml`
+- `local-k8s/web.yaml`
+- `local-k8s/workers.yaml`
+- `local-k8s/ingress.yaml`
 
 ## Running Example Apps
 

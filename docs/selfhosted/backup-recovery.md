@@ -1,223 +1,128 @@
-# Backup & Recovery
+# Self-Hosted Backup & Recovery
 
-> Protect your Rejourney data with automated backups and disaster recovery procedures.
+For the official single-node Docker Compose deployment, the critical data is:
 
----
-
-## What to Backup
-
-| Component | Data Type | Priority | Method |
-|-----------|-----------|----------|--------|
-| PostgreSQL | User data, projects, sessions | **Critical** | pg_dump |
-| Redis | Cache, queues | Low | Optional |
-| S3/Object Storage | Session recordings | High | S3 replication |
-| Kubernetes Secrets | Credentials | **Critical** | Manual export |
+- Postgres
+- `.env.selfhosted`
+- MinIO data if you use built-in MinIO
 
 ---
 
-## Automated Backups
+## Quick Backup
 
-### K3s: CronJob Backup
-
-The included backup CronJob runs daily:
+Use the bundled helper:
 
 ```bash
-# Check backup job status
-kubectl get cronjobs -n rejourney
-
-# View recent backup jobs
-kubectl get jobs -n rejourney | grep backup
-
-# Check backup logs
-kubectl logs job/db-backup-<id> -n rejourney
+./scripts/selfhosted/backup.sh
+./scripts/selfhosted/backup.sh --full
 ```
 
-### Docker Compose: Cron Backup
+What it does:
 
-Set up automated backups with cron:
-
-```bash
-# Edit crontab
-crontab -e
-
-# Add daily backup at 3 AM
-0 3 * * * /path/to/rejourney/scripts/selfhosted/backup.sh >> /var/log/rejourney-backup.log 2>&1
-
-# Add weekly full backup (including recordings)
-0 4 * * 0 /path/to/rejourney/scripts/selfhosted/backup.sh --full >> /var/log/rejourney-backup.log 2>&1
-```
+- Postgres dump every time
+- Redis snapshot when available
+- `.env.selfhosted` copy every time
+- MinIO object data when `--full` is used and built-in MinIO is enabled
 
 ---
 
-## Manual Backup
+## What to Save
 
-### PostgreSQL Database
+### Always save
 
-**K3s:**
-```bash
-# Create backup
-kubectl exec -it postgres-0 -n rejourney -- pg_dump -U rejourney rejourney > backup-$(date +%Y%m%d).sql
+- `backups/postgres-*.sql.gz`
+- `backups/env-*`
 
-# Compress
-gzip backup-$(date +%Y%m%d).sql
-```
+### Save when using built-in MinIO
 
-**Docker Compose:**
-```bash
-# Create backup
-docker compose exec -T postgres pg_dump -U rejourney rejourney > backup-$(date +%Y%m%d).sql
+- `backups/minio-*.tar.gz`
 
-# Compress
-gzip backup-$(date +%Y%m%d).sql
-```
-
-### Kubernetes Secrets
-
-```bash
-# Export all secrets
-kubectl get secrets -n rejourney -o yaml > secrets-backup.yaml
-
-# Store securely (encrypt before storing!)
-gpg -c secrets-backup.yaml
-```
-
-### S3 Object Storage
-
-For external S3 providers, use their replication features:
-- **AWS S3**: Cross-region replication
-- **Hetzner**: Create backup bucket
-- **MinIO**: mc mirror command
-
-```bash
-# MinIO mirror example
-mc mirror minio/rejourney-recordings backup/rejourney-recordings
-```
+If you use external S3, your recordings live in that bucket instead of the local MinIO volume, so the database plus `.env.selfhosted` are the minimum local backups.
 
 ---
 
-## Recovery Procedures
+## Restore Order
 
-### Restore PostgreSQL
+### 1. Recreate the stack config
 
-**K3s:**
-```bash
-# Stop API and workers
-kubectl scale deployment api --replicas=0 -n rejourney
-kubectl scale deployment ingest-worker --replicas=0 -n rejourney
+Put the saved `.env.selfhosted` back in the repo root.
 
-# Restore database
-gunzip -c backup.sql.gz | kubectl exec -i postgres-0 -n rejourney -- psql -U rejourney rejourney
-
-# Start services
-kubectl scale deployment api --replicas=2 -n rejourney
-kubectl scale deployment ingest-worker --replicas=1 -n rejourney
-```
-
-**Docker Compose:**
-```bash
-# Stop services
-docker compose stop api worker
-
-# Restore database
-gunzip -c backup.sql.gz | docker compose exec -T postgres psql -U rejourney rejourney
-
-# Start services
-docker compose start api worker
-```
-
-### Restore Kubernetes Secrets
+### 2. Start infrastructure and bootstrap
 
 ```bash
-# Decrypt if encrypted
-gpg -d secrets-backup.yaml.gpg > secrets-backup.yaml
-
-# Apply secrets
-kubectl apply -f secrets-backup.yaml
+./scripts/selfhosted/deploy.sh update
 ```
 
-### Complete Disaster Recovery
+This brings the services back and recreates the `storage_endpoints` row from your saved config.
 
-1. **Provision new server** with same specs
-2. **Install K3s or Docker**
-3. **Clone repository**
-4. **Restore secrets**
-5. **Deploy application**
-6. **Restore database**
-7. **Update DNS**
-8. **Verify functionality**
+### 3. Restore Postgres
+
+```bash
+gunzip -c backups/postgres-YYYYMMDD-HHMMSS.sql.gz | \
+  docker compose -f docker-compose.selfhosted.yml --env-file .env.selfhosted exec -T postgres \
+  psql -U rejourney rejourney
+```
+
+### 4. Restore MinIO, if applicable
+
+If you use built-in MinIO and you took a `--full` backup:
+
+```bash
+gunzip -c backups/minio-YYYYMMDD-HHMMSS.tar.gz | \
+  docker run --rm -i -v rejourney_miniodata:/data alpine tar xf - -C /data
+```
+
+### 5. Restart app services
+
+```bash
+./scripts/selfhosted/deploy.sh update
+```
+
+That reruns bootstrap and restarts the app services after the restore.
 
 ---
 
-## Backup to Cloud Storage
+## Recommended Schedule
 
-### Upload to S3
+Daily database backup:
 
 ```bash
-#!/bin/bash
-# backup-to-s3.sh
-
-BACKUP_FILE="backup-$(date +%Y%m%d-%H%M%S).sql.gz"
-S3_BUCKET="your-backup-bucket"
-
-# Create backup
-kubectl exec -it postgres-0 -n rejourney -- pg_dump -U rejourney rejourney | gzip > $BACKUP_FILE
-
-# Upload to S3
-aws s3 cp $BACKUP_FILE s3://$S3_BUCKET/postgres/
-
-# Clean up local file
-rm $BACKUP_FILE
-
-# Keep only last 30 days
-aws s3 ls s3://$S3_BUCKET/postgres/ | while read -r line; do
-  createDate=$(echo $line | awk '{print $1}')
-  if [[ $(date -d "$createDate" +%s) -lt $(date -d "30 days ago" +%s) ]]; then
-    fileName=$(echo $line | awk '{print $4}')
-    aws s3 rm s3://$S3_BUCKET/postgres/$fileName
-  fi
-done
+0 3 * * * cd /opt/rejourney && ./scripts/selfhosted/backup.sh >> /var/log/rejourney-backup.log 2>&1
 ```
 
-### Upload to Cloudflare R2
-
-Use the K8s backup CronJob which automatically uploads to R2 if configured.
-
----
-
-## Backup Verification
-
-Regularly test your backups:
+Weekly full backup with MinIO data:
 
 ```bash
-# Create test database
-kubectl exec -it postgres-0 -n rejourney -- createdb -U rejourney rejourney_test
-
-# Restore to test database
-gunzip -c backup.sql.gz | kubectl exec -i postgres-0 -n rejourney -- psql -U rejourney rejourney_test
-
-# Verify data
-kubectl exec -it postgres-0 -n rejourney -- psql -U rejourney rejourney_test -c "SELECT COUNT(*) FROM users;"
-
-# Clean up
-kubectl exec -it postgres-0 -n rejourney -- dropdb -U rejourney rejourney_test
+0 4 * * 0 cd /opt/rejourney && ./scripts/selfhosted/backup.sh --full >> /var/log/rejourney-backup.log 2>&1
 ```
 
 ---
 
-## Retention Policy
+## Disaster Recovery Notes
 
-| Backup Type | Retention |
-|-------------|-----------|
-| Daily | 7 days |
-| Weekly | 4 weeks |
-| Monthly | 12 months |
+You need all of the following to fully restore a built-in-MinIO deployment:
 
-Implement with backup rotation:
+- `.env.selfhosted`
+- Postgres backup
+- MinIO backup
+
+Without `.env.selfhosted`, you may lose access to encrypted storage credentials in Postgres because `STORAGE_ENCRYPTION_KEY` lives there.
+
+---
+
+## Verification Checklist
+
+After a restore:
+
+1. run `./scripts/selfhosted/deploy.sh status`
+2. log into the dashboard
+3. open an existing project
+4. open an existing replay
+5. record one new short session and verify it appears
+
+If replay ingestion fails after restore, check:
 
 ```bash
-# Keep last 7 daily backups
-find /backups/daily -mtime +7 -delete
-
-# Keep last 4 weekly backups
-find /backups/weekly -mtime +28 -delete
+./scripts/selfhosted/deploy.sh logs ingest-upload
+./scripts/selfhosted/deploy.sh logs ingest-worker
 ```

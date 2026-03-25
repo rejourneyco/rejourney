@@ -14,8 +14,10 @@ type BackfillStats = {
 function loadEnv(): void {
     const cwd = process.cwd();
     const candidates = [
+        path.resolve(cwd, '.env.k8s.local'),
         path.resolve(cwd, '.env.local'),
         path.resolve(cwd, '.env'),
+        path.resolve(cwd, '../.env.k8s.local'),
         path.resolve(cwd, '../.env.local'),
         path.resolve(cwd, '../.env'),
     ];
@@ -160,4 +162,3 @@ main().catch((err) => {
     console.error('Unexpected failure:', err);
     process.exit(1);
 });
-

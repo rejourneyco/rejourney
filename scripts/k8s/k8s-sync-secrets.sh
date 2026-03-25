@@ -131,7 +131,6 @@ APP_SECRET_ARGS=(
     --from-literal=JWT_SIGNING_KEY="$JWT_SIGNING_KEY"
     --from-literal=INGEST_HMAC_SECRET="$INGEST_HMAC_SECRET"
     --from-literal=STORAGE_ENCRYPTION_KEY="$STORAGE_ENCRYPTION_KEY"
-    --from-literal=SELF_HOSTED_MODE="$([ "$DEPLOYMENT_TYPE" = "selfhosted" ] && echo "true" || echo "false")"
 )
 
 # Add PUBLIC URLs to app-secret (for both prod and self-hosted deployments)

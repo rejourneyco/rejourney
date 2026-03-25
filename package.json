@@ -1,6 +1,6 @@
 {
   "name": "rejourney-monorepo",
-  "version": "1.2.27",
+  "version": "1.3.0",
   "private": true,
   "description": "Rejourney Monorepo - Session Recording Platform",
   "workspaces": [
@@ -9,7 +9,10 @@
     "dashboard/web-ui"
   ],
   "scripts": {
-    "dev": "./dev.sh",
+    "dev": "./scripts/local-k8s/dev.sh",
+    "dev:full": "./scripts/local-k8s/deploy.sh full",
+    "dev:down": "./scripts/local-k8s/dev.sh down",
+    "dev:logs": "./scripts/local-k8s/dev.sh logs",
     "build": "npm run build:sdk",
     "build:sdk": "cd packages/react-native && npm run prepack",
     "build:clean": "npm run clean && npm run build:sdk",
@@ -19,7 +22,7 @@
     "typecheck": "tsc --noEmit",
     "lint": "eslint \"**/*.{js,ts,tsx}\"",
     "clean": "rm -rf packages/react-native/lib",
-    "db:seed": "./seed.sh",
+    "db:seed": "cd backend && npm run db:seed",
     "example:boilerplate": "cd examples/react-native-boilerplate && npm start",
     "example:brew": "cd examples/brew-coffee-labs && npm start",
     "example:bare": "cd examples/react-native-bare && npm start",

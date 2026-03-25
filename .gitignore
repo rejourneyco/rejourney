@@ -47,6 +47,8 @@ local.properties
 *.swp
 *.swo
 .env.local
+.env.k8s.local
+.local-k8s/
 api_logs.txt
 temp_env.txt
 .DS_Store

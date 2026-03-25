@@ -66,12 +66,18 @@ Full integration guides and API reference: https://rejourney.co/docs/reactnative
 
 ### Self-Hosting
 
-- Single Docker-file self-hosting: https://rejourney.co/docs/selfhosted
+- Single-node Docker Compose self-hosting: https://rejourney.co/docs/selfhosted
 - Enterprise-grade K3s hosting (architecture docs): https://rejourney.co/docs/architecture/distributed-vs-single-node
 
 ## Contributing
 
 Want to contribute to Rejourney? See our Contributing Guide: https://rejourney.co/docs/community/contributing
+
+## Local Development
+
+Local development now mirrors production more closely through [`local-k8s/`](local-k8s). Copy `local-k8s/env.example` to `.env.k8s.local`, then run `npm run dev` for the hybrid workflow or `npm run dev:full` for the full in-cluster stack.
+
+`docker-compose.selfhosted.yml` is the official single-node self-hosted deployment path.
 
 ## Benchmarks
 
@@ -107,4 +113,3 @@ Client-side components (SDKs, CLIs) are licensed under Apache 2.0. Server-side c
 - [Arabic | العربية](i18n/README_AR.md)
 - [Spanish | Español](i18n/README_ES.md)
 - [Turkish | Türkçe](i18n/README_TR.md)
-

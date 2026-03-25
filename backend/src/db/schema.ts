@@ -319,9 +319,13 @@ export const sessions = pgTable(
         anonymousDisplayId: varchar('anonymous_display_id', { length: 255 }), // Original anonymousId for display
         startedAt: timestamp('started_at').defaultNow().notNull(),
         endedAt: timestamp('ended_at'),
+        explicitEndedAt: timestamp('explicit_ended_at'),
+        finalizedAt: timestamp('finalized_at'),
+        lastIngestActivityAt: timestamp('last_ingest_activity_at').defaultNow().notNull(),
         durationSeconds: integer('duration_seconds'),
         backgroundTimeSeconds: integer('background_time_seconds').default(0),
         status: varchar('status', { length: 20 }).default('pending').notNull(),
+        closeSource: varchar('close_source', { length: 32 }),
         // NOTE: s3ObjectKey, sizeBytes, checksum removed - use recordingArtifacts table instead
         retentionTier: integer('retention_tier').default(1).notNull(),
 
@@ -334,6 +338,8 @@ export const sessions = pgTable(
         replayPromoted: boolean('replay_promoted').default(false).notNull(),
         replayPromotedReason: varchar('replay_promoted_reason', { length: 50 }),
         replayPromotedAt: timestamp('replay_promoted_at'),
+        replayAvailable: boolean('replay_available').default(false).notNull(),
+        replayAvailableAt: timestamp('replay_available_at'),
 
         // Geo location
         geoCity: varchar('geo_city', { length: 100 }),
@@ -364,6 +370,7 @@ export const sessions = pgTable(
     (table) => [
         index('sessions_project_started_idx').on(table.projectId, table.startedAt),
         index('sessions_status_idx').on(table.status),
+        index('sessions_replay_available_idx').on(table.replayAvailable, table.startedAt),
         index('sessions_user_display_id_idx').on(table.userDisplayId),
         index('sessions_anonymous_hash_idx').on(table.anonymousHash),
         index('sessions_events_idx').using('gin', table.events),
@@ -432,10 +439,14 @@ export const recordingArtifacts = pgTable(
         sessionId: varchar('session_id', { length: 64 }).notNull().references(() => sessions.id, { onDelete: 'cascade' }),
         kind: varchar('kind', { length: 50 }).notNull(), // 'events', 'screenshots', 'hierarchy', 'crashes', 'anrs'
         s3ObjectKey: text('s3_object_key').notNull(),
+        clientUploadId: varchar('client_upload_id', { length: 255 }),
         endpointId: varchar('endpoint_id', { length: 255 }), // Pins artifact to upload endpoint for correct worker download (k3s load balancing)
         sizeBytes: integer('size_bytes'),
+        declaredSizeBytes: integer('declared_size_bytes'),
         status: varchar('status', { length: 20 }).default('pending').notNull(),
         readyAt: timestamp('ready_at'),
+        uploadCompletedAt: timestamp('upload_completed_at'),
+        verifiedAt: timestamp('verified_at'),
         timestamp: doublePrecision('timestamp'),
         // Replay segment timing fields
         startTime: bigint('start_time', { mode: 'number' }), // Segment start time in epoch ms
@@ -446,6 +457,7 @@ export const recordingArtifacts = pgTable(
     (table) => [
         index('recording_artifacts_session_id_idx').on(table.sessionId),
         index('recording_artifacts_kind_idx').on(table.sessionId, table.kind),
+        uniqueIndex('recording_artifacts_client_upload_id_unique').on(table.clientUploadId),
     ]
 );
 
@@ -487,12 +499,16 @@ export const ingestJobs = pgTable(
         attempts: integer('attempts').default(0).notNull(),
         nextRunAt: timestamp('next_run_at'),
         errorMsg: text('error_msg'),
+        startedAt: timestamp('started_at'),
+        completedAt: timestamp('completed_at'),
+        workerId: varchar('worker_id', { length: 255 }),
         createdAt: timestamp('created_at').defaultNow().notNull(),
         updatedAt: timestamp('updated_at').defaultNow().notNull(),
     },
     (table) => [
         index('ingest_jobs_status_next_run_idx').on(table.status, table.nextRunAt),
         index('ingest_jobs_project_id_idx').on(table.projectId),
+        uniqueIndex('ingest_jobs_artifact_id_unique').on(table.artifactId),
     ]
 );
 
