@@ -546,9 +546,11 @@ export function transformToRecordingSession(session: ApiSession | ApiSessionSumm
 
   const startedAt = new Date(startedAtMs).toISOString();
   const endedAt = endedAtMs ? new Date(endedAtMs).toISOString() : undefined;
-  const durationSeconds = endedAtMs && startedAtMs
-    ? Math.round((endedAtMs - startedAtMs) / 1000)
-    : 0;
+  const durationSeconds = typeof (session as any).durationSeconds === 'number'
+    ? (session as any).durationSeconds
+    : endedAtMs && startedAtMs
+      ? Math.round((endedAtMs - startedAtMs) / 1000)
+      : 0;
 
   // Use metrics if available, otherwise calculate from stats
   const metrics = session.metrics || {
@@ -628,7 +630,7 @@ export function transformToRecordingSession(session: ApiSession | ApiSessionSumm
 
     interactionScore,
     explorationScore,
-    status: 'ready' as const,
+    status: (session as any).status || 'ready',
     // Geo data if available
     geoLocation: session.geoLocation,
     // Device ID for DAU/MAU tracking
