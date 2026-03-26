@@ -2,375 +2,289 @@
 
 Last updated: 2026-03-25
 
-This doc describes how the React Native package, ingest API, Redis, Postgres, and the ingest worker fit together for session recording.
+This doc is the ingest/runtime view: package start, upload lanes, relay, worker reconciliation, Redis, and Postgres.
 
-The shortest correct mental model is:
+Deploy, `db-setup`, GitHub Actions, and local parity now live in [Rejourney CI + Deploy Path](/Users/mora/Desktop/Dev-mac/rejourney/dev_docs/rejourney-ci.md).
 
-- The package usually creates a client-side `session_{timestamp}_{uuid}` ID and starts uploading artifacts under that ID.
-- Postgres is the source of truth for session state, artifact state, jobs, metrics, and usage.
-- Redis is a runtime helper for caching, idempotency, and rate/limit coordination.
-- A session becomes replay-available when at least one screenshot artifact reaches `ready`.
-- A session becomes finalized when reconciliation sees no blocking work and either an explicit end or enough idle time.
+Shortest correct mental model:
 
----
+- The package usually creates a client-side `session_{timestamp}_{uuid}` ID and uploads under that ID.
+- Postgres is the source of truth for session lifecycle, artifact lifecycle, metrics, jobs, and usage.
+- Redis is the runtime helper plane for cache, idempotency, and limit coordination.
+- A replay becomes visible when at least one screenshot artifact reaches `ready`.
+- A session is finalized by the ingest worker reconciliation path, not just by calling `/session/end`.
 
 ## Flow Index
 
 ```text
 ┌──────────────────────────────────────────────────────────────────────────────┐
-│ [R1] Package Start / Rollover                                                │
-│ [R2] Upload Lanes (events + replay artifacts)                                │
-│ [R3] Artifact Relay + Worker                                                 │
-│ [R4] Session Reconciliation / Auto-Finalizer                                 │
-│ [R5] Redis vs Postgres Ownership                                             │
-│ [R6] Quick Answers                                                           │
+│ [I1] Package Start / Rollover                                               │
+│ [I2] Upload Lanes / Session Creation                                        │
+│ [I3] Upload Relay / Worker / Artifact States                                │
+│ [I4] Reconciliation / Auto-Finalizer / endedAt Math                         │
+│ [I5] Redis vs Postgres Ownership                                            │
+│ [I6] Quick Answers / Constants                                              │
 └──────────────────────────────────────────────────────────────────────────────┘
 ```
 
----
+## [I1] Package Start / Rollover
 
-## [R1] Package Start / Rollover
-
-```mermaid
-sequenceDiagram
-    participant JS as JS SDK
-    participant CFG as GET /api/sdk/config
-    participant Native as Native Rejourney/ReplayOrchestrator
-    participant Auth as POST /api/ingest/auth/device
-    participant API as /api/ingest/*
-
-    JS->>CFG: fetch project config
-    Note over CFG: Redis may cache sdk:config:{publicKey}
-    CFG-->>JS: rejourneyEnabled / recordingEnabled / sampleRate / maxRecordingMinutes
-
-    JS->>JS: decide sampled-in vs telemetry-only
-    JS->>Native: setRemoteConfig(...)
-    JS->>Native: startSession(userId, apiUrl, publicKey)
-
-    Native->>Native: create session_{timestamp}_{uuid}
-    Native->>Auth: obtain device upload token
-    Auth-->>Native: x-upload-token credential
-    Native->>Native: begin replay + event pipeline + visual capture
-    Native->>API: uploads start under the new sessionId
+```text
+┌──────────────┐      GET /api/sdk/config       ┌─────────────────────────────┐
+│ JS SDK       │───────────────────────────────▶│ SDK config route            │
+│ public key   │◀───────────────────────────────│ recording/sample/max config │
+└──────┬───────┘                                │ Redis may cache sdk:config:*│
+       │                                        └──────────────┬──────────────┘
+       │ sampled in?                                          │
+       ▼                                                      ▼
+┌──────────────┐     POST /ingest/auth/device    ┌────────────────────────────┐
+│ Native layer │───────────────────────────────▶│ device auth route          │
+│ startSession │◀───────────────────────────────│ x-upload-token credential  │
+└──────┬───────┘                                └──────────────┬─────────────┘
+       │
+       │ create session_{timestamp}_{uuid}
+       │ start replay capture + event pipeline + visual capture
+       ▼
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ First /presign or /segment/presign starts uploading under that session ID   │
+└──────────────────────────────────────────────────────────────────────────────┘
 ```
 
-### Package-side rules that matter downstream
+```text
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ Package rollover / stop rules                                               │
+│                                                                              │
+│ Active -> background < 60s       : keep same session                        │
+│ Active -> background >= 60s      : end old session, then start a new one    │
+│ Active -> user stop              : flush and close                          │
+│ Active -> duration limit reached : flush and close                          │
+│ Process death / next launch      : recovery checkpoint can finalize old one │
+└──────────────────────────────────────────────────────────────────────────────┘
+```
 
-- In the normal React Native flow, the session ID is generated on-device in the package.
-- There is still a backend fallback for event-style `/presign` requests with no `sessionId`, which creates `session_${randomHex}`.
+```text
+Background rollover threshold      60s
+Rollover grace window               2s
+Event heartbeat flush               5s
+Max recording duration              backend-configured, clamped server-side
+                                    to 1..10 minutes
+```
+
+Package-side rules that matter downstream:
+
+- In the normal React Native flow, the session ID is generated on-device.
+- There is still a backend fallback for `/api/ingest/presign` without a `sessionId`; it now mints the same shaped ID family: `session_{timestamp}_{randomHex}`.
 - The timestamp embedded in the session ID is later used by the backend to infer `started_at`.
-- JS fetches [`/api/sdk/config`](/Users/mora/Desktop/Dev-mac/rejourney/backend/src/routes/sdk.ts) before starting and can disable replay entirely before any visual upload happens.
-- Native obtains an upload credential from [`/api/ingest/auth/device`](/Users/mora/Desktop/Dev-mac/rejourney/backend/src/routes/ingestDeviceAuth.ts) and sends it as `x-upload-token`.
-- Android and iOS both persist a recovery checkpoint so interrupted sessions can be finalized on the next launch.
+- JS fetches [`/api/sdk/config`](/Users/mora/Desktop/Dev-mac/rejourney/backend/src/routes/sdk.ts) before start and can disable replay before any visual upload happens.
+- Native obtains the upload credential from [`/api/ingest/auth/device`](/Users/mora/Desktop/Dev-mac/rejourney/backend/src/routes/ingestDeviceAuth.ts) and sends it as `x-upload-token`.
 
-### Package-side rollover / stop paths
-
-```mermaid
-stateDiagram-v2
-    [*] --> Active
-    Active --> Paused: app backgrounds
-    Paused --> Active: foreground < 60s
-    Paused --> Active: old session ended + new one started
-    Paused --> [*]: app killed / process death
-    Active --> [*]: user stop
-    Active --> [*]: duration limit reached
-
-    note right of Paused
-      If background > 60s:
-      end old session with reason "background_timeout"
-      then start a fresh session
-    end note
-```
-
-Important package timers / triggers:
-
-- Background timeout for rollover: `60s`
-- Grace window before forced restart after timeout: `2s`
-- Event heartbeat flush: `5s`
-- Max recording duration: comes from backend config, clamped server-side to `1..10` minutes
-
-Relevant code:
+Relevant package files:
 
 - [`packages/react-native/src/index.ts`](/Users/mora/Desktop/Dev-mac/rejourney/packages/react-native/src/index.ts)
 - [`packages/react-native/android/src/main/java/com/rejourney/recording/ReplayOrchestrator.kt`](/Users/mora/Desktop/Dev-mac/rejourney/packages/react-native/android/src/main/java/com/rejourney/recording/ReplayOrchestrator.kt)
 - [`packages/react-native/android/src/main/java/com/rejourney/recording/TelemetryPipeline.kt`](/Users/mora/Desktop/Dev-mac/rejourney/packages/react-native/android/src/main/java/com/rejourney/recording/TelemetryPipeline.kt)
 - [`packages/react-native/android/src/main/java/com/rejourney/engine/DeviceRegistrar.kt`](/Users/mora/Desktop/Dev-mac/rejourney/packages/react-native/android/src/main/java/com/rejourney/engine/DeviceRegistrar.kt)
 
----
-
-## [R2] Upload Lanes
+## [I2] Upload Lanes / Session Creation
 
 ```text
-               same sessionId
-                     │
-     ┌───────────────┴────────────────┐
-     │                                │
-     ▼                                ▼
-Events lane                     Replay lane
-POST /presign                   POST /segment/presign
-PUT relay upload                PUT relay upload
-POST /batch/complete            POST /segment/complete
-     │                                │
-     └───────────────┬────────────────┘
-                     ▼
-              recording_artifacts
+                          same sessionId
+                                │
+          ┌─────────────────────┴─────────────────────┐
+          ▼                                           ▼
+┌─────────────────────────┐                 ┌──────────────────────────┐
+│ Events lane             │                 │ Replay lane              │
+│ POST /presign           │                 │ POST /segment/presign    │
+│ PUT relay upload        │                 │ PUT relay upload         │
+│ POST /batch/complete    │                 │ POST /segment/complete   │
+└─────────────┬───────────┘                 └──────────────┬───────────┘
+              └─────────────────────┬──────────────────────┘
+                                    ▼
+                    sessions + recording_artifacts + metrics
 ```
 
-### What `/presign` and `/segment/presign` do
-
-```mermaid
-flowchart TD
-    A[ingest request] --> B[billing gate]
-    B --> C[session limit check]
-    C --> D[ingest byte budget]
-    D --> E[ensureIngestSession]
-    E --> F{new session?}
-    F -->|yes| G[increment project_usage.sessions]
-    F -->|no| H[keep existing row]
-    G --> I[register pending artifact]
-    H --> I
-    I --> J[return signed upload relay URL]
+```text
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ Presign request path                                                        │
+│                                                                              │
+│ 1. Billing gate / project recording rules                                   │
+│ 2. Session-limit check                                                      │
+│ 3. ensureIngestSession(projectId, sessionId)                                │
+│ 4. If created == true -> increment project_usage.sessions exactly once      │
+│ 5. register pending artifact row                                            │
+│ 6. return upload relay URL                                                  │
+└──────────────────────────────────────────────────────────────────────────────┘
 ```
 
-### Notes
+Session-creation rules:
 
-- Both lanes call [`ensureIngestSession()`](/Users/mora/Desktop/Dev-mac/rejourney/backend/src/services/ingestSessionLifecycle.ts).
 - New sessions are inserted with `status='processing'` and a matching `session_metrics` row.
-- If a late artifact appears for a finalized session, [`registerPendingArtifact()`](/Users/mora/Desktop/Dev-mac/rejourney/backend/src/services/ingestArtifactLifecycle.ts) reopens it via `markSessionIngestActivity(..., reopen: true)`.
 - Billing/session counting happens only when the session row is first created.
 - Replay screenshot uploads are rejected if the project disables recording or the session is sampled out.
+- If a late artifact appears for a finalized session, `registerPendingArtifact()` reopens it by touching the session with `reopen: true`.
 
 Relevant routes:
 
 - [`backend/src/routes/ingestUploads.ts`](/Users/mora/Desktop/Dev-mac/rejourney/backend/src/routes/ingestUploads.ts)
 - [`backend/src/routes/ingestLifecycle.ts`](/Users/mora/Desktop/Dev-mac/rejourney/backend/src/routes/ingestLifecycle.ts)
-
----
-
-## [R3] Artifact Relay + Worker
-
-```mermaid
-sequenceDiagram
-    participant SDK as Package
-    participant API as /presign or /segment/presign
-    participant Relay as PUT /upload/artifacts/:artifactId
-    participant PG as Postgres
-    participant Worker as ingestWorker
-
-    SDK->>API: request upload slot
-    API->>PG: insert recording_artifacts(status=pending)
-    API-->>SDK: upload relay URL
-
-    SDK->>Relay: PUT artifact bytes
-    Relay->>PG: mark artifact uploaded
-    Relay->>PG: create/requeue ingest_jobs row
-
-    SDK->>API: /batch/complete or /segment/complete
-    API->>PG: mark ingest activity, merge sdk telemetry
-
-    Worker->>PG: pick pending ingest_jobs
-    Worker->>Worker: process events / faults / replay artifact
-    Worker->>PG: recording_artifacts.status=ready
-    Worker->>PG: ingest_jobs.status=done
-    Worker->>PG: reconcile session state
-```
-
-### Artifact state machine
-
-```mermaid
-stateDiagram-v2
-    [*] --> pending
-    pending --> uploaded: relay upload stored
-    uploaded --> ready: worker verifies/processes
-    uploaded --> failed: retries exhausted
-    pending --> abandoned: upload never arrived
-    failed --> uploaded: recoverable requeue
-```
-
-### What the worker actually derives
-
-- `events` artifacts update session metadata and `session_metrics`, plus errors/ANRs/heatmap/daily stats side effects.
-- `crashes` and `anrs` artifacts create issue records and increment crash/ANR counters.
-- `screenshots` and `hierarchy` artifacts are mostly verification/normalization steps; once `ready`, they feed replay availability and finalization.
-
-Worker sweep behavior:
-
-- Every `10s`, the ingest worker runs a reconciliation sweep.
-- `pending` artifacts older than `10m` can become `abandoned`.
-- `processing` jobs older than `5m` can be requeued.
-- `uploaded` artifacts missing usable jobs can be recovered into the queue.
-
-Relevant code:
-
-- [`backend/src/routes/ingestUploadRelay.ts`](/Users/mora/Desktop/Dev-mac/rejourney/backend/src/routes/ingestUploadRelay.ts)
+- [`backend/src/services/ingestSessionLifecycle.ts`](/Users/mora/Desktop/Dev-mac/rejourney/backend/src/services/ingestSessionLifecycle.ts)
 - [`backend/src/services/ingestArtifactLifecycle.ts`](/Users/mora/Desktop/Dev-mac/rejourney/backend/src/services/ingestArtifactLifecycle.ts)
-- [`backend/src/worker/ingestWorker.ts`](/Users/mora/Desktop/Dev-mac/rejourney/backend/src/worker/ingestWorker.ts)
 
----
-
-## [R4] Session Reconciliation / Auto-Finalizer
-
-```mermaid
-flowchart TD
-    A[session is processing] --> B[count ready screenshots / hierarchy]
-    B --> C[count open artifacts + active jobs]
-    C --> D{has ready screenshot?}
-    D -->|yes| E[replayAvailable = true]
-    D -->|no| F[replayAvailable = false]
-    E --> G{no open replay work?}
-    F --> H{no open work at all?}
-    G --> I{explicit end OR idle >= 60s?}
-    H --> I
-    I -->|yes| J[status = ready]
-    I -->|yes| K[endedAt derived and clamped]
-    I -->|yes| L[durationSeconds computed]
-    I -->|yes| M[finalizedAt set]
-    I -->|no| N[stay processing]
-```
-
-### The important nuance
-
-- Replay availability is artifact-driven, not `/session/end`-driven.
-- Finalization is also artifact-driven, with `/session/end` acting as a strong signal, not the only trigger.
-- Once screenshots are ready, late `events`/`faults` uploads do not block replay readiness; only open replay artifacts/jobs still block finalization.
-
-### Canonical replay fields
-
-The canonical replay lifecycle fields in Postgres are:
-
-- `sessions.replay_available`
-- `sessions.replay_available_at`
-
-These are the fields the server uses for:
-
-- replay list filtering
-- replay bootstrap gating
-- artifact-driven reconciliation
-
-The older `replay_promoted*` and `replay_promotion_score` columns were legacy aliases. They are no longer persisted in the database.
-
-For API/frontend compatibility, the server still returns:
-
-- `replayPromoted`
-- `replayPromotedReason`
-- `replayPromotionScore`
-
-but those are now synthesized from the canonical replay availability state instead of being read from session columns.
-
-### Auto-finalizer in plain English
-
-The "auto-finalizer" is not a separate cron service. It is the ingest worker sweep calling [`reconcileDueSessions()`](/Users/mora/Desktop/Dev-mac/rejourney/backend/src/services/sessionReconciliation.ts).
-
-It finalizes a `processing` session when:
-
-- there is no blocking work left, and
-- either:
-  - `/api/ingest/session/end` already set `explicit_ended_at`, or
-  - the session has been idle for `60s`
-
-The worker no longer runs the heavy full-table lifecycle backfill automatically on startup. That backfill is now manual via:
-
-- `cd backend && npm run db:backfill:artifact-lifecycle`
-
-This keeps normal deploys and worker restarts from contending with hot `sessions` traffic.
-
-### Production-safe replay cleanup migration
-
-The legacy replay alias columns are still safe to keep physically present in Postgres for a while.
-
-The cleanup migration now uses a short lock timeout and skips the physical drop if the `sessions` table is busy. That means:
-
-- deploys stay non-blocking under live traffic
-- the migration can still be marked applied
-- a later quiet maintenance window can remove the columns physically if desired
-
-### What `db-setup` does now
-
-The deploy-time `db-setup` job is now:
+## [I3] Upload Relay / Worker / Artifact States
 
 ```text
-drizzle-kit migrate
-  -> seedIfDatabaseEmpty.ts
-  -> bootstrapSystemData.ts
-  -> syncStorageEndpoint.ts / syncLocalStorageEndpoint.ts
+┌──────────┐   /presign or /segment/presign   ┌──────────────────────────────┐
+│ Package  │─────────────────────────────────▶│ recording_artifacts          │
+│ / SDK    │◀─────────────────────────────────│ status = pending             │
+└────┬─────┘        relay URL returned        └──────────────┬───────────────┘
+     │                                                      │
+     │ PUT /upload/artifacts/:artifactId                    │
+     ▼                                                      ▼
+┌──────────────┐                                   ┌──────────────────────────┐
+│ upload relay │──────────────────────────────────▶│ artifact = uploaded      │
+└────┬─────────┘                                   │ ingest_jobs queued       │
+     │                                             └─────────────┬────────────┘
+     │ /batch/complete or /segment/complete                      │
+     ▼                                                           ▼
+┌──────────────┐                                   ┌──────────────────────────┐
+│ ingest route │──────────────────────────────────▶│ ingest worker            │
+│ merge metrics│                                   │ process / normalize      │
+└──────────────┘                                   └─────────────┬────────────┘
+                                                                 ▼
+                                                    artifact = ready / failed
+                                                    reconcileSessionState()
 ```
 
-It now runs the general `seed.ts` path only when the database is still empty.
+```text
+Artifact state machine
 
-That keeps deploy-time bootstrap limited to:
+pending   -> uploaded -> ready
+pending   -> abandoned
+uploaded  -> failed
+failed    -> uploaded    (recoverable retry path)
+```
 
-- schema migrations
-- one-time seed on brand-new databases only
-- retention policy upserts
-- storage endpoint bootstrap/sync
+```text
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ Worker sweeps                                                               │
+│                                                                              │
+│ Every 10s  : reconcile due sessions                                         │
+│ > 10m      : abandon expired pending artifacts                              │
+│ > 5m       : requeue stale processing jobs                                  │
+│ uploaded   : recover artifacts that are missing a usable job                │
+│ startup    : reset stuck processing jobs back to pending                    │
+└──────────────────────────────────────────────────────────────────────────────┘
+```
 
-Dev-only sample users/projects remain in `seed.ts` and are not part of production deploy setup.
+Important worker nuance:
 
-### How `endedAt` is chosen
+- `events` artifacts update session metadata, `session_metrics`, and downstream analytics side effects.
+- `crashes` and `anrs` artifacts create issue records and increment crash/ANR counters.
+- `screenshots` and `hierarchy` artifacts mostly feed replay availability and session finalization.
+- The heavy full-table artifact lifecycle backfill is manual by default. Normal worker startup skips it unless `INGEST_ENABLE_STARTUP_BACKFILL=true`.
+- Manual backfill command: `cd backend && npm run db:backfill:artifact-lifecycle`
 
-Finalization derives `ended_at` from this priority order:
+Relevant files:
 
-1. `explicit_ended_at`
-2. latest replay artifact `end_time`
-3. `last_ingest_activity_at`
-4. existing `ended_at`
-5. `now`
+- [`backend/src/routes/ingestUploadRelay.ts`](/Users/mora/Desktop/Dev-mac/rejourney/backend/src/routes/ingestUploadRelay.ts)
+- [`backend/src/worker/ingestWorker.ts`](/Users/mora/Desktop/Dev-mac/rejourney/backend/src/worker/ingestWorker.ts)
+- [`backend/src/services/ingestArtifactLifecycle.ts`](/Users/mora/Desktop/Dev-mac/rejourney/backend/src/services/ingestArtifactLifecycle.ts)
 
-Then it clamps the result to:
+## [I4] Reconciliation / Auto-Finalizer / endedAt Math
 
-- no earlier than `started_at`
-- no later than `started_at + maxRecordingMinutes + 2 minutes`
+```text
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ reconcileSessionState(sessionId)                                            │
+│                                                                              │
+│ readyScreenshotCount > 0 ?                                                  │
+│   yes -> replay_available = true                                            │
+│   no  -> replay_available = false                                           │
+│                                                                              │
+│ blocking work left?                                                         │
+│   replay already available -> only open replay artifacts/jobs block done    │
+│   replay not yet available -> any open artifact/job blocks done             │
+│                                                                              │
+│ explicit_ended_at present OR idle >= 60s ?                                  │
+│   yes -> status = ready                                                     │
+│          finalized_at set                                                   │
+│          ended_at derived                                                   │
+│          duration_seconds recomputed                                        │
+│   no  -> stay processing                                                    │
+└──────────────────────────────────────────────────────────────────────────────┘
+```
 
-### What `/session/end` really does
+```text
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ ended_at priority                                                           │
+│                                                                              │
+│ 1. explicit_ended_at                                                        │
+│ 2. latest ready replay artifact end_time                                    │
+│ 3. existing ended_at                                                        │
+│ 4. last_ingest_activity_at                                                  │
+│ 5. now                                                                      │
+│                                                                              │
+│ clamp:                                                                      │
+│   started_at <= ended_at <= started_at + maxRecordingMinutes + 2 minutes    │
+│                                                                              │
+│ duration_seconds:                                                           │
+│   max(1, wall_clock_seconds - background_time_seconds)                      │
+└──────────────────────────────────────────────────────────────────────────────┘
+```
 
 ```text
 /api/ingest/session/end
   -> resolveLifecycleSession()
-  -> upsert session_metrics
-  -> merge metrics + sdk telemetry
-  -> compute wall clock / background / playable duration for logging
+  -> merge session_metrics + sdk telemetry
   -> markSessionIngestActivity(explicitEndedAt=..., closeSource='explicit')
   -> reconcileSessionState()
 ```
 
-### Missing session on `/session/end`?
+Important reconciliation rules:
 
-Yes, the backend can still create it.
+- Replay availability is artifact-driven, not `/session/end`-driven.
+- `/session/end` is a strong signal, but not the only thing that can finalize a session.
+- Once screenshots are ready, late `events` or `faults` uploads do not block replay availability.
+- Hierarchy alone is not enough to make replay visible.
+- A finalized session can reopen if later `registerPendingArtifact()` activity arrives.
 
-If `/session/end` or `/replay/evaluate` arrives for a missing session ID that is still "fresh", the backend materializes the session on the fly.
+Canonical replay lifecycle fields in Postgres:
 
-Fresh means:
+- `sessions.replay_available`
+- `sessions.replay_available_at`
 
-- session ID parses as `session_{timestamp}_{uuid}`
-- timestamp is no more than `6h` old
+The API still returns compatibility fields like `replayPromoted` and `replayPromotedReason`, but the canonical stored replay state is the `replay_available` family.
 
-This is handled by [`resolveLifecycleSession()`](/Users/mora/Desktop/Dev-mac/rejourney/backend/src/services/ingestSessionLifecycle.ts).
+Relevant files:
 
----
+- [`backend/src/services/sessionReconciliation.ts`](/Users/mora/Desktop/Dev-mac/rejourney/backend/src/services/sessionReconciliation.ts)
+- [`backend/src/services/sessionTiming.ts`](/Users/mora/Desktop/Dev-mac/rejourney/backend/src/services/sessionTiming.ts)
+- [`backend/src/services/ingestSessionEnd.ts`](/Users/mora/Desktop/Dev-mac/rejourney/backend/src/services/ingestSessionEnd.ts)
 
-## [R5] Redis vs Postgres Ownership
+## [I5] Redis vs Postgres Ownership
 
-```mermaid
-flowchart LR
-    subgraph Redis["Redis (runtime helper plane)"]
-        R1[sdk:config:*]
-        R2[ingest:idempotency:*]
-        R3[sessions:{teamId}:{period}]
-        R4[session_lock:{teamId}:{period}]
-        R5[upload:token:{projectId}:{deviceId}]
-    end
-
-    subgraph PG["Postgres (source of truth)"]
-        P1[sessions]
-        P2[session_metrics]
-        P3[recording_artifacts]
-        P4[ingest_jobs]
-        P5[project_usage]
-        P6[device_usage]
-    end
+```text
+┌──────────────────────────────────────┐      ┌──────────────────────────────────────┐
+│ Redis (runtime helper plane)         │      │ Postgres (source of truth)           │
+│                                      │      │                                      │
+│ sdk:config:*                         │      │ sessions                             │
+│ ingest:idempotency:*                 │      │ session_metrics                      │
+│ sessions:{teamId}:{period}           │      │ recording_artifacts                  │
+│ session_lock:{teamId}:{period}       │      │ ingest_jobs                          │
+│ upload:token:{projectId}:{deviceId}  │      │ project_usage                        │
+│ rate-limit helpers                   │      │ device_usage                         │
+└──────────────────────────────────────┘      └──────────────────────────────────────┘
 ```
 
-### Redis owns
+```text
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ Practical consequence                                                       │
+│                                                                              │
+│ If Redis is slow or unavailable, ingest can often degrade and keep working. │
+│ If Postgres is wrong, the session lifecycle is wrong.                       │
+└──────────────────────────────────────────────────────────────────────────────┘
+```
+
+Redis owns:
 
 - SDK config cache
 - ingest idempotency markers
@@ -378,74 +292,47 @@ flowchart LR
 - best-effort upload token storage
 - rate limiting helpers
 
-### Postgres owns
+Postgres owns:
 
 - whether a session exists
-- session lifecycle fields such as `status`, `started_at`, `explicit_ended_at`, `finalized_at`, `last_ingest_activity_at`
+- lifecycle fields like `status`, `started_at`, `explicit_ended_at`, `finalized_at`, `last_ingest_activity_at`
 - replay availability
 - artifact state
 - worker job state
 - metrics and derived analytics counters
 - project/device usage counters
 
-### Practical consequence
-
-If Redis is slow or unavailable, ingest can usually fall back and keep working.
-
-If Postgres is wrong, the session lifecycle is wrong.
-
 Schema anchors:
 
 - [`backend/src/db/schema.ts`](/Users/mora/Desktop/Dev-mac/rejourney/backend/src/db/schema.ts)
 - [`backend/src/db/redis.ts`](/Users/mora/Desktop/Dev-mac/rejourney/backend/src/db/redis.ts)
 
----
+## [I6] Quick Answers / Constants
 
-## [R6] Quick Answers
+```text
+New session created?
+  Usually on the first successful:
+  - POST /api/ingest/presign
+  - POST /api/ingest/segment/presign
 
-### When is a new session created?
+Missing session on /session/end?
+  Yes, if the session ID is still fresh enough to materialize.
 
-Usually on the first successful:
+What counts as "fresh enough"?
+  session_{timestamp}_{uuid} and timestamp <= 6h old
 
-- `POST /api/ingest/presign`, or
-- `POST /api/ingest/segment/presign`
+What exactly is the auto-finalizer?
+  The ingest worker sweep plus reconcileDueSessions() / reconcileSessionState()
 
-If `/api/ingest/presign` arrives without a `sessionId`, the backend can also mint one itself.
+What makes a replay visible?
+  At least one screenshot artifact with status = ready
 
-It can also be lazily materialized later during:
+Can a finalized session reopen?
+  Yes. A later pending artifact can clear finalized_at and move it back to processing.
 
-- `POST /api/ingest/session/end`
-- `POST /api/ingest/replay/evaluate`
-
-if the session ID is fresh enough and still missing.
-
-### What exactly is the auto-finalizer?
-
-The ingest worker sweep plus [`reconcileSessionState()`](/Users/mora/Desktop/Dev-mac/rejourney/backend/src/services/sessionReconciliation.ts).
-
-It is artifact-aware and idle-aware, not just "call `/session/end` and mark done".
-
-### What makes a replay visible?
-
-At least one screenshot artifact in `recording_artifacts` reaches `status='ready'`.
-
-Hierarchy alone is not enough.
-
-### Can a finalized session reopen?
-
-Yes.
-
-Any later `registerPendingArtifact()` call touches the session with `reopen: true`, which clears `finalized_at` and moves it back to `processing`.
-
-### Does Redis store session lifecycle state?
-
-No.
-
-Redis helps the pipeline run smoothly, but Postgres owns the actual lifecycle.
-
----
-
-## Constant Sheet
+Does Redis store session lifecycle?
+  No. Redis helps the pipeline run; Postgres owns the lifecycle.
+```
 
 ```text
 Session ID materialization window      6h
@@ -459,8 +346,6 @@ SDK rollover grace window              2s
 SDK event heartbeat                    5s
 ```
 
----
-
 ## Primary Files
 
 - [`backend/src/routes/ingestUploads.ts`](/Users/mora/Desktop/Dev-mac/rejourney/backend/src/routes/ingestUploads.ts)
@@ -470,8 +355,5 @@ SDK event heartbeat                    5s
 - [`backend/src/services/ingestSessionLifecycle.ts`](/Users/mora/Desktop/Dev-mac/rejourney/backend/src/services/ingestSessionLifecycle.ts)
 - [`backend/src/services/ingestArtifactLifecycle.ts`](/Users/mora/Desktop/Dev-mac/rejourney/backend/src/services/ingestArtifactLifecycle.ts)
 - [`backend/src/services/sessionReconciliation.ts`](/Users/mora/Desktop/Dev-mac/rejourney/backend/src/services/sessionReconciliation.ts)
+- [`backend/src/services/sessionTiming.ts`](/Users/mora/Desktop/Dev-mac/rejourney/backend/src/services/sessionTiming.ts)
 - [`backend/src/worker/ingestWorker.ts`](/Users/mora/Desktop/Dev-mac/rejourney/backend/src/worker/ingestWorker.ts)
-- [`packages/react-native/src/index.ts`](/Users/mora/Desktop/Dev-mac/rejourney/packages/react-native/src/index.ts)
-- [`packages/react-native/android/src/main/java/com/rejourney/recording/ReplayOrchestrator.kt`](/Users/mora/Desktop/Dev-mac/rejourney/packages/react-native/android/src/main/java/com/rejourney/recording/ReplayOrchestrator.kt)
-- [`packages/react-native/android/src/main/java/com/rejourney/recording/TelemetryPipeline.kt`](/Users/mora/Desktop/Dev-mac/rejourney/packages/react-native/android/src/main/java/com/rejourney/recording/TelemetryPipeline.kt)
-- [`packages/react-native/android/src/main/java/com/rejourney/engine/DeviceRegistrar.kt`](/Users/mora/Desktop/Dev-mac/rejourney/packages/react-native/android/src/main/java/com/rejourney/engine/DeviceRegistrar.kt)

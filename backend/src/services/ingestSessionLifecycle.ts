@@ -16,7 +16,6 @@ export type IngestSessionMetadata = {
     osVersion?: string;
     networkType?: string;
     deviceId?: string;
-    isSampledIn?: boolean;
 };
 
 type EnsureIngestSessionOptions = {
@@ -117,8 +116,8 @@ function buildMetadataUpdates(existing: any, metadata: IngestSessionMetadata | u
     if (!existing.anonymousDisplayId && inferred.anonymousDisplayId) {
         updates.anonymousDisplayId = inferred.anonymousDisplayId;
     }
-    if (metadata?.isSampledIn !== undefined && existing.isSampledIn !== metadata.isSampledIn) {
-        updates.isSampledIn = metadata.isSampledIn;
+    if (existing.isSampledIn !== true) {
+        updates.isSampledIn = true;
     }
 
     return updates;
@@ -229,7 +228,7 @@ export async function ensureIngestSession(
             startedAt: parseSessionStartedAt(sessionId),
             retentionTier: videoRetention.tier,
             retentionDays: videoRetention.days,
-            isSampledIn: metadata?.isSampledIn ?? true,
+            isSampledIn: true,
         }).returning();
 
         await db.insert(sessionMetrics)

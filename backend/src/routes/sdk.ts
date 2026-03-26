@@ -39,7 +39,6 @@ router.get(
                 rejourneyEnabled: boolean;
                 recordingEnabled: boolean;
                 maxRecordingMinutes: number;
-                sampleRate: number;
                 deletedAt: Date | null;
             }
             | undefined;
@@ -62,7 +61,6 @@ router.get(
                     rejourneyEnabled: projects.rejourneyEnabled,
                     recordingEnabled: projects.recordingEnabled,
                     maxRecordingMinutes: projects.maxRecordingMinutes,
-                    sampleRate: projects.sampleRate,
                     deletedAt: projects.deletedAt,
                 })
                 .from(projects)
@@ -92,7 +90,7 @@ router.get(
             throw ApiError.unauthorized('Invalid public key');
         }
 
-        const sampleRate = Math.max(0, Math.min(100, project.sampleRate ?? 100));
+        const sampleRate = 100;
         const maxRecordingMinutes = Math.max(
             1,
             Math.min(10, project.maxRecordingMinutes ?? 10)
@@ -130,10 +128,6 @@ router.get(
             billingReason = billingStatus.reason;
         }
 
-        const { getAdaptiveScaleFactor } = await import('../utils/adaptiveSampling.js');
-        const adaptiveFactor = await getAdaptiveScaleFactor(project.id);
-        const effectiveSampleRate = Math.round(sampleRate * adaptiveFactor);
-
         res.json({
             projectId: project.id,
             teamId: project.teamId,
@@ -141,7 +135,7 @@ router.get(
             rejourneyEnabled: project.rejourneyEnabled,
             recordingEnabled: project.recordingEnabled,
             maxRecordingMinutes,
-            sampleRate: effectiveSampleRate,
+            sampleRate,
             billingBlocked,
             billingReason,
         });

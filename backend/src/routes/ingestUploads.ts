@@ -97,7 +97,6 @@ router.post(
             osVersion: data.osVersion,
             networkType: data.networkType,
             deviceId: deviceAuthId || undefined,
-            isSampledIn: data.isSampledIn ?? true,
         });
 
         if (session.status === 'failed' || session.status === 'deleted') {
