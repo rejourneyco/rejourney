@@ -29,21 +29,18 @@ export function parseBatchId(batchId: string): {
     batchNumber: string;
 } {
     const parts = batchId.split('_');
+    if (parts.length >= 5 && parts[0] === 'batch') {
+        const batchNumber = parts[parts.length - 2] || '';
+        const contentType = parts[parts.length - 3] || '';
+        const sessionId = parts.slice(1, parts.length - 3).join('_');
 
-    if (parts.length >= 7 && parts[1] === 'session') {
-        return {
-            sessionId: `${parts[1]}_${parts[2]}_${parts[3]}`,
-            contentType: parts[4] || '',
-            batchNumber: parts[5] || '',
-        };
-    }
-
-    if (parts.length >= 5) {
-        return {
-            sessionId: parts[1] || '',
-            contentType: parts[2] || '',
-            batchNumber: parts[3] || '',
-        };
+        if (sessionId) {
+            return {
+                sessionId,
+                contentType,
+                batchNumber,
+            };
+        }
     }
 
     throw ApiError.badRequest('Invalid batchId format');
@@ -55,21 +52,18 @@ export function parseSegmentId(segmentId: string): {
     startTime: number;
 } {
     const parts = segmentId.split('_');
+    if (parts.length >= 5 && parts[0] === 'seg') {
+        const startTime = Number.parseInt(parts[parts.length - 2] || '', 10);
+        const kind = parts[parts.length - 3] || '';
+        const sessionId = parts.slice(1, parts.length - 3).join('_');
 
-    if (parts.length >= 7 && parts[1] === 'session') {
-        return {
-            sessionId: `${parts[1]}_${parts[2]}_${parts[3]}`,
-            kind: parts[4] || '',
-            startTime: Number.parseInt(parts[5] || '', 10),
-        };
-    }
-
-    if (parts.length >= 5) {
-        return {
-            sessionId: parts[1] || '',
-            kind: parts[2] || '',
-            startTime: Number.parseInt(parts[3] || '', 10),
-        };
+        if (sessionId && Number.isFinite(startTime)) {
+            return {
+                sessionId,
+                kind,
+                startTime,
+            };
+        }
     }
 
     throw ApiError.badRequest('Invalid segmentId format');

@@ -1,5 +1,5 @@
 import { eq, sql } from 'drizzle-orm';
-import { db, recordingArtifacts, sessionMetrics, sessions } from '../db/client.js';
+import { db, ingestJobs, projects, recordingArtifacts, sessionMetrics, sessions } from '../db/client.js';
 import { logger } from '../logger.js';
 import { updateDeviceUsage } from './recording.js';
 
@@ -11,7 +11,9 @@ type SessionAggregateRow = {
     readyHierarchyCount: number | string | null;
     openArtifactCount: number | string | null;
     activeJobCount: number | string | null;
-    latestArtifactEndMs: number | string | null;
+    openReplayArtifactCount: number | string | null;
+    activeReplayJobCount: number | string | null;
+    latestReplayArtifactEndMs: number | string | null;
     latestReadyAt: Date | string | null;
 };
 
@@ -50,6 +52,16 @@ function computeDurationSeconds(
     const wallClockSeconds = Math.round((endedAt.getTime() - startedAt.getTime()) / 1000);
     const backgroundSeconds = Math.max(0, Number(backgroundTimeSeconds ?? 0));
     return Math.max(1, wallClockSeconds - backgroundSeconds);
+}
+
+/** Caps bogus end times (bad client timestamps, wrong artifact max(end_time)) to project max recording + slack. */
+function clampSessionEndedAt(startedAt: Date, candidate: Date, maxRecordingMinutes: number): Date {
+    const capMs = Math.max(120_000, maxRecordingMinutes * 60 * 1000 + 120_000);
+    const upper = new Date(startedAt.getTime() + capMs);
+    const t = candidate.getTime();
+    if (t < startedAt.getTime()) return startedAt;
+    if (t > upper.getTime()) return upper;
+    return candidate;
 }
 
 async function ensureMetricsRow(sessionId: string) {
@@ -92,11 +104,27 @@ async function loadSessionAggregate(sessionId: string): Promise<SessionAggregate
                 where ij.session_id = s.id
                   and ij.status in ('pending', 'processing')
             ), 0) as "activeJobCount",
+            coalesce((
+                select count(*)::int
+                from ${recordingArtifacts} ra
+                where ra.session_id = s.id
+                  and ra.kind in ('screenshots', 'hierarchy')
+                  and ra.status in ('pending', 'uploaded')
+            ), 0) as "openReplayArtifactCount",
+            coalesce((
+                select count(*)::int
+                from ${ingestJobs} ij
+                inner join ${recordingArtifacts} ra on ra.id = ij.artifact_id
+                where ij.session_id = s.id
+                  and ij.status in ('pending', 'processing')
+                  and ra.kind in ('screenshots', 'hierarchy')
+            ), 0) as "activeReplayJobCount",
             (
                 select max(ra.end_time)
                 from ${recordingArtifacts} ra
                 where ra.session_id = s.id
-            ) as "latestArtifactEndMs",
+                  and ra.kind in ('screenshots', 'hierarchy')
+            ) as "latestReplayArtifactEndMs",
             (
                 select max(coalesce(ra.ready_at, ra.verified_at, ra.upload_completed_at, ra.created_at))
                 from ${recordingArtifacts} ra
@@ -115,7 +143,9 @@ async function loadSessionAggregate(sessionId: string): Promise<SessionAggregate
         readyHierarchyCount: 0,
         openArtifactCount: 0,
         activeJobCount: 0,
-        latestArtifactEndMs: null,
+        openReplayArtifactCount: 0,
+        activeReplayJobCount: 0,
+        latestReplayArtifactEndMs: null,
         latestReadyAt: null,
     };
 }
@@ -169,6 +199,14 @@ export async function reconcileSessionState(sessionId: string, now = new Date())
     const readyHierarchyCount = toFiniteNumber(aggregate.readyHierarchyCount) ?? 0;
     const openArtifactCount = toFiniteNumber(aggregate.openArtifactCount) ?? 0;
     const activeJobCount = toFiniteNumber(aggregate.activeJobCount) ?? 0;
+    const openReplayArtifactCount = toFiniteNumber(aggregate.openReplayArtifactCount) ?? 0;
+    const activeReplayJobCount = toFiniteNumber(aggregate.activeReplayJobCount) ?? 0;
+
+    const [project] = await db.select({ maxRecordingMinutes: projects.maxRecordingMinutes })
+        .from(projects)
+        .where(eq(projects.id, session.projectId))
+        .limit(1);
+    const maxRecordingMinutes = project?.maxRecordingMinutes ?? 10;
 
     const replayAvailable = readyScreenshotCount > 0;
     const replayAvailableAt = replayAvailable
@@ -178,25 +216,30 @@ export async function reconcileSessionState(sessionId: string, now = new Date())
             ?? now
         : null;
 
-    const noPendingWork = openArtifactCount === 0 && activeJobCount === 0;
+    // Events / faults can keep uploading after replay is ready; only replay artifacts block "done" once we have screenshots.
+    const noPendingWork = replayAvailable
+        ? openReplayArtifactCount === 0 && activeReplayJobCount === 0
+        : openArtifactCount === 0 && activeJobCount === 0;
     const isExplicitlyEnded = Boolean(session.explicitEndedAt);
-    const isIdle = Boolean(session.lastIngestActivityAt) && session.lastIngestActivityAt.getTime() <= now.getTime() - SESSION_FINALIZE_IDLE_MS;
+    const latestReadyAtDate = toDateOrNull(aggregate.latestReadyAt);
+    const activityClockForIdle = replayAvailable
+        ? (latestReadyAtDate ?? session.lastIngestActivityAt)
+        : session.lastIngestActivityAt;
+    const isIdle = Boolean(activityClockForIdle)
+        && activityClockForIdle.getTime() <= now.getTime() - SESSION_FINALIZE_IDLE_MS;
     const shouldFinalize = noPendingWork && (isExplicitlyEnded || isIdle);
 
-    const latestArtifactEndMs = toFiniteNumber(aggregate.latestArtifactEndMs);
-    const derivedEndedAt = session.explicitEndedAt
-        ?? (latestArtifactEndMs ? new Date(latestArtifactEndMs) : null)
+    const latestReplayEndMs = toFiniteNumber(aggregate.latestReplayArtifactEndMs);
+    const rawDerivedEndedAt = session.explicitEndedAt
+        ?? (latestReplayEndMs ? new Date(latestReplayEndMs) : null)
         ?? session.lastIngestActivityAt
         ?? session.endedAt
         ?? now;
+    const derivedEndedAt = clampSessionEndedAt(session.startedAt, rawDerivedEndedAt, maxRecordingMinutes);
 
     const sessionUpdate: Record<string, unknown> = {
         replayAvailable,
         replayAvailableAt,
-        replayPromoted: replayAvailable,
-        replayPromotedReason: replayAvailable ? 'successful_recording' : null,
-        replayPromotedAt: replayAvailable ? (session.replayPromotedAt ?? replayAvailableAt) : null,
-        replayPromotionScore: replayAvailable ? 1 : 0,
         replaySegmentCount: readyScreenshotCount,
         replayStorageBytes: readyScreenshotBytes,
         updatedAt: now,
@@ -226,7 +269,10 @@ export async function reconcileSessionState(sessionId: string, now = new Date())
         .where(eq(sessionMetrics.sessionId, sessionId));
 
     if (shouldFinalize && !session.finalizedAt) {
-        const minutesRecorded = Math.max(0, Math.ceil(computeDurationSeconds(session.startedAt, derivedEndedAt, session.backgroundTimeSeconds) / 60));
+        const minutesRecorded = Math.max(
+            0,
+            Math.ceil(computeDurationSeconds(session.startedAt, derivedEndedAt, session.backgroundTimeSeconds) / 60),
+        );
         await updateDeviceUsage(session.deviceId, session.projectId, {
             requestCount: 1,
             minutesRecorded,
@@ -239,6 +285,8 @@ export async function reconcileSessionState(sessionId: string, now = new Date())
         readyScreenshotCount,
         openArtifactCount,
         activeJobCount,
+        openReplayArtifactCount,
+        activeReplayJobCount,
         status: shouldFinalize ? 'ready' : session.status === 'failed' ? 'failed' : 'processing',
     }, shouldFinalize ? 'session.finalized' : 'session.reconciled');
 
@@ -252,17 +300,45 @@ export async function reconcileSessionState(sessionId: string, now = new Date())
 
 export async function reconcileDueSessions(limit = 100): Promise<number> {
     const cutoff = new Date(Date.now() - SESSION_FINALIZE_IDLE_MS);
-    const rows = await db
-        .select({ id: sessions.id })
-        .from(sessions)
-        .where(sql`${sessions.status} = 'processing' and (${sessions.explicitEndedAt} is not null or ${sessions.lastIngestActivityAt} <= ${cutoff})`)
-        .limit(limit);
-
-    for (const row of rows) {
+    const result = await db.execute(sql`
+        select s.id
+        from ${sessions} s
+        where s.status in ('processing', 'pending')
+        and (
+            s.explicit_ended_at is not null
+            or s.last_ingest_activity_at <= ${cutoff}
+            or (
+                s.replay_available = true
+                and not exists (
+                    select 1 from ${recordingArtifacts} ra
+                    where ra.session_id = s.id
+                      and ra.kind in ('screenshots', 'hierarchy')
+                      and ra.status in ('pending', 'uploaded')
+                )
+                and not exists (
+                    select 1 from ${ingestJobs} ij
+                    inner join ${recordingArtifacts} ra on ra.id = ij.artifact_id
+                    where ij.session_id = s.id
+                      and ij.status in ('pending', 'processing')
+                      and ra.kind in ('screenshots', 'hierarchy')
+                )
+                and exists (
+                    select 1 from ${recordingArtifacts} ra
+                    where ra.session_id = s.id
+                      and ra.kind = 'screenshots'
+                      and ra.status = 'ready'
+                      and coalesce(ra.ready_at, ra.verified_at, ra.upload_completed_at, ra.created_at) <= ${cutoff}
+                )
+            )
+        )
+        limit ${limit}
+    `);
+    const rows = (result as any).rows as Array<{ id: string }> | undefined;
+    const list = rows ?? [];
+    for (const row of list) {
         await reconcileSessionState(row.id);
     }
-
-    return rows.length;
+    return list.length;
 }
 
 export async function backfillArtifactDrivenLifecycleState(): Promise<void> {
@@ -312,14 +388,7 @@ export async function backfillArtifactDrivenLifecycleState(): Promise<void> {
             replay_available_at = case
                 when coalesce(replay.has_replay, false) then coalesce(s.replay_available_at, replay.available_at)
                 else null
-            end,
-            replay_promoted = coalesce(replay.has_replay, false),
-            replay_promoted_reason = case when coalesce(replay.has_replay, false) then 'successful_recording' else null end,
-            replay_promoted_at = case
-                when coalesce(replay.has_replay, false) then coalesce(s.replay_promoted_at, replay.available_at)
-                else null
-            end,
-            replay_promotion_score = case when coalesce(replay.has_replay, false) then 1 else 0 end
+            end
         from replay
         where s.id = replay.session_id
     `);
@@ -328,11 +397,7 @@ export async function backfillArtifactDrivenLifecycleState(): Promise<void> {
         update ${sessions} s
         set
             replay_available = false,
-            replay_available_at = null,
-            replay_promoted = false,
-            replay_promoted_reason = null,
-            replay_promoted_at = null,
-            replay_promotion_score = 0
+            replay_available_at = null
         where not exists (
             select 1
             from ${recordingArtifacts} ra

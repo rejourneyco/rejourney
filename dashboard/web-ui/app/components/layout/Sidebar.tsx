@@ -167,8 +167,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
     return sidebarWidth;
   }, [isDesktop, collapsed, sidebarWidth]);
 
-  const showResizeHandle =
-    (isDesktop && !collapsed) || (!isDesktop && isMobileOpen);
+  // Resize only on desktop — a full-height strip on mobile steals touches and breaks the drawer.
+  const showResizeHandle = isDesktop && !collapsed;
 
   const startResize = (e: React.PointerEvent) => {
     if (typeof window === 'undefined') return;
@@ -289,8 +289,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
       <div
         className={`
-        dashboard-sidebar relative flex-shrink-0 h-screen flex flex-col
-        fixed md:relative z-50 bg-[#0f172a] transition-transform duration-300 ease-in-out
+        dashboard-sidebar relative flex-shrink-0 h-screen min-h-0 flex flex-col
+        fixed left-0 top-0 md:relative md:left-auto md:top-auto z-50 bg-[#0f172a] transition-transform duration-300 ease-in-out
+        max-w-[100vw] min-w-0
         ${isResizing ? '' : 'md:transition-[width] md:duration-200 md:ease-out'}
         ${isMobileOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}
       `}

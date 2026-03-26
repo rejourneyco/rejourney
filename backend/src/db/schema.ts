@@ -334,10 +334,7 @@ export const sessions = pgTable(
         recordingDeletedAt: timestamp('recording_deleted_at'),
         isReplayExpired: boolean('is_replay_expired').default(false).notNull(),
 
-        // Legacy replay availability fields kept for schema compatibility
-        replayPromoted: boolean('replay_promoted').default(false).notNull(),
-        replayPromotedReason: varchar('replay_promoted_reason', { length: 50 }),
-        replayPromotedAt: timestamp('replay_promoted_at'),
+        // Canonical replay availability fields used by the ingest lifecycle
         replayAvailable: boolean('replay_available').default(false).notNull(),
         replayAvailableAt: timestamp('replay_available_at'),
 
@@ -349,9 +346,6 @@ export const sessions = pgTable(
         geoLatitude: doublePrecision('geo_latitude'),
         geoLongitude: doublePrecision('geo_longitude'),
         geoTimezone: varchar('geo_timezone', { length: 100 }),
-
-        // Legacy replay ranking field kept for schema compatibility
-        replayPromotionScore: doublePrecision('replay_promotion_score'),
 
         createdAt: timestamp('created_at').defaultNow().notNull(),
         updatedAt: timestamp('updated_at').defaultNow().notNull(),

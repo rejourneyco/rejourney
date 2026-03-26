@@ -86,7 +86,7 @@ router.post(
 
         let sessionId = data.sessionId;
         if (!sessionId || sessionId === '') {
-            sessionId = `session_${randomBytes(16).toString('hex')}`;
+            sessionId = `session_${Date.now()}_${randomBytes(16).toString('hex')}`;
         }
 
         const { session, created: isNewSession } = await ensureIngestSession(projectId, sessionId, req, {

@@ -146,18 +146,20 @@ export const ProjectLayout: React.FC<AppLayoutProps> = ({ children, pathPrefix =
   return (
     <div className="dashboard-modern dashboard-shell flex h-screen">
       {!isWarehouseRoute && (
-        <Sidebar
-          currentProject={selectedProject}
-          onProjectChange={handleProjectChange}
-          projects={projects}
-          loading={projectsLoading}
-          onProjectCreated={handleProjectCreated}
-          teams={teams}
-          currentTeam={currentTeam}
-          onTeamChange={setCurrentTeam}
-          teamsLoading={teamsLoading}
-          pathPrefix={pathPrefix}
-        />
+        <div className="w-0 shrink-0 overflow-visible md:w-auto md:shrink-0">
+          <Sidebar
+            currentProject={selectedProject}
+            onProjectChange={handleProjectChange}
+            projects={projects}
+            loading={projectsLoading}
+            onProjectCreated={handleProjectCreated}
+            teams={teams}
+            currentTeam={currentTeam}
+            onTeamChange={setCurrentTeam}
+            teamsLoading={teamsLoading}
+            pathPrefix={pathPrefix}
+          />
+        </div>
       )}
       <div key={routeScopeKey} className="flex-1 flex flex-col overflow-hidden">
         {!isWarehouseRoute && <TopBar currentProject={selectedProject} />}

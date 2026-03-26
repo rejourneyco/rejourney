@@ -34,18 +34,19 @@ export const DemoDashboardLayout: React.FC = () => {
 
     return (
         <div className="dashboard-modern dashboard-shell flex h-screen">
-            {/* Same Sidebar as real dashboard, with demo path prefix */}
-            <Sidebar
-                currentProject={selectedProject}
-                onProjectChange={handleProjectChange}
-                projects={projects.length > 0 ? projects : demoProjects}
-                loading={false}
-                teams={[demoTeam]}
-                currentTeam={demoTeam}
-                onTeamChange={() => { }}
-                teamsLoading={false}
-                pathPrefix="/demo"
-            />
+            <div className="w-0 shrink-0 overflow-visible md:w-auto md:shrink-0">
+                <Sidebar
+                    currentProject={selectedProject}
+                    onProjectChange={handleProjectChange}
+                    projects={projects.length > 0 ? projects : demoProjects}
+                    loading={false}
+                    teams={[demoTeam]}
+                    currentTeam={demoTeam}
+                    onTeamChange={() => { }}
+                    teamsLoading={false}
+                    pathPrefix="/demo"
+                />
+            </div>
 
             {/* Main Content */}
             <div className="flex-1 flex flex-col overflow-hidden">
