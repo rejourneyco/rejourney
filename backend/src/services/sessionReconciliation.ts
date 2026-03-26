@@ -2,6 +2,7 @@ import { eq, sql } from 'drizzle-orm';
 import { db, ingestJobs, projects, recordingArtifacts, sessionMetrics, sessions } from '../db/client.js';
 import { logger } from '../logger.js';
 import { updateDeviceUsage } from './recording.js';
+import { computeSessionDurationSeconds, selectSessionEndedAt } from './sessionTiming.js';
 
 export const SESSION_FINALIZE_IDLE_MS = 60_000;
 
@@ -42,26 +43,6 @@ function toDateOrNull(value: unknown): Date | null {
     if (!value) return null;
     const date = value instanceof Date ? value : new Date(String(value));
     return Number.isFinite(date.getTime()) ? date : null;
-}
-
-function computeDurationSeconds(
-    startedAt: Date,
-    endedAt: Date,
-    backgroundTimeSeconds: number | null | undefined
-): number {
-    const wallClockSeconds = Math.round((endedAt.getTime() - startedAt.getTime()) / 1000);
-    const backgroundSeconds = Math.max(0, Number(backgroundTimeSeconds ?? 0));
-    return Math.max(1, wallClockSeconds - backgroundSeconds);
-}
-
-/** Caps bogus end times (bad client timestamps, wrong artifact max(end_time)) to project max recording + slack. */
-function clampSessionEndedAt(startedAt: Date, candidate: Date, maxRecordingMinutes: number): Date {
-    const capMs = Math.max(120_000, maxRecordingMinutes * 60 * 1000 + 120_000);
-    const upper = new Date(startedAt.getTime() + capMs);
-    const t = candidate.getTime();
-    if (t < startedAt.getTime()) return startedAt;
-    if (t > upper.getTime()) return upper;
-    return candidate;
 }
 
 async function ensureMetricsRow(sessionId: string) {
@@ -230,12 +211,15 @@ export async function reconcileSessionState(sessionId: string, now = new Date())
     const shouldFinalize = noPendingWork && (isExplicitlyEnded || isIdle);
 
     const latestReplayEndMs = toFiniteNumber(aggregate.latestReplayArtifactEndMs);
-    const rawDerivedEndedAt = session.explicitEndedAt
-        ?? (latestReplayEndMs ? new Date(latestReplayEndMs) : null)
-        ?? session.lastIngestActivityAt
-        ?? session.endedAt
-        ?? now;
-    const derivedEndedAt = clampSessionEndedAt(session.startedAt, rawDerivedEndedAt, maxRecordingMinutes);
+    const derivedEndedAt = selectSessionEndedAt({
+        startedAt: session.startedAt,
+        explicitEndedAt: session.explicitEndedAt,
+        latestReplayEndMs,
+        persistedEndedAt: session.endedAt,
+        lastIngestActivityAt: session.lastIngestActivityAt,
+        maxRecordingMinutes,
+        now,
+    });
 
     const sessionUpdate: Record<string, unknown> = {
         replayAvailable,
@@ -248,7 +232,7 @@ export async function reconcileSessionState(sessionId: string, now = new Date())
     if (shouldFinalize) {
         sessionUpdate.status = 'ready';
         sessionUpdate.endedAt = derivedEndedAt;
-        sessionUpdate.durationSeconds = computeDurationSeconds(session.startedAt, derivedEndedAt, session.backgroundTimeSeconds);
+        sessionUpdate.durationSeconds = computeSessionDurationSeconds(session.startedAt, derivedEndedAt, session.backgroundTimeSeconds);
         sessionUpdate.finalizedAt = session.finalizedAt ?? now;
         sessionUpdate.closeSource = session.explicitEndedAt ? 'explicit' : 'inactivity';
     } else if (session.status !== 'failed') {
@@ -271,7 +255,7 @@ export async function reconcileSessionState(sessionId: string, now = new Date())
     if (shouldFinalize && !session.finalizedAt) {
         const minutesRecorded = Math.max(
             0,
-            Math.ceil(computeDurationSeconds(session.startedAt, derivedEndedAt, session.backgroundTimeSeconds) / 60),
+            Math.ceil(computeSessionDurationSeconds(session.startedAt, derivedEndedAt, session.backgroundTimeSeconds) / 60),
         );
         await updateDeviceUsage(session.deviceId, session.projectId, {
             requestCount: 1,

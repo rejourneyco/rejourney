@@ -26,6 +26,12 @@ section() {
   echo "[deploy-release] =================================================="
 }
 
+dump_db_setup_diagnostics() {
+  kubectl describe job db-setup -n "${NAMESPACE}" || true
+  kubectl logs job/db-setup -n "${NAMESPACE}" -c wait-postgres --tail=50 || true
+  kubectl logs job/db-setup -n "${NAMESPACE}" -c setup --tail=100 || true
+}
+
 require_bin() {
   command -v "$1" >/dev/null 2>&1 || {
     echo "[deploy-release] ERROR: $1 is required" >&2
@@ -66,13 +72,35 @@ wait_for_postgres() {
 
 wait_for_job() {
   section "Waiting For db-setup"
-  if ! kubectl wait --for=condition=complete job/db-setup -n "${NAMESPACE}" --timeout=360s; then
-    kubectl describe job db-setup -n "${NAMESPACE}" || true
-    kubectl logs job/db-setup -n "${NAMESPACE}" -c wait-postgres --tail=50 || true
-    kubectl logs job/db-setup -n "${NAMESPACE}" -c setup --tail=100 || true
-    echo "[deploy-release] db-setup failed or timed out" >&2
-    exit 1
-  fi
+  local deadline
+  deadline=$(( $(date +%s) + 360 ))
+
+  while true; do
+    local succeeded failed
+    succeeded="$(kubectl get job db-setup -n "${NAMESPACE}" -o jsonpath='{.status.succeeded}' 2>/dev/null || true)"
+    failed="$(kubectl get job db-setup -n "${NAMESPACE}" -o jsonpath='{.status.failed}' 2>/dev/null || true)"
+
+    succeeded="${succeeded:-0}"
+    failed="${failed:-0}"
+
+    if [ "${succeeded}" = "1" ]; then
+      return 0
+    fi
+
+    if [ "${failed}" != "0" ]; then
+      dump_db_setup_diagnostics
+      echo "[deploy-release] db-setup failed" >&2
+      exit 1
+    fi
+
+    if [ "$(date +%s)" -ge "${deadline}" ]; then
+      dump_db_setup_diagnostics
+      echo "[deploy-release] db-setup timed out" >&2
+      exit 1
+    fi
+
+    sleep 5
+  done
 }
 
 print_migration_status() {

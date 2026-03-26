@@ -2146,6 +2146,7 @@ router.get(
         const conditions = [
             inArray(apiEndpointDailyStats.projectId, projectIds),
             lte(apiEndpointDailyStats.date, lastRolledUpDate),
+            excludeInternalToolEndpointTraffic(apiEndpointDailyStats.endpoint),
         ];
         if (startDate) {
             conditions.push(gte(apiEndpointDailyStats.date, startDate));

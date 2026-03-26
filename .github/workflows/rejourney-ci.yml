@@ -222,6 +222,8 @@ jobs:
            command_timeout: 60m
            envs: GITHUB_TOKEN,IMAGE_TAG
            script: |
+             set -euo pipefail
+
              # Update Repo
              # Ensure the directory exists
              if [ ! -d "/opt/rejourney" ]; then

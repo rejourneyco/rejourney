@@ -1,6 +1,7 @@
 import { sql } from 'drizzle-orm';
 import { sessionMetrics } from '../db/client.js';
 import { normalizeEndReason, toFiniteNumber, toNonNegativeInt } from './ingestSdkTelemetry.js';
+import { computeSessionDurationSeconds, resolveReportedSessionEndedAt } from './sessionTiming.js';
 
 export type SessionDurationBreakdown = {
     endedAt: Date;
@@ -20,16 +21,13 @@ export function normalizeSessionEndReason(value: unknown): string {
 export function calculateSessionDurationBreakdown(
     startedAt: Date,
     endedAtInput: unknown,
-    totalBackgroundTimeMs: unknown
+    totalBackgroundTimeMs: unknown,
+    fallbackEndedAt?: Date | null
 ): SessionDurationBreakdown {
-    const endedAt = endedAtInput ? new Date(endedAtInput as string | number | Date) : new Date();
+    const endedAt = resolveReportedSessionEndedAt(endedAtInput, fallbackEndedAt);
     const wallClockSeconds = Math.round((endedAt.getTime() - startedAt.getTime()) / 1000);
     const backgroundTimeSeconds = Math.round((Number(totalBackgroundTimeMs) || 0) / 1000);
-    let durationSeconds = Math.max(0, wallClockSeconds - backgroundTimeSeconds);
-
-    if (durationSeconds <= 0) {
-        durationSeconds = 1;
-    }
+    const durationSeconds = computeSessionDurationSeconds(startedAt, endedAt, backgroundTimeSeconds);
 
     return {
         endedAt,

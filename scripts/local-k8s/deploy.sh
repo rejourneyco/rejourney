@@ -14,6 +14,64 @@ ENV_FILE="${2:-$ROOT_DIR/.env.k8s.local}"
 log() { echo "[local-k8s] $1"; }
 error() { echo "[local-k8s] ERROR: $1" >&2; exit 1; }
 
+dump_db_setup_diagnostics() {
+    kubectl describe job db-setup -n "$NAMESPACE" || true
+    kubectl logs job/db-setup -n "$NAMESPACE" -c wait-postgres --tail=50 || true
+    kubectl logs job/db-setup -n "$NAMESPACE" -c setup --tail=100 || true
+}
+
+wait_for_db_setup() {
+    local deadline
+    deadline=$(( $(date +%s) + 240 ))
+
+    while true; do
+        local succeeded failed
+        succeeded="$(kubectl get job db-setup -n "$NAMESPACE" -o jsonpath='{.status.succeeded}' 2>/dev/null || true)"
+        failed="$(kubectl get job db-setup -n "$NAMESPACE" -o jsonpath='{.status.failed}' 2>/dev/null || true)"
+
+        succeeded="${succeeded:-0}"
+        failed="${failed:-0}"
+
+        if [ "$succeeded" = "1" ]; then
+            return 0
+        fi
+
+        if [ "$failed" != "0" ]; then
+            dump_db_setup_diagnostics
+            error "db-setup failed"
+        fi
+
+        if [ "$(date +%s)" -ge "$deadline" ]; then
+            dump_db_setup_diagnostics
+            error "db-setup timed out"
+        fi
+
+        sleep 5
+    done
+}
+
+check_local_db_setup_compatibility() {
+    local postgres_pod
+    local state
+    local migration_count
+    local legacy_marker
+
+    postgres_pod="$(kubectl get pods -n "$NAMESPACE" -l app=postgres -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)"
+    [ -n "$postgres_pod" ] || return 0
+
+    state="$(kubectl exec -n "$NAMESPACE" "$postgres_pod" -- \
+        psql -U rejourney -d rejourney -At -F $'\t' \
+        -c "select case when to_regclass('drizzle.__drizzle_migrations') is null then -1 else (select count(*) from drizzle.__drizzle_migrations) end; select exists(select 1 from information_schema.columns where table_schema = 'public' and table_name = 'teams' and column_name = 'retention_tier');" \
+        2>/dev/null || true)"
+
+    migration_count="$(echo "$state" | sed -n '1p')"
+    legacy_marker="$(echo "$state" | sed -n '2p')"
+
+    if [ "$legacy_marker" = "t" ] && { [ "$migration_count" = "-1" ] || [ "$migration_count" = "0" ]; }; then
+        error "Legacy local PostgreSQL detected: schema exists but drizzle migration history is empty. This local DB was created with the old push-based flow. Run './scripts/local-k8s/deploy.sh down' once to recreate the namespace and database, then rerun your ci:local command."
+    fi
+}
+
 require_bin() {
     command -v "$1" >/dev/null 2>&1 || error "$1 is required"
 }
@@ -65,7 +123,7 @@ wait_full() {
     kubectl wait --for=condition=available deployment/ingest-worker -n "$NAMESPACE" --timeout=240s
     kubectl wait --for=condition=available deployment/retention-worker -n "$NAMESPACE" --timeout=240s
     kubectl wait --for=condition=available deployment/alert-worker -n "$NAMESPACE" --timeout=240s
-    kubectl wait --for=condition=complete job/db-setup -n "$NAMESPACE" --timeout=240s || true
+    wait_for_db_setup
 }
 
 apply_apps() {
@@ -102,20 +160,6 @@ sync_secrets() {
     "$SCRIPT_DIR/k8s-sync-secrets.sh" "$ENV_FILE"
 }
 
-sync_storage_endpoint() {
-    if [ ! -f "$ENV_FILE" ]; then
-        error "Missing env file: $ENV_FILE"
-    fi
-
-    (
-        cd "$ROOT_DIR/backend"
-        set -a
-        source "$ENV_FILE"
-        set +a
-        node --import tsx scripts/syncLocalStorageEndpoint.ts
-    )
-}
-
 infra() {
     init
     sync_secrets
@@ -135,8 +179,8 @@ full() {
 
 apps() {
     infra
+    check_local_db_setup_compatibility
     apply_apps
-    sync_storage_endpoint
     log "Local app deployments are ready."
 }
 

@@ -464,13 +464,15 @@ spec:
       containers:
         - name: setup
           image: ghcr.io/rejourneyco/rejourney/migration:latest
-          # Run migrate, seed baseline rows, then sync DB-backed storage endpoint
-          # state from the current Kubernetes S3 secret before app rollouts continue.
+          # Run migrate, conditionally seed only brand-new databases, bootstrap
+          # system rows, then sync DB-backed storage endpoint state from the
+          # current Kubernetes S3 secret before app rollouts continue.
           command: ["/bin/sh", "-c"]
           args:
             - >-
               ./node_modules/.bin/drizzle-kit migrate
-              && ./node_modules/.bin/tsx src/db/seed.ts
+              && node --import tsx scripts/seedIfDatabaseEmpty.ts
+              && node --import tsx scripts/bootstrapSystemData.ts
               && node --import tsx scripts/syncStorageEndpoint.ts
           env:
             - name: NODE_ENV

@@ -83,10 +83,17 @@ router.post(
             }, 'SDK telemetry saved');
         }
 
+        const endedAtFallback =
+            session.explicitEndedAt
+            ?? session.endedAt
+            ?? session.lastIngestActivityAt
+            ?? null;
+
         const { endedAt, wallClockSeconds, backgroundTimeSeconds, durationSeconds } = calculateSessionDurationBreakdown(
             session.startedAt,
             data.endedAt,
             data.totalBackgroundTimeMs,
+            endedAtFallback,
         );
 
         log.info({

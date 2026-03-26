@@ -442,7 +442,12 @@ spec:
           image: rejourney-local/migration:dev
           imagePullPolicy: IfNotPresent
           command: ["/bin/sh", "-c"]
-          args: ["./node_modules/.bin/drizzle-kit push && ./node_modules/.bin/tsx src/db/seed.ts"]
+          args:
+            - >-
+              ./node_modules/.bin/drizzle-kit migrate
+              && node --import tsx scripts/seedIfDatabaseEmpty.ts
+              && node --import tsx scripts/bootstrapSystemData.ts
+              && node --import tsx scripts/syncLocalStorageEndpoint.ts
           env:
             - name: NODE_ENV
               value: production

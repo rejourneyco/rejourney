@@ -34,6 +34,7 @@ const JOB_PROCESS_CONCURRENCY = Number(process.env.RJ_INGEST_JOB_CONCURRENCY ?? 
 const SESSION_SWEEP_INTERVAL_MS = 10_000;
 const HEARTBEAT_INTERVAL_MS = 60_000;
 const WORKER_ID = `${process.env.HOSTNAME || 'local'}:${process.pid}`;
+const ENABLE_STARTUP_BACKFILL = process.env.INGEST_ENABLE_STARTUP_BACKFILL === 'true';
 
 let lastSessionSweepAt = 0;
 let lastHeartbeatAt = 0;
@@ -390,6 +391,11 @@ async function recoverStuckJobs(): Promise<void> {
 }
 
 function startArtifactLifecycleBackfill(): void {
+    if (!ENABLE_STARTUP_BACKFILL) {
+        logger.info('Skipping artifact lifecycle backfill on startup; run the manual backfill command when needed');
+        return;
+    }
+
     logger.info('Starting artifact lifecycle backfill in background');
 
     void backfillArtifactDrivenLifecycleState()

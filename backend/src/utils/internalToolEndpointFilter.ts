@@ -2,6 +2,24 @@ import { type SQL, sql } from 'drizzle-orm';
 import type { AnyPgColumn } from 'drizzle-orm/pg-core';
 
 const DEFAULT_REJOURNEY_API_HOSTS = ['api.rejourney.co'];
+const INTERNAL_ENDPOINT_PREFIXES = ['/api/ingest', '/upload/artifacts'];
+
+function toPathOnly(endpoint: string): string {
+    const trimmed = endpoint.trim().toLowerCase();
+    if (!trimmed) return '';
+
+    const withoutMethod = trimmed.replace(/^(get|post|put|patch|delete|options|head)\s+/, '');
+
+    try {
+        return new URL(withoutMethod).pathname.toLowerCase();
+    } catch {
+        return withoutMethod.split('?')[0];
+    }
+}
+
+function isInternalRejourneyPath(path: string): boolean {
+    return INTERNAL_ENDPOINT_PREFIXES.some((prefix) => path === prefix || path.startsWith(`${prefix}/`));
+}
 
 function parseExtraApiHosts(): string[] {
     const raw = process.env.RJ_INTERNAL_API_HOSTS?.trim();
@@ -26,7 +44,10 @@ export function isRejourneyConfiguredApiHost(host: string): boolean {
  * `/api/ingest` here — a customer app may use the same path on their own origin.
  */
 export function shouldExcludeFromEndpointProductAnalytics(endpoint: string): boolean {
-    return endpoint.toLowerCase().includes('rejourney');
+    const lowered = endpoint.toLowerCase();
+    if (lowered.includes('rejourney')) return true;
+    const path = toPathOnly(endpoint);
+    return isInternalRejourneyPath(path);
 }
 
 /**
@@ -61,7 +82,9 @@ export function shouldExcludeNetworkEventFromProductAnalytics(event: {
     }
     const pathNorm = path.split('?')[0].toLowerCase();
     const isIngestPath = pathNorm === '/api/ingest' || pathNorm.startsWith('/api/ingest/');
-    if (isIngestPath && isRejourneyConfiguredApiHost(host)) return true;
+    const isUploadRelayPath = pathNorm === '/upload/artifacts' || pathNorm.startsWith('/upload/artifacts/');
+    if (isUploadRelayPath) return true;
+    if (isIngestPath && (!host || isRejourneyConfiguredApiHost(host))) return true;
 
     return false;
 }
@@ -71,5 +94,9 @@ export function shouldExcludeNetworkEventFromProductAnalytics(event: {
  * Path-only `/api/ingest/*` rows cannot be attributed to ReJourney vs customer in SQL.
  */
 export function excludeInternalToolEndpointTraffic(endpointColumn: AnyPgColumn): SQL {
-    return sql`(lower(${endpointColumn}) NOT LIKE '%rejourney%')`;
+    return sql`(
+        lower(${endpointColumn}) NOT LIKE '%rejourney%'
+        AND lower(${endpointColumn}) NOT LIKE '%/api/ingest%'
+        AND lower(${endpointColumn}) NOT LIKE '%/upload/artifacts%'
+    )`;
 }

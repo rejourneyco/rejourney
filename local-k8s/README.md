@@ -57,6 +57,52 @@ That builds local images, imports them into `k3d`, applies `api.yaml`,
 - `npm run dev:logs`: host-process logs for the hybrid workflow
 - `npm run dev:down`: stop host services and remove the local namespace
 
+## Local CI Parity
+
+Use the dedicated local CI runner when you want the GitHub Actions checks plus
+the local image build/import/deploy path in one command:
+
+```bash
+npm run ci:local
+```
+
+That flow:
+
+- updates `.env.k8s.local` and the example app URLs with the current LAN IP
+- runs the schema/migration guard
+- runs backend lint, unit tests, billing tests, and billing-specific ESLint
+- runs web typecheck and build
+- builds/imports the local API, web, and migration images
+- reapplies the local k8s app manifests, including the same `db-setup` path as production: `migrate + conditional-seed + system-bootstrap + storage-endpoint sync`
+- restarts the host-side API/upload/web processes for device testing
+
+For a quicker inner loop that still rebuilds, redeploys, reruns migrations, and
+restarts the local stack without reinstalling npm dependencies:
+
+```bash
+npm run ci:local:fast
+```
+
+If your existing local Postgres volume was created by the older `drizzle-kit push`
+workflow, the new migrate-based parity flow will stop with an explicit error.
+Reset the local namespace once, then rerun:
+
+```bash
+./scripts/local-k8s/deploy.sh down
+npm run ci:local:fast
+```
+
+## Production Note
+
+The legacy replay cleanup migration now prefers safe deploys over immediate
+physical column removal. If production is under load and the `sessions` table
+is busy, the migration may be recorded without dropping the old
+`replay_promoted*` columns. That is expected and safe because the application no
+longer depends on those columns.
+
+If you still want to remove the columns physically, do it during a quiet manual
+maintenance window after checking for long-running `sessions` queries.
+
 ## Notes
 
 - The production `k8s/` directory is intentionally untouched.

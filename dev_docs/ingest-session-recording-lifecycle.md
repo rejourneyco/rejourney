@@ -268,6 +268,44 @@ It finalizes a `processing` session when:
   - `/api/ingest/session/end` already set `explicit_ended_at`, or
   - the session has been idle for `60s`
 
+The worker no longer runs the heavy full-table lifecycle backfill automatically on startup. That backfill is now manual via:
+
+- `cd backend && npm run db:backfill:artifact-lifecycle`
+
+This keeps normal deploys and worker restarts from contending with hot `sessions` traffic.
+
+### Production-safe replay cleanup migration
+
+The legacy replay alias columns are still safe to keep physically present in Postgres for a while.
+
+The cleanup migration now uses a short lock timeout and skips the physical drop if the `sessions` table is busy. That means:
+
+- deploys stay non-blocking under live traffic
+- the migration can still be marked applied
+- a later quiet maintenance window can remove the columns physically if desired
+
+### What `db-setup` does now
+
+The deploy-time `db-setup` job is now:
+
+```text
+drizzle-kit migrate
+  -> seedIfDatabaseEmpty.ts
+  -> bootstrapSystemData.ts
+  -> syncStorageEndpoint.ts / syncLocalStorageEndpoint.ts
+```
+
+It now runs the general `seed.ts` path only when the database is still empty.
+
+That keeps deploy-time bootstrap limited to:
+
+- schema migrations
+- one-time seed on brand-new databases only
+- retention policy upserts
+- storage endpoint bootstrap/sync
+
+Dev-only sample users/projects remain in `seed.ts` and are not part of production deploy setup.
+
 ### How `endedAt` is chosen
 
 Finalization derives `ended_at` from this priority order:
