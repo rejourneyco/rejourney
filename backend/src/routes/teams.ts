@@ -46,6 +46,11 @@ router.get(
     sessionAuth,
     dashboardRateLimiter,
     asyncHandler(async (req, res) => {
+        res.set('Cache-Control', 'private, no-store, no-cache, must-revalidate');
+        res.set('Pragma', 'no-cache');
+        res.set('Expires', '0');
+        res.vary('Cookie');
+
         const memberships = await db
             .select({
                 role: teamMembers.role,

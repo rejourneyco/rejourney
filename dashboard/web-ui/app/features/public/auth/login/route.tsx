@@ -99,9 +99,14 @@ export default function LoginPage() {
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
 
-        fetch(`${API_BASE_URL || ''}/api/auth/me`, {
+        fetch(`${API_BASE_URL || ''}/api/auth/me?_=${Date.now()}`, {
             method: 'GET',
             credentials: 'include',
+            cache: 'no-store',
+            headers: {
+                'Cache-Control': 'no-cache',
+                'Pragma': 'no-cache',
+            },
             signal: controller.signal,
         })
             .catch((err) => {

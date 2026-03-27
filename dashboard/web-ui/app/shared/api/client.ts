@@ -9,6 +9,7 @@ import {
   Issue,
   IssueSession
 } from "~/shared/types";
+import { isUuid } from "~/shared/lib/ids";
 import * as demoApiData from '~/shared/data/demoApiData';
 import { demoSessions } from '~/shared/data/demoData';
 
@@ -84,11 +85,17 @@ async function fetchJson<T>(endpoint: string, options: RequestInit = {}): Promis
     headers.set('Content-Type', 'application/json');
   }
 
-  const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+  const requestInit: RequestInit = {
     ...options,
     headers,
     credentials: 'include',
-  });
+  };
+  const method = (requestInit.method ?? 'GET').toUpperCase();
+  if ((method === 'GET' || method === 'HEAD') && !requestInit.cache) {
+    requestInit.cache = 'no-store';
+  }
+
+  const response = await fetch(`${API_BASE_URL}${endpoint}`, requestInit);
 
   if (response.status === 401 || response.status === 403) {
     handleUnauthorized();
@@ -2884,6 +2891,15 @@ export async function getWorkspace(
   projectId: string,
   workspaceKey: string = 'default'
 ): Promise<WorkspaceState> {
+  if (!isUuid(teamId) || !isUuid(projectId)) {
+    return {
+      tabs: [],
+      activeTabId: null,
+      recentlyClosed: [],
+      workspaceKey,
+    };
+  }
+
   const params = new URLSearchParams({ teamId, projectId, key: workspaceKey });
   const endpoint = `/api/workspace?${params.toString()}`;
   return fetchWithCache<WorkspaceState>(endpoint, {}, endpoint, WORKSPACE_CACHE_TTL);
@@ -2901,6 +2917,10 @@ export async function saveWorkspace(
   recentlyClosed: WorkspaceTab[],
   workspaceKey: string = 'default'
 ): Promise<void> {
+  if (!isUuid(teamId) || !isUuid(projectId)) {
+    return;
+  }
+
   await fetchJson<{ ok: boolean }>('/api/workspace', {
     method: 'PUT',
     body: JSON.stringify({

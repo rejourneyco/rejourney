@@ -30,7 +30,8 @@ function normalizeTeamsResponse(payload: unknown): ApiTeam[] {
 }
 
 async function fetchBootstrapJson(request: Request, path: string): Promise<Response> {
-  const url = new URL(path, request.url);
+  const baseUrl = process.env.API_URL || new URL(request.url).origin;
+  const url = new URL(path, baseUrl);
   const headers = new Headers();
   const cookie = request.headers.get("cookie");
 
@@ -42,6 +43,7 @@ async function fetchBootstrapJson(request: Request, path: string): Promise<Respo
 
   return fetch(url.toString(), {
     headers,
+    cache: "no-store",
   });
 }
 

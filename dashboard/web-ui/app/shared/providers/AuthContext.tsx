@@ -20,12 +20,17 @@ async function fetchWithTimeout(
 ): Promise<Response> {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeout);
+  const requestInit: RequestInit = {
+    ...options,
+    signal: controller.signal,
+  };
+  const method = (requestInit.method ?? 'GET').toUpperCase();
+  if ((method === 'GET' || method === 'HEAD') && !requestInit.cache) {
+    requestInit.cache = 'no-store';
+  }
 
   try {
-    const response = await fetch(url, {
-      ...options,
-      signal: controller.signal,
-    });
+    const response = await fetch(url, requestInit);
     clearTimeout(timeoutId);
     return response;
   } catch (err) {
@@ -62,6 +67,27 @@ function withDefaultHeaders(extra?: HeadersInit): Headers {
     headers.set('X-CSRF-Token', csrf);
   }
   return headers;
+}
+
+async function fetchFreshCurrentUser(): Promise<Response> {
+  const headers = new Headers({
+    'Cache-Control': 'no-cache',
+    'Pragma': 'no-cache',
+  });
+  const response = await fetchWithTimeout(`/api/auth/me?_=${Date.now()}`, {
+    credentials: 'include',
+    headers,
+  });
+
+  if (response.status !== 304) {
+    return response;
+  }
+
+  return fetchWithTimeout(`/api/auth/me?_=${Date.now()}&retry=1`, {
+    credentials: 'include',
+    headers,
+    cache: 'reload',
+  });
 }
 
 export interface User {
@@ -153,10 +179,7 @@ export function AuthProvider({ children, initialHydrated = false, initialUser = 
     // Create the refresh promise
     const refreshPromise = (async () => {
       try {
-        // Use relative URL to go through the proxy with timeout
-        const response = await fetchWithTimeout('/api/auth/me', {
-          credentials: 'include',
-        });
+        const response = await fetchFreshCurrentUser();
 
         if (response.ok) {
           let data;

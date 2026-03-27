@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useSearchParams, Link } from 'react-router';
 import { useTeam } from '~/shared/providers/TeamContext';
 import { useAuth } from '~/shared/providers/AuthContext';
+import { useDemoMode } from '~/shared/providers/DemoModeContext';
 import { usePathPrefix } from '~/shell/routing/usePathPrefix';
 import { NeoButton } from '~/shared/ui/core/neo/NeoButton';
 import { NeoCard } from '~/shared/ui/core/neo/NeoCard';
@@ -59,6 +60,7 @@ const PLAN_DESCRIPTIONS: Record<string, string> = {
 };
 
 export const BillingSettings: React.FC = () => {
+  const { isDemoMode } = useDemoMode();
   const { user } = useAuth();
   const { currentTeam, teamMembers, isLoading: teamsLoading } = useTeam();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -104,6 +106,12 @@ export const BillingSettings: React.FC = () => {
 
   // Load billing data
   const loadTeamBilling = useCallback(async () => {
+    if (isDemoMode) {
+      setBillingError(null);
+      setIsLoadingBilling(false);
+      return;
+    }
+
     if (!currentTeam) {
       setTeamUsage(null);
       setStripeStatus(null);
@@ -150,7 +158,7 @@ export const BillingSettings: React.FC = () => {
     } finally {
       setIsLoadingBilling(false);
     }
-  }, [currentTeam?.id]);
+  }, [currentTeam?.id, isDemoMode]);
 
   useEffect(() => {
     loadTeamBilling();
@@ -375,6 +383,37 @@ export const BillingSettings: React.FC = () => {
           <h2 className="text-lg font-bold text-slate-900 mb-1">No Team Selected</h2>
           <p className="text-sm text-slate-500">Please select or create a team from the sidebar.</p>
         </div>
+      </SettingsLayout>
+    );
+  }
+
+  if (isDemoMode) {
+    return (
+      <SettingsLayout
+        title="Billing"
+        description={`Demo billing preview for ${currentTeam.name}`}
+      >
+        <NeoCard className="p-8 border-sky-600 bg-sky-50">
+          <div className="flex items-start gap-6">
+            <div className="w-16 h-16 bg-sky-600 flex items-center justify-center border-2 border-slate-900 shadow-[4px_4px_0_0_#000]">
+              <Info className="w-8 h-8 text-white" />
+            </div>
+            <div className="flex-1">
+              <h2 className="text-2xl font-semibold uppercase tracking-tight mb-2">Demo Billing</h2>
+              <p className="text-sm font-bold text-sky-900 mb-3">
+                Billing controls are disabled in demo mode.
+              </p>
+              <p className="text-sm text-slate-700 mb-4">
+                Demo routes use fixture team and project ids, so they should not call live Stripe or billing endpoints.
+              </p>
+              <div className="flex flex-wrap gap-3">
+                <NeoBadge variant="neutral">No Live Stripe Calls</NeoBadge>
+                <NeoBadge variant="neutral">No Billing Mutations</NeoBadge>
+                <NeoBadge variant="neutral">Fixture Data Only</NeoBadge>
+              </div>
+            </div>
+          </div>
+        </NeoCard>
       </SettingsLayout>
     );
   }

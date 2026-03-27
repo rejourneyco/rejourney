@@ -3,7 +3,9 @@ import { useNavigate, useLocation } from 'react-router';
 import { TabRegistry } from '~/shell/tabs/TabRegistry';
 import { useSessionData } from './SessionContext';
 import { useSafeTeam } from './TeamContext';
+import { useDemoMode } from './DemoModeContext';
 import { getWorkspace, saveWorkspace, WorkspaceTab } from '~/shared/api/client';
+import { isUuid } from '~/shared/lib/ids';
 
 export interface Tab {
     id: string;
@@ -131,6 +133,10 @@ export const TabProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const location = useLocation();
     const { selectedProject, isLoading: isProjectLoading } = useSessionData();
     const { currentTeam } = useSafeTeam();
+    const demoMode = useDemoMode();
+    const workspaceProjectId = selectedProject?.id ?? null;
+    const workspaceTeamId = selectedProject?.teamId ?? currentTeam?.id ?? null;
+    const hasPersistableWorkspaceScope = isUuid(workspaceTeamId) && isUuid(workspaceProjectId);
 
     // Derive path prefix from current location
     const getPathPrefix = useCallback(() => {
@@ -193,8 +199,10 @@ export const TabProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     // Save workspace state to backend (debounced using refs to avoid stale closures)
     const saveToBackend = useCallback(() => {
-        if (!selectedProject?.teamId || !selectedProject?.id) return;
+        if (demoMode.isDemoMode || !hasPersistableWorkspaceScope || !workspaceTeamId || !workspaceProjectId) return;
         if (isScopeTransitionRef.current || !hasLoadedRef.current || isWarehousePath(locationPathRef.current)) return;
+        const teamId = workspaceTeamId;
+        const projectId = workspaceProjectId;
 
         // Clear any pending save
         if (saveTimeoutRef.current) {
@@ -224,8 +232,8 @@ export const TabProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                     path: t.path,
                 }));
                 await saveWorkspace(
-                    selectedProject?.teamId || '',
-                    selectedProject?.id || '',
+                    teamId,
+                    projectId,
                     workspaceTabs,
                     currentActiveId || 'general', // Fallback to 'general' if undefined/empty
                     closedTabs
@@ -236,14 +244,14 @@ export const TabProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                 isSavingRef.current = false;
             }
         }, 1000);
-    }, [selectedProject?.teamId, selectedProject?.id]);
+    }, [demoMode.isDemoMode, hasPersistableWorkspaceScope, workspaceProjectId, workspaceTeamId]);
 
     // Persist whenever tabs change (but only after initial load completes)
     useEffect(() => {
-        if (hasLoaded && selectedProject && !isWarehousePath(location.pathname)) {
+        if (hasLoaded && hasPersistableWorkspaceScope && !demoMode.isDemoMode && !isWarehousePath(location.pathname)) {
             saveToBackend();
         }
-    }, [tabs, activeTabId, recentlyClosed, hasLoaded, selectedProject, location.pathname, saveToBackend]);
+    }, [tabs, activeTabId, recentlyClosed, hasLoaded, hasPersistableWorkspaceScope, demoMode.isDemoMode, location.pathname, saveToBackend]);
 
     // Cleanup save timeout on unmount
     useEffect(() => {
@@ -319,7 +327,7 @@ export const TabProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     // Track which project we've loaded workspace for
     const loadedProjectIdRef = useRef<string | null>(null);
-    const workspaceScopeKey = `${currentTeam?.id ?? 'no-team'}:${selectedProject?.id ?? 'no-project'}`;
+    const workspaceScopeKey = `${workspaceTeamId ?? 'no-team'}:${workspaceProjectId ?? 'no-project'}`;
     const previousScopeKeyRef = useRef(workspaceScopeKey);
 
     // Clear tab UI immediately when switching team/project so users do not see stale tabs.
@@ -364,7 +372,7 @@ export const TabProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         if (isProjectLoading) return;
 
         // Skip if no project
-        if (!selectedProject?.teamId || !selectedProject?.id) {
+        if (demoMode.isDemoMode || !hasPersistableWorkspaceScope || !workspaceTeamId || !workspaceProjectId) {
             isScopeTransitionRef.current = false;
             skipRestoreForNextScopeRef.current = false;
             setHasLoaded(true);
@@ -372,24 +380,26 @@ export const TabProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         }
 
         // Skip if we already loaded for this project
-        if (loadedProjectIdRef.current === selectedProject.id) {
+        if (loadedProjectIdRef.current === workspaceProjectId) {
             return;
         }
 
         if (skipRestoreForNextScopeRef.current || isWarehousePath(location.pathname)) {
-            loadedProjectIdRef.current = selectedProject.id;
+            loadedProjectIdRef.current = workspaceProjectId;
             skipRestoreForNextScopeRef.current = false;
             isScopeTransitionRef.current = false;
             setHasLoaded(true);
             return;
         }
 
+        const teamId = workspaceTeamId;
+        const projectId = workspaceProjectId;
         let isCancelled = false;
 
         async function loadWorkspace() {
             try {
-                loadedProjectIdRef.current = selectedProject!.id;
-                const workspace = await getWorkspace(selectedProject!.teamId || '', selectedProject!.id || '');
+                loadedProjectIdRef.current = projectId;
+                const workspace = await getWorkspace(teamId, projectId);
                 if (isCancelled) return;
                 const prefix = getPathPrefix();
 
@@ -549,7 +559,7 @@ export const TabProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         return () => {
             isCancelled = true;
         };
-    }, [selectedProject?.id, isProjectLoading, getPathPrefix, normalizePath, location.pathname, navigate, setActiveTabId, annotateTabWithScope]); // Wait for project loading AND id
+    }, [demoMode.isDemoMode, hasPersistableWorkspaceScope, workspaceProjectId, workspaceTeamId, isProjectLoading, getPathPrefix, normalizePath, location.pathname, navigate, setActiveTabId, annotateTabWithScope]); // Wait for project loading AND id
 
     // Auto-open tabs when URL changes based on TabRegistry
     // Skip the initial auto-open if we just loaded tabs from backend (to avoid overriding)
