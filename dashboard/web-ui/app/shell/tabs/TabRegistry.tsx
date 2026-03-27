@@ -1,0 +1,157 @@
+import React from 'react';
+import { matchPath } from 'react-router';
+import {
+    MessageSquareWarning,
+    Database,
+    Activity,
+    Map,
+    Smartphone,
+    Globe,
+    AlertOctagon,
+    Clock,
+    Terminal,
+    Mail,
+    Play,
+    Settings,
+    Users,
+    CreditCard,
+    User,
+    Search as SearchIcon
+} from 'lucide-react';
+import { GeneralOverview } from "~/features/app/general/index/route";
+import { IssueDetail } from "~/features/app/general/detail/route";
+import { RecordingsList } from "~/features/app/sessions/index/route";
+import { RecordingDetail } from "~/features/app/sessions/detail/route";
+import { ApiAnalytics } from "~/features/app/analytics/api/route";
+import { Devices } from "~/features/app/analytics/devices/route";
+import { Geo } from "~/features/app/analytics/geo/route";
+import { Journeys } from "~/features/app/analytics/journeys/route";
+import { AlertEmails } from "~/features/app/alerts/email/route";
+import { CrashesList } from "~/features/app/stability/crashes/index/route";
+import { CrashDetail } from "~/features/app/stability/crashes/detail/route";
+import { ANRsList } from "~/features/app/stability/anrs/index/route";
+import { ANRDetail } from "~/features/app/stability/anrs/detail/route";
+import { ErrorsList } from "~/features/app/stability/errors/index/route";
+import { ErrorDetail } from "~/features/app/stability/errors/detail/route";
+import { TeamSettings } from "~/features/app/team/route";
+import { BillingSettings } from "~/features/app/billing/route";
+import { AccountSettings } from "~/features/app/account/route";
+import { ProjectSettings } from "~/features/app/settings/project/route";
+import { Search } from "~/features/app/search/route";
+
+export interface TabInfo {
+    id: string;
+    title: string;
+    icon?: React.ElementType;
+}
+
+export interface TabDefinition extends TabInfo {
+    Component: React.ComponentType<any>;
+    props?: Record<string, any>;
+}
+
+// Route definitions for tab creation and component rendering
+const routes: Array<{
+    pattern: string;
+    getInfo: (params: Record<string, string>) => TabInfo;
+    Component: React.ComponentType<any>;
+    getProps?: (params: Record<string, string>) => Record<string, any>;
+}> = [
+        { pattern: '/general', getInfo: () => ({ id: 'general', title: 'General', icon: MessageSquareWarning }), Component: GeneralOverview },
+        {
+            pattern: '/general/:issueId',
+            getInfo: (p) => ({ id: `issue-${p.issueId}`, title: `Issue ${(p.issueId || '').substring(0, 8)}...`, icon: MessageSquareWarning }),
+            Component: IssueDetail,
+            getProps: (p) => ({ issueId: p.issueId })
+        },
+        // Legacy route aliases - keep compatibility for old saved tabs/bookmarks.
+        { pattern: '/issues', getInfo: () => ({ id: 'general', title: 'General', icon: MessageSquareWarning }), Component: GeneralOverview },
+        {
+            pattern: '/issues/:issueId',
+            getInfo: (p) => ({ id: `issue-${p.issueId}`, title: `Issue ${(p.issueId || '').substring(0, 8)}...`, icon: MessageSquareWarning }),
+            Component: IssueDetail,
+            getProps: (p) => ({ issueId: p.issueId })
+        },
+        // Analytics routes
+        { pattern: '/analytics/api', getInfo: () => ({ id: 'analytics-api', title: 'API Insights', icon: Activity }), Component: ApiAnalytics },
+        { pattern: '/analytics/journeys', getInfo: () => ({ id: 'analytics-journeys', title: 'User Journeys', icon: Map }), Component: Journeys },
+        { pattern: '/analytics/devices', getInfo: () => ({ id: 'analytics-devices', title: 'Devices', icon: Smartphone }), Component: Devices },
+        { pattern: '/analytics/geo', getInfo: () => ({ id: 'analytics-geo', title: 'Geographic', icon: Globe }), Component: Geo },
+        // Stability routes
+        { pattern: '/stability/crashes', getInfo: () => ({ id: 'stability-crashes', title: 'Crashes', icon: AlertOctagon }), Component: CrashesList },
+        { pattern: '/stability/anrs', getInfo: () => ({ id: 'stability-anrs', title: 'ANRs', icon: Clock }), Component: ANRsList },
+        { pattern: '/stability/errors', getInfo: () => ({ id: 'stability-errors', title: 'Errors', icon: Terminal }), Component: ErrorsList },
+        // Sessions routes
+        { pattern: '/sessions', getInfo: () => ({ id: 'sessions', title: 'Replays', icon: Database }), Component: RecordingsList },
+        // Alerts
+        { pattern: '/alerts/emails', getInfo: () => ({ id: 'alerts-emails', title: 'Email Alerts', icon: Mail }), Component: AlertEmails },
+        {
+            pattern: '/sessions/:sessionId',
+            getInfo: (p) => ({ id: `session-${p.sessionId}`, title: `Replay ${(p.sessionId || '').replace('session_', '').substring(0, 8)}...`, icon: Play }),
+            Component: RecordingDetail,
+            getProps: (p) => ({ sessionId: p.sessionId })
+        },
+        {
+            pattern: '/stability/crashes/:projectId/:crashId',
+            getInfo: (p) => ({ id: `crash-${p.crashId}`, title: `Crash ${(p.crashId || '').substring(0, 8)}...`, icon: AlertOctagon }),
+            Component: CrashDetail,
+            getProps: (p) => ({ crashId: p.crashId, projectId: p.projectId })
+        },
+        {
+            pattern: '/stability/anrs/:projectId/:anrId',
+            getInfo: (p) => ({ id: `anr-${p.anrId}`, title: `ANR ${(p.anrId || '').substring(0, 8)}...`, icon: Clock }),
+            Component: ANRDetail,
+            getProps: (p) => ({ anrId: p.anrId, projectId: p.projectId })
+        },
+        {
+            pattern: '/stability/errors/:projectId/:errorId',
+            getInfo: (p) => ({ id: `error-${p.errorId}`, title: `Error ${(p.errorId || '').substring(0, 8)}...`, icon: Terminal }),
+            Component: ErrorDetail,
+            getProps: (p) => ({ errorId: p.errorId, projectId: p.projectId })
+        },
+
+        { pattern: '/team', getInfo: () => ({ id: 'team', title: 'Team', icon: Users }), Component: TeamSettings },
+        { pattern: '/billing', getInfo: () => ({ id: 'billing', title: 'Billing', icon: CreditCard }), Component: BillingSettings },
+        { pattern: '/account', getInfo: () => ({ id: 'account', title: 'Account', icon: User }), Component: AccountSettings },
+        // Settings with projectId
+        {
+            pattern: '/settings/:projectId',
+            getInfo: (p) => ({ id: `settings-${p.projectId}`, title: 'Project Settings', icon: Settings }),
+            Component: ProjectSettings,
+            getProps: (p) => ({ projectId: p.projectId })
+        },
+        { pattern: '/search', getInfo: () => ({ id: 'search', title: 'New Tab', icon: SearchIcon }), Component: Search },
+    ];
+
+export const TabRegistry = {
+    // Get just the tab info (id, title, icon) for a path - used by TabContext
+    getTabInfo: (pathname: string): TabInfo | null => {
+        // Strip /dashboard/ or /demo/ prefix before matching
+        const pathWithoutPrefix = pathname.replace(/^\/(dashboard|demo)/, '');
+
+        for (const route of routes) {
+            const match = matchPath(route.pattern, pathWithoutPrefix);
+            if (match) {
+                return route.getInfo(match.params as Record<string, string>);
+            }
+        }
+        return null;
+    },
+
+    // Get full definition including component - used for rendering
+    resolve: (pathname: string): TabDefinition | null => {
+        for (const route of routes) {
+            const match = matchPath(route.pattern, pathname);
+            if (match) {
+                const params = match.params as Record<string, string>;
+                const info = route.getInfo(params);
+                return {
+                    ...info,
+                    Component: route.Component,
+                    props: route.getProps?.(params)
+                };
+            }
+        }
+        return null;
+    }
+};

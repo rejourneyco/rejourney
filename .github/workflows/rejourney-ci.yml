@@ -121,8 +121,8 @@ jobs:
       - name: Debug file structure
         working-directory: ./dashboard/web-ui
         run: |
-          ls -R app/lib
-          cat app/lib/cn.ts || echo "cn.ts not found"
+          ls -R app/shared/lib || true
+          cat app/shared/lib/cn.ts || echo "shared lib cn.ts not found"
 
       - name: TypeScript check
         working-directory: ./dashboard/web-ui

@@ -9,6 +9,12 @@ currently being supported with security updates.
 | ------- | ------------------ |
 | 1.0.7   | :white_check_mark: |
 | 1.0.8   | :white_check_mark: |
+| 1.0.9   | :white_check_mark: |
+| 1.0.10  | :white_check_mark: |
+| 1.0.11  | :white_check_mark: |
+| 1.0.12  | :white_check_mark: |
+| 1.0.13  | :white_check_mark: |
+| 1.0.14  | :white_check_mark: |
 
 
 

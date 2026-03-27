@@ -15,11 +15,14 @@ import {
     Scripts,
     ScrollRestoration,
     isRouteErrorResponse,
+    useMatches,
 } from "react-router";
 import type { Route } from "./+types/root";
 
 import "./styles/index.css";
 import "./styles/landing.css";
+import { getPublicRuntimeEnvSnapshot } from "./shared/config/runtimeEnv";
+import { isDashboardShellBootstrapData } from "./shell/server/dashboardBootstrap";
 
 export const links: Route.LinksFunction = () => [
     { rel: "preconnect", href: "https://fonts.googleapis.com" },
@@ -77,16 +80,7 @@ export const meta: Route.MetaFunction = () => [
 ];
 
 export function Layout({ children }: { children: React.ReactNode }) {
-    const runtimeEnv = {
-        VITE_STRIPE_PUBLISHABLE_KEY:
-            (typeof window !== "undefined" ? window.ENV?.VITE_STRIPE_PUBLISHABLE_KEY : undefined)
-            ?? (typeof process !== "undefined" ? process.env.VITE_STRIPE_PUBLISHABLE_KEY : undefined)
-            ?? import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY,
-        VITE_MAPBOX_TOKEN:
-            (typeof window !== "undefined" ? window.ENV?.VITE_MAPBOX_TOKEN : undefined)
-            ?? (typeof process !== "undefined" ? process.env.VITE_MAPBOX_TOKEN : undefined)
-            ?? import.meta.env.VITE_MAPBOX_TOKEN,
-    };
+    const runtimeEnv = getPublicRuntimeEnvSnapshot();
 
     return (
         <html lang="en">
@@ -167,15 +161,27 @@ export function Layout({ children }: { children: React.ReactNode }) {
     );
 }
 
-import { AuthProvider } from "./context/AuthContext";
-import { TeamProvider } from "./context/TeamContext";
-import { ToastProvider } from "./context/ToastContext";
-import { ClarityConsentBanner } from "~/components/compliance/ClarityConsentBanner";
+import { AuthProvider } from "./shared/providers/AuthContext";
+import { TeamProvider } from "./shared/providers/TeamContext";
+import { ToastProvider } from "./shared/providers/ToastContext";
+import { ClarityConsentBanner } from "~/shared/compliance/ClarityConsentBanner";
 
 export default function App() {
+    const matches = useMatches();
+    const shellBootstrap = matches
+        .map((match) => match.data)
+        .find((data) => isDashboardShellBootstrapData(data)) ?? null;
+
     return (
-        <AuthProvider>
-            <TeamProvider>
+        <AuthProvider
+            initialUser={shellBootstrap?.user ?? null}
+            initialHydrated={!!shellBootstrap}
+        >
+            <TeamProvider
+                initialTeams={shellBootstrap?.teams ?? []}
+                initialCurrentTeamId={shellBootstrap?.currentTeamId ?? null}
+                initialHydrated={!!shellBootstrap}
+            >
                 <ToastProvider>
                     <Outlet />
                     <ClarityConsentBanner />

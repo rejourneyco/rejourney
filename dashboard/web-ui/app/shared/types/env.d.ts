@@ -1,0 +1,11 @@
+export { };
+
+declare global {
+    interface Window {
+        ENV: {
+            VITE_STRIPE_PUBLISHABLE_KEY?: string;
+            VITE_MAPBOX_TOKEN?: string;
+            VITE_TURNSTILE_SITE_KEY?: string;
+        };
+    }
+}

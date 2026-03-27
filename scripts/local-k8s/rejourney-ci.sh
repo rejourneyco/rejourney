@@ -84,8 +84,8 @@ run_ci_checks() {
     log "Running web checks"
     (
         cd "$ROOT_DIR/dashboard/web-ui"
-        ls -R app/lib
-        cat app/lib/cn.ts || echo "cn.ts not found"
+        ls -R app/shared/lib || true
+        cat app/shared/lib/cn.ts || echo "shared lib cn.ts not found"
         npm run typecheck
         npm run build
     )

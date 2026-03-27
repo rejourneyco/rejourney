@@ -25,6 +25,7 @@ Thumbs.db
 
 # Cache
 .cache/
+.react-router/
 
 # Logs
 npm-debug.log*

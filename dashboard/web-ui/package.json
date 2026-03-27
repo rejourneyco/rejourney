@@ -10,7 +10,11 @@
     "build": "react-router build",
     "start": "node server.js",
     "start:simple": "react-router-serve ./build/server/index.js",
-    "typecheck": "react-router typegen && tsc"
+    "typegen": "react-router typegen",
+    "typecheck": "npm run typegen && tsc --noEmit",
+    "lint": "npm run typecheck",
+    "check": "npm run typecheck && npm run build",
+    "clean:generated": "rm -rf .react-router build"
   },
   "dependencies": {
     "@headlessui/react": "^2.2.9",
