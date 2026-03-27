@@ -6,8 +6,6 @@ import { Router } from 'express';
 import { eq, and, desc, sql } from 'drizzle-orm';
 import { db, crashes, projects, teamMembers } from '../db/client.js';
 import { sessionAuth, asyncHandler, ApiError } from '../middleware/index.js';
-import { logger } from '../logger.js';
-import { downloadFromS3ForProject } from '../db/s3.js';
 
 const router = Router();
 
@@ -103,43 +101,9 @@ router.get(
             throw ApiError.notFound('Crash not found');
         }
 
-        // Stack trace is now stored directly in DB
-        // Fallback to S3 for older crashes that don't have stackTrace in DB
-        let stackTrace = crash.stackTrace;
-        let fullReport = null;
-        
-        if (!stackTrace && crash.s3ObjectKey) {
-            const data = await downloadFromS3ForProject(projectId, crash.s3ObjectKey);
-            if (data) {
-                try {
-                    const parsed = JSON.parse(data.toString());
-                    fullReport = parsed;
-                    
-                    // Extract stack trace from S3 artifact
-                    if (parsed.crashes && Array.isArray(parsed.crashes) && parsed.crashes.length > 0) {
-                        const crashData = parsed.crashes[0];
-                        if (Array.isArray(crashData.stackTrace)) {
-                            stackTrace = crashData.stackTrace.join('\n');
-                        } else if (typeof crashData.stackTrace === 'string') {
-                            stackTrace = crashData.stackTrace;
-                        }
-                    } else if (parsed.stackTrace) {
-                        if (Array.isArray(parsed.stackTrace)) {
-                            stackTrace = parsed.stackTrace.join('\n');
-                        } else if (typeof parsed.stackTrace === 'string') {
-                            stackTrace = parsed.stackTrace;
-                        }
-                    }
-                } catch (e) {
-                    logger.warn({ err: e }, 'Failed to parse S3 crash artifact');
-                }
-            }
-        }
-
         res.json({
             ...crash,
-            stackTrace: stackTrace || null,
-            fullReport
+            stackTrace: crash.stackTrace || null,
         });
     })
 );

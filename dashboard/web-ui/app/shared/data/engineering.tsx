@@ -631,7 +631,7 @@ export const ARTICLES: Article[] = [
     },
     {
         id: "architecture-deep-dive",
-        title: "Rejourney Architecture: The Zero-Interference Pipeline",
+        title: "Rejourney Architecture",
         subtitle: "How we achieved pixel-perfect replay with 3 FPS and zero main-thread impact.",
         date: "Feb 06, 2026",
         urlDate: "2026-02-06",

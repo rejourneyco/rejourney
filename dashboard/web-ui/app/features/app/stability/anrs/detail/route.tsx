@@ -16,31 +16,11 @@ import {
 } from 'lucide-react';
 import { useSessionData } from '~/shared/providers/SessionContext';
 import { usePathPrefix } from '~/shell/routing/usePathPrefix';
-import { api } from '~/shared/api/client';
+import { api, type ANRDetailRecord } from '~/shared/api/client';
 import { DashboardPageHeader } from '~/shared/ui/core/DashboardPageHeader';
 import { NeoBadge } from '~/shared/ui/core/neo/NeoBadge';
 import { NeoButton } from '~/shared/ui/core/neo/NeoButton';
 import { NeoCard } from '~/shared/ui/core/neo/NeoCard';
-
-interface ANRReport {
-  id: string;
-  sessionId: string;
-  projectId: string;
-  timestamp: string;
-  durationMs: number;
-  threadState: string;
-  deviceMetadata?: {
-    model?: string;
-    manufacturer?: string;
-    systemName?: string;
-    systemVersion?: string;
-    osVersion?: string;
-    sdkInt?: number;
-    [key: string]: any;
-  };
-  status: string;
-  fullReport?: any;
-}
 
 const getStatusVariant = (status?: string): 'danger' | 'warning' | 'success' | 'neutral' | 'info' => {
   const normalized = (status || '').toLowerCase();
@@ -63,7 +43,7 @@ export const ANRDetail: React.FC<{ anrId?: string; projectId?: string }> = ({
   const navigate = useNavigate();
   const pathPrefix = usePathPrefix();
 
-  const [anr, setAnr] = useState<ANRReport | null>(null);
+  const [anr, setAnr] = useState<ANRDetailRecord | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
@@ -103,8 +83,8 @@ export const ANRDetail: React.FC<{ anrId?: string; projectId?: string }> = ({
     fetchANR();
   }, [anrId, currentProject, contextLoading]);
 
-  const threadState = anr?.threadState || anr?.fullReport?.threadState || '';
-  const deviceMeta = anr?.deviceMetadata || anr?.fullReport?.deviceInfo || {};
+  const threadState = anr?.threadState || '';
+  const deviceMeta = anr?.deviceMetadata || {};
 
   const handleCopyStack = () => {
     if (!threadState) return;

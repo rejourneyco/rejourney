@@ -156,100 +156,115 @@ spec:
           # The user's code mentioned monitoring.pingWorker, which could be used.
 
 ---
-# Retention Worker Deployment
-# Cleans up expired recordings based on retention policies
-apiVersion: apps/v1
-kind: Deployment
+# Retention Worker CronJob
+# Cleans up expired recordings and drains legacy backlog without overlap
+apiVersion: batch/v1
+kind: CronJob
 metadata:
   name: retention-worker
   namespace: rejourney
   labels:
     app.kubernetes.io/part-of: rejourney
 spec:
-  replicas: 0  # Temporarily paused until explicitly re-enabled
-  selector:
-    matchLabels:
-      app: retention-worker
-  template:
-    metadata:
-      labels:
-        app: retention-worker
+  schedule: "*/15 * * * *"
+  suspend: false
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 5
+  jobTemplate:
     spec:
-      imagePullSecrets:
-        - name: ghcr-secret
-      securityContext:
-        runAsNonRoot: true
-        runAsUser: 1000
-        fsGroup: 1000
-      containers:
-        - name: worker
-          image: ghcr.io/rejourneyco/rejourney/api:latest
-          imagePullPolicy: Always
-          command: ["node", "dist/worker/retentionWorker.js"]
-          env:
-            - name: NODE_ENV
-              value: production
-            - name: DATABASE_URL
-              valueFrom:
-                secretKeyRef:
-                  name: postgres-secret
-                  key: DATABASE_URL
-            - name: S3_ENDPOINT
-              valueFrom:
-                secretKeyRef:
-                  name: s3-secret
-                  key: S3_ENDPOINT
-            - name: S3_BUCKET
-              valueFrom:
-                secretKeyRef:
-                  name: s3-secret
-                  key: S3_BUCKET
-            - name: S3_REGION
-              valueFrom:
-                secretKeyRef:
-                  name: s3-secret
-                  key: S3_REGION
-            - name: S3_ACCESS_KEY_ID
-              valueFrom:
-                secretKeyRef:
-                  name: s3-secret
-                  key: S3_ACCESS_KEY_ID
-            - name: S3_SECRET_ACCESS_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: s3-secret
-                  key: S3_SECRET_ACCESS_KEY
-            - name: JWT_SECRET
-              valueFrom:
-                secretKeyRef:
-                  name: app-secret
-                  key: JWT_SECRET
-            - name: INGEST_HMAC_SECRET
-              valueFrom:
-                secretKeyRef:
-                  name: app-secret
-                  key: INGEST_HMAC_SECRET
-            - name: STORAGE_ENCRYPTION_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: app-secret
-                  key: STORAGE_ENCRYPTION_KEY
-            # Monitoring
-            - name: UPTIME_KUMA_BASE_URL
-              value: "https://status.rejourney.co"
-            - name: UPTIME_KUMA_TOKENS
-              valueFrom:
-                secretKeyRef:
-                  name: monitoring-tokens
-                  key: tokens
-                  optional: true
-          resources:
-            requests:
-              cpu: 10m
-              memory: 32Mi
-            limits:
-              cpu: 100m
-              memory: 64Mi
+      activeDeadlineSeconds: 720
+      backoffLimit: 1
+      template:
+        metadata:
+          labels:
+            app: retention-worker
+        spec:
+          restartPolicy: OnFailure
+          imagePullSecrets:
+            - name: ghcr-secret
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            fsGroup: 1000
+          containers:
+            - name: worker
+              image: ghcr.io/rejourneyco/rejourney/api:latest
+              imagePullPolicy: Always
+              command:
+                - node
+                - dist/worker/retentionWorker.js
+                - --once
+                - --drain-backlog
+                - --trigger=scheduled
+              env:
+                - name: NODE_ENV
+                  value: production
+                - name: DATABASE_URL
+                  valueFrom:
+                    secretKeyRef:
+                      name: postgres-secret
+                      key: DATABASE_URL
+                - name: REDIS_URL
+                  valueFrom:
+                    secretKeyRef:
+                      name: redis-secret
+                      key: REDIS_URL
+                - name: S3_ENDPOINT
+                  valueFrom:
+                    secretKeyRef:
+                      name: s3-secret
+                      key: S3_ENDPOINT
+                - name: S3_BUCKET
+                  valueFrom:
+                    secretKeyRef:
+                      name: s3-secret
+                      key: S3_BUCKET
+                - name: S3_REGION
+                  valueFrom:
+                    secretKeyRef:
+                      name: s3-secret
+                      key: S3_REGION
+                - name: S3_ACCESS_KEY_ID
+                  valueFrom:
+                    secretKeyRef:
+                      name: s3-secret
+                      key: S3_ACCESS_KEY_ID
+                - name: S3_SECRET_ACCESS_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: s3-secret
+                      key: S3_SECRET_ACCESS_KEY
+                - name: JWT_SECRET
+                  valueFrom:
+                    secretKeyRef:
+                      name: app-secret
+                      key: JWT_SECRET
+                - name: INGEST_HMAC_SECRET
+                  valueFrom:
+                    secretKeyRef:
+                      name: app-secret
+                      key: INGEST_HMAC_SECRET
+                - name: STORAGE_ENCRYPTION_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: app-secret
+                      key: STORAGE_ENCRYPTION_KEY
+                - name: UPTIME_KUMA_BASE_URL
+                  value: "https://status.rejourney.co"
+                - name: UPTIME_KUMA_TOKENS
+                  valueFrom:
+                    secretKeyRef:
+                      name: monitoring-tokens
+                      key: tokens
+                      optional: true
+              resources:
+                requests:
+                  cpu: 10m
+                  memory: 32Mi
+                limits:
+                  cpu: 100m
+                  memory: 64Mi
 
 
 ---

@@ -1,71 +1,117 @@
 /**
  * Retention Worker
- * 
- * Deletes expired replay screenshot artifacts based on retention tier:
- * - Scans sessions past retention window
- * - Deletes ONLY screenshot archive S3 objects (keeps session data, events, crashes, etc.)
- * - Removes screenshot artifact rows from recording_artifacts table
- * - Updates session flags to indicate replay data is deleted
- * 
- * IMPORTANT: Session metadata (events, crashes, ANRs, hierarchy) is kept indefinitely
- * as it has negligible storage cost and provides valuable analytics data.
- * 
- * S3 KEY SAFETY:
- * - Screenshot files are stored at: tenant/{teamId}/project/{projectId}/sessions/{sessionId}/screenshots/{timestamp}.tar.gz
- * - We validate the S3 key contains /screenshots/ and ends with .tar.gz before deletion
- * - Only artifacts with kind='screenshots' are processed
+ *
+ * Default mode (local/dev): long-running loop.
+ * Production mode: `--once` for cron-style single-cycle execution.
  */
 
-import { eq, and, lt, isNotNull, sql, ne } from 'drizzle-orm';
-import { db, pool, sessions, recordingArtifacts, projects, retentionPolicies } from '../db/client.js';
+import { and, eq, isNotNull, isNull, lt } from 'drizzle-orm';
+import { db, pool, projects, retentionPolicies, sessions } from '../db/client.js';
 import { getRedis } from '../db/redis.js';
 import { logger } from '../logger.js';
-import { deleteFromS3ForProject, deletePrefixFromS3ForProject } from '../db/s3.js';
 import { pingWorker } from '../services/monitoring.js';
 import { hardDeleteProject } from '../services/deletion.js';
+import {
+    purgeSessionArtifacts,
+    repairExpiredSessionArtifactsBatch,
+    sweepLegacySessionsStorage,
+} from '../services/sessionArtifactPurge.js';
+import { partitionBackedUpSessions } from '../services/sessionBackupGate.js';
+import {
+    buildRetentionRunOwnerId,
+    refreshRetentionRunLock,
+    releaseRetentionRunLock,
+    tryAcquireRetentionRunLock,
+} from '../services/retentionRunLock.js';
 
-const RUN_INTERVAL_MS = 6 * 60 * 60 * 1000; // 6 hours
+const RUN_INTERVAL_MS = 6 * 60 * 60 * 1000;
 const BATCH_SIZE = 100;
-
-// Safety patterns - screenshot archives must match these patterns.
-const SCREENSHOT_KEY_PATTERNS = {
-    requiredSubstring: '/screenshots/',
-    validExtensions: ['.tar.gz'],
-};
+const LOCK_HEARTBEAT_INTERVAL_MS = 30 * 1000;
 
 let isRunning = true;
 
-/**
- * Validate that an S3 key looks like a screenshot archive
- * This is a safety check to prevent accidental deletion of non-screenshot data.
- */
-function isValidScreenshotS3Key(key: string): boolean {
-    if (!key) return false;
+type RetentionRunSummary = {
+    runId: string;
+    status: 'completed' | 'skipped' | 'failed';
+    trigger: string;
+    expiredCount: number;
+    repairedCount: number;
+    repairAttempted: number;
+    repairFailed: number;
+    skippedNotBackedUpCount: number;
+    deletedProjectCount: number;
+    legacyDeletedObjectCount: number;
+    legacyDeletedBytes: number;
+    deletedObjectCount: number;
+    deletedBytes: number;
+    heatmapCacheKeyCount: number;
+    rounds: number;
+    skippedReason?: string;
+    error?: string;
+};
 
-    // Must contain /screenshots/ directory.
-    if (!key.includes(SCREENSHOT_KEY_PATTERNS.requiredSubstring)) {
-        return false;
-    }
-
-    // Must end with a valid screenshot extension.
-    const hasValidExtension = SCREENSHOT_KEY_PATTERNS.validExtensions.some(ext =>
-        key.toLowerCase().endsWith(ext)
-    );
-
-    return hasValidExtension;
+function parseFlag(name: string): boolean {
+    return process.argv.includes(name);
 }
 
-/**
- * Process expired sessions - delete screenshot artifacts only.
- *
- * Session metadata (events, crashes, ANRs, hierarchy) is kept indefinitely
- * as it provides valuable analytics with negligible storage cost.
- * Only screenshot archive files are deleted based on retention tier.
- */
-async function processExpiredSessions(): Promise<number> {
+function parseOption(name: string): string | null {
+    const valueArg = process.argv.find((arg) => arg.startsWith(`${name}=`));
+    if (!valueArg) return null;
+    return valueArg.slice(name.length + 1);
+}
+
+function buildTriggerName(baseTrigger: string, suffix: string): string {
+    return baseTrigger === 'manual_backfill' ? `manual_backfill_${suffix}` : suffix;
+}
+
+async function invalidateHeatmapCaches(): Promise<number> {
+    try {
+        const redis = getRedis();
+        const keysToDelete: string[] = [];
+        let cursor = '0';
+        do {
+            const [next, keys] = await redis.scan(cursor, 'MATCH', 'insights:*heatmap*', 'COUNT', 200);
+            cursor = next;
+            keysToDelete.push(...keys);
+        } while (cursor !== '0');
+
+        if (keysToDelete.length > 0) {
+            await redis.del(...keysToDelete);
+        }
+
+        return keysToDelete.length;
+    } catch (err) {
+        logger.warn({ err }, 'Failed to invalidate heatmap caches after retention cleanup');
+        return 0;
+    }
+}
+
+async function writeRetentionHeartbeat(summary: RetentionRunSummary): Promise<void> {
+    try {
+        const redis = getRedis();
+        const now = new Date().toISOString();
+        await redis.set('retentionWorker:last_run', now);
+        await redis.set('retentionWorker:last_summary', JSON.stringify({
+            ...summary,
+            recordedAt: now,
+        }));
+    } catch (err) {
+        logger.warn({ err }, 'Failed to write retention worker heartbeat to Redis');
+    }
+}
+
+async function processExpiredSessions(runId: string, trigger: string): Promise<{
+    processedCount: number;
+    failedCount: number;
+    skippedNotBackedUpCount: number;
+    deletedObjectCount: number;
+    deletedBytes: number;
+}> {
     let processedCount = 0;
-    let totalScreenshotsDeleted = 0;
-    let skippedNonScreenshotKeys = 0;
+    let failedCount = 0;
+    let skippedNotBackedUpCount = 0;
+    let deletedObjectCount = 0;
+    let deletedBytes = 0;
 
     const now = new Date();
     const policies = await db
@@ -75,15 +121,14 @@ async function processExpiredSessions(): Promise<number> {
         })
         .from(retentionPolicies);
 
-    // For each retention tier, find expired sessions
     for (const tierConfig of policies) {
         const expiryDate = new Date(now.getTime() - tierConfig.days * 24 * 60 * 60 * 1000);
 
-        // Find expired sessions that still have replay recordings.
         const expiredSessions = await db
             .select({
-                session: sessions,
-                teamId: projects.teamId,
+                id: sessions.id,
+                retentionTier: sessions.retentionTier,
+                retentionDays: sessions.retentionDays,
             })
             .from(sessions)
             .innerJoin(projects, eq(sessions.projectId, projects.id))
@@ -92,148 +137,57 @@ async function processExpiredSessions(): Promise<number> {
                     eq(sessions.retentionTier, tierConfig.tier),
                     lt(sessions.startedAt, expiryDate),
                     eq(sessions.recordingDeleted, false),
-                    eq(sessions.status, 'ready')
-                )
+                    eq(sessions.status, 'ready'),
+                    isNull(projects.deletedAt),
+                ),
             )
             .limit(BATCH_SIZE);
 
-        for (const { session } of expiredSessions) {
+        const { backedUp, notBackedUp } = await partitionBackedUpSessions(expiredSessions);
+        skippedNotBackedUpCount += notBackedUp.length;
+
+        for (const session of backedUp) {
             try {
-                // Get ONLY screenshot artifacts for this session - keep events, crashes, ANRs, etc.
-                const screenshotArtifacts = await db
-                    .select()
-                    .from(recordingArtifacts)
-                    .where(
-                        and(
-                            eq(recordingArtifacts.sessionId, session.id),
-                            eq(recordingArtifacts.kind, 'screenshots')
-                        )
-                    );
-
-                // Also log how many non-screenshot artifacts are retained for verification.
-                const retainedArtifactsCount = await db
-                    .select({ count: sql<number>`count(*)` })
-                    .from(recordingArtifacts)
-                    .where(
-                        and(
-                            eq(recordingArtifacts.sessionId, session.id),
-                            ne(recordingArtifacts.kind, 'screenshots')
-                        )
-                    );
-                const retainedCount = retainedArtifactsCount[0]?.count ?? 0;
-
-                // Delete ONLY screenshot S3 objects with safety validation.
-                let deletedScreenshotCount = 0;
-                for (const artifact of screenshotArtifacts) {
-                    try {
-                        // SAFETY CHECK: Validate the S3 key looks like a screenshot archive.
-                        if (!isValidScreenshotS3Key(artifact.s3ObjectKey)) {
-                            logger.warn({
-                                artifactId: artifact.id,
-                                kind: artifact.kind,
-                                s3ObjectKey: artifact.s3ObjectKey,
-                            }, 'SAFETY: Skipping artifact deletion - S3 key does not match screenshot pattern');
-                            skippedNonScreenshotKeys++;
-                            continue;
-                        }
-
-                        await deleteFromS3ForProject(session.projectId, artifact.s3ObjectKey);
-                        await deletePrefixFromS3ForProject(session.projectId, `sessions/${session.id}/frames/`);
-
-                        // Hard delete the screenshot artifact row from DB.
-                        await db.delete(recordingArtifacts)
-                            .where(eq(recordingArtifacts.id, artifact.id));
-
-                        deletedScreenshotCount++;
-                        totalScreenshotsDeleted++;
-                    } catch (err) {
-                        logger.error({ err, artifactId: artifact.id, s3Key: artifact.s3ObjectKey }, 'Failed to delete screenshot artifact');
-                    }
-                }
-
-                // Mark session as recording deleted (screenshots gone, session data remains).
-                await db.update(sessions)
-                    .set({
-                        recordingDeleted: true,
-                        recordingDeletedAt: now,
-                        isReplayExpired: true,
-                    })
-                    .where(eq(sessions.id, session.id));
-
+                const result = await purgeSessionArtifacts(session.id, {
+                    runId,
+                    trigger,
+                    now,
+                    retentionTier: session.retentionTier,
+                    retentionDays: session.retentionDays,
+                });
                 processedCount++;
-                logger.info({
-                    sessionId: session.id,
-                    tier: tierConfig.tier,
-                    deletedScreenshotCount,
-                    retainedArtifacts: retainedCount,
-                }, 'Session replay expired - screenshots deleted, session data retained');
-
+                deletedObjectCount += result.deletedObjectCount;
+                deletedBytes += result.deletedBytes;
             } catch (err) {
+                failedCount++;
                 logger.error({ err, sessionId: session.id }, 'Failed to process expired session');
             }
         }
     }
 
-    // Log summary if any work was done
-    if (processedCount > 0 || skippedNonScreenshotKeys > 0) {
+    if (processedCount > 0 || failedCount > 0 || skippedNotBackedUpCount > 0) {
         logger.info({
-            sessionsProcessed: processedCount,
-            totalScreenshotsDeleted,
-            skippedNonScreenshotKeys,
-        }, 'Replay retention cleanup cycle complete');
+            trigger,
+            processedCount,
+            failedCount,
+            skippedNotBackedUpCount,
+            deletedObjectCount,
+            deletedBytes,
+        }, 'Expired session retention batch complete');
     }
 
-    return processedCount;
+    return {
+        processedCount,
+        failedCount,
+        skippedNotBackedUpCount,
+        deletedObjectCount,
+        deletedBytes,
+    };
 }
 
-/**
- * Clean up orphaned recording_artifacts rows.
- *
- * These can accumulate when a previous retention run successfully deleted the
- * S3 data and marked the session as recordingDeleted=true, but the subsequent
- * DB artifact deletion failed (transient error, crash, etc.).
- * Heatmap endpoints join with sessions.recordingDeleted now, but cleaning
- * up the orphans keeps the table tidy and prevents stale artifact queries.
- */
-async function cleanupOrphanedArtifacts(): Promise<number> {
-    const orphaned = await db
-        .select({ id: recordingArtifacts.id, sessionId: recordingArtifacts.sessionId })
-        .from(recordingArtifacts)
-        .innerJoin(sessions, eq(sessions.id, recordingArtifacts.sessionId))
-        .where(and(
-            eq(recordingArtifacts.kind, 'screenshots'),
-            eq(sessions.recordingDeleted, true)
-        ))
-        .limit(BATCH_SIZE);
-
-    let cleaned = 0;
-    for (const row of orphaned) {
-        try {
-            await db.delete(recordingArtifacts).where(eq(recordingArtifacts.id, row.id));
-            cleaned++;
-        } catch (err) {
-            logger.error({ err, artifactId: row.id, sessionId: row.sessionId }, 'Failed to delete orphaned artifact');
-        }
-    }
-
-    if (cleaned > 0) {
-        logger.info({ cleaned }, 'Cleaned up orphaned screenshot artifacts from deleted sessions');
-    }
-
-    return cleaned;
-}
-
-/**
- * Process projects marked for deletion (soft deleted)
- * GDPR Compliance:
- * 1. Delete all assets from S3 (recursive)
- * 2. Hard delete project and all associated data from DB
- */
 async function processDeletedProjects(): Promise<number> {
     let processedCount = 0;
 
-    // Find projects soft-deleted more than 1 minute ago (buffer for race conditions)
-    // or just process immediately if preferred.
     const deletedProjects = await db
         .select()
         .from(projects)
@@ -242,18 +196,13 @@ async function processDeletedProjects(): Promise<number> {
 
     for (const project of deletedProjects) {
         try {
-            logger.info({ projectId: project.id }, 'Processing project deletion...');
-
             await hardDeleteProject({
                 id: project.id,
                 teamId: project.teamId,
                 name: project.name,
                 publicKey: project.publicKey,
             });
-
             processedCount++;
-            logger.info({ projectId: project.id }, 'Project hard deleted (GDPR compliant)');
-
         } catch (err) {
             logger.error({ err, projectId: project.id }, 'Failed to process deleted project');
         }
@@ -262,53 +211,155 @@ async function processDeletedProjects(): Promise<number> {
     return processedCount;
 }
 
-/**
- * Main worker loop
- */
-async function runWorker(): Promise<void> {
-    while (isRunning) {
-        try {
-            const expiredCount = await processExpiredSessions();
-            const orphanedCount = await cleanupOrphanedArtifacts();
+async function runRetentionCycle(options: {
+    runId: string;
+    trigger: string;
+    drainBacklog: boolean;
+}): Promise<RetentionRunSummary> {
+    const ownerId = buildRetentionRunOwnerId();
+    const acquired = await tryAcquireRetentionRunLock(ownerId);
+
+    if (!acquired) {
+        const summary: RetentionRunSummary = {
+            runId: options.runId,
+            status: 'skipped',
+            trigger: options.trigger,
+            expiredCount: 0,
+            repairedCount: 0,
+            repairAttempted: 0,
+            repairFailed: 0,
+            skippedNotBackedUpCount: 0,
+            deletedProjectCount: 0,
+            legacyDeletedObjectCount: 0,
+            legacyDeletedBytes: 0,
+            deletedObjectCount: 0,
+            deletedBytes: 0,
+            heatmapCacheKeyCount: 0,
+            rounds: 0,
+            skippedReason: 'lock_held',
+        };
+        await writeRetentionHeartbeat(summary);
+        await pingWorker('retentionWorker', 'up', 'skipped=lock_held');
+        return summary;
+    }
+
+    let cleanedUp = false;
+    const heartbeat = setInterval(() => {
+        refreshRetentionRunLock(ownerId).catch((err) => {
+            logger.warn({ err }, 'Failed to refresh retention run lock heartbeat');
+        });
+    }, LOCK_HEARTBEAT_INTERVAL_MS);
+
+    const cleanup = async () => {
+        if (cleanedUp) return;
+        cleanedUp = true;
+        clearInterval(heartbeat);
+        await releaseRetentionRunLock(ownerId).catch((err) => {
+            logger.warn({ err }, 'Failed to release retention run lock');
+        });
+    };
+
+    const summary: RetentionRunSummary = {
+        runId: options.runId,
+        status: 'completed',
+        trigger: options.trigger,
+        expiredCount: 0,
+        repairedCount: 0,
+        repairAttempted: 0,
+        repairFailed: 0,
+        skippedNotBackedUpCount: 0,
+        deletedProjectCount: 0,
+        legacyDeletedObjectCount: 0,
+        legacyDeletedBytes: 0,
+        deletedObjectCount: 0,
+        deletedBytes: 0,
+        heatmapCacheKeyCount: 0,
+        rounds: 0,
+    };
+
+    try {
+        while (true) {
+            const expiryTrigger = buildTriggerName(options.trigger, 'retention_expiry');
+            const repairTrigger = buildTriggerName(options.trigger, 'retention_repair');
+
+            const expiredResult = await processExpiredSessions(options.runId, expiryTrigger);
+            const repairResult = await repairExpiredSessionArtifactsBatch(options.runId, BATCH_SIZE, repairTrigger);
             const deletedProjectCount = await processDeletedProjects();
-            const processedCount = expiredCount + deletedProjectCount + orphanedCount;
 
-            if (processedCount > 0) {
-                logger.info({ expiredCount, orphanedCount, deletedProjectCount }, 'Retention worker completed cycle');
+            summary.rounds += 1;
+            summary.expiredCount += expiredResult.processedCount;
+            summary.repairedCount += repairResult.repaired;
+            summary.repairAttempted += repairResult.attempted;
+            summary.repairFailed += repairResult.failed;
+            summary.skippedNotBackedUpCount += expiredResult.skippedNotBackedUpCount + repairResult.skippedNotBackedUp;
+            summary.deletedProjectCount += deletedProjectCount;
+            summary.deletedObjectCount += expiredResult.deletedObjectCount + repairResult.deletedObjectCount;
+            summary.deletedBytes += expiredResult.deletedBytes + repairResult.deletedBytes;
+
+            const madeProgress =
+                expiredResult.processedCount > 0 ||
+                repairResult.repaired > 0 ||
+                deletedProjectCount > 0;
+            const maybeMoreWork =
+                expiredResult.processedCount >= BATCH_SIZE ||
+                repairResult.attempted >= BATCH_SIZE ||
+                deletedProjectCount >= BATCH_SIZE;
+
+            if (!options.drainBacklog || !madeProgress || !maybeMoreWork) {
+                break;
             }
+        }
 
-            // Invalidate cached heatmap responses so stale screenshot URLs
-            // are regenerated on the next request.
-            if (expiredCount > 0 || orphanedCount > 0) {
-                try {
-                    const redis = getRedis();
-                    const keysToDelete: string[] = [];
-                    let cursor = '0';
-                    do {
-                        const [next, keys] = await redis.scan(cursor, 'MATCH', 'insights:*heatmap*', 'COUNT', 200);
-                        cursor = next;
-                        keysToDelete.push(...keys);
-                    } while (cursor !== '0');
-                    if (keysToDelete.length > 0) {
-                        await redis.del(...keysToDelete);
-                        logger.info({ count: keysToDelete.length }, 'Invalidated heatmap caches after retention cleanup');
-                    }
-                } catch (err) {
-                    logger.warn({ err }, 'Failed to invalidate heatmap caches (non-critical)');
-                }
-            }
+        try {
+            const legacySweep = await sweepLegacySessionsStorage(
+                options.runId,
+                buildTriggerName(options.trigger, 'legacy_sessions_sweep'),
+            );
+            summary.legacyDeletedObjectCount = legacySweep.deletedObjectCount;
+            summary.legacyDeletedBytes = legacySweep.deletedBytes;
+            summary.deletedObjectCount += legacySweep.deletedObjectCount;
+            summary.deletedBytes += legacySweep.deletedBytes;
+        } catch (legacyErr) {
+            logger.warn({ err: legacyErr }, 'Legacy bare sessions/ sweep failed');
+        }
 
-            await pingWorker('retentionWorker', 'up', `processed=${processedCount}`);
+        if (summary.expiredCount > 0 || summary.repairedCount > 0) {
+            summary.heatmapCacheKeyCount = await invalidateHeatmapCaches();
+        }
+
+        await writeRetentionHeartbeat(summary);
+        await pingWorker(
+            'retentionWorker',
+            'up',
+            `expired=${summary.expiredCount},repaired=${summary.repairedCount},skipped=${summary.skippedNotBackedUpCount},bytes=${summary.deletedBytes}`,
+        );
+
+        logger.info(summary, 'Retention cycle completed');
+        return summary;
+    } catch (err) {
+        summary.status = 'failed';
+        summary.error = err instanceof Error ? err.message : String(err);
+        await writeRetentionHeartbeat(summary);
+        await pingWorker('retentionWorker', 'down', summary.error).catch(() => {});
+        throw err;
+    } finally {
+        await cleanup();
+    }
+}
+
+async function runLoop(trigger: string, drainBacklog: boolean): Promise<void> {
+    while (isRunning) {
+        const runId = `retention:${Date.now()}`;
+        try {
+            await runRetentionCycle({ runId, trigger, drainBacklog });
         } catch (err) {
-            logger.error({ err }, 'Retention worker error');
-            await pingWorker('retentionWorker', 'down', String(err)).catch(() => { });
+            logger.error({ err, runId }, 'Retention worker cycle failed');
         }
 
         await new Promise((resolve) => setTimeout(resolve, RUN_INTERVAL_MS));
     }
 }
 
-// Graceful shutdown
 async function shutdown(signal: string) {
     logger.info({ signal }, 'Retention worker shutting down...');
     isRunning = false;
@@ -317,12 +368,45 @@ async function shutdown(signal: string) {
     process.exit(0);
 }
 
-process.on('SIGTERM', () => shutdown('SIGTERM'));
-process.on('SIGINT', () => shutdown('SIGINT'));
-
-// Start worker
-logger.info('🗑️ Retention worker started');
-runWorker().catch((err) => {
-    logger.error({ err }, 'Retention worker fatal error');
-    process.exit(1);
+process.on('SIGTERM', () => {
+    shutdown('SIGTERM').catch((err) => {
+        logger.error({ err }, 'Failed to shut down retention worker on SIGTERM');
+        process.exit(1);
+    });
 });
+
+process.on('SIGINT', () => {
+    shutdown('SIGINT').catch((err) => {
+        logger.error({ err }, 'Failed to shut down retention worker on SIGINT');
+        process.exit(1);
+    });
+});
+
+const runOnce = parseFlag('--once');
+const drainBacklog = parseFlag('--drain-backlog');
+const trigger = parseOption('--trigger') ?? (runOnce ? 'scheduled' : 'loop');
+
+logger.info({ runOnce, drainBacklog, trigger }, 'Retention worker started');
+
+if (runOnce) {
+    const runId = `retention:${Date.now()}`;
+    runRetentionCycle({ runId, trigger, drainBacklog })
+        .then(async () => {
+            await pool.end();
+            process.exit(0);
+        })
+        .catch(async (err) => {
+            logger.error({ err }, 'Retention worker fatal error');
+            await pool.end().catch(() => {});
+            process.exit(1);
+        });
+} else {
+    runLoop(trigger, drainBacklog)
+        .catch(async (err) => {
+            logger.error({ err }, 'Retention worker fatal error');
+            await pool.end().catch(() => {});
+            process.exit(1);
+        });
+}
+
+export { runRetentionCycle, invalidateHeatmapCaches, processExpiredSessions };

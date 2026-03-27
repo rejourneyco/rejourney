@@ -9,8 +9,6 @@ import crypto from 'crypto';
 import { eq, and, desc, gte } from 'drizzle-orm';
 import { db, anrs, projects, teamMembers, sessions } from '../db/client.js';
 import { sessionAuth, asyncHandler, ApiError } from '../middleware/index.js';
-import { logger } from '../logger.js';
-import { downloadFromS3ForProject } from '../db/s3.js';
 import { generateANRFingerprint } from '../services/issueTracker.js';
 
 const router = Router();
@@ -97,7 +95,6 @@ router.get(
             timestamp: Date;
             durationMs: number;
             threadState: string | null;
-            s3ObjectKey: string | null;
             deviceMetadata: any;
             status: string;
             occurrenceCount: number;
@@ -121,7 +118,6 @@ router.get(
                     timestamp: anr.timestamp,
                     durationMs: anr.durationMs,
                     threadState: anr.threadState,
-                    s3ObjectKey: anr.s3ObjectKey ?? null,
                     deviceMetadata: anr.deviceMetadata,
                     status: anr.status,
                     occurrenceCount: 0,
@@ -152,7 +148,6 @@ router.get(
             timestamp: g.timestamp,
             durationMs: g.durationMs,
             threadState: g.threadState,
-            s3ObjectKey: g.s3ObjectKey,
             deviceMetadata: g.deviceMetadata,
             status: g.status,
             occurrenceCount: g.occurrenceCount,
@@ -207,29 +202,7 @@ router.get(
         if (!anr) {
             throw ApiError.notFound('ANR not found');
         }
-
-        // Fetch full ANR report from S3 if needed
-        let fullReport = null;
-        if (anr.s3ObjectKey) {
-            const data = await downloadFromS3ForProject(projectId, anr.s3ObjectKey);
-            if (data) {
-                try {
-                    const parsed = JSON.parse(data.toString());
-                    if (parsed.anrs && Array.isArray(parsed.anrs)) {
-                        fullReport = parsed;
-                    } else {
-                        fullReport = parsed;
-                    }
-                } catch (e) {
-                    logger.warn({ err: e }, 'Failed to parse S3 ANR artifact');
-                }
-            }
-        }
-
-        res.json({
-            ...anr,
-            fullReport
-        });
+        res.json(anr);
     })
 );
 

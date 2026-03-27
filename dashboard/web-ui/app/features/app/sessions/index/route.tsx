@@ -32,7 +32,7 @@ import {
   X
 } from 'lucide-react';
 import { DashboardPageHeader } from '~/shared/ui/core/DashboardPageHeader';
-import { TimeFilter, TimeRange, DEFAULT_TIME_RANGE } from '~/shared/ui/core/TimeFilter';
+import { TimeFilter, TimeRange, DEFAULT_TIME_RANGE, TIME_RANGE_OPTIONS } from '~/shared/ui/core/TimeFilter';
 import { NeoBadge } from '~/shared/ui/core/neo/NeoBadge';
 import { NeoButton } from '~/shared/ui/core/neo/NeoButton';
 import { NeoCard } from '~/shared/ui/core/neo/NeoCard';
@@ -93,6 +93,23 @@ const ISSUE_FILTER_ICONS: Record<SessionArchiveIssueFilter, React.ComponentType<
 
 const hasSuccessfulRecording = (session: any): boolean =>
   Boolean(session?.hasSuccessfulRecording ?? session?.replayPromoted ?? ((session?.stats?.screenshotSegmentCount ?? 0) > 0));
+
+const formatArchiveScopeLabel = (timeRange: TimeRange, dateFilter: string): string => {
+  if (dateFilter) {
+    const parsedDate = new Date(`${dateFilter}T00:00:00.000Z`);
+    if (!Number.isNaN(parsedDate.getTime())) {
+      return new Intl.DateTimeFormat('en-US', {
+        month: 'short',
+        day: 'numeric',
+        year: 'numeric',
+        timeZone: 'UTC',
+      }).format(parsedDate);
+    }
+    return dateFilter;
+  }
+
+  return TIME_RANGE_OPTIONS.find((option) => option.value === timeRange)?.label ?? timeRange;
+};
 
 export const RecordingsList: React.FC = () => {
   const navigate = useNavigate();
@@ -358,6 +375,8 @@ export const RecordingsList: React.FC = () => {
   const endIndex = Math.min(currentPage * rowsPerPage, filteredSessions.length);
   const hasActiveFilters = searchQuery || filter !== 'all' || eventNameFilter || metaKeyFilter || dateFilter || eventCountOp || eventPropKey;
   const advancedFilterCount = (eventNameFilter ? 1 : 0) + (metaKeyFilter ? 1 : 0) + (eventCountOp ? 1 : 0) + (eventPropKey ? 1 : 0);
+  const archiveScopeLabel = formatArchiveScopeLabel(timeRange, dateFilter);
+  const archiveCountLabel = `${totalCount.toLocaleString()} total replays · ${archiveScopeLabel}`;
 
   const handleSort = (key: SortKey, multiSort: boolean) => {
     setSortConfigs(prev => {
@@ -421,7 +440,7 @@ export const RecordingsList: React.FC = () => {
       <div className="bg-white shrink-0">
         <DashboardPageHeader
           title="Session Archive"
-          subtitle={totalCount > 0 ? `${totalCount.toLocaleString()} total replays` : 'Browse, filter & replay user sessions'}
+          subtitle={selectedProjectId ? archiveCountLabel : 'Browse, filter & replay user sessions'}
           icon={<Layers className="w-6 h-6" />}
           iconColor="bg-indigo-500"
         >
@@ -988,7 +1007,7 @@ export const RecordingsList: React.FC = () => {
                   Showing <span className="text-slate-900">{startIndex}–{endIndex}</span> of{' '}
                   <span className="text-slate-900">{filteredSessions.length.toLocaleString()}</span> loaded
                   {totalCount > filteredSessions.length && (
-                    <span className="text-slate-400"> ({totalCount.toLocaleString()} total)</span>
+                    <span className="text-slate-400"> ({totalCount.toLocaleString()} total in {archiveScopeLabel})</span>
                   )}
                 </span>
                 {hasMore && (

@@ -161,7 +161,7 @@ data:
     | Ingest Worker | ingestWorker | 60s | 3 | 🔴 CRITICAL |
     | Billing Worker | billingWorker | 3600s | 2 | 🟡 HIGH |
     | Alert Worker | alertWorker | 900s | 2 | 🟡 HIGH |
-    | Retention Worker | retentionWorker | 21600s | 2 | 🟢 MEDIUM |
+    | Retention Worker | retentionWorker | 900s | 2 | 🟢 MEDIUM |
     | Stats Aggregator | statsAggregator | 600s | 2 | 🟢 MEDIUM |
     
     ### HTTP Monitors

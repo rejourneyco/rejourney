@@ -18,7 +18,7 @@ import {
     DeleteObjectsCommand,
 } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
-import { eq, and, isNull, desc } from 'drizzle-orm';
+import { eq, and, isNull, desc, or } from 'drizzle-orm';
 import type { Readable } from 'stream';
 import { config } from '../config.js';
 import { logger } from '../logger.js';
@@ -39,6 +39,25 @@ export interface StorageEndpoint {
     priority: number;
     active: boolean;
     shadow: boolean;
+}
+
+export interface S3PrefixDeletionEndpointResult {
+    endpointId: string;
+    endpointUrl: string;
+    projectId: string | null;
+    shadow: boolean;
+    active: boolean;
+    prefix: string;
+    bucket: string;
+    deletedObjectCount: number;
+    deletedBytes: number;
+}
+
+export interface S3PrefixDeletionResult {
+    prefix: string;
+    deletedObjectCount: number;
+    deletedBytes: number;
+    endpointResults: S3PrefixDeletionEndpointResult[];
 }
 
 interface CachedEndpoint {
@@ -201,6 +220,67 @@ export async function getShadowEndpoints(projectId: string): Promise<StorageEndp
     const globalShadows = endpoints.filter(e => e.projectId === null);
 
     return [...projectShadows, ...globalShadows] as StorageEndpoint[];
+}
+
+export async function getConfiguredStorageEndpoints(options: {
+    projectId?: string;
+    activeOnly?: boolean;
+} = {}): Promise<StorageEndpoint[]> {
+    const { db } = await import('./client.js');
+    const { storageEndpoints } = await import('./schema.js');
+    const { projectId, activeOnly = true } = options;
+
+    if (projectId) {
+        const rows = await db
+            .select()
+            .from(storageEndpoints)
+            .where(
+                activeOnly
+                    ? and(
+                        or(eq(storageEndpoints.projectId, projectId), isNull(storageEndpoints.projectId)),
+                        eq(storageEndpoints.active, true),
+                    )
+                    : or(eq(storageEndpoints.projectId, projectId), isNull(storageEndpoints.projectId))
+            )
+            .orderBy(desc(storageEndpoints.priority));
+
+        return rows as StorageEndpoint[];
+    }
+
+    const rows = activeOnly
+        ? await db
+            .select()
+            .from(storageEndpoints)
+            .where(eq(storageEndpoints.active, true))
+            .orderBy(desc(storageEndpoints.priority))
+        : await db
+            .select()
+            .from(storageEndpoints)
+            .orderBy(desc(storageEndpoints.priority));
+
+    return rows as StorageEndpoint[];
+}
+
+export async function resolveRetentionDeletionEndpoints(
+    projectId: string,
+    extraEndpointIds: Iterable<string | null | undefined> = []
+): Promise<StorageEndpoint[]> {
+    const endpointMap = new Map<string, StorageEndpoint>();
+
+    const projectEndpoints = await getConfiguredStorageEndpoints({ projectId, activeOnly: true });
+    for (const endpoint of projectEndpoints) {
+        endpointMap.set(endpoint.id, endpoint);
+    }
+
+    for (const endpointId of extraEndpointIds) {
+        if (!endpointId || endpointMap.has(endpointId)) continue;
+        const endpoint = await getEndpointById(endpointId);
+        if (endpoint) {
+            endpointMap.set(endpoint.id, endpoint);
+        }
+    }
+
+    return Array.from(endpointMap.values());
 }
 
 // =============================================================================
@@ -723,7 +803,113 @@ export async function deleteProjectAssets(
     teamId: string
 ): Promise<void> {
     const prefix = `tenant/${teamId}/project/${projectId}/`;
-    await deletePrefixFromS3ForProject(projectId, prefix);
+    await deletePrefixFromProjectStorage(projectId, prefix);
+}
+
+function ensureSafePrefix(prefix: string): string {
+    const normalized = prefix.trim();
+    if (!normalized) {
+        throw new Error('S3 prefix must not be empty');
+    }
+    if (normalized === '/' || normalized === '.') {
+        throw new Error(`Refusing unsafe S3 prefix: ${normalized}`);
+    }
+    return normalized;
+}
+
+async function deletePrefixFromEndpoint(
+    endpoint: StorageEndpoint,
+    prefix: string
+): Promise<S3PrefixDeletionEndpointResult> {
+    const normalizedPrefix = ensureSafePrefix(prefix);
+    const { client, bucket } = getS3ClientForEndpoint(endpoint);
+    let continuationToken: string | undefined;
+    let deletedObjectCount = 0;
+    let deletedBytes = 0;
+
+    do {
+        const listResponse = await client.send(new ListObjectsV2Command({
+            Bucket: bucket,
+            Prefix: normalizedPrefix,
+            ContinuationToken: continuationToken,
+        }));
+
+        const contents = listResponse.Contents ?? [];
+        if (contents.length === 0) {
+            break;
+        }
+
+        const objectsToDelete = contents
+            .filter((obj) => obj.Key)
+            .map((obj) => ({ Key: obj.Key as string }));
+
+        deletedObjectCount += objectsToDelete.length;
+        deletedBytes += contents.reduce((total, obj) => total + Number(obj.Size ?? 0), 0);
+
+        if (objectsToDelete.length > 0) {
+            await client.send(new DeleteObjectsCommand({
+                Bucket: bucket,
+                Delete: {
+                    Objects: objectsToDelete,
+                    Quiet: true,
+                },
+            }));
+        }
+
+        continuationToken = listResponse.NextContinuationToken;
+    } while (continuationToken);
+
+    return {
+        endpointId: endpoint.id,
+        endpointUrl: endpoint.endpointUrl,
+        projectId: endpoint.projectId,
+        shadow: endpoint.shadow,
+        active: endpoint.active,
+        prefix: normalizedPrefix,
+        bucket,
+        deletedObjectCount,
+        deletedBytes,
+    };
+}
+
+export async function deletePrefixFromStorageEndpoints(
+    prefix: string,
+    endpoints: Iterable<StorageEndpoint>
+): Promise<S3PrefixDeletionResult> {
+    const normalizedPrefix = ensureSafePrefix(prefix);
+    const dedupedEndpoints = new Map<string, StorageEndpoint>();
+    for (const endpoint of endpoints) {
+        dedupedEndpoints.set(endpoint.id, endpoint);
+    }
+
+    const endpointResults: S3PrefixDeletionEndpointResult[] = [];
+    for (const endpoint of dedupedEndpoints.values()) {
+        const result = await deletePrefixFromEndpoint(endpoint, normalizedPrefix);
+        endpointResults.push(result);
+    }
+
+    return {
+        prefix: normalizedPrefix,
+        deletedObjectCount: endpointResults.reduce((total, result) => total + result.deletedObjectCount, 0),
+        deletedBytes: endpointResults.reduce((total, result) => total + result.deletedBytes, 0),
+        endpointResults,
+    };
+}
+
+export async function deletePrefixFromProjectStorage(
+    projectId: string,
+    prefix: string,
+    extraEndpointIds: Iterable<string | null | undefined> = []
+): Promise<S3PrefixDeletionResult> {
+    const endpoints = await resolveRetentionDeletionEndpoints(projectId, extraEndpointIds);
+    return deletePrefixFromStorageEndpoints(prefix, endpoints);
+}
+
+export async function deletePrefixFromAllConfiguredStorageEndpoints(
+    prefix: string
+): Promise<S3PrefixDeletionResult> {
+    const endpoints = await getConfiguredStorageEndpoints({ activeOnly: false });
+    return deletePrefixFromStorageEndpoints(prefix, endpoints);
 }
 
 /**
@@ -734,71 +920,7 @@ export async function deletePrefixFromS3ForProject(
     projectId: string,
     prefix: string
 ): Promise<void> {
-    const endpoint = await getEndpointForProject(projectId);
-    const { client, bucket } = getS3ClientForEndpoint(endpoint);
-
-    // Also get all shadow endpoints to clean them up too
-    const shadows = await getShadowEndpoints(projectId);
-
-    // Function to delete from a specific client/bucket
-    const deleteFromBucket = async (s3Client: S3Client, bucketName: string) => {
-        let continuationToken: string | undefined;
-
-        do {
-            // List objects (v2 for pagination)
-            const listCommand = new ListObjectsV2Command({
-                Bucket: bucketName,
-                Prefix: prefix,
-                ContinuationToken: continuationToken,
-            });
-
-            const listResponse = await s3Client.send(listCommand);
-
-            if (!listResponse.Contents || listResponse.Contents.length === 0) {
-                break;
-            }
-
-            // Delete in batches (max 1000 per request)
-            const objectsToDelete = listResponse.Contents
-                .map((obj) => ({ Key: obj.Key }))
-                .filter((obj) => obj.Key !== undefined);
-
-            if (objectsToDelete.length > 0) {
-                await s3Client.send(
-                    new DeleteObjectsCommand({
-                        Bucket: bucketName,
-                        Delete: {
-                            Objects: objectsToDelete as { Key: string }[],
-                            Quiet: true,
-                        },
-                    })
-                );
-                logger.info({ projectId, prefix, count: objectsToDelete.length }, 'Deleted batch of S3 assets');
-            }
-
-            continuationToken = listResponse.NextContinuationToken;
-        } while (continuationToken);
-    };
-
-    try {
-        // Delete from primary
-        await deleteFromBucket(client, bucket);
-        logger.info({ projectId, endpoint: endpoint.id, prefix }, 'Primary project assets deleted');
-
-        // Delete from shadows
-        for (const shadow of shadows) {
-            const { client: shadowClient, bucket: shadowBucket } = getS3ClientForEndpoint(shadow);
-            try {
-                await deleteFromBucket(shadowClient, shadowBucket);
-                logger.info({ projectId, endpoint: shadow.id, prefix }, 'Shadow project assets deleted');
-            } catch (err) {
-                logger.error({ err, projectId, endpoint: shadow.id, prefix }, 'Failed to delete shadow assets');
-            }
-        }
-    } catch (err) {
-        logger.error({ err, projectId, prefix }, 'Failed to delete project assets by prefix');
-        throw err;
-    }
+    await deletePrefixFromProjectStorage(projectId, prefix);
 }
 
 // =============================================================================

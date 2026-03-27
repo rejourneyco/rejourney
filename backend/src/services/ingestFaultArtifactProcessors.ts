@@ -2,7 +2,7 @@ import { eq, sql } from 'drizzle-orm';
 import { db, sessions, sessionMetrics, anrs, crashes, appDailyStats } from '../db/client.js';
 import { trackANRAsIssue, trackCrashAsIssue } from './issueTracker.js';
 
-export async function processCrashesArtifact(job: any, _session: any, projectId: string, s3ObjectKey: string, data: Buffer, log: any) {
+export async function processCrashesArtifact(job: any, _session: any, projectId: string, _s3ObjectKey: string, data: Buffer, log: any) {
     const payload = JSON.parse(data.toString());
     const crashList = payload.crashes || (Array.isArray(payload) ? payload : [payload]);
 
@@ -47,7 +47,6 @@ export async function processCrashesArtifact(job: any, _session: any, projectId:
             reason: crash.reason,
             stackTrace: stackTraceStr,
             fingerprint: crash.fingerprint || null,
-            s3ObjectKey,
             deviceMetadata: crash.deviceMetadata,
             status: 'open',
             occurrenceCount: 1
@@ -90,7 +89,7 @@ export async function processCrashesArtifact(job: any, _session: any, projectId:
 /**
  * Process ANRs artifact - insert ANR records
  */
-export async function processAnrsArtifact(job: any, _session: any, projectId: string, s3ObjectKey: string, data: Buffer, log: any) {
+export async function processAnrsArtifact(job: any, _session: any, projectId: string, _s3ObjectKey: string, data: Buffer, log: any) {
     const payload = JSON.parse(data.toString());
     const anrList = payload.anrs || (Array.isArray(payload) ? payload : [payload]);
 
@@ -126,7 +125,6 @@ export async function processAnrsArtifact(job: any, _session: any, projectId: st
             timestamp: new Date(anr.timestamp || Date.now()),
             durationMs: anr.durationMs || 5000,
             threadState: anr.threadState,
-            s3ObjectKey,
             deviceMetadata: anr.deviceMetadata,
             status: 'open',
             occurrenceCount: 1
@@ -171,4 +169,3 @@ export async function processAnrsArtifact(job: any, _session: any, projectId: st
 
     log.info({ anrCount: anrList.length, anrSessionId, projectId }, 'ANRs artifact processed');
 }
-

@@ -1364,7 +1364,8 @@ router.get(
 
         const hierarchySnapshots: { timestamp: number; screenName: string | null; rootElement: any }[] = [];
 
-        // Always load session data artifacts (events, hierarchy, network) - these are retained indefinitely.
+        // Session data artifacts are loaded when present. Retention can purge all
+        // artifact rows later while keeping the session row and metrics intact.
         const eventsArtifacts = artifactsList.filter((a) => a.kind === 'events');
         const hierarchyArtifacts = artifactsList.filter((a) => a.kind === 'hierarchy');
         const networkArtifacts = artifactsList.filter((a) => a.kind === 'network');
@@ -1398,7 +1399,7 @@ router.get(
             }
         }
 
-        // Download and parse all event artifacts (always available)
+        // Download and parse all event artifacts that remain after retention.
         for (const artifact of eventsArtifacts) {
             try {
                 const data = await downloadFromS3ForArtifact(session.projectId, artifact.s3ObjectKey, artifact.endpointId);
@@ -1417,7 +1418,7 @@ router.get(
             }
         }
 
-        // Download and parse all network artifacts (always available)
+        // Download and parse all network artifacts that remain after retention.
         for (const artifact of networkArtifacts) {
             try {
                 const data = await downloadFromS3ForArtifact(session.projectId, artifact.s3ObjectKey, artifact.endpointId);
@@ -1466,7 +1467,7 @@ router.get(
             }
         }
 
-        // Download and embed hierarchy snapshots (always available)
+        // Download and embed hierarchy snapshots that remain after retention.
         hierarchyArtifacts.sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
         for (const artifact of hierarchyArtifacts) {
             try {

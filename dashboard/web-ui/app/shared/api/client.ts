@@ -1602,6 +1602,25 @@ export interface ANRRecord {
   groupKey?: string;
 }
 
+export interface ANRDetailRecord {
+  id: string;
+  sessionId: string;
+  projectId: string;
+  timestamp: string;
+  durationMs: number;
+  threadState: string | null;
+  deviceMetadata: {
+    model?: string;
+    manufacturer?: string;
+    systemName?: string;
+    systemVersion?: string;
+    osVersion?: string;
+    sdkInt?: number;
+    [key: string]: any;
+  } | null;
+  status: string;
+}
+
 export interface CrashMetadata {
   id: string;
   sessionId: string;
@@ -1672,11 +1691,11 @@ export async function getANRs(projectId: string, options?: { limit?: number; off
 /**
  * Get details for a single ANR
  */
-export async function getANR(projectId: string, anrId: string): Promise<any> {
+export async function getANR(projectId: string, anrId: string): Promise<ANRDetailRecord> {
   if (isDemoMode()) {
     return demoApiData.demoANRsResponse.anrs.find((a: any) => a.id === anrId) || demoApiData.demoANRsResponse.anrs[0];
   }
-  return fetchJson<any>(`/api/projects/${projectId}/anrs/${anrId}`);
+  return fetchJson<ANRDetailRecord>(`/api/projects/${projectId}/anrs/${anrId}`);
 }
 
 export interface InsightsTrends {

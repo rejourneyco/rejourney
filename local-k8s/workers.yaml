@@ -171,6 +171,11 @@ spec:
                 secretKeyRef:
                   name: postgres-secret
                   key: DATABASE_URL
+            - name: REDIS_URL
+              valueFrom:
+                secretKeyRef:
+                  name: redis-secret
+                  key: REDIS_URL
             - name: S3_ENDPOINT
               valueFrom:
                 secretKeyRef:

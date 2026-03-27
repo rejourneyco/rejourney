@@ -506,6 +506,46 @@ export const ingestJobs = pgTable(
     ]
 );
 
+export const retentionDeletionLog = pgTable(
+    'retention_deletion_log',
+    {
+        id: uuid('id').primaryKey().defaultRandom(),
+        runId: varchar('run_id', { length: 128 }).notNull(),
+        scope: varchar('scope', { length: 32 }).notNull(),
+        status: varchar('status', { length: 20 }).notNull(),
+        trigger: varchar('trigger', { length: 64 }),
+        sessionId: varchar('session_id', { length: 64 }),
+        projectId: uuid('project_id'),
+        teamId: uuid('team_id'),
+        storagePrefix: text('storage_prefix').notNull(),
+        plannedArtifactRowCount: integer('planned_artifact_row_count').default(0).notNull(),
+        plannedArtifactBytes: bigint('planned_artifact_bytes', { mode: 'number' }).default(0).notNull(),
+        plannedIngestJobCount: integer('planned_ingest_job_count').default(0).notNull(),
+        deletedArtifactRowCount: integer('deleted_artifact_row_count').default(0).notNull(),
+        deletedIngestJobCount: integer('deleted_ingest_job_count').default(0).notNull(),
+        deletedObjectCount: integer('deleted_object_count').default(0).notNull(),
+        deletedBytes: bigint('deleted_bytes', { mode: 'number' }).default(0).notNull(),
+        storageMissing: boolean('storage_missing').default(false).notNull(),
+        cacheKeyCount: integer('cache_key_count').default(0).notNull(),
+        details: jsonb('details').default(sql`'{}'::jsonb`).notNull(),
+        errorText: text('error_text'),
+        startedAt: timestamp('started_at').defaultNow().notNull(),
+        finishedAt: timestamp('finished_at'),
+    },
+    (table) => [
+        index('retention_deletion_log_run_id_idx').on(table.runId),
+        index('retention_deletion_log_scope_idx').on(table.scope, table.startedAt),
+        index('retention_deletion_log_session_id_idx').on(table.sessionId),
+    ]
+);
+
+export const retentionRunLock = pgTable('retention_run_lock', {
+    lockName: text('lock_name').primaryKey(),
+    ownerId: text('owner_id').notNull(),
+    acquiredAt: timestamp('acquired_at').defaultNow().notNull(),
+    heartbeatAt: timestamp('heartbeat_at').defaultNow().notNull(),
+});
+
 
 // =============================================================================
 // Billing & Usage Models
@@ -776,7 +816,6 @@ export const crashes = pgTable(
         reason: text('reason'),
         stackTrace: text('stack_trace'), // Full stack trace for display
         fingerprint: varchar('fingerprint', { length: 64 }), // Hash for deduplication/grouping
-        s3ObjectKey: text('s3_object_key'),
         deviceMetadata: json('device_metadata'),
         status: varchar('status', { length: 20 }).default('open').notNull(), // 'open', 'resolved', 'ignored'
         occurrenceCount: integer('occurrence_count').default(1).notNull(),
@@ -805,7 +844,6 @@ export const anrs = pgTable(
         timestamp: timestamp('timestamp').notNull(),
         durationMs: integer('duration_ms').notNull(), // How long the main thread was blocked
         threadState: text('thread_state'), // Main thread stack trace
-        s3ObjectKey: text('s3_object_key'),
         deviceMetadata: json('device_metadata'),
         status: varchar('status', { length: 20 }).default('open').notNull(), // 'open', 'resolved', 'ignored'
         occurrenceCount: integer('occurrence_count').default(1).notNull(),
