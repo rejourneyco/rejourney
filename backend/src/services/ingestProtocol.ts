@@ -46,22 +46,38 @@ export function parseBatchId(batchId: string): {
     throw ApiError.badRequest('Invalid batchId format');
 }
 
+export function buildReplaySegmentId(params: {
+    sessionId: string;
+    kind: 'screenshots' | 'hierarchy';
+    startTime: number;
+    endTime?: number | null;
+}): string {
+    const startTime = Math.floor(Number(params.startTime));
+    const endTime = params.endTime == null ? 'na' : String(Math.floor(Number(params.endTime)));
+    return `seg_${params.sessionId}_${params.kind}_${startTime}_${endTime}`;
+}
+
 export function parseSegmentId(segmentId: string): {
     sessionId: string;
     kind: string;
     startTime: number;
+    endTime?: number | null;
 } {
-    const parts = segmentId.split('_');
-    if (parts.length >= 5 && parts[0] === 'seg') {
-        const startTime = Number.parseInt(parts[parts.length - 2] || '', 10);
-        const kind = parts[parts.length - 3] || '';
-        const sessionId = parts.slice(1, parts.length - 3).join('_');
+    const match = /^seg_(.+)_(screenshots|hierarchy)_(\d+)(?:_(\d+|na))?(?:_([0-9a-f]+))?$/i.exec(segmentId);
+    if (match) {
+        const sessionId = match[1] || '';
+        const kind = match[2] || '';
+        const startTime = Number.parseInt(match[3] || '', 10);
+        const endTimeRaw = match[4];
 
         if (sessionId && Number.isFinite(startTime)) {
             return {
                 sessionId,
                 kind,
                 startTime,
+                endTime: endTimeRaw && endTimeRaw !== 'na'
+                    ? Number.parseInt(endTimeRaw, 10)
+                    : null,
             };
         }
     }

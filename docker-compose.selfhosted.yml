@@ -283,13 +283,43 @@ services:
   ingest-worker:
     image: *api-image
     restart: unless-stopped
-    command: ["node", "dist/worker/ingestWorker.js"]
+    command: ["node", "dist/worker/ingestArtifactWorker.js"]
     environment:
       <<: *app-env
     depends_on:
       postgres:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      bootstrap:
+        condition: service_completed_successfully
+    networks:
+      - rejourney-network
+
+  replay-worker:
+    image: *api-image
+    restart: unless-stopped
+    command: ["node", "dist/worker/replayArtifactWorker.js"]
+    environment:
+      <<: *app-env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      bootstrap:
+        condition: service_completed_successfully
+    networks:
+      - rejourney-network
+
+  session-lifecycle-worker:
+    image: *api-image
+    restart: unless-stopped
+    command: ["node", "dist/worker/sessionLifecycleWorker.js"]
+    environment:
+      <<: *app-env
+    depends_on:
+      postgres:
         condition: service_healthy
       bootstrap:
         condition: service_completed_successfully

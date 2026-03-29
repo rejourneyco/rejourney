@@ -5,7 +5,10 @@ import { getObjectSizeBytesForArtifact, uploadStreamToS3ForArtifact } from '../d
 import { config } from '../config.js';
 import { ApiError, asyncHandler } from '../middleware/index.js';
 import { logger } from '../logger.js';
-import { markArtifactUploadStored } from '../services/ingestArtifactLifecycle.js';
+import {
+    markArtifactUploadInterrupted,
+    markArtifactUploadStored,
+} from '../services/ingestArtifactLifecycle.js';
 import { verifyArtifactUploadRelayToken } from '../services/ingestUploadRelay.js';
 
 const router = Router();
@@ -68,6 +71,18 @@ router.put(
             previousStatus: artifact.status,
         }, 'artifact.upload_received');
 
+        let requestInterrupted = Boolean(req.aborted);
+        const markInterrupted = () => {
+            requestInterrupted = true;
+        };
+        req.once('aborted', markInterrupted);
+        req.once('error', markInterrupted);
+        req.once('close', () => {
+            if (!res.writableEnded) {
+                requestInterrupted = true;
+            }
+        });
+
         const uploadResult = await uploadStreamToS3ForArtifact(
             session.projectId,
             artifact.s3ObjectKey,
@@ -83,14 +98,32 @@ router.put(
         );
 
         if (!uploadResult.success) {
-            throw ApiError.serviceUnavailable('Failed to store artifact upload');
+            const wasInterrupted = requestInterrupted || uploadResult.errorType === 'aborted';
+            await markArtifactUploadInterrupted({
+                artifactId: artifact.id,
+                reason: wasInterrupted ? 'relay_upload_aborted' : 'relay_upload_failed',
+                errorMsg: uploadResult.error ?? 'Failed to store artifact upload',
+            });
+
+            if (!res.headersSent && !res.writableEnded && !res.destroyed) {
+                const statusCode = wasInterrupted ? 499 : 503;
+                res.status(statusCode).json({
+                    error: wasInterrupted ? 'CLIENT_CLOSED_REQUEST' : 'SERVICE_UNAVAILABLE',
+                    message: wasInterrupted
+                        ? 'Artifact upload interrupted before storage completed'
+                        : 'Failed to store artifact upload',
+                });
+            }
+            return;
         }
 
-        const resolvedSizeBytes = contentLength ?? await getObjectSizeBytesForArtifact(
-            session.projectId,
-            artifact.s3ObjectKey,
-            artifact.endpointId,
-        );
+        const resolvedSizeBytes = contentLength
+            ?? artifact.declaredSizeBytes
+            ?? await getObjectSizeBytesForArtifact(
+                session.projectId,
+                artifact.s3ObjectKey,
+                artifact.endpointId,
+            );
 
         await markArtifactUploadStored({
             artifactId: artifact.id,

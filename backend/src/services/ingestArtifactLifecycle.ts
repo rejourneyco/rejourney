@@ -32,6 +32,12 @@ type QueueArtifactJobResult = {
     alreadyCompleted: boolean;
 };
 
+type ReplayArtifactPreparationResult = {
+    artifact: any;
+    action: 'created' | 'reused' | 'reopened' | 'skip';
+    alreadyCompleted: boolean;
+};
+
 async function ensureArtifactProcessingJob(artifact: any): Promise<QueueArtifactJobResult> {
     const [existingJob] = await db.select().from(ingestJobs)
         .where(eq(ingestJobs.artifactId, artifact.id))
@@ -99,6 +105,127 @@ async function getArtifactWithSessionById(artifactId: string) {
         .limit(1);
 
     return artifactResult;
+}
+
+function buildArtifactRetryUpdate(params: PendingArtifactParams) {
+    return {
+        s3ObjectKey: params.s3ObjectKey,
+        endpointId: params.endpointId ?? null,
+        declaredSizeBytes: params.declaredSizeBytes ?? null,
+        sizeBytes: null,
+        status: 'pending',
+        readyAt: null,
+        uploadCompletedAt: null,
+        verifiedAt: null,
+        timestamp: params.timestamp ?? null,
+        startTime: params.startTime ?? null,
+        endTime: params.endTime ?? null,
+        frameCount: params.frameCount ?? null,
+    } as const;
+}
+
+export async function prepareReplayArtifactForUpload(
+    params: PendingArtifactParams & { projectId: string }
+): Promise<ReplayArtifactPreparationResult> {
+    const existing = await getArtifactWithSessionByUploadId(params.projectId, params.clientUploadId);
+
+    if (!existing) {
+        try {
+            return {
+                artifact: await registerPendingArtifact(params),
+                action: 'created',
+                alreadyCompleted: false,
+            };
+        } catch (err: any) {
+            if (err?.code !== '23505') {
+                throw err;
+            }
+        }
+    }
+
+    const current = existing ?? await getArtifactWithSessionByUploadId(params.projectId, params.clientUploadId);
+    if (!current) {
+        throw new Error(`Artifact registration race lost for ${params.clientUploadId}`);
+    }
+
+    const { artifact, session } = current;
+    if (session.id !== params.sessionId) {
+        throw new Error(`Artifact ${artifact.id} belongs to unexpected session ${session.id}`);
+    }
+
+    if (artifact.status === 'ready') {
+        return {
+            artifact,
+            action: 'skip',
+            alreadyCompleted: true,
+        };
+    }
+
+    await markSessionIngestActivity(session.id, { reopen: true });
+
+    const update = buildArtifactRetryUpdate(params);
+
+    if (artifact.status === 'abandoned' || artifact.status === 'failed') {
+        await db.update(recordingArtifacts)
+            .set(update)
+            .where(eq(recordingArtifacts.id, artifact.id));
+
+        logger.info({
+            sessionId: session.id,
+            artifactId: artifact.id,
+            kind: artifact.kind,
+            clientUploadId: artifact.clientUploadId,
+        }, 'artifact.reopened');
+
+        return {
+            artifact: { ...artifact, ...update },
+            action: 'reopened',
+            alreadyCompleted: false,
+        };
+    }
+
+    if (artifact.status === 'pending' || artifact.status === 'uploaded') {
+        await db.update(recordingArtifacts)
+            .set({
+                s3ObjectKey: params.s3ObjectKey,
+                endpointId: params.endpointId ?? null,
+                declaredSizeBytes: params.declaredSizeBytes ?? null,
+                timestamp: params.timestamp ?? null,
+                startTime: params.startTime ?? null,
+                endTime: params.endTime ?? null,
+                frameCount: params.frameCount ?? null,
+            })
+            .where(eq(recordingArtifacts.id, artifact.id));
+
+        logger.info({
+            sessionId: session.id,
+            artifactId: artifact.id,
+            kind: artifact.kind,
+            clientUploadId: artifact.clientUploadId,
+            status: artifact.status,
+        }, 'artifact.reused');
+
+        return {
+            artifact: {
+                ...artifact,
+                s3ObjectKey: params.s3ObjectKey,
+                endpointId: params.endpointId ?? null,
+                declaredSizeBytes: params.declaredSizeBytes ?? null,
+                timestamp: params.timestamp ?? null,
+                startTime: params.startTime ?? null,
+                endTime: params.endTime ?? null,
+                frameCount: params.frameCount ?? null,
+            },
+            action: 'reused',
+            alreadyCompleted: false,
+        };
+    }
+
+    return {
+        artifact,
+        action: 'reused',
+        alreadyCompleted: false,
+    };
 }
 
 export async function registerPendingArtifact(params: PendingArtifactParams) {
@@ -188,6 +315,65 @@ export async function markArtifactUploadStored(params: {
         sessionId: session.id,
         artifactId: artifact.id,
         projectId: session.projectId,
+    };
+}
+
+export async function markArtifactUploadInterrupted(params: {
+    artifactId: string;
+    errorMsg?: string | null;
+    reason: string;
+}) {
+    const artifactResult = await getArtifactWithSessionById(params.artifactId);
+    if (!artifactResult) {
+        logger.warn({ artifactId: params.artifactId, reason: params.reason }, 'artifact.upload_interrupt_missing');
+        return {
+            ignored: true,
+        };
+    }
+
+    const { artifact, session } = artifactResult;
+    const now = new Date();
+    const nextStatus = artifact.uploadCompletedAt ? 'failed' : 'abandoned';
+    const errorMsg = params.errorMsg ?? 'Upload interrupted before relay storage';
+
+    await db.update(recordingArtifacts)
+        .set({
+            status: nextStatus,
+            readyAt: null,
+            verifiedAt: null,
+        })
+        .where(eq(recordingArtifacts.id, artifact.id));
+
+    await db.update(ingestJobs)
+        .set({
+            status: 'failed',
+            errorMsg,
+            completedAt: now,
+            startedAt: null,
+            workerId: null,
+            updatedAt: now,
+        })
+        .where(and(
+            eq(ingestJobs.artifactId, artifact.id),
+            sql`${ingestJobs.status} in ('pending', 'processing')`,
+        ));
+
+    await markSessionIngestActivity(session.id, { at: now, reopen: true });
+
+    logger.warn({
+        sessionId: session.id,
+        artifactId: artifact.id,
+        kind: artifact.kind,
+        clientUploadId: artifact.clientUploadId,
+        reason: params.reason,
+        errorMsg,
+    }, 'artifact.upload_interrupted');
+
+    return {
+        ignored: false,
+        sessionId: session.id,
+        artifactId: artifact.id,
+        status: nextStatus,
     };
 }
 

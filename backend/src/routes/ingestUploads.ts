@@ -11,9 +11,14 @@ import { updateDeviceUsage } from '../services/recording.js';
 import { ensureIngestSession } from '../services/ingestSessionLifecycle.js';
 import { checkAndEnforceSessionLimit, checkBillingStatus, incrementProjectSessionCount } from '../services/quotaCheck.js';
 import { enforceIngestByteBudget } from '../services/ingestByteBudget.js';
-import { completeArtifactUpload, registerPendingArtifact } from '../services/ingestArtifactLifecycle.js';
+import {
+    completeArtifactUpload,
+    prepareReplayArtifactForUpload,
+    registerPendingArtifact,
+} from '../services/ingestArtifactLifecycle.js';
 import { buildArtifactUploadRelayUrl } from '../services/ingestUploadRelay.js';
 import {
+    buildReplaySegmentId,
     extractDeviceIdFromUploadToken,
     parseBatchId,
     parseRequestedSizeBytes,
@@ -402,16 +407,20 @@ router.post(
                 subFolder = 'other';
         }
 
-        const timestampInt = Math.floor(Number(data.startTime));
-        const filename = `${timestampInt}.${extension}`;
+        const startTimeInt = Math.floor(Number(data.startTime));
+        const endTimeInt = data.endTime ? Math.floor(Number(data.endTime)) : null;
+        const segmentId = buildReplaySegmentId({
+            sessionId: session.id,
+            kind: data.kind,
+            startTime: startTimeInt,
+            endTime: endTimeInt,
+        });
+        const filename = `${startTimeInt}.${extension}`;
         const s3Key = generateS3Key(teamId, projectId, session.id, subFolder, filename);
         const endpoint = await getEndpointForProject(projectId);
 
-        const segmentId = `seg_${session.id}_${data.kind}_${data.startTime}_${randomBytes(4).toString('hex')}`;
-        const startTimeInt = Math.floor(Number(data.startTime));
-        const endTimeInt = data.endTime ? Math.floor(Number(data.endTime)) : null;
-
-        const artifact = await registerPendingArtifact({
+        const preparation = await prepareReplayArtifactForUpload({
+            projectId,
             sessionId: session.id,
             kind: data.kind,
             s3ObjectKey: s3Key,
@@ -423,6 +432,22 @@ router.post(
             endTime: endTimeInt,
             frameCount: data.frameCount || null,
         });
+        if (preparation.action === 'skip') {
+            if (idempotencyKey) {
+                await setIdempotencyStatus(projectId, idempotencyKey, 'done', segmentId);
+            }
+
+            res.json({
+                skipUpload: true,
+                deduplicated: true,
+                sessionId: session.id,
+                segmentId,
+                reason: 'Already processed',
+            });
+            return;
+        }
+
+        const artifact = preparation.artifact;
         const presignedUrl = buildArtifactUploadRelayUrl({
             artifactId: artifact.id,
             projectId,
@@ -447,6 +472,7 @@ router.post(
             endTime: data.endTime,
             frameCount: data.frameCount,
             sizeBytes: requestedSizeBytes,
+            action: preparation.action,
         }, 'Replay segment presigned URL generated');
 
         res.json({

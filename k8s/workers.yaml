@@ -35,12 +35,10 @@ spec:
         - name: worker
           image: ghcr.io/rejourneyco/rejourney/api:latest
           imagePullPolicy: Always
-          command: ["node", "dist/worker/ingestWorker.js"]
+          command: ["node", "dist/worker/ingestArtifactWorker.js"]
           env:
             - name: NODE_ENV
               value: production
-            - name: RJ_WORKER_NAME
-              value: ingestWorker
             - name: DATABASE_URL
               valueFrom:
                 secretKeyRef:
@@ -144,10 +142,6 @@ spec:
                   name: app-secret
                   key: PUBLIC_DASHBOARD_URL
                   optional: true
-            - name: RJ_INGEST_ALLOWED_KINDS
-              value: "events,crashes,anrs"
-            - name: RJ_INGEST_KIND_PRIORITY
-              value: "events,crashes,anrs,screenshots,hierarchy"
             - name: RJ_INGEST_JOB_CONCURRENCY
               value: "4"
             - name: RJ_INGEST_BATCH_SIZE
@@ -201,12 +195,10 @@ spec:
         - name: worker
           image: ghcr.io/rejourneyco/rejourney/api:latest
           imagePullPolicy: Always
-          command: ["node", "dist/worker/ingestWorker.js"]
+          command: ["node", "dist/worker/replayArtifactWorker.js"]
           env:
             - name: NODE_ENV
               value: production
-            - name: RJ_WORKER_NAME
-              value: replayWorker
             - name: DATABASE_URL
               valueFrom:
                 secretKeyRef:
@@ -271,10 +263,6 @@ spec:
                   name: app-secret
                   key: PUBLIC_DASHBOARD_URL
                   optional: true
-            - name: RJ_INGEST_ALLOWED_KINDS
-              value: "screenshots,hierarchy"
-            - name: RJ_INGEST_KIND_PRIORITY
-              value: "screenshots,hierarchy,events,crashes,anrs"
             - name: RJ_INGEST_JOB_CONCURRENCY
               value: "8"
             - name: RJ_INGEST_BATCH_SIZE
@@ -288,6 +276,65 @@ spec:
             limits:
               cpu: "1000m"
               memory: 768Mi
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: session-lifecycle-worker
+  namespace: rejourney
+  labels:
+    app.kubernetes.io/part-of: rejourney
+spec:
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app: session-lifecycle-worker
+  template:
+    metadata:
+      labels:
+        app: session-lifecycle-worker
+    spec:
+      terminationGracePeriodSeconds: 60
+      imagePullSecrets:
+        - name: ghcr-secret
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+      containers:
+        - name: worker
+          image: ghcr.io/rejourneyco/rejourney/api:latest
+          imagePullPolicy: Always
+          command: ["node", "dist/worker/sessionLifecycleWorker.js"]
+          env:
+            - name: NODE_ENV
+              value: production
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: DATABASE_URL
+            - name: UPTIME_KUMA_BASE_URL
+              value: "https://status.rejourney.co"
+            - name: UPTIME_KUMA_TOKENS
+              valueFrom:
+                secretKeyRef:
+                  name: monitoring-tokens
+                  key: tokens
+                  optional: true
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 300m
+              memory: 256Mi
 
 ---
 # Retention Worker CronJob

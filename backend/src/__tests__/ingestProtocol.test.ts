@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseBatchId, parseSegmentId } from '../services/ingestProtocol.js';
+import { buildReplaySegmentId, parseBatchId, parseSegmentId } from '../services/ingestProtocol.js';
 
 describe('ingestProtocol', () => {
     it('parses batch ids for timestamp-based session ids', () => {
@@ -29,6 +29,7 @@ describe('ingestProtocol', () => {
             sessionId: 'session_1771045973773_f81477f8042b4b299ba7de872bf5c0d2',
             kind: 'screenshots',
             startTime: 1771045974000,
+            endTime: null,
         });
     });
 
@@ -39,6 +40,42 @@ describe('ingestProtocol', () => {
             sessionId: 'session_aabbccddeeff00112233445566778899',
             kind: 'hierarchy',
             startTime: 1771045974000,
+            endTime: null,
+        });
+    });
+
+    it('builds and parses deterministic replay segment ids with end time', () => {
+        const segmentId = buildReplaySegmentId({
+            sessionId: 'session_1771045973773_f81477f8042b4b299ba7de872bf5c0d2',
+            kind: 'screenshots',
+            startTime: 1771045974000,
+            endTime: 1771045980000,
+        });
+
+        expect(segmentId).toBe(
+            'seg_session_1771045973773_f81477f8042b4b299ba7de872bf5c0d2_screenshots_1771045974000_1771045980000',
+        );
+        expect(parseSegmentId(segmentId)).toEqual({
+            sessionId: 'session_1771045973773_f81477f8042b4b299ba7de872bf5c0d2',
+            kind: 'screenshots',
+            startTime: 1771045974000,
+            endTime: 1771045980000,
+        });
+    });
+
+    it('builds and parses deterministic replay segment ids without end time', () => {
+        const segmentId = buildReplaySegmentId({
+            sessionId: 'session_aabbccddeeff00112233445566778899',
+            kind: 'hierarchy',
+            startTime: 1771045974000,
+        });
+
+        expect(segmentId).toBe('seg_session_aabbccddeeff00112233445566778899_hierarchy_1771045974000_na');
+        expect(parseSegmentId(segmentId)).toEqual({
+            sessionId: 'session_aabbccddeeff00112233445566778899',
+            kind: 'hierarchy',
+            startTime: 1771045974000,
+            endTime: null,
         });
     });
 });

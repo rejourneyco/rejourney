@@ -74,17 +74,43 @@ async function start() {
             logger.info({ port: config.PORT }, 'Ingest upload relay listening');
         });
 
-        const shutdown = async (signal: string) => {
+        let shuttingDown = false;
+        const shutdown = async (signal: string, exitCode = 0) => {
+            if (shuttingDown) return;
+            shuttingDown = true;
             logger.info({ signal }, 'Ingest upload relay shutting down');
+            const forceExitTimer = setTimeout(() => {
+                process.exit(exitCode);
+            }, 10_000);
+
             server.close(async () => {
-                await closeRedis();
-                await pool.end();
-                process.exit(0);
+                try {
+                    await closeRedis();
+                    await pool.end();
+                } finally {
+                    clearTimeout(forceExitTimer);
+                    process.exit(exitCode);
+                }
             });
         };
 
-        process.on('SIGTERM', () => shutdown('SIGTERM'));
-        process.on('SIGINT', () => shutdown('SIGINT'));
+        process.on('SIGTERM', () => {
+            void shutdown('SIGTERM');
+        });
+        process.on('SIGINT', () => {
+            void shutdown('SIGINT');
+        });
+        process.on('unhandledRejection', (reason) => {
+            logger.error({ err: reason }, 'Unhandled rejection in ingest upload relay');
+            void shutdown('unhandledRejection', 1);
+        });
+        process.on('uncaughtExceptionMonitor', (err, origin) => {
+            logger.error({ err, origin }, 'Uncaught exception monitor in ingest upload relay');
+        });
+        process.on('uncaughtException', (err, origin) => {
+            logger.error({ err, origin }, 'Fatal uncaught exception in ingest upload relay');
+            void shutdown('uncaughtException', 1);
+        });
     } catch (err) {
         logger.error({ err }, 'Failed to start ingest upload relay');
         process.exit(1);

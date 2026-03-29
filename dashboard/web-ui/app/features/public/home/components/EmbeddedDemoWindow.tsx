@@ -15,7 +15,8 @@ export const EmbeddedDemoWindow: React.FC = () => {
             aria-label="Interactive Demo"
             className="w-full px-4 sm:px-6 lg:px-8 py-24 sm:py-32 border-t-2 border-black bg-slate-50"
         >
-            <div className="max-w-7xl mx-auto">
+            {/* Embed must be >1280px wide (after borders) or Tailwind `xl:` breakpoints won’t apply inside the iframe. */}
+            <div className="max-w-[min(100%,1600px)] mx-auto">
                 {/* Section Header */}
                 <div className="mb-16 border-b-2 border-black pb-8 text-left">
                     <h2 className="text-4xl sm:text-5xl md:text-6xl lg:text-7xl font-black uppercase tracking-tighter mb-4 leading-none">
@@ -70,7 +71,7 @@ export const EmbeddedDemoWindow: React.FC = () => {
                         <div className="relative bg-gray-100">
                             <iframe
                                 src="/demo"
-                                className="w-full border-0 h-[500px] sm:h-[600px] md:h-[75vh] md:min-h-[600px] md:max-h-[800px]"
+                                className="w-full border-0 h-[560px] sm:h-[640px] md:h-[min(78vh,880px)] md:min-h-[680px] md:max-h-[880px]"
                                 title="Rejourney Dashboard Demo"
                                 loading="lazy"
                             />

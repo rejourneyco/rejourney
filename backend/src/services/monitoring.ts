@@ -21,6 +21,7 @@ export type WorkerName =
     | 'api'
     | 'ingestWorker'
     | 'replayWorker'
+    | 'sessionLifecycleWorker'
     | 'retentionWorker'
     | 'statsAggregator'
     | 'alertWorker';
