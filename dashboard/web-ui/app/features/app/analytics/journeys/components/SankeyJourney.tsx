@@ -1,6 +1,5 @@
 import React, { useMemo, useState } from 'react';
 import { Link } from 'react-router';
-import { AnimatePresence, motion } from 'framer-motion';
 
 export interface SankeyFlow {
     from: string;
@@ -341,7 +340,7 @@ export const SankeyJourney: React.FC<SankeyJourneyProps> = ({
                 }} />
                 <svg width={calculatedWidth} height={height} viewBox={`0 0 ${calculatedWidth} ${height}`} className="relative overflow-visible">
                     <g>
-                        {links.map((link, index) => {
+                        {links.map((link) => {
                             const sourceNode = nodeLookup.get(link.source);
                             const targetNode = nodeLookup.get(link.target);
                             if (!sourceNode || !targetNode) return null;
@@ -356,20 +355,14 @@ export const SankeyJourney: React.FC<SankeyJourneyProps> = ({
                             const isOther = (hoveredLinkId || hoveredNode || selectedLinkId) && !isHovered;
 
                             return (
-                                <motion.path
+                                <path
                                     key={link.id}
                                     d={`M ${xStart} ${link.ySource} C ${cp1x} ${link.ySource}, ${cp2x} ${link.yTarget}, ${xEnd} ${link.yTarget}`}
                                     fill="none"
                                     stroke={getLinkColor(link, isHovered)}
-                                    strokeWidth={link.thickness}
+                                    strokeWidth={isHovered ? link.thickness + 2 : link.thickness}
                                     strokeLinecap="round"
-                                    initial={{ pathLength: 0, opacity: 0 }}
-                                    animate={{
-                                        pathLength: 1,
-                                        opacity: isOther ? 0.18 : 1,
-                                        strokeWidth: isHovered ? link.thickness + 2 : link.thickness,
-                                    }}
-                                    transition={{ duration: 0.55, delay: index * 0.018 }}
+                                    opacity={isOther ? 0.18 : 1}
                                     onMouseEnter={() => setHoveredLinkId(link.id)}
                                     onMouseLeave={() => setHoveredLinkId(null)}
                                     onClick={(event) => {
@@ -377,14 +370,17 @@ export const SankeyJourney: React.FC<SankeyJourneyProps> = ({
                                         setSelectedLinkId((current) => (current === link.id ? null : link.id));
                                     }}
                                     className="cursor-pointer"
-                                    style={{ filter: isHovered ? 'drop-shadow(0 3px 6px rgba(15,23,42,0.14))' : 'none' }}
+                                    style={{
+                                        filter: isHovered ? 'drop-shadow(0 3px 6px rgba(15,23,42,0.14))' : 'none',
+                                        transition: 'opacity 180ms ease, stroke-width 180ms ease, filter 180ms ease',
+                                    }}
                                 />
                             );
                         })}
                     </g>
 
                     <g>
-                        {nodes.map((node, index) => {
+                        {nodes.map((node) => {
                             const x = padding + node.level * levelSpacing;
                             const transitionHover = activeLink && (activeLink.source === node.id || activeLink.target === node.id);
                             const isHovered = hoveredNode === node.id || Boolean(transitionHover);
@@ -398,7 +394,7 @@ export const SankeyJourney: React.FC<SankeyJourneyProps> = ({
                                     onMouseLeave={() => setHoveredNode(null)}
                                     style={{ cursor: 'pointer' }}
                                 >
-                                    <motion.rect
+                                    <rect
                                         x={x}
                                         y={node.y}
                                         width={nodeWidth}
@@ -407,15 +403,10 @@ export const SankeyJourney: React.FC<SankeyJourneyProps> = ({
                                         fill={isHappyNode ? (isHovered ? '#ecfdf3' : '#f0fdf4') : (isHovered ? '#ffffff' : '#f8fafc')}
                                         stroke={isHappyNode ? (isHovered ? '#16a34a' : '#86efac') : (isHovered ? '#2563eb' : '#cbd5e1')}
                                         strokeWidth={isHovered ? 2 : 1.2}
-                                        initial={{ scaleX: 0, opacity: 0 }}
-                                        animate={{
-                                            scaleX: 1,
-                                            opacity: isOther ? 0.42 : 1,
-                                        }}
-                                        transition={{ duration: 0.35, delay: 0.1 + index * 0.025 }}
+                                        opacity={isOther ? 0.42 : 1}
                                         style={{
-                                            transformOrigin: `${x}px ${node.y + node.height / 2}px`,
                                             filter: isHovered ? 'drop-shadow(0 6px 8px rgba(15,23,42,0.12))' : 'none',
+                                            transition: 'opacity 180ms ease, stroke 180ms ease, stroke-width 180ms ease, filter 180ms ease, fill 180ms ease',
                                         }}
                                     />
                                     <foreignObject x={x + 8} y={node.y + 4} width={nodeWidth - 16} height={node.height - 8}>
@@ -437,17 +428,14 @@ export const SankeyJourney: React.FC<SankeyJourneyProps> = ({
                     </g>
                 </svg>
 
-                <AnimatePresence>
-                    {activeLink && (
-                        <motion.div
-                            initial={{ opacity: 0, y: 5 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            exit={{ opacity: 0, y: 5 }}
+                {activeLink && (
+                        <div
                             className={`absolute bg-white rounded-lg shadow-lg border border-slate-200 p-3 text-xs z-20 ${hasPinnedDetails ? 'pointer-events-auto w-[420px]' : 'pointer-events-none w-[260px]'}`}
                             style={{
                                 left: `calc(${popupLeftPct}% + 42px)`,
                                 top: `${popupTopPct}%`,
                                 transform: 'translate(-50%, -50%)',
+                                transition: 'opacity 180ms ease, transform 180ms ease',
                             }}
                             onClick={(event) => event.stopPropagation()}
                         >
@@ -531,9 +519,8 @@ export const SankeyJourney: React.FC<SankeyJourneyProps> = ({
                                     )}
                                 </div>
                             )}
-                        </motion.div>
+                        </div>
                     )}
-                </AnimatePresence>
             </div>
 
             <div className="border-t border-slate-200 px-5 py-3 flex flex-wrap items-center gap-4 text-[11px] text-slate-600">

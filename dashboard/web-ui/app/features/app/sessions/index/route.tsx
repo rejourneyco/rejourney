@@ -755,8 +755,11 @@ export const RecordingsList: React.FC = () => {
               const geoDisplay = formatGeoDisplay((session as any).geoLocation);
 
               const hasReplay = hasSuccessfulRecording(session);
-              const isProcessing = session.status === 'processing';
-              const isReplayBlocked = isProcessing && !hasReplay;
+              const effectiveStatus = (session as any).effectiveStatus || session.status;
+              const canOpenReplay = (session as any).canOpenReplay ?? hasReplay;
+              const isLiveIngest = Boolean((session as any).isLiveIngest);
+              const isBackgroundProcessing = Boolean((session as any).isBackgroundProcessing);
+              const isReplayBlocked = !canOpenReplay;
 
               const hasIssues = (session.crashCount || 0) > 0 ||
                 ((session as any).anrCount || 0) > 0 ||
@@ -828,13 +831,17 @@ export const RecordingsList: React.FC = () => {
 
                     {/* Duration */}
                     <td className="hidden md:table-cell py-2.5 px-3 align-middle text-right w-24">
-                      {isReplayBlocked ? (
+                      {isLiveIngest && !canOpenReplay ? (
                         <span className="text-[9px] font-semibold text-indigo-600 bg-indigo-50 border border-indigo-200 px-1 py-0.5 animate-pulse rounded-sm">
                           LIVE INGEST
                         </span>
-                      ) : isProcessing ? (
+                      ) : isLiveIngest && canOpenReplay ? (
                         <span className="text-[9px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-1 py-0.5 rounded-sm">
                           LIVE REPLAY
+                        </span>
+                      ) : isBackgroundProcessing ? (
+                        <span className="text-[9px] font-semibold text-slate-700 bg-slate-100 border border-slate-200 px-1 py-0.5 rounded-sm">
+                          PROCESSING
                         </span>
                       ) : (
                         <span className="text-xs font-mono font-medium text-slate-700 bg-slate-100 border border-slate-200 px-1.5 py-0.5 rounded">
@@ -884,13 +891,21 @@ export const RecordingsList: React.FC = () => {
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
-                          if (!isReplayBlocked) {
+                          if (canOpenReplay) {
                             navigate(`${pathPrefix}/sessions/${session.id}`);
                           }
                         }}
-                        disabled={isReplayBlocked}
+                        disabled={!canOpenReplay}
                         className={`inline-flex items-center justify-center p-1.5 rounded transition-colors group/play ${isReplayBlocked ? 'cursor-not-allowed opacity-40 text-slate-300' : 'text-slate-600 hover:text-slate-900'}`}
-                        title={isReplayBlocked ? "Session is still processing" : isProcessing ? "Open Live Replay" : "Open Replay"}
+                        title={
+                          !canOpenReplay
+                            ? 'Visual replay is still processing'
+                            : isLiveIngest
+                              ? 'Open Live Replay'
+                              : isBackgroundProcessing
+                                ? 'Open Replay while background processing continues'
+                                : 'Open Replay'
+                        }
                       >
                         <Play size={16} className={isReplayBlocked ? "" : "group-hover/play:fill-current"} />
                       </button>
@@ -979,8 +994,10 @@ export const RecordingsList: React.FC = () => {
                             >
                               {isReplayBlocked ? (
                                 <><Loader size={12} className="animate-spin mr-2" /> Live Ingesting...</>
-                              ) : isProcessing ? (
+                              ) : isLiveIngest ? (
                                 <><Play size={12} fill="currentColor" className="mr-2" /> Open Live Replay</>
+                              ) : isBackgroundProcessing ? (
+                                <><Play size={12} fill="currentColor" className="mr-2" /> Open Replay While Processing</>
                               ) : (
                                 <><Play size={12} fill="currentColor" className="mr-2" /> Open Replay</>
                               )}

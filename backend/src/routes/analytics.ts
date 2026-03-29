@@ -74,6 +74,73 @@ function percentile(values: number[], p: number): number | null {
     return Math.round(sorted[normalizedIndex]);
 }
 
+function addCalendarDaysUtc(dateStr: string, delta: number): string {
+    const d = new Date(`${dateStr}T12:00:00.000Z`);
+    d.setUTCDate(d.getUTCDate() + delta);
+    return d.toISOString().split('T')[0];
+}
+
+function mergeGeoCountryCountsFromDailyRows(
+    rows: Array<{ geoCountryBreakdown: Record<string, number> | null }>,
+): Record<string, number> {
+    const out: Record<string, number> = {};
+    for (const row of rows) {
+        const b = row.geoCountryBreakdown;
+        if (!b || typeof b !== 'object') continue;
+        for (const [country, count] of Object.entries(b)) {
+            const trimmed = (country || '').trim();
+            if (!trimmed) continue;
+            const n = Number(count) || 0;
+            if (n <= 0) continue;
+            out[trimmed] = (out[trimmed] || 0) + n;
+        }
+    }
+    return out;
+}
+
+type GeoCountryMapEntry = {
+    count: number;
+    cities: Record<string, { count: number; lat?: number; lng?: number }>;
+    lat?: number;
+    lng?: number;
+};
+
+function buildGeoSummaryFromCountryMap(countryMap: Record<string, GeoCountryMapEntry>): {
+    countries: Array<{
+        country: string;
+        count: number;
+        latitude?: number;
+        longitude?: number;
+        topCities: Array<{ city: string; count: number; latitude?: number; longitude?: number }>;
+    }>;
+    totalWithGeo: number;
+} {
+    let totalWithGeo = 0;
+    for (const data of Object.values(countryMap)) {
+        totalWithGeo += data.count;
+    }
+
+    const countries = Object.entries(countryMap)
+        .map(([country, data]) => ({
+            country,
+            count: data.count,
+            latitude: data.lat,
+            longitude: data.lng,
+            topCities: Object.entries(data.cities)
+                .sort((a, b) => b[1].count - a[1].count)
+                .slice(0, 5)
+                .map(([city, cityData]) => ({
+                    city,
+                    count: cityData.count,
+                    latitude: cityData.lat,
+                    longitude: cityData.lng,
+                })),
+        }))
+        .sort((a, b) => b.count - a.count);
+
+    return { countries, totalWithGeo };
+}
+
 /**
  * Get warehouse alerting data (recipients, connections, project statuses) for the data warehouse UI
  * GET /api/analytics/warehouse-alerting
@@ -732,17 +799,17 @@ router.get(
             return;
         }
 
-        // Build cache key
-        const cacheKey = `analytics:geo:${projectIds.sort().join(',')}:${timeRange || 'all'}`;
+        // Build cache key (v3: rollup-backed geo for non-24h windows)
+        const cacheKey = `analytics:geo:v3:${projectIds.sort().join(',')}:${timeRange || 'all'}`;
         const cached = await redis.get(cacheKey);
         if (cached) {
             res.json(JSON.parse(cached));
             return;
         }
 
-        // Build time filter
+        // Build time filter (rolling window lower bound)
         let startedAfter: Date | undefined;
-        if (timeRange && timeRange !== 'all') {
+        if (timeRange && timeRange !== 'all' && timeRange !== 'max') {
             const days = timeRange === '24h' ? 1 :
                 timeRange === '7d' ? 7 :
                     timeRange === '30d' ? 30 :
@@ -753,85 +820,146 @@ router.get(
             }
         }
 
-        // Import sessions table
-        const { sessions } = await import('../db/client.js');
+        const tr = typeof timeRange === 'string' ? timeRange : undefined;
 
-        // Query aggregated geo data
-        const conditions = [
-            inArray(sessions.projectId, projectIds),
-        ];
-        if (startedAfter) {
-            conditions.push(gte(sessions.startedAt, startedAfter));
+        // Last 24h: single SQL aggregate on sessions (one scan, no row materialization in app).
+        if (tr === '24h') {
+            const conditions = [inArray(sessions.projectId, projectIds)];
+            if (startedAfter) {
+                conditions.push(gte(sessions.startedAt, startedAfter));
+            }
+
+            const geoAgg = await db
+                .select({
+                    country: sessions.geoCountry,
+                    city: sessions.geoCity,
+                    count: sql<number>`count(*)`,
+                    latitude: sql<number>`min(${sessions.geoLatitude})`,
+                    longitude: sql<number>`min(${sessions.geoLongitude})`,
+                })
+                .from(sessions)
+                .where(and(...conditions))
+                .groupBy(sessions.geoCountry, sessions.geoCity);
+
+            const countryMap: Record<string, GeoCountryMapEntry> = {};
+
+            for (const row of geoAgg) {
+                if (!row.country) continue;
+
+                if (!countryMap[row.country]) {
+                    countryMap[row.country] = {
+                        count: 0,
+                        cities: {},
+                        lat: row.latitude ?? undefined,
+                        lng: row.longitude ?? undefined,
+                    };
+                }
+                countryMap[row.country].count += Number(row.count);
+
+                if (row.city) {
+                    countryMap[row.country].cities[row.city] = {
+                        count: Number(row.count),
+                        lat: row.latitude ?? undefined,
+                        lng: row.longitude ?? undefined,
+                    };
+                }
+            }
+
+            const result = buildGeoSummaryFromCountryMap(countryMap);
+            await redis.set(cacheKey, JSON.stringify(result), 'EX', CACHE_TTL);
+            res.json(result);
+            return;
         }
 
-        // Query aggregated geo data directly in SQL to save RAM
-        const geoAgg = await db
-            .select({
-                country: sessions.geoCountry,
-                city: sessions.geoCity,
-                count: sql<number>`count(*)`,
-                latitude: sql<number>`min(${sessions.geoLatitude})`, // Representative lat/lng
-                longitude: sql<number>`min(${sessions.geoLongitude})`,
-            })
-            .from(sessions)
-            .where(and(...conditions)) // Only active sessions
-            .groupBy(sessions.geoCountry, sessions.geoCity);
+        // Broader ranges: merge app_daily_stats.geo_country_breakdown (O(days)) + tail sessions after last rollup day.
+        const lastRolledUpDate = await getLastRolledUpDate();
 
-        // Aggregate results for the UI
-        const countryMap: Record<string, {
-            count: number;
-            cities: Record<string, { count: number; lat?: number; lng?: number }>;
-            lat?: number;
-            lng?: number;
-        }> = {};
-
-        let totalWithGeo = 0;
-
-        for (const row of geoAgg) {
-            if (!row.country) continue;
-            totalWithGeo += Number(row.count);
-
-            if (!countryMap[row.country]) {
-                countryMap[row.country] = {
-                    count: 0,
-                    cities: {},
-                    lat: row.latitude ?? undefined,
-                    lng: row.longitude ?? undefined,
-                };
-            }
-            countryMap[row.country].count += Number(row.count);
-
-            if (row.city) {
-                countryMap[row.country].cities[row.city] = {
-                    count: Number(row.count),
-                    lat: row.latitude ?? undefined,
-                    lng: row.longitude ?? undefined,
-                };
+        let startDateStr: string | undefined;
+        if (timeRange && timeRange !== 'all' && timeRange !== 'max') {
+            const days = timeRange === '24h' ? 1 :
+                timeRange === '7d' ? 7 :
+                    timeRange === '30d' ? 30 :
+                        timeRange === '90d' ? 90 : undefined;
+            if (days) {
+                const start = new Date();
+                start.setDate(start.getDate() - days);
+                startDateStr = start.toISOString().split('T')[0];
             }
         }
 
-        // Transform to array sorted by count
-        const countries = Object.entries(countryMap)
-            .map(([country, data]) => ({
-                country,
-                count: data.count,
-                latitude: data.lat,
-                longitude: data.lng,
-                topCities: Object.entries(data.cities)
-                    .sort((a, b) => b[1].count - a[1].count)
-                    .slice(0, 5)
-                    .map(([city, cityData]) => ({
-                        city,
-                        count: cityData.count,
-                        latitude: cityData.lat,
-                        longitude: cityData.lng,
-                    })),
-            }))
-            .sort((a, b) => b.count - a.count);
+        const dailyConditions = [inArray(appDailyStats.projectId, projectIds), lte(appDailyStats.date, lastRolledUpDate)];
+        if (startDateStr) {
+            dailyConditions.push(gte(appDailyStats.date, startDateStr));
+        }
 
-        const result = { countries, totalWithGeo };
+        const dailyRows = await db
+            .select({ geoCountryBreakdown: appDailyStats.geoCountryBreakdown })
+            .from(appDailyStats)
+            .where(and(...dailyConditions));
 
-        // Cache for 5 minutes
+        const rollupCountryCounts = mergeGeoCountryCountsFromDailyRows(dailyRows);
+
+        const countryMap: Record<string, GeoCountryMapEntry> = {};
+        for (const [country, cnt] of Object.entries(rollupCountryCounts)) {
+            countryMap[country] = {
+                count: cnt,
+                cities: {},
+                lat: undefined,
+                lng: undefined,
+            };
+        }
+
+        const tailDateStr = addCalendarDaysUtc(lastRolledUpDate, 1);
+        const tailStart = new Date(`${tailDateStr}T00:00:00.000Z`);
+        if (Date.now() >= tailStart.getTime()) {
+            const lowerBound =
+                startedAfter && startedAfter.getTime() > tailStart.getTime() ? startedAfter : tailStart;
+            const tailConditions = [
+                inArray(sessions.projectId, projectIds),
+                gte(sessions.startedAt, lowerBound),
+            ];
+
+            const tailAgg = await db
+                .select({
+                    country: sessions.geoCountry,
+                    city: sessions.geoCity,
+                    count: sql<number>`count(*)`,
+                    latitude: sql<number>`min(${sessions.geoLatitude})`,
+                    longitude: sql<number>`min(${sessions.geoLongitude})`,
+                })
+                .from(sessions)
+                .where(and(...tailConditions))
+                .groupBy(sessions.geoCountry, sessions.geoCity);
+
+            for (const row of tailAgg) {
+                if (!row.country) continue;
+                const c = row.country;
+
+                if (!countryMap[c]) {
+                    countryMap[c] = {
+                        count: 0,
+                        cities: {},
+                        lat: row.latitude ?? undefined,
+                        lng: row.longitude ?? undefined,
+                    };
+                }
+                countryMap[c].count += Number(row.count);
+                if (row.latitude != null && countryMap[c].lat === undefined) {
+                    countryMap[c].lat = row.latitude ?? undefined;
+                    countryMap[c].lng = row.longitude ?? undefined;
+                }
+                if (row.city) {
+                    countryMap[c].cities[row.city] = {
+                        count: Number(row.count),
+                        lat: row.latitude ?? undefined,
+                        lng: row.longitude ?? undefined,
+                    };
+                }
+            }
+        }
+
+        const result = buildGeoSummaryFromCountryMap(countryMap);
+
         await redis.set(cacheKey, JSON.stringify(result), 'EX', CACHE_TTL);
         res.json(result);
     })
@@ -1310,8 +1438,8 @@ router.get(
             return;
         }
 
-        // Build cache key
-        const cacheKey = `analytics:latency-geo:${projectIds.sort().join(',')}:${timeRange || 'all'}:v2-time-windows`;
+        // Build cache key (v3: SQL aggregation — no per-session rows in Node)
+        const cacheKey = `analytics:latency-geo:${projectIds.sort().join(',')}:${timeRange || 'all'}:v3-sql-agg`;
         const cached = await redis.get(cacheKey);
         if (cached) {
             res.json(JSON.parse(cached));
@@ -1328,92 +1456,63 @@ router.get(
             }
         }
 
-        // Import sessions and session_metrics tables
-        const { sessions, sessionMetrics } = await import('../db/client.js');
-
-        // Query sessions with geo and API metrics
         const conditions = [
             inArray(sessions.projectId, projectIds),
+            isNotNull(sessions.geoCountry),
         ];
         if (startedAfter) {
             conditions.push(gte(sessions.startedAt, startedAfter));
         }
 
-        // Get sessions with geo and API data via join
-        const sessionsWithMetrics = await db
+        const apiTotalExpr = sql`coalesce(${sessionMetrics.apiTotalCount}, 0)`;
+        const weightedLatencySum = sql<number>`sum(coalesce(${sessionMetrics.apiAvgResponseMs}, 0)::numeric * coalesce(${sessionMetrics.apiTotalCount}, 0)::numeric)`;
+
+        const aggRows = await db
             .select({
                 country: sessions.geoCountry,
-                city: sessions.geoCity,
-                apiTotalCount: sessionMetrics.apiTotalCount,
-                apiSuccessCount: sessionMetrics.apiSuccessCount,
-                apiErrorCount: sessionMetrics.apiErrorCount,
-                avgDurationMs: sessionMetrics.apiAvgResponseMs,
+                totalRequests: sql<number>`sum(${apiTotalExpr})::bigint`,
+                weightedLatency: weightedLatencySum,
+                successCount: sql<number>`sum(coalesce(${sessionMetrics.apiSuccessCount}, 0))::bigint`,
+                errorCount: sql<number>`sum(coalesce(${sessionMetrics.apiErrorCount}, 0))::bigint`,
             })
             .from(sessions)
             .leftJoin(sessionMetrics, eq(sessions.id, sessionMetrics.sessionId))
-            .where(and(...conditions));
-
-        // Aggregate by country
-        const countryMap: Record<string, {
-            totalRequests: number;
-            totalLatencyMs: number;
-            successCount: number;
-            errorCount: number;
-        }> = {};
+            .where(and(...conditions))
+            .groupBy(sessions.geoCountry)
+            .having(sql`sum(${apiTotalExpr}) > 0`);
 
         let globalTotalRequests = 0;
-        let globalTotalLatency = 0;
+        let globalWeightedLatency = 0;
 
-        for (const s of sessionsWithMetrics) {
-            if (!s.country) continue;
-            const apiCount = Number(s.apiTotalCount || 0);
-            const avgDuration = Number(s.avgDurationMs || 0);
-
-            if (apiCount === 0) continue;
-
-            if (!countryMap[s.country]) {
-                countryMap[s.country] = {
-                    totalRequests: 0,
-                    totalLatencyMs: 0,
-                    successCount: 0,
-                    errorCount: 0,
+        const regions = aggRows
+            .filter((row) => Boolean(row.country))
+            .map((row) => {
+                const totalRequests = Number(row.totalRequests || 0);
+                const weighted = Number(row.weightedLatency || 0);
+                const successCount = Number(row.successCount || 0);
+                const errorCount = Number(row.errorCount || 0);
+                globalTotalRequests += totalRequests;
+                globalWeightedLatency += weighted;
+                return {
+                    country: row.country as string,
+                    totalRequests,
+                    avgLatencyMs: totalRequests > 0 ? Math.round(weighted / totalRequests) : 0,
+                    successRate: totalRequests > 0 ? Math.round((successCount / totalRequests) * 100) : 0,
+                    errorCount,
                 };
-            }
-
-            countryMap[s.country].totalRequests += apiCount;
-            countryMap[s.country].totalLatencyMs += avgDuration * apiCount;
-            countryMap[s.country].successCount += Number(s.apiSuccessCount || 0);
-            countryMap[s.country].errorCount += Number(s.apiErrorCount || 0);
-
-            globalTotalRequests += apiCount;
-            globalTotalLatency += avgDuration * apiCount;
-        }
-
-        // Transform to sorted array
-        const regions = Object.entries(countryMap)
-            .filter(([_, data]) => data.totalRequests > 0)
-            .map(([country, data]) => ({
-                country,
-                totalRequests: data.totalRequests,
-                avgLatencyMs: Math.round(data.totalLatencyMs / data.totalRequests),
-                successRate: data.totalRequests > 0
-                    ? Math.round((data.successCount / data.totalRequests) * 100)
-                    : 0,
-                errorCount: data.errorCount,
-            }))
+            })
             .sort((a, b) => b.totalRequests - a.totalRequests);
 
         const result = {
             regions,
             summary: {
                 avgLatency: globalTotalRequests > 0
-                    ? Math.round(globalTotalLatency / globalTotalRequests)
+                    ? Math.round(globalWeightedLatency / globalTotalRequests)
                     : 0,
                 totalRequests: globalTotalRequests,
-            }
+            },
         };
 
-        // Cache for 5 minutes
         await redis.set(cacheKey, JSON.stringify(result), 'EX', CACHE_TTL);
         res.json(result);
     })
@@ -2557,7 +2656,8 @@ router.get(
             return;
         }
 
-        const cacheKey = `analytics:journey-observability:v3:${projectIds.sort().join(',')}:${timeRange || 'all'}`;
+        const responseMode = req.query.mode === 'summary' ? 'summary' : 'full';
+        const cacheKey = `analytics:journey-observability:v4:${projectIds.sort().join(',')}:${timeRange || 'all'}:${responseMode}`;
         const cached = await redis.get(cacheKey);
         if (cached) {
             res.json(JSON.parse(cached));
@@ -2599,6 +2699,115 @@ router.get(
                 updatedAt: configuredFunnel.updatedAt?.toISOString?.() || null,
             }
             : null;
+
+        if (responseMode === 'summary') {
+            const lastRolledUpDate = await getLastRolledUpDate();
+            const conditions = [inArray(appDailyStats.projectId, projectIds), lte(appDailyStats.date, lastRolledUpDate)];
+            if (startedAfter) {
+                conditions.push(gte(appDailyStats.date, startedAfter.toISOString().split('T')[0]));
+            }
+
+            const dailyRows = await db
+                .select({
+                    totalSessions: appDailyStats.totalSessions,
+                    screenViewBreakdown: appDailyStats.screenViewBreakdown,
+                    screenTransitionBreakdown: appDailyStats.screenTransitionBreakdown,
+                    entryScreenBreakdown: appDailyStats.entryScreenBreakdown,
+                    exitScreenBreakdown: appDailyStats.exitScreenBreakdown,
+                })
+                .from(appDailyStats)
+                .where(and(...conditions));
+
+            const screenTotals: Record<string, number> = {};
+            const transitionTotals: Record<string, number> = {};
+            const entryTotals: Record<string, number> = {};
+            const exitTotals: Record<string, number> = {};
+            let totalSessions = 0;
+
+            for (const row of dailyRows) {
+                totalSessions += Number(row.totalSessions || 0);
+                for (const [screen, count] of Object.entries(row.screenViewBreakdown || {})) {
+                    screenTotals[screen] = (screenTotals[screen] || 0) + count;
+                }
+                for (const [transition, count] of Object.entries(row.screenTransitionBreakdown || {})) {
+                    transitionTotals[transition] = (transitionTotals[transition] || 0) + count;
+                }
+                for (const [screen, count] of Object.entries(row.entryScreenBreakdown || {})) {
+                    entryTotals[screen] = (entryTotals[screen] || 0) + count;
+                }
+                for (const [screen, count] of Object.entries(row.exitScreenBreakdown || {})) {
+                    exitTotals[screen] = (exitTotals[screen] || 0) + count;
+                }
+            }
+
+            const topScreens = Object.entries(screenTotals)
+                .map(([screen, visits]) => ({ screen, visits }))
+                .sort((a, b) => b.visits - a.visits)
+                .slice(0, 20);
+            const entryPoints = Object.entries(entryTotals)
+                .map(([screen, count]) => ({ screen, count }))
+                .sort((a, b) => b.count - a.count)
+                .slice(0, 10);
+            const exitPoints = Object.entries(exitTotals)
+                .map(([screen, count]) => ({ screen, count }))
+                .sort((a, b) => b.count - a.count)
+                .slice(0, 10);
+            const flows = Object.entries(transitionTotals)
+                .map(([transition, count]) => {
+                    const [from, to] = transition.split('→');
+                    return {
+                        from,
+                        to,
+                        count,
+                        apiErrors: 0,
+                        apiErrorRate: 0,
+                        avgApiLatencyMs: 0,
+                        rageTapCount: 0,
+                        crashCount: 0,
+                        anrCount: 0,
+                        health: 'healthy' as const,
+                        replayCount: 0,
+                        sampleSessionIds: [],
+                    };
+                })
+                .sort((a, b) => b.count - a.count)
+                .slice(0, 50);
+
+            const result = {
+                healthSummary: {
+                    healthy: totalSessions,
+                    degraded: 0,
+                    problematic: 0,
+                },
+                flows,
+                problematicJourneys: [],
+                happyPathJourney: null,
+                configuredHappyPath,
+                exitAfterError: [],
+                timeToFailure: {
+                    avgTimeBeforeFirstErrorMs: null,
+                    avgScreensBeforeCrash: null,
+                    avgInteractionsBeforeRageTap: null,
+                },
+                screenHealth: topScreens.map((screen) => ({
+                    name: screen.screen,
+                    visits: screen.visits,
+                    health: 'healthy' as const,
+                    crashes: 0,
+                    anrs: 0,
+                    apiErrors: 0,
+                    rageTaps: 0,
+                    replayAvailable: false,
+                })),
+                topScreens,
+                entryPoints,
+                exitPoints,
+            };
+
+            await redis.set(cacheKey, JSON.stringify(result), 'EX', CACHE_TTL);
+            res.json(result);
+            return;
+        }
 
         // Get sessions with their metrics for observability analysis
 
@@ -3058,7 +3267,8 @@ router.get(
             return;
         }
 
-        const cacheKey = `analytics:growth-observability:v2:${projectIds.sort().join(',')}:${timeRange || 'all'}`;
+        const responseMode = req.query.mode === 'summary' ? 'summary' : 'full';
+        const cacheKey = `analytics:growth-observability:v3:${projectIds.sort().join(',')}:${timeRange || 'all'}:${responseMode}`;
         const cached = await redis.get(cacheKey);
         if (cached) {
             res.json(JSON.parse(cached));
@@ -3073,6 +3283,82 @@ router.get(
                 startedAfter = new Date();
                 startedAfter.setDate(startedAfter.getDate() - days);
             }
+        }
+
+        if (responseMode === 'summary') {
+            const lastRolledUpDate = await getLastRolledUpDate();
+            const conditions = [inArray(appDailyStats.projectId, projectIds), lte(appDailyStats.date, lastRolledUpDate)];
+            if (startedAfter) {
+                conditions.push(gte(appDailyStats.date, startedAfter.toISOString().split('T')[0]));
+            }
+
+            const dailyRows = await db
+                .select({
+                    date: appDailyStats.date,
+                    totalSessions: appDailyStats.totalSessions,
+                    totalErrors: appDailyStats.totalErrors,
+                    totalRageTaps: appDailyStats.totalRageTaps,
+                    totalCrashes: appDailyStats.totalCrashes,
+                    totalAnrs: appDailyStats.totalAnrs,
+                    uniqueUserCount: appDailyStats.uniqueUserCount,
+                    customEventBreakdown: appDailyStats.customEventBreakdown,
+                })
+                .from(appDailyStats)
+                .where(and(...conditions))
+                .orderBy(asc(appDailyStats.date));
+
+            const sessionHealth = { clean: 0, error: 0, rage: 0, slow: 0, crash: 0 };
+            const dailyHealth: Array<{ date: string; clean: number; error: number; rage: number; slow: number; crash: number }> = [];
+            const customEventTotals: Record<string, number> = {};
+            let activeUsers = 0;
+
+            for (const row of dailyRows) {
+                const errorSessions = Number(row.totalErrors || 0);
+                const rageSessions = Number(row.totalRageTaps || 0);
+                const crashSessions = Number(row.totalCrashes || 0) + Number(row.totalAnrs || 0);
+                const clean = Math.max(0, Number(row.totalSessions || 0) - errorSessions - rageSessions - crashSessions);
+
+                sessionHealth.clean += clean;
+                sessionHealth.error += errorSessions;
+                sessionHealth.rage += rageSessions;
+                sessionHealth.crash += crashSessions;
+                activeUsers = Math.max(activeUsers, Number(row.uniqueUserCount || 0));
+
+                dailyHealth.push({
+                    date: row.date,
+                    clean,
+                    error: errorSessions,
+                    rage: rageSessions,
+                    slow: 0,
+                    crash: crashSessions,
+                });
+
+                for (const [eventName, count] of Object.entries(row.customEventBreakdown || {})) {
+                    customEventTotals[eventName] = (customEventTotals[eventName] || 0) + count;
+                }
+            }
+
+            const result = {
+                sessionHealth,
+                firstSessionSuccessRate: 0,
+                firstSessionStats: { total: 0, clean: 0, withCrash: 0, withAnr: 0, withRageTaps: 0, withSlowApi: 0 },
+                newUserGrowth: {
+                    acquiredUsers: 0,
+                    activeUsers,
+                    acquisitionRate: 0,
+                    returnedUsers: 0,
+                    returnRate: 0,
+                },
+                growthKillers: [],
+                dailyHealth,
+                customEvents: Object.entries(customEventTotals)
+                    .map(([name, count]) => ({ name, count }))
+                    .sort((a, b) => b.count - a.count),
+            };
+
+            await redis.set(cacheKey, JSON.stringify(result), 'EX', CACHE_TTL);
+            res.json(result);
+            return;
         }
 
         // Get sessions with metrics
@@ -3458,7 +3744,8 @@ router.get(
             return;
         }
 
-        const cacheKey = `analytics:observability-deep-metrics:v1:${projectIds.sort().join(',')}:${timeRange || 'all'}`;
+        const responseMode = req.query.mode === 'summary' ? 'summary' : 'full';
+        const cacheKey = `analytics:observability-deep-metrics:v2:${projectIds.sort().join(',')}:${timeRange || 'all'}:${responseMode}`;
         const cached = await redis.get(cacheKey);
         if (cached) {
             res.json(JSON.parse(cached));
@@ -3473,6 +3760,120 @@ router.get(
                 startedAfter = new Date();
                 startedAfter.setDate(startedAfter.getDate() - days);
             }
+        }
+
+        if (responseMode === 'summary') {
+            const lastRolledUpDate = await getLastRolledUpDate();
+            const dailyConditions = [inArray(appDailyStats.projectId, projectIds), lte(appDailyStats.date, lastRolledUpDate)];
+            if (startedAfter) {
+                dailyConditions.push(gte(appDailyStats.date, startedAfter.toISOString().split('T')[0]));
+            }
+
+            const [allTimeRows, dailyRows] = await Promise.all([
+                db
+                    .select({
+                        totalSessions: appAllTimeStats.totalSessions,
+                        totalUsers: appAllTimeStats.totalUsers,
+                        totalErrors: appAllTimeStats.totalErrors,
+                        avgApiErrorRate: appAllTimeStats.avgApiErrorRate,
+                        avgUxScore: appAllTimeStats.avgUxScore,
+                        totalRageTaps: appAllTimeStats.totalRageTaps,
+                        platformBreakdown: appAllTimeStats.platformBreakdown,
+                    })
+                    .from(appAllTimeStats)
+                    .where(inArray(appAllTimeStats.projectId, projectIds)),
+                db
+                    .select({
+                        totalSessions: appDailyStats.totalSessions,
+                        totalErrors: appDailyStats.totalErrors,
+                        totalCrashes: appDailyStats.totalCrashes,
+                        totalAnrs: appDailyStats.totalAnrs,
+                        totalRageTaps: appDailyStats.totalRageTaps,
+                        uniqueUserCount: appDailyStats.uniqueUserCount,
+                    })
+                    .from(appDailyStats)
+                    .where(and(...dailyConditions)),
+            ]);
+
+            const totalSessionsFromAllTime = allTimeRows.reduce((sum, row) => sum + Number(row.totalSessions || 0), 0);
+            const totalSessionsFromDaily = dailyRows.reduce((sum, row) => sum + Number(row.totalSessions || 0), 0);
+            const totalSessions = timeRange && timeRange !== 'all'
+                ? totalSessionsFromDaily
+                : totalSessionsFromAllTime;
+            const totalErrors = timeRange && timeRange !== 'all'
+                ? dailyRows.reduce((sum, row) => sum + Number(row.totalErrors || 0), 0)
+                : allTimeRows.reduce((sum, row) => sum + Number(row.totalErrors || 0), 0);
+            const totalCrashes = dailyRows.reduce((sum, row) => sum + Number(row.totalCrashes || 0), 0);
+            const totalAnrs = dailyRows.reduce((sum, row) => sum + Number(row.totalAnrs || 0), 0);
+            const totalRageTaps = timeRange && timeRange !== 'all'
+                ? dailyRows.reduce((sum, row) => sum + Number(row.totalRageTaps || 0), 0)
+                : allTimeRows.reduce((sum, row) => sum + Number(row.totalRageTaps || 0), 0);
+            const weightedApiErrorRate = allTimeRows.length > 0
+                ? allTimeRows.reduce((sum, row) => sum + Number(row.avgApiErrorRate || 0), 0) / allTimeRows.length
+                : 0;
+            const totalUsers = timeRange && timeRange !== 'all'
+                ? Math.max(0, ...dailyRows.map((row) => Number(row.uniqueUserCount || 0)))
+                : allTimeRows.reduce((sum, row) => sum + Number(row.totalUsers || 0), 0);
+            const aggregatedPlatformCounts: Record<string, number> = {};
+            for (const row of allTimeRows) {
+                for (const [platform, count] of Object.entries(row.platformBreakdown || {})) {
+                    aggregatedPlatformCounts[platform] = (aggregatedPlatformCounts[platform] || 0) + count;
+                }
+            }
+
+            const result = {
+                dataWindow: {
+                    totalSessions,
+                    analyzedSessions: totalSessions,
+                    sampled: false,
+                    visualReplayCoverageRate: 0,
+                    analyticsCoverageRate: totalSessions > 0 ? 100 : 0,
+                },
+                reliability: {
+                    crashFreeSessionRate: totalSessions > 0 ? toPercent(Math.max(0, totalSessions - totalCrashes), totalSessions, 2) : 0,
+                    anrFreeSessionRate: totalSessions > 0 ? toPercent(Math.max(0, totalSessions - totalAnrs), totalSessions, 2) : 0,
+                    errorFreeSessionRate: totalSessions > 0 ? toPercent(Math.max(0, totalSessions - totalErrors), totalSessions, 2) : 0,
+                    frustrationFreeSessionRate: totalSessions > 0 ? toPercent(Math.max(0, totalSessions - totalRageTaps), totalSessions, 2) : 0,
+                    degradedSessionRate: totalSessions > 0 ? toPercent(totalCrashes + totalAnrs + totalErrors + totalRageTaps, totalSessions, 2) : 0,
+                    apiFailureRate: Number((weightedApiErrorRate * 100).toFixed(2)),
+                    platformBreakdown: Object.entries(aggregatedPlatformCounts).map(([platform, sessionsForPlatform]) => ({
+                        platform,
+                        crashFreeSessionRate: toPercent(Math.max(0, sessionsForPlatform - totalCrashes), Math.max(1, sessionsForPlatform), 2),
+                        anrFreeSessionRate: toPercent(Math.max(0, sessionsForPlatform - totalAnrs), Math.max(1, sessionsForPlatform), 2),
+                    })),
+                },
+                performance: {
+                    apiApdex: null,
+                    p50ApiResponseMs: null,
+                    p95ApiResponseMs: null,
+                    p99ApiResponseMs: null,
+                    slowApiSessionRate: 0,
+                    p50StartupMs: null,
+                    p95StartupMs: null,
+                    slowStartupRate: 0,
+                },
+                impact: {
+                    uniqueUsers: totalUsers,
+                    affectedUsers: 0,
+                    affectedUserRate: 0,
+                    issueReoccurrenceRate: 0,
+                },
+                ingestHealth: {
+                    sdkUploadSuccessRate: null,
+                    sessionsWithUploadFailures: 0,
+                    sessionsWithOfflinePersist: 0,
+                    sessionsWithMemoryEvictions: 0,
+                    sessionsWithCircuitBreakerOpen: 0,
+                    sessionsWithHeavyRetries: 0,
+                },
+                networkBreakdown: [],
+                releaseRisk: [],
+                evidenceSessions: [],
+            };
+
+            await redis.set(cacheKey, JSON.stringify(result), 'EX', CACHE_TTL);
+            res.json(result);
+            return;
         }
 
         const baseConditions = [inArray(sessions.projectId, projectIds)];
@@ -3983,78 +4384,53 @@ router.get(
             return;
         }
 
-        // Time filter
         const days = timeRange === '24h' ? 1 : timeRange === '7d' ? 7 : timeRange === '30d' ? 30 : timeRange === '90d' ? 90 : 30;
         const startedAfter = new Date();
         startedAfter.setDate(startedAfter.getDate() - days);
+        const startDateStr = startedAfter.toISOString().split('T')[0];
+        const lastRolledUpDate = await getLastRolledUpDate();
 
-        // Get sessions with their device ID and duration
-        const conditions = [inArray(sessions.projectId, projectIds)];
-        if (startedAfter) conditions.push(gte(sessions.startedAt, startedAfter));
-
-        const sessionsData = await db
+        const dailyRows = await db
             .select({
-                id: sessions.id,
-                startedAt: sessions.startedAt,
-                deviceId: sessions.deviceId,
-                durationSeconds: sessions.durationSeconds,
-                screensVisited: sessionMetrics.screensVisited,
+                date: appDailyStats.date,
+                totalBouncers: appDailyStats.totalBouncers,
+                totalCasuals: appDailyStats.totalCasuals,
+                totalExplorers: appDailyStats.totalExplorers,
+                totalLoyalists: appDailyStats.totalLoyalists,
             })
-            .from(sessions)
-            .leftJoin(sessionMetrics, eq(sessions.id, sessionMetrics.sessionId))
-            .where(and(...conditions))
-            .limit(50000);
+            .from(appDailyStats)
+            .where(and(
+                inArray(appDailyStats.projectId, projectIds),
+                gte(appDailyStats.date, startDateStr),
+                lte(appDailyStats.date, lastRolledUpDate),
+            ))
+            .orderBy(asc(appDailyStats.date));
 
-        // Group sessions by day and device, keeping the "best" (highest engagement) session per user per day
-        // Engagement priority: loyalist > explorer > casual > bouncer
-        const dailyUserSegments: Record<string, Map<string, { segment: string; score: number }>> = {};
-
-        const getSegmentScore = (dur: number, screens: string[]) => {
-            if (dur > 180) return { segment: 'loyalists', score: 4 };
-            if (dur > 60 || screens.length > 3) return { segment: 'explorers', score: 3 };
-            if (dur >= 10) return { segment: 'casuals', score: 2 };
-            return { segment: 'bouncers', score: 1 };
-        };
-
-        for (const s of sessionsData) {
-            if (!s.deviceId) continue;
-            const dateKey = s.startedAt.toISOString().split('T')[0];
-            const dur = s.durationSeconds || 0;
-            const screens = s.screensVisited || [];
-            const { segment, score } = getSegmentScore(dur, screens);
-
-            if (!dailyUserSegments[dateKey]) {
-                dailyUserSegments[dateKey] = new Map();
-            }
-
-            const existing = dailyUserSegments[dateKey].get(s.deviceId);
-            if (!existing || score > existing.score) {
-                dailyUserSegments[dateKey].set(s.deviceId, { segment, score });
-            }
-        }
-
-        // Aggregate counts per day
-        const daily: Array<{
-            date: string;
+        const dailyMap = new Map<string, {
             bouncers: number;
             casuals: number;
             explorers: number;
             loyalists: number;
-        }> = [];
-
+        }>();
         const totals = { bouncers: 0, casuals: 0, explorers: 0, loyalists: 0 };
 
-        for (const [date, userMap] of Object.entries(dailyUserSegments)) {
-            const counts = { bouncers: 0, casuals: 0, explorers: 0, loyalists: 0 };
-            for (const { segment } of userMap.values()) {
-                counts[segment as keyof typeof counts]++;
-                totals[segment as keyof typeof totals]++;
-            }
-            daily.push({ date, ...counts });
+        for (const row of dailyRows) {
+            const current = dailyMap.get(row.date) ?? { bouncers: 0, casuals: 0, explorers: 0, loyalists: 0 };
+            current.bouncers += Number(row.totalBouncers || 0);
+            current.casuals += Number(row.totalCasuals || 0);
+            current.explorers += Number(row.totalExplorers || 0);
+            current.loyalists += Number(row.totalLoyalists || 0);
+            dailyMap.set(row.date, current);
+
+            totals.bouncers += Number(row.totalBouncers || 0);
+            totals.casuals += Number(row.totalCasuals || 0);
+            totals.explorers += Number(row.totalExplorers || 0);
+            totals.loyalists += Number(row.totalLoyalists || 0);
         }
 
-        // Sort by date
-        daily.sort((a, b) => a.date.localeCompare(b.date));
+        const daily = Array.from(dailyMap.entries())
+            .map(([date, counts]) => ({ date, ...counts }))
+            .sort((a, b) => a.date.localeCompare(b.date));
 
         const result = { daily, totals };
         await redis.set(cacheKey, JSON.stringify(result), 'EX', CACHE_TTL);

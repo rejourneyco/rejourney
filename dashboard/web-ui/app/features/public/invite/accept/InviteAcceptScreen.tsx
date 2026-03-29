@@ -4,6 +4,7 @@ import { useAuth } from '~/shared/providers/AuthContext';
 import { useTeam } from '~/shared/providers/TeamContext';
 import { Button } from '~/shared/ui/core/Button';
 import { getInvitationByToken, acceptInvitation, ApiTeamInvitation } from '~/shared/api/client';
+import { SELECTED_TEAM_COOKIE, writeSelectionCookie } from '~/shared/utils/selectionCookies';
 
 const LOGIN_REDIRECT_GUARD_KEY = 'rejourney_login_redirect_guard';
 
@@ -24,6 +25,7 @@ export const InviteAccept: React.FC = () => {
     const navigateToTeamDashboard = async (teamId?: string, delayMs: number = 0) => {
         if (typeof window !== 'undefined' && teamId) {
             localStorage.setItem('selectedTeamId', teamId);
+            writeSelectionCookie(SELECTED_TEAM_COOKIE, teamId);
         }
 
         await refreshTeams(teamId);

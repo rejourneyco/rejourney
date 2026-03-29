@@ -398,7 +398,6 @@ export const TabProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
         async function loadWorkspace() {
             try {
-                loadedProjectIdRef.current = projectId;
                 const workspace = await getWorkspace(teamId, projectId);
                 if (isCancelled) return;
                 const prefix = getPathPrefix();
@@ -551,6 +550,10 @@ export const TabProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             } finally {
                 if (!isCancelled) {
                     isScopeTransitionRef.current = false;
+                    // Set only after this effect run finishes successfully (not cancelled by Strict Mode
+                    // remount). Otherwise the next run early-exits while hasLoaded never becomes true and
+                    // the tab bar stays empty ("No open tabs").
+                    loadedProjectIdRef.current = projectId;
                     setHasLoaded(true);
                 }
             }

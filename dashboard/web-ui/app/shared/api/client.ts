@@ -151,6 +151,7 @@ async function fetchJsonWithTransientRetry<T>(
 // Cache for API responses
 const cache = new Map<string, { data: any; timestamp: number }>();
 const CACHE_TTL = 60000; // 60 seconds - helps tab switching feel instant when returning
+const PROJECTS_CACHE_TTL = 30000;
 const WORKSPACE_CACHE_TTL = 120000; // 2 minutes - workspace rarely changes
 
 /**
@@ -188,6 +189,19 @@ export function clearCache(key?: string): void {
   } else {
     cache.clear();
   }
+}
+
+export function clearCacheMatching(predicate: (key: string) => boolean): void {
+  for (const key of cache.keys()) {
+    if (predicate(key)) {
+      cache.delete(key);
+    }
+  }
+}
+
+export function clearCacheByPrefixes(prefixes: string[]): void {
+  if (prefixes.length === 0) return;
+  clearCacheMatching((key) => prefixes.some((prefix) => key.startsWith(prefix)));
 }
 
 // =============================================================================
@@ -276,6 +290,10 @@ export interface ApiSession {
     customEventCount?: number;
     crashCount?: number;
   };
+  effectiveStatus?: 'pending' | 'processing' | 'ready' | 'failed' | 'deleted' | 'recording' | 'error';
+  isLiveIngest?: boolean;
+  isBackgroundProcessing?: boolean;
+  canOpenReplay?: boolean;
 }
 
 export interface ApiSessionSummary {
@@ -312,6 +330,10 @@ export interface ApiSessionSummary {
   deepestFunnelStep?: number;
   stats: ApiSession['stats'];
   metrics?: ApiSession['metrics'];
+  effectiveStatus?: ApiSession['effectiveStatus'];
+  isLiveIngest?: boolean;
+  isBackgroundProcessing?: boolean;
+  canOpenReplay?: boolean;
 }
 
 export interface DashboardStats {
@@ -638,6 +660,10 @@ export function transformToRecordingSession(session: ApiSession | ApiSessionSumm
     interactionScore,
     explorationScore,
     status: (session as any).status || 'ready',
+    effectiveStatus: (session as any).effectiveStatus ?? (session as any).status ?? 'ready',
+    isLiveIngest: Boolean((session as any).isLiveIngest),
+    isBackgroundProcessing: Boolean((session as any).isBackgroundProcessing),
+    canOpenReplay: (session as any).canOpenReplay ?? (session as any).hasSuccessfulRecording ?? (session as any).replayPromoted ?? false,
     // Geo data if available
     geoLocation: session.geoLocation,
     // Device ID for DAU/MAU tracking
@@ -848,8 +874,11 @@ export interface CreateProjectRequest {
  * Get all projects
  */
 export async function getProjects(): Promise<ApiProject[]> {
-  const data = await fetchJsonWithTransientRetry<{ projects: ApiProject[] | ApiProject | undefined }>(
-    '/api/projects'
+  const data = await fetchWithCache<{ projects: ApiProject[] | ApiProject | undefined }>(
+    '/api/projects',
+    {},
+    'projects:list',
+    PROJECTS_CACHE_TTL,
   );
   const projects = data.projects;
   if (!projects) return [];
@@ -871,6 +900,7 @@ export async function createProject(projectData: CreateProjectRequest): Promise<
     method: 'POST',
     body: JSON.stringify(projectData),
   });
+  clearCache('projects:list');
   return data.project;
 }
 
@@ -889,6 +919,7 @@ export async function updateProject(projectId: string, data: { name?: string; ma
     method: 'PUT',
     body: JSON.stringify(data),
   });
+  clearCache('projects:list');
   return response.project;
 }
 
@@ -919,6 +950,7 @@ export async function deleteProject(
     method: 'DELETE',
     body: JSON.stringify(payload),
   });
+  clearCache('projects:list');
 }
 
 
@@ -2279,7 +2311,8 @@ export async function getGeoSummary(projectId?: string, timeRange?: string): Pro
   if (projectId) params.set('projectId', projectId);
   if (timeRange) params.set('timeRange', timeRange);
   const qs = params.toString() ? `?${params.toString()}` : '';
-  const data = await fetchJson<GeoSummary>(`/api/analytics/geo-summary${qs}`);
+  const cacheKey = `analytics:geo-summary:${projectId || 'all'}:${timeRange || 'all'}`;
+  const data = await fetchWithCache<GeoSummary>(`/api/analytics/geo-summary${qs}`, {}, cacheKey);
   return data;
 }
 
@@ -2295,7 +2328,8 @@ export async function getGeoValueByRegion(projectId?: string, timeRange?: string
   if (projectId) params.set('projectId', projectId);
   if (timeRange) params.set('timeRange', timeRange);
   const qs = params.toString() ? `?${params.toString()}` : '';
-  return fetchJson<GeoRegionalValue>(`/api/analytics/geo-value${qs}`);
+  const cacheKey = `analytics:geo-value:${projectId || 'all'}:${timeRange || 'all'}`;
+  return fetchWithCache<GeoRegionalValue>(`/api/analytics/geo-value${qs}`, {}, cacheKey);
 }
 
 // =============================================================================
@@ -2361,7 +2395,8 @@ export async function getGeoIssues(projectId?: string, timeRange?: string): Prom
   if (projectId) params.set('projectId', projectId);
   if (timeRange) params.set('timeRange', timeRange);
   const qs = params.toString() ? `?${params.toString()}` : '';
-  const data = await fetchJson<GeoIssuesSummary>(`/api/analytics/geo-issues${qs}`);
+  const cacheKey = `analytics:geo-issues:${projectId || 'all'}:${timeRange || 'all'}`;
+  const data = await fetchWithCache<GeoIssuesSummary>(`/api/analytics/geo-issues${qs}`, {}, cacheKey);
   return data;
 }
 
@@ -2394,7 +2429,8 @@ export async function getRegionPerformance(projectId: string, timeRange?: string
 
   const params = new URLSearchParams({ projectId });
   if (timeRange) params.set('timeRange', timeRange);
-  return fetchJson<RegionPerformance>(`/api/analytics/region-performance?${params.toString()}`);
+  const cacheKey = `analytics:region-performance:${projectId}:${timeRange || 'all'}`;
+  return fetchWithCache<RegionPerformance>(`/api/analytics/region-performance?${params.toString()}`, {}, cacheKey);
 }
 
 /**
@@ -2418,7 +2454,8 @@ export async function getApiEndpointStats(projectId: string, timeRange?: string)
 
   const params = new URLSearchParams({ projectId });
   if (timeRange) params.set('timeRange', timeRange);
-  return fetchJson<ApiEndpointStats>(`/api/analytics/api-endpoint-stats?${params.toString()}`);
+  const cacheKey = `analytics:api-endpoint-stats:${projectId}:${timeRange || 'all'}`;
+  return fetchWithCache<ApiEndpointStats>(`/api/analytics/api-endpoint-stats?${params.toString()}`, {}, cacheKey);
 }
 
 // =============================================================================
@@ -2443,7 +2480,8 @@ export async function getDeviceSummary(projectId?: string, timeRange?: string): 
   if (projectId) params.set('projectId', projectId);
   if (timeRange) params.set('timeRange', timeRange);
   const qs = params.toString() ? `?${params.toString()}` : '';
-  return fetchJson<DeviceSummary>(`/api/analytics/device-summary${qs}`);
+  const cacheKey = `analytics:device-summary:${projectId || 'all'}:${timeRange || 'all'}`;
+  return fetchWithCache<DeviceSummary>(`/api/analytics/device-summary${qs}`, {}, cacheKey);
 }
 
 export interface DeviceIssueMatrix {
@@ -2469,7 +2507,8 @@ export async function getDeviceIssueMatrix(projectId?: string, timeRange?: strin
   if (projectId) params.set('projectId', projectId);
   if (timeRange) params.set('timeRange', timeRange);
   const qs = params.toString() ? `?${params.toString()}` : '';
-  return fetchJson<DeviceIssueMatrix>(`/api/analytics/device-issues-matrix${qs}`);
+  const cacheKey = `analytics:device-issues-matrix:${projectId || 'all'}:${timeRange || 'all'}`;
+  return fetchWithCache<DeviceIssueMatrix>(`/api/analytics/device-issues-matrix${qs}`, {}, cacheKey);
 }
 
 // =============================================================================
@@ -2493,7 +2532,8 @@ export async function getJourneySummary(projectId?: string, timeRange?: string):
   if (projectId) params.set('projectId', projectId);
   if (timeRange) params.set('timeRange', timeRange);
   const qs = params.toString() ? `?${params.toString()}` : '';
-  return fetchJson<JourneySummary>(`/api/analytics/journey-summary${qs}`);
+  const cacheKey = `analytics:journey-summary:${projectId || 'all'}:${timeRange || 'all'}`;
+  return fetchWithCache<JourneySummary>(`/api/analytics/journey-summary${qs}`, {}, cacheKey);
 }
 
 // =============================================================================
@@ -2575,7 +2615,11 @@ export interface ObservabilityJourneySummary {
   exitPoints: Array<{ screen: string; count: number }>;
 }
 
-export async function getJourneyObservability(projectId?: string, timeRange?: string): Promise<ObservabilityJourneySummary> {
+export async function getJourneyObservability(
+  projectId?: string,
+  timeRange?: string,
+  mode: 'full' | 'summary' = 'full',
+): Promise<ObservabilityJourneySummary> {
   // Demo mode: return mock data
   if (isDemoMode()) {
     return demoApiData.demoJourneyObservability;
@@ -2584,8 +2628,10 @@ export async function getJourneyObservability(projectId?: string, timeRange?: st
   const params = new URLSearchParams();
   if (projectId) params.set('projectId', projectId);
   if (timeRange) params.set('timeRange', timeRange);
+  if (mode !== 'full') params.set('mode', mode);
   const qs = params.toString() ? `?${params.toString()}` : '';
-  return fetchJson<ObservabilityJourneySummary>(`/api/analytics/journey-observability${qs}`);
+  const cacheKey = `analytics:journey-observability:${projectId || 'all'}:${timeRange || 'all'}:${mode}`;
+  return fetchWithCache<ObservabilityJourneySummary>(`/api/analytics/journey-observability${qs}`, {}, cacheKey);
 }
 
 // =============================================================================
@@ -2638,7 +2684,11 @@ export interface GrowthObservability {
   }>;
 }
 
-export async function getGrowthObservability(projectId?: string, timeRange?: string): Promise<GrowthObservability> {
+export async function getGrowthObservability(
+  projectId?: string,
+  timeRange?: string,
+  mode: 'full' | 'summary' = 'full',
+): Promise<GrowthObservability> {
   // Demo mode: return mock data
   if (isDemoMode()) {
     return demoApiData.demoGrowthObservability;
@@ -2647,8 +2697,10 @@ export async function getGrowthObservability(projectId?: string, timeRange?: str
   const params = new URLSearchParams();
   if (projectId) params.set('projectId', projectId);
   if (timeRange) params.set('timeRange', timeRange);
+  if (mode !== 'full') params.set('mode', mode);
   const qs = params.toString() ? `?${params.toString()}` : '';
-  return fetchJson<GrowthObservability>(`/api/analytics/growth-observability${qs}`);
+  const cacheKey = `analytics:growth-observability:${projectId || 'all'}:${timeRange || 'all'}:${mode}`;
+  return fetchWithCache<GrowthObservability>(`/api/analytics/growth-observability${qs}`, {}, cacheKey);
 }
 
 // =============================================================================
@@ -2728,7 +2780,11 @@ export interface ObservabilityDeepMetrics {
   }>;
 }
 
-export async function getObservabilityDeepMetrics(projectId?: string, timeRange?: string): Promise<ObservabilityDeepMetrics> {
+export async function getObservabilityDeepMetrics(
+  projectId?: string,
+  timeRange?: string,
+  mode: 'full' | 'summary' = 'full',
+): Promise<ObservabilityDeepMetrics> {
   if (isDemoMode()) {
     return demoApiData.demoObservabilityDeepMetrics;
   }
@@ -2736,8 +2792,10 @@ export async function getObservabilityDeepMetrics(projectId?: string, timeRange?
   const params = new URLSearchParams();
   if (projectId) params.set('projectId', projectId);
   if (timeRange) params.set('timeRange', timeRange);
+  if (mode !== 'full') params.set('mode', mode);
   const qs = params.toString() ? `?${params.toString()}` : '';
-  return fetchJson<ObservabilityDeepMetrics>(`/api/analytics/observability-deep-metrics${qs}`);
+  const cacheKey = `analytics:observability-deep-metrics:${projectId || 'all'}:${timeRange || 'all'}:${mode}`;
+  return fetchWithCache<ObservabilityDeepMetrics>(`/api/analytics/observability-deep-metrics${qs}`, {}, cacheKey);
 }
 
 // =============================================================================
@@ -2770,7 +2828,8 @@ export async function getUserEngagementTrends(projectId?: string, timeRange?: st
   if (projectId) params.set('projectId', projectId);
   if (timeRange) params.set('timeRange', timeRange);
   const qs = params.toString() ? `?${params.toString()}` : '';
-  return fetchJson<UserEngagementTrends>(`/api/analytics/user-engagement-trends${qs}`);
+  const cacheKey = `analytics:user-engagement-trends:${projectId || 'all'}:${timeRange || 'all'}`;
+  return fetchWithCache<UserEngagementTrends>(`/api/analytics/user-engagement-trends${qs}`, {}, cacheKey);
 }
 
 // =============================================================================

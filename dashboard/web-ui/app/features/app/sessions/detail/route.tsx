@@ -37,7 +37,6 @@ import {
     Copy,
     Database,
 } from 'lucide-react';
-import { useSessionData } from '~/shared/providers/SessionContext';
 import { usePathPrefix } from '~/shell/routing/usePathPrefix';
 import { api } from '~/shared/api/client';
 import DOMInspector, { HierarchySnapshot } from '~/shared/ui/core/DOMInspector';
@@ -570,7 +569,6 @@ const INSIGHT_LEVEL_STYLES: Record<InsightLevel, { badge: string; value: string;
 export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId }) => {
     const { sessionId: paramId } = useParams<{ sessionId: string }>();
     const id = sessionId || paramId;
-    const { sessions } = useSessionData();
     const navigate = useNavigate();
     const pathPrefix = usePathPrefix();
     const isDemoReplay = pathPrefix === '/demo';
@@ -643,7 +641,8 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
     }, [currentFrameIndex]);
 
     // Get basic session from context
-    const session = sessions.find((s) => s.id === id);
+    const session: any = null;
+    const sessions: any[] = [];
 
     // Fetch full session data
     const fetchFullSession = useCallback(async () => {
@@ -1786,10 +1785,8 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
     // EARLY RETURNS (after all hooks)
     // ========================================================================
 
-    // Loading state
-    // Show the loading overlay while ANY main component is still preparing.
-    // The overlay itself computes an exact 0-100% progress score dynamically.
-    if ((isCoreLoading && !fullSession) || visualReplayPreparing || isTimelineLoading || isHierarchyLoading) {
+    // Only block the full page while the core session bootstrap is still missing.
+    if (isCoreLoading && !fullSession) {
         return (
             <SessionLoadingOverlay
                 isCoreLoading={isCoreLoading}
@@ -2304,6 +2301,21 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
                                                     className="relative overflow-hidden rounded-[2rem] bg-slate-900"
                                                     style={{ aspectRatio: `${deviceWidth} / ${deviceHeight}` }}
                                                 >
+                                                    {visualReplayPreparing && (
+                                                        <div className="absolute inset-0 z-30 flex flex-col items-center justify-center bg-slate-950/80 px-6 text-center text-slate-100">
+                                                            <RefreshCw className="h-8 w-8 animate-spin text-cyan-300" />
+                                                            <p className="mt-4 text-sm font-semibold">Visual replay still processing</p>
+                                                            <p className="mt-2 text-xs leading-5 text-slate-300">
+                                                                Timeline events and logs are ready first. Frames will appear automatically as soon as processing finishes.
+                                                            </p>
+                                                            {replayPreparationProgressPercent !== null ? (
+                                                                <p className="mt-3 text-[11px] font-semibold uppercase tracking-wide text-cyan-200">
+                                                                    {replayPreparationProgressPercent}% complete
+                                                                </p>
+                                                            ) : null}
+                                                        </div>
+                                                    )}
+
                                                     {platform === 'android' ? (
                                                         <div className="pointer-events-none absolute left-1/2 top-3 z-20 h-4 w-4 -translate-x-1/2 rounded-full bg-slate-900" />
                                                     ) : (

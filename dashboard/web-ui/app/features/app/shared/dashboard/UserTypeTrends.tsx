@@ -2,7 +2,7 @@ import React, { useMemo, useEffect, useState } from 'react';
 import { NeoCard } from '~/shared/ui/core/neo/NeoCard';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine } from 'recharts';
 import { useSessionData } from '~/shared/providers/SessionContext';
-import { getUserEngagementTrends, UserEngagementTrends } from '~/shared/api/client';
+import { getSessionsPaginated, getUserEngagementTrends, UserEngagementTrends } from '~/shared/api/client';
 import { Tag } from 'lucide-react';
 
 interface UserTypeTrendsProps {
@@ -10,9 +10,10 @@ interface UserTypeTrendsProps {
 }
 
 export const UserTypeTrends: React.FC<UserTypeTrendsProps> = ({ className }) => {
-    const { selectedProject, timeRange, sessions } = useSessionData();
+    const { selectedProject, timeRange } = useSessionData();
     const [trends, setTrends] = useState<UserEngagementTrends | null>(null);
     const [isLoading, setIsLoading] = useState(false);
+    const [sessions, setSessions] = useState<any[]>([]);
 
     useEffect(() => {
         if (!selectedProject?.id) return;
@@ -31,6 +32,31 @@ export const UserTypeTrends: React.FC<UserTypeTrendsProps> = ({ className }) => 
         };
 
         fetchTrends();
+    }, [selectedProject?.id, timeRange]);
+
+    useEffect(() => {
+        if (!selectedProject?.id) {
+            setSessions([]);
+            return;
+        }
+
+        let cancelled = false;
+        getSessionsPaginated({
+            projectId: selectedProject.id,
+            timeRange: timeRange === 'all' ? undefined : timeRange,
+            limit: 200,
+        }).then((response) => {
+            if (cancelled) return;
+            setSessions(response.sessions || []);
+        }).catch((err) => {
+            if (cancelled) return;
+            console.error('Failed to fetch sessions for version markers', err);
+            setSessions([]);
+        });
+
+        return () => {
+            cancelled = true;
+        };
     }, [selectedProject?.id, timeRange]);
 
     // Derive version first-seen dates from sessions

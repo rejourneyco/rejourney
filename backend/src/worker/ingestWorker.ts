@@ -10,11 +10,12 @@
 
 import { eq, and, or, isNull, lte, asc, sql } from 'drizzle-orm';
 import { db, pool, ingestJobs, sessions, sessionMetrics, projects, recordingArtifacts } from '../db/client.js';
+import { getRedis } from '../db/redis.js';
 import { analyzeProjectFunnel } from '../services/funnelAnalysis.js';
 import { downloadFromS3ForArtifact, getObjectSizeBytesForArtifact } from '../db/s3.js';
 import { logger } from '../logger.js';
 import { pingWorker, checkQueueHealth } from '../services/monitoring.js';
-import { prewarmSessionScreenshotFrames } from '../services/screenshotFrames.js';
+import { invalidateFrameCache, prewarmSessionScreenshotFrames } from '../services/screenshotFrames.js';
 import { ensureHierarchyArtifactCompressed } from '../services/hierarchyArtifactCompression.js';
 import { sanitizeIngestErrorMessage } from '../services/ingestProtocol.js';
 import {
@@ -25,24 +26,75 @@ import {
 import { processEventsArtifact } from '../services/ingestEventArtifactProcessor.js';
 import { processRecoveredReplayArtifact } from '../services/ingestReplayArtifactProcessor.js';
 import { processAnrsArtifact, processCrashesArtifact } from '../services/ingestFaultArtifactProcessors.js';
+import { repairMissingSessionsFromIngestJobs } from '../services/ingestSessionLifecycle.js';
 import { backfillArtifactDrivenLifecycleState, reconcileDueSessions, reconcileSessionState } from '../services/sessionReconciliation.js';
 
 const POLL_INTERVAL_MS = 500;
 const MAX_ATTEMPTS = 5;
-const BATCH_SIZE = 20;
+const BATCH_SIZE = Number(process.env.RJ_INGEST_BATCH_SIZE ?? 20);
 const JOB_PROCESS_CONCURRENCY = Number(process.env.RJ_INGEST_JOB_CONCURRENCY ?? 4);
+const MAX_RUNNABLE_PER_SESSION = Math.max(1, Number(process.env.RJ_INGEST_MAX_RUNNABLE_PER_SESSION ?? 2));
+const ALLOWED_JOB_KINDS = new Set(
+    String(process.env.RJ_INGEST_ALLOWED_KINDS ?? '')
+        .split(',')
+        .map((value) => value.trim())
+        .filter(Boolean)
+);
+const KIND_PRIORITY_ORDER = String(process.env.RJ_INGEST_KIND_PRIORITY ?? 'screenshots,hierarchy,events,crashes,anrs')
+    .split(',')
+    .map((value) => value.trim())
+    .filter(Boolean);
+const KIND_PRIORITY = new Map(KIND_PRIORITY_ORDER.map((kind, index) => [kind, index]));
 const SESSION_SWEEP_INTERVAL_MS = 10_000;
+const ORPHAN_SESSION_SWEEP_INTERVAL_MS = 60_000;
 const HEARTBEAT_INTERVAL_MS = 60_000;
 const WORKER_ID = `${process.env.HOSTNAME || 'local'}:${process.pid}`;
+const WORKER_MONITOR_NAME = (process.env.RJ_WORKER_NAME as 'ingestWorker' | 'replayWorker' | undefined) ?? 'ingestWorker';
 const ENABLE_STARTUP_BACKFILL = process.env.INGEST_ENABLE_STARTUP_BACKFILL === 'true';
 
 let lastSessionSweepAt = 0;
+let lastOrphanSessionSweepAt = 0;
 let lastHeartbeatAt = 0;
 
 let isRunning = true;
 
 // Avoid duplicate prewarm calls when multiple artifacts land close together.
 const prewarmInFlight = new Set<string>();
+
+async function invalidateSessionDetailCaches(sessionId: string): Promise<void> {
+    try {
+        await invalidateFrameCache(sessionId);
+        await getRedis().del(
+            `session_core:${sessionId}`,
+            `session_timeline:${sessionId}`,
+            `session_hierarchy:${sessionId}`,
+        );
+    } catch (err) {
+        logger.warn({ err, sessionId }, 'Failed to invalidate session detail caches after ingest');
+    }
+}
+
+function kindPriority(kind: string | null | undefined): number {
+    if (!kind) return KIND_PRIORITY.size + 1;
+    return KIND_PRIORITY.get(kind) ?? (KIND_PRIORITY.size + 1);
+}
+
+function maybePrewarmReplayFrames(sessionId: string) {
+    if (prewarmInFlight.has(sessionId)) return;
+    prewarmInFlight.add(sessionId);
+    prewarmSessionScreenshotFrames(sessionId)
+        .then((ok) => {
+            if (ok) {
+                logger.info({ sessionId }, 'Prewarmed screenshot frames');
+            }
+        })
+        .catch((err) => {
+            logger.warn({ err, sessionId }, 'Failed to prewarm screenshot frames');
+        })
+        .finally(() => {
+            prewarmInFlight.delete(sessionId);
+        });
+}
 
 async function scheduleArtifactJobRetry(
     jobId: string,
@@ -85,12 +137,33 @@ async function runSessionSweepIfDue(): Promise<void> {
         const abandoned = await abandonExpiredPendingArtifacts(100);
         const requeued = await requeueStaleProcessingJobs(100);
         const recovered = await queueRecoverableArtifacts(100);
-        const reconciled = await reconcileDueSessions(100);
+        const reconciled = await reconcileDueSessions(500, 20);
         if (abandoned > 0 || requeued > 0 || recovered > 0 || reconciled > 0) {
             logger.info({ abandoned, requeued, recovered, reconciled }, 'session.reconcile_sweep');
         }
     } catch (err) {
         logger.error({ err }, 'Session reconciliation sweep failed');
+    }
+}
+
+async function runMissingSessionRepairIfDue(): Promise<void> {
+    if (WORKER_MONITOR_NAME !== 'ingestWorker') return;
+
+    const now = Date.now();
+    if (now - lastOrphanSessionSweepAt < ORPHAN_SESSION_SWEEP_INTERVAL_MS) return;
+    lastOrphanSessionSweepAt = now;
+
+    try {
+        const repaired = await repairMissingSessionsFromIngestJobs({
+            since: new Date(Date.now() - (7 * 24 * 60 * 60 * 1000)),
+            limit: 25,
+            source: WORKER_MONITOR_NAME,
+        });
+        if (repaired.scanned > 0) {
+            logger.info(repaired, 'session.repair_missing_sweep');
+        }
+    } catch (err) {
+        logger.error({ err }, 'Missing session repair sweep failed');
     }
 }
 
@@ -168,7 +241,11 @@ async function processArtifactJob(job: any): Promise<boolean> {
             await db.update(ingestJobs)
                 .set({ status: 'done', completedAt: new Date(), updatedAt: new Date() })
                 .where(eq(ingestJobs.id, job.id));
-            await reconcileSessionState(session.id);
+            const reconcileResult = await reconcileSessionState(session.id);
+            await invalidateSessionDetailCaches(session.id);
+            if (job.kind === 'screenshots' && reconcileResult?.replayAvailable) {
+                maybePrewarmReplayFrames(session.id);
+            }
             artifactLog.info('Artifact already ready; marked job done without reprocessing');
             return true;
         }
@@ -239,24 +316,15 @@ async function processArtifactJob(job: any): Promise<boolean> {
                 )
             );
 
-        await reconcileSessionState(session.id);
+        const reconcileResult = await reconcileSessionState(session.id);
+        await invalidateSessionDetailCaches(session.id);
+
+        if (job.kind === 'screenshots' && reconcileResult?.replayAvailable) {
+            maybePrewarmReplayFrames(session.id);
+        }
 
         if (Number(pendingResult?.count ?? 0) === 0) {
-            if (!prewarmInFlight.has(session.id)) {
-                prewarmInFlight.add(session.id);
-                prewarmSessionScreenshotFrames(session.id)
-                    .then((ok) => {
-                        if (ok) {
-                            logger.info({ sessionId: session.id }, 'Prewarmed screenshot frames after ingest completion');
-                        }
-                    })
-                    .catch((err) => {
-                        logger.warn({ err, sessionId: session.id }, 'Failed to prewarm screenshot frames');
-                    })
-                    .finally(() => {
-                        prewarmInFlight.delete(session.id);
-                    });
-            }
+            maybePrewarmReplayFrames(session.id);
 
             // LAZY FUNNEL LEARNING
             // Randomly trigger funnel analysis (5% chance) to keep the "Happy Path" up to date
@@ -298,8 +366,8 @@ async function sendHeartbeat(): Promise<void> {
 
     try {
         const queueHealth = await checkQueueHealth();
-        const message = `pending = ${queueHealth.pendingJobs}, dlq = ${queueHealth.dlqJobs} `;
-        await pingWorker('ingestWorker', 'up', message);
+        const message = `pending=${queueHealth.pendingJobs},dlq=${queueHealth.dlqJobs},replay_screenshots=${queueHealth.replayPendingByKind.screenshots},replay_hierarchy=${queueHealth.replayPendingByKind.hierarchy}`;
+        await pingWorker(WORKER_MONITOR_NAME, 'up', message);
     } catch (err) {
         logger.debug({ err }, 'Failed to send heartbeat');
     }
@@ -318,6 +386,9 @@ async function pollJobs(): Promise<void> {
                 .where(
                     and(
                         eq(ingestJobs.status, 'pending'),
+                        ALLOWED_JOB_KINDS.size > 0
+                            ? sql`${ingestJobs.kind} in (${sql.join(Array.from(ALLOWED_JOB_KINDS).map((kind) => sql`${kind}`), sql`, `)})`
+                            : sql`true`,
                         sql`${recordingArtifacts.status} in ('uploaded', 'ready')`,
                         or(
                             isNull(ingestJobs.nextRunAt),
@@ -327,15 +398,22 @@ async function pollJobs(): Promise<void> {
                 )
                 .orderBy(asc(ingestJobs.createdAt))
                 .limit(BATCH_SIZE);
-            const runnableSource = jobs.map((row) => row.job);
+            const runnableSource = jobs
+                .map((row) => row.job)
+                .sort((left, right) => {
+                    const priorityDelta = kindPriority(left.kind) - kindPriority(right.kind);
+                    if (priorityDelta !== 0) return priorityDelta;
+                    return new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime();
+                });
 
             if (runnableSource.length > 0) {
                 logger.info({ count: runnableSource.length }, 'Processing ingest jobs');
-                const seenSessionIds = new Set<string>();
+                const perSessionCounts = new Map<string, number>();
                 const runnableJobs = runnableSource.filter((job) => {
                     const key = job.sessionId || `job:${job.id}`;
-                    if (seenSessionIds.has(key)) return false;
-                    seenSessionIds.add(key);
+                    const currentCount = perSessionCounts.get(key) ?? 0;
+                    if (currentCount >= MAX_RUNNABLE_PER_SESSION) return false;
+                    perSessionCounts.set(key, currentCount + 1);
                     return true;
                 });
 
@@ -353,12 +431,13 @@ async function pollJobs(): Promise<void> {
             }
 
             await runSessionSweepIfDue();
+            await runMissingSessionRepairIfDue();
 
             await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
 
         } catch (err) {
             logger.error({ err }, 'Error polling ingest jobs');
-            await pingWorker('ingestWorker', 'down', String(err)).catch(() => { });
+            await pingWorker(WORKER_MONITOR_NAME, 'down', String(err)).catch(() => { });
             await new Promise((resolve) => setTimeout(resolve, 5000));
         }
     }

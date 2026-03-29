@@ -1,19 +1,19 @@
 /**
  * Session Data Context
- * 
- * Provides real session data from the API to all components.
- * Falls back to mock data if API is unavailable.
- * In demo mode, returns static demo data.
+ *
+ * Keeps project bootstrap + selection state lightweight so dashboard chrome
+ * can render immediately, while heavier session/analytics screens fetch their
+ * own data locally.
  */
 
-import { useSafeTeam } from './TeamContext';
-import { useDemoMode } from './DemoModeContext';
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { useAuth } from './AuthContext';
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
-import { api, getProjects, ApiProject, clearCache } from '~/shared/api/client';
+import { useDemoMode } from './DemoModeContext';
+import { useSafeTeam } from './TeamContext';
+import { api, ApiProject, clearCache, clearCacheByPrefixes, getProjects } from '~/shared/api/client';
 import { RecordingSession, Project, ProjectDailyStats, TimeRange } from '~/shared/types';
+import { clearSelectionCookie, SELECTED_PROJECT_COOKIE, writeSelectionCookie } from '~/shared/utils/selectionCookies';
 
-// Convert API project to Project type
 function apiProjectToProject(apiProject: ApiProject): Project {
   return {
     id: apiProject.id,
@@ -29,7 +29,6 @@ function apiProjectToProject(apiProject: ApiProject): Project {
     createdAt: apiProject.createdAt,
     sessionsLast7Days: apiProject.sessionsLast7Days || 0,
     errorsLast7Days: apiProject.errorsLast7Days || 0,
-
   };
 }
 
@@ -39,31 +38,68 @@ function selectedProjectStorageKey(teamId?: string | null): string {
   return teamId ? `${SELECTED_PROJECT_ID_KEY_PREFIX}:${teamId}` : SELECTED_PROJECT_ID_KEY_PREFIX;
 }
 
+function readStoredSelectedProjectId(teamId: string | null | undefined): string | null {
+  if (typeof window === 'undefined') {
+    return null;
+  }
+
+  return localStorage.getItem(selectedProjectStorageKey(teamId));
+}
+
+interface SelectProjectForTeamOptions {
+  preferredProjectId?: string | null;
+  preferStoredSelection?: boolean;
+}
+
+function selectProjectForTeam(
+  teamProjects: Project[],
+  teamId: string | null | undefined,
+  {
+    preferredProjectId,
+    preferStoredSelection = false,
+  }: SelectProjectForTeamOptions = {},
+): Project | null {
+  if (teamProjects.length === 0) return null;
+
+  const savedProjectId = readStoredSelectedProjectId(teamId);
+  const candidateIds = preferStoredSelection
+    ? [savedProjectId, preferredProjectId]
+    : [preferredProjectId, savedProjectId];
+
+  for (const candidateId of candidateIds) {
+    if (!candidateId) continue;
+    const selected = teamProjects.find((project) => project.id === candidateId) || null;
+    if (selected) {
+      return selected;
+    }
+  }
+
+  return teamProjects[0] || null;
+}
+
+async function warmProjectDashboardCaches(projectId: string | null, timeRange: TimeRange): Promise<void> {
+  if (!projectId) return;
+  await Promise.allSettled([
+    api.getDashboardStats(projectId, timeRange),
+    api.getInsightsTrends(projectId, timeRange),
+  ]);
+}
+
 interface SessionContextValue {
-  // Data
   sessions: RecordingSession[];
   projects: Project[];
-
   dailyStats: ProjectDailyStats[];
-
-  // Selected project (synced with sidebar selection)
   selectedProject: Project | null;
   setSelectedProject: (project: Project | null) => void;
-
-  // Time range filter
   timeRange: TimeRange;
   setTimeRange: (range: TimeRange) => void;
-
-  // Loading states
   isLoading: boolean;
   error: string | null;
-
-  // Actions
+  projectsLoading: boolean;
+  projectsReady: boolean;
+  projectsError: string | null;
   refreshSessions: () => Promise<void>;
   getSession: (id: string) => Promise<RecordingSession | null>;
-
-
-  // Stats
   dashboardStats: {
     totalSessions: number;
     avgDuration: number;
@@ -83,270 +119,219 @@ export function useSessionData(): SessionContextValue {
 
 interface Props {
   children: React.ReactNode;
+  initialProjects?: ApiProject[];
+  initialProjectsTeamId?: string | null;
+  initialSelectedProjectId?: string | null;
 }
 
-export function SessionDataProvider({ children }: Props) {
+export function SessionDataProvider({
+  children,
+  initialProjects = [],
+  initialProjectsTeamId,
+  initialSelectedProjectId = null,
+}: Props) {
   const { currentTeam, isLoading: isTeamLoading } = useSafeTeam();
   const { isAuthenticated, isLoading: isAuthLoading, refreshUser } = useAuth();
   const demoMode = useDemoMode();
-  const [sessions, setSessions] = useState<RecordingSession[]>([]);
-  const [projects, setProjects] = useState<Project[]>([]);
-  const [selectedProject, setSelectedProjectState] = useState<Project | null>(null);
-  const [lastTeamId, setLastTeamId] = useState<string | null>(null);
 
+  const bootstrappedProjects = useMemo(
+    () => initialProjects.map(apiProjectToProject),
+    [initialProjects],
+  );
+
+  const [sessions, setSessions] = useState<RecordingSession[]>([]);
+  const [projects, setProjects] = useState<Project[]>(bootstrappedProjects);
+  const [selectedProject, setSelectedProjectState] = useState<Project | null>(() => (
+    selectProjectForTeam(bootstrappedProjects, initialProjectsTeamId, { preferredProjectId: initialSelectedProjectId })
+  ));
   const [dailyStats, setDailyStats] = useState<ProjectDailyStats[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [timeRange, setTimeRange] = useState<TimeRange>('all');
-  const [hasInitialLoad, setHasInitialLoad] = useState(false);
   const [dashboardStats, setDashboardStats] = useState({
     totalSessions: 0,
     avgDuration: 0,
     errorRate: 0,
   });
+  const [timeRange, setTimeRange] = useState<TimeRange>('all');
+  const [projectsLoading, setProjectsLoading] = useState(!demoMode.isDemoMode && initialProjectsTeamId === undefined);
+  const [projectsReady, setProjectsReady] = useState(demoMode.isDemoMode || initialProjectsTeamId !== undefined);
+  const [projectsError, setProjectsError] = useState<string | null>(null);
 
-  // Clear state when team changes to ensure pages show fresh data
-  useEffect(() => {
-    if (demoMode.isDemoMode) return;
-    
-    // If team changed and we had a previous team
-    if (currentTeam?.id && lastTeamId && currentTeam.id !== lastTeamId) {
-      // Clear current selection to force refresh
-      setSelectedProjectState(null);
-      setProjects([]);
-      setSessions([]);
-      setIsLoading(true);
-    }
-    
-    // Track the current team
-    if (currentTeam?.id) {
-      setLastTeamId(currentTeam.id);
-    }
-  }, [currentTeam?.id, lastTeamId, demoMode.isDemoMode]);
+  const latestRequestIdRef = useRef(0);
+  const lastTeamIdRef = useRef<string | null>(currentTeam?.id ?? null);
+  const bootstrapConsumedRef = useRef(false);
 
-  // Demo mode: return static demo data
-  useEffect(() => {
-    if (demoMode.isDemoMode) {
-      setSessions(demoMode.demoSessions);
-      setProjects(demoMode.demoProjects);
-      setDailyStats(demoMode.demoDailyStats);
-      setDashboardStats(demoMode.demoDashboardStats);
-      if (demoMode.demoProjects.length > 0) {
-        setSelectedProjectState(demoMode.demoProjects[0]);
+  const applyProjectsForTeam = useCallback((
+    fetchedProjects: ApiProject[],
+    teamId: string | null | undefined,
+    {
+      preferredProjectId,
+      preferStoredSelection = false,
+    }: SelectProjectForTeamOptions = {},
+  ) => {
+    const teamProjects = fetchedProjects
+      .filter((project) => !teamId || !project.teamId || project.teamId === teamId)
+      .map(apiProjectToProject);
+    const nextSelectedProject = selectProjectForTeam(teamProjects, teamId, {
+      preferredProjectId,
+      preferStoredSelection,
+    });
+
+    setProjects(teamProjects);
+    setSelectedProjectState(nextSelectedProject);
+    setProjectsReady(true);
+    setProjectsError(null);
+    setProjectsLoading(false);
+
+    if (typeof window !== 'undefined') {
+      const storageKey = selectedProjectStorageKey(teamId);
+      if (nextSelectedProject) {
+        localStorage.setItem(storageKey, nextSelectedProject.id);
+        writeSelectionCookie(SELECTED_PROJECT_COOKIE, nextSelectedProject.id);
+      } else {
+        localStorage.removeItem(storageKey);
+        clearSelectionCookie(SELECTED_PROJECT_COOKIE);
       }
-      setIsLoading(false);
-      setHasInitialLoad(true);
-      return;
     }
-  }, [demoMode.isDemoMode, demoMode.demoSessions, demoMode.demoProjects, demoMode.demoDailyStats, demoMode.demoDashboardStats]);
 
-  // Request guard to avoid stale responses overwriting state after team/project switches.
-  const latestRequestIdRef = React.useRef(0);
-  // Last good project list — used when /api/projects fails so we do not wipe the sidebar.
-  const projectsRef = React.useRef<Project[]>([]);
-  useEffect(() => {
-    projectsRef.current = projects;
-  }, [projects]);
+    void warmProjectDashboardCaches(nextSelectedProject?.id ?? null, timeRange);
+  }, [timeRange]);
 
-  // Fetch sessions from API (skip in demo mode)
-  const fetchSessions = useCallback(async (options: { silent?: boolean } = {}) => {
-    // Skip API calls in demo mode or when not authenticated
-    if (demoMode.isDemoMode || !isAuthenticated) {
+  const refreshProjects = useCallback(async (options: { silent?: boolean; force?: boolean } = {}) => {
+    if (demoMode.isDemoMode || !isAuthenticated || !currentTeam?.id) {
       return;
     }
 
     const requestId = ++latestRequestIdRef.current;
     const isStale = () => latestRequestIdRef.current !== requestId;
 
+    if (!options.silent) {
+      setProjectsLoading(true);
+    }
+    setProjectsError(null);
+
     try {
-      if (!options.silent) {
-        setIsLoading(true);
+      if (options.force) {
+        clearCache('projects:list');
       }
-      setError(null);
-
-      // Use Promise.allSettled so a failure in sessions/analytics doesn't
-      // prevent projects from loading. Projects are critical for navigation;
-      // analytics are not.
-      const [sessionsResult, statsResult, projectsResult, trendsResult] = await Promise.allSettled([
-        api.getRecordingSessions(timeRange) as Promise<any[]>,
-        api.getDashboardStatsWithTimeRange(timeRange),
-        getProjects(),
-        api.getInsightsTrends(undefined, timeRange)
-      ]);
-
+      const fetchedProjects = await getProjects();
       if (isStale()) return;
+      applyProjectsForTeam(fetchedProjects, currentTeam.id);
+    } catch (err) {
+      if (isStale()) return;
+      console.error('Failed to fetch projects:', err);
+      setProjectsLoading(false);
+      setProjectsReady(true);
+      setProjectsError('Unable to load projects right now. Existing project data is still available.');
+    }
+  }, [applyProjectsForTeam, currentTeam?.id, demoMode.isDemoMode, isAuthenticated]);
 
-      // Collect partial errors for display without blocking what succeeded
-      const partialErrors: string[] = [];
+  useEffect(() => {
+    if (!demoMode.isDemoMode) return;
 
-      const apiSessions = sessionsResult.status === 'fulfilled' ? sessionsResult.value : (() => { partialErrors.push('sessions'); return []; })();
-      const stats = statsResult.status === 'fulfilled' ? statsResult.value : (() => { partialErrors.push('stats'); return { totalSessions: 0, avgDuration: 0, errorRate: 0 }; })();
-      const projectsOk = projectsResult.status === 'fulfilled';
-      const apiProjects = projectsOk ? projectsResult.value : (() => { partialErrors.push('projects'); return [] as ApiProject[]; })();
-      const trends = trendsResult.status === 'fulfilled' ? trendsResult.value : (() => { partialErrors.push('trends'); return { daily: [] }; })();
+    setSessions(demoMode.demoSessions);
+    setProjects(demoMode.demoProjects);
+    setDailyStats(demoMode.demoDailyStats);
+    setDashboardStats(demoMode.demoDashboardStats);
+    setSelectedProjectState(demoMode.demoProjects[0] ?? null);
+    setProjectsLoading(false);
+    setProjectsReady(true);
+    setProjectsError(null);
+  }, [
+    demoMode.demoDailyStats,
+    demoMode.demoDashboardStats,
+    demoMode.demoProjects,
+    demoMode.demoSessions,
+    demoMode.isDemoMode,
+  ]);
 
-      if (partialErrors.length > 0) {
-        console.error('Partial data fetch failures:', partialErrors);
-        if (partialErrors.includes('projects')) {
-          setError('Unable to reach server. Please try again soon. Your projects could not be loaded right now.');
-        } else {
-          setError(`Some data failed to load: ${partialErrors.join(', ')}. The dashboard may show incomplete information.`);
-        }
-      }
+  useEffect(() => {
+    if (demoMode.isDemoMode) return;
+    if (isTeamLoading || isAuthLoading) return;
 
-      // Project list + ids for session filtering: on /api/projects failure keep last good list (sidebar stays usable).
-      let teamProjectIds: Set<string>;
-      let convertedProjects: Project[];
+    if (!isAuthenticated) {
+      setProjects([]);
+      setSelectedProjectState(null);
+      setSessions([]);
+      setProjectsLoading(false);
+      setProjectsReady(true);
+      setProjectsError(null);
+      return;
+    }
 
-      if (projectsOk) {
-        const teamProjects = currentTeam
-          ? apiProjects.filter(p => !p.teamId || p.teamId === currentTeam.id)
-          : apiProjects;
-        convertedProjects = teamProjects.map(apiProjectToProject);
-        setProjects(convertedProjects);
-        teamProjectIds = new Set(convertedProjects.map(p => p.id));
-      } else {
-        const fallback = currentTeam
-          ? projectsRef.current.filter(p => !p.teamId || p.teamId === currentTeam.id)
-          : projectsRef.current;
-        convertedProjects = fallback;
-        teamProjectIds = new Set(fallback.map(p => p.id));
-      }
+    const teamId = currentTeam?.id ?? null;
+    const previousTeamId = lastTeamIdRef.current;
+    const teamChanged = teamId !== previousTeamId;
 
-      // Filter sessions to only those for the team's projects (use fallback ids if projects request failed)
-      const filteredSessions = currentTeam
-        ? apiSessions.filter(s => teamProjectIds.has((s as any).projectId || (s as any).appId))
-        : apiSessions;
+    if (teamChanged) {
+      lastTeamIdRef.current = teamId;
+      setProjects([]);
+      setSelectedProjectState(null);
+      setProjectsLoading(Boolean(teamId));
+      setProjectsReady(!teamId);
+      setProjectsError(null);
+    }
 
-      // Convert trends to ProjectDailyStats
-      const convertedDailyStats: ProjectDailyStats[] = (trends.daily || []).map(day => ({
-        projectId: 'aggregate', // Trends are often aggregated
-        date: day.date,
-        totalSessions: day.sessions,
-        completedSessions: day.sessions,
-        avgDurationSeconds: 0,
-        avgInteractionScore: 0,
-        avgApiErrorRate: 0,
-        p50Duration: 0,
-        p90Duration: 0,
-        p50InteractionScore: 0,
-        p90InteractionScore: 0
-      }));
+    if (!teamId) {
+      setProjects([]);
+      setSelectedProjectState(null);
+      setProjectsLoading(false);
+      setProjectsReady(true);
+      return;
+    }
 
-      setSessions(filteredSessions);
-      setDailyStats(convertedDailyStats);
-
-      setDashboardStats({
-        totalSessions: stats.totalSessions,
-        avgDuration: stats.avgDuration,
-        errorRate: stats.errorRate,
+    if (
+      !bootstrapConsumedRef.current
+      && initialProjectsTeamId
+      && teamId === initialProjectsTeamId
+    ) {
+      bootstrapConsumedRef.current = true;
+      applyProjectsForTeam(initialProjects, teamId, {
+        preferredProjectId: initialSelectedProjectId,
+        preferStoredSelection: true,
       });
-
-      // Auto-select project from localStorage (scoped per team) or default to first one
-      if (projectsOk && convertedProjects.length > 0) {
-        const key = selectedProjectStorageKey(currentTeam?.id);
-        const savedProjectId = localStorage.getItem(key);
-        const projectToSelect = savedProjectId
-          ? convertedProjects.find(p => p.id === savedProjectId) || convertedProjects[0]
-          : convertedProjects[0];
-        setSelectedProjectState(projectToSelect);
-        localStorage.setItem(key, projectToSelect.id);
-      } else if (projectsOk && convertedProjects.length === 0) {
-        // Only clear project selection if we successfully fetched and got 0 projects.
-        // If the projects fetch FAILED, keep the previous selection (stale is better than wrong).
-        setSelectedProjectState(null);
-        localStorage.removeItem(selectedProjectStorageKey(currentTeam?.id));
-      }
-    } catch (err) {
-      if (isStale()) return;
-      console.error('Failed to fetch sessions:', err);
-      setError(err instanceof Error ? err.message : 'Failed to load sessions');
-      // Don't clear sessions/projects on error - keep showing stale data
-    } finally {
-      if (!options.silent && !isStale()) {
-        setIsLoading(false);
-      }
-    }
-  }, [timeRange, currentTeam?.id, demoMode.isDemoMode, isAuthenticated]);
-
-  // Get a specific session
-  const getSession = useCallback(async (id: string): Promise<RecordingSession | null> => {
-    // In demo mode, just return from cached sessions
-    if (demoMode.isDemoMode) {
-      return sessions.find(s => s.id === id) || null;
+      return;
     }
 
-    try {
-      return await api.getRecordingSession(id);
-    } catch (err) {
-      console.error('Failed to fetch session:', err);
-      // Try to find in cached sessions
-      return sessions.find(s => s.id === id) || null;
-    }
-  }, [sessions, demoMode.isDemoMode]);
-
-
-
-
-  // Initial fetch and refetch when time range or team changes
-  // Wait for team context and auth to finish loading before first fetch
-  // In demo mode, we skip this since demo data is already loaded via the other useEffect
-  useEffect(() => {
-    if (demoMode.isDemoMode) return; // Demo mode loads data separately
-    if (isTeamLoading || isAuthLoading || !isAuthenticated) return;
-    fetchSessions().then(() => setHasInitialLoad(true));
-    // Use stable dependencies instead of fetchSessions to prevent infinite loops
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [timeRange, currentTeam?.id, isTeamLoading, isAuthLoading, isAuthenticated, demoMode.isDemoMode]);
-
-  // Subscribe to updates - use ref to avoid recreating subscription
-  const fetchSessionsRef = React.useRef(fetchSessions);
-  useEffect(() => {
-    fetchSessionsRef.current = fetchSessions;
-  }, [fetchSessions]);
+    void refreshProjects({ silent: false, force: teamChanged });
+  }, [
+    applyProjectsForTeam,
+    currentTeam?.id,
+    demoMode.isDemoMode,
+    initialProjects,
+    initialProjectsTeamId,
+    initialSelectedProjectId,
+    isAuthenticated,
+    isAuthLoading,
+    isTeamLoading,
+    refreshProjects,
+  ]);
 
   useEffect(() => {
-    const unsubscribe = api.subscribeToUpdates(() => {
-      fetchSessionsRef.current({ silent: true });
-    });
-    return unsubscribe;
-  }, []); // Empty deps - subscription doesn't need to be recreated
+    if (demoMode.isDemoMode) return;
+    if (!selectedProject?.id) return;
+    void warmProjectDashboardCaches(selectedProject.id, timeRange);
+  }, [demoMode.isDemoMode, selectedProject?.id, timeRange]);
 
-  // Listen for project creation events to refresh list
   useEffect(() => {
-    const handleProjectCreated = () => {
-      fetchSessionsRef.current();
-    };
+    if (demoMode.isDemoMode) return;
 
-    window.addEventListener('projectCreated', handleProjectCreated);
-    return () => {
-      window.removeEventListener('projectCreated', handleProjectCreated);
-    };
-  }, []); // Empty deps - event listener doesn't need to be recreated
-
-  // Refresh every 30 seconds
-  useEffect(() => {
     const interval = setInterval(() => {
-      // Quietly refresh in the background
-      // Clear cache to ensure we get fresh data
-      clearCache();
-      fetchSessionsRef.current({ silent: true });
+      if (isTeamLoading || isAuthLoading || !isAuthenticated || !currentTeam?.id) return;
+      void refreshProjects({ silent: true, force: true });
     }, 30000);
-    return () => clearInterval(interval);
-  }, []); // Empty deps - interval doesn't need to be recreated
 
-  // After idle tabs, the first request often hits a closed keep-alive connection (ingress/LB)
-  // or needs a fresh auth check. Refetch when the tab is shown again or restored from bfcache.
+    return () => clearInterval(interval);
+  }, [currentTeam?.id, demoMode.isDemoMode, isAuthLoading, isAuthenticated, isTeamLoading, refreshProjects]);
+
   useEffect(() => {
     if (demoMode.isDemoMode) return;
 
     let debounceTimer: ReturnType<typeof setTimeout> | null = null;
 
     const runRefetch = () => {
-      if (isTeamLoading || isAuthLoading || !isAuthenticated) return;
-      clearCache();
+      if (isTeamLoading || isAuthLoading || !isAuthenticated || !currentTeam?.id) return;
+      clearCache('projects:list');
       void refreshUser().finally(() => {
-        fetchSessionsRef.current({ silent: true });
+        void refreshProjects({ silent: true, force: false });
       });
     };
 
@@ -361,47 +346,72 @@ export function SessionDataProvider({ children }: Props) {
       }
     };
 
-    const onPageShow = (e: PageTransitionEvent) => {
-      if (e.persisted) {
+    const onPageShow = (event: PageTransitionEvent) => {
+      if (event.persisted) {
         scheduleRefetch();
       }
     };
 
     document.addEventListener('visibilitychange', onVisibility);
     window.addEventListener('pageshow', onPageShow);
+
     return () => {
       document.removeEventListener('visibilitychange', onVisibility);
       window.removeEventListener('pageshow', onPageShow);
       if (debounceTimer) clearTimeout(debounceTimer);
     };
-  }, [demoMode.isDemoMode, isTeamLoading, isAuthLoading, isAuthenticated, refreshUser]);
+  }, [currentTeam?.id, demoMode.isDemoMode, isAuthLoading, isAuthenticated, isTeamLoading, refreshProjects, refreshUser]);
 
-  // Wrapper to set selected project and persist
   const setSelectedProject = useCallback((project: Project | null) => {
     setSelectedProjectState(project);
-    if (project) {
-      localStorage.setItem(selectedProjectStorageKey(currentTeam?.id), project.id);
-      // Clear API cache to ensure fresh data for new project
-      clearCache();
-    } else {
-      localStorage.removeItem(selectedProjectStorageKey(currentTeam?.id));
+
+    if (typeof window !== 'undefined') {
+      const storageKey = selectedProjectStorageKey(currentTeam?.id);
+      if (project) {
+        localStorage.setItem(storageKey, project.id);
+        writeSelectionCookie(SELECTED_PROJECT_COOKIE, project.id);
+      } else {
+        localStorage.removeItem(storageKey);
+        clearSelectionCookie(SELECTED_PROJECT_COOKIE);
+      }
     }
-  }, [currentTeam?.id]);
+
+    if (project?.id) {
+      clearCacheByPrefixes([
+        '/api/workspace',
+      ]);
+      void warmProjectDashboardCaches(project.id, timeRange);
+    }
+  }, [currentTeam?.id, timeRange]);
+
+  const getSession = useCallback(async (id: string): Promise<RecordingSession | null> => {
+    if (demoMode.isDemoMode) {
+      return sessions.find((session) => session.id === id) || null;
+    }
+
+    try {
+      return await api.getRecordingSession(id);
+    } catch (err) {
+      console.error('Failed to fetch session:', err);
+      return null;
+    }
+  }, [demoMode.isDemoMode, sessions]);
 
   const value: SessionContextValue = {
     sessions,
     projects,
+    dailyStats,
     selectedProject,
     setSelectedProject,
-
-    dailyStats,
     timeRange,
     setTimeRange,
-    isLoading,
-    error,
-    refreshSessions: fetchSessions,
+    isLoading: projectsLoading,
+    error: projectsError,
+    projectsLoading,
+    projectsReady,
+    projectsError,
+    refreshSessions: () => refreshProjects({ force: true }),
     getSession,
-
     dashboardStats,
   };
 

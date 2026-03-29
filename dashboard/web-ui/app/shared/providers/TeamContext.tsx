@@ -6,7 +6,8 @@
  */
 
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
-import { getTeams, getTeamMembers, ApiTeam, ApiTeamMember, clearCache } from '~/shared/api/client';
+import { getTeams, getTeamMembers, ApiTeam, ApiTeamMember, clearCache, clearCacheByPrefixes } from '~/shared/api/client';
+import { clearSelectionCookie, SELECTED_TEAM_COOKIE, writeSelectionCookie } from '~/shared/utils/selectionCookies';
 import { useAuth } from './AuthContext';
 
 interface TeamContextValue {
@@ -81,6 +82,14 @@ interface Props {
 
 const EMPTY_TEAMS: ApiTeam[] = [];
 
+function readStoredTeamId(): string | null {
+  if (typeof window === 'undefined') {
+    return null;
+  }
+
+  return localStorage.getItem('selectedTeamId');
+}
+
 function normalizeTeams(teams: unknown): ApiTeam[] {
   if (Array.isArray(teams)) {
     return teams;
@@ -93,10 +102,19 @@ function normalizeTeams(teams: unknown): ApiTeam[] {
   return EMPTY_TEAMS;
 }
 
+interface SelectTeamFromListOptions {
+  preferredTeamId?: string | null;
+  currentTeamId?: string | null;
+  preferStoredSelection?: boolean;
+}
+
 function selectTeamFromList(
   availableTeams: unknown,
-  preferredTeamId?: string | null,
-  currentTeamId?: string | null
+  {
+    preferredTeamId,
+    currentTeamId,
+    preferStoredSelection = false,
+  }: SelectTeamFromListOptions = {},
 ): ApiTeam | null {
   const normalizedTeams = normalizeTeams(availableTeams);
 
@@ -105,7 +123,7 @@ function selectTeamFromList(
   const preferredTeam = preferredTeamId
     ? normalizedTeams.find((team) => team.id === preferredTeamId)
     : null;
-  const savedTeamId = typeof window !== 'undefined' ? localStorage.getItem('selectedTeamId') : null;
+  const savedTeamId = readStoredTeamId();
   const savedTeam = savedTeamId
     ? normalizedTeams.find((team) => team.id === savedTeamId)
     : null;
@@ -113,7 +131,17 @@ function selectTeamFromList(
     ? normalizedTeams.find((team) => team.id === currentTeamId)
     : null;
 
-  return preferredTeam || savedTeam || currentTeam || normalizedTeams[0];
+  const orderedCandidates = preferStoredSelection
+    ? [savedTeam, preferredTeam, currentTeam]
+    : [preferredTeam, savedTeam, currentTeam];
+
+  for (const candidate of orderedCandidates) {
+    if (candidate) {
+      return candidate;
+    }
+  }
+
+  return normalizedTeams[0];
 }
 
 export function TeamProvider({
@@ -126,7 +154,7 @@ export function TeamProvider({
   const { isAuthenticated, isLoading: isAuthLoading } = useAuth();
   const [teams, setTeams] = useState<ApiTeam[]>(initialHydrated ? normalizedInitialTeams : []);
   const [currentTeam, setCurrentTeamState] = useState<ApiTeam | null>(() => (
-    initialHydrated ? selectTeamFromList(normalizedInitialTeams, initialCurrentTeamId, null) : null
+    initialHydrated ? selectTeamFromList(normalizedInitialTeams, { preferredTeamId: initialCurrentTeamId }) : null
   ));
   const [teamMembers, setTeamMembers] = useState<ApiTeamMember[]>([]);
   const [isLoading, setIsLoading] = useState(!initialHydrated);
@@ -141,7 +169,11 @@ export function TeamProvider({
   useEffect(() => {
     if (!initialHydrated) return;
 
-    const bootstrappedTeam = selectTeamFromList(normalizedInitialTeams, initialCurrentTeamId, currentTeamIdRef.current);
+    const bootstrappedTeam = selectTeamFromList(normalizedInitialTeams, {
+      preferredTeamId: initialCurrentTeamId,
+      currentTeamId: currentTeamIdRef.current,
+      preferStoredSelection: true,
+    });
     setTeams(normalizedInitialTeams);
     setCurrentTeamState(bootstrappedTeam);
     setTeamMembers([]);
@@ -151,8 +183,10 @@ export function TeamProvider({
     if (typeof window !== 'undefined') {
       if (bootstrappedTeam) {
         localStorage.setItem('selectedTeamId', bootstrappedTeam.id);
+        writeSelectionCookie(SELECTED_TEAM_COOKIE, bootstrappedTeam.id);
       } else {
         localStorage.removeItem('selectedTeamId');
+        clearSelectionCookie(SELECTED_TEAM_COOKIE);
       }
     }
   }, [initialCurrentTeamId, initialHydrated, normalizedInitialTeams]);
@@ -175,18 +209,23 @@ export function TeamProvider({
 
       // Always ensure a team is selected if teams exist
       if (fetchedTeams.length > 0) {
-        const teamToSelect = selectTeamFromList(fetchedTeams, preferredTeamId, currentTeamIdRef.current) || fetchedTeams[0];
+        const teamToSelect = selectTeamFromList(fetchedTeams, {
+          preferredTeamId,
+          currentTeamId: currentTeamIdRef.current,
+        }) || fetchedTeams[0];
 
         // Always set current team to ensure it's available for new accounts
         setCurrentTeamState(teamToSelect);
         if (typeof window !== 'undefined') {
           localStorage.setItem('selectedTeamId', teamToSelect.id);
+          writeSelectionCookie(SELECTED_TEAM_COOKIE, teamToSelect.id);
         }
       } else {
         setCurrentTeamState(null);
         setTeamMembers([]);
         if (typeof window !== 'undefined') {
           localStorage.removeItem('selectedTeamId');
+          clearSelectionCookie(SELECTED_TEAM_COOKIE);
         }
       }
       return fetchedTeams;
@@ -225,8 +264,10 @@ export function TeamProvider({
     setCurrentTeamState(team);
     if (typeof window !== 'undefined') {
       localStorage.setItem('selectedTeamId', team.id);
-      // Clear API cache to ensure fresh data for new team
-      clearCache();
+      writeSelectionCookie(SELECTED_TEAM_COOKIE, team.id);
+      clearCache('/api/teams');
+      clearCache('projects:list');
+      clearCacheByPrefixes(['/api/workspace']);
     }
   }, []);
 

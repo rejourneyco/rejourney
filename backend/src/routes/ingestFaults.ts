@@ -1,9 +1,10 @@
 import { Router } from 'express';
 import { and, eq, gte, lte, sql } from 'drizzle-orm';
-import { db, anrs, crashes, sessionMetrics, sessions } from '../db/client.js';
+import { db, anrs, crashes, sessionMetrics } from '../db/client.js';
 import { logger } from '../logger.js';
 import { apiKeyAuth, requireScope, asyncHandler, ApiError } from '../middleware/index.js';
 import { ingestProjectRateLimiter } from '../middleware/rateLimit.js';
+import { ensureIngestSession } from '../services/ingestSessionLifecycle.js';
 import { trackANRAsIssue, trackCrashAsIssue } from '../services/issueTracker.js';
 
 const router = Router();
@@ -28,21 +29,9 @@ router.post(
             || normalizedCategory === 'app_not_responding'
             || normalizedCategory === 'application_not_responding';
 
-        const [existingSession] = await db
-            .select()
-            .from(sessions)
-            .where(eq(sessions.id, sessionId))
-            .limit(1);
-
-        if (!existingSession) {
-            await db.insert(sessions).values({
-                id: sessionId,
-                projectId,
-                status: 'processing',
-                platform: 'unknown',
-            });
-            await db.insert(sessionMetrics).values({ sessionId });
-        }
+        await ensureIngestSession(projectId, sessionId, undefined, undefined, {
+            initialStatus: 'processing',
+        });
 
         const stackTrace = Array.isArray(incident.frames)
             ? incident.frames.join('\n')

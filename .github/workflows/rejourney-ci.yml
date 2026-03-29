@@ -79,6 +79,7 @@ jobs:
 
       - name: Schema / Migration Guard
         run: |
+          node scripts/check-worker-parity.mjs
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             git fetch origin "${{ github.base_ref }}" --depth=1
             bash scripts/check-schema-migration.sh --range "origin/${{ github.base_ref }}...HEAD"

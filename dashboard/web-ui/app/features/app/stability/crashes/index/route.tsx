@@ -20,7 +20,7 @@ import { DashboardPageHeader } from '~/shared/ui/core/DashboardPageHeader';
 import { NeoBadge } from '~/shared/ui/core/neo/NeoBadge';
 import { NeoButton } from '~/shared/ui/core/neo/NeoButton';
 import { NeoCard } from '~/shared/ui/core/neo/NeoCard';
-import { api, CrashReport } from '~/shared/api/client';
+import { api, CrashReport, getSessionsPaginated } from '~/shared/api/client';
 import { DashboardGhostLoader } from '~/shared/ui/core/DashboardGhostLoader';
 
 interface CrashGroup {
@@ -42,57 +42,55 @@ const formatCompact = (value: number): string => {
 };
 
 export const CrashesList: React.FC = () => {
-  const { sessions, isLoading, selectedProject } = useSessionData();
+  const { selectedProject, projectsLoading } = useSessionData();
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const pathPrefix = usePathPrefix();
 
+  const [sessions, setSessions] = useState<any[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
   const [expandedGroup, setExpandedGroup] = useState<string | null>(null);
   const [timeRange, setTimeRange] = useState<TimeRange>(DEFAULT_TIME_RANGE);
   const [searchQuery, setSearchQuery] = useState('');
   const [crashDetails, setCrashDetails] = useState<Record<string, CrashReport | null>>({});
 
-  const projectSessions = useMemo(() => {
-    if (!selectedProject?.id) return sessions;
-    return sessions.filter(
-      (session) => (session as any).projectId === selectedProject.id || (session as any).appId === selectedProject.id,
-    );
-  }, [sessions, selectedProject?.id]);
-
-  const filteredSessions = useMemo(() => {
-    if (timeRange === 'all') return projectSessions;
-
-    const now = new Date();
-    const cutoff = new Date();
-    let days = 30;
-
-    switch (timeRange) {
-      case '24h':
-        days = 1;
-        break;
-      case '7d':
-        days = 7;
-        break;
-      case '30d':
-        days = 30;
-        break;
-      case '90d':
-        days = 90;
-        break;
-      default:
-        days = 30;
+  useEffect(() => {
+    if (!selectedProject?.id) {
+      setSessions([]);
+      setIsLoading(false);
+      return;
     }
 
-    cutoff.setDate(now.getDate() - days);
-    return projectSessions.filter((session) => new Date(session.startedAt) >= cutoff);
-  }, [projectSessions, timeRange]);
+    let cancelled = false;
+    setIsLoading(true);
+
+    getSessionsPaginated({
+      projectId: selectedProject.id,
+      timeRange: timeRange === 'all' ? undefined : timeRange,
+      issueFilter: 'crashes',
+      limit: 300,
+    }).then((response) => {
+      if (cancelled) return;
+      setSessions(response.sessions || []);
+    }).catch((err) => {
+      if (cancelled) return;
+      console.error('Failed to fetch crash sessions:', err);
+      setSessions([]);
+    }).finally(() => {
+      if (!cancelled) setIsLoading(false);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedProject?.id, timeRange]);
 
   useEffect(() => {
     window.scrollTo(0, 0);
   }, []);
 
   const crashGroups = useMemo<CrashGroup[]>(() => {
-    return filteredSessions
+    return sessions
       .filter((session) => (session.crashCount || 0) > 0)
       .map((session) => {
         const lastScreen =
@@ -113,7 +111,7 @@ export const CrashesList: React.FC = () => {
         };
       })
       .sort((a, b) => new Date(b.lastOccurred).getTime() - new Date(a.lastOccurred).getTime());
-  }, [filteredSessions]);
+  }, [sessions]);
 
   const filteredCrashGroups = useMemo(() => {
     if (!searchQuery.trim()) return crashGroups;
@@ -185,7 +183,7 @@ export const CrashesList: React.FC = () => {
     fetchCrashForGroup();
   }, [expandedGroup, selectedProject?.id, crashGroups, crashDetails]);
 
-  if (isLoading) {
+  if (isLoading || projectsLoading) {
     return <DashboardGhostLoader variant="list" />;
   }
 

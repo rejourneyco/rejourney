@@ -6,6 +6,7 @@ import { useAuth } from '~/shared/providers/AuthContext';
 import { useTeam } from '~/shared/providers/TeamContext';
 import { usePathPrefix } from '~/shell/routing/usePathPrefix';
 import { clearCache, getTeamBillingUsage, getTeamPlan, TeamUsage } from '~/features/app/billing/api';
+import { clearCacheMatching } from '~/shared/api/client';
 import { RefreshCw, User as UserIcon, LogOut, ChevronDown, CreditCard, Copy, BookOpen, Check, Menu } from 'lucide-react';
 import { AI_INTEGRATION_PROMPT } from '~/shared/constants/aiPrompts';
 import { DASHBOARD_MANUAL_REFRESH_COMPLETE, DASHBOARD_MANUAL_REFRESH_START } from '~/shared/constants/events';
@@ -30,6 +31,23 @@ export const TopBar: React.FC<TopBarProps> = ({ currentProject }) => {
   const [copiedDocs, setCopiedDocs] = useState(false);
   const refreshPulseTimeoutRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  const clearDashboardCachesForRefresh = useCallback(() => {
+    clearCache('projects:list');
+    if (currentTeam?.id) {
+      clearCache(`/api/teams/${currentTeam.id}/billing/plan`);
+      clearCache(`/api/teams/${currentTeam.id}/billing/usage`);
+      clearCache(`/api/teams/${currentTeam.id}/billing/dashboard`);
+    }
+
+    if (!currentProject?.id) return;
+    clearCacheMatching((key) => (
+      key.includes(`projectId=${currentProject.id}`)
+      || key.includes(`:${currentProject.id}:`)
+      || key.startsWith(`/api/projects/${currentProject.id}`)
+      || key.startsWith(`/api/session/`)
+    ));
+  }, [currentProject?.id, currentTeam?.id]);
+
   // Handle refresh - clear cache first then refetch
   const handleRefresh = useCallback(async () => {
     setIsRefreshing(true);
@@ -37,8 +55,7 @@ export const TopBar: React.FC<TopBarProps> = ({ currentProject }) => {
     let success = false;
 
     try {
-      // Clear API cache to force fresh data
-      clearCache();
+      clearDashboardCachesForRefresh();
       await refreshSessions();
       // Also refresh team usage and plan
       if (currentTeam) {
@@ -77,7 +94,7 @@ export const TopBar: React.FC<TopBarProps> = ({ currentProject }) => {
       setIsRefreshing(false);
       window.dispatchEvent(new CustomEvent(DASHBOARD_MANUAL_REFRESH_COMPLETE, { detail: { at: Date.now(), success } }));
     }
-  }, [refreshSessions, currentTeam]);
+  }, [clearDashboardCachesForRefresh, refreshSessions, currentTeam]);
 
   // Fetch team usage and plan when team changes
   useEffect(() => {
@@ -104,24 +121,23 @@ export const TopBar: React.FC<TopBarProps> = ({ currentProject }) => {
   // Listen for plan changes to refresh usage and plan
   useEffect(() => {
     const handlePlanChanged = (event: CustomEvent) => {
-      if (event.detail?.teamId === currentTeam?.id) {
-        // Clear cache and refresh
-        clearCache();
-        if (currentTeam) {
-          Promise.all([
-            getTeamPlan(currentTeam.id).catch(() => null),
-            getTeamBillingUsage(currentTeam.id).catch(() => null),
-          ]).then(([planData, usageData]) => {
-            if (planData) {
-              setTeamPlan({
-                planName: planData.planName || 'free',
-                sessionLimit: planData.sessionLimit || 5000,
-                videoRetentionLabel: planData.videoRetentionLabel || '7 days',
-              });
-            }
-            setTeamUsage(usageData?.usage ?? null);
-          }).catch(err => console.error("Failed to refresh team billing data:", err));
-        }
+      if (currentTeam && event.detail?.teamId === currentTeam.id) {
+        clearCache(`/api/teams/${currentTeam.id}/billing/plan`);
+        clearCache(`/api/teams/${currentTeam.id}/billing/usage`);
+        clearCache(`/api/teams/${currentTeam.id}/billing/dashboard`);
+        Promise.all([
+          getTeamPlan(currentTeam.id).catch(() => null),
+          getTeamBillingUsage(currentTeam.id).catch(() => null),
+        ]).then(([planData, usageData]) => {
+          if (planData) {
+            setTeamPlan({
+              planName: planData.planName || 'free',
+              sessionLimit: planData.sessionLimit || 5000,
+              videoRetentionLabel: planData.videoRetentionLabel || '7 days',
+            });
+          }
+          setTeamUsage(usageData?.usage ?? null);
+        }).catch(err => console.error("Failed to refresh team billing data:", err));
       }
     };
 

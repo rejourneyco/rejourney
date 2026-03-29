@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
     Activity,
     ChevronLeft,
@@ -41,6 +41,7 @@ import { NeoBadge } from '~/shared/ui/core/neo/NeoBadge';
 import { MiniSessionCard } from '~/shared/ui/core/MiniSessionCard';
 import { Issue, RecordingSession } from '~/shared/types';
 import { DashboardGhostLoader } from '~/shared/ui/core/DashboardGhostLoader';
+import { Button } from '~/shared/ui/core/Button';
 
 const toObservabilityRange = (value: TimeRange): string | undefined => {
     if (value === 'all') return undefined;
@@ -618,8 +619,33 @@ export const GeneralOverview: React.FC = () => {
     const [issues, setIssues] = useState<Issue[]>([]);
     const [sessions, setSessions] = useState<RecordingSession[]>([]);
     const [topIssuesPage, setTopIssuesPage] = useState(0);
+    const [extendedInsightsLoading, setExtendedInsightsLoading] = useState(false);
+    const [extendedInsightsLoaded, setExtendedInsightsLoaded] = useState(false);
 
     const TOP_ISSUES_PAGE_SIZE = 5;
+
+    useEffect(() => {
+        setExtendedInsightsLoaded(false);
+    }, [selectedProject?.id, timeRange]);
+
+    const loadExtendedInsights = useCallback(async () => {
+        if (!selectedProject?.id || extendedInsightsLoaded) return;
+        const obsRange = toObservabilityRange(timeRange);
+        setExtendedInsightsLoading(true);
+        try {
+            const [fullObs, fullDeep] = await Promise.all([
+                getGrowthObservability(selectedProject.id, obsRange, 'full'),
+                getObservabilityDeepMetrics(selectedProject.id, obsRange, 'full'),
+            ]);
+            setOverviewObs(fullObs);
+            setDeepMetrics(fullDeep);
+            setExtendedInsightsLoaded(true);
+        } catch {
+            /* keep rollup-backed summary */
+        } finally {
+            setExtendedInsightsLoading(false);
+        }
+    }, [selectedProject?.id, timeRange, extendedInsightsLoaded]);
 
     useEffect(() => {
         if (!selectedProject?.id) {
@@ -659,8 +685,8 @@ export const GeneralOverview: React.FC = () => {
 
         // Phase 2: Load heavier endpoints in parallel (don't block KPI render)
         Promise.allSettled([
-            getGrowthObservability(selectedProject.id, obsRange),
-            getObservabilityDeepMetrics(selectedProject.id, obsRange),
+            getGrowthObservability(selectedProject.id, obsRange, 'summary'),
+            getObservabilityDeepMetrics(selectedProject.id, obsRange, 'summary'),
             getUserEngagementTrends(selectedProject.id, obsRange),
             getGeoSummary(selectedProject.id, obsRange),
             api.getIssues(selectedProject.id, timeRange),
@@ -1245,9 +1271,24 @@ export const GeneralOverview: React.FC = () => {
                 icon={<MessageSquareWarning className="w-6 h-6" />}
                 iconColor="bg-sky-50"
             >
-                <div className="flex items-center gap-3">
+                <div className="flex flex-wrap items-center gap-3">
                     <DataWatermarkBanner dataCompleteThrough={trends?.dataCompleteThrough} />
                     <TimeFilter value={timeRange} onChange={setTimeRange} />
+                    {selectedProject?.id && (
+                        <Button
+                            type="button"
+                            variant="secondary"
+                            size="sm"
+                            onClick={loadExtendedInsights}
+                            disabled={extendedInsightsLoading || extendedInsightsLoaded}
+                        >
+                            {extendedInsightsLoading
+                                ? 'Loading…'
+                                : extendedInsightsLoaded
+                                    ? 'Extended insights loaded'
+                                    : 'Load extended insights'}
+                        </Button>
+                    )}
                 </div>
             </DashboardPageHeader>
 

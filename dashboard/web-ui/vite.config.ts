@@ -9,6 +9,14 @@ export default defineConfig({
             projects: ['./tsconfig.json'],
         }),
     ],
+    // Recharts (and react-redux inside it) must resolve the same React as the app,
+    // or hooks like useContext throw "dispatcher is null" from a second React instance.
+    resolve: {
+        dedupe: ["react", "react-dom"],
+    },
+    ssr: {
+        noExternal: ["recharts"],
+    },
     css: {
         postcss: "./postcss.config.js",
     },

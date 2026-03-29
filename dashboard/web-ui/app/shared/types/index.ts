@@ -1,6 +1,6 @@
 export type Plan = "free" | "paid";
 export type Platform = "ios" | "android";
-export type SessionStatus = "recording" | "processing" | "ready" | "error";
+export type SessionStatus = "recording" | "pending" | "processing" | "ready" | "error" | "failed" | "deleted";
 
 // Time range options for filtering sessions and stats (align with components/ui/TimeFilter)
 export type TimeRange = "24h" | "7d" | "30d" | "90d" | "180d" | "1y" | "all";
@@ -105,6 +105,10 @@ export interface RecordingSession {
   // Compatibility aliases for older UI code paths.
   replayPromoted?: boolean;
   replayPromotedReason?: string | null;
+  effectiveStatus?: SessionStatus;
+  isLiveIngest?: boolean;
+  isBackgroundProcessing?: boolean;
+  canOpenReplay?: boolean;
   // Joined/Hydrated data
   networkRequests?: ApiCall[];
   events?: SessionEvent[];

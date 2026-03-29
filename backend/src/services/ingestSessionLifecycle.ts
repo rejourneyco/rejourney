@@ -1,5 +1,7 @@
-import { eq } from 'drizzle-orm';
-import { db, projects, sessions, sessionMetrics, teams } from '../db/client.js';
+import { eq, sql } from 'drizzle-orm';
+import { db, ingestJobs, projects, sessions, sessionMetrics, teams } from '../db/client.js';
+import { logger } from '../logger.js';
+import { ApiError } from '../middleware/index.js';
 import { getRequestIp } from '../utils/requestIp.js';
 import { lookupGeoIp } from './recording.js';
 import {
@@ -22,6 +24,19 @@ type EnsureIngestSessionOptions = {
     initialStatus?: string;
 };
 
+type RepairMissingSessionsOptions = {
+    since?: Date;
+    limit?: number;
+    source?: string;
+};
+
+type MissingSessionCandidateRow = {
+    sessionId: string;
+    projectId: string;
+    firstSeenAt: Date | string | null;
+    lastSeenAt: Date | string | null;
+};
+
 const MATERIALIZE_MISSING_SESSION_MAX_AGE_MS = 6 * 60 * 60 * 1000;
 
 function parseSessionStartedAt(sessionId: string): Date {
@@ -33,6 +48,12 @@ function parseSessionStartedAt(sessionId: string): Date {
         }
     }
     return new Date();
+}
+
+function toDateOrNull(value: unknown): Date | null {
+    if (!value) return null;
+    const parsed = value instanceof Date ? value : new Date(String(value));
+    return Number.isFinite(parsed.getTime()) ? parsed : null;
 }
 
 function inferSessionShape(req?: any, metadata?: IngestSessionMetadata) {
@@ -131,6 +152,23 @@ async function maybeRunGeoLookup(sessionId: string, req?: any) {
     }
 }
 
+function assertSessionProjectMatch(session: any, projectId: string, source: string) {
+    if (session.projectId === projectId) return;
+
+    logger.warn({
+        source,
+        sessionId: session.id,
+        requestedProjectId: projectId,
+        existingProjectId: session.projectId,
+    }, 'Session ID already exists under a different project');
+
+    throw ApiError.conflict('Session already exists under a different project', {
+        sessionId: session.id,
+        requestedProjectId: projectId,
+        existingProjectId: session.projectId,
+    });
+}
+
 export function isSessionIdFresh(sessionId: string, maxAgeMs = MATERIALIZE_MISSING_SESSION_MAX_AGE_MS): boolean {
     const startedAt = parseSessionStartedAt(sessionId);
     const ageMs = Date.now() - startedAt.getTime();
@@ -214,7 +252,7 @@ export async function ensureIngestSession(
         const inferred = inferSessionShape(req, metadata);
         const videoRetention = await resolveVideoRetention(projectId);
 
-        [session] = await db.insert(sessions).values({
+        const inserted = await db.insert(sessions).values({
             id: sessionId,
             projectId,
             status: options?.initialStatus || 'processing',
@@ -229,28 +267,100 @@ export async function ensureIngestSession(
             retentionTier: videoRetention.tier,
             retentionDays: videoRetention.days,
             isSampledIn: true,
-        }).returning();
+        }).onConflictDoNothing().returning({ id: sessions.id });
 
-        await db.insert(sessionMetrics)
-            .values({ sessionId: session.id })
-            .onConflictDoNothing();
+        created = inserted.length > 0;
+        [session] = await db.select().from(sessions).where(eq(sessions.id, sessionId)).limit(1);
 
-        created = true;
-    } else {
-        const updates = buildMetadataUpdates(session, metadata, req);
-        if (Object.keys(updates).length > 0) {
-            await db.update(sessions)
-                .set(updates)
-                .where(eq(sessions.id, sessionId));
-            [session] = await db.select().from(sessions).where(eq(sessions.id, sessionId)).limit(1);
+        if (!session) {
+            throw ApiError.internal('Failed to materialize session for ingest');
         }
 
-        await db.insert(sessionMetrics)
-            .values({ sessionId })
-            .onConflictDoNothing();
+        assertSessionProjectMatch(session, projectId, 'ensureIngestSession');
+
+        if (!created) {
+            logger.info({ sessionId, projectId }, 'Reused concurrently materialized session row');
+        }
+    } else {
+        assertSessionProjectMatch(session, projectId, 'ensureIngestSession');
     }
+
+    const updates = buildMetadataUpdates(session, metadata, req);
+    if (Object.keys(updates).length > 0) {
+        await db.update(sessions)
+            .set(updates)
+            .where(eq(sessions.id, sessionId));
+        [session] = await db.select().from(sessions).where(eq(sessions.id, sessionId)).limit(1);
+    }
+
+    await db.insert(sessionMetrics)
+        .values({ sessionId })
+        .onConflictDoNothing();
 
     await maybeRunGeoLookup(session.id, req);
 
     return { session, created };
+}
+
+export async function repairMissingSessionsFromIngestJobs(
+    options: RepairMissingSessionsOptions = {}
+): Promise<{ scanned: number; repaired: number }> {
+    const since = options.since ?? new Date(Date.now() - (7 * 24 * 60 * 60 * 1000));
+    const limit = Math.max(1, Math.min(options.limit ?? 100, 1000));
+    const result = await db.execute(sql`
+        select
+            ij.session_id as "sessionId",
+            ij.project_id::text as "projectId",
+            min(ij.created_at) as "firstSeenAt",
+            max(ij.created_at) as "lastSeenAt"
+        from ${ingestJobs} ij
+        left join ${sessions} s on s.id = ij.session_id
+        where ij.session_id is not null
+          and s.id is null
+          and ij.created_at >= ${since}
+        group by ij.session_id, ij.project_id
+        order by max(ij.created_at) desc, ij.session_id desc
+        limit ${limit}
+    `);
+
+    const rows = ((result as any).rows as MissingSessionCandidateRow[] | undefined) ?? [];
+    let repaired = 0;
+
+    for (const row of rows) {
+        try {
+            const repairedSession = await ensureIngestSession(
+                row.projectId,
+                row.sessionId,
+                undefined,
+                undefined,
+                { initialStatus: 'processing' },
+            );
+            if (repairedSession.session) {
+                repaired += 1;
+            }
+        } catch (err) {
+            logger.warn({
+                err,
+                source: options.source ?? 'repairMissingSessionsFromIngestJobs',
+                sessionId: row.sessionId,
+                projectId: row.projectId,
+                firstSeenAt: toDateOrNull(row.firstSeenAt)?.toISOString() ?? null,
+                lastSeenAt: toDateOrNull(row.lastSeenAt)?.toISOString() ?? null,
+            }, 'Failed to repair missing ingest session');
+        }
+    }
+
+    if (rows.length > 0) {
+        logger.info({
+            source: options.source ?? 'repairMissingSessionsFromIngestJobs',
+            since: since.toISOString(),
+            scanned: rows.length,
+            repaired,
+        }, 'Repaired missing sessions from ingest jobs');
+    }
+
+    return {
+        scanned: rows.length,
+        repaired,
+    };
 }

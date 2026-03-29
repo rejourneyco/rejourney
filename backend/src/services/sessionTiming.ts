@@ -35,6 +35,26 @@ export function resolveReportedSessionEndedAt(
     return new Date();
 }
 
+export function preserveExistingSessionEndedAt(
+    reportedEndedAt: Date,
+    persistedEndedAt?: Date | null,
+    allowedExtensionMs = 60_000
+): Date {
+    if (!persistedEndedAt || !Number.isFinite(persistedEndedAt.getTime())) {
+        return reportedEndedAt;
+    }
+
+    if (!Number.isFinite(reportedEndedAt.getTime())) {
+        return persistedEndedAt;
+    }
+
+    if (reportedEndedAt.getTime() > persistedEndedAt.getTime() + allowedExtensionMs) {
+        return persistedEndedAt;
+    }
+
+    return reportedEndedAt;
+}
+
 type SelectSessionEndedAtParams = {
     startedAt: Date;
     explicitEndedAt?: Date | null;
@@ -50,8 +70,11 @@ export function selectSessionEndedAt(params: SelectSessionEndedAtParams): Date {
         && Number(params.latestReplayEndMs) > 0
         ? new Date(Number(params.latestReplayEndMs))
         : null;
+    const boundedExplicitEndedAt = params.explicitEndedAt
+        ? preserveExistingSessionEndedAt(params.explicitEndedAt, params.persistedEndedAt)
+        : null;
 
-    const rawCandidate = params.explicitEndedAt
+    const rawCandidate = boundedExplicitEndedAt
         ?? latestReplayEndedAt
         ?? params.persistedEndedAt
         ?? params.lastIngestActivityAt

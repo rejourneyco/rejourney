@@ -164,13 +164,18 @@ update() {
     kubectl rollout restart deployment api -n ${NAMESPACE}
     kubectl rollout restart deployment web -n ${NAMESPACE}
     kubectl rollout restart deployment ingest-worker -n ${NAMESPACE}
+    kubectl rollout restart deployment replay-worker -n ${NAMESPACE}
     kubectl rollout restart deployment retention-worker -n ${NAMESPACE}
     kubectl rollout restart deployment alert-worker -n ${NAMESPACE}
     
     log "Waiting for rollout..."
     kubectl rollout status deployment api -n ${NAMESPACE}
     kubectl rollout status deployment web -n ${NAMESPACE}
-    
+    kubectl rollout status deployment ingest-worker -n ${NAMESPACE}
+    kubectl rollout status deployment replay-worker -n ${NAMESPACE}
+    kubectl rollout status deployment retention-worker -n ${NAMESPACE}
+    kubectl rollout status deployment alert-worker -n ${NAMESPACE}
+
     log "Update complete!"
 }
 

@@ -39,6 +39,8 @@ spec:
           env:
             - name: NODE_ENV
               value: production
+            - name: RJ_WORKER_NAME
+              value: ingestWorker
             - name: DATABASE_URL
               valueFrom:
                 secretKeyRef:
@@ -142,6 +144,16 @@ spec:
                   name: app-secret
                   key: PUBLIC_DASHBOARD_URL
                   optional: true
+            - name: RJ_INGEST_ALLOWED_KINDS
+              value: "events,crashes,anrs"
+            - name: RJ_INGEST_KIND_PRIORITY
+              value: "events,crashes,anrs,screenshots,hierarchy"
+            - name: RJ_INGEST_JOB_CONCURRENCY
+              value: "4"
+            - name: RJ_INGEST_BATCH_SIZE
+              value: "20"
+            - name: RJ_INGEST_MAX_RUNNABLE_PER_SESSION
+              value: "1"
           resources:
             requests:
               cpu: 100m
@@ -154,6 +166,128 @@ spec:
           # Actually, workers usually have some internal state. Let's add a dummy check if none exists
           # or wait for implementation. For production, a real check is better.
           # The user's code mentioned monitoring.pingWorker, which could be used.
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: replay-worker
+  namespace: rejourney
+  labels:
+    app.kubernetes.io/part-of: rejourney
+spec:
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app: replay-worker
+  template:
+    metadata:
+      labels:
+        app: replay-worker
+    spec:
+      terminationGracePeriodSeconds: 60
+      imagePullSecrets:
+        - name: ghcr-secret
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+      containers:
+        - name: worker
+          image: ghcr.io/rejourneyco/rejourney/api:latest
+          imagePullPolicy: Always
+          command: ["node", "dist/worker/ingestWorker.js"]
+          env:
+            - name: NODE_ENV
+              value: production
+            - name: RJ_WORKER_NAME
+              value: replayWorker
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: DATABASE_URL
+            - name: REDIS_URL
+              valueFrom:
+                secretKeyRef:
+                  name: redis-secret
+                  key: REDIS_URL
+            - name: S3_ENDPOINT
+              valueFrom:
+                secretKeyRef:
+                  name: s3-secret
+                  key: S3_ENDPOINT
+            - name: S3_BUCKET
+              valueFrom:
+                secretKeyRef:
+                  name: s3-secret
+                  key: S3_BUCKET
+            - name: S3_REGION
+              valueFrom:
+                secretKeyRef:
+                  name: s3-secret
+                  key: S3_REGION
+            - name: S3_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: s3-secret
+                  key: S3_ACCESS_KEY_ID
+            - name: S3_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: s3-secret
+                  key: S3_SECRET_ACCESS_KEY
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: app-secret
+                  key: JWT_SECRET
+            - name: INGEST_HMAC_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: app-secret
+                  key: INGEST_HMAC_SECRET
+            - name: STORAGE_ENCRYPTION_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: app-secret
+                  key: STORAGE_ENCRYPTION_KEY
+            - name: UPTIME_KUMA_BASE_URL
+              value: "https://status.rejourney.co"
+            - name: UPTIME_KUMA_TOKENS
+              valueFrom:
+                secretKeyRef:
+                  name: monitoring-tokens
+                  key: tokens
+                  optional: true
+            - name: PUBLIC_DASHBOARD_URL
+              valueFrom:
+                secretKeyRef:
+                  name: app-secret
+                  key: PUBLIC_DASHBOARD_URL
+                  optional: true
+            - name: RJ_INGEST_ALLOWED_KINDS
+              value: "screenshots,hierarchy"
+            - name: RJ_INGEST_KIND_PRIORITY
+              value: "screenshots,hierarchy,events,crashes,anrs"
+            - name: RJ_INGEST_JOB_CONCURRENCY
+              value: "6"
+            - name: RJ_INGEST_BATCH_SIZE
+              value: "40"
+            - name: RJ_INGEST_MAX_RUNNABLE_PER_SESSION
+              value: "4"
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
 
 ---
 # Retention Worker CronJob

@@ -16,6 +16,7 @@ import {
     normalizeSessionEndReason,
     summarizeSessionEndMetrics,
 } from '../services/ingestSessionEnd.js';
+import { preserveExistingSessionEndedAt } from '../services/sessionTiming.js';
 import { markSessionIngestActivity, reconcileSessionState } from '../services/sessionReconciliation.js';
 
 const router = Router();
@@ -95,34 +96,44 @@ router.post(
             data.totalBackgroundTimeMs,
             endedAtFallback,
         );
+        const effectiveEndedAt = preserveExistingSessionEndedAt(endedAt, session.endedAt);
+        const preservedExistingEnd = effectiveEndedAt.getTime() !== endedAt.getTime();
+        const effectiveWallClockSeconds = Math.round((effectiveEndedAt.getTime() - session.startedAt.getTime()) / 1000);
+        const effectiveDurationSeconds = Math.max(1, effectiveWallClockSeconds - backgroundTimeSeconds);
 
         log.info({
-            wallClockSeconds,
+            wallClockSeconds: effectiveWallClockSeconds,
             backgroundTimeSeconds,
-            durationSeconds,
+            durationSeconds: effectiveDurationSeconds,
+            reportedWallClockSeconds: wallClockSeconds,
+            reportedDurationSeconds: durationSeconds,
             endReason,
             lifecycleVersion,
             metricsSummary,
             hadSdkTelemetry: Boolean(normalizedSdkTelemetry),
+            preservedExistingEnd,
         }, 'Session duration breakdown (durationSeconds = playable time)');
 
         await markSessionIngestActivity(session.id, {
-            at: new Date(),
-            explicitEndedAt: endedAt,
+            at: preservedExistingEnd
+                ? (session.lastIngestActivityAt ?? session.endedAt ?? new Date())
+                : new Date(),
+            explicitEndedAt: effectiveEndedAt,
             backgroundTimeSeconds,
             closeSource: 'explicit',
         });
         await reconcileSessionState(session.id);
 
         log.info({
-            durationSeconds,
+            durationSeconds: effectiveDurationSeconds,
             backgroundTimeSeconds,
             endReason,
             lifecycleVersion,
             metricsSummary,
+            preservedExistingEnd,
         }, 'Session ended');
 
-        res.json({ success: true, durationSeconds, backgroundTimeSeconds });
+        res.json({ success: true, durationSeconds: effectiveDurationSeconds, backgroundTimeSeconds });
     })
 );
 

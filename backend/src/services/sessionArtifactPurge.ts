@@ -22,6 +22,8 @@ import { partitionBackedUpSessions } from './sessionBackupGate.js';
 const FRAME_CACHE_PREFIX = 'screenshot_frames:';
 const FRAME_DATA_CACHE_PREFIX = 'screenshot_frame_data:';
 const SESSION_CORE_CACHE_PREFIX = 'session_core:';
+const SESSION_TIMELINE_CACHE_PREFIX = 'session_timeline:';
+const SESSION_HIERARCHY_CACHE_PREFIX = 'session_hierarchy:';
 
 type SessionArtifactRecord = {
     id: string;
@@ -105,6 +107,8 @@ async function invalidatePurgedSessionCaches(sessionId: string): Promise<number>
         const redis = getRedis();
         await redis.del(
             `${SESSION_CORE_CACHE_PREFIX}${sessionId}`,
+            `${SESSION_TIMELINE_CACHE_PREFIX}${sessionId}`,
+            `${SESSION_HIERARCHY_CACHE_PREFIX}${sessionId}`,
             `${FRAME_CACHE_PREFIX}${sessionId}`,
         );
 
@@ -126,7 +130,7 @@ async function invalidatePurgedSessionCaches(sessionId: string): Promise<number>
             await redis.del(...keysToDelete);
         }
 
-        return 2 + keysToDelete.length;
+        return 4 + keysToDelete.length;
     } catch (err) {
         logger.warn({ err, sessionId }, 'Failed to invalidate purged session caches');
         return 0;

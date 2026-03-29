@@ -70,6 +70,7 @@ run_ci_checks() {
     fi
 
     log "Running schema / migration guard"
+    node "$ROOT_DIR/scripts/check-worker-parity.mjs"
     bash "$ROOT_DIR/scripts/check-schema-migration.sh"
 
     log "Running backend checks"

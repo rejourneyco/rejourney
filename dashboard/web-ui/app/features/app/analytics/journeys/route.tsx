@@ -186,7 +186,7 @@ export const Journeys: React.FC = () => {
         setPartialError(null);
 
         Promise.allSettled([
-            getJourneyObservability(selectedProject.id, toJourneyTimeRange(timeRange)),
+            getJourneyObservability(selectedProject.id, toJourneyTimeRange(timeRange), 'summary'),
             getInsightsTrends(selectedProject.id, toTrendsRange(timeRange)),
             getUserEngagementTrends(selectedProject.id, toJourneyTimeRange(timeRange)),
         ])
@@ -219,6 +219,16 @@ export const Journeys: React.FC = () => {
                 if (failedSections.length > 0) {
                     setPartialError(`Some journey widgets are unavailable (${failedSections.join(', ')}).`);
                 }
+
+                void getJourneyObservability(selectedProject.id, toJourneyTimeRange(timeRange), 'full')
+                    .then((fullJourney) => {
+                        if (!isCancelled) {
+                            setData(fullJourney);
+                        }
+                    })
+                    .catch(() => {
+                        // Keep the summary payload if the richer evidence pass fails.
+                    });
             })
             .finally(() => {
                 if (!isCancelled) setIsLoading(false);

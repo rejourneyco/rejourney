@@ -272,7 +272,7 @@ export const ApiAnalytics: React.FC = () => {
         Promise.allSettled([
             getApiEndpointStats(selectedProject.id, range),
             getRegionPerformance(selectedProject.id, toRegionRange(timeRange)),
-            getObservabilityDeepMetrics(selectedProject.id, range),
+            getObservabilityDeepMetrics(selectedProject.id, range, 'summary'),
             getApiLatencyByLocation(selectedProject.id, range),
             getInsightsTrends(selectedProject.id, toTrendsRange(timeRange)),
         ])

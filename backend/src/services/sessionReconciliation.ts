@@ -2,21 +2,14 @@ import { eq, sql } from 'drizzle-orm';
 import { db, ingestJobs, projects, recordingArtifacts, sessionMetrics, sessions } from '../db/client.js';
 import { logger } from '../logger.js';
 import { updateDeviceUsage } from './recording.js';
+import {
+    deriveSessionPresentationState,
+    loadSessionWorkAggregate,
+    SESSION_LIVE_INGEST_WINDOW_MS,
+} from './sessionPresentationState.js';
 import { computeSessionDurationSeconds, selectSessionEndedAt } from './sessionTiming.js';
 
-export const SESSION_FINALIZE_IDLE_MS = 60_000;
-
-type SessionAggregateRow = {
-    readyScreenshotCount: number | string | null;
-    readyScreenshotBytes: number | string | null;
-    readyHierarchyCount: number | string | null;
-    openArtifactCount: number | string | null;
-    activeJobCount: number | string | null;
-    openReplayArtifactCount: number | string | null;
-    activeReplayJobCount: number | string | null;
-    latestReplayArtifactEndMs: number | string | null;
-    latestReadyAt: Date | string | null;
-};
+export const SESSION_FINALIZE_IDLE_MS = SESSION_LIVE_INGEST_WINDOW_MS;
 
 type ReconcileSessionResult = {
     sessionId: string;
@@ -33,102 +26,8 @@ type TouchSessionOptions = {
     reopen?: boolean;
 };
 
-function toFiniteNumber(value: unknown): number | null {
-    if (value === null || value === undefined) return null;
-    const parsed = Number(value);
-    return Number.isFinite(parsed) ? parsed : null;
-}
-
-function toDateOrNull(value: unknown): Date | null {
-    if (!value) return null;
-    const date = value instanceof Date ? value : new Date(String(value));
-    return Number.isFinite(date.getTime()) ? date : null;
-}
-
 async function ensureMetricsRow(sessionId: string) {
     await db.insert(sessionMetrics).values({ sessionId }).onConflictDoNothing();
-}
-
-async function loadSessionAggregate(sessionId: string): Promise<SessionAggregateRow> {
-    const result = await db.execute(sql`
-        select
-            coalesce((
-                select count(*)::int
-                from ${recordingArtifacts} ra
-                where ra.session_id = s.id
-                  and ra.kind = 'screenshots'
-                  and ra.status = 'ready'
-            ), 0) as "readyScreenshotCount",
-            coalesce((
-                select sum(coalesce(ra.size_bytes, ra.declared_size_bytes, 0))::bigint
-                from ${recordingArtifacts} ra
-                where ra.session_id = s.id
-                  and ra.kind = 'screenshots'
-                  and ra.status = 'ready'
-            ), 0) as "readyScreenshotBytes",
-            coalesce((
-                select count(*)::int
-                from ${recordingArtifacts} ra
-                where ra.session_id = s.id
-                  and ra.kind = 'hierarchy'
-                  and ra.status = 'ready'
-            ), 0) as "readyHierarchyCount",
-            coalesce((
-                select count(*)::int
-                from ${recordingArtifacts} ra
-                where ra.session_id = s.id
-                  and ra.status in ('pending', 'uploaded')
-            ), 0) as "openArtifactCount",
-            coalesce((
-                select count(*)::int
-                from ingest_jobs ij
-                where ij.session_id = s.id
-                  and ij.status in ('pending', 'processing')
-            ), 0) as "activeJobCount",
-            coalesce((
-                select count(*)::int
-                from ${recordingArtifacts} ra
-                where ra.session_id = s.id
-                  and ra.kind in ('screenshots', 'hierarchy')
-                  and ra.status in ('pending', 'uploaded')
-            ), 0) as "openReplayArtifactCount",
-            coalesce((
-                select count(*)::int
-                from ${ingestJobs} ij
-                inner join ${recordingArtifacts} ra on ra.id = ij.artifact_id
-                where ij.session_id = s.id
-                  and ij.status in ('pending', 'processing')
-                  and ra.kind in ('screenshots', 'hierarchy')
-            ), 0) as "activeReplayJobCount",
-            (
-                select max(ra.end_time)
-                from ${recordingArtifacts} ra
-                where ra.session_id = s.id
-                  and ra.kind in ('screenshots', 'hierarchy')
-            ) as "latestReplayArtifactEndMs",
-            (
-                select max(coalesce(ra.ready_at, ra.verified_at, ra.upload_completed_at, ra.created_at))
-                from ${recordingArtifacts} ra
-                where ra.session_id = s.id
-                  and ra.kind = 'screenshots'
-                  and ra.status = 'ready'
-            ) as "latestReadyAt"
-        from ${sessions} s
-        where s.id = ${sessionId}
-    `);
-
-    const rows = (result as any).rows as SessionAggregateRow[] | undefined;
-    return rows?.[0] ?? {
-        readyScreenshotCount: 0,
-        readyScreenshotBytes: 0,
-        readyHierarchyCount: 0,
-        openArtifactCount: 0,
-        activeJobCount: 0,
-        openReplayArtifactCount: 0,
-        activeReplayJobCount: 0,
-        latestReplayArtifactEndMs: null,
-        latestReadyAt: null,
-    };
 }
 
 export async function markSessionIngestActivity(sessionId: string, options: TouchSessionOptions = {}): Promise<void> {
@@ -173,15 +72,15 @@ export async function reconcileSessionState(sessionId: string, now = new Date())
     }
 
     await ensureMetricsRow(sessionId);
-    const aggregate = await loadSessionAggregate(sessionId);
+    const aggregate = await loadSessionWorkAggregate(sessionId);
 
-    const readyScreenshotCount = toFiniteNumber(aggregate.readyScreenshotCount) ?? 0;
-    const readyScreenshotBytes = toFiniteNumber(aggregate.readyScreenshotBytes) ?? 0;
-    const readyHierarchyCount = toFiniteNumber(aggregate.readyHierarchyCount) ?? 0;
-    const openArtifactCount = toFiniteNumber(aggregate.openArtifactCount) ?? 0;
-    const activeJobCount = toFiniteNumber(aggregate.activeJobCount) ?? 0;
-    const openReplayArtifactCount = toFiniteNumber(aggregate.openReplayArtifactCount) ?? 0;
-    const activeReplayJobCount = toFiniteNumber(aggregate.activeReplayJobCount) ?? 0;
+    const readyScreenshotCount = aggregate.readyScreenshotCount;
+    const readyScreenshotBytes = aggregate.readyScreenshotBytes;
+    const readyHierarchyCount = aggregate.readyHierarchyCount;
+    const openArtifactCount = aggregate.openArtifactCount;
+    const activeJobCount = aggregate.activeJobCount;
+    const openReplayArtifactCount = aggregate.openReplayArtifactCount;
+    const activeReplayJobCount = aggregate.activeReplayJobCount;
 
     const [project] = await db.select({ maxRecordingMinutes: projects.maxRecordingMinutes })
         .from(projects)
@@ -192,25 +91,28 @@ export async function reconcileSessionState(sessionId: string, now = new Date())
     const replayAvailable = readyScreenshotCount > 0;
     const replayAvailableAt = replayAvailable
         ? session.replayAvailableAt
-            ?? toDateOrNull(aggregate.latestReadyAt)
+            ?? aggregate.latestReadyAt
             ?? session.lastIngestActivityAt
             ?? now
         : null;
 
-    // Events / faults can keep uploading after replay is ready; only replay artifacts block "done" once we have screenshots.
-    const noPendingWork = replayAvailable
-        ? openReplayArtifactCount === 0 && activeReplayJobCount === 0
-        : openArtifactCount === 0 && activeJobCount === 0;
-    const isExplicitlyEnded = Boolean(session.explicitEndedAt);
-    const latestReadyAtDate = toDateOrNull(aggregate.latestReadyAt);
-    const activityClockForIdle = replayAvailable
-        ? (latestReadyAtDate ?? session.lastIngestActivityAt)
-        : session.lastIngestActivityAt;
-    const isIdle = Boolean(activityClockForIdle)
-        && activityClockForIdle.getTime() <= now.getTime() - SESSION_FINALIZE_IDLE_MS;
-    const shouldFinalize = noPendingWork && (isExplicitlyEnded || isIdle);
+    const presentationState = deriveSessionPresentationState({
+        status: session.status,
+        replayAvailable,
+        recordingDeleted: session.recordingDeleted,
+        isReplayExpired: session.isReplayExpired,
+        explicitEndedAt: session.explicitEndedAt,
+        finalizedAt: session.finalizedAt,
+        lastIngestActivityAt: session.lastIngestActivityAt,
+        replayAvailableAt,
+        startedAt: session.startedAt,
+        hasPendingWork: aggregate.hasPendingWork,
+        hasPendingReplayWork: aggregate.hasPendingReplayWork,
+        now,
+    });
+    const shouldFinalize = presentationState.shouldFinalize;
 
-    const latestReplayEndMs = toFiniteNumber(aggregate.latestReplayArtifactEndMs);
+    const latestReplayEndMs = aggregate.latestReplayArtifactEndMs;
     const derivedEndedAt = selectSessionEndedAt({
         startedAt: session.startedAt,
         explicitEndedAt: session.explicitEndedAt,
@@ -282,47 +184,58 @@ export async function reconcileSessionState(sessionId: string, now = new Date())
     };
 }
 
-export async function reconcileDueSessions(limit = 100): Promise<number> {
+export async function reconcileDueSessions(batchSize = 500, maxBatches = 20): Promise<number> {
     const cutoff = new Date(Date.now() - SESSION_FINALIZE_IDLE_MS);
-    const result = await db.execute(sql`
-        select s.id
-        from ${sessions} s
-        where s.status in ('processing', 'pending')
-        and (
-            s.explicit_ended_at is not null
-            or s.last_ingest_activity_at <= ${cutoff}
-            or (
-                s.replay_available = true
-                and not exists (
-                    select 1 from ${recordingArtifacts} ra
-                    where ra.session_id = s.id
-                      and ra.kind in ('screenshots', 'hierarchy')
-                      and ra.status in ('pending', 'uploaded')
-                )
-                and not exists (
-                    select 1 from ${ingestJobs} ij
-                    inner join ${recordingArtifacts} ra on ra.id = ij.artifact_id
-                    where ij.session_id = s.id
-                      and ij.status in ('pending', 'processing')
-                      and ra.kind in ('screenshots', 'hierarchy')
-                )
-                and exists (
-                    select 1 from ${recordingArtifacts} ra
-                    where ra.session_id = s.id
-                      and ra.kind = 'screenshots'
-                      and ra.status = 'ready'
-                      and coalesce(ra.ready_at, ra.verified_at, ra.upload_completed_at, ra.created_at) <= ${cutoff}
+    let processed = 0;
+
+    for (let batch = 0; batch < maxBatches; batch += 1) {
+        const result = await db.execute(sql`
+            select s.id
+            from ${sessions} s
+            where s.status in ('processing', 'pending')
+            and (
+                s.explicit_ended_at is not null
+                or s.last_ingest_activity_at <= ${cutoff}
+                or (
+                    s.replay_available = true
+                    and not exists (
+                        select 1 from ${recordingArtifacts} ra
+                        where ra.session_id = s.id
+                          and ra.kind in ('screenshots', 'hierarchy')
+                          and ra.status in ('pending', 'uploaded')
+                    )
+                    and not exists (
+                        select 1 from ${ingestJobs} ij
+                        inner join ${recordingArtifacts} ra on ra.id = ij.artifact_id
+                        where ij.session_id = s.id
+                          and ij.status in ('pending', 'processing')
+                          and ra.kind in ('screenshots', 'hierarchy')
+                    )
+                    and exists (
+                        select 1 from ${recordingArtifacts} ra
+                        where ra.session_id = s.id
+                          and ra.kind = 'screenshots'
+                          and ra.status = 'ready'
+                          and coalesce(ra.ready_at, ra.verified_at, ra.upload_completed_at, ra.created_at) <= ${cutoff}
+                    )
                 )
             )
-        )
-        limit ${limit}
-    `);
-    const rows = (result as any).rows as Array<{ id: string }> | undefined;
-    const list = rows ?? [];
-    for (const row of list) {
-        await reconcileSessionState(row.id);
+            order by coalesce(s.explicit_ended_at, s.replay_available_at, s.last_ingest_activity_at, s.started_at) asc, s.id asc
+            limit ${batchSize}
+        `);
+        const rows = (result as any).rows as Array<{ id: string }> | undefined;
+        const list = rows ?? [];
+        if (list.length === 0) break;
+
+        for (const row of list) {
+            await reconcileSessionState(row.id);
+        }
+
+        processed += list.length;
+        if (list.length < batchSize) break;
     }
-    return list.length;
+
+    return processed;
 }
 
 export async function backfillArtifactDrivenLifecycleState(): Promise<void> {
@@ -399,4 +312,15 @@ export async function backfillArtifactDrivenLifecycleState(): Promise<void> {
     }
 
     logger.info({ processed }, 'Backfilled artifact-driven session lifecycle state');
+}
+
+export async function backfillSessionReconciliationState(): Promise<void> {
+    let processed = 0;
+    while (true) {
+        const batchCount = await reconcileDueSessions(500, 20);
+        processed += batchCount;
+        if (batchCount === 0) break;
+    }
+
+    logger.info({ processed }, 'Backfilled due session reconciliation state');
 }

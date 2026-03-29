@@ -7,7 +7,7 @@
 import { Router } from 'express';
 import { eq, and, inArray, gte, lt, isNull, desc, sql } from 'drizzle-orm';
 
-import { db, sessions, sessionMetrics, recordingArtifacts, projects, teamMembers, crashes, anrs, errors } from '../db/client.js';
+import { db, sessions, sessionMetrics, recordingArtifacts, ingestJobs, projects, teamMembers, crashes, anrs, errors } from '../db/client.js';
 import { gunzipSync } from 'zlib';
 
 import {
@@ -38,6 +38,11 @@ import {
     hasSuccessfulRecording,
     readyScreenshotArtifactsConditionSql,
 } from '../services/replayAvailability.js';
+import {
+    deriveSessionPresentationState,
+    loadSessionWorkAggregate,
+    type SessionPresentationState,
+} from '../services/sessionPresentationState.js';
 
 const router = Router();
 
@@ -207,6 +212,7 @@ const DETAIL_FETCH_CONCURRENCY = Number(process.env.RJ_REPLAY_DETAIL_FETCH_CONCU
 const frameModeFromEnv = (process.env.RJ_REPLAY_FRAME_URL_MODE || 'proxy').toLowerCase();
 const DEFAULT_FRAME_URL_MODE: ScreenshotFrameUrlMode = frameModeFromEnv === 'signed' ? 'signed' : 'proxy';
 const SESSION_CORE_CACHE_TTL_SECONDS = Number(process.env.RJ_SESSION_CORE_CACHE_TTL_SECONDS ?? 300);
+const SESSION_DETAIL_CACHE_TTL_SECONDS = Number(process.env.RJ_SESSION_DETAIL_CACHE_TTL_SECONDS ?? 300);
 const FRAME_AUTH_CACHE_TTL_SECONDS = Number(process.env.RJ_FRAME_AUTH_CACHE_TTL_SECONDS ?? 60);
 
 function resolveFrameUrlMode(raw: unknown): ScreenshotFrameUrlMode {
@@ -214,6 +220,29 @@ function resolveFrameUrlMode(raw: unknown): ScreenshotFrameUrlMode {
     const mode = raw.toLowerCase();
     if (mode === 'signed' || mode === 'proxy' || mode === 'none') return mode;
     return DEFAULT_FRAME_URL_MODE;
+}
+
+function buildSessionDetailCacheKey(kind: 'core' | 'timeline' | 'hierarchy', sessionId: string): string {
+    if (kind === 'core') return `session_core:${sessionId}`;
+    return `session_${kind}:${sessionId}`;
+}
+
+async function readCachedSessionDetail(kind: 'core' | 'timeline' | 'hierarchy', sessionId: string): Promise<string | null> {
+    try {
+        return await getRedis().get(buildSessionDetailCacheKey(kind, sessionId));
+    } catch (err) {
+        logger.warn({ err, kind, sessionId }, '[sessions] Failed to read session detail cache');
+        return null;
+    }
+}
+
+async function writeCachedSessionDetail(kind: 'core' | 'timeline' | 'hierarchy', sessionId: string, payload: unknown): Promise<void> {
+    try {
+        const ttl = kind === 'core' ? SESSION_CORE_CACHE_TTL_SECONDS : SESSION_DETAIL_CACHE_TTL_SECONDS;
+        await getRedis().setex(buildSessionDetailCacheKey(kind, sessionId), ttl, JSON.stringify(payload));
+    } catch (err) {
+        logger.warn({ err, kind, sessionId }, '[sessions] Failed to write session detail cache');
+    }
 }
 
 async function mapWithConcurrency<T, R>(
@@ -343,15 +372,48 @@ function buildMetricsPayload(metrics: any) {
         : null;
 }
 
+function buildSessionPresentationPayload(presentationState: SessionPresentationState) {
+    return {
+        effectiveStatus: presentationState.effectiveStatus,
+        isLiveIngest: presentationState.isLiveIngest,
+        isBackgroundProcessing: presentationState.isBackgroundProcessing,
+        canOpenReplay: presentationState.canOpenReplay,
+    };
+}
+
+function toBooleanFlag(value: unknown): boolean {
+    if (typeof value === 'boolean') return value;
+    if (typeof value === 'string') {
+        const normalized = value.trim().toLowerCase();
+        return normalized === 'true' || normalized === 't' || normalized === '1';
+    }
+    if (typeof value === 'number') return value > 0;
+    return Boolean(value);
+}
+
 function buildSessionBasePayload(
     session: any,
     metrics: any,
     screenshotFrames: Array<{ timestamp: number; url: string; index: number }>,
-    readyScreenshotArtifacts = false
+    readyScreenshotArtifacts = false,
+    presentationState?: SessionPresentationState
 ) {
     const hasRecording = screenshotFrames.length > 0;
     const playbackMode = hasRecording ? 'screenshots' : 'none';
     const successfulRecording = hasSuccessfulRecording(session, metrics, readyScreenshotArtifacts);
+    const sessionPresentationState = presentationState ?? deriveSessionPresentationState({
+        status: session.status,
+        replayAvailable: session.replayAvailable,
+        recordingDeleted: session.recordingDeleted,
+        isReplayExpired: session.isReplayExpired,
+        explicitEndedAt: session.explicitEndedAt,
+        finalizedAt: session.finalizedAt,
+        lastIngestActivityAt: session.lastIngestActivityAt,
+        replayAvailableAt: session.replayAvailableAt,
+        startedAt: session.startedAt,
+        hasPendingWork: false,
+        hasPendingReplayWork: false,
+    });
 
     return {
         id: session.id,
@@ -387,6 +449,7 @@ function buildSessionBasePayload(
         backgroundTime: session.backgroundTimeSeconds ?? 0,
         playableDuration: session.durationSeconds ?? 0,
         status: session.status,
+        ...buildSessionPresentationPayload(sessionPresentationState),
         // Session-level JSONB metadata and custom events stored in the sessions table
         metadata: session.metadata,
         events: [] as any[],
@@ -1163,6 +1226,30 @@ router.get(
                     session: sessions,
                     metrics: sessionMetrics,
                     readyScreenshotArtifacts: readyScreenshotArtifactsConditionSql(sessions.id),
+                    hasOpenArtifacts: sql<boolean>`exists (
+                        select 1 from ${recordingArtifacts} ra
+                        where ra.session_id = ${sessions.id}
+                          and ra.status in ('pending', 'uploaded')
+                    )`,
+                    hasActiveJobs: sql<boolean>`exists (
+                        select 1 from ${ingestJobs} ij
+                        where ij.session_id = ${sessions.id}
+                          and ij.status in ('pending', 'processing')
+                    )`,
+                    hasOpenReplayArtifacts: sql<boolean>`exists (
+                        select 1 from ${recordingArtifacts} ra
+                        where ra.session_id = ${sessions.id}
+                          and ra.kind in ('screenshots', 'hierarchy')
+                          and ra.status in ('pending', 'uploaded')
+                    )`,
+                    hasActiveReplayJobs: sql<boolean>`exists (
+                        select 1
+                        from ${ingestJobs} ij
+                        inner join ${recordingArtifacts} ra on ra.id = ij.artifact_id
+                        where ij.session_id = ${sessions.id}
+                          and ij.status in ('pending', 'processing')
+                          and ra.kind in ('screenshots', 'hierarchy')
+                    )`,
                     isFirstSession: sql<boolean>`NOT EXISTS (
                         SELECT 1 FROM ${sessions} AS previous_sessions 
                         WHERE previous_sessions.device_id = ${sessions.deviceId} 
@@ -1196,8 +1283,30 @@ router.get(
         const nextCursor = hasMore ? resultSessions[resultSessions.length - 1].session.id : null;
 
         // Transform to API format
-        const sessionsData = resultSessions.map(({ session: s, metrics: m, readyScreenshotArtifacts, isFirstSession }) => {
+        const sessionsData = resultSessions.map(({
+            session: s,
+            metrics: m,
+            readyScreenshotArtifacts,
+            hasOpenArtifacts,
+            hasActiveJobs,
+            hasOpenReplayArtifacts,
+            hasActiveReplayJobs,
+            isFirstSession,
+        }) => {
             const successfulRecording = hasSuccessfulRecording(s, m, Boolean(readyScreenshotArtifacts));
+            const presentationState = deriveSessionPresentationState({
+                status: s.status,
+                replayAvailable: s.replayAvailable,
+                recordingDeleted: s.recordingDeleted,
+                isReplayExpired: s.isReplayExpired,
+                explicitEndedAt: s.explicitEndedAt,
+                finalizedAt: s.finalizedAt,
+                lastIngestActivityAt: s.lastIngestActivityAt,
+                replayAvailableAt: s.replayAvailableAt,
+                startedAt: s.startedAt,
+                hasPendingWork: toBooleanFlag(hasOpenArtifacts) || toBooleanFlag(hasActiveJobs),
+                hasPendingReplayWork: toBooleanFlag(hasOpenReplayArtifacts) || toBooleanFlag(hasActiveReplayJobs),
+            });
             return {
                 id: s.id,
                 projectId: s.projectId,
@@ -1216,6 +1325,7 @@ router.get(
                 // playableDuration is now same as durationSeconds (background already excluded)
                 playableDuration: s.durationSeconds ?? 0,
                 status: s.status,
+                ...buildSessionPresentationPayload(presentationState),
                 isFirstSession,
                 // Metrics
                 touchCount: m?.touchCount ?? 0,
@@ -1319,6 +1429,20 @@ router.get(
 
         const session = sessionResult.session;
         const metrics = sessionResult.metrics;
+        const aggregate = await loadSessionWorkAggregate(session.id);
+        const presentationState = deriveSessionPresentationState({
+            status: session.status,
+            replayAvailable: session.replayAvailable,
+            recordingDeleted: session.recordingDeleted,
+            isReplayExpired: session.isReplayExpired,
+            explicitEndedAt: session.explicitEndedAt,
+            finalizedAt: session.finalizedAt,
+            lastIngestActivityAt: session.lastIngestActivityAt,
+            replayAvailableAt: session.replayAvailableAt,
+            startedAt: session.startedAt,
+            hasPendingWork: aggregate.hasPendingWork,
+            hasPendingReplayWork: aggregate.hasPendingReplayWork,
+        });
 
         // Verify user has access
         const [membership] = await db
@@ -1629,6 +1753,7 @@ router.get(
             // playableDuration is now same as durationSeconds (background already excluded at ingest time)
             playableDuration: session.durationSeconds ?? 0,
             status: session.status,
+            ...buildSessionPresentationPayload(presentationState),
             // Session-level JSONB metadata accumulated from custom "$user_property" events
             metadata: session.metadata,
             events: mergedEvents,
@@ -1755,20 +1880,17 @@ router.get(
     dashboardRateLimiter,
     asyncHandler(async (req, res) => {
         const { session, metrics } = await getAuthorizedSession(req.user!.id, req.params.id);
-        const artifactsList = await getReadyArtifacts(session.id);
-
-        const cacheKey = `session_core:${session.id}`;
-        try {
-            const redis = getRedis();
-            const cached = await redis.get(cacheKey);
-            if (cached) {
-                res.setHeader('X-Replay-Core-Cache', 'hit');
-                res.type('json').send(cached);
-                return;
-            }
-        } catch (err) {
-            logger.warn({ err, sessionId: session.id }, '[sessions] Failed to read session core cache');
+        const cached = await readCachedSessionDetail('core', session.id);
+        if (cached) {
+            res.setHeader('X-Replay-Core-Cache', 'hit');
+            res.type('json').send(cached);
+            return;
         }
+
+        const [artifactsList, aggregate] = await Promise.all([
+            getReadyArtifacts(session.id),
+            loadSessionWorkAggregate(session.id),
+        ]);
 
         const screenshotArtifacts = artifactsList.filter((a) => a.kind === 'screenshots');
         const frameUrlMode = resolveFrameUrlMode(req.query.frameUrlMode);
@@ -1782,7 +1904,20 @@ router.get(
             session,
             metrics,
             replayBootstrap.screenshotFrames,
-            screenshotArtifacts.length > 0
+            screenshotArtifacts.length > 0,
+            deriveSessionPresentationState({
+                status: session.status,
+                replayAvailable: session.replayAvailable,
+                recordingDeleted: session.recordingDeleted,
+                isReplayExpired: session.isReplayExpired,
+                explicitEndedAt: session.explicitEndedAt,
+                finalizedAt: session.finalizedAt,
+                lastIngestActivityAt: session.lastIngestActivityAt,
+                replayAvailableAt: session.replayAvailableAt,
+                startedAt: session.startedAt,
+                hasPendingWork: aggregate.hasPendingWork,
+                hasPendingReplayWork: aggregate.hasPendingReplayWork,
+            })
         );
         const stats = await computeSessionStats(session, metrics, artifactsList, false);
         const responseBody = {
@@ -1800,12 +1935,7 @@ router.get(
         res.json(responseBody);
 
         if (replayBootstrap.screenshotFramesStatus !== 'preparing') {
-            try {
-                const redis = getRedis();
-                await redis.setex(cacheKey, SESSION_CORE_CACHE_TTL_SECONDS, JSON.stringify(responseBody));
-            } catch (err) {
-                logger.warn({ err, sessionId: session.id }, '[sessions] Failed to write session core cache');
-            }
+            await writeCachedSessionDetail('core', session.id, responseBody);
         }
     })
 );
@@ -1821,8 +1951,15 @@ router.get(
     dashboardRateLimiter,
     asyncHandler(async (req, res) => {
         const { session } = await getAuthorizedSession(req.user!.id, req.params.id);
+        const cached = await readCachedSessionDetail('timeline', session.id);
+        if (cached) {
+            res.type('json').send(cached);
+            return;
+        }
+
         const artifactsList = await getReadyArtifacts(session.id);
         const timeline = await loadTimelinePayload(session, artifactsList);
+        await writeCachedSessionDetail('timeline', session.id, timeline);
         res.json(timeline);
     })
 );
@@ -1838,9 +1975,17 @@ router.get(
     dashboardRateLimiter,
     asyncHandler(async (req, res) => {
         const { session } = await getAuthorizedSession(req.user!.id, req.params.id);
+        const cached = await readCachedSessionDetail('hierarchy', session.id);
+        if (cached) {
+            res.type('json').send(cached);
+            return;
+        }
+
         const artifactsList = await getReadyArtifacts(session.id);
         const hierarchySnapshots = await loadHierarchyPayload(session, artifactsList);
-        res.json({ hierarchySnapshots });
+        const responseBody = { hierarchySnapshots };
+        await writeCachedSessionDetail('hierarchy', session.id, responseBody);
+        res.json(responseBody);
     })
 );
 

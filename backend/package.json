@@ -21,6 +21,8 @@
         "db:seed:if-empty": "node --import tsx scripts/seedIfDatabaseEmpty.ts",
         "db:seed": "tsx src/db/seed.ts",
         "db:backfill:artifact-lifecycle": "node --import tsx scripts/backfillArtifactLifecycleState.ts",
+        "db:backfill:session-reconciliation": "node --import tsx scripts/backfillSessionReconciliationState.ts",
+        "db:repair:missing-sessions": "node --import tsx scripts/repairMissingSessions.ts",
         "retention:backfill:expired-artifacts": "node dist/worker/retentionWorker.js --once --drain-backlog --trigger=manual_backfill",
         "storage:endpoint:sync": "tsx scripts/syncStorageEndpoint.ts",
         "usage:backfill:device": "node --import tsx/esm scripts/backfill_device_usage.ts",

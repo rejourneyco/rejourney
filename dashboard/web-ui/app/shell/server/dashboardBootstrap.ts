@@ -1,10 +1,14 @@
-import type { ApiTeam } from "~/shared/api/client";
+import type { ApiProject, ApiTeam } from "~/shared/api/client";
 import type { User } from "~/shared/providers/AuthContext";
 import { normalizeAuthUser } from "~/shared/providers/AuthContext";
+import { readCookieValue, SELECTED_PROJECT_COOKIE, SELECTED_TEAM_COOKIE } from "~/shared/utils/selectionCookies";
 
 export interface DashboardShellBootstrapData {
   __shellBootstrap: true;
   currentTeamId: string | null;
+  projects: ApiProject[];
+  projectsTeamId: string | null;
+  selectedProjectId: string | null;
   teams: ApiTeam[];
   user: User;
 }
@@ -15,6 +19,10 @@ interface ApiAuthResponse {
 
 interface ApiTeamsResponse {
   teams?: ApiTeam[];
+}
+
+interface ApiProjectsResponse {
+  projects?: ApiProject[];
 }
 
 function normalizeTeamsResponse(payload: unknown): ApiTeam[] {
@@ -89,17 +97,59 @@ async function fetchTeams(request: Request): Promise<ApiTeam[]> {
   }
 }
 
+function normalizeProjectsResponse(payload: unknown): ApiProject[] {
+  if (Array.isArray(payload)) {
+    return payload as ApiProject[];
+  }
+
+  if (payload && typeof payload === "object" && Array.isArray((payload as ApiProjectsResponse).projects)) {
+    return (payload as ApiProjectsResponse).projects ?? [];
+  }
+
+  return [];
+}
+
+async function fetchProjects(request: Request): Promise<ApiProject[]> {
+  try {
+    const response = await fetchBootstrapJson(request, "/api/projects");
+    if (response.status === 401 || response.status === 403) {
+      return [];
+    }
+
+    if (!response.ok) {
+      throw new Error(`Failed to load projects bootstrap: ${response.status}`);
+    }
+
+    return normalizeProjectsResponse(await response.json());
+  } catch (error) {
+    console.error("Failed to load projects for dashboard shell:", error);
+    return [];
+  }
+}
+
 export async function loadDashboardShellBootstrap(request: Request): Promise<DashboardShellBootstrapData | null> {
   const user = await fetchCurrentUser(request);
   if (!user) {
     return null;
   }
 
+  const cookieHeader = request.headers.get("cookie");
   const teams = await fetchTeams(request);
+  const preferredTeamId = readCookieValue(cookieHeader, SELECTED_TEAM_COOKIE);
+  const currentTeamId = teams.find((team) => team.id === preferredTeamId)?.id ?? teams[0]?.id ?? null;
+  const allProjects = await fetchProjects(request);
+  const projects = currentTeamId
+    ? allProjects.filter((project) => !project.teamId || project.teamId === currentTeamId)
+    : allProjects;
+  const preferredProjectId = readCookieValue(cookieHeader, SELECTED_PROJECT_COOKIE);
+  const selectedProjectId = projects.find((project) => project.id === preferredProjectId)?.id ?? projects[0]?.id ?? null;
 
   return {
     __shellBootstrap: true,
-    currentTeamId: teams[0]?.id ?? null,
+    currentTeamId,
+    projects,
+    projectsTeamId: currentTeamId,
+    selectedProjectId,
     teams,
     user,
   };

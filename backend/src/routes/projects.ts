@@ -6,8 +6,8 @@
 
 import { Router } from 'express';
 import { randomBytes } from 'crypto';
-import { eq, and, inArray, gte, isNull, sql, desc } from 'drizzle-orm';
-import { db, projects, teamMembers, sessions, sessionMetrics, teams, alertSettings, alertRecipients } from '../db/client.js';
+import { eq, and, inArray, isNull, sql, desc } from 'drizzle-orm';
+import { db, projects, teamMembers, sessions, teams, alertSettings, alertRecipients, appDailyStats, appAllTimeStats } from '../db/client.js';
 import { getRedis } from '../db/redis.js';
 import { logger } from '../logger.js';
 import { sessionAuth, requireProjectAccess, asyncHandler, ApiError } from '../middleware/index.js';
@@ -37,6 +37,7 @@ function getProjectPlatforms(project: { bundleId?: string | null; packageName?: 
 }
 
 const router = Router();
+const PROJECT_LIST_CACHE_TTL_SECONDS = Number(process.env.RJ_PROJECT_LIST_CACHE_TTL_SECONDS ?? 60);
 
 function clamp(value: number, min: number, max: number): number {
     return Math.min(max, Math.max(min, value));
@@ -48,8 +49,7 @@ function computeHealthScore(input: {
     crashesTotal: number;
     anrsTotal: number;
     avgUxScoreAllTime: number;
-    apiErrorsTotal: number;
-    apiTotalCount: number;
+    avgApiErrorRateAllTime: number;
     rageTapTotal: number;
 }): number {
     if (input.sessionsTotal <= 0) return 60;
@@ -58,7 +58,7 @@ function computeHealthScore(input: {
         || input.errorsTotal > 0
         || input.crashesTotal > 0
         || input.anrsTotal > 0
-        || input.apiTotalCount > 0
+        || input.avgApiErrorRateAllTime > 0
         || input.rageTapTotal > 0
     );
     if (!hasAnyMetricSignal) return 65;
@@ -67,12 +67,12 @@ function computeHealthScore(input: {
     const errorRate = input.errorsTotal / sessionsCount;
     const crashAnrRate = (input.crashesTotal + input.anrsTotal) / sessionsCount;
     const rageTapRate = input.rageTapTotal / sessionsCount;
-    const apiErrorRate = input.apiTotalCount > 0 ? input.apiErrorsTotal / input.apiTotalCount : 0;
+    const apiErrorRate = Math.max(0, Number(input.avgApiErrorRateAllTime || 0));
 
     const uxScore = input.avgUxScoreAllTime > 0 ? input.avgUxScoreAllTime : 70;
     const reliabilityScore = clamp(100 - (errorRate * 120), 0, 100);
     const stabilityScore = clamp(100 - (crashAnrRate * 250), 0, 100);
-    const apiReliabilityScore = input.apiTotalCount > 0
+    const apiReliabilityScore = input.avgApiErrorRateAllTime > 0
         ? clamp(100 - (apiErrorRate * 140), 0, 100)
         : 85;
     const interactionStabilityScore = clamp(100 - (rageTapRate * 160), 0, 100);
@@ -86,6 +86,28 @@ function computeHealthScore(input: {
     );
 
     return Math.round(clamp(score, 0, 100));
+}
+
+function buildProjectListCacheKey(userId: string): string {
+    return `projects:list:user:${userId}:v2`;
+}
+
+async function invalidateProjectListCacheForTeam(teamId: string | null | undefined): Promise<void> {
+    if (!teamId) return;
+
+    try {
+        const members = await db
+            .select({ userId: teamMembers.userId })
+            .from(teamMembers)
+            .where(eq(teamMembers.teamId, teamId));
+        const userIds = Array.from(new Set(members.map((member) => member.userId).filter(Boolean)));
+        if (userIds.length === 0) return;
+
+        const redis = getRedis();
+        await redis.del(...userIds.map(buildProjectListCacheKey));
+    } catch (err) {
+        logger.warn({ err, teamId }, 'Failed to invalidate project list cache');
+    }
 }
 
 function getHealthLevel(score: number): 'excellent' | 'good' | 'fair' | 'critical' {
@@ -104,6 +126,19 @@ router.get(
     sessionAuth,
     dashboardRateLimiter,
     asyncHandler(async (req, res) => {
+        const redis = getRedis();
+        const cacheKey = buildProjectListCacheKey(req.user!.id);
+
+        try {
+            const cached = await redis.get(cacheKey);
+            if (cached) {
+                res.json(JSON.parse(cached));
+                return;
+            }
+        } catch (err) {
+            logger.warn({ err, userId: req.user!.id }, 'Failed to read project list cache');
+        }
+
         // Get user's teams
         const teamMemberships = await db
             .select({ teamId: teamMembers.teamId })
@@ -130,78 +165,84 @@ router.get(
         }
 
         const projectIds = projectsList.map((project) => project.id);
+        const sevenDaysAgo = new Date();
+        sevenDaysAgo.setUTCDate(sevenDaysAgo.getUTCDate() - 6);
+        sevenDaysAgo.setUTCHours(0, 0, 0, 0);
+        const sevenDaysAgoStr = sevenDaysAgo.toISOString().split('T')[0];
 
-        // Get session stats for each project
-        const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
-        const [totalSessionsRows, last7SessionsRows, last7ErrorsRows, allTimeMetricsRows] = await Promise.all([
+        const [allTimeRows, dailyRows] = await Promise.all([
             db
                 .select({
-                    projectId: sessions.projectId,
-                    count: sql<number>`count(*)::int`,
+                    projectId: appAllTimeStats.projectId,
+                    totalSessions: appAllTimeStats.totalSessions,
+                    totalErrors: appAllTimeStats.totalErrors,
+                    avgUxScore: appAllTimeStats.avgUxScore,
+                    avgApiErrorRate: appAllTimeStats.avgApiErrorRate,
+                    totalRageTaps: appAllTimeStats.totalRageTaps,
                 })
-                .from(sessions)
-                .where(inArray(sessions.projectId, projectIds))
-                .groupBy(sessions.projectId),
+                .from(appAllTimeStats)
+                .where(inArray(appAllTimeStats.projectId, projectIds)),
             db
                 .select({
-                    projectId: sessions.projectId,
-                    count: sql<number>`count(*)::int`,
+                    projectId: appDailyStats.projectId,
+                    date: appDailyStats.date,
+                    totalSessions: appDailyStats.totalSessions,
+                    totalErrors: appDailyStats.totalErrors,
+                    totalCrashes: appDailyStats.totalCrashes,
+                    totalAnrs: appDailyStats.totalAnrs,
+                    totalRageTaps: appDailyStats.totalRageTaps,
                 })
-                .from(sessions)
-                .where(and(inArray(sessions.projectId, projectIds), gte(sessions.startedAt, sevenDaysAgo)))
-                .groupBy(sessions.projectId),
-            db
-                .select({
-                    projectId: sessions.projectId,
-                    total: sql<number>`coalesce(sum(${sessionMetrics.errorCount}), 0)::int`,
-                })
-                .from(sessions)
-                .leftJoin(sessionMetrics, eq(sessionMetrics.sessionId, sessions.id))
-                .where(and(inArray(sessions.projectId, projectIds), gte(sessions.startedAt, sevenDaysAgo)))
-                .groupBy(sessions.projectId),
-            db
-                .select({
-                    projectId: sessions.projectId,
-                    errorsTotal: sql<number>`coalesce(sum(${sessionMetrics.errorCount}), 0)::int`,
-                    crashesTotal: sql<number>`coalesce(sum(${sessionMetrics.crashCount}), 0)::int`,
-                    anrsTotal: sql<number>`coalesce(sum(${sessionMetrics.anrCount}), 0)::int`,
-                    avgUxScoreAllTime: sql<number>`coalesce(avg(${sessionMetrics.uxScore}), 0)::float`,
-                    apiErrorsTotal: sql<number>`coalesce(sum(${sessionMetrics.apiErrorCount}), 0)::int`,
-                    apiTotalCount: sql<number>`coalesce(sum(${sessionMetrics.apiTotalCount}), 0)::int`,
-                    rageTapTotal: sql<number>`coalesce(sum(${sessionMetrics.rageTapCount}), 0)::int`,
-                })
-                .from(sessions)
-                .leftJoin(sessionMetrics, eq(sessionMetrics.sessionId, sessions.id))
-                .where(inArray(sessions.projectId, projectIds))
-                .groupBy(sessions.projectId),
+                .from(appDailyStats)
+                .where(inArray(appDailyStats.projectId, projectIds)),
         ]);
 
-        const totalSessionsByProject = new Map(totalSessionsRows.map((row) => [row.projectId, row.count]));
-        const last7SessionsByProject = new Map(last7SessionsRows.map((row) => [row.projectId, row.count]));
-        const last7ErrorsByProject = new Map(last7ErrorsRows.map((row) => [row.projectId, Number(row.total ?? 0)]));
-        const allTimeMetricsByProject = new Map(allTimeMetricsRows.map((row) => [row.projectId, row]));
+        const allTimeByProject = new Map(allTimeRows.map((row) => [row.projectId, row]));
+        const aggregatesByProject = new Map<string, {
+            sessionsLast7Days: number;
+            errorsLast7Days: number;
+            crashesTotal: number;
+            anrsTotal: number;
+            rageTapTotal: number;
+        }>();
+
+        for (const row of dailyRows) {
+            const projectAggregate = aggregatesByProject.get(row.projectId) ?? {
+                sessionsLast7Days: 0,
+                errorsLast7Days: 0,
+                crashesTotal: 0,
+                anrsTotal: 0,
+                rageTapTotal: 0,
+            };
+            if (row.date >= sevenDaysAgoStr) {
+                projectAggregate.sessionsLast7Days += Number(row.totalSessions || 0);
+                projectAggregate.errorsLast7Days += Number(row.totalErrors || 0);
+            }
+            projectAggregate.crashesTotal += Number(row.totalCrashes || 0);
+            projectAggregate.anrsTotal += Number(row.totalAnrs || 0);
+            projectAggregate.rageTapTotal += Number(row.totalRageTaps || 0);
+            aggregatesByProject.set(row.projectId, projectAggregate);
+        }
 
         const projectStats = projectsList.map((project) => {
-            const sessionsTotal = totalSessionsByProject.get(project.id) ?? 0;
-            const sessionsLast7Days = last7SessionsByProject.get(project.id) ?? 0;
-            const errorsLast7Days = last7ErrorsByProject.get(project.id) ?? 0;
-            const allTimeMetrics = allTimeMetricsByProject.get(project.id);
+            const allTimeMetrics = allTimeByProject.get(project.id);
+            const dailyAggregate = aggregatesByProject.get(project.id);
 
-            const errorsTotal = Number(allTimeMetrics?.errorsTotal ?? 0);
-            const crashesTotal = Number(allTimeMetrics?.crashesTotal ?? 0);
-            const anrsTotal = Number(allTimeMetrics?.anrsTotal ?? 0);
-            const avgUxScoreAllTime = Number(allTimeMetrics?.avgUxScoreAllTime ?? 0);
-            const apiErrorsTotal = Number(allTimeMetrics?.apiErrorsTotal ?? 0);
-            const apiTotalCount = Number(allTimeMetrics?.apiTotalCount ?? 0);
-            const rageTapTotal = Number(allTimeMetrics?.rageTapTotal ?? 0);
+            const sessionsTotal = Number(allTimeMetrics?.totalSessions ?? 0);
+            const sessionsLast7Days = Number(dailyAggregate?.sessionsLast7Days ?? 0);
+            const errorsLast7Days = Number(dailyAggregate?.errorsLast7Days ?? 0);
+            const errorsTotal = Number(allTimeMetrics?.totalErrors ?? 0);
+            const crashesTotal = Number(dailyAggregate?.crashesTotal ?? 0);
+            const anrsTotal = Number(dailyAggregate?.anrsTotal ?? 0);
+            const avgUxScoreAllTime = Number(allTimeMetrics?.avgUxScore ?? 0);
+            const avgApiErrorRateAllTime = Number(allTimeMetrics?.avgApiErrorRate ?? 0);
+            const rageTapTotal = Number(dailyAggregate?.rageTapTotal ?? allTimeMetrics?.totalRageTaps ?? 0);
             const healthScore = computeHealthScore({
                 sessionsTotal,
                 errorsTotal,
                 crashesTotal,
                 anrsTotal,
                 avgUxScoreAllTime,
-                apiErrorsTotal,
-                apiTotalCount,
+                avgApiErrorRateAllTime,
                 rageTapTotal,
             });
             const healthLevel = getHealthLevel(healthScore);
@@ -216,15 +257,23 @@ router.get(
                 crashesTotal,
                 anrsTotal,
                 avgUxScoreAllTime,
-                apiErrorsTotal,
-                apiTotalCount,
+                apiErrorsTotal: 0,
+                apiTotalCount: 0,
                 rageTapTotal,
                 healthScore,
                 healthLevel,
             };
         });
 
-        res.json({ projects: projectStats });
+        const responseBody = { projects: projectStats };
+
+        try {
+            await redis.set(cacheKey, JSON.stringify(responseBody), 'EX', PROJECT_LIST_CACHE_TTL_SECONDS);
+        } catch (err) {
+            logger.warn({ err, userId: req.user!.id }, 'Failed to write project list cache');
+        }
+
+        res.json(responseBody);
     })
 );
 
@@ -313,6 +362,8 @@ router.post(
         }
 
         logger.info({ projectId: project.id, userId: req.user!.id }, 'Project created');
+
+        await invalidateProjectListCacheForTeam(teamId);
 
         // Create default alert settings for the project
         await db.insert(alertSettings).values({
@@ -477,6 +528,13 @@ router.put(
             }
         }
 
+        await Promise.all([
+            invalidateProjectListCacheForTeam(currentProject.teamId),
+            data.teamId && data.teamId !== currentProject.teamId
+                ? invalidateProjectListCacheForTeam(data.teamId)
+                : Promise.resolve(),
+        ]);
+
         logger.info({ projectId: project.id, userId: req.user!.id }, 'Project updated');
 
         // Audit log
@@ -616,6 +674,8 @@ router.delete(
         } catch {
             // ignore cache errors
         }
+
+        await invalidateProjectListCacheForTeam(projectResult.project.teamId);
 
         logger.info({ projectId, userId: req.user!.id }, 'Project deleted (hard delete)');
 

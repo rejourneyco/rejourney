@@ -417,12 +417,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
           <div className="relative">
             <button
               type="button"
+              disabled={loading}
               title={collapsedDesktop ? (currentProject?.name || 'Project') : undefined}
               onClick={() => {
+                if (loading) return;
                 setShowAppSelector(!showAppSelector);
                 setShowTeamSelector(false);
               }}
-              className={`w-full flex border border-slate-700 hover:border-slate-500 transition-colors bg-slate-800/80 rounded-md text-sm shadow-sm ${showAppSelector ? 'border-sky-400/60' : ''} ${collapsedDesktop ? 'justify-center px-2 py-2.5' : 'items-center justify-between px-3 py-2'}`}
+              className={`w-full flex border border-slate-700 transition-colors bg-slate-800/80 rounded-md text-sm shadow-sm ${loading ? 'cursor-wait opacity-80' : 'hover:border-slate-500'} ${showAppSelector ? 'border-sky-400/60' : ''} ${collapsedDesktop ? 'justify-center px-2 py-2.5' : 'items-center justify-between px-3 py-2'}`}
             >
               {collapsedDesktop ? (
                 <span className="flex h-6 w-6 items-center justify-center rounded-sm border border-slate-600 bg-slate-900/60 text-[11px] font-semibold text-sky-100">
@@ -431,7 +433,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               ) : (
                 <>
                   <span className="font-medium text-slate-100 truncate">
-                    {currentProject?.name || 'Select Project'}
+                    {loading ? 'Loading projects...' : (currentProject?.name || 'Select Project')}
                   </span>
                   <ChevronDown className="w-4 h-4 text-slate-300 shrink-0" />
                 </>
@@ -444,21 +446,33 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   Projects
                 </div>
                 <div className="max-h-[300px] overflow-y-auto custom-scrollbar">
-                  {projects.map((project) => (
-                    <button
-                      key={project.id}
-                      onClick={() => {
-                        onProjectChange(project);
-                        setShowAppSelector(false);
-                        setIsMobileOpen(false);
-                      }}
-                      className={`w-full text-left px-3 py-2 text-sm font-medium flex items-center justify-between border-b border-slate-700 last:border-0 ${currentProject?.id === project.id ? 'bg-sky-600/20 text-sky-100' : 'text-slate-200 hover:bg-slate-700/70'
-                        }`}
-                    >
-                      <span className="truncate">{project.name}</span>
-                      {currentProject?.id === project.id && <Check className="w-4 h-4 text-sky-300" />}
-                    </button>
-                  ))}
+                  {loading ? (
+                    <div className="space-y-2 p-3">
+                      {Array.from({ length: 3 }).map((_, index) => (
+                        <div key={index} className="h-9 animate-pulse rounded-md bg-slate-700/60" />
+                      ))}
+                    </div>
+                  ) : projects.length > 0 ? (
+                    projects.map((project) => (
+                      <button
+                        key={project.id}
+                        onClick={() => {
+                          onProjectChange(project);
+                          setShowAppSelector(false);
+                          setIsMobileOpen(false);
+                        }}
+                        className={`w-full text-left px-3 py-2 text-sm font-medium flex items-center justify-between border-b border-slate-700 last:border-0 ${currentProject?.id === project.id ? 'bg-sky-600/20 text-sky-100' : 'text-slate-200 hover:bg-slate-700/70'
+                          }`}
+                      >
+                        <span className="truncate">{project.name}</span>
+                        {currentProject?.id === project.id && <Check className="w-4 h-4 text-sky-300" />}
+                      </button>
+                    ))
+                  ) : (
+                    <div className="px-3 py-4 text-sm text-slate-400">
+                      No projects yet for this team.
+                    </div>
+                  )}
                 </div>
                 <div className="border-t border-slate-700 p-2 bg-slate-800/90 rounded-b-md">
                   <button

@@ -129,7 +129,7 @@ export const Devices: React.FC = () => {
 
         Promise.allSettled([
             getDeviceSummary(selectedProject.id, timeRange === 'all' ? 'max' : timeRange),
-            getObservabilityDeepMetrics(selectedProject.id, range),
+            getObservabilityDeepMetrics(selectedProject.id, range, 'summary'),
             getDeviceIssueMatrix(selectedProject.id, timeRange === 'all' ? 'max' : timeRange),
             getInsightsTrends(selectedProject.id, toTrendsRange(timeRange)),
         ])

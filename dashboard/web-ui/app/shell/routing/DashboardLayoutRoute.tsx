@@ -5,7 +5,7 @@
  * It handles auth checking and provides the sidebar, topbar, and session data context.
  */
 
-import { Outlet, redirect, useNavigate } from "react-router";
+import { Outlet, redirect, useLoaderData, useNavigate } from "react-router";
 import type { Route } from "./+types/DashboardLayoutRoute";
 import { useEffect } from "react";
 import { ProjectLayout } from "~/shell/components/layout/AppLayout";
@@ -78,10 +78,16 @@ function DashboardLayoutContent() {
 }
 
 export default function DashboardLayout() {
+    const bootstrap = useLoaderData<typeof loader>();
+
     return (
         <ErrorBoundary>
             <ProtectedRoute>
-                <SessionDataProvider>
+                <SessionDataProvider
+                    initialProjects={bootstrap.projects}
+                    initialProjectsTeamId={bootstrap.projectsTeamId}
+                    initialSelectedProjectId={bootstrap.selectedProjectId}
+                >
                     <TabProvider>
                         <DashboardLayoutContent />
                     </TabProvider>

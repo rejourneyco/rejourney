@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
     computeSessionDurationSeconds,
+    preserveExistingSessionEndedAt,
     resolveReportedSessionEndedAt,
     selectSessionEndedAt,
 } from '../services/sessionTiming.js';
@@ -39,6 +40,24 @@ describe('sessionTiming', () => {
         });
 
         expect(endedAt.toISOString()).toBe('2026-03-26T03:01:11.000Z');
+    });
+
+    it('does not let a late explicit end stretch a session far beyond an existing endedAt', () => {
+        const preservedEndedAt = preserveExistingSessionEndedAt(
+            new Date('2026-03-26T03:43:10.471Z'),
+            new Date('2026-03-26T03:23:53.164Z'),
+        );
+
+        expect(preservedEndedAt.toISOString()).toBe('2026-03-26T03:23:53.164Z');
+    });
+
+    it('still accepts small explicit end corrections near the persisted endedAt', () => {
+        const preservedEndedAt = preserveExistingSessionEndedAt(
+            new Date('2026-03-26T03:24:10.000Z'),
+            new Date('2026-03-26T03:23:53.164Z'),
+        );
+
+        expect(preservedEndedAt.toISOString()).toBe('2026-03-26T03:24:10.000Z');
     });
 
     it('computes playable duration after background time is removed', () => {

@@ -1,19 +1,12 @@
 import React from 'react';
-import { ArrowRight, BookOpen, Terminal } from 'lucide-react';
+import { ArrowRight, Terminal } from 'lucide-react';
 import { Link } from 'react-router';
-import { motion } from 'framer-motion';
 
 export const EngineeringCTA: React.FC = () => {
     return (
         <section className="w-full bg-white text-black border-t-2 border-black">
             <div className="w-full px-4 sm:px-6 lg:px-8 py-32 sm:py-40 text-center relative overflow-hidden">
-                <motion.div
-                    initial={{ opacity: 0, y: 30 }}
-                    whileInView={{ opacity: 1, y: 0 }}
-                    viewport={{ once: true }}
-                    transition={{ duration: 0.6, ease: "easeOut" }}
-                    className="max-w-5xl mx-auto relative z-10"
-                >
+                <div className="max-w-5xl mx-auto relative z-10">
                     <div className="flex justify-center mb-6">
                         <span className="bg-black text-white px-3 py-1 text-xs font-mono uppercase tracking-widest font-bold">
                             Open Architecture
@@ -33,28 +26,24 @@ export const EngineeringCTA: React.FC = () => {
 
                     <div className="flex flex-col sm:flex-row justify-center gap-4">
                         <Link to="/engineering">
-                            <motion.button
-                                whileHover={{ scale: 1.05 }}
-                                whileTap={{ scale: 0.95 }}
-                                className="w-full sm:w-auto bg-black text-white px-8 py-4 text-base font-black uppercase tracking-widest hover:bg-[#5dadec] hover:text-black transition-colors flex items-center justify-center gap-3 shadow-[4px_4px_0px_0px_rgba(0,0,0,0.2)]"
+                            <button
+                                className="w-full sm:w-auto bg-black text-white px-8 py-4 text-base font-black uppercase tracking-widest hover:bg-[#5dadec] hover:text-black transition-all duration-200 hover:-translate-y-0.5 hover:scale-[1.02] active:translate-y-0 active:scale-[0.99] flex items-center justify-center gap-3 shadow-[4px_4px_0px_0px_rgba(0,0,0,0.2)]"
                             >
                                 <Terminal size={20} />
                                 View Engineering
-                            </motion.button>
+                            </button>
                         </Link>
 
                         <Link to="/login">
-                            <motion.button
-                                whileHover={{ scale: 1.05 }}
-                                whileTap={{ scale: 0.95 }}
-                                className="w-full sm:w-auto bg-white text-black border-2 border-black px-8 py-4 text-base font-black uppercase tracking-widest hover:bg-gray-50 transition-colors flex items-center justify-center gap-3 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]"
+                            <button
+                                className="w-full sm:w-auto bg-white text-black border-2 border-black px-8 py-4 text-base font-black uppercase tracking-widest hover:bg-gray-50 transition-all duration-200 hover:-translate-y-0.5 hover:scale-[1.02] active:translate-y-0 active:scale-[0.99] flex items-center justify-center gap-3 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]"
                             >
                                 Start Building
                                 <ArrowRight size={20} />
-                            </motion.button>
+                            </button>
                         </Link>
                     </div>
-                </motion.div>
+                </div>
 
                 {/* Decorative Background Elements */}
                 <div className="absolute top-0 left-0 w-full h-full pointer-events-none opacity-5">

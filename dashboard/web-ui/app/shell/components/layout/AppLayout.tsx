@@ -34,7 +34,15 @@ function apiProjectToProject(apiProject: ApiProject): Project {
 
 export const ProjectLayout: React.FC<AppLayoutProps> = ({ children, pathPrefix = '' }) => {
   const { teams, currentTeam, setCurrentTeam, isLoading: teamsLoading } = useTeam();
-  const { selectedProject, setSelectedProject, refreshSessions, projects, isLoading: projectsLoading, error: sessionError } = useSessionData();
+  const {
+    selectedProject,
+    setSelectedProject,
+    refreshSessions,
+    projects,
+    projectsLoading,
+    projectsReady,
+    projectsError,
+  } = useSessionData();
   const location = useLocation();
   const navigate = useNavigate();
   const [manualRefreshCycle, setManualRefreshCycle] = useState(0);
@@ -61,8 +69,8 @@ export const ProjectLayout: React.FC<AppLayoutProps> = ({ children, pathPrefix =
     || routeWithoutPrefix.startsWith('/settings')
     || routeWithoutPrefix.startsWith('/search')
   ), [routeWithoutPrefix]);
-  const hasNoTeam = !projectsLoading && !teamsLoading && !currentTeam && !sessionError;
-  const hasNoProjectsForCurrentTeam = !projectsLoading && !teamsLoading && !!currentTeam && projects.length === 0 && !sessionError;
+  const hasNoTeam = !projectsLoading && !teamsLoading && !currentTeam && !projectsError;
+  const hasNoProjectsForCurrentTeam = projectsReady && !teamsLoading && !!currentTeam && projects.length === 0 && !projectsError;
   const shouldShowNoProjectState = hasNoProjectsForCurrentTeam && isProjectDependentRoute;
 
   // Listen for project/team creation events to refresh list
@@ -171,9 +179,9 @@ export const ProjectLayout: React.FC<AppLayoutProps> = ({ children, pathPrefix =
               }`} />
           </div>
         )}
-        {!isWarehouseRoute && sessionError && (
+        {!isWarehouseRoute && projectsError && (
           <div className="mx-4 mt-3 rounded-md border border-amber-300 bg-amber-50 px-4 py-2 text-sm text-amber-900">
-            {sessionError}
+            {projectsError}
           </div>
         )}
         <div

@@ -182,6 +182,7 @@ main() {
   wait_for_deployment ingest-upload
   wait_for_deployment web
   wait_for_deployment ingest-worker
+  wait_for_deployment replay-worker
   wait_for_deployment retention-worker
   wait_for_deployment alert-worker
 

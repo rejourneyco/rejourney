@@ -20,6 +20,7 @@ import { logger } from '../logger.js';
 export type WorkerName =
     | 'api'
     | 'ingestWorker'
+    | 'replayWorker'
     | 'retentionWorker'
     | 'statsAggregator'
     | 'alertWorker';
@@ -35,6 +36,11 @@ interface QueueHealth {
     dlqJobs: number;
     failedJobs: number;
     oldestPendingAge: number | null;  // in seconds
+    oldestReplayPendingAge: number | null;
+    replayPendingByKind: {
+        screenshots: number;
+        hierarchy: number;
+    };
     status: 'healthy' | 'degraded' | 'critical';
 }
 
@@ -136,11 +142,14 @@ export async function checkQueueHealth(): Promise<QueueHealth> {
     try {
         const result = await db.execute(sql`
             SELECT 
-                COUNT(*) FILTER (WHERE status = 'pending') as pending_jobs,
+                COUNT(*) FILTER (WHERE status = 'pending' AND (next_run_at IS NULL OR next_run_at <= NOW())) as pending_jobs,
                 COUNT(*) FILTER (WHERE status = 'processing') as processing_jobs,
                 COUNT(*) FILTER (WHERE status = 'dlq') as dlq_jobs,
                 COUNT(*) FILTER (WHERE status = 'failed') as failed_jobs,
-                EXTRACT(EPOCH FROM (NOW() - MIN(created_at) FILTER (WHERE status = 'pending'))) as oldest_pending_age
+                EXTRACT(EPOCH FROM (NOW() - MIN(created_at) FILTER (WHERE status = 'pending' AND (next_run_at IS NULL OR next_run_at <= NOW())))) as oldest_pending_age,
+                COUNT(*) FILTER (WHERE status = 'pending' AND kind = 'screenshots' AND (next_run_at IS NULL OR next_run_at <= NOW())) as replay_screenshots_pending,
+                COUNT(*) FILTER (WHERE status = 'pending' AND kind = 'hierarchy' AND (next_run_at IS NULL OR next_run_at <= NOW())) as replay_hierarchy_pending,
+                EXTRACT(EPOCH FROM (NOW() - MIN(created_at) FILTER (WHERE status = 'pending' AND kind IN ('screenshots', 'hierarchy') AND (next_run_at IS NULL OR next_run_at <= NOW())))) as oldest_replay_pending_age
             FROM ingest_jobs
         `);
 
@@ -151,16 +160,21 @@ export async function checkQueueHealth(): Promise<QueueHealth> {
         const dlqJobs = Number(row?.dlq_jobs ?? 0);
         const failedJobs = Number(row?.failed_jobs ?? 0);
         const oldestPendingAge = row?.oldest_pending_age ? Number(row.oldest_pending_age) : null;
+        const oldestReplayPendingAge = row?.oldest_replay_pending_age ? Number(row.oldest_replay_pending_age) : null;
+        const replayPendingByKind = {
+            screenshots: Number(row?.replay_screenshots_pending ?? 0),
+            hierarchy: Number(row?.replay_hierarchy_pending ?? 0),
+        };
 
         // Determine status based on thresholds
         let status: 'healthy' | 'degraded' | 'critical' = 'healthy';
 
         // Critical if DLQ has jobs or oldest pending job is > 1 hour old
-        if (dlqJobs > 0 || (oldestPendingAge && oldestPendingAge > 3600)) {
+        if (dlqJobs > 0 || (oldestPendingAge && oldestPendingAge > 3600) || (oldestReplayPendingAge && oldestReplayPendingAge > 900)) {
             status = 'critical';
         }
         // Degraded if too many pending jobs or oldest is > 10 min old
-        else if (pendingJobs > 100 || (oldestPendingAge && oldestPendingAge > 600)) {
+        else if (pendingJobs > 100 || (oldestPendingAge && oldestPendingAge > 600) || replayPendingByKind.screenshots > 100 || replayPendingByKind.hierarchy > 100) {
             status = 'degraded';
         }
 
@@ -170,6 +184,8 @@ export async function checkQueueHealth(): Promise<QueueHealth> {
             dlqJobs,
             failedJobs,
             oldestPendingAge,
+            oldestReplayPendingAge,
+            replayPendingByKind,
             status,
         };
     } catch (error) {
@@ -180,6 +196,11 @@ export async function checkQueueHealth(): Promise<QueueHealth> {
             dlqJobs: 0,
             failedJobs: 0,
             oldestPendingAge: null,
+            oldestReplayPendingAge: null,
+            replayPendingByKind: {
+                screenshots: 0,
+                hierarchy: 0,
+            },
             status: 'critical',
         };
     }
@@ -194,7 +215,7 @@ export async function pingIngestWorkerWithQueueHealth(
 ): Promise<void> {
     const queueHealth = await checkQueueHealth();
 
-    const message = `pending=${queueHealth.pendingJobs},dlq=${queueHealth.dlqJobs}`;
+    const message = `pending=${queueHealth.pendingJobs},dlq=${queueHealth.dlqJobs},replay_screenshots=${queueHealth.replayPendingByKind.screenshots},replay_hierarchy=${queueHealth.replayPendingByKind.hierarchy}`;
 
     await pingWorker('ingestWorker', status, message, processingTime);
 
@@ -213,6 +234,7 @@ export async function getWorkerStatuses(): Promise<Record<WorkerName, WorkerHeal
 
     const workers: WorkerName[] = [
         'ingestWorker',
+        'replayWorker',
         'retentionWorker',
         'statsAggregator',
         'alertWorker',

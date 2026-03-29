@@ -37,7 +37,18 @@ npm run dev:full
 ```
 
 That builds local images, imports them into `k3d`, applies `api.yaml`,
-`web.yaml`, `workers.yaml`, and `ingress.yaml`, and exposes:
+`web.yaml`, `workers.yaml`, and `ingress.yaml`, and exposes the same app
+topology we expect in production:
+
+- `api`
+- `ingest-upload`
+- `ingest-worker`
+- `replay-worker`
+- `retention-worker`
+- `alert-worker`
+- `db-setup`
+
+It also exposes:
 
 - `http://rejourney.localtest.me`
 - `http://api.localtest.me`
@@ -69,6 +80,7 @@ npm run ci:local
 That flow:
 
 - updates `.env.k8s.local` and the example app URLs with the current LAN IP
+- checks local-vs-prod worker manifest parity, including the ingest/replay split
 - runs the schema/migration guard
 - runs backend lint, unit tests, billing tests, and billing-specific ESLint
 - runs web typecheck and build
