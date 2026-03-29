@@ -19,7 +19,8 @@ import {
 } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { eq, and, isNull, desc, or } from 'drizzle-orm';
-import type { Readable } from 'stream';
+import { PassThrough, type Readable } from 'stream';
+import { pipeline } from 'stream/promises';
 import { config } from '../config.js';
 import { logger } from '../logger.js';
 import { safeDecrypt } from '../services/crypto.js';
@@ -70,6 +71,8 @@ interface S3ClientEntry {
     publicClient: S3Client;
     bucket: string;
 }
+
+export type ArtifactUploadFailureType = 'aborted' | 'storage';
 
 function resolveInternalEndpointUrl(endpoint: StorageEndpoint): string {
     if (!config.S3_ENDPOINT) {
@@ -377,16 +380,49 @@ async function putObjectStreamToEndpoint(
     metadata?: Record<string, string>
 ): Promise<void> {
     const { client, bucket } = getS3ClientForEndpoint(endpoint);
-    await client.send(
-        new PutObjectCommand({
-            Bucket: bucket,
-            Key: key,
-            Body: body,
-            ContentType: contentType,
-            ...(typeof contentLength === 'number' ? { ContentLength: contentLength } : {}),
-            Metadata: metadata,
-        })
-    );
+    const controller = new AbortController();
+    const uploadBody = new PassThrough();
+    const command = new PutObjectCommand({
+        Bucket: bucket,
+        Key: key,
+        Body: uploadBody,
+        ContentType: contentType,
+        ...(typeof contentLength === 'number' ? { ContentLength: contentLength } : {}),
+        Metadata: metadata,
+    });
+
+    try {
+        await Promise.all([
+            client.send(command, { abortSignal: controller.signal }),
+            pipeline(body, uploadBody),
+        ]);
+    } catch (err) {
+        controller.abort();
+        uploadBody.destroy(err instanceof Error ? err : undefined);
+        if (typeof (body as Readable).destroy === 'function' && !(body as Readable).destroyed) {
+            (body as Readable).destroy(err instanceof Error ? err : undefined);
+        }
+        throw err;
+    }
+}
+
+function classifyArtifactUploadFailure(err: unknown): ArtifactUploadFailureType {
+    const code = (err as { code?: string } | null)?.code;
+    const name = (err as { name?: string } | null)?.name;
+    const message = String((err as { message?: string } | null)?.message ?? err).toLowerCase();
+    if (
+        code === 'ECONNRESET' ||
+        code === 'ERR_STREAM_PREMATURE_CLOSE' ||
+        code === 'ABORT_ERR' ||
+        name === 'AbortError' ||
+        message.includes('aborted') ||
+        message.includes('premature close') ||
+        message.includes('socket hang up')
+    ) {
+        return 'aborted';
+    }
+
+    return 'storage';
 }
 
 async function headObjectForEndpoint(endpoint: StorageEndpoint, key: string): Promise<number | null> {
@@ -489,7 +525,7 @@ export async function uploadStreamToS3ForArtifact(
     endpointId?: string | null,
     contentLength?: number,
     metadata?: Record<string, string>
-): Promise<{ success: boolean; endpointId: string; error?: string }> {
+): Promise<{ success: boolean; endpointId: string; error?: string; errorType?: ArtifactUploadFailureType }> {
     try {
         const endpoint = endpointId
             ? (await getEndpointById(endpointId)) || await getEndpointForProject(projectId)
@@ -500,11 +536,13 @@ export async function uploadStreamToS3ForArtifact(
 
         return { success: true, endpointId: endpoint.id };
     } catch (err) {
-        logger.error({ err, key, projectId, endpointId }, 'Failed to upload artifact stream to S3');
+        const errorType = classifyArtifactUploadFailure(err);
+        logger.error({ err, errorType, key, projectId, endpointId }, 'Failed to upload artifact stream to S3');
         return {
             success: false,
             endpointId: endpointId || 'unknown',
             error: String(err),
+            errorType,
         };
     }
 }

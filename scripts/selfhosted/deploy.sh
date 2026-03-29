@@ -240,7 +240,7 @@ run_bootstrap() {
 
 start_application_services() {
   print_info "Starting API, upload relay, web, and workers"
-  compose_cmd up -d api ingest-upload web ingest-worker retention-worker alert-worker
+  compose_cmd up -d api ingest-upload web ingest-worker replay-worker session-lifecycle-worker retention-worker alert-worker
 }
 
 deploy_stack() {

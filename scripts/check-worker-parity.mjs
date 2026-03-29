@@ -10,24 +10,19 @@ const rootDir = path.resolve(__dirname, '..');
 const prodPath = path.join(rootDir, 'k8s', 'workers.yaml');
 const localPath = path.join(rootDir, 'local-k8s', 'workers.yaml');
 
-const requiredDeployments = ['ingest-worker', 'replay-worker', 'alert-worker'];
+const requiredDeployments = ['ingest-worker', 'replay-worker', 'session-lifecycle-worker', 'alert-worker'];
 const mirroredEnvKeys = {
   'ingest-worker': [
-    'RJ_WORKER_NAME',
-    'RJ_INGEST_ALLOWED_KINDS',
-    'RJ_INGEST_KIND_PRIORITY',
     'RJ_INGEST_JOB_CONCURRENCY',
     'RJ_INGEST_BATCH_SIZE',
     'RJ_INGEST_MAX_RUNNABLE_PER_SESSION',
   ],
   'replay-worker': [
-    'RJ_WORKER_NAME',
-    'RJ_INGEST_ALLOWED_KINDS',
-    'RJ_INGEST_KIND_PRIORITY',
     'RJ_INGEST_JOB_CONCURRENCY',
     'RJ_INGEST_BATCH_SIZE',
     'RJ_INGEST_MAX_RUNNABLE_PER_SESSION',
   ],
+  'session-lifecycle-worker': [],
 };
 
 function read(filePath) {

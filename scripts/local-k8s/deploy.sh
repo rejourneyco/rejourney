@@ -122,6 +122,7 @@ wait_full() {
     kubectl wait --for=condition=available deployment/web -n "$NAMESPACE" --timeout=240s
     kubectl wait --for=condition=available deployment/ingest-worker -n "$NAMESPACE" --timeout=240s
     kubectl wait --for=condition=available deployment/replay-worker -n "$NAMESPACE" --timeout=240s
+    kubectl wait --for=condition=available deployment/session-lifecycle-worker -n "$NAMESPACE" --timeout=240s
     kubectl wait --for=condition=available deployment/retention-worker -n "$NAMESPACE" --timeout=240s
     kubectl wait --for=condition=available deployment/alert-worker -n "$NAMESPACE" --timeout=240s
     wait_for_db_setup
@@ -139,6 +140,7 @@ apply_apps() {
     kubectl rollout restart deployment/web -n "$NAMESPACE" >/dev/null 2>&1 || true
     kubectl rollout restart deployment/ingest-worker -n "$NAMESPACE" >/dev/null 2>&1 || true
     kubectl rollout restart deployment/replay-worker -n "$NAMESPACE" >/dev/null 2>&1 || true
+    kubectl rollout restart deployment/session-lifecycle-worker -n "$NAMESPACE" >/dev/null 2>&1 || true
     kubectl rollout restart deployment/retention-worker -n "$NAMESPACE" >/dev/null 2>&1 || true
     kubectl rollout restart deployment/alert-worker -n "$NAMESPACE" >/dev/null 2>&1 || true
 
@@ -202,7 +204,7 @@ logs() {
         postgres)
             kubectl logs -f statefulset/postgres -n "$NAMESPACE" --tail=100
             ;;
-        redis|minio|web|api|ingest-upload|ingest-worker|replay-worker|retention-worker|alert-worker)
+        redis|minio|web|api|ingest-upload|ingest-worker|replay-worker|session-lifecycle-worker|retention-worker|alert-worker)
             kubectl logs -f deployment/"$target" -n "$NAMESPACE" --tail=100
             ;;
         db-setup|minio-setup)

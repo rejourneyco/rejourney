@@ -32,12 +32,10 @@ spec:
         - name: worker
           image: rejourney-local/api:dev
           imagePullPolicy: IfNotPresent
-          command: ["node", "dist/worker/ingestWorker.js"]
+          command: ["node", "dist/worker/ingestArtifactWorker.js"]
           env:
             - name: NODE_ENV
               value: production
-            - name: RJ_WORKER_NAME
-              value: ingestWorker
             - name: DATABASE_URL
               valueFrom:
                 secretKeyRef:
@@ -130,10 +128,6 @@ spec:
                   name: app-secret
                   key: PUBLIC_DASHBOARD_URL
                   optional: true
-            - name: RJ_INGEST_ALLOWED_KINDS
-              value: "events,crashes,anrs"
-            - name: RJ_INGEST_KIND_PRIORITY
-              value: "events,crashes,anrs,screenshots,hierarchy"
             - name: RJ_INGEST_JOB_CONCURRENCY
               value: "4"
             - name: RJ_INGEST_BATCH_SIZE
@@ -180,12 +174,10 @@ spec:
         - name: worker
           image: rejourney-local/api:dev
           imagePullPolicy: IfNotPresent
-          command: ["node", "dist/worker/ingestWorker.js"]
+          command: ["node", "dist/worker/replayArtifactWorker.js"]
           env:
             - name: NODE_ENV
               value: production
-            - name: RJ_WORKER_NAME
-              value: replayWorker
             - name: DATABASE_URL
               valueFrom:
                 secretKeyRef:
@@ -278,10 +270,6 @@ spec:
                   name: app-secret
                   key: PUBLIC_DASHBOARD_URL
                   optional: true
-            - name: RJ_INGEST_ALLOWED_KINDS
-              value: "screenshots,hierarchy"
-            - name: RJ_INGEST_KIND_PRIORITY
-              value: "screenshots,hierarchy,events,crashes,anrs"
             - name: RJ_INGEST_JOB_CONCURRENCY
               value: "8"
             - name: RJ_INGEST_BATCH_SIZE
@@ -295,6 +283,49 @@ spec:
             limits:
               cpu: 500m
               memory: 512Mi
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: session-lifecycle-worker
+  namespace: rejourney-local
+  labels:
+    app.kubernetes.io/part-of: rejourney
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: session-lifecycle-worker
+  template:
+    metadata:
+      labels:
+        app: session-lifecycle-worker
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+      containers:
+        - name: worker
+          image: rejourney-local/api:dev
+          imagePullPolicy: IfNotPresent
+          command: ["node", "dist/worker/sessionLifecycleWorker.js"]
+          env:
+            - name: NODE_ENV
+              value: production
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: DATABASE_URL
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi
 
 ---
 apiVersion: apps/v1

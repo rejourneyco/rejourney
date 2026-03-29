@@ -1,6 +1,6 @@
 # Ingest + Session Recording Lifecycle (Visual)
 
-Last updated: 2026-03-25
+Last updated: 2026-03-29
 
 This doc is the ingest/runtime view: package start, upload lanes, relay, worker reconciliation, Redis, and Postgres.
 
@@ -24,6 +24,7 @@ Shortest correct mental model:
 │ [I4] Reconciliation / Auto-Finalizer / endedAt Math                         │
 │ [I5] Redis vs Postgres Ownership                                            │
 │ [I6] Quick Answers / Constants                                              │
+│ [I7] Archive list duration + read model (dashboard)                         │
 └──────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -346,8 +347,35 @@ SDK rollover grace window              2s
 SDK event heartbeat                    5s
 ```
 
+## [I7] Archive list duration + read model (dashboard)
+
+The sessions **archive** endpoint (`GET /api/sessions`, implemented in [`backend/src/routes/sessions.ts`](/Users/mora/Desktop/Dev-mac/rejourney/backend/src/routes/sessions.ts)) is the read path operators use in the dashboard. It is **not** the ingest write path, but it reflects the same lifecycle fields and is worth documenting next to reconciliation.
+
+**List payload shape (performance):**
+
+- Rows are selected **without** large JSONB columns (`events`, `metadata`) so the table stays fast; session detail endpoints load full rows.
+- Optional total count can be deferred (`includeTotal: false`) so the first page is not blocked on a slow `count(*)`.
+- Supporting indexes include replay-ready and project/device filters (see migration [`backend/drizzle/20260329055326_sessions_archive_perf_indexes/migration.sql`](/Users/mora/Desktop/Dev-mac/rejourney/backend/drizzle/20260329055326_sessions_archive_perf_indexes/migration.sql)).
+
+**How `durationSeconds` is filled on each list row:**
+
+`resolveArchiveListDurationSeconds()` uses the stored `sessions.duration_seconds` when it is already positive. Otherwise it derives playable duration from timestamps, in order:
+
+1. `ended_at`
+2. `explicit_ended_at`
+3. `finalized_at`
+4. **`last_ingest_activity_at`**, only if it is strictly after `started_at` (provisional end while formal end columns are still empty)
+
+That last step matches the spirit of `selectSessionEndedAt()` / reconciliation: replay availability and metrics can move ahead of a single atomic row update, so there is a short window where `duration_seconds` is still `0` and none of `ended_at` / `explicit_ended_at` / `finalized_at` are set yet. Using `last_ingest_activity_at` avoids flashing **0:00** in the archive when ingest activity is already known.
+
+**Dashboard client:**
+
+- [`dashboard/web-ui/app/shared/api/client.ts`](/Users/mora/Desktop/Dev-mac/rejourney/dashboard/web-ui/app/shared/api/client.ts) `transformToRecordingSession()` can re-derive duration from `endedAt` / `explicitEndedAt` when the API sends zeros; list responses already carry resolved `durationSeconds` and `stats.duration` from the server.
+- The sessions list UI ([`dashboard/web-ui/app/features/app/sessions/index/route.tsx`](/Users/mora/Desktop/Dev-mac/rejourney/dashboard/web-ui/app/features/app/sessions/index/route.tsx)) shows **LIVE REPLAY** while ingest or replay prep is still in progress (from presentation fields), and **MM:SS** once replay is openable and the session is not live-ingesting—so operators are not blocked from opening a session during processing.
+
 ## Primary Files
 
+- [`backend/src/routes/sessions.ts`](/Users/mora/Desktop/Dev-mac/rejourney/backend/src/routes/sessions.ts) (archive list, `resolveArchiveListDurationSeconds`)
 - [`backend/src/routes/ingestUploads.ts`](/Users/mora/Desktop/Dev-mac/rejourney/backend/src/routes/ingestUploads.ts)
 - [`backend/src/routes/ingestLifecycle.ts`](/Users/mora/Desktop/Dev-mac/rejourney/backend/src/routes/ingestLifecycle.ts)
 - [`backend/src/routes/ingestUploadRelay.ts`](/Users/mora/Desktop/Dev-mac/rejourney/backend/src/routes/ingestUploadRelay.ts)
