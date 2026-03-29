@@ -694,6 +694,7 @@ export const GeneralOverview: React.FC = () => {
                 projectId: selectedProject.id,
                 timeRange,
                 limit: 120,
+                includeTotal: false,
             }),
         ]).then(([obsData, deepData, engagementData, geoData, issueData, replayData]) => {
             if (isCancelled) return;

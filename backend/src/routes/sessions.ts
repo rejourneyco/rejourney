@@ -35,8 +35,8 @@ import {
     sessionArchiveIssueFilterUsesMetrics,
 } from '../services/sessionArchiveFilters.js';
 import {
+    archiveReadyScreenshotSql,
     hasSuccessfulRecording,
-    readyScreenshotArtifactsConditionSql,
 } from '../services/replayAvailability.js';
 import {
     deriveSessionPresentationState,
@@ -1166,8 +1166,12 @@ router.get(
             eventPropKey,
             eventPropValue,
             issueFilter,
+            includeTotal: includeTotalRaw,
+            countOnly: countOnlyRaw,
         } = req.query as any;
         const parsedLimit = Math.min(parseInt(limit) || 50, 300); // Max 300 per request
+        const includeTotal = includeTotalRaw !== 'false' && includeTotalRaw !== '0';
+        const countOnly = countOnlyRaw === 'true' || countOnlyRaw === '1';
 
         // Get user's accessible project IDs
         const teamMemberships = await db
@@ -1219,13 +1223,35 @@ router.get(
         const dataConditions = [...baseConditions];
         if (cursor) dataConditions.push(lt(sessions.id, cursor));
 
-        // Run data query and count query in parallel
-        const [sessionsList, countResult] = await Promise.all([
-            db
+        const runCountQuery = () =>
+            needsMetricsJoin
+                ? db
+                      .select({ count: sql<number>`count(*)::int` })
+                      .from(sessions)
+                      .leftJoin(sessionMetrics, eq(sessions.id, sessionMetrics.sessionId))
+                      .where(and(...baseConditions))
+                : db
+                      .select({ count: sql<number>`count(*)::int` })
+                      .from(sessions)
+                      .where(and(...baseConditions));
+
+        if (countOnly) {
+            const countResult = await runCountQuery();
+            res.json({
+                sessions: [],
+                nextCursor: null,
+                hasMore: false,
+                totalCount: countResult[0]?.count ?? 0,
+            });
+            return;
+        }
+
+        // Run data query; optionally run count in parallel (count is often the slow part — clients may defer it)
+        const dataQuery = db
                 .select({
                     session: sessions,
                     metrics: sessionMetrics,
-                    readyScreenshotArtifacts: readyScreenshotArtifactsConditionSql(sessions.id),
+                    readyScreenshotArtifacts: archiveReadyScreenshotSql(sessions.id, sessions.replayAvailable),
                     hasOpenArtifacts: sql<boolean>`exists (
                         select 1 from ${recordingArtifacts} ra
                         where ra.session_id = ${sessions.id}
@@ -1262,20 +1288,13 @@ router.get(
                 .where(and(...dataConditions))
                 .orderBy(desc(sessions.startedAt))
                 .limit(parsedLimit + 1)
-                .offset(cursor ? 0 : parseInt(offset) || 0),
-            needsMetricsJoin
-                ? db
-                    .select({ count: sql<number>`count(*)::int` })
-                    .from(sessions)
-                    .leftJoin(sessionMetrics, eq(sessions.id, sessionMetrics.sessionId))
-                    .where(and(...baseConditions))
-                : db
-                    .select({ count: sql<number>`count(*)::int` })
-                    .from(sessions)
-                    .where(and(...baseConditions)),
-        ]);
+                .offset(cursor ? 0 : parseInt(offset) || 0);
 
-        const totalCount = countResult[0]?.count ?? 0;
+        const [sessionsList, countRows] = includeTotal
+            ? await Promise.all([dataQuery, runCountQuery()])
+            : [await dataQuery, null];
+
+        const totalCount = includeTotal ? (countRows![0]?.count ?? 0) : null;
 
         // Determine if there are more results
         const hasMore = sessionsList.length > parsedLimit;

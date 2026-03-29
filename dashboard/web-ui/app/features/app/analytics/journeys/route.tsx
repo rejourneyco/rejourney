@@ -185,53 +185,55 @@ export const Journeys: React.FC = () => {
         setIsLoading(true);
         setPartialError(null);
 
-        Promise.allSettled([
-            getJourneyObservability(selectedProject.id, toJourneyTimeRange(timeRange), 'summary'),
-            getInsightsTrends(selectedProject.id, toTrendsRange(timeRange)),
-            getUserEngagementTrends(selectedProject.id, toJourneyTimeRange(timeRange)),
-        ])
-            .then(([journeyData, trendData, userTypeData]) => {
+        const projectId = selectedProject.id;
+        const journeyRange = toJourneyTimeRange(timeRange);
+
+        // Sankey + health cards only need journey summary; trends/segments load in parallel without blocking the shell.
+        void getJourneyObservability(projectId, journeyRange, 'summary')
+            .then((summary) => {
                 if (isCancelled) return;
-
-                const failedSections: string[] = [];
-
-                if (journeyData.status === 'fulfilled') {
-                    setData(journeyData.value);
-                } else {
-                    failedSections.push('journey summary');
-                    setData(null);
-                }
-
-                if (trendData.status === 'fulfilled') {
-                    setTrends(trendData.value);
-                } else {
-                    failedSections.push('trend window');
-                    setTrends(null);
-                }
-
-                if (userTypeData.status === 'fulfilled') {
-                    setUserEngagementTrends(userTypeData.value);
-                } else {
-                    failedSections.push('user segment mix');
-                    setUserEngagementTrends(null);
-                }
-
-                if (failedSections.length > 0) {
-                    setPartialError(`Some journey widgets are unavailable (${failedSections.join(', ')}).`);
-                }
-
-                void getJourneyObservability(selectedProject.id, toJourneyTimeRange(timeRange), 'full')
+                setData(summary);
+                void getJourneyObservability(projectId, journeyRange, 'full')
                     .then((fullJourney) => {
-                        if (!isCancelled) {
-                            setData(fullJourney);
-                        }
+                        if (!isCancelled) setData(fullJourney);
                     })
                     .catch(() => {
                         // Keep the summary payload if the richer evidence pass fails.
                     });
             })
+            .catch((err) => {
+                console.error('Journey summary failed:', err);
+                if (!isCancelled) {
+                    setData(null);
+                    setPartialError('Journey summary unavailable.');
+                }
+            })
             .finally(() => {
                 if (!isCancelled) setIsLoading(false);
+            });
+
+        void getInsightsTrends(projectId, toTrendsRange(timeRange))
+            .then((v) => {
+                if (!isCancelled) setTrends(v);
+            })
+            .catch((err) => {
+                console.error('Journey trends failed:', err);
+                if (!isCancelled) {
+                    setTrends(null);
+                    setPartialError((prev) => prev || 'Trend window unavailable.');
+                }
+            });
+
+        void getUserEngagementTrends(projectId, journeyRange)
+            .then((v) => {
+                if (!isCancelled) setUserEngagementTrends(v);
+            })
+            .catch((err) => {
+                console.error('User engagement trends failed:', err);
+                if (!isCancelled) {
+                    setUserEngagementTrends(null);
+                    setPartialError((prev) => prev || 'User segment mix unavailable.');
+                }
             });
 
         return () => {

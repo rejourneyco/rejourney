@@ -119,11 +119,24 @@ print_migration_status() {
 
 wait_for_deployment() {
   local name="$1"
+  local deployment_exists
+  local cronjob_exists
   local replicas
 
-  replicas="$(kubectl get deployment "${name}" -n "${NAMESPACE}" -o jsonpath='{.spec.replicas}' 2>/dev/null || echo 0)"
+  deployment_exists="$(kubectl get deployment "${name}" -n "${NAMESPACE}" -o name 2>/dev/null || true)"
+  if [ -z "${deployment_exists}" ]; then
+    cronjob_exists="$(kubectl get cronjob "${name}" -n "${NAMESPACE}" -o name 2>/dev/null || true)"
+    if [ -n "${cronjob_exists}" ]; then
+      log "Skipping rollout wait for ${name} (CronJob resource)"
+    else
+      log "Skipping rollout wait for ${name} (no Deployment resource)"
+    fi
+    return
+  fi
+
+  replicas="$(kubectl get deployment "${name}" -n "${NAMESPACE}" -o jsonpath='{.spec.replicas}')"
   if [ -z "${replicas}" ] || [ "${replicas}" = "0" ]; then
-    log "Skipping rollout wait for ${name} (scaled to 0)"
+    log "Skipping rollout wait for ${name} (Deployment scaled to 0)"
     return
   fi
 

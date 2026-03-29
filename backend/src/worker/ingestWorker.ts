@@ -129,6 +129,10 @@ async function scheduleArtifactJobRetry(
 }
 
 async function runSessionSweepIfDue(): Promise<void> {
+    // Keep replay workers focused on draining replay jobs; the ingest worker
+    // already owns the global artifact/session lifecycle sweeps.
+    if (WORKER_MONITOR_NAME !== 'ingestWorker') return;
+
     const now = Date.now();
     if (now - lastSessionSweepAt < SESSION_SWEEP_INTERVAL_MS) return;
     lastSessionSweepAt = now;

@@ -58,6 +58,7 @@ export function useInfiniteSessions(
                 timeRange,
                 projectId,
                 platform,
+                includeTotal: false,
             });
 
             setSessions(prev => [...prev, ...response.sessions]);
@@ -90,6 +91,7 @@ export function useInfiniteSessions(
                 timeRange,
                 projectId,
                 platform,
+                includeTotal: false,
             });
 
             setSessions(response.sessions);

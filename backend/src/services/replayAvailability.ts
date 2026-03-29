@@ -37,3 +37,10 @@ export const readyScreenshotArtifactsExistsSql = (sessionIdExpr: any) => sql<boo
 export const readyScreenshotArtifactsConditionSql = (sessionIdExpr: any) => sql`
     coalesce(${readyScreenshotArtifactsExistsSql(sessionIdExpr)}, false)
 `;
+
+/**
+ * Archive list: `replay_available` already implies a ready replay; skip the EXISTS probe in that case.
+ */
+export function archiveReadyScreenshotSql(sessionIdExpr: unknown, replayAvailableExpr: unknown) {
+    return sql<boolean>`(coalesce(${replayAvailableExpr}, false) OR ${readyScreenshotArtifactsExistsSql(sessionIdExpr)})`;
+}

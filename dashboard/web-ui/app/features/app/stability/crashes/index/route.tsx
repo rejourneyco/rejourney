@@ -69,6 +69,7 @@ export const CrashesList: React.FC = () => {
       timeRange: timeRange === 'all' ? undefined : timeRange,
       issueFilter: 'crashes',
       limit: 300,
+      includeTotal: false,
     }).then((response) => {
       if (cancelled) return;
       setSessions(response.sessions || []);

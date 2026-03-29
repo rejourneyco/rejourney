@@ -365,6 +365,12 @@ export const sessions = pgTable(
         index('sessions_project_started_idx').on(table.projectId, table.startedAt),
         index('sessions_status_idx').on(table.status),
         index('sessions_replay_available_idx').on(table.replayAvailable, table.startedAt),
+        /** Speeds session archive list + count for replay-ready rows per project */
+        index('sessions_archive_replay_idx')
+            .on(table.projectId, table.startedAt)
+            .where(sql`${table.replayAvailable} = true`),
+        /** Speeds “first session for device” checks on the archive list */
+        index('sessions_project_device_started_idx').on(table.projectId, table.deviceId, table.startedAt),
         index('sessions_user_display_id_idx').on(table.userDisplayId),
         index('sessions_anonymous_hash_idx').on(table.anonymousHash),
         index('sessions_events_idx').using('gin', table.events),
@@ -502,6 +508,10 @@ export const ingestJobs = pgTable(
     (table) => [
         index('ingest_jobs_status_next_run_idx').on(table.status, table.nextRunAt),
         index('ingest_jobs_project_id_idx').on(table.projectId),
+        /** Speeds EXISTS lookups from session list rows (pending/processing jobs only) */
+        index('ingest_jobs_session_pending_idx')
+            .on(table.sessionId)
+            .where(sql`${table.status} IN ('pending', 'processing')`),
         uniqueIndex('ingest_jobs_artifact_id_unique').on(table.artifactId),
     ]
 );

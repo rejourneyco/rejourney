@@ -149,34 +149,51 @@ export const Geo: React.FC = () => {
         setLoadError(null);
 
         const range = timeRange === 'all' ? undefined : timeRange;
+        const projectId = selectedProject.id;
 
-        Promise.allSettled([
-            getGeoIssues(selectedProject.id, range),
-            getApiLatencyByLocation(selectedProject.id, range),
-        ])
-            .then(([issuesResult, latencyResult]) => {
+        let firstPaint = false;
+        const markReady = () => {
+            if (isCancelled || firstPaint) return;
+            firstPaint = true;
+            setIsLoading(false);
+        };
+
+        let geoRejected = false;
+        let latencyRejected = false;
+        const checkBothFailed = () => {
+            if (geoRejected && latencyRejected && !isCancelled) {
+                setLoadError('Could not load map data.');
+            }
+        };
+
+        void getGeoIssues(projectId, range)
+            .then((v) => {
                 if (isCancelled) return;
-
-                if (issuesResult.status === 'fulfilled') {
-                    setIssues(issuesResult.value);
-                } else {
-                    console.error('Failed to load geo issue data:', issuesResult.reason);
-                    setIssues(EMPTY_ISSUES);
-                }
-
-                if (latencyResult.status === 'fulfilled') {
-                    setLatencyByLocation(latencyResult.value);
-                } else {
-                    console.error('Failed to load geo latency data:', latencyResult.reason);
-                    setLatencyByLocation(EMPTY_LATENCY);
-                }
-
-                if (issuesResult.status === 'rejected' && latencyResult.status === 'rejected') {
-                    setLoadError('Could not load map data.');
-                }
+                setIssues(v);
+                markReady();
             })
-            .finally(() => {
-                if (!isCancelled) setIsLoading(false);
+            .catch((err) => {
+                console.error('Failed to load geo issue data:', err);
+                if (isCancelled) return;
+                setIssues(EMPTY_ISSUES);
+                geoRejected = true;
+                checkBothFailed();
+                markReady();
+            });
+
+        void getApiLatencyByLocation(projectId, range)
+            .then((v) => {
+                if (isCancelled) return;
+                setLatencyByLocation(v);
+                markReady();
+            })
+            .catch((err) => {
+                console.error('Failed to load geo latency data:', err);
+                if (isCancelled) return;
+                setLatencyByLocation(EMPTY_LATENCY);
+                latencyRejected = true;
+                checkBothFailed();
+                markReady();
             });
 
         return () => {

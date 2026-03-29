@@ -703,14 +703,11 @@ export interface PaginatedSessionsResponse {
   sessions: any[];
   nextCursor: string | null;
   hasMore: boolean;
-  totalCount: number;
+  totalCount: number | null;
 }
 
-/**
- * Get sessions with cursor-based pagination for infinite scroll
- * Supports 500k+ sessions efficiently
- */
-export async function getSessionsPaginated(params: {
+/** Shared query string for session archive list + count-only requests */
+export type SessionArchiveQuery = {
   cursor?: string | null;
   limit?: number;
   timeRange?: string;
@@ -727,17 +724,11 @@ export async function getSessionsPaginated(params: {
   eventCountValue?: string;
   eventPropKey?: string;
   eventPropValue?: string;
-}): Promise<{ sessions: any[]; nextCursor: string | null; hasMore: boolean; totalCount: number }> {
-  // Demo mode: return static demo sessions
-  if (isDemoMode()) {
-    return {
-      sessions: demoSessions,
-      nextCursor: null,
-      hasMore: false,
-      totalCount: demoSessions.length,
-    };
-  }
+  /** When false, server omits expensive count(*) — use getSessionsArchiveTotalCount for the total */
+  includeTotal?: boolean;
+};
 
+function buildSessionArchiveQueryString(params: SessionArchiveQuery & { countOnly?: boolean }): string {
   const {
     cursor,
     limit = 50,
@@ -755,10 +746,13 @@ export async function getSessionsPaginated(params: {
     eventCountValue,
     eventPropKey,
     eventPropValue,
+    includeTotal,
+    countOnly,
   } = params;
   const recordingFilter = hasRecording ?? promoted;
 
   const queryParams = new URLSearchParams();
+  if (countOnly) queryParams.set('countOnly', 'true');
   if (cursor) queryParams.set('cursor', cursor);
   if (limit) queryParams.set('limit', limit.toString());
   if (timeRange) queryParams.set('timeRange', timeRange);
@@ -774,18 +768,61 @@ export async function getSessionsPaginated(params: {
   if (eventCountValue) queryParams.set('eventCountValue', eventCountValue);
   if (eventPropKey) queryParams.set('eventPropKey', eventPropKey);
   if (eventPropValue) queryParams.set('eventPropValue', eventPropValue);
+  if (includeTotal === false) queryParams.set('includeTotal', 'false');
 
-  const endpoint = `/api/sessions?${queryParams.toString()}`;
+  return queryParams.toString();
+}
+
+/**
+ * Total matching rows for the same filters as the archive list (cheap to call after list without includeTotal).
+ */
+export async function getSessionsArchiveTotalCount(
+  params: Omit<SessionArchiveQuery, 'cursor' | 'limit' | 'includeTotal'>
+): Promise<number> {
+  if (isDemoMode()) {
+    return demoSessions.length;
+  }
+
+  const queryParams = buildSessionArchiveQueryString({ ...params, countOnly: true, limit: 1 });
+  const response = await fetchJson<{ totalCount: number }>(`/api/sessions?${queryParams}`);
+  return response?.totalCount ?? 0;
+}
+
+/**
+ * Get sessions with cursor-based pagination for infinite scroll
+ * Supports 500k+ sessions efficiently
+ */
+export async function getSessionsPaginated(
+  params: SessionArchiveQuery
+): Promise<{ sessions: any[]; nextCursor: string | null; hasMore: boolean; totalCount: number | null }> {
+  // Demo mode: return static demo sessions
+  if (isDemoMode()) {
+    const includeTotal = params.includeTotal !== false;
+    return {
+      sessions: demoSessions,
+      nextCursor: null,
+      hasMore: false,
+      totalCount: includeTotal ? demoSessions.length : null,
+    };
+  }
+
+  const queryParams = buildSessionArchiveQueryString(params);
+  const endpoint = `/api/sessions?${queryParams}`;
 
   // Don't cache paginated requests since cursor changes
-  const response = await fetchJson<{ sessions: ApiSessionSummary[]; nextCursor: string | null; hasMore: boolean; totalCount: number }>(endpoint);
+  const response = await fetchJson<{
+    sessions: ApiSessionSummary[];
+    nextCursor: string | null;
+    hasMore: boolean;
+    totalCount: number | null;
+  }>(endpoint);
 
   const sessions = (response?.sessions || []).map(transformToRecordingSession);
   return {
     sessions,
     nextCursor: response.nextCursor,
     hasMore: response.hasMore,
-    totalCount: response.totalCount ?? 0,
+    totalCount: response.totalCount === null || response.totalCount === undefined ? null : response.totalCount,
   };
 }
 
@@ -3032,6 +3069,7 @@ export const api = {
   getDashboardStatsWithTimeRange,
   getRecordingSessions,
   getSessionsPaginated,
+  getSessionsArchiveTotalCount,
   getRecordingSession,
   refreshSessions,
   subscribeToUpdates,

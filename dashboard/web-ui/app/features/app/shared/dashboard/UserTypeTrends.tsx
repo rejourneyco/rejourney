@@ -45,6 +45,7 @@ export const UserTypeTrends: React.FC<UserTypeTrendsProps> = ({ className }) => 
             projectId: selectedProject.id,
             timeRange: timeRange === 'all' ? undefined : timeRange,
             limit: 200,
+            includeTotal: false,
         }).then((response) => {
             if (cancelled) return;
             setSessions(response.sessions || []);

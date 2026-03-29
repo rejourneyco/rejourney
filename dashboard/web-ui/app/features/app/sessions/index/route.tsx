@@ -36,7 +36,7 @@ import { TimeFilter, TimeRange, DEFAULT_TIME_RANGE, TIME_RANGE_OPTIONS } from '~
 import { NeoBadge } from '~/shared/ui/core/neo/NeoBadge';
 import { NeoButton } from '~/shared/ui/core/neo/NeoButton';
 import { NeoCard } from '~/shared/ui/core/neo/NeoCard';
-import { getSessionsPaginated, getAvailableFilters } from '~/shared/api/client';
+import { getSessionsArchiveTotalCount, getSessionsPaginated, getAvailableFilters } from '~/shared/api/client';
 import { useDemoMode } from '~/shared/providers/DemoModeContext';
 import { useSessionData } from '~/shared/providers/SessionContext';
 import { useSafeTeam } from '~/shared/providers/TeamContext';
@@ -122,7 +122,7 @@ export const RecordingsList: React.FC = () => {
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [hasMore, setHasMore] = useState(false);
-  const [totalCount, setTotalCount] = useState<number>(0);
+  const [totalCount, setTotalCount] = useState<number | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [rowsPerPage, setRowsPerPage] = useState(50);
 
@@ -180,6 +180,7 @@ export const RecordingsList: React.FC = () => {
         setSessions([]);
         setNextCursor(null);
         setHasMore(false);
+        setTotalCount(null);
         setIsLoading(false);
         return;
       }
@@ -191,15 +192,16 @@ export const RecordingsList: React.FC = () => {
       } else {
         setIsLoading(true);
         setSessions([]);
+        setTotalCount(null);
       }
 
-      const result = await getSessionsPaginated({
+      const archiveQuery = {
         cursor,
         limit: rowsPerPage,
         timeRange: timeRange === 'all' ? undefined : timeRange,
         date: dateFilter ? dateFilter : undefined,
         projectId: selectedProjectId,
-        hasRecording: true,
+        hasRecording: true as const,
         issueFilter: filter,
         metaKey: metaKeyFilter ? metaKeyFilter : undefined,
         metaValue: metaValueFilter ? metaValueFilter : undefined,
@@ -208,7 +210,10 @@ export const RecordingsList: React.FC = () => {
         eventCountValue: eventCountValue ? eventCountValue : undefined,
         eventPropKey: eventPropKey ? eventPropKey : undefined,
         eventPropValue: eventPropValue ? eventPropValue : undefined,
-      });
+        includeTotal: false as const,
+      };
+
+      const result = await getSessionsPaginated(archiveQuery);
 
       if (requestId !== activeRequestIdRef.current) return;
 
@@ -216,10 +221,29 @@ export const RecordingsList: React.FC = () => {
         // Append to existing sessions
         setSessions(prev => [...prev, ...result.sessions]);
       } else {
-        // Replace all sessions
+        // Replace all sessions; total count runs as a follow-up (same filters, avoids slow count(*) blocking first paint)
         setSessions(result.sessions);
+        void getSessionsArchiveTotalCount({
+          timeRange: archiveQuery.timeRange,
+          date: archiveQuery.date,
+          projectId: selectedProjectId!,
+          hasRecording: true,
+          issueFilter: archiveQuery.issueFilter,
+          metaKey: archiveQuery.metaKey,
+          metaValue: archiveQuery.metaValue,
+          eventName: archiveQuery.eventName,
+          eventCountOp: archiveQuery.eventCountOp,
+          eventCountValue: archiveQuery.eventCountValue,
+          eventPropKey: archiveQuery.eventPropKey,
+          eventPropValue: archiveQuery.eventPropValue,
+        }).then((n) => {
+          if (requestId !== activeRequestIdRef.current) return;
+          setTotalCount(n);
+        }).catch(() => {
+          if (requestId !== activeRequestIdRef.current) return;
+          setTotalCount(null);
+        });
       }
-      setTotalCount(result.totalCount ?? 0);
 
       setNextCursor(result.nextCursor);
       setHasMore(result.hasMore);
@@ -248,10 +272,11 @@ export const RecordingsList: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fetchScopeKey]);
 
-  // Load available metadata keys/values and event names for filter dropdowns
+  // Reset advanced-filter dropdown data when project/team changes (loaded lazily when panel opens — JSONB scans are expensive)
   const prevProjectIdRef = useRef<string | undefined>(undefined);
+  const advancedFiltersFetchedRef = useRef<string | null>(null);
   useEffect(() => {
-    if (isDemoMode || !selectedProjectId || !isProjectFromCurrentTeam) {
+    if (!selectedProjectId || !isProjectFromCurrentTeam) {
       setAvailableFilters({ events: [], eventPropertyKeys: [], metadata: {} });
       setEventNameFilter('');
       setMetaKeyFilter('');
@@ -265,7 +290,19 @@ export const RecordingsList: React.FC = () => {
       setEventNameFilter('');
       setMetaKeyFilter('');
       setMetaValueFilter('');
+      setAvailableFilters({ events: [], eventPropertyKeys: [], metadata: {} });
+      advancedFiltersFetchedRef.current = null;
     }
+  }, [selectedProjectId, isProjectFromCurrentTeam]);
+
+  useEffect(() => {
+    if (isDemoMode || !showAdvancedFilters || !selectedProjectId || !isProjectFromCurrentTeam) {
+      return;
+    }
+    if (advancedFiltersFetchedRef.current === selectedProjectId) {
+      return;
+    }
+    advancedFiltersFetchedRef.current = selectedProjectId;
     let cancelled = false;
     getAvailableFilters(selectedProjectId)
       .then((data) => {
@@ -280,7 +317,7 @@ export const RecordingsList: React.FC = () => {
         }
       });
     return () => { cancelled = true; };
-  }, [isDemoMode, selectedProjectId, isProjectFromCurrentTeam]);
+  }, [isDemoMode, showAdvancedFilters, selectedProjectId, isProjectFromCurrentTeam]);
 
   const handleLoadMore = useCallback(async () => {
     if (nextCursor && !isLoadingMore) {
@@ -376,7 +413,7 @@ export const RecordingsList: React.FC = () => {
   const hasActiveFilters = searchQuery || filter !== 'all' || eventNameFilter || metaKeyFilter || dateFilter || eventCountOp || eventPropKey;
   const advancedFilterCount = (eventNameFilter ? 1 : 0) + (metaKeyFilter ? 1 : 0) + (eventCountOp ? 1 : 0) + (eventPropKey ? 1 : 0);
   const archiveScopeLabel = formatArchiveScopeLabel(timeRange, dateFilter);
-  const archiveCountLabel = `${totalCount.toLocaleString()} total replays · ${archiveScopeLabel}`;
+  const archiveCountLabel = `${totalCount === null ? '…' : totalCount.toLocaleString()} total replays · ${archiveScopeLabel}`;
 
   const handleSort = (key: SortKey, multiSort: boolean) => {
     setSortConfigs(prev => {
@@ -1023,7 +1060,7 @@ export const RecordingsList: React.FC = () => {
                 <span className="text-xs font-bold text-slate-500">
                   Showing <span className="text-slate-900">{startIndex}–{endIndex}</span> of{' '}
                   <span className="text-slate-900">{filteredSessions.length.toLocaleString()}</span> loaded
-                  {totalCount > filteredSessions.length && (
+                  {totalCount !== null && totalCount > filteredSessions.length && (
                     <span className="text-slate-400"> ({totalCount.toLocaleString()} total in {archiveScopeLabel})</span>
                   )}
                 </span>

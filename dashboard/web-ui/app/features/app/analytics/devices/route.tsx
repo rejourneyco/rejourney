@@ -126,52 +126,56 @@ export const Devices: React.FC = () => {
         setPartialError(null);
 
         const range = toApiRange(timeRange);
+        const projectId = selectedProject.id;
+        const deviceRange = timeRange === 'all' ? 'max' : timeRange;
 
-        Promise.allSettled([
-            getDeviceSummary(selectedProject.id, timeRange === 'all' ? 'max' : timeRange),
-            getObservabilityDeepMetrics(selectedProject.id, range, 'summary'),
-            getDeviceIssueMatrix(selectedProject.id, timeRange === 'all' ? 'max' : timeRange),
-            getInsightsTrends(selectedProject.id, toTrendsRange(timeRange)),
-        ])
-            .then(([summary, deep, matrix, trendData]) => {
-                if (cancelled) return;
-
-                const failedSections: string[] = [];
-
-                if (summary.status === 'fulfilled') {
-                    setData(summary.value);
-                } else {
-                    failedSections.push('device summary');
-                    setData(null);
-                }
-
-                if (deep.status === 'fulfilled') {
-                    setDeepMetrics(deep.value);
-                } else {
-                    failedSections.push('deep metrics');
-                    setDeepMetrics(null);
-                }
-
-                if (matrix.status === 'fulfilled') {
-                    setMatrixData(matrix.value);
-                } else {
-                    failedSections.push('device matrix');
-                    setMatrixData(null);
-                }
-
-                if (trendData.status === 'fulfilled') {
-                    setTrends(trendData.value);
-                } else {
-                    failedSections.push('trends');
-                    setTrends(null);
-                }
-
-                if (failedSections.length > 0) {
-                    setPartialError(`Some device widgets are unavailable (${failedSections.join(', ')}).`);
-                }
+        // Primary table is driven by device summary; load the rest without blocking the page shell.
+        void getDeviceSummary(projectId, deviceRange)
+            .then((v) => {
+                if (!cancelled) setData(v);
+            })
+            .catch((err) => {
+                console.error('Device summary failed:', err);
+                if (!cancelled) setData(null);
             })
             .finally(() => {
                 if (!cancelled) setIsLoading(false);
+            });
+
+        void getObservabilityDeepMetrics(projectId, range, 'summary')
+            .then((v) => {
+                if (!cancelled) setDeepMetrics(v);
+            })
+            .catch((err) => {
+                console.error('Device deep metrics failed:', err);
+                if (!cancelled) {
+                    setDeepMetrics(null);
+                    setPartialError('Deep metrics unavailable.');
+                }
+            });
+
+        void getDeviceIssueMatrix(projectId, deviceRange)
+            .then((v) => {
+                if (!cancelled) setMatrixData(v);
+            })
+            .catch((err) => {
+                console.error('Device matrix failed:', err);
+                if (!cancelled) {
+                    setMatrixData(null);
+                    setPartialError((prev) => prev || 'Issue matrix unavailable.');
+                }
+            });
+
+        void getInsightsTrends(projectId, toTrendsRange(timeRange))
+            .then((v) => {
+                if (!cancelled) setTrends(v);
+            })
+            .catch((err) => {
+                console.error('Device trends failed:', err);
+                if (!cancelled) {
+                    setTrends(null);
+                    setPartialError((prev) => prev || 'Trends unavailable.');
+                }
             });
 
         return () => {

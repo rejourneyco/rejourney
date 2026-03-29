@@ -268,60 +268,57 @@ export const ApiAnalytics: React.FC = () => {
         setIsLoading(true);
 
         const range = toApiRange(timeRange);
+        const projectId = selectedProject.id;
 
-        Promise.allSettled([
-            getApiEndpointStats(selectedProject.id, range),
-            getRegionPerformance(selectedProject.id, toRegionRange(timeRange)),
-            getObservabilityDeepMetrics(selectedProject.id, range, 'summary'),
-            getApiLatencyByLocation(selectedProject.id, range),
-            getInsightsTrends(selectedProject.id, toTrendsRange(timeRange)),
-        ])
-            .then(([endpointData, regionData, deepData, geoLatencyData, trendData]) => {
-                if (isCancelled) return;
+        // Main chart needs endpoint + deep metrics; don’t block the shell on region/latency/trends (often slower).
+        void Promise.allSettled([
+            getApiEndpointStats(projectId, range),
+            getObservabilityDeepMetrics(projectId, range, 'summary'),
+        ]).then(([endpointData, deepData]) => {
+            if (isCancelled) return;
 
-                const failedSections: string[] = [];
+            if (endpointData.status === 'fulfilled') {
+                setEndpointStats(endpointData.value);
+            } else {
+                console.error('ApiAnalytics endpointStats failed:', endpointData.reason);
+                setEndpointStats(null);
+            }
 
-                if (endpointData.status === 'fulfilled') {
-                    setEndpointStats(endpointData.value);
-                } else {
-                    failedSections.push('endpointStats');
-                    setEndpointStats(null);
-                }
+            if (deepData.status === 'fulfilled') {
+                setDeepMetrics(deepData.value);
+            } else {
+                console.error('ApiAnalytics deepMetrics failed:', deepData.reason);
+                setDeepMetrics(null);
+            }
 
-                if (regionData.status === 'fulfilled') {
-                    setRegionStats(regionData.value);
-                } else {
-                    failedSections.push('regionPerformance');
-                    setRegionStats(null);
-                }
+            if (!isCancelled) setIsLoading(false);
+        });
 
-                if (deepData.status === 'fulfilled') {
-                    setDeepMetrics(deepData.value);
-                } else {
-                    failedSections.push('deepMetrics');
-                    setDeepMetrics(null);
-                }
-
-                if (geoLatencyData.status === 'fulfilled') {
-                    setLatencyByLocation(geoLatencyData.value);
-                } else {
-                    failedSections.push('geoLatency');
-                    setLatencyByLocation(null);
-                }
-
-                if (trendData.status === 'fulfilled') {
-                    setTrends(trendData.value);
-                } else {
-                    failedSections.push('trends');
-                    setTrends(null);
-                }
-
-                if (failedSections.length > 0) {
-                    console.error('ApiAnalytics partial data fetch failures:', failedSections);
-                }
+        void getRegionPerformance(projectId, toRegionRange(timeRange))
+            .then((v) => {
+                if (!isCancelled) setRegionStats(v);
             })
-            .finally(() => {
-                if (!isCancelled) setIsLoading(false);
+            .catch((err) => {
+                console.error('ApiAnalytics regionPerformance failed:', err);
+                if (!isCancelled) setRegionStats(null);
+            });
+
+        void getApiLatencyByLocation(projectId, range)
+            .then((v) => {
+                if (!isCancelled) setLatencyByLocation(v);
+            })
+            .catch((err) => {
+                console.error('ApiAnalytics geoLatency failed:', err);
+                if (!isCancelled) setLatencyByLocation(null);
+            });
+
+        void getInsightsTrends(projectId, toTrendsRange(timeRange))
+            .then((v) => {
+                if (!isCancelled) setTrends(v);
+            })
+            .catch((err) => {
+                console.error('ApiAnalytics trends failed:', err);
+                if (!isCancelled) setTrends(null);
             });
 
         return () => {
