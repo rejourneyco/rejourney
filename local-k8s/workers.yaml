@@ -283,7 +283,7 @@ spec:
             - name: RJ_INGEST_KIND_PRIORITY
               value: "screenshots,hierarchy,events,crashes,anrs"
             - name: RJ_INGEST_JOB_CONCURRENCY
-              value: "6"
+              value: "8"
             - name: RJ_INGEST_BATCH_SIZE
               value: "40"
             - name: RJ_INGEST_MAX_RUNNABLE_PER_SESSION

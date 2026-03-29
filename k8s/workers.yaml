@@ -276,18 +276,18 @@ spec:
             - name: RJ_INGEST_KIND_PRIORITY
               value: "screenshots,hierarchy,events,crashes,anrs"
             - name: RJ_INGEST_JOB_CONCURRENCY
-              value: "6"
+              value: "8"
             - name: RJ_INGEST_BATCH_SIZE
               value: "40"
             - name: RJ_INGEST_MAX_RUNNABLE_PER_SESSION
               value: "4"
           resources:
             requests:
-              cpu: 100m
-              memory: 256Mi
+              cpu: 200m
+              memory: 384Mi
             limits:
-              cpu: 500m
-              memory: 512Mi
+              cpu: "1000m"
+              memory: 768Mi
 
 ---
 # Retention Worker CronJob

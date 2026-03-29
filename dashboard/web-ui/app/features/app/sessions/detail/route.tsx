@@ -2303,10 +2303,14 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
                                                 >
                                                     {visualReplayPreparing && (
                                                         <div className="absolute inset-0 z-30 flex flex-col items-center justify-center bg-slate-950/80 px-6 text-center text-slate-100">
-                                                            <RefreshCw className="h-8 w-8 animate-spin text-cyan-300" />
-                                                            <p className="mt-4 text-sm font-semibold">Visual replay still processing</p>
+                                                            <span className="inline-flex items-center gap-2 rounded-full border border-emerald-400/80 bg-emerald-500/15 px-3 py-1 text-[11px] font-bold uppercase tracking-[0.2em] text-emerald-200 shadow-[0_0_20px_rgba(34,197,94,0.45)] animate-pulse">
+                                                                <span className="h-2 w-2 rounded-full bg-emerald-400 animate-ping" aria-hidden />
+                                                                Live
+                                                            </span>
+                                                            <RefreshCw className="mt-4 h-8 w-8 animate-spin text-emerald-300" />
+                                                            <p className="mt-4 text-sm font-semibold text-white">Preparing visual replay</p>
                                                             <p className="mt-2 text-xs leading-5 text-slate-300">
-                                                                Timeline events and logs are ready first. Frames will appear automatically as soon as processing finishes.
+                                                                Timeline, logs, and network are ready. Frames appear here as soon as processing finishes.
                                                             </p>
                                                             {replayPreparationProgressPercent !== null ? (
                                                                 <p className="mt-3 text-[11px] font-semibold uppercase tracking-wide text-cyan-200">

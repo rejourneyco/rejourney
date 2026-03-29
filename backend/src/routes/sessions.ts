@@ -5,9 +5,9 @@
  */
 
 import { Router } from 'express';
-import { eq, and, inArray, gte, lt, isNull, desc, sql } from 'drizzle-orm';
+import { eq, and, inArray, gte, lt, isNull, desc, sql, getTableColumns } from 'drizzle-orm';
 
-import { db, sessions, sessionMetrics, recordingArtifacts, ingestJobs, projects, teamMembers, crashes, anrs, errors } from '../db/client.js';
+import { db, sessions, sessionMetrics, recordingArtifacts, projects, teamMembers, crashes, anrs, errors } from '../db/client.js';
 import { gunzipSync } from 'zlib';
 
 import {
@@ -34,17 +34,44 @@ import {
     normalizeSessionArchiveIssueFilter,
     sessionArchiveIssueFilterUsesMetrics,
 } from '../services/sessionArchiveFilters.js';
-import {
-    archiveReadyScreenshotSql,
-    hasSuccessfulRecording,
-} from '../services/replayAvailability.js';
+import { hasSuccessfulRecording } from '../services/replayAvailability.js';
 import {
     deriveSessionPresentationState,
     loadSessionWorkAggregate,
     type SessionPresentationState,
 } from '../services/sessionPresentationState.js';
+import { computeSessionDurationSeconds } from '../services/sessionTiming.js';
 
 const router = Router();
+
+/**
+ * List rows: `duration_seconds` is sometimes still 0 after finalize while `ended_at` / `explicit_ended_at` are set.
+ * Derive playable duration from timestamps when the stored column is missing or zero.
+ */
+function resolveArchiveListDurationSeconds(s: {
+    durationSeconds: number | null;
+    startedAt: Date;
+    endedAt: Date | null;
+    explicitEndedAt: Date | null;
+    finalizedAt: Date | null;
+    lastIngestActivityAt: Date | null;
+    backgroundTimeSeconds: number | null;
+}): number {
+    const direct = s.durationSeconds;
+    if (direct != null && direct > 0) return direct;
+    const end =
+        s.endedAt ?? s.explicitEndedAt ?? s.finalizedAt ?? (s.lastIngestActivityAt && s.lastIngestActivityAt > s.startedAt ? s.lastIngestActivityAt : null);
+    if (end && s.startedAt) {
+        return computeSessionDurationSeconds(s.startedAt, end, s.backgroundTimeSeconds);
+    }
+    return Math.max(0, direct ?? 0);
+}
+
+/** Archive list: omit `events` / `metadata` JSONB — they are large and unused for the table (detail API loads full rows). */
+const sessionsArchiveListColumns = (() => {
+    const { events: _events, metadata: _metadata, ...cols } = getTableColumns(sessions);
+    return cols;
+})();
 
 /**
  * Get time range filter for queries
@@ -379,16 +406,6 @@ function buildSessionPresentationPayload(presentationState: SessionPresentationS
         isBackgroundProcessing: presentationState.isBackgroundProcessing,
         canOpenReplay: presentationState.canOpenReplay,
     };
-}
-
-function toBooleanFlag(value: unknown): boolean {
-    if (typeof value === 'boolean') return value;
-    if (typeof value === 'string') {
-        const normalized = value.trim().toLowerCase();
-        return normalized === 'true' || normalized === 't' || normalized === '1';
-    }
-    if (typeof value === 'number') return value > 0;
-    return Boolean(value);
 }
 
 function buildSessionBasePayload(
@@ -1246,49 +1263,18 @@ router.get(
             return;
         }
 
-        // Run data query; optionally run count in parallel (count is often the slow part — clients may defer it)
+        // List payload: no per-row EXISTS (detail view loads precise ingest state). Omit events/metadata JSONB.
         const dataQuery = db
-                .select({
-                    session: sessions,
-                    metrics: sessionMetrics,
-                    readyScreenshotArtifacts: archiveReadyScreenshotSql(sessions.id, sessions.replayAvailable),
-                    hasOpenArtifacts: sql<boolean>`exists (
-                        select 1 from ${recordingArtifacts} ra
-                        where ra.session_id = ${sessions.id}
-                          and ra.status in ('pending', 'uploaded')
-                    )`,
-                    hasActiveJobs: sql<boolean>`exists (
-                        select 1 from ${ingestJobs} ij
-                        where ij.session_id = ${sessions.id}
-                          and ij.status in ('pending', 'processing')
-                    )`,
-                    hasOpenReplayArtifacts: sql<boolean>`exists (
-                        select 1 from ${recordingArtifacts} ra
-                        where ra.session_id = ${sessions.id}
-                          and ra.kind in ('screenshots', 'hierarchy')
-                          and ra.status in ('pending', 'uploaded')
-                    )`,
-                    hasActiveReplayJobs: sql<boolean>`exists (
-                        select 1
-                        from ${ingestJobs} ij
-                        inner join ${recordingArtifacts} ra on ra.id = ij.artifact_id
-                        where ij.session_id = ${sessions.id}
-                          and ij.status in ('pending', 'processing')
-                          and ra.kind in ('screenshots', 'hierarchy')
-                    )`,
-                    isFirstSession: sql<boolean>`NOT EXISTS (
-                        SELECT 1 FROM ${sessions} AS previous_sessions 
-                        WHERE previous_sessions.device_id = ${sessions.deviceId} 
-                          AND previous_sessions.project_id = ${sessions.projectId}
-                          AND previous_sessions.started_at < ${sessions.startedAt}
-                    )`,
-                })
-                .from(sessions)
-                .leftJoin(sessionMetrics, eq(sessions.id, sessionMetrics.sessionId))
-                .where(and(...dataConditions))
-                .orderBy(desc(sessions.startedAt))
-                .limit(parsedLimit + 1)
-                .offset(cursor ? 0 : parseInt(offset) || 0);
+            .select({
+                session: { ...sessionsArchiveListColumns },
+                metrics: sessionMetrics,
+            })
+            .from(sessions)
+            .leftJoin(sessionMetrics, eq(sessions.id, sessionMetrics.sessionId))
+            .where(and(...dataConditions))
+            .orderBy(desc(sessions.startedAt))
+            .limit(parsedLimit + 1)
+            .offset(cursor ? 0 : parseInt(offset) || 0);
 
         const [sessionsList, countRows] = includeTotal
             ? await Promise.all([dataQuery, runCountQuery()])
@@ -1302,17 +1288,10 @@ router.get(
         const nextCursor = hasMore ? resultSessions[resultSessions.length - 1].session.id : null;
 
         // Transform to API format
-        const sessionsData = resultSessions.map(({
-            session: s,
-            metrics: m,
-            readyScreenshotArtifacts,
-            hasOpenArtifacts,
-            hasActiveJobs,
-            hasOpenReplayArtifacts,
-            hasActiveReplayJobs,
-            isFirstSession,
-        }) => {
-            const successfulRecording = hasSuccessfulRecording(s, m, Boolean(readyScreenshotArtifacts));
+        const sessionsData = resultSessions.map(({ session: s, metrics: m }) => {
+            const durationSec = resolveArchiveListDurationSeconds(s);
+            const inferPendingFromStatus = s.status === 'processing' || s.status === 'pending';
+            const successfulRecording = hasSuccessfulRecording(s, m, false);
             const presentationState = deriveSessionPresentationState({
                 status: s.status,
                 replayAvailable: s.replayAvailable,
@@ -1323,8 +1302,8 @@ router.get(
                 lastIngestActivityAt: s.lastIngestActivityAt,
                 replayAvailableAt: s.replayAvailableAt,
                 startedAt: s.startedAt,
-                hasPendingWork: toBooleanFlag(hasOpenArtifacts) || toBooleanFlag(hasActiveJobs),
-                hasPendingReplayWork: toBooleanFlag(hasOpenReplayArtifacts) || toBooleanFlag(hasActiveReplayJobs),
+                hasPendingWork: inferPendingFromStatus,
+                hasPendingReplayWork: inferPendingFromStatus,
             });
             return {
                 id: s.id,
@@ -1339,13 +1318,13 @@ router.get(
                 osVersion: s.osVersion,
                 startedAt: s.startedAt.toISOString(),
                 endedAt: s.endedAt?.toISOString(),
-                durationSeconds: s.durationSeconds,
+                durationSeconds: durationSec,
                 backgroundTimeSeconds: s.backgroundTimeSeconds ?? 0,
                 // playableDuration is now same as durationSeconds (background already excluded)
-                playableDuration: s.durationSeconds ?? 0,
+                playableDuration: durationSec,
                 status: s.status,
                 ...buildSessionPresentationPayload(presentationState),
-                isFirstSession,
+                isFirstSession: false,
                 // Metrics
                 touchCount: m?.touchCount ?? 0,
                 scrollCount: m?.scrollCount ?? 0,
@@ -1393,8 +1372,8 @@ router.get(
                 replayPromotionScore: getReplayCompatibilityScore(successfulRecording),
                 // Stats
                 stats: {
-                    duration: String(s.durationSeconds ?? 0),
-                    durationMinutes: String(((s.durationSeconds ?? 0) / 60).toFixed(2)),
+                    duration: String(durationSec),
+                    durationMinutes: String((durationSec / 60).toFixed(2)),
                     eventCount: m?.totalEvents ?? 0,
                     screenshotSegmentCount: m?.screenshotSegmentCount ?? 0,
                     totalSizeKB: String(((m?.eventsSizeBytes ?? 0) + (m?.screenshotTotalBytes ?? 0)) / 1024),
