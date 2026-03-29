@@ -564,7 +564,10 @@ export async function getDashboardStatsWithTimeRange(timeRange: string): Promise
 export function transformToRecordingSession(session: ApiSession | ApiSessionSummary): any {
   // Handle both old format (startTime as number) and new format (startedAt as ISO string)
   const startedAtValue = (session as any).startedAt || (session as any).startTime;
-  const endedAtValue = (session as any).endedAt || (session as any).endTime;
+  const endedAtValue =
+    (session as any).endedAt ||
+    (session as any).endTime ||
+    (session as any).explicitEndedAt;
 
   const startedAtMs = typeof startedAtValue === 'string'
     ? new Date(startedAtValue).getTime()
@@ -574,12 +577,31 @@ export function transformToRecordingSession(session: ApiSession | ApiSessionSumm
     : (endedAtValue as number);
 
   const startedAt = new Date(startedAtMs).toISOString();
-  const endedAt = endedAtMs ? new Date(endedAtMs).toISOString() : undefined;
-  const durationSeconds = typeof (session as any).durationSeconds === 'number'
-    ? (session as any).durationSeconds
-    : endedAtMs && startedAtMs
-      ? Math.round((endedAtMs - startedAtMs) / 1000)
-      : 0;
+  const endedAt =
+    endedAtValue != null && Number.isFinite(endedAtMs) ? new Date(endedAtMs).toISOString() : undefined;
+
+  const rawDuration = (session as any).durationSeconds;
+  let durationSeconds =
+    typeof rawDuration === 'number' && Number.isFinite(rawDuration) ? rawDuration : 0;
+
+  // API may send durationSeconds: 0 while endedAt / explicitEndedAt are set (column not backfilled yet).
+  if (
+    (durationSeconds === 0 || rawDuration == null) &&
+    Number.isFinite(startedAtMs) &&
+    Number.isFinite(endedAtMs) &&
+    endedAtMs > startedAtMs
+  ) {
+    const bg = Number((session as any).backgroundTimeSeconds ?? 0);
+    const wallSec = Math.max(0, Math.round((endedAtMs - startedAtMs) / 1000));
+    durationSeconds = Math.max(0, wallSec - bg);
+  }
+
+  if (durationSeconds === 0 && session.stats?.duration != null) {
+    const parsed = parseFloat(String(session.stats.duration));
+    if (Number.isFinite(parsed) && parsed > 0) {
+      durationSeconds = Math.round(parsed);
+    }
+  }
 
   // Use metrics if available, otherwise calculate from stats
   const metrics = session.metrics || {

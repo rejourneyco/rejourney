@@ -747,7 +747,7 @@ export const RecordingsList: React.FC = () => {
                 <th className="sticky top-0 z-40 bg-slate-200 text-left py-2.5 px-3 text-[11px] font-semibold text-slate-700 uppercase tracking-wider min-w-[140px]">User & Device</th>
                 <th className="sticky top-0 z-40 bg-slate-200 hidden lg:table-cell text-left py-2.5 px-3 text-[11px] font-semibold text-slate-700 uppercase tracking-wider w-32"><SortableHeader label="Date" sortKey="date" /></th>
                 <th className="sticky top-0 z-40 bg-slate-200 hidden lg:table-cell text-left py-2.5 px-3 text-[11px] font-semibold text-slate-700 uppercase tracking-wider w-36">Location</th>
-                <th className="sticky top-0 z-40 bg-slate-200 hidden md:table-cell text-right py-2.5 px-3 text-[11px] font-semibold text-slate-700 uppercase tracking-wider w-24"><SortableHeader label="Duration" sortKey="duration" align="right" /></th>
+                <th className="sticky top-0 z-40 bg-slate-200 hidden md:table-cell text-right py-2.5 px-3 text-[11px] font-semibold text-slate-700 uppercase tracking-wider w-28 min-w-[7rem]"><SortableHeader label="Duration" sortKey="duration" align="right" /></th>
                 <th className="sticky top-0 z-40 bg-slate-200 hidden lg:table-cell text-right py-2.5 px-3 text-[11px] font-semibold text-slate-700 uppercase tracking-wider w-16"><SortableHeader label="Screens" sortKey="screens" align="right" /></th>
                 <th className="sticky top-0 z-40 bg-slate-200 hidden xl:table-cell text-right py-2.5 px-3 text-[11px] font-semibold text-slate-700 uppercase tracking-wider w-20"><SortableHeader label="API Lat." sortKey="apiResponse" align="right" /></th>
                 <th className="sticky top-0 z-40 bg-slate-200 hidden xl:table-cell text-right py-2.5 px-3 text-[11px] font-semibold text-slate-700 uppercase tracking-wider w-20"><SortableHeader label="API Err" sortKey="apiError" align="right" /></th>
@@ -796,7 +796,25 @@ export const RecordingsList: React.FC = () => {
               const canOpenReplay = (session as any).canOpenReplay ?? hasReplay;
               const isLiveIngest = Boolean((session as any).isLiveIngest);
               const isBackgroundProcessing = Boolean((session as any).isBackgroundProcessing);
-              const isReplayBlocked = !canOpenReplay;
+              /** Open session detail even while replay is still preparing (timeline/logs are useful). */
+              const canNavigateToSession =
+                canOpenReplay ||
+                isLiveIngest ||
+                isBackgroundProcessing ||
+                effectiveStatus === 'processing' ||
+                session.status === 'processing' ||
+                session.status === 'pending' ||
+                hasReplay;
+              const isReplayBlocked = !canNavigateToSession;
+
+              /** One label for the duration column: live ingest, or replay not ready yet. Otherwise show MM:SS. */
+              const showLiveReplayInDurationColumn =
+                isLiveIngest ||
+                (!canOpenReplay &&
+                  (isBackgroundProcessing ||
+                    effectiveStatus === 'processing' ||
+                    session.status === 'processing' ||
+                    session.status === 'pending'));
 
               const hasIssues = (session.crashCount || 0) > 0 ||
                 ((session as any).anrCount || 0) > 0 ||
@@ -866,19 +884,11 @@ export const RecordingsList: React.FC = () => {
                       </div>
                     </td>
 
-                    {/* Duration */}
-                    <td className="hidden md:table-cell py-2.5 px-3 align-middle text-right w-24">
-                      {isLiveIngest && !canOpenReplay ? (
-                        <span className="text-[9px] font-semibold text-indigo-600 bg-indigo-50 border border-indigo-200 px-1 py-0.5 animate-pulse rounded-sm">
-                          LIVE INGEST
-                        </span>
-                      ) : isLiveIngest && canOpenReplay ? (
-                        <span className="text-[9px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-1 py-0.5 rounded-sm">
+                    {/* Duration: LIVE REPLAY while ingest / replay preparing; MM:SS once replay is playable (or session ended) and not live-ingesting */}
+                    <td className="hidden md:table-cell py-2.5 px-3 align-middle text-right w-28 min-w-[7rem]">
+                      {showLiveReplayInDurationColumn ? (
+                        <span className="inline-flex items-center justify-end whitespace-nowrap text-[9px] font-semibold leading-none text-emerald-800 bg-emerald-50 border border-emerald-200/90 px-1.5 py-1 rounded-sm animate-pulse">
                           LIVE REPLAY
-                        </span>
-                      ) : isBackgroundProcessing ? (
-                        <span className="text-[9px] font-semibold text-slate-700 bg-slate-100 border border-slate-200 px-1 py-0.5 rounded-sm">
-                          PROCESSING
                         </span>
                       ) : (
                         <span className="text-xs font-mono font-medium text-slate-700 bg-slate-100 border border-slate-200 px-1.5 py-0.5 rounded">
@@ -928,20 +938,22 @@ export const RecordingsList: React.FC = () => {
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
-                          if (canOpenReplay) {
+                          if (canNavigateToSession) {
                             navigate(`${pathPrefix}/sessions/${session.id}`);
                           }
                         }}
-                        disabled={!canOpenReplay}
+                        disabled={!canNavigateToSession}
                         className={`inline-flex items-center justify-center p-1.5 rounded transition-colors group/play ${isReplayBlocked ? 'cursor-not-allowed opacity-40 text-slate-300' : 'text-slate-600 hover:text-slate-900'}`}
                         title={
-                          !canOpenReplay
-                            ? 'Visual replay is still processing'
-                            : isLiveIngest
-                              ? 'Open Live Replay'
-                              : isBackgroundProcessing
-                                ? 'Open Replay while background processing continues'
-                                : 'Open Replay'
+                          !canNavigateToSession
+                            ? 'Replay unavailable for this session'
+                            : !canOpenReplay
+                              ? 'Open session — visual replay may still be preparing'
+                              : isLiveIngest
+                                ? 'Open Live Replay'
+                                : isBackgroundProcessing
+                                  ? 'Open session while processing continues'
+                                  : 'Open Replay'
                         }
                       >
                         <Play size={16} className={isReplayBlocked ? "" : "group-hover/play:fill-current"} />
@@ -1030,11 +1042,13 @@ export const RecordingsList: React.FC = () => {
                               disabled={isReplayBlocked}
                             >
                               {isReplayBlocked ? (
-                                <><Loader size={12} className="animate-spin mr-2" /> Live Ingesting...</>
+                                <><Loader size={12} className="animate-spin mr-2" /> Unavailable</>
+                              ) : !canOpenReplay ? (
+                                <><Play size={12} fill="currentColor" className="mr-2" /> Open session</>
                               ) : isLiveIngest ? (
                                 <><Play size={12} fill="currentColor" className="mr-2" /> Open Live Replay</>
                               ) : isBackgroundProcessing ? (
-                                <><Play size={12} fill="currentColor" className="mr-2" /> Open Replay While Processing</>
+                                <><Play size={12} fill="currentColor" className="mr-2" /> Open session</>
                               ) : (
                                 <><Play size={12} fill="currentColor" className="mr-2" /> Open Replay</>
                               )}
