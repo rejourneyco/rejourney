@@ -4,7 +4,7 @@ Last updated: 2026-03-29
 
 This doc is the ingest/runtime view: package start, upload lanes, relay, worker reconciliation, Redis, and Postgres.
 
-Deploy, `db-setup`, GitHub Actions, and local parity now live in [Rejourney CI + Deploy Path](/Users/mora/Desktop/Dev-mac/rejourney/dev_docs/rejourney-ci.md).
+Deploy topology (which process runs where) lives in [All things cloud](/Users/mora/Desktop/Dev-mac/rejourney/dev_docs/allthingscloud.md). Deploy, `db-setup`, GitHub Actions, and local parity are in [Rejourney CI + Deploy Path](/Users/mora/Desktop/Dev-mac/rejourney/dev_docs/rejourney-ci.md).
 
 Shortest correct mental model:
 
@@ -12,7 +12,7 @@ Shortest correct mental model:
 - Postgres is the source of truth for session lifecycle, artifact lifecycle, metrics, jobs, and usage.
 - Redis is the runtime helper plane for cache, idempotency, and limit coordination.
 - A replay becomes visible when at least one screenshot artifact reaches `ready`.
-- A session is finalized by the ingest worker reconciliation path, not just by calling `/session/end`.
+- A session is finalized by **`reconcileSessionState()`** (driven by artifact workers after jobs complete and by the **session-lifecycle worker** sweep), not just by calling `/session/end`.
 
 ## Flow Index
 
@@ -20,7 +20,7 @@ Shortest correct mental model:
 ┌──────────────────────────────────────────────────────────────────────────────┐
 │ [I1] Package Start / Rollover                                               │
 │ [I2] Upload Lanes / Session Creation                                        │
-│ [I3] Upload Relay / Worker / Artifact States                                │
+│ [I3] Upload Relay / Artifact + lifecycle workers / Artifact States            │
 │ [I4] Reconciliation / Auto-Finalizer / endedAt Math                         │
 │ [I5] Redis vs Postgres Ownership                                            │
 │ [I6] Quick Answers / Constants                                              │
@@ -131,7 +131,7 @@ Relevant routes:
 - [`backend/src/services/ingestSessionLifecycle.ts`](/Users/mora/Desktop/Dev-mac/rejourney/backend/src/services/ingestSessionLifecycle.ts)
 - [`backend/src/services/ingestArtifactLifecycle.ts`](/Users/mora/Desktop/Dev-mac/rejourney/backend/src/services/ingestArtifactLifecycle.ts)
 
-## [I3] Upload Relay / Worker / Artifact States
+## [I3] Upload Relay / Artifact + lifecycle workers / Artifact states
 
 ```text
 ┌──────────┐   /presign or /segment/presign   ┌──────────────────────────────┐
@@ -148,12 +148,22 @@ Relevant routes:
      │ /batch/complete or /segment/complete                      │
      ▼                                                           ▼
 ┌──────────────┐                                   ┌──────────────────────────┐
-│ ingest route │──────────────────────────────────▶│ ingest worker            │
-│ merge metrics│                                   │ process / normalize      │
+│ ingest route │──────────────────────────────────▶│ same ingest_jobs table;   │
+│ merge metrics│                                   │ each worker claims by kind │
 └──────────────┘                                   └─────────────┬────────────┘
                                                                  ▼
-                                                    artifact = ready / failed
-                                                    reconcileSessionState()
+              ┌──────────────────────────────────────────────────────────────────┐
+              │ Artifact workers (two deployments; see workerDefinitions.ts)    │
+              │  ┌──────────────────────────┐    ┌──────────────────────────────┐  │
+              │  │ ingest-artifact worker   │    │ replay-artifact worker       │  │
+              │  │ events, crashes, ANRs    │    │ screenshots, hierarchy       │  │
+              │  └────────────┬─────────────┘    └──────────────┬───────────────┘  │
+              └───────────────┴──────────────────────────────────┴──────────────────┘
+                                            │
+                                            ▼
+                              process / normalize (artifactJobProcessor)
+                              artifact = ready / failed
+                              reconcileSessionState()
 ```
 
 ```text
@@ -167,28 +177,48 @@ failed    -> uploaded    (recoverable retry path)
 
 ```text
 ┌──────────────────────────────────────────────────────────────────────────────┐
-│ Worker sweeps                                                               │
+│ Session-lifecycle worker (sessionLifecycleWorker.ts)                        │
+│ Poll ~500ms; session sweep interval 10s between runs of:                    │
 │                                                                              │
-│ Every 10s  : reconcile due sessions                                         │
-│ > 10m      : abandon expired pending artifacts                              │
-│ > 5m       : requeue stale processing jobs                                  │
-│ uploaded   : recover artifacts that are missing a usable job                │
-│ startup    : reset stuck processing jobs back to pending                    │
+│ Each sweep (at most every 10s):                                             │
+│   reconcileDueSessions (batched)                                            │
+│   abandon expired pending artifacts (> 10m)                                 │
+│   requeue stale processing jobs (> 5m)                                      │
+│   queueRecoverableArtifacts (uploaded but missing a usable job)             │
+└──────────────────────────────────────────────────────────────────────────────┘
+```
+
+```text
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ Artifact workers (startArtifactWorker.ts → poll ~500ms per deployment)      │
+│                                                                              │
+│ Startup: recoverStuckArtifactJobs() — stuck processing jobs → pending       │
+│ Each tick: selectRunnableArtifactJobs (filtered by worker kind allowlist)   │
+│            → processArtifactJob → reconcileSessionState() as needed         │
 └──────────────────────────────────────────────────────────────────────────────┘
 ```
 
 Important worker nuance:
 
+- **ingest-artifact worker** ([`ingestArtifactWorker.ts`](/Users/mora/Desktop/Dev-mac/rejourney/backend/src/worker/ingestArtifactWorker.ts)): drains jobs whose artifact kinds are `events`, `crashes`, `anrs` (see [`workerDefinitions.ts`](/Users/mora/Desktop/Dev-mac/rejourney/backend/src/worker/workerDefinitions.ts) `INGEST_ARTIFACT_WORKER`). Monitoring name is still `ingestWorker`.
+- **replay-artifact worker** ([`replayArtifactWorker.ts`](/Users/mora/Desktop/Dev-mac/rejourney/backend/src/worker/replayArtifactWorker.ts)): drains `screenshots` and `hierarchy` (`REPLAY_ARTIFACT_WORKER`).
+- **session-lifecycle worker** ([`sessionLifecycleWorker.ts`](/Users/mora/Desktop/Dev-mac/rejourney/backend/src/worker/sessionLifecycleWorker.ts)): periodic sweeps in the first box; does not run the per-job [`artifactJobProcessor`](/Users/mora/Desktop/Dev-mac/rejourney/backend/src/services/artifactJobProcessor.ts) loop (that is only in artifact workers).
 - `events` artifacts update session metadata, `session_metrics`, and downstream analytics side effects.
 - `crashes` and `anrs` artifacts create issue records and increment crash/ANR counters.
 - `screenshots` and `hierarchy` artifacts mostly feed replay availability and session finalization.
+- [`ingestWorker.ts`](/Users/mora/Desktop/Dev-mac/rejourney/backend/src/worker/ingestWorker.ts) is a thin entry that loads **ingest-artifact** only (same as the `ingest-worker` k8s command); replay and lifecycle are separate entrypoints.
 - The heavy full-table artifact lifecycle backfill is manual by default. Normal worker startup skips it unless `INGEST_ENABLE_STARTUP_BACKFILL=true`.
 - Manual backfill command: `cd backend && npm run db:backfill:artifact-lifecycle`
 
 Relevant files:
 
 - [`backend/src/routes/ingestUploadRelay.ts`](/Users/mora/Desktop/Dev-mac/rejourney/backend/src/routes/ingestUploadRelay.ts)
-- [`backend/src/worker/ingestWorker.ts`](/Users/mora/Desktop/Dev-mac/rejourney/backend/src/worker/ingestWorker.ts)
+- [`backend/src/worker/ingestArtifactWorker.ts`](/Users/mora/Desktop/Dev-mac/rejourney/backend/src/worker/ingestArtifactWorker.ts)
+- [`backend/src/worker/replayArtifactWorker.ts`](/Users/mora/Desktop/Dev-mac/rejourney/backend/src/worker/replayArtifactWorker.ts)
+- [`backend/src/worker/sessionLifecycleWorker.ts`](/Users/mora/Desktop/Dev-mac/rejourney/backend/src/worker/sessionLifecycleWorker.ts)
+- [`backend/src/worker/workerDefinitions.ts`](/Users/mora/Desktop/Dev-mac/rejourney/backend/src/worker/workerDefinitions.ts)
+- [`backend/src/worker/startArtifactWorker.ts`](/Users/mora/Desktop/Dev-mac/rejourney/backend/src/worker/startArtifactWorker.ts)
+- [`backend/src/services/artifactJobProcessor.ts`](/Users/mora/Desktop/Dev-mac/rejourney/backend/src/services/artifactJobProcessor.ts)
 - [`backend/src/services/ingestArtifactLifecycle.ts`](/Users/mora/Desktop/Dev-mac/rejourney/backend/src/services/ingestArtifactLifecycle.ts)
 
 ## [I4] Reconciliation / Auto-Finalizer / endedAt Math
@@ -323,7 +353,8 @@ What counts as "fresh enough"?
   session_{timestamp}_{uuid} and timestamp <= 6h old
 
 What exactly is the auto-finalizer?
-  The ingest worker sweep plus reconcileDueSessions() / reconcileSessionState()
+  Session-lifecycle worker sweep (reconcileDueSessions, abandon, requeue, recover)
+  plus reconcileSessionState() after artifact jobs complete (ingest + replay workers)
 
 What makes a replay visible?
   At least one screenshot artifact with status = ready
@@ -338,7 +369,7 @@ Does Redis store session lifecycle?
 ```text
 Session ID materialization window      6h
 Finalize idle threshold                60s
-Worker reconciliation sweep            10s
+Session-lifecycle sweep interval       10s (reconcileDueSessions + artifact hygiene)
 Pending artifact abandonment           10m
 Stale processing job retry window      5m
 Upload relay token TTL                 1h
@@ -384,4 +415,10 @@ That last step matches the spirit of `selectSessionEndedAt()` / reconciliation: 
 - [`backend/src/services/ingestArtifactLifecycle.ts`](/Users/mora/Desktop/Dev-mac/rejourney/backend/src/services/ingestArtifactLifecycle.ts)
 - [`backend/src/services/sessionReconciliation.ts`](/Users/mora/Desktop/Dev-mac/rejourney/backend/src/services/sessionReconciliation.ts)
 - [`backend/src/services/sessionTiming.ts`](/Users/mora/Desktop/Dev-mac/rejourney/backend/src/services/sessionTiming.ts)
-- [`backend/src/worker/ingestWorker.ts`](/Users/mora/Desktop/Dev-mac/rejourney/backend/src/worker/ingestWorker.ts)
+- [`backend/src/services/artifactJobProcessor.ts`](/Users/mora/Desktop/Dev-mac/rejourney/backend/src/services/artifactJobProcessor.ts)
+- [`backend/src/worker/workerDefinitions.ts`](/Users/mora/Desktop/Dev-mac/rejourney/backend/src/worker/workerDefinitions.ts)
+- [`backend/src/worker/startArtifactWorker.ts`](/Users/mora/Desktop/Dev-mac/rejourney/backend/src/worker/startArtifactWorker.ts)
+- [`backend/src/worker/ingestArtifactWorker.ts`](/Users/mora/Desktop/Dev-mac/rejourney/backend/src/worker/ingestArtifactWorker.ts)
+- [`backend/src/worker/replayArtifactWorker.ts`](/Users/mora/Desktop/Dev-mac/rejourney/backend/src/worker/replayArtifactWorker.ts)
+- [`backend/src/worker/sessionLifecycleWorker.ts`](/Users/mora/Desktop/Dev-mac/rejourney/backend/src/worker/sessionLifecycleWorker.ts)
+- [`backend/src/worker/ingestWorker.ts`](/Users/mora/Desktop/Dev-mac/rejourney/backend/src/worker/ingestWorker.ts) (entry shim → ingest-artifact only)
