@@ -319,6 +319,21 @@ spec:
                 secretKeyRef:
                   name: postgres-secret
                   key: DATABASE_URL
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: app-secret
+                  key: JWT_SECRET
+            - name: INGEST_HMAC_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: app-secret
+                  key: INGEST_HMAC_SECRET
+            - name: STORAGE_ENCRYPTION_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: app-secret
+                  key: STORAGE_ENCRYPTION_KEY
           resources:
             requests:
               cpu: 50m
