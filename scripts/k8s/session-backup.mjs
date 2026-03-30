@@ -491,7 +491,9 @@ async function buildManifest(sessionId) {
         'geoCity', s.geo_city,
         'geoRegion', s.geo_region,
         'geoTimezone', s.geo_timezone,
-        'metadata', s.metadata
+        'metadata', s.metadata,
+        'finalizedAt', s.finalized_at::text,
+        'explicitEndedAt', s.explicit_ended_at::text
       ),
       'metrics', (
         SELECT json_build_object(
@@ -616,6 +618,114 @@ async function correctArtifactSize(s3ObjectKey, realBytes) {
     WHERE s3_object_key = ${shellQuote(s3ObjectKey)}
       AND (size_bytes IS NULL OR size_bytes != ${Number(realBytes)});
   `).catch(() => {});
+}
+
+/**
+ * Piggyback session metadata repairs.
+ *
+ * While archiving we already have the full manifest + artifact list in
+ * memory.  Use that data to fix common drift / NULL issues in the sessions
+ * table without any extra S3 calls.  Each repair is a targeted UPDATE that
+ * only writes when the stored value actually differs.
+ */
+async function maybeRepairSessionMetadata(sessionId, manifest, artifacts) {
+  const s = manifest.session || {};
+  const repairs = [];
+
+  // ---- 1. duration_seconds ----
+  if (s.durationSeconds == null || s.durationSeconds === 0) {
+    const startedAt = s.startedAt ? new Date(s.startedAt) : null;
+    const explicitEndedAt = s.explicitEndedAt ? new Date(s.explicitEndedAt) : null;
+    const endedAt = s.endedAt ? new Date(s.endedAt) : null;
+
+    // Best-effort end time: explicitEndedAt → endedAt → latest artifact endTime
+    let bestEndMs = explicitEndedAt ? explicitEndedAt.getTime()
+                  : endedAt ? endedAt.getTime() : 0;
+    for (const a of artifacts) {
+      if (a.endTime && Number(a.endTime) > bestEndMs) bestEndMs = Number(a.endTime);
+    }
+
+    if (startedAt && bestEndMs > startedAt.getTime()) {
+      const wallClockSeconds = Math.round((bestEndMs - startedAt.getTime()) / 1000);
+      const backgroundSeconds = Math.max(0, Number(s.backgroundTimeSeconds || 0));
+      const duration = Math.max(1, wallClockSeconds - backgroundSeconds);
+
+      await runSql(`
+        UPDATE sessions
+        SET duration_seconds = ${duration},
+            ended_at = COALESCE(ended_at, ${shellQuote(new Date(bestEndMs).toISOString())}::timestamptz),
+            updated_at = NOW()
+        WHERE id = ${shellQuote(sessionId)}
+          AND (duration_seconds IS NULL OR duration_seconds = 0);
+      `).catch(() => {});
+      repairs.push(`duration=${duration}s`);
+    }
+  }
+
+  // ---- 2. ended_at ----
+  if (!s.endedAt && s.startedAt) {
+    let bestEndMs = 0;
+    for (const a of artifacts) {
+      if (a.endTime && Number(a.endTime) > bestEndMs) bestEndMs = Number(a.endTime);
+    }
+    if (bestEndMs > 0) {
+      await runSql(`
+        UPDATE sessions
+        SET ended_at = ${shellQuote(new Date(bestEndMs).toISOString())}::timestamptz,
+            updated_at = NOW()
+        WHERE id = ${shellQuote(sessionId)}
+          AND ended_at IS NULL;
+      `).catch(() => {});
+      repairs.push('ended_at');
+    }
+  }
+
+  // ---- 3. replay_segment_count ----
+  const realScreenshotCount = artifacts.filter((a) => a.kind === 'screenshots').length;
+  const storedCount = Number(s.replaySegmentCount || 0);
+  if (realScreenshotCount !== storedCount) {
+    await runSql(`
+      UPDATE sessions
+      SET replay_segment_count = ${realScreenshotCount},
+          updated_at = NOW()
+      WHERE id = ${shellQuote(sessionId)}
+        AND COALESCE(replay_segment_count, 0) != ${realScreenshotCount};
+    `).catch(() => {});
+    repairs.push(`segments=${storedCount}->${realScreenshotCount}`);
+  }
+
+  // ---- 4. replay_storage_bytes ----
+  const realStorageBytes = artifacts
+    .filter((a) => a.kind === 'screenshots')
+    .reduce((sum, a) => sum + (Number(a.sizeBytes) || 0), 0);
+  const storedBytes = Number(s.replayStorageBytes || 0);
+  if (realStorageBytes > 0 && realStorageBytes !== storedBytes) {
+    await runSql(`
+      UPDATE sessions
+      SET replay_storage_bytes = ${realStorageBytes},
+          updated_at = NOW()
+      WHERE id = ${shellQuote(sessionId)}
+        AND COALESCE(replay_storage_bytes, 0) != ${realStorageBytes};
+    `).catch(() => {});
+    repairs.push(`storage_bytes=${storedBytes}->${realStorageBytes}`);
+  }
+
+  // ---- 5. finalized_at ----
+  if (s.status === 'ready' && !s.finalizedAt) {
+    await runSql(`
+      UPDATE sessions
+      SET finalized_at = COALESCE(ended_at, NOW()),
+          updated_at = NOW()
+      WHERE id = ${shellQuote(sessionId)}
+        AND status = 'ready'
+        AND finalized_at IS NULL;
+    `).catch(() => {});
+    repairs.push('finalized_at');
+  }
+
+  if (repairs.length > 0) {
+    log(`  repaired ${sessionId}: ${repairs.join(', ')}`);
+  }
 }
 
 // =============================================================================
@@ -992,6 +1102,9 @@ async function processSession(session) {
     manifest.exportedAt = new Date().toISOString();
     manifest.backupArtifacts = backupArtifacts;
 
+    // Piggyback metadata repairs before writing final manifest
+    await maybeRepairSessionMetadata(session.id, manifest, artifacts);
+
     const manifestPath = path.join(tempDir, 'manifest.json');
     await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
     await uploadToR2(manifestPath, `${prefix}/manifest.json`, MANIFEST_CONTENT_TYPE);
@@ -1033,6 +1146,8 @@ async function runPool(items, workerCount, worker) {
         return;
       }
       results[index] = await worker(items[index], index);
+      // Throttle: give the node CPU breathing room between sessions
+      await new Promise((r) => setTimeout(r, 2000));
     }
   }
 
