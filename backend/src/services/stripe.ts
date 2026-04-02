@@ -11,7 +11,7 @@
  */
 
 import Stripe from 'stripe';
-import { eq, and, inArray } from 'drizzle-orm';
+import { eq, and, inArray, isNull } from 'drizzle-orm';
 import { config } from '../config.js';
 import { logger } from '../logger.js';
 import { db, teams, stripeWebhookEvents, billingUsage, users, teamMembers } from '../db/client.js';
@@ -658,6 +658,8 @@ async function handleCheckoutSessionCompleted(session: Stripe.Checkout.Session):
     }
 
     try {
+        const client = getStripe();
+
         // Update team with subscription ID immediately
         await db.update(teams)
             .set({
@@ -665,6 +667,47 @@ async function handleCheckoutSessionCompleted(session: Stripe.Checkout.Session):
                 updatedAt: new Date(),
             })
             .where(eq(teams.id, teamId));
+
+        // Self-heal: if checkout already produced an active/trialing subscription,
+        // set anchor here instead of waiting for follow-up webhook ordering.
+        if (client) {
+            try {
+                const subscription = await client.subscriptions.retrieve(subscriptionId);
+                if (subscription.status === 'active' || subscription.status === 'trialing') {
+                    const currentPeriodStart = (subscription as any).current_period_start;
+                    const anchor = currentPeriodStart
+                        ? new Date(currentPeriodStart * 1000)
+                        : null;
+                    const priceId = subscription.items.data[0]?.price.id || null;
+
+                    if (anchor) {
+                        await db.update(teams)
+                            .set({
+                                billingCycleAnchor: anchor,
+                                stripePriceId: priceId,
+                                updatedAt: new Date(),
+                            })
+                            .where(and(eq(teams.id, teamId), isNull(teams.billingCycleAnchor)));
+
+                        try {
+                            const { invalidateSessionCache } = await import('./quotaCheck.js');
+                            await invalidateSessionCache(teamId);
+                        } catch (cacheErr) {
+                            logger.warn({ err: cacheErr, teamId }, 'Failed to invalidate session cache after checkout anchor self-heal');
+                        }
+
+                        logger.info({
+                            teamId,
+                            subscriptionId,
+                            anchor,
+                            status: subscription.status,
+                        }, 'Checkout self-healed missing billing cycle anchor');
+                    }
+                }
+            } catch (healErr) {
+                logger.warn({ err: healErr, teamId, subscriptionId }, 'Checkout anchor self-heal failed');
+            }
+        }
 
         logger.info({
             teamId,

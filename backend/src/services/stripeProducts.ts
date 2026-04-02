@@ -649,6 +649,36 @@ export async function getTeamSubscription(teamId: string): Promise<TeamSubscript
         result.currentPeriodEnd = new Date((subscription as any).current_period_end * 1000);
         result.cancelAtPeriodEnd = subscription.cancel_at_period_end;
 
+        // Self-heal: subscribed teams should always have a billing cycle anchor.
+        // If missing, backfill from Stripe period start so usage stops falling back to YYYY-MM.
+        if (!team.billingCycleAnchor && result.currentPeriodStart) {
+            try {
+                await db
+                    .update(teams)
+                    .set({
+                        billingCycleAnchor: result.currentPeriodStart,
+                        updatedAt: new Date(),
+                    })
+                    .where(and(eq(teams.id, teamId), isNull(teams.billingCycleAnchor)));
+
+                try {
+                    const { invalidateSessionCache } = await import('./quotaCheck.js');
+                    await invalidateSessionCache(teamId);
+                } catch (cacheErr) {
+                    logger.warn({ err: cacheErr, teamId }, 'Failed to invalidate session cache after subscription anchor self-heal');
+                }
+
+                logger.warn({
+                    teamId,
+                    subscriptionId: subscription.id,
+                    status: subscription.status,
+                    healedAnchor: result.currentPeriodStart,
+                }, 'Self-healed missing billing cycle anchor from Stripe current period start');
+            } catch (healErr) {
+                logger.warn({ err: healErr, teamId, subscriptionId: subscription.id }, 'Failed to self-heal missing billing cycle anchor');
+            }
+        }
+
         // Check for scheduled changes
         let schedule: Stripe.SubscriptionSchedule | null = null;
         if (subscription.schedule) {
