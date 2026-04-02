@@ -15,7 +15,6 @@ import {
     Bar,
     BarChart,
     CartesianGrid,
-    Cell,
     ComposedChart,
     Legend,
     Line,
@@ -47,8 +46,29 @@ import { TimeFilter, TimeRange, DEFAULT_TIME_RANGE } from '~/shared/ui/core/Time
 import { KpiCardItem, KpiCardsGrid, computePeriodDeltaFromSeries } from '~/features/app/shared/dashboard/KpiCardsGrid';
 import { DashboardGhostLoader } from '~/shared/ui/core/DashboardGhostLoader';
 
+type EndpointSortKey =
+    | 'endpoint'
+    | 'totalCalls'
+    | 'filteredErrorCount'
+    | 'filteredErrorRate'
+    | 'avgLatencyMs'
+    | 'riskScore';
+
+type FailureCodeOption = {
+    code: string;
+    total: number;
+};
+
 type EndpointRisk = ApiEndpointStats['allEndpoints'][number] & {
+    filteredErrorCount: number;
+    filteredErrorRate: number;
     riskScore: number;
+};
+
+type ErrorHotspotRow = EndpointRisk & {
+    displayErrorCount: number;
+    displayErrorRate: number;
+    usesTotalErrorFallback: boolean;
 };
 
 type ReleaseMarker = {
@@ -58,8 +78,16 @@ type ReleaseMarker = {
     timestamp: number;
 };
 
+type ApiEndpointFilterPreferences = {
+    excludedEndpointQuery?: string;
+    selectedFailureCodes?: string[];
+};
+
 const ONE_DAY_MS = 24 * 60 * 60 * 1000;
 const MAX_RELEASE_MARKERS = 10;
+const HOTSPOT_PAGE_SIZE = 8;
+const UNKNOWN_STATUS_CODE_KEY = 'unknown';
+const API_ENDPOINT_FILTER_PREFERENCES_PREFIX = 'rejourney.analytics.api.endpointFilters.';
 
 const ENDPOINT_TABLE_PAGE_SIZES = [25, 50, 100, 200] as const;
 const DEFAULT_ENDPOINT_TABLE_PAGE_SIZE = 100;
@@ -211,11 +239,74 @@ const formatCompact = (value: number): string => {
     return value.toLocaleString();
 };
 
-const getSlowLatencyFill = (latencyMs: number): string => {
-    if (latencyMs > 1000) return '#ca8a04';
-    if (latencyMs > 700) return '#eab308';
-    if (latencyMs > 400) return '#facc15';
-    return '#fde047';
+const parseStatusCode = (value: string | null | undefined): number | null => {
+    if (!value) return null;
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+};
+
+const compareStatusCodes = (a: string, b: string): number => {
+    if (a === UNKNOWN_STATUS_CODE_KEY) return b === UNKNOWN_STATUS_CODE_KEY ? 0 : 1;
+    if (b === UNKNOWN_STATUS_CODE_KEY) return -1;
+
+    const aNum = parseStatusCode(a);
+    const bNum = parseStatusCode(b);
+    if (aNum !== null && bNum !== null) return aNum - bNum;
+    if (aNum !== null) return -1;
+    if (bNum !== null) return 1;
+    return a.localeCompare(b, undefined, { numeric: true });
+};
+
+const formatStatusCodeLabel = (value: string | null | undefined): string => {
+    if (!value) return 'None';
+    return value === UNKNOWN_STATUS_CODE_KEY ? 'Unknown' : value;
+};
+
+const isVisibleStatusCode = (value: string | null | undefined): value is string =>
+    Boolean(value) && value !== UNKNOWN_STATUS_CODE_KEY;
+
+const getStatusCodeBadgeClass = (value: string | null | undefined): string => {
+    if (!value) return 'border-slate-200 bg-slate-50 text-slate-500';
+    if (value === UNKNOWN_STATUS_CODE_KEY) return 'border-slate-300 bg-slate-100 text-slate-700';
+
+    const statusCode = parseStatusCode(value);
+    if (statusCode !== null && statusCode >= 500) return 'border-rose-200 bg-rose-50 text-rose-700';
+    if (statusCode !== null && statusCode >= 400) return 'border-amber-200 bg-amber-50 text-amber-700';
+    return 'border-slate-200 bg-slate-50 text-slate-600';
+};
+
+const getSelectedErrorCount = (
+    breakdown: Record<string, number> | null | undefined,
+    selectedCodes: Set<string>,
+): number => {
+    if (!breakdown || !selectedCodes.size) return 0;
+
+    let total = 0;
+    for (const code of selectedCodes) {
+        total += Number(breakdown[code] || 0);
+    }
+
+    return total;
+};
+
+const getCapturedErrorCount = (breakdown: Record<string, number> | null | undefined): number => {
+    if (!breakdown) return 0;
+
+    let total = 0;
+    for (const [code, count] of Object.entries(breakdown)) {
+        if (code === UNKNOWN_STATUS_CODE_KEY) continue;
+        const numericCount = Number(count || 0);
+        if (!Number.isFinite(numericCount) || numericCount <= 0) continue;
+        total += numericCount;
+    }
+
+    return total;
+};
+
+const splitEndpointLabel = (endpoint: string): { method: string | null; path: string } => {
+    const match = endpoint.match(/^([A-Z]+)\s+(.+)$/);
+    if (!match) return { method: null, path: endpoint };
+    return { method: match[1], path: match[2] };
 };
 
 const getFailRateToneClass = (failRate: number): string => {
@@ -242,16 +333,25 @@ export const ApiAnalytics: React.FC = () => {
     const [timeRange, setTimeRange] = useState<TimeRange>(DEFAULT_TIME_RANGE);
     const [isLoading, setIsLoading] = useState(true);
     const [searchQuery, setSearchQuery] = useState('');
-    const [sortKey, setSortKey] = useState<keyof EndpointRisk>('riskScore');
+    const [sortKey, setSortKey] = useState<EndpointSortKey>('totalCalls');
     const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
     const [endpointTablePage, setEndpointTablePage] = useState(1);
     const [endpointPageSize, setEndpointPageSize] = useState<number>(DEFAULT_ENDPOINT_TABLE_PAGE_SIZE);
+    const [selectedFailureCodes, setSelectedFailureCodes] = useState<string[]>([]);
+    const [excludedEndpointQuery, setExcludedEndpointQuery] = useState('');
+    const [hydratedFilterPreferenceKey, setHydratedFilterPreferenceKey] = useState<string | null>(null);
+    const [slowEndpointPage, setSlowEndpointPage] = useState(1);
+    const [errorEndpointPage, setErrorEndpointPage] = useState(1);
 
     const [endpointStats, setEndpointStats] = useState<ApiEndpointStats | null>(null);
     const [regionStats, setRegionStats] = useState<RegionPerformance | null>(null);
     const [deepMetrics, setDeepMetrics] = useState<ObservabilityDeepMetrics | null>(null);
     const [latencyByLocation, setLatencyByLocation] = useState<ApiLatencyByLocationResponse | null>(null);
     const [trends, setTrends] = useState<InsightsTrends | null>(null);
+    const endpointFilterPreferenceKey = useMemo(
+        () => `${API_ENDPOINT_FILTER_PREFERENCES_PREFIX}${selectedProject?.id || 'global'}`,
+        [selectedProject?.id],
+    );
 
     useEffect(() => {
         if (!selectedProject?.id) {
@@ -326,37 +426,185 @@ export const ApiAnalytics: React.FC = () => {
         };
     }, [selectedProject?.id, timeRange]);
 
+    useEffect(() => {
+        if (typeof window === 'undefined') return;
+
+        try {
+            const raw = window.localStorage.getItem(endpointFilterPreferenceKey);
+            if (!raw) {
+                setExcludedEndpointQuery('');
+                setSelectedFailureCodes([]);
+            } else {
+                const parsed = JSON.parse(raw) as ApiEndpointFilterPreferences;
+                setExcludedEndpointQuery(typeof parsed.excludedEndpointQuery === 'string' ? parsed.excludedEndpointQuery : '');
+                setSelectedFailureCodes(
+                    Array.isArray(parsed.selectedFailureCodes)
+                        ? parsed.selectedFailureCodes.filter((value): value is string => typeof value === 'string')
+                        : [],
+                );
+            }
+        } catch {
+            setExcludedEndpointQuery('');
+            setSelectedFailureCodes([]);
+        } finally {
+            setHydratedFilterPreferenceKey(endpointFilterPreferenceKey);
+        }
+    }, [endpointFilterPreferenceKey]);
+
+    useEffect(() => {
+        if (typeof window === 'undefined') return;
+        if (hydratedFilterPreferenceKey !== endpointFilterPreferenceKey) return;
+
+        const payload: ApiEndpointFilterPreferences = {
+            excludedEndpointQuery,
+            selectedFailureCodes,
+        };
+        window.localStorage.setItem(endpointFilterPreferenceKey, JSON.stringify(payload));
+    }, [endpointFilterPreferenceKey, excludedEndpointQuery, hydratedFilterPreferenceKey, selectedFailureCodes]);
+
     const hasData = Boolean(endpointStats && deepMetrics);
+    const selectedFailureCodeKey = selectedFailureCodes.join('|');
+    const excludedEndpointTerms = useMemo(
+        () => excludedEndpointQuery
+            .split(/[,\n]+/)
+            .map((value) => value.trim().toLowerCase())
+            .filter(Boolean),
+        [excludedEndpointQuery],
+    );
+    const excludedEndpointKey = excludedEndpointTerms.join('|');
+
+    const includedEndpoints = useMemo(() => {
+        if (!endpointStats?.allEndpoints) return [];
+        if (!excludedEndpointTerms.length) return endpointStats.allEndpoints;
+
+        return endpointStats.allEndpoints.filter((endpoint) => {
+            const haystack = endpoint.endpoint.toLowerCase();
+            return !excludedEndpointTerms.some((term) => haystack.includes(term));
+        });
+    }, [endpointStats, excludedEndpointTerms]);
+
+    const excludedEndpointCount = endpointStats?.allEndpoints.length
+        ? Math.max(0, endpointStats.allEndpoints.length - includedEndpoints.length)
+        : 0;
+
+    const availableFailureCodes = useMemo<FailureCodeOption[]>(() => {
+        if (!includedEndpoints.length) return [];
+
+        const totals = new Map<string, number>();
+        for (const endpoint of includedEndpoints) {
+            for (const [code, count] of Object.entries(endpoint.statusCodeBreakdown || {})) {
+                const numericCount = Number(count || 0);
+                if (code === UNKNOWN_STATUS_CODE_KEY || !Number.isFinite(numericCount) || numericCount <= 0) continue;
+                totals.set(code, (totals.get(code) || 0) + numericCount);
+            }
+        }
+
+        return Array.from(totals.entries())
+            .map(([code, total]) => ({ code, total }))
+            .sort((a, b) => compareStatusCodes(a.code, b.code));
+    }, [includedEndpoints]);
+
+    const serverFailureCodes = useMemo(
+        () => availableFailureCodes
+            .filter(({ code }) => {
+                const parsed = parseStatusCode(code);
+                return parsed !== null && parsed >= 500;
+            })
+            .map(({ code }) => code),
+        [availableFailureCodes],
+    );
+
+    const non400FailureCodes = useMemo(
+        () => availableFailureCodes
+            .filter(({ code }) => code !== '400')
+            .map(({ code }) => code),
+        [availableFailureCodes],
+    );
+
+    useEffect(() => {
+        const nextAvailable = availableFailureCodes.map(({ code }) => code);
+        setSelectedFailureCodes((current) => {
+            if (!nextAvailable.length) return [];
+            if (!current.length) return nextAvailable;
+
+            const preserved = current.filter((code) => nextAvailable.includes(code));
+            return preserved.length ? preserved : nextAvailable;
+        });
+    }, [availableFailureCodes]);
+
+    const selectedFailureCodeSet = useMemo(() => new Set(selectedFailureCodes), [selectedFailureCodes]);
+    const isFailureSelectionActive = selectedFailureCodes.length > 0;
+    const has400FailureCode = availableFailureCodes.some(({ code }) => code === '400');
+    const matchesSelectedFailureCodes = (codes: string[]) =>
+        selectedFailureCodes.length === codes.length && codes.every((code) => selectedFailureCodeSet.has(code));
+
+    const failureCodeSummary = useMemo(() => {
+        if (!availableFailureCodes.length) return 'No captured codes';
+        if (!selectedFailureCodes.length) return 'Nothing selected';
+        if (matchesSelectedFailureCodes(availableFailureCodes.map(({ code }) => code))) return 'All captured codes';
+        if (matchesSelectedFailureCodes(serverFailureCodes)) return '5xx only';
+        if (has400FailureCode && matchesSelectedFailureCodes(non400FailureCodes)) return 'Ignoring 400';
+
+        const labels = selectedFailureCodes.map((code) => formatStatusCodeLabel(code));
+        if (labels.length <= 3) return labels.join(' · ');
+        return `${selectedFailureCodes.length} active`;
+    }, [
+        availableFailureCodes,
+        has400FailureCode,
+        non400FailureCodes,
+        selectedFailureCodes,
+        serverFailureCodes,
+    ]);
 
     const endpointRisks = useMemo<EndpointRisk[]>(() => {
-        if (!endpointStats?.allEndpoints) return [];
-        const base = endpointStats.allEndpoints
-            .map((endpoint) => {
-                const riskScore =
-                    endpoint.errorRate * 10 +
-                    Math.max(0, endpoint.avgLatencyMs - 300) / 40 +
-                    Math.log10(endpoint.totalCalls + 1);
+        if (!includedEndpoints.length) return [];
+        const getSortMetric = (endpoint: EndpointRisk): number => {
+            switch (sortKey) {
+                case 'totalCalls':
+                    return endpoint.totalCalls;
+                case 'filteredErrorCount':
+                    return endpoint.filteredErrorCount;
+                case 'filteredErrorRate':
+                    return endpoint.filteredErrorRate;
+                case 'avgLatencyMs':
+                    return endpoint.avgLatencyMs;
+                case 'riskScore':
+                    return endpoint.riskScore;
+                default:
+                    return 0;
+            }
+        };
 
-                return {
-                    ...endpoint,
-                    riskScore,
-                };
-            });
+        const base = includedEndpoints.map((endpoint) => {
+            const filteredErrorCount = getSelectedErrorCount(endpoint.statusCodeBreakdown, selectedFailureCodeSet);
+            const filteredErrorRate = endpoint.totalCalls > 0
+                ? Number(((filteredErrorCount / endpoint.totalCalls) * 100).toFixed(2))
+                : 0;
+            const riskScore =
+                filteredErrorRate * 10 +
+                Math.max(0, endpoint.avgLatencyMs - 300) / 40 +
+                Math.log10(endpoint.totalCalls + 1);
+
+            return {
+                ...endpoint,
+                filteredErrorCount,
+                filteredErrorRate,
+                riskScore,
+            };
+        });
 
         return [...base].sort((a, b) => {
-            const aVal = a[sortKey];
-            const bVal = b[sortKey];
-
-            if (typeof aVal === 'string' && typeof bVal === 'string') {
-                return sortOrder === 'asc' ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal);
+            if (sortKey === 'endpoint') {
+                return sortOrder === 'asc'
+                    ? a.endpoint.localeCompare(b.endpoint)
+                    : b.endpoint.localeCompare(a.endpoint);
             }
 
-            const aNum = Number(aVal) || 0;
-            const bNum = Number(bVal) || 0;
-
+            const aNum = getSortMetric(a);
+            const bNum = getSortMetric(b);
             return sortOrder === 'asc' ? aNum - bNum : bNum - aNum;
         });
-    }, [endpointStats, sortKey, sortOrder]);
+    }, [includedEndpoints, selectedFailureCodeSet, sortKey, sortOrder]);
 
     const filteredEndpoints = useMemo(() => {
         const q = searchQuery.trim().toLowerCase();
@@ -374,7 +622,7 @@ export const ApiAnalytics: React.FC = () => {
 
     useEffect(() => {
         setEndpointTablePage(1);
-    }, [searchQuery, sortKey, sortOrder, timeRange, selectedProject?.id]);
+    }, [searchQuery, excludedEndpointKey, selectedFailureCodeKey, sortKey, sortOrder, timeRange, selectedProject?.id]);
 
     useEffect(() => {
         if (endpointTablePage > endpointTableTotalPages) {
@@ -382,9 +630,67 @@ export const ApiAnalytics: React.FC = () => {
         }
     }, [endpointTablePage, endpointTableTotalPages]);
 
-    const slowEndpointChart = useMemo(() => endpointStats?.slowestEndpoints?.slice(0, 6) || [], [endpointStats]);
-    const errorEndpointChart = useMemo(() => endpointStats?.erroringEndpoints?.slice(0, 6) || [], [endpointStats]);
-    const releaseRiskRows = useMemo(() => deepMetrics?.releaseRisk?.slice(0, 5) || [], [deepMetrics]);
+    const slowEndpointRows = useMemo(
+        () => [...endpointRisks].sort((a, b) => (
+            b.avgLatencyMs - a.avgLatencyMs ||
+            b.filteredErrorRate - a.filteredErrorRate ||
+            b.totalCalls - a.totalCalls
+        )),
+        [endpointRisks],
+    );
+    const errorEndpointRows = useMemo<ErrorHotspotRow[]>(
+        () => endpointRisks
+            .map((endpoint) => {
+                const usesTotalErrorFallback = getCapturedErrorCount(endpoint.statusCodeBreakdown) <= 0 && endpoint.totalErrors > 0;
+                const displayErrorCount = usesTotalErrorFallback ? endpoint.totalErrors : endpoint.filteredErrorCount;
+                const displayErrorRate = usesTotalErrorFallback ? endpoint.errorRate : endpoint.filteredErrorRate;
+
+                return {
+                    ...endpoint,
+                    displayErrorCount,
+                    displayErrorRate,
+                    usesTotalErrorFallback,
+                };
+            })
+            .filter((endpoint) => endpoint.displayErrorCount > 0)
+            .sort((a, b) => (
+                b.displayErrorCount - a.displayErrorCount ||
+                b.displayErrorRate - a.displayErrorRate ||
+                b.totalCalls - a.totalCalls
+            )),
+        [endpointRisks],
+    );
+
+    const slowEndpointTotalPages = Math.max(1, Math.ceil(slowEndpointRows.length / HOTSPOT_PAGE_SIZE));
+    const errorEndpointTotalPages = Math.max(1, Math.ceil(errorEndpointRows.length / HOTSPOT_PAGE_SIZE));
+    const slowEndpointPageClamped = Math.min(slowEndpointPage, slowEndpointTotalPages);
+    const errorEndpointPageClamped = Math.min(errorEndpointPage, errorEndpointTotalPages);
+
+    const paginatedSlowEndpoints = useMemo(() => {
+        const start = (slowEndpointPageClamped - 1) * HOTSPOT_PAGE_SIZE;
+        return slowEndpointRows.slice(start, start + HOTSPOT_PAGE_SIZE);
+    }, [slowEndpointPageClamped, slowEndpointRows]);
+    const paginatedErrorEndpoints = useMemo(() => {
+        const start = (errorEndpointPageClamped - 1) * HOTSPOT_PAGE_SIZE;
+        return errorEndpointRows.slice(start, start + HOTSPOT_PAGE_SIZE);
+    }, [errorEndpointPageClamped, errorEndpointRows]);
+
+    useEffect(() => {
+        setSlowEndpointPage(1);
+        setErrorEndpointPage(1);
+    }, [excludedEndpointKey, selectedFailureCodeKey, timeRange, selectedProject?.id]);
+
+    useEffect(() => {
+        if (slowEndpointPage > slowEndpointTotalPages) {
+            setSlowEndpointPage(slowEndpointTotalPages);
+        }
+    }, [slowEndpointPage, slowEndpointTotalPages]);
+
+    useEffect(() => {
+        if (errorEndpointPage > errorEndpointTotalPages) {
+            setErrorEndpointPage(errorEndpointTotalPages);
+        }
+    }, [errorEndpointPage, errorEndpointTotalPages]);
 
     const geoLatencyRows = useMemo(() => latencyByLocation?.regions?.slice(0, 8) || [], [latencyByLocation]);
     const networkRows = useMemo(() => deepMetrics?.networkBreakdown?.slice(0, 6) || [], [deepMetrics]);
@@ -725,63 +1031,316 @@ export const ApiAnalytics: React.FC = () => {
                         </section>
 
                         <section className="rounded-3xl border border-slate-100/80 bg-white ring-1 ring-slate-900/5 p-5 shadow-sm">
-                            <div className="mb-4 flex items-center justify-between">
-                                <h2 className="text-lg font-semibold text-slate-900">Endpoint Hotspots</h2>
-                                <Server className="h-5 w-5 text-blue-600" />
-                            </div>
-                            <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-                                <div className="rounded-xl border border-amber-100/80 bg-amber-50/30 ring-1 ring-amber-900/5 p-3">
-                                    <div className="mb-2 flex items-center justify-between">
-                                        <h3 className="text-base font-semibold text-amber-900">Slowest Endpoints</h3>
-                                        <span className="text-[10px] font-semibold uppercase tracking-wide text-amber-700">Latency severity</span>
+                            <div className="flex flex-col gap-4">
+                                <div className="flex items-center justify-between gap-4">
+                                    <div className="flex items-center gap-3">
+                                        <div className="inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-slate-200 bg-slate-50 text-slate-600">
+                                            <Server className="h-5 w-5" />
+                                        </div>
+                                        <div>
+                                            <h2 className="text-lg font-semibold text-slate-900">Endpoint Hotspots</h2>
+                                            <p className="text-xs text-slate-500">
+                                                {formatCompact(includedEndpoints.length)} shown
+                                                {excludedEndpointCount > 0 ? ` · ${formatCompact(excludedEndpointCount)} excluded` : ''}
+                                            </p>
+                                        </div>
                                     </div>
-                                    <div className="h-[250px]">
-                                        <ResponsiveContainer width="100%" height="100%">
-                                            <BarChart data={slowEndpointChart} layout="vertical" margin={{ left: 0, right: 16 }}>
-                                                <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" horizontal vertical={false} />
-                                                <XAxis type="number" hide />
-                                                <YAxis
-                                                    dataKey="endpoint"
-                                                    type="category"
-                                                    width={170}
-                                                    tick={{ fontSize: 11 }}
-                                                    tickFormatter={(value: string) => (value.length > 28 ? `${value.slice(0, 26)}…` : value)}
-                                                />
-                                                <Tooltip formatter={(value: number | string | undefined) => [`${Number(value || 0)} ms`, 'Latency']} />
-                                                <Bar dataKey="avgLatencyMs" radius={[4, 4, 4, 4]}>
-                                                    {slowEndpointChart.map((endpoint) => (
-                                                        <Cell
-                                                            key={endpoint.endpoint}
-                                                            fill={getSlowLatencyFill(endpoint.avgLatencyMs)}
-                                                        />
-                                                    ))}
-                                                </Bar>
-                                            </BarChart>
-                                        </ResponsiveContainer>
-                                    </div>
+                                    <span className="hidden rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-medium text-slate-600 sm:inline-flex">
+                                        {failureCodeSummary}
+                                    </span>
                                 </div>
 
-                                <div className="rounded-xl border border-rose-100/80 bg-rose-50/20 ring-1 ring-rose-900/5 p-3">
-                                    <div className="mb-2 flex items-center justify-between">
-                                        <h3 className="text-base font-semibold text-rose-900">Most Erroring Endpoints</h3>
-                                        <span className="text-[10px] font-semibold uppercase tracking-wide text-rose-700">Failure hotspots</span>
+                                <div className="rounded-2xl border border-slate-200 bg-slate-50/80 p-3">
+                                    <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                                        <div className="flex flex-wrap items-center gap-2">
+                                            <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">Failure codes</span>
+                                            <span className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-600 sm:hidden">
+                                                {failureCodeSummary}
+                                            </span>
+                                        </div>
+                                        <div className="flex flex-wrap gap-2">
+                                            <button
+                                                type="button"
+                                                onClick={() => setSelectedFailureCodes(availableFailureCodes.map(({ code }) => code))}
+                                                className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition ${
+                                                    matchesSelectedFailureCodes(availableFailureCodes.map(({ code }) => code)) && availableFailureCodes.length > 0
+                                                        ? 'border-emerald-900 bg-emerald-900 text-white'
+                                                        : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-100'
+                                                }`}
+                                            >
+                                                All
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={() => setSelectedFailureCodes(serverFailureCodes)}
+                                                disabled={serverFailureCodes.length === 0}
+                                                className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition ${
+                                                    matchesSelectedFailureCodes(serverFailureCodes) && serverFailureCodes.length > 0
+                                                        ? 'border-emerald-900 bg-emerald-900 text-white'
+                                                        : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-100'
+                                                } disabled:pointer-events-none disabled:opacity-40`}
+                                            >
+                                                5xx
+                                            </button>
+                                            {has400FailureCode && (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setSelectedFailureCodes(non400FailureCodes)}
+                                                    className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition ${
+                                                        matchesSelectedFailureCodes(non400FailureCodes)
+                                                            ? 'border-emerald-900 bg-emerald-900 text-white'
+                                                            : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-100'
+                                                    }`}
+                                                >
+                                                    No 400
+                                                </button>
+                                            )}
+                                        </div>
                                     </div>
-                                    <div className="h-[250px]">
-                                        <ResponsiveContainer width="100%" height="100%">
-                                            <BarChart data={errorEndpointChart} layout="vertical" margin={{ left: 0, right: 16 }}>
-                                                <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" horizontal vertical={false} />
-                                                <XAxis type="number" hide />
-                                                <YAxis
-                                                    dataKey="endpoint"
-                                                    type="category"
-                                                    width={170}
-                                                    tick={{ fontSize: 11 }}
-                                                    tickFormatter={(value: string) => (value.length > 28 ? `${value.slice(0, 26)}…` : value)}
-                                                />
-                                                <Tooltip formatter={(value: number | string | undefined) => [`${Number(value || 0)}`, 'Errors']} />
-                                                <Bar dataKey="totalErrors" radius={[4, 4, 4, 4]} fill="#dc2626" />
-                                            </BarChart>
-                                        </ResponsiveContainer>
+
+                                    {availableFailureCodes.length > 0 && (
+                                        <div className="mt-3 flex flex-wrap gap-1.5">
+                                            {availableFailureCodes.map(({ code, total }) => {
+                                                const selected = selectedFailureCodeSet.has(code);
+                                                return (
+                                                    <button
+                                                        key={code}
+                                                        type="button"
+                                                        onClick={() => {
+                                                            setSelectedFailureCodes((current) => {
+                                                                const next = new Set(current);
+                                                                if (next.has(code)) next.delete(code);
+                                                                else next.add(code);
+                                                                return availableFailureCodes
+                                                                    .map((option) => option.code)
+                                                                    .filter((optionCode) => next.has(optionCode));
+                                                            });
+                                                        }}
+                                                        className={`inline-flex items-center gap-2 rounded-xl border px-2.5 py-1.5 text-xs font-medium transition ${
+                                                            selected
+                                                                ? 'border-emerald-900 bg-emerald-900 text-white'
+                                                                : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-100'
+                                                        }`}
+                                                    >
+                                                        <span>{formatStatusCodeLabel(code)}</span>
+                                                        <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${selected ? 'bg-white/15 text-white' : 'bg-slate-100 text-slate-500'}`}>
+                                                            {formatCompact(total)}
+                                                        </span>
+                                                    </button>
+                                                );
+                                            })}
+                                        </div>
+                                    )}
+
+                                    <div className="mt-3 flex flex-col gap-2 lg:flex-row lg:items-center">
+                                        <div className="min-w-0 flex-1">
+                                            <input
+                                                value={excludedEndpointQuery}
+                                                onChange={(event) => setExcludedEndpointQuery(event.target.value)}
+                                                placeholder="Exclude endpoints: /images, /health, POST /auth (comma separated)"
+                                                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
+                                            />
+                                        </div>
+                                        {excludedEndpointTerms.length > 0 && (
+                                            <button
+                                                type="button"
+                                                onClick={() => setExcludedEndpointQuery('')}
+                                                className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-600 transition hover:border-slate-300 hover:bg-slate-100"
+                                            >
+                                                Clear exclusions
+                                            </button>
+                                        )}
+                                    </div>
+
+                                    {excludedEndpointTerms.length > 0 && (
+                                        <div className="mt-2 flex flex-wrap gap-1.5">
+                                            {excludedEndpointTerms.map((term) => (
+                                                <span
+                                                    key={term}
+                                                    className="inline-flex items-center rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[11px] font-medium text-emerald-800"
+                                                >
+                                                    {term}
+                                                </span>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+
+                                <div className="grid grid-cols-1 gap-5 xl:grid-cols-2">
+                                    <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+                                        <div className="flex items-center justify-between border-b border-slate-100 px-4 py-4">
+                                            <div>
+                                                <div className="flex items-center gap-2">
+                                                    <span className="h-2 w-2 rounded-full bg-amber-400" />
+                                                    <h3 className="text-sm font-semibold text-slate-900">Slowest Endpoints</h3>
+                                                </div>
+                                                <p className="mt-1 text-xs text-slate-500">Peak {slowEndpointRows[0] ? `${slowEndpointRows[0].avgLatencyMs} ms` : 'N/A'}</p>
+                                            </div>
+                                            <div className="flex items-center gap-2">
+                                                <button
+                                                    type="button"
+                                                    aria-label="Previous slow endpoint page"
+                                                    disabled={slowEndpointPageClamped <= 1}
+                                                    onClick={() => setSlowEndpointPage((page) => Math.max(1, page - 1))}
+                                                    className="inline-flex h-8 w-8 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 transition hover:border-slate-300 hover:bg-slate-100 disabled:pointer-events-none disabled:opacity-40"
+                                                >
+                                                    <ChevronLeft className="h-4 w-4" />
+                                                </button>
+                                                <span className="min-w-[3.5rem] text-center text-xs font-medium tabular-nums text-slate-500">
+                                                    {slowEndpointPageClamped}/{slowEndpointTotalPages}
+                                                </span>
+                                                <button
+                                                    type="button"
+                                                    aria-label="Next slow endpoint page"
+                                                    disabled={slowEndpointPageClamped >= slowEndpointTotalPages}
+                                                    onClick={() => setSlowEndpointPage((page) => Math.min(slowEndpointTotalPages, page + 1))}
+                                                    className="inline-flex h-8 w-8 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 transition hover:border-slate-300 hover:bg-slate-100 disabled:pointer-events-none disabled:opacity-40"
+                                                >
+                                                    <ChevronRight className="h-4 w-4" />
+                                                </button>
+                                            </div>
+                                        </div>
+
+                                        <div className="overflow-x-auto">
+                                            <div className="min-w-[620px]">
+                                                <div className="grid grid-cols-[42px_minmax(0,1fr)_90px_90px_110px] gap-3 border-b border-slate-100 px-4 py-2 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+                                                    <span>#</span>
+                                                    <span>Endpoint</span>
+                                                    <span className="text-right">Calls</span>
+                                                    <span className="text-right">Fail</span>
+                                                    <span className="text-right">Latency</span>
+                                                </div>
+                                                <div className="divide-y divide-slate-100">
+                                                    {paginatedSlowEndpoints.length === 0 ? (
+                                                        <div className="px-4 py-10 text-sm text-slate-500">No latency data</div>
+                                                    ) : (
+                                                        paginatedSlowEndpoints.map((endpoint, index) => {
+                                                            const { method, path } = splitEndpointLabel(endpoint.endpoint);
+                                                            return (
+                                                                <div key={endpoint.endpoint} className="grid grid-cols-[42px_minmax(0,1fr)_90px_90px_110px] items-center gap-3 px-4 py-3">
+                                                                    <div className="text-sm font-semibold text-slate-400">
+                                                                        {String((slowEndpointPageClamped - 1) * HOTSPOT_PAGE_SIZE + index + 1).padStart(2, '0')}
+                                                                    </div>
+                                                                    <div className="min-w-0">
+                                                                        <div className="flex items-center gap-2">
+                                                                            {method && (
+                                                                                <span className="inline-flex rounded-md border border-slate-200 bg-slate-50 px-2 py-0.5 text-[11px] font-semibold text-slate-600">
+                                                                                    {method}
+                                                                                </span>
+                                                                            )}
+                                                                            <span className="truncate text-sm font-medium text-slate-900">{path}</span>
+                                                                        </div>
+                                                                        {isVisibleStatusCode(endpoint.mostCommonErrorCode) && (
+                                                                            <div className="mt-1">
+                                                                                <span className={`inline-flex rounded-full border px-2 py-0.5 text-[11px] font-medium ${getStatusCodeBadgeClass(endpoint.mostCommonErrorCode)}`}>
+                                                                                    {formatStatusCodeLabel(endpoint.mostCommonErrorCode)}
+                                                                                </span>
+                                                                            </div>
+                                                                        )}
+                                                                    </div>
+                                                                    <div className="text-right text-sm text-slate-700">{formatCompact(endpoint.totalCalls)}</div>
+                                                                    <div className={`text-right text-sm font-medium ${getFailRateToneClass(endpoint.filteredErrorRate)}`}>
+                                                                        {endpoint.filteredErrorRate.toFixed(1)}%
+                                                                    </div>
+                                                                    <div className={`text-right text-sm font-semibold ${getLatencyToneClass(endpoint.avgLatencyMs)}`}>
+                                                                        {endpoint.avgLatencyMs} ms
+                                                                    </div>
+                                                                </div>
+                                                            );
+                                                        })
+                                                    )}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+                                        <div className="flex items-center justify-between border-b border-slate-100 px-4 py-4">
+                                            <div>
+                                                <div className="flex items-center gap-2">
+                                                    <span className="h-2 w-2 rounded-full bg-rose-500" />
+                                                    <h3 className="text-sm font-semibold text-slate-900">Most Erroring Endpoints</h3>
+                                                </div>
+                                                <p className="mt-1 text-xs text-slate-500">Top count {errorEndpointRows[0] ? formatCompact(errorEndpointRows[0].displayErrorCount) : 'N/A'}</p>
+                                            </div>
+                                            <div className="flex items-center gap-2">
+                                                <button
+                                                    type="button"
+                                                    aria-label="Previous error endpoint page"
+                                                    disabled={errorEndpointPageClamped <= 1}
+                                                    onClick={() => setErrorEndpointPage((page) => Math.max(1, page - 1))}
+                                                    className="inline-flex h-8 w-8 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 transition hover:border-slate-300 hover:bg-slate-100 disabled:pointer-events-none disabled:opacity-40"
+                                                >
+                                                    <ChevronLeft className="h-4 w-4" />
+                                                </button>
+                                                <span className="min-w-[3.5rem] text-center text-xs font-medium tabular-nums text-slate-500">
+                                                    {errorEndpointPageClamped}/{errorEndpointTotalPages}
+                                                </span>
+                                                <button
+                                                    type="button"
+                                                    aria-label="Next error endpoint page"
+                                                    disabled={errorEndpointPageClamped >= errorEndpointTotalPages}
+                                                    onClick={() => setErrorEndpointPage((page) => Math.min(errorEndpointTotalPages, page + 1))}
+                                                    className="inline-flex h-8 w-8 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 transition hover:border-slate-300 hover:bg-slate-100 disabled:pointer-events-none disabled:opacity-40"
+                                                >
+                                                    <ChevronRight className="h-4 w-4" />
+                                                </button>
+                                            </div>
+                                        </div>
+
+                                        <div className="overflow-x-auto">
+                                            <div className="min-w-[620px]">
+                                                <div className="grid grid-cols-[42px_minmax(0,1fr)_90px_100px_110px] gap-3 border-b border-slate-100 px-4 py-2 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+                                                    <span>#</span>
+                                                    <span>Endpoint</span>
+                                                    <span className="text-right">Calls</span>
+                                                    <span className="text-right">Top Code</span>
+                                                    <span className="text-right">Errors</span>
+                                                </div>
+                                                <div className="divide-y divide-slate-100">
+                                                    {paginatedErrorEndpoints.length === 0 ? (
+                                                        <div className="px-4 py-10 text-sm text-slate-500">
+                                                            No failing endpoints
+                                                        </div>
+                                                    ) : (
+                                                        paginatedErrorEndpoints.map((endpoint, index) => {
+                                                            const { method, path } = splitEndpointLabel(endpoint.endpoint);
+                                                            return (
+                                                                <div key={endpoint.endpoint} className="grid grid-cols-[42px_minmax(0,1fr)_90px_100px_110px] items-center gap-3 px-4 py-3">
+                                                                    <div className="text-sm font-semibold text-slate-400">
+                                                                        {String((errorEndpointPageClamped - 1) * HOTSPOT_PAGE_SIZE + index + 1).padStart(2, '0')}
+                                                                    </div>
+                                                                    <div className="min-w-0">
+                                                                        <div className="flex items-center gap-2">
+                                                                            {method && (
+                                                                                <span className="inline-flex rounded-md border border-slate-200 bg-slate-50 px-2 py-0.5 text-[11px] font-semibold text-slate-600">
+                                                                                    {method}
+                                                                                </span>
+                                                                            )}
+                                                                            <span className="truncate text-sm font-medium text-slate-900">{path}</span>
+                                                                        </div>
+                                                                        <div className="mt-1 text-xs text-slate-500">{endpoint.displayErrorRate.toFixed(1)}% fail</div>
+                                                                    </div>
+                                                                    <div className="text-right text-sm text-slate-700">{formatCompact(endpoint.totalCalls)}</div>
+                                                                    <div className="text-right">
+                                                                        {isVisibleStatusCode(endpoint.mostCommonErrorCode) ? (
+                                                                            <span className={`inline-flex rounded-full border px-2 py-0.5 text-[11px] font-medium ${getStatusCodeBadgeClass(endpoint.mostCommonErrorCode)}`}>
+                                                                                {formatStatusCodeLabel(endpoint.mostCommonErrorCode)}
+                                                                            </span>
+                                                                        ) : (
+                                                                            <span className="text-xs font-medium text-slate-300">-</span>
+                                                                        )}
+                                                                    </div>
+                                                                    <div className="text-right text-sm font-semibold text-rose-600">
+                                                                        {formatCompact(endpoint.displayErrorCount)}
+                                                                    </div>
+                                                                </div>
+                                                            );
+                                                        })
+                                                    )}
+                                                </div>
+                                            </div>
+                                        </div>
                                     </div>
                                 </div>
                             </div>
@@ -914,9 +1473,12 @@ export const ApiAnalytics: React.FC = () => {
                         <section className="rounded-3xl border border-slate-100/80 bg-white ring-1 ring-slate-900/5 p-5 shadow-sm">
                             <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                                 <div>
-                                    <h2 className="text-lg font-semibold text-slate-900">Endpoint Activity Database</h2>
+                                    <h2 className="text-lg font-semibold text-slate-900">Endpoint Activity</h2>
+                                    <p className="mt-1 max-w-2xl text-sm text-slate-500">
+                                        Sorted by call volume. Failure code rules and endpoint exclusions apply here.
+                                    </p>
                                     {filteredEndpoints.length > endpointPageSize && (
-                                        <p className="mt-1 max-w-xl text-xs text-slate-500">
+                                        <p className="mt-2 max-w-xl text-xs text-slate-500">
                                             Showing {endpointPageSize} rows per page —{' '}
                                             <span className="font-medium text-slate-600">
                                                 {filteredEndpoints.length.toLocaleString()} endpoints
@@ -930,14 +1492,14 @@ export const ApiAnalytics: React.FC = () => {
                                     <input
                                         value={searchQuery}
                                         onChange={(event) => setSearchQuery(event.target.value)}
-                                        placeholder="Filter by endpoint path"
+                                        placeholder="Search shown endpoints"
                                         className="w-full rounded-2xl border border-slate-100/80 bg-slate-50/50 py-2 pl-9 pr-3 text-sm text-slate-700 outline-none transition focus:border-blue-300 focus:bg-white"
                                     />
                                 </div>
                             </div>
 
                             <div className="overflow-x-auto rounded-2xl border border-slate-100/80 ring-1 ring-slate-900/5 shadow-sm">
-                                <table className="w-full min-w-[980px] text-left text-sm">
+                                <table className="w-full min-w-[1120px] text-left text-sm">
                                     <thead className="sticky top-0 bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
                                         <tr>
                                             <th
@@ -967,25 +1529,25 @@ export const ApiAnalytics: React.FC = () => {
                                             <th
                                                 className="cursor-pointer px-4 py-3 pr-4 text-right hover:text-slate-900"
                                                 onClick={() => {
-                                                    if (sortKey === 'totalErrors') setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
-                                                    else { setSortKey('totalErrors'); setSortOrder('desc'); }
+                                                    if (sortKey === 'filteredErrorCount') setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
+                                                    else { setSortKey('filteredErrorCount'); setSortOrder('desc'); }
                                                 }}
                                             >
                                                 <div className="flex items-center justify-end gap-1">
                                                     Errors
-                                                    {sortKey === 'totalErrors' && (sortOrder === 'asc' ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />)}
+                                                    {sortKey === 'filteredErrorCount' && (sortOrder === 'asc' ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />)}
                                                 </div>
                                             </th>
                                             <th
                                                 className="cursor-pointer px-4 py-3 pr-4 text-right hover:text-slate-900"
                                                 onClick={() => {
-                                                    if (sortKey === 'errorRate') setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
-                                                    else { setSortKey('errorRate'); setSortOrder('desc'); }
+                                                    if (sortKey === 'filteredErrorRate') setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
+                                                    else { setSortKey('filteredErrorRate'); setSortOrder('desc'); }
                                                 }}
                                             >
                                                 <div className="flex items-center justify-end gap-1">
-                                                    Fail Rate
-                                                    {sortKey === 'errorRate' && (sortOrder === 'asc' ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />)}
+                                                    Fail %
+                                                    {sortKey === 'filteredErrorRate' && (sortOrder === 'asc' ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />)}
                                                 </div>
                                             </th>
                                             <th
@@ -999,6 +1561,9 @@ export const ApiAnalytics: React.FC = () => {
                                                     Latency
                                                     {sortKey === 'avgLatencyMs' && (sortOrder === 'asc' ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />)}
                                                 </div>
+                                            </th>
+                                            <th className="px-4 py-3 pr-4 text-right">
+                                                Top Error Code
                                             </th>
                                             <th
                                                 className="cursor-pointer px-4 py-3 pr-4 text-right hover:text-slate-900"
@@ -1017,8 +1582,8 @@ export const ApiAnalytics: React.FC = () => {
                                     <tbody className="divide-y divide-slate-100">
                                         {paginatedEndpoints.length === 0 ? (
                                             <tr>
-                                                <td colSpan={6} className="px-4 py-8 text-center text-sm text-slate-500">
-                                                    No endpoints match your filter.
+                                                <td colSpan={7} className="px-4 py-8 text-center text-sm text-slate-500">
+                                                    No endpoints match the current search or exclusions.
                                                 </td>
                                             </tr>
                                         ) : (
@@ -1026,9 +1591,18 @@ export const ApiAnalytics: React.FC = () => {
                                                 <tr key={endpoint.endpoint} className="transition-colors hover:bg-slate-50">
                                                     <td className="px-4 py-3 pr-4 font-mono text-[12px] font-semibold text-slate-900">{endpoint.endpoint}</td>
                                                     <td className="px-4 py-3 pr-4 text-right text-slate-700">{formatCompact(endpoint.totalCalls)}</td>
-                                                    <td className="px-4 py-3 pr-4 text-right text-slate-700">{formatCompact(endpoint.totalErrors)}</td>
-                                                    <td className={`px-4 py-3 pr-4 text-right font-semibold ${getFailRateToneClass(endpoint.errorRate)}`}>{endpoint.errorRate.toFixed(2)}%</td>
+                                                    <td className="px-4 py-3 pr-4 text-right text-slate-700">{formatCompact(endpoint.filteredErrorCount)}</td>
+                                                    <td className={`px-4 py-3 pr-4 text-right font-semibold ${getFailRateToneClass(endpoint.filteredErrorRate)}`}>{endpoint.filteredErrorRate.toFixed(2)}%</td>
                                                     <td className={`px-4 py-3 pr-4 text-right font-semibold ${getLatencyToneClass(endpoint.avgLatencyMs)}`}>{endpoint.avgLatencyMs} ms</td>
+                                                    <td className="px-4 py-3 pr-4 text-right">
+                                                        {isVisibleStatusCode(endpoint.mostCommonErrorCode) ? (
+                                                            <span className={`inline-flex rounded-full border px-2 py-0.5 text-xs font-semibold ${getStatusCodeBadgeClass(endpoint.mostCommonErrorCode)}`}>
+                                                                {formatStatusCodeLabel(endpoint.mostCommonErrorCode)}
+                                                            </span>
+                                                        ) : (
+                                                            <span className="text-xs font-medium text-slate-300">-</span>
+                                                        )}
+                                                    </td>
                                                     <td className="px-4 py-3 pr-4 text-right">
                                                         <span className={`inline-flex rounded-full border px-2 py-0.5 text-xs font-semibold ${getRiskBadgeClass(endpoint.riskScore)}`}>
                                                             {endpoint.riskScore.toFixed(1)}

@@ -2496,9 +2496,33 @@ export async function getRegionPerformance(projectId: string, timeRange?: string
  * API Endpoint Stats interface (for API Analytics page)
  */
 export interface ApiEndpointStats {
-  slowestEndpoints: Array<{ endpoint: string; totalCalls: number; totalErrors: number; avgLatencyMs: number; errorRate: number }>;
-  erroringEndpoints: Array<{ endpoint: string; totalCalls: number; totalErrors: number; avgLatencyMs: number; errorRate: number }>;
-  allEndpoints: Array<{ endpoint: string; totalCalls: number; totalErrors: number; avgLatencyMs: number; errorRate: number }>;
+  slowestEndpoints: Array<{
+    endpoint: string;
+    totalCalls: number;
+    totalErrors: number;
+    avgLatencyMs: number;
+    errorRate: number;
+    statusCodeBreakdown: Record<string, number>;
+    mostCommonErrorCode: string | null;
+  }>;
+  erroringEndpoints: Array<{
+    endpoint: string;
+    totalCalls: number;
+    totalErrors: number;
+    avgLatencyMs: number;
+    errorRate: number;
+    statusCodeBreakdown: Record<string, number>;
+    mostCommonErrorCode: string | null;
+  }>;
+  allEndpoints: Array<{
+    endpoint: string;
+    totalCalls: number;
+    totalErrors: number;
+    avgLatencyMs: number;
+    errorRate: number;
+    statusCodeBreakdown: Record<string, number>;
+    mostCommonErrorCode: string | null;
+  }>;
   summary: { totalCalls: number; avgLatency: number; errorRate: number };
 }
 
@@ -2513,7 +2537,7 @@ export async function getApiEndpointStats(projectId: string, timeRange?: string)
 
   const params = new URLSearchParams({ projectId });
   if (timeRange) params.set('timeRange', timeRange);
-  const cacheKey = `analytics:api-endpoint-stats:${projectId}:${timeRange || 'all'}`;
+  const cacheKey = `analytics:api-endpoint-stats:v2:${projectId}:${timeRange || 'all'}`;
   return fetchWithCache<ApiEndpointStats>(`/api/analytics/api-endpoint-stats?${params.toString()}`, {}, cacheKey);
 }
 

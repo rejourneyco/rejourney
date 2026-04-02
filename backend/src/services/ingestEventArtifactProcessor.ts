@@ -6,6 +6,15 @@ import { getUniqueScreenCount, mergeScreenPaths, normalizeScreenPath } from '../
 import { shouldExcludeNetworkEventFromProductAnalytics } from '../utils/internalToolEndpointFilter.js';
 
 const MAX_SCREEN_PATH_LENGTH = 200;
+const UNKNOWN_STATUS_CODE_KEY = 'unknown';
+
+function normalizeErrorStatusCodeKey(statusCode: unknown, isError: boolean): string | null {
+    const parsed = Number(statusCode);
+    if (Number.isFinite(parsed) && parsed >= 400) {
+        return String(Math.trunc(parsed));
+    }
+    return isError ? UNKNOWN_STATUS_CODE_KEY : null;
+}
 
 export async function processEventsArtifact(job: any, session: any, metrics: any, projectId: string, data: Buffer, log: any) {
     const payload = JSON.parse(data.toString());
@@ -47,7 +56,7 @@ export async function processEventsArtifact(job: any, session: any, metrics: any
     let appStartupTimeMs: number | null = null;
     const recentTaps: { x: number; y: number; timestamp: number }[] = [];
     const screenPath: string[] = [];
-    const endpointStats: Record<string, { calls: number; errors: number; latencySum: number }> = {};
+    const endpointStats: Record<string, { calls: number; errors: number; latencySum: number; statusCodeBreakdown: Record<string, number> }> = {};
 
     // Collect errors for batch insert
     const errorEvents: Array<{
@@ -279,8 +288,10 @@ export async function processEventsArtifact(job: any, session: any, metrics: any
                 networkTotalDuration += event.duration;
                 networkDurationCount++;
             }
-            const isError = event.success === false || (event.statusCode && event.statusCode >= 400);
-            if (event.success === true || (event.statusCode && event.statusCode >= 200 && event.statusCode < 400)) {
+            const parsedStatusCode = Number(event.statusCode);
+            const hasNumericStatusCode = Number.isFinite(parsedStatusCode);
+            const isError = event.success === false || (hasNumericStatusCode && parsedStatusCode >= 400);
+            if (event.success === true || (hasNumericStatusCode && parsedStatusCode >= 200 && parsedStatusCode < 400)) {
                 networkSuccessCount++;
             } else if (isError) {
                 networkErrorCount++;
@@ -288,9 +299,21 @@ export async function processEventsArtifact(job: any, session: any, metrics: any
 
             if (url) {
                 const endpoint = `${method} ${url}`;
-                if (!endpointStats[endpoint]) endpointStats[endpoint] = { calls: 0, errors: 0, latencySum: 0 };
+                if (!endpointStats[endpoint]) {
+                    endpointStats[endpoint] = {
+                        calls: 0,
+                        errors: 0,
+                        latencySum: 0,
+                        statusCodeBreakdown: {},
+                    };
+                }
                 endpointStats[endpoint].calls++;
                 if (isError) endpointStats[endpoint].errors++;
+                const errorStatusCodeKey = normalizeErrorStatusCodeKey(event.statusCode, isError);
+                if (errorStatusCodeKey) {
+                    endpointStats[endpoint].statusCodeBreakdown[errorStatusCodeKey] =
+                        (endpointStats[endpoint].statusCodeBreakdown[errorStatusCodeKey] || 0) + 1;
+                }
                 if (event.duration) endpointStats[endpoint].latencySum += event.duration;
             }
         } else if (type === 'error') {
@@ -423,12 +446,25 @@ export async function processEventsArtifact(job: any, session: any, metrics: any
                 totalCalls: BigInt(stats.calls),
                 totalErrors: BigInt(stats.errors),
                 sumLatencyMs: BigInt(Math.round(stats.latencySum)),
+                statusCodeBreakdown: stats.statusCodeBreakdown,
             }).onConflictDoUpdate({
                 target: [apiEndpointDailyStats.projectId, apiEndpointDailyStats.date, apiEndpointDailyStats.endpoint, apiEndpointDailyStats.region],
                 set: {
                     totalCalls: sql`${apiEndpointDailyStats.totalCalls} + ${stats.calls}`,
                     totalErrors: sql`${apiEndpointDailyStats.totalErrors} + ${stats.errors}`,
                     sumLatencyMs: sql`${apiEndpointDailyStats.sumLatencyMs} + ${Math.round(stats.latencySum)}`,
+                    statusCodeBreakdown: sql`(
+                        SELECT COALESCE(jsonb_object_agg(key, value), '{}'::jsonb)
+                        FROM (
+                            SELECT key, SUM(value::int) AS value
+                            FROM (
+                                SELECT * FROM jsonb_each_text(COALESCE(${apiEndpointDailyStats.statusCodeBreakdown}, '{}'::jsonb))
+                                UNION ALL
+                                SELECT * FROM jsonb_each_text(${JSON.stringify(stats.statusCodeBreakdown)}::jsonb)
+                            ) AS combined
+                            GROUP BY key
+                        ) AS aggregated
+                    )`,
                     updatedAt: new Date(),
                 }
             });

@@ -739,6 +739,7 @@ export const apiEndpointDailyStats = pgTable(
         totalCalls: bigint('total_calls', { mode: 'bigint' }).default(sql`0`).notNull(),
         totalErrors: bigint('total_errors', { mode: 'bigint' }).default(sql`0`).notNull(),
         sumLatencyMs: bigint('sum_latency_ms', { mode: 'bigint' }).default(sql`0`).notNull(),
+        statusCodeBreakdown: jsonb('status_code_breakdown').$type<Record<string, number>>().default(sql`'{}'::jsonb`).notNull(),
         p50LatencyMs: integer('p50_latency_ms'),
         p90LatencyMs: integer('p90_latency_ms'),
         p99LatencyMs: integer('p99_latency_ms'),

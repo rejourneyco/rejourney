@@ -1268,7 +1268,6 @@ export const GeneralOverview: React.FC = () => {
         <div className="min-h-screen bg-transparent font-sans text-slate-900 pb-12">
             <DashboardPageHeader
                 title="General"
-                subtitle="Acquisition, reliability, retention, and replay-driven issue triage"
                 icon={<MessageSquareWarning className="w-6 h-6" />}
                 iconColor="bg-sky-50"
             >
