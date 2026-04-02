@@ -64,34 +64,58 @@ export const demoDashboardStatsApi: DashboardStats = {
 // ================================================================================
 
 export interface ApiEndpointStats {
-    slowestEndpoints: Array<{ endpoint: string; totalCalls: number; totalErrors: number; avgLatencyMs: number; errorRate: number }>;
-    erroringEndpoints: Array<{ endpoint: string; totalCalls: number; totalErrors: number; avgLatencyMs: number; errorRate: number }>;
-    allEndpoints: Array<{ endpoint: string; totalCalls: number; totalErrors: number; avgLatencyMs: number; errorRate: number }>;
+    slowestEndpoints: Array<{
+        endpoint: string;
+        totalCalls: number;
+        totalErrors: number;
+        avgLatencyMs: number;
+        errorRate: number;
+        statusCodeBreakdown: Record<string, number>;
+        mostCommonErrorCode: string | null;
+    }>;
+    erroringEndpoints: Array<{
+        endpoint: string;
+        totalCalls: number;
+        totalErrors: number;
+        avgLatencyMs: number;
+        errorRate: number;
+        statusCodeBreakdown: Record<string, number>;
+        mostCommonErrorCode: string | null;
+    }>;
+    allEndpoints: Array<{
+        endpoint: string;
+        totalCalls: number;
+        totalErrors: number;
+        avgLatencyMs: number;
+        errorRate: number;
+        statusCodeBreakdown: Record<string, number>;
+        mostCommonErrorCode: string | null;
+    }>;
     summary: { totalCalls: number; avgLatency: number; errorRate: number };
 }
 
 export const demoApiEndpointStats: ApiEndpointStats = {
     slowestEndpoints: [
-        { endpoint: '/api/products/search', totalCalls: 15678, totalErrors: 234, avgLatencyMs: 1245, errorRate: 1.5 },
-        { endpoint: '/api/checkout/process', totalCalls: 8765, totalErrors: 156, avgLatencyMs: 987, errorRate: 1.8 },
-        { endpoint: '/api/recommendations', totalCalls: 23456, totalErrors: 89, avgLatencyMs: 756, errorRate: 0.4 },
+        { endpoint: '/api/products/search', totalCalls: 15678, totalErrors: 234, avgLatencyMs: 1245, errorRate: 1.5, statusCodeBreakdown: { '400': 81, '429': 43, '500': 110 }, mostCommonErrorCode: '500' },
+        { endpoint: '/api/checkout/process', totalCalls: 8765, totalErrors: 156, avgLatencyMs: 987, errorRate: 1.8, statusCodeBreakdown: { '400': 52, '409': 28, '500': 76 }, mostCommonErrorCode: '500' },
+        { endpoint: '/api/recommendations', totalCalls: 23456, totalErrors: 89, avgLatencyMs: 756, errorRate: 0.4, statusCodeBreakdown: { '429': 19, '500': 70 }, mostCommonErrorCode: '500' },
     ],
     erroringEndpoints: [
-        { endpoint: '/api/payment/validate', totalCalls: 5678, totalErrors: 456, avgLatencyMs: 234, errorRate: 8.0 },
-        { endpoint: '/api/inventory/check', totalCalls: 12345, totalErrors: 567, avgLatencyMs: 156, errorRate: 4.6 },
-        { endpoint: '/api/shipping/rates', totalCalls: 9876, totalErrors: 234, avgLatencyMs: 345, errorRate: 2.4 },
+        { endpoint: '/api/payment/validate', totalCalls: 5678, totalErrors: 456, avgLatencyMs: 234, errorRate: 8.0, statusCodeBreakdown: { '400': 210, '401': 120, '500': 126 }, mostCommonErrorCode: '400' },
+        { endpoint: '/api/inventory/check', totalCalls: 12345, totalErrors: 567, avgLatencyMs: 156, errorRate: 4.6, statusCodeBreakdown: { '400': 244, '404': 103, '500': 220 }, mostCommonErrorCode: '400' },
+        { endpoint: '/api/shipping/rates', totalCalls: 9876, totalErrors: 234, avgLatencyMs: 345, errorRate: 2.4, statusCodeBreakdown: { '400': 94, '429': 38, '500': 102 }, mostCommonErrorCode: '500' },
     ],
     allEndpoints: [
-        { endpoint: '/api/products/list', totalCalls: 45678, totalErrors: 123, avgLatencyMs: 145, errorRate: 0.3 },
-        { endpoint: '/api/products/search', totalCalls: 15678, totalErrors: 234, avgLatencyMs: 1245, errorRate: 1.5 },
-        { endpoint: '/api/cart/add', totalCalls: 23456, totalErrors: 67, avgLatencyMs: 89, errorRate: 0.3 },
-        { endpoint: '/api/cart/update', totalCalls: 12345, totalErrors: 45, avgLatencyMs: 76, errorRate: 0.4 },
-        { endpoint: '/api/checkout/process', totalCalls: 8765, totalErrors: 156, avgLatencyMs: 987, errorRate: 1.8 },
-        { endpoint: '/api/payment/validate', totalCalls: 5678, totalErrors: 456, avgLatencyMs: 234, errorRate: 8.0 },
-        { endpoint: '/api/inventory/check', totalCalls: 12345, totalErrors: 567, avgLatencyMs: 156, errorRate: 4.6 },
-        { endpoint: '/api/shipping/rates', totalCalls: 9876, totalErrors: 234, avgLatencyMs: 345, errorRate: 2.4 },
-        { endpoint: '/api/recommendations', totalCalls: 23456, totalErrors: 89, avgLatencyMs: 756, errorRate: 0.4 },
-        { endpoint: '/api/user/profile', totalCalls: 34567, totalErrors: 12, avgLatencyMs: 67, errorRate: 0.03 },
+        { endpoint: '/api/products/list', totalCalls: 45678, totalErrors: 123, avgLatencyMs: 145, errorRate: 0.3, statusCodeBreakdown: { '404': 27, '429': 19, '500': 77 }, mostCommonErrorCode: '500' },
+        { endpoint: '/api/products/search', totalCalls: 15678, totalErrors: 234, avgLatencyMs: 1245, errorRate: 1.5, statusCodeBreakdown: { '400': 81, '429': 43, '500': 110 }, mostCommonErrorCode: '500' },
+        { endpoint: '/api/cart/add', totalCalls: 23456, totalErrors: 67, avgLatencyMs: 89, errorRate: 0.3, statusCodeBreakdown: { '400': 14, '409': 22, '500': 31 }, mostCommonErrorCode: '500' },
+        { endpoint: '/api/cart/update', totalCalls: 12345, totalErrors: 45, avgLatencyMs: 76, errorRate: 0.4, statusCodeBreakdown: { '400': 16, '409': 9, '500': 20 }, mostCommonErrorCode: '500' },
+        { endpoint: '/api/checkout/process', totalCalls: 8765, totalErrors: 156, avgLatencyMs: 987, errorRate: 1.8, statusCodeBreakdown: { '400': 52, '409': 28, '500': 76 }, mostCommonErrorCode: '500' },
+        { endpoint: '/api/payment/validate', totalCalls: 5678, totalErrors: 456, avgLatencyMs: 234, errorRate: 8.0, statusCodeBreakdown: { '400': 210, '401': 120, '500': 126 }, mostCommonErrorCode: '400' },
+        { endpoint: '/api/inventory/check', totalCalls: 12345, totalErrors: 567, avgLatencyMs: 156, errorRate: 4.6, statusCodeBreakdown: { '400': 244, '404': 103, '500': 220 }, mostCommonErrorCode: '400' },
+        { endpoint: '/api/shipping/rates', totalCalls: 9876, totalErrors: 234, avgLatencyMs: 345, errorRate: 2.4, statusCodeBreakdown: { '400': 94, '429': 38, '500': 102 }, mostCommonErrorCode: '500' },
+        { endpoint: '/api/recommendations', totalCalls: 23456, totalErrors: 89, avgLatencyMs: 756, errorRate: 0.4, statusCodeBreakdown: { '429': 19, '500': 70 }, mostCommonErrorCode: '500' },
+        { endpoint: '/api/user/profile', totalCalls: 34567, totalErrors: 12, avgLatencyMs: 67, errorRate: 0.03, statusCodeBreakdown: { '404': 4, '500': 8 }, mostCommonErrorCode: '500' },
     ],
     summary: {
         totalCalls: 191844,

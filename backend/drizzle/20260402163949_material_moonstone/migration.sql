@@ -1,0 +1,1 @@
+ALTER TABLE "api_endpoint_daily_stats" ADD COLUMN "status_code_breakdown" jsonb DEFAULT '{}' NOT NULL;

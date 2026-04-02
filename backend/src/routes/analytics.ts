@@ -25,6 +25,9 @@ const redis = getRedis();
 
 // Cache TTL in seconds
 const CACHE_TTL = 300; // 5 minutes
+const UNKNOWN_STATUS_CODE_KEY = 'unknown';
+
+type ErrorCodeBreakdown = Record<string, number>;
 
 /**
  * Returns the last date (YYYY-MM-DD) for which daily rollups are guaranteed
@@ -64,6 +67,41 @@ async function getLastRolledUpDate(): Promise<string> {
 function toPercent(numerator: number, denominator: number, decimals: number = 1): number {
     if (denominator <= 0) return 0;
     return Number(((numerator / denominator) * 100).toFixed(decimals));
+}
+
+function normalizeErrorCodeBreakdown(value: unknown): ErrorCodeBreakdown {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+
+    const normalized: ErrorCodeBreakdown = {};
+    for (const [rawCode, rawCount] of Object.entries(value as Record<string, unknown>)) {
+        const code = rawCode.trim();
+        const count = Number(rawCount || 0);
+        if (!code || code === UNKNOWN_STATUS_CODE_KEY || !Number.isFinite(count) || count <= 0) continue;
+        normalized[code] = (normalized[code] || 0) + count;
+    }
+
+    return normalized;
+}
+
+function mergeErrorCodeBreakdowns(target: ErrorCodeBreakdown, source: ErrorCodeBreakdown): ErrorCodeBreakdown {
+    for (const [code, count] of Object.entries(source)) {
+        if (!Number.isFinite(count) || count <= 0) continue;
+        target[code] = (target[code] || 0) + count;
+    }
+    return target;
+}
+
+function pickMostCommonErrorCode(breakdown: ErrorCodeBreakdown): string | null {
+    const ranked = Object.entries(breakdown)
+        .filter(([code, count]) => code !== UNKNOWN_STATUS_CODE_KEY && Number.isFinite(count) && count > 0)
+        .sort((a, b) => {
+            if (b[1] !== a[1]) return b[1] - a[1];
+            if (a[0] === UNKNOWN_STATUS_CODE_KEY) return 1;
+            if (b[0] === UNKNOWN_STATUS_CODE_KEY) return -1;
+            return a[0].localeCompare(b[0], undefined, { numeric: true });
+        });
+
+    return ranked[0]?.[0] ?? null;
 }
 
 function percentile(values: number[], p: number): number | null {
@@ -2219,7 +2257,7 @@ router.get(
             return;
         }
 
-        const cacheKey = `analytics:api-endpoint-stats:${projectIds.sort().join(',')}:${timeRange || 'all'}:v7-time-windows`;
+        const cacheKey = `analytics:api-endpoint-stats:${projectIds.sort().join(',')}:${timeRange || 'all'}:v9-status-code-breakdown`;
         const cached = await redis.get(cacheKey);
         if (cached) {
             res.json(JSON.parse(cached));
@@ -2258,32 +2296,53 @@ router.get(
                 totalCalls: apiEndpointDailyStats.totalCalls,
                 totalErrors: apiEndpointDailyStats.totalErrors,
                 sumLatencyMs: apiEndpointDailyStats.sumLatencyMs,
+                statusCodeBreakdown: apiEndpointDailyStats.statusCodeBreakdown,
             })
             .from(apiEndpointDailyStats)
             .where(and(...conditions));
 
         // Aggregate across dates per endpoint
-        const endpointMap: Record<string, { totalCalls: number; totalErrors: number; sumLatencyMs: number }> = {};
+        const endpointMap: Record<string, {
+            totalCalls: number;
+            totalErrors: number;
+            sumLatencyMs: number;
+            statusCodeBreakdown: ErrorCodeBreakdown;
+        }> = {};
 
         for (const s of stats) {
             if (shouldExcludeFromEndpointProductAnalytics(s.endpoint)) continue;
             if (!endpointMap[s.endpoint]) {
-                endpointMap[s.endpoint] = { totalCalls: 0, totalErrors: 0, sumLatencyMs: 0 };
+                endpointMap[s.endpoint] = {
+                    totalCalls: 0,
+                    totalErrors: 0,
+                    sumLatencyMs: 0,
+                    statusCodeBreakdown: {},
+                };
             }
             endpointMap[s.endpoint].totalCalls += Number(s.totalCalls || 0);
             endpointMap[s.endpoint].totalErrors += Number(s.totalErrors || 0);
             endpointMap[s.endpoint].sumLatencyMs += Number(s.sumLatencyMs || 0);
+            mergeErrorCodeBreakdowns(
+                endpointMap[s.endpoint].statusCodeBreakdown,
+                normalizeErrorCodeBreakdown(s.statusCodeBreakdown),
+            );
         }
 
         // Transform to array with computed avg latency
         const allEndpoints = Object.entries(endpointMap)
-            .map(([endpoint, data]) => ({
-                endpoint,
-                totalCalls: data.totalCalls,
-                totalErrors: data.totalErrors,
-                avgLatencyMs: data.totalCalls > 0 ? Math.round(data.sumLatencyMs / data.totalCalls) : 0,
-                errorRate: data.totalCalls > 0 ? Number(((data.totalErrors / data.totalCalls) * 100).toFixed(2)) : 0,
-            }))
+            .map(([endpoint, data]) => {
+                const statusCodeBreakdown = { ...data.statusCodeBreakdown };
+
+                return {
+                    endpoint,
+                    totalCalls: data.totalCalls,
+                    totalErrors: data.totalErrors,
+                    avgLatencyMs: data.totalCalls > 0 ? Math.round(data.sumLatencyMs / data.totalCalls) : 0,
+                    errorRate: data.totalCalls > 0 ? Number(((data.totalErrors / data.totalCalls) * 100).toFixed(2)) : 0,
+                    statusCodeBreakdown,
+                    mostCommonErrorCode: pickMostCommonErrorCode(statusCodeBreakdown),
+                };
+            })
             .sort((a, b) => b.totalCalls - a.totalCalls);
 
         // Top 3 slowest
