@@ -39,6 +39,7 @@ import kotlin.concurrent.withLock
  */
 sealed class SessionState {
     object Idle : SessionState()
+    data class Starting(val sessionId: String, val startTimeMs: Long) : SessionState()
     data class Active(val sessionId: String, val startTimeMs: Long) : SessionState()
     data class Paused(val sessionId: String, val startTimeMs: Long) : SessionState()
     object Terminated : SessionState()
@@ -250,8 +251,13 @@ class RejourneyImpl private constructor(private val context: Context) :
         }
     }
 
-    private fun waitForSessionReady(savedUserId: String?, attempts: Int) {
-        val maxAttempts = 30 // 3 seconds max
+    private fun waitForSessionReady(
+        savedUserId: String?,
+        attempts: Int,
+        onReady: ((String) -> Unit)? = null,
+        onTimeout: (() -> Unit)? = null
+    ) {
+        val maxAttempts = 50 // 5 seconds max
 
         mainHandler.postDelayed({
             val newSid = ReplayOrchestrator.shared?.replayId
@@ -270,10 +276,12 @@ class RejourneyImpl private constructor(private val context: Context) :
 
                 DiagnosticLog.replayBegan(newSid)
                 DiagnosticLog.notice("[Rejourney] ✅ New session started: $newSid")
+                onReady?.invoke(newSid)
             } else if (attempts < maxAttempts) {
-                waitForSessionReady(savedUserId, attempts + 1)
+                waitForSessionReady(savedUserId, attempts + 1, onReady, onTimeout)
             } else {
                 DiagnosticLog.caution("[Rejourney] ⚠️ Timeout waiting for new session to initialize")
+                onTimeout?.invoke()
             }
         }, 100)
     }
@@ -299,9 +307,17 @@ class RejourneyImpl private constructor(private val context: Context) :
             // Check if already active
             stateLock.withLock {
                 val currentState = state
-                if (currentState is SessionState.Active) {
-                    callback?.invoke(true, currentState.sessionId)
-                    return@post
+                when (currentState) {
+                    is SessionState.Active -> {
+                        callback?.invoke(true, currentState.sessionId)
+                        return@post
+                    }
+                    is SessionState.Starting -> {
+                        val activeSid = ReplayOrchestrator.shared?.replayId
+                        callback?.invoke(!activeSid.isNullOrEmpty(), activeSid ?: "")
+                        return@post
+                    }
+                    else -> Unit
                 }
             }
 
@@ -317,9 +333,10 @@ class RejourneyImpl private constructor(private val context: Context) :
             SegmentDispatcher.shared.endpoint = apiUrl
             DeviceRegistrar.shared?.endpoint = apiUrl
 
-            // Pre-generate session ID
-            val sid = "session_${System.currentTimeMillis()}_${java.util.UUID.randomUUID().toString().replace("-", "").lowercase()}"
-            ReplayOrchestrator.shared?.replayId = sid
+            val pendingSessionId = "session_${System.currentTimeMillis()}_${java.util.UUID.randomUUID().toString().replace("-", "").lowercase()}"
+            stateLock.withLock {
+                state = SessionState.Starting(pendingSessionId, System.currentTimeMillis())
+            }
 
             // Begin replay
             ReplayOrchestrator.shared?.beginReplay(
@@ -328,21 +345,21 @@ class RejourneyImpl private constructor(private val context: Context) :
                 captureSettings = config
             )
 
-            // Allow orchestrator time to spin up
-            mainHandler.postDelayed({
-                stateLock.withLock {
-                    state = SessionState.Active(sid, System.currentTimeMillis())
+            waitForSessionReady(
+                savedUserId = userId,
+                attempts = 0,
+                onReady = { sid ->
+                    callback?.invoke(true, sid)
+                },
+                onTimeout = {
+                    stateLock.withLock {
+                        if (state is SessionState.Starting) {
+                            state = SessionState.Idle
+                        }
+                    }
+                    callback?.invoke(false, "")
                 }
-
-                ReplayOrchestrator.shared?.activateGestureRecording()
-
-                if (userId != "anonymous") {
-                    ReplayOrchestrator.shared?.associateUser(userId)
-                }
-
-                DiagnosticLog.replayBegan(sid)
-                callback?.invoke(true, sid)
-            }, 300)
+            )
         }
     }
 

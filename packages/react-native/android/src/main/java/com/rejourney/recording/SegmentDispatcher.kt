@@ -173,7 +173,18 @@ class SegmentDispatcher private constructor() {
         frameCount: Int,
         completion: ((Boolean) -> Unit)? = null
     ) {
-        val sid = currentReplayId
+        transmitFrameBundleForSession(currentReplayId, payload, startMs, endMs, frameCount, completion)
+    }
+
+    fun transmitFrameBundleForSession(
+        sessionId: String?,
+        payload: ByteArray,
+        startMs: Long,
+        endMs: Long,
+        frameCount: Int,
+        completion: ((Boolean) -> Unit)? = null
+    ) {
+        val sid = sessionId
         val canUpload = canUploadNow()
         DiagnosticLog.trace("[SegmentDispatcher] transmitFrameBundle: sid=${sid?.take(12) ?: "null"}, canUpload=$canUpload, frames=$frameCount, bytes=${payload.size}")
         
@@ -390,6 +401,12 @@ class SegmentDispatcher private constructor() {
             scheduleRetryIfNeeded(upload, completion)
             return
         }
+
+        if (presignResponse.skipUpload) {
+            registerSuccess()
+            completion?.invoke(true)
+            return
+        }
         
         val s3ok = uploadToS3(presignResponse.presignedUrl, upload.payload)
         if (!s3ok) {
@@ -483,7 +500,7 @@ class SegmentDispatcher private constructor() {
             val json = JSONObject(responseBody)
             
             if (json.optBoolean("skipUpload", false)) {
-                return null
+                return PresignResponse(skipUpload = true)
             }
             
             val presignedUrl = json.optString("presignedUrl", null) ?: return null
@@ -758,8 +775,9 @@ private data class PendingUpload(
 )
 
 private data class PresignResponse(
-    val presignedUrl: String,
-    val batchId: String
+    val presignedUrl: String = "",
+    val batchId: String = "",
+    val skipUpload: Boolean = false
 )
 
 private data class TelemetrySnapshot(

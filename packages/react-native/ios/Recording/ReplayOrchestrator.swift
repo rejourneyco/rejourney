@@ -27,7 +27,7 @@ public final class ReplayOrchestrator: NSObject {
     @objc public var replayId: String?
     @objc public var replayStartMs: UInt64 = 0
     @objc public var deferredUploadMode = false
-    @objc public var frameBundleSize: Int = 5
+    @objc public var frameBundleSize: Int = 3
 
     public var serverEndpoint: String {
         get { TelemetryPipeline.shared.endpoint }
@@ -172,7 +172,7 @@ public final class ReplayOrchestrator: NSObject {
         let renderCfg = _computeRender(fps: 1, tier: "standard")
 
         if visualCaptureEnabled {
-            VisualCapture.shared.configure(snapshotInterval: renderCfg.interval, jpegQuality: renderCfg.quality)
+            VisualCapture.shared.configure(snapshotInterval: renderCfg.interval, jpegQuality: renderCfg.quality, uploadBatchSize: frameBundleSize)
             VisualCapture.shared.beginCapture(sessionOrigin: replayStartMs)
             VisualCapture.shared.activateDeferredMode()
         }
@@ -241,8 +241,8 @@ public final class ReplayOrchestrator: NSObject {
 
         // Do local teardown immediately so lifecycle rollover never depends on network latency.
         DispatchQueue.main.async {
-            TelemetryPipeline.shared.shutdown()
             VisualCapture.shared.halt(expectedGeneration: haltGeneration)
+            TelemetryPipeline.shared.shutdown()
             InteractionRecorder.shared.deactivate()
             FaultTracker.shared.deactivate()
             ResponsivenessWatcher.shared.halt()
@@ -491,7 +491,7 @@ public final class ReplayOrchestrator: NSObject {
         responsivenessCaptureEnabled = cfg["captureANR"] as? Bool ?? true
         consoleCaptureEnabled = cfg["captureLogs"] as? Bool ?? true
         wifiRequired = cfg["wifiOnly"] as? Bool ?? false
-        frameBundleSize = cfg["screenshotBatchSize"] as? Int ?? 5
+        frameBundleSize = cfg["screenshotBatchSize"] as? Int ?? 3
     }
 
     private func _monitorNetwork(token: String) {
@@ -559,7 +559,7 @@ public final class ReplayOrchestrator: NSObject {
         TelemetryPipeline.shared.activate()
 
         let renderCfg = _computeRender(fps: 1, tier: "standard")
-        VisualCapture.shared.configure(snapshotInterval: renderCfg.interval, jpegQuality: renderCfg.quality)
+        VisualCapture.shared.configure(snapshotInterval: renderCfg.interval, jpegQuality: renderCfg.quality, uploadBatchSize: frameBundleSize)
 
         if visualCaptureEnabled { VisualCapture.shared.beginCapture(sessionOrigin: replayStartMs) }
         if interactionCaptureEnabled { InteractionRecorder.shared.activate() }

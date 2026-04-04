@@ -59,8 +59,8 @@ public final class VisualCapture: NSObject {
     private let _maxPendingBatches = 50
     private let _maxBufferedScreenshots = 500
     
-    // Industry standard batch size (20 frames per batch, not 5)
-    private let _batchSize = 20
+    /// Flush to the network after this many frames (smaller = more frequent uploads).
+    private var _uploadBatchSize = 3
 
     
     private override init() {
@@ -195,10 +195,11 @@ public final class VisualCapture: NSObject {
     }
 
     
-    @objc public func configure(snapshotInterval: Double, jpegQuality: Double, captureScale: CGFloat = 1.25) {
+    @objc public func configure(snapshotInterval: Double, jpegQuality: Double, captureScale: CGFloat = 1.25, uploadBatchSize: Int = 3) {
         self.snapshotInterval = snapshotInterval
         self.quality = CGFloat(jpegQuality)
         self.captureScale = max(1.0, captureScale)
+        _uploadBatchSize = max(1, min(uploadBatchSize, 100))
         if _stateMachine.currentState == .capturing {
             _stopCaptureTimer()
             _startCaptureTimer()
@@ -325,7 +326,7 @@ public final class VisualCapture: NSObject {
                 self._stateLock.lock()
                 self._screenshots.append((data, captureTs))
                 self._enforceScreenshotCaps()
-                let shouldSend = !self._deferredUntilCommit && self._screenshots.count >= self._batchSize
+                let shouldSend = !self._deferredUntilCommit && self._screenshots.count >= self._uploadBatchSize
                 self._stateLock.unlock()
                 
                 if shouldSend {

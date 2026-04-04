@@ -251,8 +251,13 @@ public final class RejourneyImpl: NSObject {
         }
     }
 
-    private func _waitForSessionReady(savedUserId: String?, attempts: Int) {
-        let maxAttempts = 30 // 3 seconds max (30 * 100ms)
+    private func _waitForSessionReady(
+        savedUserId: String?,
+        attempts: Int,
+        onReady: ((String) -> Void)? = nil,
+        onTimeout: (() -> Void)? = nil
+    ) {
+        let maxAttempts = 50 // 5 seconds max (50 * 100ms)
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
             guard let self else { return }
@@ -275,11 +280,13 @@ public final class RejourneyImpl: NSObject {
 
                 DiagnosticLog.replayBegan(newSid)
                 DiagnosticLog.notice("[Rejourney] ✅ New session started: \(newSid)")
+                onReady?(newSid)
             } else if attempts < maxAttempts {
                 // Keep polling
-                self._waitForSessionReady(savedUserId: savedUserId, attempts: attempts + 1)
+                self._waitForSessionReady(savedUserId: savedUserId, attempts: attempts + 1, onReady: onReady, onTimeout: onTimeout)
             } else {
                 DiagnosticLog.caution("[Rejourney] ⚠️ Timeout waiting for new session to initialize")
+                onTimeout?()
             }
         }
     }
@@ -355,9 +362,18 @@ public final class RejourneyImpl: NSObject {
 
             self.stateLock.lock()
             switch self.state {
-            case .active(let sid, _), .starting(let sid, _):
+            case .active(let sid, _):
                 self.stateLock.unlock()
                 resolve(["success": true, "sessionId": sid])
+                return
+            case .starting(_, _):
+                let activeSid = ReplayOrchestrator.shared.replayId
+                self.stateLock.unlock()
+                if let activeSid, !activeSid.isEmpty {
+                    resolve(["success": true, "sessionId": activeSid])
+                } else {
+                    resolve(["success": false, "sessionId": "", "error": "Session is still starting"])
+                }
                 return
             default:
                 self.stateLock.unlock()
@@ -387,24 +403,22 @@ public final class RejourneyImpl: NSObject {
 
             ReplayOrchestrator.shared.beginReplay(apiToken: publicKey, serverEndpoint: apiUrl, captureSettings: config)
 
-            // Allow orchestrator time to spin up
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                let sid = ReplayOrchestrator.shared.replayId ?? pendingSessionId
-                let start = Date().timeIntervalSince1970
-
-                self.stateLock.lock()
-                self.state = .active(sessionId: sid, startTime: start)
-                self.stateLock.unlock()
-
-                ReplayOrchestrator.shared.activateGestureRecording()
-
-                if userId != "anonymous" && !userId.hasPrefix("anon_") {
-                    ReplayOrchestrator.shared.associateUser(userId)
+            self._waitForSessionReady(
+                savedUserId: userId,
+                attempts: 0,
+                onReady: { sid in
+                    resolve(["success": true, "sessionId": sid])
+                },
+                onTimeout: { [weak self] in
+                    guard let self else { return }
+                    self.stateLock.lock()
+                    if case .starting(_, _) = self.state {
+                        self.state = .idle
+                    }
+                    self.stateLock.unlock()
+                    resolve(["success": false, "sessionId": "", "error": "Timed out waiting for replay session to initialize"])
                 }
-
-                DiagnosticLog.replayBegan(sid)
-                resolve(["success": true, "sessionId": sid])
-            }
+            )
         }
     }
 

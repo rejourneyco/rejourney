@@ -348,10 +348,11 @@ export const ApiAnalytics: React.FC = () => {
     const [deepMetrics, setDeepMetrics] = useState<ObservabilityDeepMetrics | null>(null);
     const [latencyByLocation, setLatencyByLocation] = useState<ApiLatencyByLocationResponse | null>(null);
     const [trends, setTrends] = useState<InsightsTrends | null>(null);
-    const endpointFilterPreferenceKey = useMemo(
-        () => `${API_ENDPOINT_FILTER_PREFERENCES_PREFIX}${selectedProject?.id || 'global'}`,
-        [selectedProject?.id],
-    );
+    // Persist per project only. A `global` key was used when project id was still loading, so filters
+    // were saved there and then wiped when the real project key loaded empty — see load fallback below.
+    const endpointFilterPersistenceKey = selectedProject?.id
+        ? `${API_ENDPOINT_FILTER_PREFERENCES_PREFIX}${selectedProject.id}`
+        : null;
 
     useEffect(() => {
         if (!selectedProject?.id) {
@@ -370,10 +371,10 @@ export const ApiAnalytics: React.FC = () => {
         const range = toApiRange(timeRange);
         const projectId = selectedProject.id;
 
-        // Main chart needs endpoint + deep metrics; don’t block the shell on region/latency/trends (often slower).
+        // Endpoint stats + full deep metrics (summary omits latency/Apdex used in KPIs). Region/latency/trends load separately.
         void Promise.allSettled([
             getApiEndpointStats(projectId, range),
-            getObservabilityDeepMetrics(projectId, range, 'summary'),
+            getObservabilityDeepMetrics(projectId, range, 'full'),
         ]).then(([endpointData, deepData]) => {
             if (isCancelled) return;
 
@@ -428,9 +429,16 @@ export const ApiAnalytics: React.FC = () => {
 
     useEffect(() => {
         if (typeof window === 'undefined') return;
+        if (!endpointFilterPersistenceKey) {
+            setHydratedFilterPreferenceKey(null);
+            return;
+        }
 
         try {
-            const raw = window.localStorage.getItem(endpointFilterPreferenceKey);
+            let raw = window.localStorage.getItem(endpointFilterPersistenceKey);
+            if (!raw) {
+                raw = window.localStorage.getItem(`${API_ENDPOINT_FILTER_PREFERENCES_PREFIX}global`);
+            }
             if (!raw) {
                 setExcludedEndpointQuery('');
                 setSelectedFailureCodes([]);
@@ -447,20 +455,21 @@ export const ApiAnalytics: React.FC = () => {
             setExcludedEndpointQuery('');
             setSelectedFailureCodes([]);
         } finally {
-            setHydratedFilterPreferenceKey(endpointFilterPreferenceKey);
+            setHydratedFilterPreferenceKey(endpointFilterPersistenceKey);
         }
-    }, [endpointFilterPreferenceKey]);
+    }, [endpointFilterPersistenceKey]);
 
     useEffect(() => {
         if (typeof window === 'undefined') return;
-        if (hydratedFilterPreferenceKey !== endpointFilterPreferenceKey) return;
+        if (!endpointFilterPersistenceKey) return;
+        if (hydratedFilterPreferenceKey !== endpointFilterPersistenceKey) return;
 
         const payload: ApiEndpointFilterPreferences = {
             excludedEndpointQuery,
             selectedFailureCodes,
         };
-        window.localStorage.setItem(endpointFilterPreferenceKey, JSON.stringify(payload));
-    }, [endpointFilterPreferenceKey, excludedEndpointQuery, hydratedFilterPreferenceKey, selectedFailureCodes]);
+        window.localStorage.setItem(endpointFilterPersistenceKey, JSON.stringify(payload));
+    }, [endpointFilterPersistenceKey, excludedEndpointQuery, hydratedFilterPreferenceKey, selectedFailureCodes]);
 
     const hasData = Boolean(endpointStats && deepMetrics);
     const selectedFailureCodeKey = selectedFailureCodes.join('|');
@@ -521,7 +530,12 @@ export const ApiAnalytics: React.FC = () => {
         [availableFailureCodes],
     );
 
+    // Without the endpointStats guard, the first runs happen while stats are still loading
+    // (availableFailureCodes is []). That path returned [] and wiped localStorage-hydrated codes
+    // before the fetch completed — breaking Endpoint Hotspots, Slowest, and Highest-error tables together.
     useEffect(() => {
+        if (!endpointStats) return;
+
         const nextAvailable = availableFailureCodes.map(({ code }) => code);
         setSelectedFailureCodes((current) => {
             if (!nextAvailable.length) return [];
@@ -530,7 +544,7 @@ export const ApiAnalytics: React.FC = () => {
             const preserved = current.filter((code) => nextAvailable.includes(code));
             return preserved.length ? preserved : nextAvailable;
         });
-    }, [availableFailureCodes]);
+    }, [availableFailureCodes, endpointStats]);
 
     const selectedFailureCodeSet = useMemo(() => new Set(selectedFailureCodes), [selectedFailureCodes]);
     const isFailureSelectionActive = selectedFailureCodes.length > 0;

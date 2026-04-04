@@ -86,7 +86,7 @@ export const PricingTable: React.FC = () => {
                 <div className="flex flex-wrap gap-8 mb-8 font-black uppercase text-[10px] tracking-widest">
                     <div className="flex items-center gap-2">
                         <div className="w-2 h-2 bg-black" />
-                        <span>All Sessions Recorded</span>
+                        <span>Sessions Replay</span>
                     </div>
                     <div className="flex items-center gap-2">
                         <div className="w-2 h-2 bg-black" />

@@ -78,7 +78,7 @@ class ReplayOrchestrator private constructor(private val context: Context) {
     var replayId: String? = null
     var replayStartMs: Long = 0
     var deferredUploadMode = false
-    var frameBundleSize: Int = 5
+    var frameBundleSize: Int = 3
 
     var serverEndpoint: String
         get() = TelemetryPipeline.shared?.endpoint ?: "https://api.rejourney.co"
@@ -222,7 +222,7 @@ class ReplayOrchestrator private constructor(private val context: Context) {
         val renderCfg = computeRender(1, "standard")
 
         if (visualCaptureEnabled) {
-            VisualCapture.shared?.configure(renderCfg.first, renderCfg.second)
+            VisualCapture.shared?.configure(renderCfg.first, renderCfg.second, frameBundleSize)
             VisualCapture.shared?.beginCapture(replayStartMs)
             VisualCapture.shared?.activateDeferredMode()
         }
@@ -285,8 +285,8 @@ class ReplayOrchestrator private constructor(private val context: Context) {
 
         // Do local teardown immediately so lifecycle rollover never depends on network latency.
         mainHandler.post {
-            TelemetryPipeline.shared?.shutdown()
             VisualCapture.shared?.halt(haltGeneration)
+            TelemetryPipeline.shared?.shutdown()
             InteractionRecorder.shared?.deactivate()
             StabilityMonitor.shared?.deactivate()
             AnrSentinel.shared?.deactivate()
@@ -546,7 +546,7 @@ class ReplayOrchestrator private constructor(private val context: Context) {
         responsivenessCaptureEnabled = (cfg["captureANR"] as? Boolean) ?: true
         consoleCaptureEnabled = (cfg["captureLogs"] as? Boolean) ?: true
         wifiRequired = (cfg["wifiOnly"] as? Boolean) ?: false
-        frameBundleSize = (cfg["screenshotBatchSize"] as? Int) ?: 5
+        frameBundleSize = (cfg["screenshotBatchSize"] as? Int) ?: 3
     }
 
     private fun monitorNetwork(token: String) {
@@ -643,7 +643,7 @@ class ReplayOrchestrator private constructor(private val context: Context) {
 
         val renderCfg = computeRender(1, "standard")
         DiagnosticLog.trace("[ReplayOrchestrator] VisualCapture.shared=${VisualCapture.shared != null}, visualCaptureEnabled=$visualCaptureEnabled")
-        VisualCapture.shared?.configure(renderCfg.first, renderCfg.second)
+        VisualCapture.shared?.configure(renderCfg.first, renderCfg.second, frameBundleSize)
 
         if (visualCaptureEnabled) {
             DiagnosticLog.trace("[ReplayOrchestrator] Starting VisualCapture")
