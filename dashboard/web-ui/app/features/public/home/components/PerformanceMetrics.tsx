@@ -1,6 +1,13 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Activity } from 'lucide-react';
-import { AreaChart, Area, ResponsiveContainer, YAxis, Tooltip } from 'recharts';
+import { Activity, ArrowUpRight } from 'lucide-react';
+import {
+    Area,
+    ResponsiveContainer,
+    YAxis,
+    Tooltip,
+    ReferenceLine,
+    ComposedChart,
+} from 'recharts';
 
 export const PerformanceMetrics: React.FC = () => {
     const sectionRef = useRef<HTMLElement>(null);
@@ -23,15 +30,17 @@ export const PerformanceMetrics: React.FC = () => {
         return () => observer.disconnect();
     }, []);
 
-    // Comparison Data (Flat line visual)
+    // Rejourney: ~970 KB baseline, then step to 1.6 MB mid-timeline (new features).
     const comparisonData = [
         { version: 'v1.0', Rejourney: 0.97, Sentry: 7.1 },
         { version: 'v1.1', Rejourney: 0.97, Sentry: 7.1 },
         { version: 'v1.2', Rejourney: 0.97, Sentry: 7.1 },
-        { version: 'v1.3', Rejourney: 0.97, Sentry: 7.1 },
-        { version: 'v1.4', Rejourney: 0.97, Sentry: 7.1 },
-        { version: 'v1.5', Rejourney: 0.97, Sentry: 7.1 },
+        { version: 'v1.3', Rejourney: 1.6, Sentry: 7.1 },
+        { version: 'v1.4', Rejourney: 1.6, Sentry: 7.1 },
+        { version: 'v1.5', Rejourney: 1.6, Sentry: 7.1 },
     ];
+
+    const rejourneyEfficiencyX = (7.1 / 1.6).toFixed(1);
 
     return (
         <section ref={sectionRef} className="w-full px-4 sm:px-6 lg:px-8 py-24 border-t-2 border-black bg-slate-50 relative overflow-hidden">
@@ -52,13 +61,13 @@ export const PerformanceMetrics: React.FC = () => {
                             <span className="text-gray-400">Extreme Impact.</span>
                         </h2>
                         <p className="font-mono text-sm text-gray-500 uppercase tracking-widest">
-                            7.3x Efficiency Advantage over industry standards
+                            {rejourneyEfficiencyX}x Efficiency Advantage over industry standards
                         </p>
                     </div>
 
                     {/* Floating Badge */}
                     <div className="hidden lg:block bg-black text-white p-6 border-2 border-black shadow-[8px_8px_0px_0px_rgba(93,173,236,1)] rotate-2">
-                        <p className="text-4xl font-black font-mono">7.3X</p>
+                        <p className="text-4xl font-black font-mono">{rejourneyEfficiencyX}X</p>
                         <p className="text-[10px] uppercase font-bold tracking-widest mt-1">Smaller SDK Size</p>
                     </div>
                 </div>
@@ -88,14 +97,14 @@ export const PerformanceMetrics: React.FC = () => {
                             <div className="flex-grow min-h-[250px] relative border-2 border-black bg-slate-50 p-4">
                                 {isVisible && (
                                     <ResponsiveContainer width="100%" height="100%">
-                                        <AreaChart data={comparisonData}>
+                                        <ComposedChart data={comparisonData} margin={{ top: 8, right: 12, left: 0, bottom: 0 }}>
                                             <YAxis
                                                 hide={false}
                                                 axisLine={false}
                                                 tickLine={true}
                                                 tick={{ fill: '#000', fontSize: 10, fontFamily: 'monospace', fontWeight: 'bold' }}
                                                 tickFormatter={(value) => `${value}MB`}
-                                                interval={0}
+                                                domain={[0, 8]}
                                                 width={40}
                                             />
                                             <Tooltip
@@ -108,10 +117,31 @@ export const PerformanceMetrics: React.FC = () => {
                                                     textTransform: 'uppercase'
                                                 }}
                                                 itemStyle={{ color: '#fff' }}
+                                                formatter={(value: number | undefined, name) => {
+                                                    const v = value ?? 0;
+                                                    const series = name ?? '';
+                                                    if (series !== 'Rejourney') return [`${v} MB`, series];
+                                                    const label = v < 1 ? `${Math.round(v * 1000)} KB` : `${v} MB`;
+                                                    return [label, series];
+                                                }}
+                                            />
+                                            <ReferenceLine
+                                                x="v1.3"
+                                                stroke="#5dadec"
+                                                strokeWidth={2}
+                                                strokeDasharray="4 4"
+                                                label={{
+                                                    value: '↗ New features',
+                                                    position: 'insideTopLeft',
+                                                    fill: '#000',
+                                                    fontSize: 10,
+                                                    fontWeight: 800,
+                                                    fontFamily: 'monospace',
+                                                }}
                                             />
                                             <Area type="step" dataKey="Sentry" stroke="#ef4444" strokeWidth={3} fill="#ef4444" fillOpacity={0.1} isAnimationActive={true} />
                                             <Area type="step" dataKey="Rejourney" stroke="#5dadec" strokeWidth={3} fill="#5dadec" fillOpacity={0.1} isAnimationActive={true} />
-                                        </AreaChart>
+                                        </ComposedChart>
                                     </ResponsiveContainer>
                                 )}
                             </div>
@@ -134,10 +164,17 @@ export const PerformanceMetrics: React.FC = () => {
 
                             <div>
                                 <p className="text-[10px] font-black uppercase tracking-widest text-[#5dadec] mb-2">Rejourney SDK</p>
-                                <div className="flex items-baseline gap-2">
-                                    <span className="text-6xl font-black font-mono tracking-tighter text-[#5dadec]">970</span>
-                                    <span className="text-xl font-bold uppercase text-[#5dadec]">KB</span>
+                                <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+                                    <span className="text-6xl font-black font-mono tracking-tighter text-[#5dadec]">1.6</span>
+                                    <span className="text-xl font-bold uppercase text-[#5dadec]">MB</span>
+                                    <span className="flex items-center gap-1 text-[10px] font-bold font-mono uppercase text-gray-500">
+                                        <ArrowUpRight className="w-3.5 h-3.5 text-[#5dadec]" aria-hidden />
+                                        from 970 KB
+                                    </span>
                                 </div>
+                                <p className="text-[10px] font-mono text-gray-500 uppercase mt-2 max-w-[220px] leading-tight">
+                                    Core stayed lean; new features added capacity on the timeline above.
+                                </p>
                             </div>
                         </div>
                     </div>

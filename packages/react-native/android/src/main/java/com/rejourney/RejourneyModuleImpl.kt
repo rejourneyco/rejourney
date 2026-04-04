@@ -400,8 +400,13 @@ class RejourneyModuleImpl(
         waitForSessionReady(savedUserId, 0)
     }
 
-    private fun waitForSessionReady(savedUserId: String?, attempts: Int) {
-        val maxAttempts = 30 // 3 seconds max
+    private fun waitForSessionReady(
+        savedUserId: String?,
+        attempts: Int,
+        onReady: ((String) -> Unit)? = null,
+        onTimeout: (() -> Unit)? = null
+    ) {
+        val maxAttempts = 50 // 5 seconds max
 
         mainHandler.postDelayed({
             val newSid = ReplayOrchestrator.shared?.replayId
@@ -420,10 +425,12 @@ class RejourneyModuleImpl(
 
                 DiagnosticLog.replayBegan(newSid)
                 DiagnosticLog.notice("[Rejourney] ✅ New session started: $newSid")
+                onReady?.invoke(newSid)
             } else if (attempts < maxAttempts) {
-                waitForSessionReady(savedUserId, attempts + 1)
+                waitForSessionReady(savedUserId, attempts + 1, onReady, onTimeout)
             } else {
                 DiagnosticLog.caution("[Rejourney] ⚠️ Timeout waiting for new session to initialize")
+                onTimeout?.invoke()
             }
         }, 100)
     }
@@ -495,7 +502,12 @@ class RejourneyModuleImpl(
                         return@post
                     }
                     is SessionState.Starting -> {
-                        promise.resolve(createResultMap(true, currentState.sessionId))
+                        val activeSid = ReplayOrchestrator.shared?.replayId
+                        if (!activeSid.isNullOrEmpty()) {
+                            promise.resolve(createResultMap(true, activeSid))
+                        } else {
+                            promise.resolve(createResultMap(false, "", "Session is still starting"))
+                        }
                         return@post
                     }
                     else -> Unit
@@ -545,22 +557,22 @@ class RejourneyModuleImpl(
             // Android-specific: Start SessionLifecycleService for task removal detection
             startSessionLifecycleService()
 
-            // Allow orchestrator time to spin up
-            mainHandler.postDelayed({
-                val sid = ReplayOrchestrator.shared?.replayId ?: pendingSessionId
-                stateLock.withLock {
-                    state = SessionState.Active(sid, System.currentTimeMillis())
+            waitForSessionReady(
+                savedUserId = userId,
+                attempts = 0,
+                onReady = { sid ->
+                    promise.resolve(createResultMap(true, sid))
+                },
+                onTimeout = {
+                    stateLock.withLock {
+                        if (state is SessionState.Starting) {
+                            state = SessionState.Idle
+                        }
+                    }
+                    stopSessionLifecycleService()
+                    promise.resolve(createResultMap(false, "", "Timed out waiting for replay session to initialize"))
                 }
-
-                ReplayOrchestrator.shared?.activateGestureRecording()
-
-                if (!userId.isNullOrBlank() && userId != "anonymous" && !userId.startsWith("anon_")) {
-                    ReplayOrchestrator.shared?.associateUser(userId)
-                }
-
-                DiagnosticLog.replayBegan(sid)
-                promise.resolve(createResultMap(true, sid))
-            }, 300)
+            )
         }
     }
     

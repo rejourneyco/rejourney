@@ -91,8 +91,8 @@ class VisualCapture private constructor(private val context: Context) {
     private val maxPendingBatches = 50
     private val maxBufferedScreenshots = 500
     
-    // Industry standard batch size (20 frames per batch)
-    private val batchSize = 20
+    /** Flush to the network after this many frames (smaller = more frequent uploads). */
+    private var uploadBatchSize = 3
     
     // Current activity reference
     private var currentActivity: WeakReference<Activity>? = null
@@ -208,9 +208,10 @@ class VisualCapture private constructor(private val context: Context) {
         redactionMask.invalidateCache()
     }
     
-    fun configure(snapshotInterval: Double, jpegQuality: Double) {
+    fun configure(snapshotInterval: Double, jpegQuality: Double, uploadBatchSize: Int = 3) {
         this.snapshotInterval = snapshotInterval
         this.quality = jpegQuality.toFloat()
+        this.uploadBatchSize = uploadBatchSize.coerceIn(1, 100)
         if (stateMachine.currentState == CaptureState.CAPTURING) {
             stopCaptureTimer()
             startCaptureTimer()
@@ -404,7 +405,7 @@ class VisualCapture private constructor(private val context: Context) {
         stateLock.withLock {
             screenshots.add(Pair(data, captureTs))
             enforceScreenshotCaps()
-            val shouldSend = !deferredUntilCommit && screenshots.size >= batchSize
+            val shouldSend = !deferredUntilCommit && screenshots.size >= uploadBatchSize
             
             if (shouldSend) {
                 sendScreenshots()

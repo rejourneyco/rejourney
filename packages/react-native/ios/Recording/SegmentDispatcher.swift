@@ -100,7 +100,6 @@ final class SegmentDispatcher {
     
     func halt() {
         active = false
-        workerQueue.cancelAllOperations()
     }
     
     func shipPending() {
@@ -109,7 +108,11 @@ final class SegmentDispatcher {
     }
     
     func transmitFrameBundle(payload: Data, startMs: UInt64, endMs: UInt64, frameCount: Int, completion: ((Bool) -> Void)? = nil) {
-        guard let sid = currentReplayId, canUploadNow() else {
+        transmitFrameBundle(for: currentReplayId, payload: payload, startMs: startMs, endMs: endMs, frameCount: frameCount, completion: completion)
+    }
+
+    func transmitFrameBundle(for sessionId: String?, payload: Data, startMs: UInt64, endMs: UInt64, frameCount: Int, completion: ((Bool) -> Void)? = nil) {
+        guard let sid = sessionId, canUploadNow() else {
             completion?(false)
             return
         }
@@ -313,6 +316,12 @@ final class SegmentDispatcher {
                 self.scheduleRetryIfNeeded(upload, completion: completion)
                 return
             }
+
+            if presign.skipUpload {
+                self.registerSuccess()
+                completion?(true)
+                return
+            }
             
             self.uploadToS3(url: presign.presignedUrl, payload: upload.payload) { s3ok in
                 guard s3ok else {
@@ -415,7 +424,7 @@ final class SegmentDispatcher {
             }
             
             if json["skipUpload"] as? Bool == true {
-                completion(nil)
+                completion(PresignResponse(presignedUrl: "", batchId: "", skipUpload: true))
                 return
             }
             
@@ -426,7 +435,7 @@ final class SegmentDispatcher {
             
             let batchId = json["batchId"] as? String ?? json["segmentId"] as? String ?? ""
             
-            completion(PresignResponse(presignedUrl: presignedUrl, batchId: batchId))
+            completion(PresignResponse(presignedUrl: presignedUrl, batchId: batchId, skipUpload: false))
         }.resume()
     }
     
@@ -638,4 +647,5 @@ private struct PendingUpload {
 private struct PresignResponse {
     let presignedUrl: String
     let batchId: String
+    let skipUpload: Bool
 }

@@ -26,8 +26,10 @@ import com.rejourney.utility.gzipCompress
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.*
+import java.util.concurrent.CountDownLatch
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.locks.ReentrantLock
 import kotlin.concurrent.withLock
 
@@ -160,11 +162,7 @@ class TelemetryPipeline private constructor(private val context: Context) {
         heartbeatRunnable?.let { mainHandler.removeCallbacks(it) }
         heartbeatRunnable = null
 
-        SegmentDispatcher.shared.halt()
-        appSuspending()
-
-        // Clear pending frame bundles so they don't leak into the next session
-        frameQueue.clear()
+        drainPendingDataForShutdown()
     }
     
     fun finalizeAndShip() {
@@ -204,6 +202,31 @@ class TelemetryPipeline private constructor(private val context: Context) {
     
     fun getQueueDepth(): Int {
         return eventRing.size() + frameQueue.size()
+    }
+
+    private fun drainPendingDataForShutdown() {
+        if (draining) return
+        draining = true
+
+        // Force any in-memory frames into the upload pipeline before session
+        // teardown clears the active replay ID.
+        VisualCapture.shared?.flushToDisk()
+        VisualCapture.shared?.flushBufferToNetwork()
+
+        val latch = CountDownLatch(1)
+        serialWorker.execute {
+            try {
+                shipPendingEvents()
+                shipPendingFrames()
+            } finally {
+                draining = false
+                latch.countDown()
+            }
+        }
+
+        if (!latch.await(1, TimeUnit.SECONDS)) {
+            DiagnosticLog.trace("[TelemetryPipeline] shutdown drain timed out before upload queue kick-off completed")
+        }
     }
     
     private fun appSuspending() {
@@ -249,17 +272,14 @@ class TelemetryPipeline private constructor(private val context: Context) {
             return
         }
 
-        // Drop frames that belong to a session that is no longer active —
-        // they would be uploaded under the wrong session and cause flickering.
-        if (next.sessionId != null && next.sessionId != currentReplayId && currentReplayId != null) {
-            DiagnosticLog.trace("[TelemetryPipeline] shipPendingFrames: dropping ${next.count} stale frames from session ${next.sessionId} (current=${currentReplayId})")
-            serialWorker.execute { shipPendingFrames() }
-            return
+        if (next.sessionId != null && next.sessionId != currentReplayId) {
+            DiagnosticLog.trace("[TelemetryPipeline] shipPendingFrames: routing ${next.count} frames to captured session ${next.sessionId} (current=${currentReplayId})")
         }
         
         DiagnosticLog.trace("[TelemetryPipeline] shipPendingFrames: transmitting ${next.count} frames to SegmentDispatcher")
         
-        SegmentDispatcher.shared.transmitFrameBundle(
+        SegmentDispatcher.shared.transmitFrameBundleForSession(
+            sessionId = targetSession,
             payload = next.payload,
             startMs = next.rangeStart,
             endMs = next.rangeEnd,

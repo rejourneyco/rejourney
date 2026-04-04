@@ -125,11 +125,7 @@ public final class TelemetryPipeline: NSObject {
         _heartbeat = nil
         NotificationCenter.default.removeObserver(self)
         
-        SegmentDispatcher.shared.halt()
-        _appSuspending()
-
-        // Clear pending frame bundles so they don't leak into the next session
-        _frameQueue.clear()
+        _drainPendingDataForShutdown()
     }
     
     @objc public func finalizeAndShip() {
@@ -168,6 +164,35 @@ public final class TelemetryPipeline: NSObject {
     
     @objc public func getQueueDepth() -> Int {
         _eventRing.count + _frameQueue.count
+    }
+
+    private func _drainPendingDataForShutdown() {
+        guard !_draining else { return }
+        _draining = true
+
+        _backgroundTaskId = UIApplication.shared.beginBackgroundTask(withName: "RejourneyShutdownFlush") { [weak self] in
+            self?._endBackgroundTask()
+        }
+
+        // Force any in-memory frames into the upload pipeline before session
+        // teardown clears the active replay ID.
+        VisualCapture.shared.flushToDisk()
+        VisualCapture.shared.flushBufferToNetwork()
+
+        let group = DispatchGroup()
+        group.enter()
+        _serialWorker.async { [weak self] in
+            defer { group.leave() }
+            self?._shipPendingEvents()
+            self?._shipPendingFrames()
+        }
+
+        if group.wait(timeout: .now() + 1.0) == .timedOut {
+            DiagnosticLog.trace("[TelemetryPipeline] shutdown drain timed out before upload queue kick-off completed")
+        }
+
+        _endBackgroundTask()
+        _draining = false
     }
     
     @objc private func _appSuspending() {
@@ -254,19 +279,18 @@ public final class TelemetryPipeline: NSObject {
     private func _shipPendingFrames() {
         guard !_deferredMode, let next = _frameQueue.dequeue() else { return }
 
-        guard currentReplayId != nil else {
+        let targetSession = next.sessionId ?? currentReplayId
+        guard let targetSession else {
             _frameQueue.requeue(next)
             return
         }
 
-        // Drop frames that belong to a session that is no longer active
         if let bundleSession = next.sessionId, bundleSession != currentReplayId {
-            DiagnosticLog.trace("[TelemetryPipeline] Dropping \(next.count) stale frames from session \(bundleSession)")
-            _shipPendingFrames()
-            return
+            DiagnosticLog.trace("[TelemetryPipeline] Routing \(next.count) frames to captured session \(bundleSession) (current=\(currentReplayId ?? "nil"))")
         }
         
         SegmentDispatcher.shared.transmitFrameBundle(
+            for: targetSession,
             payload: next.payload,
             startMs: next.rangeStart,
             endMs: next.rangeEnd,
