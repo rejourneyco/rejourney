@@ -143,6 +143,8 @@ export async function scheduleArtifactJobRetry(options: {
     jobId: string;
     log: { warn: (...args: any[]) => void };
     maxAttempts: number;
+    kind?: string | null;
+    sessionId?: string | null;
 }): Promise<void> {
     if (options.attemptNumber >= options.maxAttempts) {
         await db.update(ingestJobs)
@@ -154,8 +156,18 @@ export async function scheduleArtifactJobRetry(options: {
                 .where(eq(recordingArtifacts.id, options.artifactId));
         }
         options.log.warn(
-            { attemptNumber: options.attemptNumber, maxAttempts: options.maxAttempts },
-            'Job moved to DLQ after max attempts',
+            {
+                event: 'ingest.artifact_job_dlq',
+                replayArtifact: options.kind === 'screenshots' || options.kind === 'hierarchy',
+                jobId: options.jobId,
+                artifactId: options.artifactId,
+                sessionId: options.sessionId,
+                kind: options.kind,
+                attemptNumber: options.attemptNumber,
+                maxAttempts: options.maxAttempts,
+                errorMsgPreview: options.errorMsg?.slice(0, 400),
+            },
+            'ingest.artifact_job_dlq',
         );
         return;
     }
@@ -167,10 +179,14 @@ export async function scheduleArtifactJobRetry(options: {
 
     options.log.warn(
         {
+            event: 'ingest.artifact_job_retry_scheduled',
             attemptNumber: options.attemptNumber,
             maxAttempts: options.maxAttempts,
             nextRunAt,
+            kind: options.kind,
+            sessionId: options.sessionId,
+            errorMsgPreview: options.errorMsg?.slice(0, 400),
         },
-        'Artifact job scheduled for retry',
+        'ingest.artifact_job_retry_scheduled',
     );
 }

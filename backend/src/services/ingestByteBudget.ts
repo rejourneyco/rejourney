@@ -1,4 +1,4 @@
-import { getRedis } from '../db/redis.js';
+import { getRedis, getRedisDiagnosticsForLog } from '../db/redis.js';
 import { rateLimits } from '../config.js';
 import { logger } from '../logger.js';
 import { ApiError } from '../middleware/index.js';
@@ -179,6 +179,7 @@ export async function enforceIngestByteBudget({
             const primary = violations[0];
             logger.warn(
                 {
+                    event: 'ingest.byte_budget_exceeded',
                     projectId,
                     deviceId,
                     clientIp: normalizedIp,
@@ -186,8 +187,9 @@ export async function enforceIngestByteBudget({
                     bytes,
                     primaryViolation: primary,
                     violationCount: violations.length,
+                    ...getRedisDiagnosticsForLog(),
                 },
-                'Blocked presign request due to ingest byte budget'
+                'ingest.byte_budget_exceeded',
             );
 
             throw ApiError.tooManyRequests(
@@ -201,8 +203,17 @@ export async function enforceIngestByteBudget({
         }
 
         logger.error(
-            { err, projectId, deviceId, clientIp: normalizedIp, endpoint, bytes },
-            'Ingest byte budget check failed'
+            {
+                err,
+                event: 'ingest.byte_budget_redis_error',
+                projectId,
+                deviceId,
+                clientIp: normalizedIp,
+                endpoint,
+                bytes,
+                ...getRedisDiagnosticsForLog(),
+            },
+            'ingest.byte_budget_redis_error',
         );
         throw ApiError.serviceUnavailable('Ingest quota service temporarily unavailable');
     }

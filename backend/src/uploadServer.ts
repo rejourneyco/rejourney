@@ -5,7 +5,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { config, isDevelopment } from './config.js';
 import { logger } from './logger.js';
 import { pool } from './db/client.js';
-import { getRedis, initRedis, closeRedis } from './db/redis.js';
+import { getRedis, getRedisDiagnosticsForLog, initRedis, closeRedis } from './db/redis.js';
 import { errorHandler, notFoundHandler } from './middleware/index.js';
 import ingestUploadRelayRouter from './routes/ingestUploadRelay.js';
 
@@ -53,7 +53,14 @@ app.get('/health', async (_req, res) => {
 
         res.json({ status: 'ok', service: 'ingest-upload', timestamp: new Date().toISOString() });
     } catch (error) {
-        logger.warn({ error }, 'Ingest upload health check failed');
+        logger.warn(
+            {
+                error,
+                event: 'upload_service.health_check_failed',
+                ...getRedisDiagnosticsForLog(),
+            },
+            'upload_service.health_check_failed',
+        );
         res.status(503).json({
             status: 'error',
             service: 'ingest-upload',

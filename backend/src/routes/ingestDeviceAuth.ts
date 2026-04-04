@@ -3,7 +3,7 @@ import { createHmac } from 'crypto';
 import { eq } from 'drizzle-orm';
 import { db, projects } from '../db/client.js';
 import { logger } from '../logger.js';
-import { getRedis } from '../db/redis.js';
+import { getRedis, getRedisDiagnosticsForLog } from '../db/redis.js';
 import { asyncHandler, ApiError } from '../middleware/index.js';
 import { ingestDeviceRateLimiter } from '../middleware/rateLimit.js';
 import { config } from '../config.js';
@@ -62,7 +62,16 @@ router.post(
                 new Promise((_, reject) => setTimeout(() => reject(new Error('Redis timeout')), 500)),
             ]);
         } catch (err) {
-            logger.warn({ err, projectId: project.id }, 'Redis unavailable for upload token storage');
+            logger.warn(
+                {
+                    err,
+                    event: 'ingest.device_auth_redis_token_store_failed',
+                    projectId: project.id,
+                    deviceId,
+                    ...getRedisDiagnosticsForLog(),
+                },
+                'ingest.device_auth_redis_token_store_failed',
+            );
         }
 
         logger.info({ projectId: project.id, platform: (metadata as any)?.os }, 'Device upload token issued');

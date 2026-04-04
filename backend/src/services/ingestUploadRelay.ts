@@ -51,12 +51,42 @@ function trimTrailingSlash(value: string): string {
     return value.endsWith('/') ? value.slice(0, -1) : value;
 }
 
-function getPublicIngestBaseUrl(): string {
-    return trimTrailingSlash(
-        config.PUBLIC_INGEST_URL ||
-        config.PUBLIC_API_URL ||
-        `http://127.0.0.1:${config.PORT}`
-    );
+export type UploadRelayPublicBaseSource = 'PUBLIC_INGEST_URL' | 'PUBLIC_API_URL' | 'loopback_fallback';
+
+function resolvePublicIngestBase(): { baseUrl: string; source: UploadRelayPublicBaseSource } {
+    if (config.PUBLIC_INGEST_URL) {
+        return { baseUrl: trimTrailingSlash(config.PUBLIC_INGEST_URL), source: 'PUBLIC_INGEST_URL' };
+    }
+    if (config.PUBLIC_API_URL) {
+        return { baseUrl: trimTrailingSlash(config.PUBLIC_API_URL), source: 'PUBLIC_API_URL' };
+    }
+    return {
+        baseUrl: trimTrailingSlash(`http://127.0.0.1:${config.PORT}`),
+        source: 'loopback_fallback',
+    };
+}
+
+/**
+ * Safe for logs: host + which env drove the relay URL (no token, no query).
+ * Misconfigured PUBLIC_INGEST_URL is a top cause of "events work, replay uploads never hit upload pod".
+ */
+export function getUploadRelayBuildContext(): {
+    relayBaseUrl: string;
+    relayHost: string;
+    publicBaseSource: UploadRelayPublicBaseSource;
+} {
+    const { baseUrl, source } = resolvePublicIngestBase();
+    let relayHost = '';
+    try {
+        relayHost = new URL(baseUrl).hostname;
+    } catch {
+        relayHost = 'url_parse_error';
+    }
+    return {
+        relayBaseUrl: baseUrl,
+        relayHost,
+        publicBaseSource: source,
+    };
 }
 
 export function buildArtifactUploadRelayUrl(params: {
@@ -77,28 +107,54 @@ export function buildArtifactUploadRelayUrl(params: {
     const payloadB64 = encodePayload(payload);
     const sig = signPayload(payloadB64);
     const token = `${payloadB64}.${sig}`;
-    return `${getPublicIngestBaseUrl()}/upload/artifacts/${params.artifactId}?token=${encodeURIComponent(token)}`;
+    return `${resolvePublicIngestBase().baseUrl}/upload/artifacts/${params.artifactId}?token=${encodeURIComponent(token)}`;
 }
 
-export function verifyArtifactUploadRelayToken(token: string | undefined, artifactId: string): UploadRelayTokenPayload | null {
-    if (!token) return null;
+export type UploadRelayTokenFailureReason =
+    | 'missing_token'
+    | 'malformed_token'
+    | 'bad_signature'
+    | 'bad_payload'
+    | 'artifact_id_mismatch'
+    | 'expired';
+
+export function verifyArtifactUploadRelayTokenResult(
+    token: string | undefined,
+    artifactId: string,
+): { ok: true; payload: UploadRelayTokenPayload } | { ok: false; reason: UploadRelayTokenFailureReason } {
+    if (!token) {
+        return { ok: false, reason: 'missing_token' };
+    }
 
     const dotIdx = token.indexOf('.');
-    if (dotIdx <= 0) return null;
+    if (dotIdx <= 0) {
+        return { ok: false, reason: 'malformed_token' };
+    }
 
     const payloadB64 = token.slice(0, dotIdx);
     const signature = token.slice(dotIdx + 1);
     const expected = signPayload(payloadB64);
     if (!signaturesMatch(signature, expected)) {
-        return null;
+        return { ok: false, reason: 'bad_signature' };
     }
 
     const payload = decodePayload(payloadB64);
-    if (!payload) return null;
-    if (payload.artifactId !== artifactId) return null;
+    if (!payload) {
+        return { ok: false, reason: 'bad_payload' };
+    }
+    if (payload.artifactId !== artifactId) {
+        return { ok: false, reason: 'artifact_id_mismatch' };
+    }
 
     const now = Math.floor(Date.now() / 1000);
-    if (payload.exp < now) return null;
+    if (payload.exp < now) {
+        return { ok: false, reason: 'expired' };
+    }
 
-    return payload;
+    return { ok: true, payload };
+}
+
+export function verifyArtifactUploadRelayToken(token: string | undefined, artifactId: string): UploadRelayTokenPayload | null {
+    const result = verifyArtifactUploadRelayTokenResult(token, artifactId);
+    return result.ok ? result.payload : null;
 }

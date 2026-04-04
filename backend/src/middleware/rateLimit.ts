@@ -5,7 +5,7 @@
  */
 
 import { Request, Response, NextFunction } from 'express';
-import { checkRateLimit, isRedisConnected, getRedis } from '../db/redis.js';
+import { checkRateLimit, isRedisConnected, getRedis, getRedisDiagnosticsForLog } from '../db/redis.js';
 import { rateLimits } from '../config.js';
 import { logger } from '../logger.js';
 
@@ -46,11 +46,28 @@ export function rateLimit(options: RateLimitOptions) {
 
         if (!redisReady) {
             if (failOpen) {
-                logger.warn('Redis unavailable, rate limit bypassed (fail-open)');
+                logger.warn(
+                    {
+                        event: 'rate_limit.redis_unavailable_fail_open',
+                        path: req.path,
+                        ...getRedisDiagnosticsForLog(),
+                    },
+                    'rate_limit.redis_unavailable_fail_open',
+                );
                 next();
                 return;
             } else {
-                logger.warn('Redis unavailable, rate limit enforced (fail-closed)');
+                const ingestRelated =
+                    req.path.startsWith('/api/ingest') || req.path.startsWith('/upload');
+                logger.warn(
+                    {
+                        event: 'rate_limit.redis_unavailable_fail_closed',
+                        path: req.path,
+                        ingestRelated,
+                        ...getRedisDiagnosticsForLog(),
+                    },
+                    'rate_limit.redis_unavailable_fail_closed',
+                );
                 res.status(503).json({
                     error: 'Service temporarily unavailable',
                     retryAfter: 60,
@@ -73,6 +90,23 @@ export function rateLimit(options: RateLimitOptions) {
             res.set('X-RateLimit-Reset', String(Math.ceil(result.resetAt / 1000)));
 
             if (!result.allowed) {
+                const signedOrIngestKey =
+                    key.startsWith('rate:ingest:') || key.startsWith('rate:signed:');
+                if (signedOrIngestKey) {
+                    logger.warn(
+                        {
+                            event: 'ingest.rate_limit_429',
+                            rateLimitKey: key,
+                            path: req.path,
+                            projectId: req.project?.id,
+                            max,
+                            windowMs,
+                            retryAfterSec: Math.ceil((result.resetAt - Date.now()) / 1000),
+                            ...getRedisDiagnosticsForLog(),
+                        },
+                        'ingest.rate_limit_429',
+                    );
+                }
                 res.status(429).json({
                     error: 'Too Many Requests',
                     message: message || 'Rate limit exceeded. Please try again later.',
@@ -83,7 +117,16 @@ export function rateLimit(options: RateLimitOptions) {
 
             next();
         } catch (err) {
-            logger.error({ err }, 'Rate limit check failed');
+            logger.error(
+                {
+                    err,
+                    event: 'rate_limit.middleware_error',
+                    path: req.path,
+                    failOpen,
+                    ...getRedisDiagnosticsForLog(),
+                },
+                'Rate limit check failed',
+            );
             if (failOpen) {
                 next();
             } else {

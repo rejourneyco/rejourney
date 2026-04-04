@@ -18,7 +18,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { config, isDevelopment } from './config.js';
 import { logger } from './logger.js';
 import { pool } from './db/client.js';
-import { getRedis, closeRedis, initRedis } from './db/redis.js';
+import { getRedis, getRedisDiagnosticsForLog, closeRedis, initRedis } from './db/redis.js';
 import routes from './routes/index.js';
 import { csrfProtection, originValidation, errorHandler, notFoundHandler } from './middleware/index.js';
 import { startStatsAggregationJob, stopStatsAggregationJob } from './jobs/statsAggregator.js';
@@ -170,7 +170,14 @@ app.get('/health/ingest', async (_req, res) => {
             timestamp: new Date().toISOString(),
         });
     } catch (error) {
-        logger.warn({ error }, 'Ingest health check failed');
+        logger.warn(
+            {
+                error,
+                event: 'api.health_ingest_failed',
+                ...getRedisDiagnosticsForLog(),
+            },
+            'api.health_ingest_failed',
+        );
         res.status(503).json({
             status: 'error',
             service: 'ingest',
@@ -207,7 +214,14 @@ app.get('/health/queue', async (_req, res) => {
             timestamp: new Date().toISOString(),
         });
     } catch (error) {
-        logger.warn({ error }, 'Queue health check failed');
+        logger.warn(
+            {
+                error,
+                event: 'api.health_queue_failed',
+                ...getRedisDiagnosticsForLog(),
+            },
+            'api.health_queue_failed',
+        );
         res.status(503).json({
             status: 'error',
             service: 'ingest-queue',
@@ -246,7 +260,14 @@ app.get('/health/ready', async (_req, res) => {
     } catch (error) {
         checks.redis = false;
         allHealthy = false;
-        logger.warn({ error }, 'Redis health check failed');
+        logger.warn(
+            {
+                error,
+                event: 'api.health_ready_redis_failed',
+                ...getRedisDiagnosticsForLog(),
+            },
+            'api.health_ready_redis_failed',
+        );
     }
 
     // Check S3 (optional, don't fail readiness if S3 check fails)

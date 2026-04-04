@@ -235,6 +235,8 @@ export async function processArtifactJob(
         });
 
         artifactLog.info({
+            event: 'artifact.processed',
+            replayArtifact: job.kind === 'screenshots' || job.kind === 'hierarchy',
             actualObjectSize: sizeBytes,
             pendingJobsRemaining,
         }, 'artifact.processed');
@@ -250,6 +252,8 @@ export async function processArtifactJob(
             jobId: job.id,
             log,
             maxAttempts: config.maxAttempts,
+            kind: job.kind,
+            sessionId: job.sessionId,
         });
         if (job.sessionId) {
             await reconcileSessionState(job.sessionId).catch((reconcileErr) => {

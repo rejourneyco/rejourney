@@ -8,6 +8,7 @@ import { Request, Response, NextFunction } from 'express';
 import { ZodError } from 'zod';
 import { logger } from '../logger.js';
 import { config } from '../config.js';
+import { buildIngestSessionRequestContext, isIngestOrSessionRelatedPath } from '../utils/requestDiagnostics.js';
 
 /**
  * Custom API error class
@@ -92,17 +93,30 @@ export function errorHandler(
 ): void {
     // Log the error
     const requestId = req.headers['x-request-id'] || 'unknown';
+    const ingestCtx = isIngestOrSessionRelatedPath(req.path) ? buildIngestSessionRequestContext(req) : {};
 
     if (err instanceof ApiError) {
+        const base = {
+            err,
+            requestId,
+            path: req.path,
+            apiErrorCode: err.code,
+            statusCode: err.statusCode,
+            event: 'api.request_error',
+            ...ingestCtx,
+        };
         if (err.statusCode >= 500) {
-            logger.error({ err, requestId, path: req.path }, err.message);
+            logger.error({ ...base, details: err.details }, err.message);
         } else {
-            logger.warn({ err, requestId, path: req.path }, err.message);
+            logger.warn({ ...base, details: err.details }, err.message);
         }
     } else if (err instanceof ZodError) {
-        logger.warn({ requestId, path: req.path, errors: err.errors }, 'Validation error');
+        logger.warn(
+            { requestId, path: req.path, errors: err.errors, event: 'api.validation_error', ...ingestCtx },
+            'Validation error',
+        );
     } else {
-        logger.error({ err, requestId, path: req.path }, 'Unhandled error');
+        logger.error({ err, requestId, path: req.path, event: 'api.unhandled_error', ...ingestCtx }, 'Unhandled error');
     }
 
     // Handle specific error types

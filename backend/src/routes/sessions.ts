@@ -1535,8 +1535,18 @@ router.get(
                 }
                 const url = await getSignedDownloadUrlForProject(session.projectId, artifact.s3ObjectKey);
                 if (url) eventsUrls.push(url);
-            } catch {
-                // Silently skip failed artifacts - they may be corrupted or missing
+            } catch (err) {
+                logger.warn(
+                    {
+                        err,
+                        event: 'sessions.signed_url_or_events_artifact_failed',
+                        sessionId: session.id,
+                        projectId: session.projectId,
+                        artifactKind: artifact.kind,
+                        s3ObjectKeySuffix: artifact.s3ObjectKey?.slice(-64),
+                    },
+                    'sessions.signed_url_or_events_artifact_failed',
+                );
             }
         }
 
@@ -1552,8 +1562,17 @@ router.get(
                         allNetwork.push(...parsed.networkRequests);
                     }
                 }
-            } catch {
-                // Silently skip failed artifacts - they may be corrupted or missing
+            } catch (err) {
+                logger.warn(
+                    {
+                        err,
+                        event: 'sessions.network_artifact_download_failed',
+                        sessionId: session.id,
+                        projectId: session.projectId,
+                        artifactKind: artifact.kind,
+                    },
+                    'sessions.network_artifact_download_failed',
+                );
             }
         }
 

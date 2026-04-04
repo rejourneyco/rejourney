@@ -38,7 +38,12 @@ type ReplayArtifactPreparationResult = {
     alreadyCompleted: boolean;
 };
 
+function isReplayArtifactKind(kind: string | null | undefined): boolean {
+    return kind === 'screenshots' || kind === 'hierarchy';
+}
+
 async function ensureArtifactProcessingJob(artifact: any): Promise<QueueArtifactJobResult> {
+    const replay = isReplayArtifactKind(artifact.kind);
     const [existingJob] = await db.select().from(ingestJobs)
         .where(eq(ingestJobs.artifactId, artifact.id))
         .limit(1);
@@ -52,10 +57,31 @@ async function ensureArtifactProcessingJob(artifact: any): Promise<QueueArtifact
             payloadRef: artifact.s3ObjectKey,
             status: 'pending',
         });
+        if (replay) {
+            logger.info({
+                event: 'ingest.replay_ingest_job_created',
+                projectId: artifact.projectId,
+                sessionId: artifact.sessionId,
+                artifactId: artifact.id,
+                kind: artifact.kind,
+                artifactRowStatus: artifact.status,
+            }, 'ingest.replay_ingest_job_created');
+        }
         return { queued: true, alreadyCompleted: false };
     }
 
     if (existingJob.status === 'done' && artifact.status === 'ready') {
+        if (replay) {
+            logger.info({
+                event: 'ingest.replay_ingest_job_ensure',
+                outcome: 'noop_done_and_ready',
+                projectId: artifact.projectId,
+                sessionId: artifact.sessionId,
+                artifactId: artifact.id,
+                kind: artifact.kind,
+                jobId: existingJob.id,
+            }, 'ingest.replay_ingest_job_ensure');
+        }
         return { queued: false, alreadyCompleted: true };
     }
 
@@ -74,6 +100,19 @@ async function ensureArtifactProcessingJob(artifact: any): Promise<QueueArtifact
             updatedAt: new Date(),
         })
         .where(eq(ingestJobs.id, existingJob.id));
+
+    if (replay) {
+        logger.info({
+            event: 'ingest.replay_ingest_job_requeued',
+            projectId: artifact.projectId,
+            sessionId: artifact.sessionId,
+            artifactId: artifact.id,
+            kind: artifact.kind,
+            jobId: existingJob.id,
+            previousJobStatus: existingJob.status,
+            artifactRowStatus: artifact.status,
+        }, 'ingest.replay_ingest_job_requeued');
+    }
 
     return { queued: true, alreadyCompleted: false };
 }
@@ -245,7 +284,10 @@ export async function registerPendingArtifact(params: PendingArtifactParams) {
         frameCount: params.frameCount ?? null,
     }).returning();
 
+    const replayArtifact = params.kind === 'screenshots' || params.kind === 'hierarchy';
     logger.info({
+        event: 'artifact.presigned',
+        replayArtifact,
         sessionId: params.sessionId,
         artifactId: artifact.id,
         kind: params.kind,
@@ -296,6 +338,8 @@ export async function markArtifactUploadStored(params: {
         });
 
     logger.info({
+        event: 'artifact.upload_stored',
+        replayArtifact: isReplayArtifactKind(artifact.kind),
         projectId: session.projectId,
         sessionId: session.id,
         artifactId: artifact.id,
@@ -416,7 +460,25 @@ export async function completeArtifactUpload(params: CompleteArtifactParams) {
         jobState = { queued: false, alreadyCompleted: true };
     }
 
+    const isReplayKind = artifact.kind === 'screenshots' || artifact.kind === 'hierarchy';
+    if (isReplayKind && artifact.status === 'pending') {
+        logger.warn(
+            {
+                event: 'ingest.segment_complete_while_pending',
+                projectId: params.projectId,
+                sessionId: session.id,
+                artifactId: artifact.id,
+                kind: artifact.kind,
+                clientUploadId: params.clientUploadId,
+                actualSizeBytes: params.actualSizeBytes ?? null,
+                frameCount: params.frameCount ?? null,
+            },
+            'ingest.segment_complete_while_pending',
+        );
+    }
+
     logger.info({
+        event: 'artifact.complete_received',
         projectId: params.projectId,
         sessionId: session.id,
         artifactId: artifact.id,
@@ -464,6 +526,8 @@ export async function queueRecoverableArtifacts(limit = 100): Promise<number> {
         if (jobState.queued) {
             queued += 1;
             logger.info({
+                event: 'artifact.queued',
+                replayArtifact: isReplayArtifactKind(row.artifact.kind),
                 sessionId: row.artifact.sessionId,
                 artifactId: row.artifact.id,
                 kind: row.artifact.kind,
@@ -518,13 +582,19 @@ export async function abandonExpiredPendingArtifacts(limit = 100): Promise<numbe
         ));
 
     for (const row of rows) {
-        logger.warn({
-            sessionId: row.sessionId,
-            artifactId: row.id,
-            kind: row.kind,
-            clientUploadId: row.clientUploadId,
-            s3ObjectKey: row.s3ObjectKey,
-        }, 'artifact.abandoned');
+        const replayArtifact = isReplayArtifactKind(row.kind);
+        logger.warn(
+            {
+                event: 'artifact.abandoned',
+                replayArtifact,
+                sessionId: row.sessionId,
+                artifactId: row.id,
+                kind: row.kind,
+                clientUploadId: row.clientUploadId,
+                s3ObjectKey: row.s3ObjectKey,
+            },
+            replayArtifact ? 'ingest.replay_artifact_abandoned' : 'artifact.abandoned',
+        );
     }
 
     return rows.length;
@@ -558,14 +628,20 @@ export async function requeueStaleProcessingJobs(limit = 100): Promise<number> {
             })
             .where(eq(ingestJobs.id, row.id));
 
-        logger.warn({
-            jobId: row.id,
-            artifactId: row.artifactId,
-            sessionId: row.sessionId,
-            kind: row.kind,
-            workerId: row.workerId,
-            startedAt: row.startedAt,
-        }, 'artifact.retry');
+        const replayArtifact = isReplayArtifactKind(row.kind);
+        logger.warn(
+            {
+                event: 'artifact.job_stale_requeued',
+                replayArtifact,
+                jobId: row.id,
+                artifactId: row.artifactId,
+                sessionId: row.sessionId,
+                kind: row.kind,
+                workerId: row.workerId,
+                startedAt: row.startedAt,
+            },
+            replayArtifact ? 'ingest.replay_job_stale_requeued' : 'artifact.retry',
+        );
     }
 
     return rows.length;

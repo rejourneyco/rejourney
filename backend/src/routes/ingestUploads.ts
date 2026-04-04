@@ -16,7 +16,11 @@ import {
     prepareReplayArtifactForUpload,
     registerPendingArtifact,
 } from '../services/ingestArtifactLifecycle.js';
-import { buildArtifactUploadRelayUrl } from '../services/ingestUploadRelay.js';
+import {
+    ARTIFACT_UPLOAD_URL_TTL_SECONDS,
+    buildArtifactUploadRelayUrl,
+    getUploadRelayBuildContext,
+} from '../services/ingestUploadRelay.js';
 import {
     buildReplaySegmentId,
     extractDeviceIdFromUploadToken,
@@ -26,8 +30,28 @@ import {
 } from '../services/ingestProtocol.js';
 import { buildSdkTelemetryMergeSet, normalizeSdkTelemetry } from '../services/ingestSdkTelemetry.js';
 import { getRequestIp } from '../utils/requestIp.js';
+import { getRedisDiagnosticsForLog } from '../db/redis.js';
 
 const router = Router();
+
+function logIngestPresignSkip(meta: {
+    route: string;
+    projectId: string;
+    reason: string;
+    sessionId?: string | null;
+    kind?: string;
+    deduplicated?: boolean;
+    extra?: Record<string, unknown>;
+}): void {
+    logger.info(
+        {
+            event: 'ingest.presign_skip',
+            ...meta,
+            ...getRedisDiagnosticsForLog(),
+        },
+        'ingest.presign_skip',
+    );
+}
 
 router.post(
     '/presign',
@@ -66,6 +90,13 @@ router.post(
         if (idempotencyKey) {
             const existing = await getIdempotencyStatus(projectId, idempotencyKey);
             if (existing?.status === 'done') {
+                logIngestPresignSkip({
+                    route: '/api/ingest/presign',
+                    projectId,
+                    reason: 'idempotency_already_done',
+                    sessionId: data.sessionId || null,
+                    deduplicated: true,
+                });
                 res.json({
                     skipUpload: true,
                     deduplicated: true,
@@ -75,6 +106,16 @@ router.post(
                 return;
             }
             if (existing?.status === 'processing') {
+                logger.info(
+                    {
+                        event: 'ingest.presign_idempotency_processing',
+                        route: '/api/ingest/presign',
+                        projectId,
+                        sessionId: data.sessionId || null,
+                        ...getRedisDiagnosticsForLog(),
+                    },
+                    'ingest.presign_idempotency_processing',
+                );
                 res.status(202).json({ message: 'Processing', retryAfter: 5 });
                 return;
             }
@@ -294,6 +335,13 @@ router.post(
         }
 
         if (!project.recordingEnabled && data.kind === 'screenshots') {
+            logIngestPresignSkip({
+                route: '/api/ingest/segment/presign',
+                projectId,
+                reason: 'recording_disabled_for_project',
+                sessionId: data.sessionId,
+                kind: data.kind,
+            });
             res.json({
                 skipUpload: true,
                 sessionId: data.sessionId,
@@ -313,6 +361,14 @@ router.post(
         if (idempotencyKey) {
             const existing = await getIdempotencyStatus(projectId, idempotencyKey);
             if (existing?.status === 'done') {
+                logIngestPresignSkip({
+                    route: '/api/ingest/segment/presign',
+                    projectId,
+                    reason: 'idempotency_already_done',
+                    sessionId: data.sessionId,
+                    kind: data.kind,
+                    deduplicated: true,
+                });
                 res.json({
                     skipUpload: true,
                     deduplicated: true,
@@ -322,6 +378,17 @@ router.post(
                 return;
             }
             if (existing?.status === 'processing') {
+                logger.info(
+                    {
+                        event: 'ingest.presign_idempotency_processing',
+                        route: '/api/ingest/segment/presign',
+                        projectId,
+                        sessionId: data.sessionId,
+                        kind: data.kind,
+                        ...getRedisDiagnosticsForLog(),
+                    },
+                    'ingest.presign_idempotency_processing',
+                );
                 res.status(202).json({ message: 'Processing', retryAfter: 5 });
                 return;
             }
@@ -357,6 +424,13 @@ router.post(
         }
 
         if (data.kind === 'screenshots' && !session.isSampledIn) {
+            logIngestPresignSkip({
+                route: '/api/ingest/segment/presign',
+                projectId,
+                reason: 'session_sampled_out',
+                sessionId: data.sessionId,
+                kind: data.kind,
+            });
             res.json({
                 skipUpload: true,
                 sessionId: data.sessionId,
@@ -372,14 +446,20 @@ router.post(
             const elapsedMs = segmentStartMs - sessionStartMs;
 
             if (elapsedMs > maxRecordingMs) {
-                logger.info({
+                logIngestPresignSkip({
+                    route: '/api/ingest/segment/presign',
+                    projectId,
+                    reason: 'exceeds_max_recording_duration',
                     sessionId: data.sessionId,
-                    segmentStartMs,
-                    sessionStartMs,
-                    elapsedMs,
-                    maxRecordingMs,
-                    maxRecordingMinutes: project.maxRecordingMinutes,
-                }, 'Segment rejected - exceeds max recording duration');
+                    kind: data.kind,
+                    extra: {
+                        segmentStartMs,
+                        sessionStartMs,
+                        elapsedMs,
+                        maxRecordingMs,
+                        maxRecordingMinutes: project.maxRecordingMinutes,
+                    },
+                });
 
                 res.json({
                     skipUpload: true,
@@ -437,6 +517,16 @@ router.post(
                 await setIdempotencyStatus(projectId, idempotencyKey, 'done', segmentId);
             }
 
+            logIngestPresignSkip({
+                route: '/api/ingest/segment/presign',
+                projectId,
+                reason: 'replay_segment_already_processed',
+                sessionId: session.id,
+                kind: data.kind,
+                deduplicated: true,
+                extra: { segmentId },
+            });
+
             res.json({
                 skipUpload: true,
                 deduplicated: true,
@@ -462,6 +552,33 @@ router.post(
         if (idempotencyKey) {
             await setIdempotencyStatus(projectId, idempotencyKey, 'processing');
         }
+
+        const relayCtx = getUploadRelayBuildContext();
+        logger.info(
+            {
+                event: 'ingest.replay_relay_url_issued',
+                sessionId: session.id,
+                projectId,
+                artifactId: artifact.id,
+                segmentId,
+                kind: data.kind,
+                preparationAction: preparation.action,
+                isSampledIn: session.isSampledIn,
+                recordingEnabled: project.recordingEnabled,
+                relayHost: relayCtx.relayHost,
+                relayBaseUrl: relayCtx.relayBaseUrl,
+                publicBaseSource: relayCtx.publicBaseSource,
+                uploadPathTemplate: `/upload/artifacts/${artifact.id}`,
+                tokenTtlSeconds: ARTIFACT_UPLOAD_URL_TTL_SECONDS,
+                startTime: data.startTime,
+                endTime: data.endTime,
+                frameCount: data.frameCount,
+                sizeBytes: requestedSizeBytes,
+                s3KeySuffix: s3Key.length > 80 ? s3Key.slice(-80) : s3Key,
+                endpointId: endpoint.id,
+            },
+            'ingest.replay_relay_url_issued',
+        );
 
         logger.info({
             sessionId: session.id,

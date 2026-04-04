@@ -9,7 +9,10 @@ import {
     markArtifactUploadInterrupted,
     markArtifactUploadStored,
 } from '../services/ingestArtifactLifecycle.js';
-import { verifyArtifactUploadRelayToken } from '../services/ingestUploadRelay.js';
+import {
+    verifyArtifactUploadRelayTokenResult,
+} from '../services/ingestUploadRelay.js';
+import { getRedisDiagnosticsForLog } from '../db/redis.js';
 
 const router = Router();
 
@@ -25,11 +28,22 @@ router.put(
     asyncHandler(async (req, res) => {
         const artifactId = req.params.artifactId;
         const token = typeof req.query.token === 'string' ? req.query.token : undefined;
-        const payload = verifyArtifactUploadRelayToken(token, artifactId);
+        const tokenResult = verifyArtifactUploadRelayTokenResult(token, artifactId);
 
-        if (!payload) {
+        if (!tokenResult.ok) {
+            logger.warn(
+                {
+                    event: 'ingest.relay_auth_failed',
+                    artifactId,
+                    reason: tokenResult.reason,
+                    hasToken: Boolean(token),
+                    ...getRedisDiagnosticsForLog(),
+                },
+                'ingest.relay_auth_failed',
+            );
             throw ApiError.forbidden('Invalid or expired upload token');
         }
+        const payload = tokenResult.payload;
 
         const [artifactResult] = await db.select({
             artifact: recordingArtifacts,
@@ -41,16 +55,48 @@ router.put(
             .limit(1);
 
         if (!artifactResult) {
+            logger.warn(
+                {
+                    event: 'ingest.relay_artifact_not_found',
+                    artifactId,
+                    projectIdFromToken: payload.projectId,
+                    sessionIdFromToken: payload.sessionId,
+                    ...getRedisDiagnosticsForLog(),
+                },
+                'ingest.relay_artifact_not_found',
+            );
             throw ApiError.notFound('Artifact not found');
         }
 
         const { artifact, session } = artifactResult;
         if (session.projectId !== payload.projectId || session.id !== payload.sessionId) {
+            logger.warn(
+                {
+                    event: 'ingest.relay_token_scope_mismatch',
+                    artifactId,
+                    sessionProjectId: session.projectId,
+                    tokenProjectId: payload.projectId,
+                    sessionId: session.id,
+                    tokenSessionId: payload.sessionId,
+                    ...getRedisDiagnosticsForLog(),
+                },
+                'ingest.relay_token_scope_mismatch',
+            );
             throw ApiError.forbidden('Upload token scope mismatch');
         }
 
         const contentLength = parseContentLength(req.header('content-length') || undefined);
         if (contentLength && contentLength > config.INGEST_MAX_OBJECT_BYTES) {
+            logger.warn(
+                {
+                    event: 'ingest.relay_payload_too_large',
+                    artifactId,
+                    contentLength,
+                    maxObjectBytes: config.INGEST_MAX_OBJECT_BYTES,
+                    ...getRedisDiagnosticsForLog(),
+                },
+                'ingest.relay_payload_too_large',
+            );
             throw ApiError.badRequest('Artifact exceeds ingest max object size');
         }
 
@@ -99,6 +145,17 @@ router.put(
 
         if (!uploadResult.success) {
             const wasInterrupted = requestInterrupted || uploadResult.errorType === 'aborted';
+            log.error(
+                {
+                    event: 'ingest.relay_s3_upload_failed',
+                    wasInterrupted,
+                    errorType: uploadResult.errorType,
+                    errorMessage: uploadResult.error,
+                    contentLength,
+                    ...getRedisDiagnosticsForLog(),
+                },
+                'ingest.relay_s3_upload_failed',
+            );
             await markArtifactUploadInterrupted({
                 artifactId: artifact.id,
                 reason: wasInterrupted ? 'relay_upload_aborted' : 'relay_upload_failed',

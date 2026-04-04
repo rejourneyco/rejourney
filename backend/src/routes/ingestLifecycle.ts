@@ -18,6 +18,7 @@ import {
 } from '../services/ingestSessionEnd.js';
 import { preserveExistingSessionEndedAt } from '../services/sessionTiming.js';
 import { markSessionIngestActivity, reconcileSessionState } from '../services/sessionReconciliation.js';
+import { getRedisDiagnosticsForLog } from '../db/redis.js';
 
 const router = Router();
 
@@ -45,7 +46,15 @@ router.post(
         }
 
         if (!lifecycle.session) {
-            log.info('Ignoring stale unknown session during /session/end');
+            log.info(
+                {
+                    event: 'ingest.session_end_ignored',
+                    reason: 'session_not_found',
+                    resolution: lifecycle.resolution,
+                    ...getRedisDiagnosticsForLog(),
+                },
+                'Ignoring stale unknown session during /session/end',
+            );
             res.json({ success: true, ignored: true, reason: 'session_not_found' });
             return;
         }

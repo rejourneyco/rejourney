@@ -34,7 +34,32 @@ export function startArtifactWorker(definition: ArtifactWorkerDefinition): void 
                 return;
             }
 
-            logger.info({ count: runnableJobs.length, workerName: definition.workerName }, 'Processing ingest jobs');
+            const replayWorker = definition.allowedKinds.includes('screenshots')
+                || definition.allowedKinds.includes('hierarchy');
+            if (replayWorker) {
+                const byKind: Record<string, number> = {};
+                for (const j of runnableJobs) {
+                    const k = j.kind || 'unknown';
+                    byKind[k] = (byKind[k] ?? 0) + 1;
+                }
+                logger.info(
+                    {
+                        event: 'replay_worker.job_batch',
+                        workerName: definition.workerName,
+                        batchSize: runnableJobs.length,
+                        byKind,
+                        sampleJobs: runnableJobs.slice(0, 12).map((j) => ({
+                            jobId: j.id,
+                            sessionId: j.sessionId,
+                            artifactId: j.artifactId,
+                            kind: j.kind,
+                        })),
+                    },
+                    'replay_worker.job_batch',
+                );
+            } else {
+                logger.info({ count: runnableJobs.length, workerName: definition.workerName }, 'Processing ingest jobs');
+            }
 
             let cursor = 0;
             const workerCount = Math.max(1, Math.min(queueConfig.jobProcessConcurrency, runnableJobs.length));

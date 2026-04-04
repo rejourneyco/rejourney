@@ -17,6 +17,35 @@ type RedisClient = InstanceType<typeof Redis>;
 let redis: RedisClient | null = null;
 let isConnected = false;
 
+/** For structured logs when debugging Redis vs app logic (ingest, rate limits, session cache). */
+export function getRedisDiagnosticsForLog(): {
+    redisReportedConnected: boolean;
+    redisClientStatus: string;
+} {
+    try {
+        const client = getRedis();
+        return {
+            redisReportedConnected: isConnected,
+            redisClientStatus: typeof client.status === 'string' ? client.status : 'unknown',
+        };
+    } catch {
+        return { redisReportedConnected: false, redisClientStatus: 'client_init_error' };
+    }
+}
+
+function logRedisOperationFailed(operation: string, err: unknown, extra: Record<string, unknown> = {}): void {
+    logger.warn(
+        {
+            event: 'redis.operation_failed',
+            operation,
+            err,
+            ...getRedisDiagnosticsForLog(),
+            ...extra,
+        },
+        'redis.operation_failed',
+    );
+}
+
 export function getRedis(): RedisClient {
     if (!redis) {
         redis = new Redis(config.REDIS_URL, {
@@ -57,7 +86,7 @@ export async function initRedis(): Promise<void> {
             await client.connect();
             logger.info('Redis connection initialized');
         } catch (err) {
-            logger.error({ err }, 'Failed to initialize Redis connection');
+            logRedisOperationFailed('init_connect', err);
             // Don't throw - allow app to start even if Redis is down
         }
     }
@@ -97,7 +126,7 @@ export async function checkRateLimit(
             resetAt,
         };
     } catch (err) {
-        logger.warn({ err, key }, 'Rate limit check failed, allowing request');
+        logRedisOperationFailed('check_rate_limit', err, { rateLimitKeyPrefix: key.split(':').slice(0, 3).join(':') });
         return { allowed: true, remaining: maxRequests, resetAt };
     }
 }
@@ -117,7 +146,7 @@ export async function getIdempotencyStatus(
         if (!data || !data.status) return null;
         return { status: data.status, checksum: data.checksum };
     } catch (err) {
-        logger.warn({ err, projectId, idempotencyKey }, 'Failed to get idempotency status');
+        logRedisOperationFailed('get_idempotency_status', err, { projectId });
         return null;
     }
 }
@@ -138,7 +167,7 @@ export async function setIdempotencyStatus(
         pipeline.expire(key, 7 * 24 * 3600);
         await pipeline.exec();
     } catch (err) {
-        logger.warn({ err, projectId, idempotencyKey }, 'Failed to set idempotency status');
+        logRedisOperationFailed('set_idempotency_status', err, { projectId });
     }
 }
 
@@ -178,7 +207,7 @@ export async function getSessionLimitCache(
             planName: data.planName || 'unknown',
         };
     } catch (err) {
-        logger.warn({ err, teamId }, 'Failed to get session limit cache');
+        logRedisOperationFailed('get_session_limit_cache', err, { teamId });
         return null;
     }
 }
@@ -200,7 +229,7 @@ export async function acquireSessionLimitLock(
         const result = await redisClient.set(lockKey, '1', 'EX', lockTtlSeconds, 'NX');
         return result === 'OK';
     } catch (err) {
-        logger.warn({ err, teamId }, 'Failed to acquire session limit lock');
+        logRedisOperationFailed('acquire_session_limit_lock', err, { teamId });
         return false;
     }
 }
@@ -218,7 +247,7 @@ export async function releaseSessionLimitLock(
     try {
         await redisClient.del(lockKey);
     } catch (err) {
-        logger.warn({ err, teamId }, 'Failed to release session limit lock');
+        logRedisOperationFailed('release_session_limit_lock', err, { teamId });
     }
 }
 
@@ -291,7 +320,7 @@ export async function setSessionLimitCache(
         pipeline.expire(key, ttlSeconds);
         await pipeline.exec();
     } catch (err) {
-        logger.warn({ err, teamId }, 'Failed to set session limit cache');
+        logRedisOperationFailed('set_session_limit_cache', err, { teamId });
     }
 }
 
@@ -317,7 +346,7 @@ export async function getWorkspaceCache(
     try {
         return await redisClient.get(key);
     } catch (err) {
-        logger.warn({ err, userId, teamId }, 'Failed to get workspace cache');
+        logRedisOperationFailed('get_workspace_cache', err, { userId, teamId });
         return null;
     }
 }
@@ -334,7 +363,7 @@ export async function setWorkspaceCache(
     try {
         await redisClient.setex(key, WORKSPACE_CACHE_TTL_SECONDS, payload);
     } catch (err) {
-        logger.warn({ err, userId, teamId }, 'Failed to set workspace cache');
+        logRedisOperationFailed('set_workspace_cache', err, { userId, teamId });
     }
 }
 
@@ -349,7 +378,7 @@ export async function invalidateWorkspaceCache(
     try {
         await redisClient.del(key);
     } catch (err) {
-        logger.warn({ err, userId, teamId }, 'Failed to invalidate workspace cache');
+        logRedisOperationFailed('invalidate_workspace_cache', err, { userId, teamId });
     }
 }
 
@@ -368,7 +397,7 @@ export async function invalidateSessionLimitCache(
         await redisClient.del(key);
         logger.debug({ teamId, period: currentPeriod }, 'Invalidated team session limit cache');
     } catch (err) {
-        logger.warn({ err, teamId }, 'Failed to invalidate session limit cache');
+        logRedisOperationFailed('invalidate_session_limit_cache', err, { teamId });
     }
 }
 
