@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Activity, ArrowUpRight } from 'lucide-react';
+import { Activity, ArrowDownRight, ArrowUpRight } from 'lucide-react';
 import {
     Area,
     ResponsiveContainer,
@@ -30,17 +30,24 @@ export const PerformanceMetrics: React.FC = () => {
         return () => observer.disconnect();
     }, []);
 
-    // Rejourney: ~970 KB baseline, then step to 1.6 MB mid-timeline (new features).
+    /** Sentry RN SDK size (MB): was 7.1, recent releases stepped up to 7.6. */
+    const sentrySdkMbBaseline = 7.1;
+    const sentrySdkMbCurrent = 7.6;
+    /** Rejourney: ~970 KB early releases, 1.6 MB peak (new features), then optimized down to current. */
+    const rejourneyPeakMb = 1.6;
+    const rejourneyCurrentMb = 1.18;
+
     const comparisonData = [
-        { version: 'v1.0', Rejourney: 0.97, Sentry: 7.1 },
-        { version: 'v1.1', Rejourney: 0.97, Sentry: 7.1 },
-        { version: 'v1.2', Rejourney: 0.97, Sentry: 7.1 },
-        { version: 'v1.3', Rejourney: 1.6, Sentry: 7.1 },
-        { version: 'v1.4', Rejourney: 1.6, Sentry: 7.1 },
-        { version: 'v1.5', Rejourney: 1.6, Sentry: 7.1 },
+        { version: 'v1.0', Rejourney: 0.97, Sentry: sentrySdkMbBaseline },
+        { version: 'v1.1', Rejourney: 0.97, Sentry: sentrySdkMbBaseline },
+        { version: 'v1.2', Rejourney: 0.97, Sentry: sentrySdkMbBaseline },
+        { version: 'v1.3', Rejourney: rejourneyPeakMb, Sentry: sentrySdkMbBaseline },
+        { version: 'v1.4', Rejourney: rejourneyPeakMb, Sentry: sentrySdkMbCurrent },
+        { version: 'v1.5', Rejourney: rejourneyPeakMb, Sentry: sentrySdkMbCurrent },
+        { version: 'v1.6', Rejourney: rejourneyCurrentMb, Sentry: sentrySdkMbCurrent },
     ];
 
-    const rejourneyEfficiencyX = (7.1 / 1.6).toFixed(1);
+    const rejourneyEfficiencyX = (sentrySdkMbCurrent / rejourneyCurrentMb).toFixed(1);
 
     return (
         <section ref={sectionRef} className="w-full px-4 sm:px-6 lg:px-8 py-24 border-t-2 border-black bg-slate-50 relative overflow-hidden">
@@ -104,7 +111,7 @@ export const PerformanceMetrics: React.FC = () => {
                                                 tickLine={true}
                                                 tick={{ fill: '#000', fontSize: 10, fontFamily: 'monospace', fontWeight: 'bold' }}
                                                 tickFormatter={(value) => `${value}MB`}
-                                                domain={[0, 8]}
+                                                domain={[0, 8.5]}
                                                 width={40}
                                             />
                                             <Tooltip
@@ -139,8 +146,36 @@ export const PerformanceMetrics: React.FC = () => {
                                                     fontFamily: 'monospace',
                                                 }}
                                             />
-                                            <Area type="step" dataKey="Sentry" stroke="#ef4444" strokeWidth={3} fill="#ef4444" fillOpacity={0.1} isAnimationActive={true} />
-                                            <Area type="step" dataKey="Rejourney" stroke="#5dadec" strokeWidth={3} fill="#5dadec" fillOpacity={0.1} isAnimationActive={true} />
+                                            <ReferenceLine
+                                                x="v1.4"
+                                                stroke="#ef4444"
+                                                strokeWidth={2}
+                                                strokeDasharray="4 4"
+                                                label={{
+                                                    value: '↗ Sentry 7.6',
+                                                    position: 'insideBottomRight',
+                                                    fill: '#ef4444',
+                                                    fontSize: 10,
+                                                    fontWeight: 800,
+                                                    fontFamily: 'monospace',
+                                                }}
+                                            />
+                                            <ReferenceLine
+                                                x="v1.6"
+                                                stroke="#5dadec"
+                                                strokeWidth={2}
+                                                strokeDasharray="4 4"
+                                                label={{
+                                                    value: '↘ Size work',
+                                                    position: 'insideTopRight',
+                                                    fill: '#000',
+                                                    fontSize: 10,
+                                                    fontWeight: 800,
+                                                    fontFamily: 'monospace',
+                                                }}
+                                            />
+                                            <Area type="stepAfter" dataKey="Sentry" stroke="#ef4444" strokeWidth={3} fill="#ef4444" fillOpacity={0.1} isAnimationActive={true} />
+                                            <Area type="stepAfter" dataKey="Rejourney" stroke="#5dadec" strokeWidth={3} fill="#5dadec" fillOpacity={0.1} isAnimationActive={true} />
                                         </ComposedChart>
                                     </ResponsiveContainer>
                                 )}
@@ -151,9 +186,13 @@ export const PerformanceMetrics: React.FC = () => {
                         <div className="lg:border-l-2 lg:border-black lg:border-dashed lg:pl-12 flex flex-col justify-center space-y-10">
                             <div>
                                 <p className="text-[10px] font-black uppercase tracking-widest text-[#ef4444] mb-2">Sentry RN SDK</p>
-                                <div className="flex items-baseline gap-2">
-                                    <span className="text-6xl font-black font-mono tracking-tighter">7.1</span>
+                                <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+                                    <span className="text-6xl font-black font-mono tracking-tighter">{sentrySdkMbCurrent}</span>
                                     <span className="text-xl font-bold uppercase">MB</span>
+                                    <span className="flex items-center gap-1 text-[10px] font-bold font-mono uppercase text-gray-500">
+                                        <ArrowUpRight className="w-3.5 h-3.5 text-[#ef4444]" aria-hidden />
+                                        up from {sentrySdkMbBaseline} MB
+                                    </span>
                                 </div>
                                 <p className="text-[10px] font-mono text-gray-500 uppercase mt-2 max-w-[200px] leading-tight">
                                     Heavy dependencies impact cold starts & binary size.
@@ -165,16 +204,15 @@ export const PerformanceMetrics: React.FC = () => {
                             <div>
                                 <p className="text-[10px] font-black uppercase tracking-widest text-[#5dadec] mb-2">Rejourney SDK</p>
                                 <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
-                                    <span className="text-6xl font-black font-mono tracking-tighter text-[#5dadec]">1.6</span>
+                                    <span className="text-6xl font-black font-mono tracking-tighter text-[#5dadec]">{rejourneyCurrentMb}</span>
                                     <span className="text-xl font-bold uppercase text-[#5dadec]">MB</span>
-                                    <span className="flex items-center gap-1 text-[10px] font-bold font-mono uppercase text-gray-500">
-                                        <ArrowUpRight className="w-3.5 h-3.5 text-[#5dadec]" aria-hidden />
-                                        from 970 KB
+                               
+                                    <span className="w-full flex items-center gap-1 text-[10px] font-bold font-mono uppercase text-gray-500">
+                                        <ArrowDownRight className="w-3.5 h-3.5 text-[#008000]" aria-hidden />
+                                        down from {rejourneyPeakMb} MB peak
                                     </span>
                                 </div>
-                                <p className="text-[10px] font-mono text-gray-500 uppercase mt-2 max-w-[220px] leading-tight">
-                                    Core stayed lean; new features added capacity on the timeline above.
-                                </p>
+                         
                             </div>
                         </div>
                     </div>
