@@ -100,6 +100,8 @@ export const teams = pgTable('teams', {
     paymentFailedAt: timestamp('payment_failed_at'), // Set when payment fails, cleared on success
     retentionTier: integer('retention_tier').default(1).notNull(), // Defaults to free video retention
     bonusSessions: integer('bonus_sessions').default(0).notNull(), // Manual override: extra sessions beyond plan limit
+    /** When set, bonus_sessions only applies for this billing period string (see getTeamBillingPeriod). */
+    bonusSessionsBillingPeriod: text('bonus_sessions_billing_period'),
     createdAt: timestamp('created_at').defaultNow().notNull(),
     updatedAt: timestamp('updated_at').defaultNow().notNull(),
 });

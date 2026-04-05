@@ -5,7 +5,7 @@
  */
 
 import nodemailer from 'nodemailer';
-import { config, isDevelopment } from '../config.js';
+import { config, isDevelopment, isTest } from '../config.js';
 import { logger } from '../logger.js';
 
 let transporter: nodemailer.Transporter | null = null;
@@ -102,6 +102,44 @@ const ALERT_LABELS: Record<string, string> = {
   general: 'NOTIFICATION',
 };
 
+/** Production dashboard SPA base — not read from PUBLIC_DASHBOARD_URL (that env is for API/CORS only). */
+const PRODUCTION_DASHBOARD_BASE = 'https://rejourney.co/dashboard';
+const DEV_APP_ORIGIN = 'http://localhost:8080';
+
+function emailUseLocalOrigins(): boolean {
+  return isDevelopment || isTest;
+}
+
+function emailDashboardHomeUrl(): string {
+  if (emailUseLocalOrigins()) {
+    return `${DEV_APP_ORIGIN}/dashboard`;
+  }
+  return PRODUCTION_DASHBOARD_BASE;
+}
+
+/** Routes under the dashboard app, e.g. /billing, /general/:id */
+function emailDashboardAppPath(path: string): string {
+  const p = path.startsWith('/') ? path : `/${path}`;
+  if (emailUseLocalOrigins()) {
+    return `${DEV_APP_ORIGIN}/dashboard${p}`;
+  }
+  return `${PRODUCTION_DASHBOARD_BASE}${p}`;
+}
+
+function emailBillingUrl(query?: string): string {
+  const base = emailDashboardAppPath('/billing');
+  if (!query) return base;
+  const q = query.startsWith('?') ? query : `?${query}`;
+  return `${base}${q}`;
+}
+
+function emailInviteAcceptUrl(token: string): string {
+  if (emailUseLocalOrigins()) {
+    return `${DEV_APP_ORIGIN}/invite/accept/${token}`;
+  }
+  return `${PRODUCTION_DASHBOARD_BASE}/invite/accept/${token}`;
+}
+
 /**
  * Format a date for email display
  */
@@ -133,7 +171,7 @@ function generateEmailHtml({
   metaBadges,
   timestamp,
 }: EmailTemplateProps): string {
-  const baseUrl = config.PUBLIC_DASHBOARD_URL || 'http://localhost:8080';
+  const baseUrl = emailDashboardHomeUrl();
 
   // Base styles
   const styles = {
@@ -372,8 +410,7 @@ export async function sendBillingWarningEmail(
   const transport = getTransporter();
   if (!transport) return;
 
-  const baseUrl = config.PUBLIC_DASHBOARD_URL || 'https://rejourney.co/dashboard';
-  const billingUrl = `${baseUrl}/dashboard/billing?action=setup`;
+  const billingUrl = emailBillingUrl('action=setup');
 
   // Determine urgency
   let urgencyLabel = 'WARNING';
@@ -452,8 +489,7 @@ export async function sendPlanChangeEmail(
   const transport = getTransporter();
   if (!transport) return;
 
-  const baseUrl = config.PUBLIC_DASHBOARD_URL || 'http://localhost:8080';
-  const billingUrl = `${baseUrl}/dashboard/billing`;
+  const billingUrl = emailBillingUrl();
 
   const changeTypeLabel = changeType === 'upgrade' ? 'Upgrade' : changeType === 'downgrade' ? 'Downgrade' : 'Subscription';
   const statusMessage = isImmediate
@@ -514,8 +550,7 @@ export async function sendSubscriptionExpiredEmail(
   const transport = getTransporter();
   if (!transport) return;
 
-  const baseUrl = config.PUBLIC_DASHBOARD_URL || 'https://rejourney.co/dashboard';
-  const billingUrl = `${baseUrl}/dashboard/billing`;
+  const billingUrl = emailBillingUrl();
 
   const sections: EmailSection[] = [
     {
@@ -586,8 +621,7 @@ export async function sendTeamInviteEmail(
   const transport = getTransporter();
   if (!transport) return;
 
-  const baseUrl = config.PUBLIC_DASHBOARD_URL || 'http://localhost:8080';
-  const inviteUrl = `${baseUrl}/invite/accept/${token}`;
+  const inviteUrl = emailInviteAcceptUrl(token);
 
   const html = generateEmailHtml({
     title: 'Team Invitation',
@@ -668,9 +702,7 @@ export async function sendCrashAlertEmail(
   const transport = getTransporter();
   if (!transport) return;
 
-  const baseUrl = config.PUBLIC_DASHBOARD_URL || 'http://localhost:8080';
-  // Use a generic issues link if specific one isn't constructed correctly or needs to be update
-  const issueLink = `${baseUrl}/dashboard/general/${data.issueId || ''}`;
+  const issueLink = emailDashboardAppPath(`/general/${data.issueId || ''}`);
 
   const metaBadges: EmailMetaBadge[] = [
     { label: 'USERS', value: data.affectedUsers.toLocaleString() },
@@ -736,7 +768,7 @@ export async function sendCrashAlertEmail(
         url: issueLink
       },
       projectName: data.projectName,
-      projectUrl: `${baseUrl}/dashboard/settings/${data.projectId}`,
+      projectUrl: emailDashboardAppPath(`/settings/${data.projectId}`),
       alertType: 'crash',
       metaBadges,
       timestamp: data.lastSeen || new Date()
@@ -777,8 +809,7 @@ export async function sendAnrAlertEmail(
   const transport = getTransporter();
   if (!transport) return;
 
-  const baseUrl = config.PUBLIC_DASHBOARD_URL || 'http://localhost:8080';
-  const issueLink = `${baseUrl}/dashboard/general/${data.issueId || ''}`;
+  const issueLink = emailDashboardAppPath(`/general/${data.issueId || ''}`);
 
   const durationSecs = Math.round(data.durationMs / 1000);
   const metaBadges: EmailMetaBadge[] = [
@@ -821,7 +852,7 @@ export async function sendAnrAlertEmail(
       sections,
       action: { label: 'View Issue', url: issueLink },
       projectName: data.projectName,
-      projectUrl: `${baseUrl}/dashboard/settings/${data.projectId}`,
+      projectUrl: emailDashboardAppPath(`/settings/${data.projectId}`),
       alertType: 'anr',
       metaBadges,
       timestamp: data.lastSeen || new Date()
@@ -852,8 +883,7 @@ export async function sendErrorSpikeAlertEmail(
   const transport = getTransporter();
   if (!transport) return;
 
-  const baseUrl = config.PUBLIC_DASHBOARD_URL || 'http://localhost:8080';
-  const issueLink = data.issueUrl || `${baseUrl}/dashboard/general`;
+  const issueLink = data.issueUrl || emailDashboardAppPath('/general');
 
   const metaBadges: EmailMetaBadge[] = [
     { label: 'SPIKE', value: `+${data.percentIncrease.toFixed(0)}%` },
@@ -895,7 +925,7 @@ export async function sendErrorSpikeAlertEmail(
       sections,
       action: { label: 'View Issues', url: issueLink },
       projectName: data.projectName,
-      projectUrl: `${baseUrl}/dashboard/settings/${data.projectId}`,
+      projectUrl: emailDashboardAppPath(`/settings/${data.projectId}`),
       alertType: 'error_spike',
       metaBadges,
       timestamp: data.detectedAt || new Date()
@@ -926,8 +956,7 @@ export async function sendApiDegradationAlertEmail(
   const transport = getTransporter();
   if (!transport) return;
 
-  const baseUrl = config.PUBLIC_DASHBOARD_URL || 'http://localhost:8080';
-  const insightsLink = data.issueUrl || `${baseUrl}/dashboard/analytics/api`;
+  const insightsLink = data.issueUrl || emailDashboardAppPath('/analytics/api');
 
   const metaBadges: EmailMetaBadge[] = [
     { label: 'LATENCY', value: `${data.currentLatencyMs}ms` },
@@ -968,7 +997,7 @@ export async function sendApiDegradationAlertEmail(
       sections,
       action: { label: 'View API Insights', url: insightsLink },
       projectName: data.projectName,
-      projectUrl: `${baseUrl}/dashboard/settings/${data.projectId}`,
+      projectUrl: emailDashboardAppPath(`/settings/${data.projectId}`),
       alertType: 'api_degradation',
       metaBadges,
       timestamp: data.detectedAt || new Date()

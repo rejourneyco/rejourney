@@ -20,6 +20,7 @@
         "db:bootstrap:system": "node --import tsx scripts/bootstrapSystemData.ts",
         "db:seed:if-empty": "node --import tsx scripts/seedIfDatabaseEmpty.ts",
         "db:seed": "tsx src/db/seed.ts",
+        "db:backfill:bonus-sessions-period": "node --import tsx scripts/backfillBonusSessionsBillingPeriod.ts",
         "db:backfill:artifact-lifecycle": "node --import tsx scripts/backfillArtifactLifecycleState.ts",
         "db:backfill:session-reconciliation": "node --import tsx scripts/backfillSessionReconciliationState.ts",
         "db:repair:missing-sessions": "node --import tsx scripts/repairMissingSessions.ts",

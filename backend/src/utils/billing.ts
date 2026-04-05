@@ -164,6 +164,22 @@ export function getTeamBillingPeriod(anchor: Date | null): string {
 }
 
 /**
+ * Bonus sessions apply only when bonus_sessions_billing_period matches the team's current period.
+ * When the period rolls, the match fails: extra capacity does not carry into the next cycle (unused bonus is lost).
+ */
+export function effectiveBonusSessions(
+    bonusSessions: number,
+    bonusSessionsBillingPeriod: string | null | undefined,
+    billingCycleAnchor: Date | null
+): number {
+    const current = getTeamBillingPeriod(billingCycleAnchor);
+    if (bonusSessionsBillingPeriod == null || bonusSessionsBillingPeriod !== current) {
+        return 0;
+    }
+    return bonusSessions;
+}
+
+/**
  * Get billing period dates for a team
  * 
  * @param anchor - Team's billing cycle anchor date

@@ -38,11 +38,11 @@ vi.mock('nodemailer', () => ({
 // Mock config
 vi.mock('../config', () => ({
     config: {
-        PUBLIC_DASHBOARD_URL: 'http://localhost:8080',
         SMTP_FROM: 'test@rejourney.co',
         SMTP_HOST: 'mock' // validation passes
     },
-    isDevelopment: true
+    isDevelopment: true,
+    isTest: true
 }));
 
 // Mock logger
