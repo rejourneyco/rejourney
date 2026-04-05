@@ -69,6 +69,12 @@ Full integration guides and API reference: https://rejourney.co/docs/reactnative
 - Single-node Docker Compose self-hosting: https://rejourney.co/docs/selfhosted
 - Enterprise-grade K3s hosting (architecture docs): https://rejourney.co/docs/architecture/distributed-vs-single-node
 
+### Operations (K8s / Tailscale / admin hostnames)
+
+- [Cloud architecture + Tailscale diagrams](dev_docs/allthingscloud.md) — deployment overview, public vs tailnet admin path.
+- [Network exposure and Tailscale](dev_docs/network-exposure-and-tailscale.md) — which `rejourney.co` hosts stay public; kube API on tailnet.
+- [Admin tools without public URLs](dev_docs/admin-tools-private-access.md) — pgweb, Redis Commander, Netdata, Traefik, Uptime Kuma via `kubectl port-forward`.
+
 ## Contributing
 
 Want to contribute to Rejourney? See our Contributing Guide: https://rejourney.co/docs/community/contributing

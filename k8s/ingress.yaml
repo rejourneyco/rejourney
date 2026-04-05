@@ -363,32 +363,4 @@ spec:
     app.kubernetes.io/instance: traefik-kube-system
     app.kubernetes.io/name: traefik
 
----
-# Traefik Dashboard Ingress (dev team only with Cloudflare Access)
-# Note: This is in kube-system namespace, not pruned with rejourney resources
-apiVersion: networking.k8s.io/v1
-kind: Ingress
-metadata:
-  name: traefik-dashboard-ingress
-  namespace: kube-system
-  annotations:
-    cert-manager.io/cluster-issuer: letsencrypt-prod
-    traefik.ingress.kubernetes.io/router.entrypoints: websecure
-    traefik.ingress.kubernetes.io/router.tls: "true"
-spec:
-  ingressClassName: traefik
-  tls:
-    - hosts:
-        - traefik.rejourney.co
-      secretName: traefik-dashboard-tls
-  rules:
-    - host: traefik.rejourney.co
-      http:
-        paths:
-          - path: /
-            pathType: Prefix
-            backend:
-              service:
-                name: traefik-dashboard
-                port:
-                  number: 9000
+# Traefik dashboard: no public Ingress — use kubectl port-forward (dev_docs/admin-tools-private-access.md)

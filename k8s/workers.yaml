@@ -91,7 +91,7 @@ spec:
                   key: STORAGE_ENCRYPTION_KEY
             # Monitoring
             - name: UPTIME_KUMA_BASE_URL
-              value: "https://status.rejourney.co"
+              value: "http://uptime-kuma.rejourney.svc.cluster.local:3001"
             - name: UPTIME_KUMA_TOKENS
               valueFrom:
                 secretKeyRef:
@@ -250,7 +250,7 @@ spec:
                   name: app-secret
                   key: STORAGE_ENCRYPTION_KEY
             - name: UPTIME_KUMA_BASE_URL
-              value: "https://status.rejourney.co"
+              value: "http://uptime-kuma.rejourney.svc.cluster.local:3001"
             - name: UPTIME_KUMA_TOKENS
               valueFrom:
                 secretKeyRef:
@@ -336,7 +336,7 @@ spec:
                   name: app-secret
                   key: STORAGE_ENCRYPTION_KEY
             - name: UPTIME_KUMA_BASE_URL
-              value: "https://status.rejourney.co"
+              value: "http://uptime-kuma.rejourney.svc.cluster.local:3001"
             - name: UPTIME_KUMA_TOKENS
               valueFrom:
                 secretKeyRef:
@@ -447,7 +447,7 @@ spec:
                       name: app-secret
                       key: STORAGE_ENCRYPTION_KEY
                 - name: UPTIME_KUMA_BASE_URL
-                  value: "https://status.rejourney.co"
+                  value: "http://uptime-kuma.rejourney.svc.cluster.local:3001"
                 - name: UPTIME_KUMA_TOKENS
                   valueFrom:
                     secretKeyRef:
@@ -567,7 +567,7 @@ spec:
                   optional: true
             # Monitoring
             - name: UPTIME_KUMA_BASE_URL
-              value: "https://status.rejourney.co"
+              value: "http://uptime-kuma.rejourney.svc.cluster.local:3001"
             - name: UPTIME_KUMA_TOKENS
               valueFrom:
                 secretKeyRef:

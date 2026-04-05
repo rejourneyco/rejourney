@@ -53,3 +53,5 @@ api_logs.txt
 temp_env.txt
 .DS_Store
 examples/react-native-boilerplate/.env.dev.example
+.DS_Store
+backend/src/utils/rejourney.code-workspace

@@ -186,6 +186,10 @@ main() {
     --prune-allowlist=batch/v1/CronJob \
     --prune-allowlist=batch/v1/Job
 
+  # Traefik dashboard Ingress lived in kube-system without part-of=rejourney, so --prune never removed it.
+  log "Removing legacy Traefik dashboard Ingress if present..."
+  kubectl delete ingress traefik-dashboard-ingress -n kube-system --ignore-not-found
+
   wait_for_postgres
   wait_for_job
   print_migration_status "after"

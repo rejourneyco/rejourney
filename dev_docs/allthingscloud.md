@@ -1,3 +1,34 @@
+## Tailscale, public traffic, and admin access
+
+**Public path (unchanged):** Internet → **Cloudflare** (DNS / TLS / WAF) → **Traefik** on k3s → `rejourney.co`, `api.rejourney.co`, `ingest.rejourney.co`.
+
+**Admin path:** Operators join the **Tailscale tailnet** (Mac + VPS). They use **SSH** and **`kubectl`** over **100.x** addresses. **Admin UIs** (pgweb, Redis Commander, Netdata, Traefik dashboard, Uptime Kuma) have **no public Ingress**; open them with **`kubectl port-forward`** to `127.0.0.1` on the laptop. The **internal dashboard** repo (`rejourney-internal`) talks to Postgres/S3 the same way: tunnels + local Node.
+
+```mermaid
+flowchart TB
+  subgraph publicPath [Public path]
+    Users[End users]
+    CF[Cloudflare]
+    Traefik[Traefik Ingress]
+    Web[Web UI]
+    API[API and ingest]
+    Users --> CF --> Traefik
+    Traefik --> Web
+    Traefik --> API
+  end
+  subgraph tailnet [Tailscale tailnet]
+    Admin[Admin laptop]
+    VPS[VPS k3s node]
+    Admin -->|WireGuard 100.x| VPS
+  end
+  Admin -->|kubectl port-forward| Web
+  Admin -->|kubectl port-forward| API
+  Admin -->|kubectl / SSH| VPS
+```
+
+**Docs:** [network-exposure-and-tailscale.md](./network-exposure-and-tailscale.md), [admin-tools-private-access.md](./admin-tools-private-access.md), sibling repo `rejourney-internal/dev_docs/`.
+
+---
 
 Deployment:
 ┌──────────────┐      ┌─────────────────────────────┐      ┌─────────────────┐
@@ -25,7 +56,7 @@ K3s Details:
 │  ┌────────────────────────┐          ┌────────────────────────────────────┐  │
 │  │      Networking        │          │            Entrypoints             │  │
 │  │ ┌──────────────────┐   │          │  ┌──────────┐        ┌──────────┐  │  │
-│  │ │ Traefik Ingress  │◀──┼──────────┼──┤  Web UI  │        │   API    │  │  │
+│  │ │ Traefik Ingress  │◀──┼──────────┼──┤  Web UI  │        │ API+ingest│  │  │
 │  │ └─────────┬────────┘   │          │  │  (Node)  │        │ Backend  │  │  │
 │  └───────────┼────────────┘          │  └──────────┘        └────┬─────┘  │  │
 │              │                       └───────────────────────────┼────────┘  │
@@ -33,7 +64,8 @@ K3s Details:
 │  ┌───────────▼────────────┐          ┌───────────────────────────▼────────┐  │
 │  │      Monitoring        │          │           Storage Layer            │  │
 │  │ ┌──────────────────┐   │          │  ┌──────────┐        ┌──────────┐  │  │
-│  │ │     Netdata      │   │          │  │ Postgres │        │  Redis   │  │  │
+│  │ │ Netdata (admin   │   │          │  │ Postgres │        │  Redis   │  │  │
+│  │ │  port-forward)   │   │          │  │          │        │          │  │  │
 │  │ └──────────────────┘   │          │  │ (PVC 20G)│        │ (In-Mem) │  │  │
 │  └────────────────────────┘          │  └──────────┘        └──────────┘  │  │
 │                                      └────────────────────────────────────┘  │
@@ -99,9 +131,11 @@ Ingest pathway (workers + data plane):
 
 External Beyond:
 
+Admins: **Tailscale** (100.x) → SSH / `kubectl` / `port-forward` (not through Cloudflare).
+
                         ┌────────────────────────┐
                         │       Cloudflare       │
-                        │     (DNS / SSL / Auth)│
+                        │   (DNS / SSL / public) │
                         └────────────┬───────────┘
                                      │
                         ┌────────────▼───────────┐
@@ -129,8 +163,8 @@ External Beyond:
 
 Session Backup Deployment Notes:
 
-- The session backup CronJob is deployed from [archive.yaml](/Users/mora/Desktop/Dev-mac/rejourney/k8s/archive.yaml).
-- The source-of-truth script for that job is [session-backup.mjs](/Users/mora/Desktop/Dev-mac/rejourney/scripts/k8s/session-backup.mjs), and GitHub Actions now runs [check-archive-sync.sh](/Users/mora/Desktop/Dev-mac/rejourney/scripts/k8s/check-archive-sync.sh) before `kubectl apply`.
+- The session backup CronJob is deployed from [archive.yaml](../k8s/archive.yaml).
+- The source-of-truth script for that job is [session-backup.mjs](../scripts/k8s/session-backup.mjs), and GitHub Actions now runs [check-archive-sync.sh](../scripts/k8s/check-archive-sync.sh) before `kubectl apply`.
 - A deploy from `main` now updates the backup job logic, including legacy hierarchy gzip repair and archive-friendly screenshot repacking for R2.
 - The live CronJob can be suspended during reset, but the committed manifest controls whether it resumes after the next deploy.
 
@@ -139,14 +173,14 @@ Current Production Runtime Notes:
 - Long-running deployments:
   - API
   - Web UI
-  - `ingest-worker` ([`ingestArtifactWorker.js`](/Users/mora/Desktop/Dev-mac/rejourney/backend/src/worker/ingestArtifactWorker.ts) — events, crashes, ANRs)
-  - `replay-worker` ([`replayArtifactWorker.js`](/Users/mora/Desktop/Dev-mac/rejourney/backend/src/worker/replayArtifactWorker.ts) — screenshots, hierarchy)
-  - `session-lifecycle-worker` ([`sessionLifecycleWorker.js`](/Users/mora/Desktop/Dev-mac/rejourney/backend/src/worker/sessionLifecycleWorker.ts) — lifecycle sweeps, session reconciliation)
+  - `ingest-worker` ([`ingestArtifactWorker.js`](../backend/src/worker/ingestArtifactWorker.ts) — events, crashes, ANRs)
+  - `replay-worker` ([`replayArtifactWorker.js`](../backend/src/worker/replayArtifactWorker.ts) — screenshots, hierarchy)
+  - `session-lifecycle-worker` ([`sessionLifecycleWorker.js`](../backend/src/worker/sessionLifecycleWorker.ts) — lifecycle sweeps, session reconciliation)
   - `alert-worker`
 - CronJobs:
-  - `session-backup` in [archive.yaml](/Users/mora/Desktop/Dev-mac/rejourney/k8s/archive.yaml)
-  - `retention-worker` in [workers.yaml](/Users/mora/Desktop/Dev-mac/rejourney/k8s/workers.yaml)
-  - `postgres-backup` in [backup.yaml](/Users/mora/Desktop/Dev-mac/rejourney/k8s/backup.yaml)
+  - `session-backup` in [archive.yaml](../k8s/archive.yaml)
+  - `retention-worker` in [workers.yaml](../k8s/workers.yaml)
+  - `postgres-backup` in [backup.yaml](../k8s/backup.yaml)
 - There is no separate billing worker anymore. Billing is handled by Stripe webhooks through the API.
 
 Retention + Backup Coordination:

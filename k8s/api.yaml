@@ -236,7 +236,7 @@ spec:
                   optional: true
             # Monitoring
             - name: UPTIME_KUMA_BASE_URL
-              value: "https://status.rejourney.co"
+              value: "http://uptime-kuma.rejourney.svc.cluster.local:3001"
             - name: UPTIME_KUMA_TOKENS
               valueFrom:
                 secretKeyRef:

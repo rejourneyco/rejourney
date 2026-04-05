@@ -8,7 +8,7 @@
  *   UPTIME_KUMA_TOKENS: JSON object mapping worker names to push tokens
  * 
  * Example:
- *   UPTIME_KUMA_BASE_URL=https://status.rejourney.co
+ *   UPTIME_KUMA_BASE_URL=http://uptime-kuma.rejourney.svc.cluster.local:3001 (in-cluster; set in k8s)
  *   UPTIME_KUMA_TOKENS={"ingestWorker":"abc123","billingWorker":"def456"}
  */
 

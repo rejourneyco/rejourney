@@ -156,32 +156,4 @@ spec:
   selector:
     app: netdata
 
----
-apiVersion: networking.k8s.io/v1
-kind: Ingress
-metadata:
-  name: netdata-ingress
-  namespace: rejourney
-  annotations:
-    cert-manager.io/cluster-issuer: letsencrypt-prod
-    traefik.ingress.kubernetes.io/router.entrypoints: websecure
-    traefik.ingress.kubernetes.io/router.tls: "true"
-    # Custom middleware for Netdata (relaxed CSP)
-    traefik.ingress.kubernetes.io/router.middlewares: rejourney-netdata-headers@kubernetescrd
-spec:
-  ingressClassName: traefik
-  tls:
-    - hosts:
-        - k3s.rejourney.co
-      secretName: k3s-rejourney-tls
-  rules:
-    - host: k3s.rejourney.co
-      http:
-        paths:
-          - path: /
-            pathType: Prefix
-            backend:
-              service:
-                name: netdata
-                port:
-                  number: 19999
+# Netdata UI: no public Ingress — use kubectl port-forward (dev_docs/admin-tools-private-access.md)

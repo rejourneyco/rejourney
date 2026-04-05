@@ -85,37 +85,7 @@ spec:
   selector:
     app: uptime-kuma
 
----
-# Uptime Kuma Ingress with Cloudflare Access (dev team only)
-apiVersion: networking.k8s.io/v1
-kind: Ingress
-metadata:
-  name: uptime-kuma-ingress
-  namespace: rejourney
-  labels:
-    app.kubernetes.io/part-of: rejourney
-  annotations:
-    cert-manager.io/cluster-issuer: letsencrypt-prod
-    traefik.ingress.kubernetes.io/router.entrypoints: websecure
-    traefik.ingress.kubernetes.io/router.tls: "true"
-    traefik.ingress.kubernetes.io/router.middlewares: rejourney-security-headers@kubernetescrd
-spec:
-  ingressClassName: traefik
-  tls:
-    - hosts:
-        - status.rejourney.co
-      secretName: status-rejourney-tls
-  rules:
-    - host: status.rejourney.co
-      http:
-        paths:
-          - path: /
-            pathType: Prefix
-            backend:
-              service:
-                name: uptime-kuma
-                port:
-                  number: 3001
+# Uptime Kuma: no public Ingress. Workers/API push to in-cluster URL (UPTIME_KUMA_BASE_URL). UI: kubectl port-forward (dev_docs/admin-tools-private-access.md)
 
 ---
 # ConfigMap with monitoring configuration documentation
@@ -130,7 +100,7 @@ data:
     
     ## Uptime Kuma Setup
     
-    After deployment, access https://status.rejourney.co and configure:
+    After deployment (scale replicas to 1), open the UI via kubectl port-forward (see dev_docs/admin-tools-private-access.md), then configure:
     
     ## ⚠️ CRITICAL MONITORS (Priority 1)
     
@@ -199,7 +169,7 @@ data:
     
     ```yaml
     - name: UPTIME_KUMA_BASE_URL
-      value: "https://status.rejourney.co"
+      value: "http://uptime-kuma.rejourney.svc.cluster.local:3001"
     - name: UPTIME_KUMA_TOKENS
       valueFrom:
         secretKeyRef:
@@ -207,11 +177,9 @@ data:
           key: tokens
     ```
     
-     ## Cloudflare Access Setup
+     ## Private access (no public hostname)
      
-     1. Create Cloudflare Access application for https://status.rejourney.co
-     2. Configure policy to allow email domain = rejourney.co
-     3. Enable MFA requirement for security
+     Use kubectl port-forward from a machine on Tailscale with kube access. Remove Cloudflare DNS records for status.rejourney.co when no longer used.
 
 ---
 # Secret for Uptime Kuma push tokens (to be configured after setup)
@@ -242,7 +210,7 @@ stringData:
 #
 # env:
 #   - name: UPTIME_KUMA_BASE_URL
-#     value: "https://status.rejourney.co"
+#     value: "http://uptime-kuma.rejourney.svc.cluster.local:3001"
 #   - name: UPTIME_KUMA_TOKENS
 #     valueFrom:
 #       secretKeyRef:
