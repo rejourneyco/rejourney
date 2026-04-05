@@ -19,7 +19,8 @@ export const meta: Route.MetaFunction = ({ location }) => {
     return [
         { title },
         { name: "description", content: description },
-        { name: "canonical", content: canonicalUrl },
+        { name: "robots", content: "index, follow" },
+        { tagName: "link", rel: "canonical", href: canonicalUrl },
         // OpenGraph
         { property: "og:title", content: title },
         { property: "og:description", content: description },

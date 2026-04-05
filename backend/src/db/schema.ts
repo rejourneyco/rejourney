@@ -158,8 +158,6 @@ export const projects = pgTable(
         rejourneyEnabled: boolean('rejourney_enabled').default(true).notNull(),
         recordingEnabled: boolean('recording_enabled').default(true).notNull(),
         maxRecordingMinutes: integer('max_recording_minutes').default(10).notNull(),
-        // Legacy replay promotion setting kept for schema compatibility
-        healthyReplaysPromoted: doublePrecision('healthy_replays_promoted').default(0.05).notNull(),
         deletedAt: timestamp('deleted_at'),
         createdAt: timestamp('created_at').defaultNow().notNull(),
         updatedAt: timestamp('updated_at').defaultNow().notNull(),

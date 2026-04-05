@@ -10,15 +10,30 @@ import { Activity } from "lucide-react";
 import { ARTICLES } from "~/shared/data/engineering";
 import { Link } from "react-router";
 
+const ENGINEERING_LOG_URL = "https://rejourney.co/engineering";
+
 export const meta: MetaFunction = () => [
-    { title: "Engineering - Rejourney" },
+    { title: "Engineering Log — Technical articles | Rejourney" },
     {
         name: "description",
-        content: "Deep dives into Rejourney's engineering challenges: Map performance, async capture, and privacy.",
+        content:
+            "Rejourney engineering log: deep dives on React Native session replay, 120Hz map capture (Mapbox, Apple & Google Maps), pixel-perfect GPU replay architecture, and mobile observability—written by our team.",
     },
-    { property: "og:title", content: "Engineering - Rejourney" },
+    {
+        name: "keywords",
+        content:
+            "Rejourney engineering blog, React Native session replay, mobile observability, map performance, Sentry alternative, open source monitoring, technical articles",
+    },
+    { name: "robots", content: "index, follow" },
+    { property: "og:title", content: "Rejourney Engineering Log" },
     { property: "og:type", content: "website" },
-    { tagName: "link", rel: "canonical", href: "https://rejourney.co/engineering" },
+    { property: "og:url", content: ENGINEERING_LOG_URL },
+    {
+        property: "og:description",
+        content:
+            "Technical articles on session replay, native map capture at 120Hz, and how we built lightweight mobile observability.",
+    },
+    { tagName: "link", rel: "canonical", href: ENGINEERING_LOG_URL },
 ];
 
 export default function EngineeringIndexPage() {
@@ -29,13 +44,35 @@ export default function EngineeringIndexPage() {
                 dangerouslySetInnerHTML={{
                     __html: JSON.stringify({
                         "@context": "https://schema.org",
-                        "@type": "ItemList",
-                        itemListElement: ARTICLES.map((article, index) => ({
-                            "@type": "ListItem",
-                            position: index + 1,
-                            url: `https://rejourney.co/engineering/${article.urlDate}/${article.id}`,
-                            name: article.title,
-                        })),
+                        "@graph": [
+                            {
+                                "@type": "CollectionPage",
+                                "@id": `${ENGINEERING_LOG_URL}#webpage`,
+                                url: ENGINEERING_LOG_URL,
+                                name: "Rejourney Engineering Log",
+                                description:
+                                    "Technical articles from the Rejourney team on React Native session replay, map SDK capture, and observability architecture.",
+                                isPartOf: {
+                                    "@type": "WebSite",
+                                    name: "Rejourney",
+                                    url: "https://rejourney.co/",
+                                },
+                                mainEntity: { "@id": `${ENGINEERING_LOG_URL}#posts` },
+                            },
+                            {
+                                "@type": "ItemList",
+                                "@id": `${ENGINEERING_LOG_URL}#posts`,
+                                name: "Engineering log articles",
+                                numberOfItems: ARTICLES.length,
+                                itemListElement: ARTICLES.map((article, index) => ({
+                                    "@type": "ListItem",
+                                    position: index + 1,
+                                    url: `${ENGINEERING_LOG_URL}/${article.urlDate}/${article.id}`,
+                                    name: article.title,
+                                    description: article.subtitle,
+                                })),
+                            },
+                        ],
                     }),
                 }}
             />

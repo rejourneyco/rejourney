@@ -195,7 +195,11 @@ final class SegmentDispatcher {
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         applyAuthHeaders(&req)
         
-        var body: [String: Any] = ["sessionId": replayId, "endedAt": concludedAt]
+        var body: [String: Any] = [
+            "sessionId": replayId,
+            "endedAt": concludedAt,
+            "sdkVersion": RejourneyImpl.sdkVersion
+        ]
         if backgroundDurationMs > 0 { body["totalBackgroundTimeMs"] = backgroundDurationMs }
         if let m = metrics { body["metrics"] = m }
         body["sdkTelemetry"] = sdkTelemetrySnapshot(currentQueueDepth: currentQueueDepth)
@@ -215,39 +219,6 @@ final class SegmentDispatcher {
         
         httpSession.dataTask(with: req) { _, resp, _ in
             completion((resp as? HTTPURLResponse)?.statusCode == 200)
-        }.resume()
-    }
-    
-    func evaluateReplayRetention(replayId: String, metrics: [String: Any], completion: @escaping (Bool, String) -> Void) {
-        guard let url = URL(string: "\(endpoint)/api/ingest/replay/evaluate") else {
-            completion(false, "bad_url")
-            return
-        }
-        
-        var req = URLRequest(url: url)
-        req.httpMethod = "POST"
-        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        applyAuthHeaders(&req)
-        
-        var body: [String: Any] = ["sessionId": replayId]
-        metrics.forEach { body[$0.key] = $0.value }
-        
-        do {
-            req.httpBody = try JSONSerialization.data(withJSONObject: body)
-        } catch {
-            completion(false, "serialize_error")
-            return
-        }
-        
-        httpSession.dataTask(with: req) { data, resp, _ in
-            guard let data, (resp as? HTTPURLResponse)?.statusCode == 200,
-                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-                completion(false, "request_failed")
-                return
-            }
-            let retained = json["promoted"] as? Bool ?? false
-            let reason = json["reason"] as? String ?? "unknown"
-            completion(retained, reason)
         }.resume()
     }
     
@@ -382,7 +353,8 @@ final class SegmentDispatcher {
         
         var body: [String: Any] = [
             "sessionId": upload.sessionId,
-            "sizeBytes": upload.payload.count
+            "sizeBytes": upload.payload.count,
+            "sdkVersion": RejourneyImpl.sdkVersion
         ]
         
         if upload.contentType == "events" {

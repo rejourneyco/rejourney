@@ -5,6 +5,8 @@ export interface Article {
     id: string;
     title: string;
     subtitle: string;
+    /** Comma-separated phrases for meta keywords — helps match long-tail searches to article topics */
+    seoKeywords?: string;
     author: {
         name: string;
         url: string; // LinkedIn
@@ -20,12 +22,25 @@ export interface Article {
 
 // --- Content: Map Performance (New) ---
 
+const MAP_ARTICLE_URL = "https://rejourney.co/engineering/2026-02-17/maps-performance";
+
 const mapArticleSchema = {
     "@context": "https://schema.org",
     "@type": "Article",
     headline: "Rejourney Session Replay: High-Performance Maps on iOS & Android",
     description:
         "How we solved 120Hz micro-stutter in map captures by hooking native SDK delegates for Mapbox, Apple Maps, and Google Maps.",
+    url: MAP_ARTICLE_URL,
+    keywords: [
+        "React Native session replay",
+        "Mapbox capture",
+        "Apple Maps",
+        "Google Maps",
+        "120Hz ProMotion",
+        "iOS Android maps",
+        "delegate swizzling",
+        "mobile observability",
+    ],
     author: {
         "@type": "Person",
         name: "Mohammad Rashid",
@@ -43,7 +58,7 @@ const mapArticleSchema = {
     },
     mainEntityOfPage: {
         "@type": "WebPage",
-        "@id": "https://rejourney.co/engineering/maps-performance",
+        "@id": MAP_ARTICLE_URL,
     },
 };
 
@@ -56,9 +71,9 @@ const MapArticleContent = () => (
             because the capture loop fights with the map's own aggressive rendering loop.
         </p>
         <p>
-            At Rejourney, we discovered that simply scheduling captures on a timer wasn't enough.
+            We discovered that simply scheduling captures on a timer wasn't enough.
             To achieve buttery-smooth 120Hz performance while recording, we had to get deeper:
-            <strong>Hooking the native map SDK rendering delegates.</strong>
+            <strong> Hooking the native map SDK rendering delegates. In simiple terms, Rejourney only captures screenshots on maps when it is idle and not being panned or zoomed.</strong>
         </p>
 
         <div className="my-12">
@@ -215,12 +230,25 @@ const MapArticleContent = () => (
 
 // --- Content: Original Architecture Article ---
 
+const TECH_ARTICLE_URL = "https://rejourney.co/engineering/2026-02-06/architecture-deep-dive";
+
 const techArticleSchema = {
     "@context": "https://schema.org",
     "@type": "Article",
     headline: "Engineering - Rejourney Architecture",
     description:
         "How Rejourney delivers high-fidelity session replay without UI stutter. Learn about our async capture pipeline, run loop gating, and zero-trust privacy redaction.",
+    url: TECH_ARTICLE_URL,
+    keywords: [
+        "React Native session replay",
+        "pixel-perfect replay",
+        "mobile observability",
+        "Sentry alternative",
+        "async capture",
+        "GPU framebuffer",
+        "PostHog LogRocket comparison",
+        "privacy redaction",
+    ],
     author: {
         "@type": "Person",
         name: "Mohammad Rashid",
@@ -238,7 +266,7 @@ const techArticleSchema = {
     },
     mainEntityOfPage: {
         "@type": "WebPage",
-        "@id": "https://rejourney.co/engineering/architecture-deep-dive",
+        "@id": TECH_ARTICLE_URL,
     },
 };
 
@@ -248,6 +276,55 @@ const TECH_METRICS = [
     { name: "BG: Tar+Gzip Compression", avg: "14.2", max: "32.5", min: "9.6", thread: "Background" },
     { name: "BG: Upload Handshake", avg: "0.8", max: "2.4", min: "0.3", thread: "Background" },
     { name: "Total Main Thread Impact", avg: "12.4", max: "28.2", min: "8.1", thread: "Main" },
+];
+
+const RN_PKG = "packages/react-native/";
+
+type SdkPipelineStage = {
+    title: string;
+    summary: string;
+    iosPaths: string[];
+    androidPaths: string[];
+};
+
+const SDK_PIPELINE_STAGES: SdkPipelineStage[] = [
+    {
+        title: "Orchestration",
+        summary: "Owns session lifecycle, remote configuration, and keeps capture, hierarchy, and upload in sync.",
+        iosPaths: ["ios/Recording/ReplayOrchestrator.swift"],
+        androidPaths: ["android/src/main/java/com/rejourney/recording/ReplayOrchestrator.kt"],
+    },
+    {
+        title: "Visual capture",
+        summary: "Framebuffer capture, background JPEG work, batching, and on-device redaction before bytes leave the app.",
+        iosPaths: ["ios/Recording/VisualCapture.swift"],
+        androidPaths: ["android/src/main/java/com/rejourney/recording/VisualCapture.kt"],
+    },
+    {
+        title: "Structure & interactions",
+        summary: "View tree snapshots and gesture / interaction metadata that align with the frame timeline.",
+        iosPaths: ["ios/Recording/ViewHierarchyScanner.swift", "ios/Recording/InteractionRecorder.swift"],
+        androidPaths: [
+            "android/src/main/java/com/rejourney/recording/ViewHierarchyScanner.kt",
+            "android/src/main/java/com/rejourney/recording/InteractionRecorder.kt",
+        ],
+    },
+    {
+        title: "Upload",
+        summary: "Compressed segment packaging, HTTP/2-friendly uploads, and backoff / retry.",
+        iosPaths: ["ios/Recording/SegmentDispatcher.swift"],
+        androidPaths: ["android/src/main/java/com/rejourney/recording/SegmentDispatcher.kt"],
+    },
+    {
+        title: "Health & telemetry",
+        summary: "Main-thread watchdogs, stability signals, and the telemetry path that rides alongside replay.",
+        iosPaths: ["ios/Recording/AnrSentinel.swift", "ios/Recording/StabilityMonitor.swift", "ios/Recording/TelemetryPipeline.swift"],
+        androidPaths: [
+            "android/src/main/java/com/rejourney/recording/AnrSentinel.kt",
+            "android/src/main/java/com/rejourney/recording/StabilityMonitor.kt",
+            "android/src/main/java/com/rejourney/recording/TelemetryPipeline.kt",
+        ],
+    },
 ];
 
 const TechArticleContent = () => (
@@ -355,60 +432,6 @@ _captureTimer = Timer.scheduledTimer(
                     03 //
                 </span>
                 <h2 className="text-3xl sm:text-4xl font-black uppercase tracking-tighter mb-4">
-                    Intelligent Promotion Engine
-                </h2>
-            </div>
-            <p>
-                Recording every session is wasteful. Rejourney's SDK works alongside our backend to identify and promote only the sessions that contain value: crashes, performance regressions, or user frustration.
-            </p>
-            <p className="mt-4">
-                The SDK continuously monitors signals like <strong>ANRs (Main Thread Freezes)</strong>, <strong>Dead Taps</strong>, and <strong>Rage Taps</strong>. When a session concludes, these metrics are evaluated to decide if the visual data should be retained.
-            </p>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 my-8">
-                <div className="bg-slate-50 border-2 border-black p-6">
-                    <div className="font-mono text-xs font-black uppercase text-gray-500 mb-4">
-                        ANR Detection (2.0s Heartbeat)
-                    </div>
-                    <pre className="text-xs font-mono overflow-x-auto text-purple-800">
-                        {`private func _watchLoop() {
-  while (running) {
-    _sendPing() // To main thread
-    Thread.sleep(forTimeInterval: 2.0)
-    if (_awaitingPong) {
-      _reportFreeze(duration: delta)
-    }
-  }
-}`}
-                    </pre>
-                </div>
-                <div className="bg-slate-50 border-2 border-black p-6">
-                    <div className="font-mono text-xs font-black uppercase text-gray-500 mb-4">
-                        Retention Evaluation
-                    </div>
-                    <pre className="text-xs font-mono overflow-x-auto text-blue-800">
-                        {`dispatcher.evaluateReplayRetention(
-  replayId: sid, 
-  metrics: metrics
-) { promoted, reason in
-    if (promoted) {
-      // Retain visual capture segments
-      DiagnosticLog.notice("Session promoted: \\(reason)")
-    }
-}`}
-                    </pre>
-                </div>
-            </div>
-        </div>
-
-
-        {/* Section 04 */}
-        <div className="mb-12">
-            <div className="mb-6">
-                <span className="font-mono text-xs font-black uppercase tracking-widest text-gray-500 mb-2 block">
-                    04 //
-                </span>
-                <h2 className="text-3xl sm:text-4xl font-black uppercase tracking-tighter mb-4">
                     Real-World Performance Benchmarks
                 </h2>
             </div>
@@ -441,11 +464,11 @@ _captureTimer = Timer.scheduledTimer(
             </div>
         </div>
 
-        {/* Section 05 */}
+        {/* Section 04 */}
         <div className="mb-12">
             <div className="mb-6">
                 <span className="font-mono text-xs font-black uppercase tracking-widest text-gray-500 mb-2 block">
-                    05 //
+                    04 //
                 </span>
                 <h2 className="text-3xl sm:text-4xl font-black uppercase tracking-tighter mb-4">
                     Privacy: On-Device Redaction
@@ -479,11 +502,11 @@ _captureTimer = Timer.scheduledTimer(
             </div>
         </div>
 
-        {/* Section 06 */}
+        {/* Section 05 */}
         <div className="mb-12">
             <div className="mb-6">
                 <span className="font-mono text-xs font-black uppercase tracking-widest text-gray-500 mb-2 block">
-                    06 //
+                    05 //
                 </span>
                 <h2 className="text-3xl sm:text-4xl font-black uppercase tracking-tighter mb-4">
                     Lightweight by Design: The "Smart" Internals
@@ -537,14 +560,14 @@ if (now - _lastScanTime >= 1.0) {
             </div>
         </div>
 
-        {/* Section 07 */}
+        {/* Section 06 */}
         <div className="mb-12">
             <div className="mb-6">
                 <span className="font-mono text-xs font-black uppercase tracking-widest text-gray-500 mb-2 block">
-                    07 //
+                    06 //
                 </span>
                 <h2 className="text-3xl sm:text-4xl font-black uppercase tracking-tighter mb-4">
-                    Stack Evolution: A Tale of Two Platforms
+                    Rewrite from Obj-C to Swift
                 </h2>
             </div>
             <p>
@@ -558,52 +581,74 @@ if (now - _lastScanTime >= 1.0) {
             </p>
         </div>
 
-        {/* System Architecture Map */}
-        <div className="bg-black text-white p-8 sm:p-12 my-12">
-            <h3 className="text-3xl font-black uppercase tracking-tighter mb-8 border-b border-gray-700 pb-4">
-                Architecture Map
-            </h3>
-            <div className="space-y-8">
-                <div>
-                    <h4 className="font-bold text-yellow-400 mb-1">SDK Core Files</h4>
-                    <p className="text-xs text-gray-400 font-mono mb-4">Replay Orchestrator</p>
-                    <div className="font-mono text-sm bg-gray-900 p-3 rounded text-green-400">
-                        packages/react-native/ios/Recording/ReplayOrchestrator.swift
+        {/* Section 07 — matches article: light surface, black rules, mono labels */}
+        <div className="mb-12">
+            <div className="mb-6">
+                <span className="font-mono text-xs font-black uppercase tracking-widest text-gray-500 mb-2 block">
+                    07 //
+                </span>
+                <h2 className="text-3xl sm:text-4xl font-black uppercase tracking-tighter mb-4">
+                    SDK pipeline
+                </h2>
+            </div>
+            <p className="mt-4">
+                The same pipeline runs on both platforms: orchestration, capture, structure, upload, then health
+                signals. Paths below are relative to{" "}
+                <code className="font-mono text-sm font-bold bg-slate-100 px-1.5 py-0.5 border border-black">
+                    {RN_PKG}
+                </code>
+                .
+            </p>
+
+            <div className="border-2 border-black bg-white overflow-hidden mt-8">
+                <div className="grid grid-cols-1 md:grid-cols-2 divide-y-2 md:divide-y-0 md:divide-x-2 divide-black bg-black text-white">
+                    <div className="font-mono text-[10px] font-black uppercase tracking-widest py-3 px-4 sm:px-5">
+                        iOS · Swift
                     </div>
-                    <p className="text-gray-400 text-sm mt-2">Session lifecycle, remote configuration, and component synchronization.</p>
+                    <div className="font-mono text-[10px] font-black uppercase tracking-widest py-3 px-4 sm:px-5">
+                        Android · Kotlin
+                    </div>
                 </div>
 
-                <div>
-                    <p className="text-xs text-gray-400 font-mono mb-4">Visual Capture Engine</p>
-                    <div className="font-mono text-sm bg-gray-900 p-3 rounded text-green-400">
-                        packages/react-native/ios/Recording/VisualCapture.swift
+                {SDK_PIPELINE_STAGES.map((stage, index) => (
+                    <div
+                        key={stage.title}
+                        className="border-t-2 border-black px-4 py-6 sm:px-6 sm:py-8 bg-white"
+                    >
+                        <div className="font-mono text-xs font-black uppercase text-gray-500 mb-2">
+                            {String(index + 1).padStart(2, "0")} — {stage.title}
+                        </div>
+                        <p className="text-base text-gray-600 font-medium leading-relaxed mb-6 m-0">
+                            {stage.summary}
+                        </p>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 md:gap-0 md:divide-x-2 divide-black">
+                            <div className="md:pr-6">
+                                <div className="bg-slate-50 border-2 border-black p-4 space-y-2">
+                                    {stage.iosPaths.map((rel) => (
+                                        <div
+                                            key={rel}
+                                            className="font-mono text-[11px] sm:text-xs text-blue-900 leading-snug break-all"
+                                        >
+                                            {rel}
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                            <div className="md:pl-6">
+                                <div className="bg-slate-50 border-2 border-black p-4 space-y-2">
+                                    {stage.androidPaths.map((rel) => (
+                                        <div
+                                            key={rel}
+                                            className="font-mono text-[11px] sm:text-xs text-green-900 leading-snug break-all"
+                                        >
+                                            {rel}
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        </div>
                     </div>
-                    <p className="text-gray-400 text-sm mt-2">Async JPEG compression, Run Loop Gating, and frame batching.</p>
-                </div>
-
-                <div>
-                    <p className="text-xs text-gray-400 font-mono mb-4">Privacy & Redaction</p>
-                    <div className="font-mono text-sm bg-gray-900 p-3 rounded text-green-400">
-                        packages/react-native/ios/Recording/VisualCapture.swift (RedactionMask)
-                    </div>
-                    <p className="text-gray-400 text-sm mt-2">On-device sensitive view detection and buffer blacking.</p>
-                </div>
-
-                <div>
-                    <p className="text-xs text-gray-400 font-mono mb-4">Segment Dispatcher & Uploader</p>
-                    <div className="font-mono text-sm bg-gray-900 p-3 rounded text-green-400">
-                        packages/react-native/ios/Recording/SegmentDispatcher.swift
-                    </div>
-                    <p className="text-gray-400 text-sm mt-2">HTTP/2 multiplexed uploads, retry logic, and retention evaluation.</p>
-                </div>
-
-                <div>
-                    <p className="text-xs text-gray-400 font-mono mb-4">Stability & ANR Sentinel</p>
-                    <div className="font-mono text-sm bg-gray-900 p-3 rounded text-green-400">
-                        packages/react-native/ios/Recording/AnrSentinel.swift
-                    </div>
-                    <p className="text-gray-400 text-sm mt-2">Main-thread health monitoring and stack trace capture.</p>
-                </div>
+                ))}
             </div>
         </div>
 
@@ -617,6 +662,8 @@ export const ARTICLES: Article[] = [
         id: "maps-performance",
         title: "120Hz Map Performance: Hooking Native SDKs",
         subtitle: "Solving micro-stutter on Apple Maps, Google Maps, and Mapbox via delegate swizzling.",
+        seoKeywords:
+            "React Native session replay, Mapbox, Apple Maps, Google Maps, 120Hz ProMotion, map capture, iOS Android, delegate swizzling, mobile observability",
         date: "Feb 17, 2026",
         urlDate: "2026-02-17",
         readTime: "4 min read",
@@ -633,6 +680,8 @@ export const ARTICLES: Article[] = [
         id: "architecture-deep-dive",
         title: "Rejourney Architecture",
         subtitle: "How we achieved pixel-perfect replay with 3 FPS and zero main-thread impact.",
+        seoKeywords:
+            "session replay architecture, React Native, pixel-perfect replay, GPU capture, observability, Sentry alternative, async pipeline, mobile crash monitoring",
         date: "Feb 06, 2026",
         urlDate: "2026-02-06",
         readTime: "8 min read",

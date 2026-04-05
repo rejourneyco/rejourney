@@ -77,6 +77,7 @@ export const meta: Route.MetaFunction = () => [
         content: "Lightweight, mobile-first Sentry alternative. Zero-dependency SDK for React Native with pixel-perfect session replay.",
     },
     { name: "twitter:image", content: "https://rejourney.co/rejourneyIcon-removebg-preview.png" },
+    { name: "twitter:site", content: "@rejourneyco" },
 ];
 
 export function Layout({ children }: { children: React.ReactNode }) {
@@ -101,6 +102,10 @@ export function Layout({ children }: { children: React.ReactNode }) {
                                     "name": "Rejourney",
                                     "url": "https://rejourney.co/",
                                     "logo": "https://rejourney.co/rejourneyIcon-removebg-preview.png",
+                                    "sameAs": [
+                                        "https://x.com/rejourneyco",
+                                        "https://github.com/rejourneyco"
+                                    ],
                                     "contactPoint": {
                                         "@type": "ContactPoint",
                                         "contactType": "Customer Support",

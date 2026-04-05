@@ -17,6 +17,7 @@
 package com.rejourney.recording
 
 import com.rejourney.engine.DiagnosticLog
+import com.rejourney.engine.RejourneyImpl
 import kotlinx.coroutines.*
 import okhttp3.*
 import com.rejourney.recording.RejourneyNetworkInterceptor
@@ -285,6 +286,7 @@ class SegmentDispatcher private constructor() {
         val body = JSONObject().apply {
             put("sessionId", replayId)
             put("endedAt", concludedAt)
+            put("sdkVersion", RejourneyImpl.sdkVersion)
             if (backgroundDurationMs > 0) put("totalBackgroundTimeMs", backgroundDurationMs)
             metrics?.let { put("metrics", JSONObject(it)) }
             put("sdkTelemetry", buildSdkTelemetry(currentQueueDepth))
@@ -300,39 +302,6 @@ class SegmentDispatcher private constructor() {
                 completion(response.code == 200)
             } catch (e: Exception) {
                 completion(false)
-            }
-        }
-    }
-    
-    fun evaluateReplayRetention(
-        replayId: String,
-        metrics: Map<String, Any>,
-        completion: (Boolean, String) -> Unit
-    ) {
-        val url = "$endpoint/api/ingest/replay/evaluate"
-        
-        val body = JSONObject().apply {
-            put("sessionId", replayId)
-            metrics.forEach { (key, value) -> put(key, value) }
-        }
-        
-        val request = buildRequest(url, body)
-        
-        scope.launch {
-            try {
-                val response = httpClient.newCall(request).execute()
-                val responseBody = response.body?.string()
-                
-                if (response.code == 200 && responseBody != null) {
-                    val json = JSONObject(responseBody)
-                    val retained = json.optBoolean("promoted", false)
-                    val reason = json.optString("reason", "unknown")
-                    completion(retained, reason)
-                } else {
-                    completion(false, "request_failed")
-                }
-            } catch (e: Exception) {
-                completion(false, "request_failed")
             }
         }
     }
@@ -461,6 +430,7 @@ class SegmentDispatcher private constructor() {
         val body = JSONObject().apply {
             put("sessionId", upload.sessionId)
             put("sizeBytes", upload.payload.size)
+            put("sdkVersion", RejourneyImpl.sdkVersion)
             
             if (upload.contentType == "events") {
                 put("contentType", "events")

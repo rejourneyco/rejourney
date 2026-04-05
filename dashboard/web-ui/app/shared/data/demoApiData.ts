@@ -1155,7 +1155,6 @@ export const demoFullSession = {
     startTime: demoReplayFixture.startTime,
     endTime: demoReplayFixture.endTime,
     duration: demoReplayFixture.durationSeconds,
-    replayPromoted: true,
     hierarchySnapshots: demoReplayFixture.hierarchySnapshots,
     screenshotFrames,
     screenshotFramesStatus: 'ready' as const,

@@ -22,7 +22,8 @@ export const meta: Route.MetaFunction = () => [
     },
     { property: "og:title", content: "Rejourney: Lightweight Mobile-First Sentry Alternative" },
     { property: "og:url", content: "https://rejourney.co/" },
-    { name: "canonical", content: "https://rejourney.co/" },
+    { name: "robots", content: "index, follow" },
+    { tagName: "link", rel: "canonical", href: "https://rejourney.co/" },
 ];
 
 export default function LandingPage() {

@@ -17,7 +17,8 @@ import { ErrorBoundary } from "~/shared/ui/core/ErrorBoundary";
 import { loadDashboardShellBootstrap } from "~/shell/server/dashboardBootstrap";
 
 export const meta: Route.MetaFunction = () => [
-    { name: "robots", content: "noindex" }, // Dashboard pages should not be indexed
+    // Authenticated app; crawlers without a session get redirected to /login.
+    { name: "robots", content: "index, follow" },
 ];
 
 export async function loader({ request }: Route.LoaderArgs) {

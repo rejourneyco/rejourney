@@ -6,6 +6,7 @@ import { apiKeyAuth, requireScope, asyncHandler, ApiError } from '../middleware/
 import { ingestProjectRateLimiter } from '../middleware/rateLimit.js';
 import { ensureIngestSession } from '../services/ingestSessionLifecycle.js';
 import { trackANRAsIssue, trackCrashAsIssue } from '../services/issueTracker.js';
+import { assertSessionAcceptsNewIngestWork } from '../services/sessionIngestImmutability.js';
 
 const router = Router();
 
@@ -29,9 +30,10 @@ router.post(
             || normalizedCategory === 'app_not_responding'
             || normalizedCategory === 'application_not_responding';
 
-        await ensureIngestSession(projectId, sessionId, undefined, undefined, {
+        const { session: faultSession } = await ensureIngestSession(projectId, sessionId, undefined, undefined, {
             initialStatus: 'processing',
         });
+        assertSessionAcceptsNewIngestWork(faultSession);
 
         const stackTrace = Array.isArray(incident.frames)
             ? incident.frames.join('\n')

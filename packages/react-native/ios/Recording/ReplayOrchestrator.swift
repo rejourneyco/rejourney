@@ -258,20 +258,17 @@ public final class ReplayOrchestrator: NSObject {
         }
         _finalized = true
 
-        SegmentDispatcher.shared.evaluateReplayRetention(replayId: sid, metrics: metrics) { [weak self] _, _ in
-            guard let self else { return }
-            SegmentDispatcher.shared.concludeReplay(
-                replayId: sid,
-                concludedAt: termMs,
-                backgroundDurationMs: self._bgTimeMs,
-                metrics: metrics,
-                currentQueueDepth: queueDepthAtFinalize,
-                endReason: endReason,
-                lifecycleVersion: self.lifecycleContractVersion
-            ) { [weak self] ok in
-                if ok { self?._clearRecovery() }
-                completion?(true, ok)
-            }
+        SegmentDispatcher.shared.concludeReplay(
+            replayId: sid,
+            concludedAt: termMs,
+            backgroundDurationMs: _bgTimeMs,
+            metrics: metrics,
+            currentQueueDepth: queueDepthAtFinalize,
+            endReason: endReason,
+            lifecycleVersion: lifecycleContractVersion
+        ) { [weak self] ok in
+            if ok { self?._clearRecovery() }
+            completion?(true, ok)
         }
 
         replayId = nil

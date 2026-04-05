@@ -1,0 +1,1 @@
+ALTER TABLE "projects" DROP COLUMN "healthy_replays_promoted";

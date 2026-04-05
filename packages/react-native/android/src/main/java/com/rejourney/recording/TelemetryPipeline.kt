@@ -22,6 +22,7 @@ import android.os.Handler
 import android.os.Looper
 import com.rejourney.engine.DiagnosticLog
 import com.rejourney.engine.DeviceRegistrar
+import com.rejourney.engine.RejourneyImpl
 import com.rejourney.utility.gzipCompress
 import org.json.JSONArray
 import org.json.JSONObject
@@ -340,6 +341,7 @@ class TelemetryPipeline private constructor(private val context: Context) {
             put("isConstrained", orchestrator?.networkIsConstrained ?: false)
             put("isExpensive", orchestrator?.networkIsExpensive ?: false)
             put("appVersion", getAppVersion())
+            put("sdkVersion", RejourneyImpl.sdkVersion)
             put("appId", context.packageName)
             put("screenWidth", displayMetrics.widthPixels)
             put("screenHeight", displayMetrics.heightPixels)

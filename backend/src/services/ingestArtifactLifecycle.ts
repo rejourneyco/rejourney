@@ -6,6 +6,8 @@ import {
     STALE_PROCESSING_JOB_TTL_MS,
 } from './ingestUploadRelay.js';
 import { markSessionIngestActivity } from './sessionReconciliation.js';
+import { assertSessionAcceptsNewIngestWork, isSessionIngestImmutable } from './sessionIngestImmutability.js';
+import { ApiError } from '../middleware/errorHandler.js';
 
 type PendingArtifactParams = {
     sessionId: string;
@@ -200,6 +202,10 @@ export async function prepareReplayArtifactForUpload(
         };
     }
 
+    if (isSessionIngestImmutable(session)) {
+        throw ApiError.conflict('Session is closed to ingest; no new uploads or mutations are accepted.');
+    }
+
     await markSessionIngestActivity(session.id, { reopen: true });
 
     const update = buildArtifactRetryUpdate(params);
@@ -268,6 +274,12 @@ export async function prepareReplayArtifactForUpload(
 }
 
 export async function registerPendingArtifact(params: PendingArtifactParams) {
+    const [guardSession] = await db.select().from(sessions).where(eq(sessions.id, params.sessionId)).limit(1);
+    if (!guardSession) {
+        throw ApiError.internal('Session not found for artifact registration');
+    }
+    assertSessionAcceptsNewIngestWork(guardSession);
+
     await markSessionIngestActivity(params.sessionId, { reopen: true });
 
     const [artifact] = await db.insert(recordingArtifacts).values({
@@ -327,7 +339,9 @@ export async function markArtifactUploadStored(params: {
         })
         .where(eq(recordingArtifacts.id, artifact.id));
 
-    await markSessionIngestActivity(session.id, { at: uploadedAt });
+    if (!isSessionIngestImmutable(session)) {
+        await markSessionIngestActivity(session.id, { at: uploadedAt });
+    }
 
     const jobState = nextStatus === 'ready'
         ? { queued: false, alreadyCompleted: true }
@@ -402,7 +416,9 @@ export async function markArtifactUploadInterrupted(params: {
             sql`${ingestJobs.status} in ('pending', 'processing')`,
         ));
 
-    await markSessionIngestActivity(session.id, { at: now, reopen: true });
+    if (!isSessionIngestImmutable(session)) {
+        await markSessionIngestActivity(session.id, { at: now, reopen: true });
+    }
 
     logger.warn({
         sessionId: session.id,
@@ -440,7 +456,9 @@ export async function completeArtifactUpload(params: CompleteArtifactParams) {
     const { artifact, session } = artifactResult;
     const acknowledgedAt = new Date();
 
-    await markSessionIngestActivity(session.id, { at: acknowledgedAt });
+    if (!isSessionIngestImmutable(session)) {
+        await markSessionIngestActivity(session.id, { at: acknowledgedAt });
+    }
 
     if (params.frameCount !== undefined && params.frameCount !== null) {
         await db.update(recordingArtifacts)

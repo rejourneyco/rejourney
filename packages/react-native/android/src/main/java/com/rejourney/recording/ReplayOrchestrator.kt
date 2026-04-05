@@ -302,19 +302,17 @@ class ReplayOrchestrator private constructor(private val context: Context) {
         }
         finalized = true
 
-        SegmentDispatcher.shared.evaluateReplayRetention(sid, metrics) { _, _ ->
-            SegmentDispatcher.shared.concludeReplay(
-                sid,
-                termMs,
-                bgTimeMs,
-                metrics,
-                queueDepthAtFinalize,
-                endReason = endReason,
-                lifecycleVersion = lifecycleContractVersion
-            ) { ok ->
-                if (ok) clearRecovery()
-                completion?.invoke(true, ok)
-            }
+        SegmentDispatcher.shared.concludeReplay(
+            sid,
+            termMs,
+            bgTimeMs,
+            metrics,
+            queueDepthAtFinalize,
+            endReason = endReason,
+            lifecycleVersion = lifecycleContractVersion
+        ) { ok ->
+            if (ok) clearRecovery()
+            completion?.invoke(true, ok)
         }
 
         replayId = null

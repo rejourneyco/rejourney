@@ -2,6 +2,7 @@ import { createHash } from 'crypto';
 import { eq, sql } from 'drizzle-orm';
 import { db, sessions, sessionMetrics, anrs, errors, apiEndpointDailyStats, screenTouchHeatmaps } from '../db/client.js';
 import { trackANRAsIssue, trackErrorAsIssue } from './issueTracker.js';
+import { normalizeIngestSdkVersion } from './ingestSessionLifecycle.js';
 import { getUniqueScreenCount, mergeScreenPaths, normalizeScreenPath } from '../utils/screenPaths.js';
 import { shouldExcludeNetworkEventFromProductAnalytics } from '../utils/internalToolEndpointFilter.js';
 
@@ -32,6 +33,11 @@ export async function processEventsArtifact(job: any, session: any, metrics: any
         }
         if (deviceInfo.systemVersion) sessionUpdates.osVersion = deviceInfo.systemVersion;
         else if (deviceInfo.osVersion) sessionUpdates.osVersion = deviceInfo.osVersion;
+
+        const fromDeviceInfo = normalizeIngestSdkVersion(deviceInfo.sdkVersion);
+        if (fromDeviceInfo && !session.sdkVersion) {
+            sessionUpdates.sdkVersion = fromDeviceInfo;
+        }
 
         await db.update(sessions).set(sessionUpdates).where(eq(sessions.id, job.sessionId));
 

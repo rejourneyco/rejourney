@@ -354,6 +354,7 @@ public final class TelemetryPipeline: NSObject {
             "isConstrained": isConstrained,
             "isExpensive": isExpensive,
             "appVersion": appVersion,
+            "sdkVersion": RejourneyImpl.sdkVersion,
             "appId": appId,
             "screenWidth": Int(bounds.width),
             "screenHeight": Int(bounds.height),

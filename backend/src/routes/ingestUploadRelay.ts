@@ -13,6 +13,7 @@ import {
     verifyArtifactUploadRelayTokenResult,
 } from '../services/ingestUploadRelay.js';
 import { getRedisDiagnosticsForLog } from '../db/redis.js';
+import { assertSessionAcceptsNewIngestWork } from '../services/sessionIngestImmutability.js';
 
 const router = Router();
 
@@ -83,6 +84,21 @@ router.put(
                 'ingest.relay_token_scope_mismatch',
             );
             throw ApiError.forbidden('Upload token scope mismatch');
+        }
+
+        try {
+            assertSessionAcceptsNewIngestWork(session);
+        } catch (err) {
+            logger.warn(
+                {
+                    event: 'ingest.relay_rejected_session_immutable',
+                    sessionId: session.id,
+                    artifactId,
+                    projectId: session.projectId,
+                },
+                'ingest.relay_rejected_session_immutable',
+            );
+            throw err;
         }
 
         const contentLength = parseContentLength(req.header('content-length') || undefined);

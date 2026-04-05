@@ -1,5 +1,7 @@
 User-agent: *
 Allow: /
+# Interactive demo uses sample data — keep out of the index (also noindex in HTML).
+Disallow: /demo
 
 # Standard Sitemap
 Sitemap: https://rejourney.co/sitemap.xml

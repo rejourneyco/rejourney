@@ -31,6 +31,10 @@ import {
 import { buildSdkTelemetryMergeSet, normalizeSdkTelemetry } from '../services/ingestSdkTelemetry.js';
 import { getRequestIp } from '../utils/requestIp.js';
 import { getRedisDiagnosticsForLog } from '../db/redis.js';
+import {
+    assertSessionAcceptsNewIngestWork,
+    isSessionIngestImmutable,
+} from '../services/sessionIngestImmutability.js';
 
 const router = Router();
 
@@ -143,11 +147,10 @@ router.post(
             osVersion: data.osVersion,
             networkType: data.networkType,
             deviceId: deviceAuthId || undefined,
+            sdkVersion: typeof data.sdkVersion === 'string' ? data.sdkVersion : undefined,
         });
 
-        if (session.status === 'failed' || session.status === 'deleted') {
-            throw ApiError.badRequest('Session is no longer accepting data');
-        }
+        assertSessionAcceptsNewIngestWork(session);
 
         if (isNewSession && project.rejourneyEnabled) {
             await incrementProjectSessionCount(projectId, teamId, 1);
@@ -244,7 +247,8 @@ router.post(
             .where(and(eq(sessions.id, sessionId), eq(sessions.projectId, projectId)))
             .limit(1);
 
-        if (normalizedSdkTelemetry) {
+        const sessionOpen = Boolean(session && !isSessionIngestImmutable(session));
+        if (normalizedSdkTelemetry && sessionOpen) {
             const sdkUpdates = buildSdkTelemetryMergeSet(normalizedSdkTelemetry);
             if (Object.keys(sdkUpdates).length > 0) {
                 await db.update(sessionMetrics)
@@ -260,7 +264,7 @@ router.post(
         });
 
         const deviceId = extractDeviceIdFromUploadToken(req);
-        if (deviceId && session && !session.deviceId) {
+        if (sessionOpen && deviceId && session && !session.deviceId) {
             db.update(sessions)
                 .set({ deviceId })
                 .where(eq(sessions.id, sessionId))
@@ -268,7 +272,13 @@ router.post(
         }
 
         const userId = req.body.userId;
-        if (userId && userId !== 'anonymous' && typeof userId === 'string' && !userId.startsWith('anon_')) {
+        if (
+            sessionOpen
+            && userId
+            && userId !== 'anonymous'
+            && typeof userId === 'string'
+            && !userId.startsWith('anon_')
+        ) {
             db.update(sessions)
                 .set({ userDisplayId: userId, updatedAt: new Date() })
                 .where(eq(sessions.id, sessionId))
@@ -291,7 +301,7 @@ router.post(
             actualSizeBytes,
             deviceId,
             userId,
-            hadSdkTelemetry: Boolean(normalizedSdkTelemetry),
+            hadSdkTelemetry: Boolean(normalizedSdkTelemetry && sessionOpen),
             queued: completion.queued,
             alreadyCompleted: completion.alreadyCompleted,
             ignored: completion.ignored,
@@ -408,11 +418,10 @@ router.post(
             deviceModel: data.deviceModel,
             appVersion: data.appVersion,
             deviceId: segmentDeviceId || undefined,
+            sdkVersion: typeof data.sdkVersion === 'string' ? data.sdkVersion : undefined,
         });
 
-        if (session.status === 'failed' || session.status === 'deleted') {
-            throw ApiError.badRequest('Session is no longer accepting data');
-        }
+        assertSessionAcceptsNewIngestWork(session);
 
         if (isNewSession && project.rejourneyEnabled) {
             await incrementProjectSessionCount(projectId, teamId, 1);
@@ -626,7 +635,13 @@ router.post(
             startTime,
         });
 
-        if (normalizedSdkTelemetry) {
+        const [segSession] = await db
+            .select()
+            .from(sessions)
+            .where(and(eq(sessions.id, sessionId), eq(sessions.projectId, projectId)))
+            .limit(1);
+        const segSessionOpen = Boolean(segSession && !isSessionIngestImmutable(segSession));
+        if (normalizedSdkTelemetry && segSessionOpen) {
             const sdkUpdates = buildSdkTelemetryMergeSet(normalizedSdkTelemetry);
             if (Object.keys(sdkUpdates).length > 0) {
                 await db.update(sessionMetrics)
@@ -656,7 +671,7 @@ router.post(
         log.info({
             actualSizeBytes,
             frameCount,
-            hadSdkTelemetry: Boolean(normalizedSdkTelemetry),
+            hadSdkTelemetry: Boolean(normalizedSdkTelemetry && segSessionOpen),
             queued: completion.queued,
             alreadyCompleted: completion.alreadyCompleted,
             ignored: completion.ignored,
