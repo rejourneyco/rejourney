@@ -29,7 +29,8 @@ import {
   Timer,
   MousePointerClick,
   Database,
-  X
+  X,
+  UserPlus,
 } from 'lucide-react';
 import { DashboardPageHeader } from '~/shared/ui/core/DashboardPageHeader';
 import { TimeFilter, TimeRange, DEFAULT_TIME_RANGE, TIME_RANGE_OPTIONS } from '~/shared/ui/core/TimeFilter';
@@ -89,10 +90,11 @@ const ISSUE_FILTER_ICONS: Record<SessionArchiveIssueFilter, React.ComponentType<
   dead_taps: MousePointerClick,
   slow_start: Timer,
   slow_api: Gauge,
+  new_user: UserPlus,
 };
 
 const hasSuccessfulRecording = (session: any): boolean =>
-  Boolean(session?.hasSuccessfulRecording ?? session?.replayPromoted ?? ((session?.stats?.screenshotSegmentCount ?? 0) > 0));
+  Boolean(session?.hasSuccessfulRecording ?? ((session?.stats?.screenshotSegmentCount ?? 0) > 0));
 
 const formatArchiveScopeLabel = (timeRange: TimeRange, dateFilter: string): string => {
   if (dateFilter) {
@@ -325,8 +327,9 @@ export const RecordingsList: React.FC = () => {
     }
   }, [nextCursor, isLoadingMore, fetchSessions]);
 
-  // Client-side filtering for search and sorting across the currently loaded chunk.
-  // Issue pills are applied server-side so they operate on the full archive.
+  // Search matches only rows already loaded (server has no text search on this endpoint).
+  // Issue pills, time range, metadata, etc. are applied on the server across the full archive;
+  // use Load more / next page to fetch additional matching rows in stable order.
   // Only show sessions with successful screenshot recordings.
   const filteredSessions = useMemo(() => {
     let result = sessions.filter(session => {
@@ -604,14 +607,19 @@ export const RecordingsList: React.FC = () => {
           <div className="flex items-center gap-2 max-w-[1800px] mx-auto">
             {SESSION_ARCHIVE_ISSUE_FILTER_OPTIONS.map((f) => {
               const Icon = ISSUE_FILTER_ICONS[f.id];
+              const isActive = filter === f.id;
               return (
                 <button
                   key={f.id}
                   onClick={() => setFilter(f.id)}
                   className={`flex items-center gap-1.5 px-3 py-1.5 font-bold text-[10px] uppercase rounded-md border transition-all whitespace-nowrap shadow-sm hover:-translate-y-0.5
-                    ${filter === f.id
-                    ? 'bg-slate-900 text-white border-slate-800'
-                    : 'bg-white border-slate-200 text-slate-900 hover:bg-indigo-50'}`}
+                    ${isActive
+                    ? f.id === 'new_user'
+                      ? 'bg-emerald-900 text-white border-emerald-800'
+                      : 'bg-slate-900 text-white border-slate-800'
+                    : f.id === 'new_user'
+                      ? 'bg-white border-emerald-200 text-emerald-900 hover:bg-emerald-50'
+                      : 'bg-white border-slate-200 text-slate-900 hover:bg-indigo-50'}`}
                 >
                   <Icon className="w-3 h-3" />
                   {f.label}
@@ -921,7 +929,14 @@ export const RecordingsList: React.FC = () => {
                     {/* Notes */}
                     <td className="py-2.5 px-3 align-middle text-right w-36">
                       <div className="flex justify-end gap-1.5 items-center flex-wrap min-h-[28px]">
-                      {session.isFirstSession && <NeoBadge variant="neutral" size="sm">NEW</NeoBadge>}
+                      {session.isFirstSession && (
+                        <span
+                          className="inline-flex items-center rounded-md border border-emerald-800 bg-emerald-950/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-tight text-emerald-900"
+                          title="First recorded session for this visitor in this project"
+                        >
+                          NEW USER
+                        </span>
+                      )}
                       {!hasIssues && <NeoBadge variant="success" size="sm">HEALTHY</NeoBadge>}
                       {(session.crashCount || 0) > 0 && <NeoBadge variant="danger" size="sm">CRASH</NeoBadge>}
                       {((session as any).anrCount || 0) > 0 && <NeoBadge variant="neutral" size="sm">ANR</NeoBadge>}
@@ -1075,7 +1090,10 @@ export const RecordingsList: React.FC = () => {
                   Showing <span className="text-slate-900">{startIndex}–{endIndex}</span> of{' '}
                   <span className="text-slate-900">{filteredSessions.length.toLocaleString()}</span> loaded
                   {totalCount !== null && totalCount > filteredSessions.length && (
-                    <span className="text-slate-400"> ({totalCount.toLocaleString()} total in {archiveScopeLabel})</span>
+                    <span className="text-slate-400">
+                      {' '}
+                      ({totalCount.toLocaleString()} matching in {archiveScopeLabel} — load more for the rest)
+                    </span>
                   )}
                 </span>
                 {hasMore && (

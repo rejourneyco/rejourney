@@ -212,8 +212,6 @@ export interface ApiSession {
   id: string;
   userId: string;
   hasSuccessfulRecording?: boolean;
-  replayPromoted?: boolean;
-  replayPromotedReason?: string | null;
   deviceInfo: {
     model?: string;
     manufacturer?: string;
@@ -300,8 +298,6 @@ export interface ApiSessionSummary {
   id: string;
   userId: string;
   hasSuccessfulRecording?: boolean;
-  replayPromoted?: boolean;
-  replayPromotedReason?: string | null;
   deviceInfo: ApiSession['deviceInfo'];
   geoLocation?: ApiSession['geoLocation'];
   startTime: number;
@@ -685,7 +681,7 @@ export function transformToRecordingSession(session: ApiSession | ApiSessionSumm
     effectiveStatus: (session as any).effectiveStatus ?? (session as any).status ?? 'ready',
     isLiveIngest: Boolean((session as any).isLiveIngest),
     isBackgroundProcessing: Boolean((session as any).isBackgroundProcessing),
-    canOpenReplay: (session as any).canOpenReplay ?? (session as any).hasSuccessfulRecording ?? (session as any).replayPromoted ?? false,
+    canOpenReplay: (session as any).canOpenReplay ?? (session as any).hasSuccessfulRecording ?? false,
     // Geo data if available
     geoLocation: session.geoLocation,
     // Device ID for DAU/MAU tracking
@@ -696,10 +692,7 @@ export function transformToRecordingSession(session: ApiSession | ApiSessionSumm
     retentionDays: (session as any).retentionDays ?? 14,
     customEventCount: (summary.customEventCount ?? metrics.customEventCount ?? 0),
     // Canonical replay availability flag derived from successful screenshot capture.
-    hasSuccessfulRecording: (session as any).hasSuccessfulRecording ?? (session as any).replayPromoted ?? false,
-    // Compatibility aliases for older UI code paths.
-    replayPromoted: (session as any).hasSuccessfulRecording ?? (session as any).replayPromoted ?? false,
-    replayPromotedReason: (session as any).replayPromotedReason ?? null,
+    hasSuccessfulRecording: (session as any).hasSuccessfulRecording ?? false,
 
     isReplayExpired: (session as any).isReplayExpired ?? false,
     // Network quality
@@ -736,8 +729,16 @@ export type SessionArchiveQuery = {
   projectId?: string;
   platform?: string;
   hasRecording?: boolean;
-  promoted?: boolean;
-  issueFilter?: 'all' | 'crashes' | 'anrs' | 'errors' | 'rage' | 'dead_taps' | 'slow_start' | 'slow_api';
+  issueFilter?:
+    | 'all'
+    | 'crashes'
+    | 'anrs'
+    | 'errors'
+    | 'rage'
+    | 'dead_taps'
+    | 'slow_start'
+    | 'slow_api'
+    | 'new_user';
   metaKey?: string;
   metaValue?: string;
   eventName?: string;
@@ -758,7 +759,6 @@ function buildSessionArchiveQueryString(params: SessionArchiveQuery & { countOnl
     projectId,
     platform,
     hasRecording,
-    promoted,
     issueFilter,
     metaKey,
     metaValue,
@@ -771,7 +771,7 @@ function buildSessionArchiveQueryString(params: SessionArchiveQuery & { countOnl
     includeTotal,
     countOnly,
   } = params;
-  const recordingFilter = hasRecording ?? promoted;
+  const recordingFilter = hasRecording;
 
   const queryParams = new URLSearchParams();
   if (countOnly) queryParams.set('countOnly', 'true');

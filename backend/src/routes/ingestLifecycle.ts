@@ -1,12 +1,12 @@
 import { Router } from 'express';
 import { eq } from 'drizzle-orm';
-import { db, sessionMetrics } from '../db/client.js';
+import { db, sessionMetrics, sessions } from '../db/client.js';
 import { logger } from '../logger.js';
-import { apiKeyAuth, requireScope, asyncHandler, ApiError } from '../middleware/index.js';
+import { apiKeyAuth, requireScope, asyncHandler } from '../middleware/index.js';
 import { ingestProjectRateLimiter } from '../middleware/rateLimit.js';
 import { validate } from '../middleware/validation.js';
 import { endSessionSchema } from '../validation/ingest.js';
-import { resolveLifecycleSession } from '../services/ingestSessionLifecycle.js';
+import { normalizeIngestSdkVersion, resolveLifecycleSession } from '../services/ingestSessionLifecycle.js';
 import { extractDeviceIdFromUploadToken } from '../services/ingestProtocol.js';
 import { buildSdkTelemetryMergeSet, normalizeSdkTelemetry } from '../services/ingestSdkTelemetry.js';
 import {
@@ -18,6 +18,7 @@ import {
 } from '../services/ingestSessionEnd.js';
 import { preserveExistingSessionEndedAt } from '../services/sessionTiming.js';
 import { markSessionIngestActivity, reconcileSessionState } from '../services/sessionReconciliation.js';
+import { isSessionIngestImmutable } from '../services/sessionIngestImmutability.js';
 import { getRedisDiagnosticsForLog } from '../db/redis.js';
 
 const router = Router();
@@ -60,6 +61,23 @@ router.post(
         }
 
         const session = lifecycle.session;
+
+        if (isSessionIngestImmutable(session)) {
+            log.info(
+                {
+                    event: 'ingest.session_end_idempotent',
+                    reason: 'session_immutable',
+                },
+                'Ignoring duplicate /session/end for closed session',
+            );
+            res.json({
+                success: true,
+                ignored: true,
+                reason: 'session_immutable',
+            });
+            return;
+        }
+
         const normalizedSdkTelemetry = normalizeSdkTelemetry(data.sdkTelemetry);
         const lifecycleVersion = normalizeLifecycleVersion(data.lifecycleVersion);
         const endReason = normalizeSessionEndReason(data.endReason);
@@ -91,6 +109,13 @@ router.post(
                 retryAttempts: normalizedSdkTelemetry.retryAttemptCount,
                 circuitBreakerOpens: normalizedSdkTelemetry.circuitBreakerOpenCount,
             }, 'SDK telemetry saved');
+        }
+
+        const endSdkVersion = normalizeIngestSdkVersion(data.sdkVersion);
+        if (endSdkVersion && !session.sdkVersion) {
+            await db.update(sessions)
+                .set({ sdkVersion: endSdkVersion, updatedAt: new Date() })
+                .where(eq(sessions.id, session.id));
         }
 
         const endedAtFallback =
@@ -143,60 +168,6 @@ router.post(
         }, 'Session ended');
 
         res.json({ success: true, durationSeconds: effectiveDurationSeconds, backgroundTimeSeconds });
-    })
-);
-
-router.post(
-    '/replay/evaluate',
-    apiKeyAuth,
-    requireScope('ingest'),
-    asyncHandler(async (req, res) => {
-        const { sessionId } = req.body;
-        const projectId = req.project!.id;
-
-        if (!sessionId) {
-            throw ApiError.badRequest('sessionId is required');
-        }
-
-        const lifecycle = await resolveLifecycleSession(projectId, sessionId, req, {
-            deviceId: extractDeviceIdFromUploadToken(req) || undefined,
-        });
-        const log = logger.child({
-            route: '/api/ingest/replay/evaluate',
-            projectId,
-            sessionId,
-            resolution: lifecycle.resolution,
-        });
-
-        if (lifecycle.resolution === 'materialized') {
-            log.info('Materialized recent missing session during /replay/evaluate');
-        }
-
-        if (!lifecycle.session) {
-            log.info('Ignoring stale unknown session during /replay/evaluate');
-            res.json({
-                promoted: false,
-                reason: 'no_recording_data',
-                score: 0,
-                ignored: true,
-            });
-            return;
-        }
-
-        const promoted = Boolean(lifecycle.session.replayAvailable);
-        const reason = promoted ? 'successful_recording' : 'no_recording_data';
-
-        log.info({
-            replayAvailable: Boolean(lifecycle.session.replayAvailable),
-            promoted,
-            reason,
-        }, 'Replay evaluate resolved');
-
-        res.json({
-            promoted,
-            reason,
-            score: promoted ? 1 : 0,
-        });
     })
 );
 

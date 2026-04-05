@@ -9,6 +9,7 @@ import {
 describe('sessionArchiveFilters', () => {
     it('normalizes known issue filters and rejects unknown values', () => {
         expect(normalizeSessionArchiveIssueFilter('crashes')).toBe('crashes');
+        expect(normalizeSessionArchiveIssueFilter('new_user')).toBe('new_user');
         expect(normalizeSessionArchiveIssueFilter('failed_funnel')).toBeNull();
         expect(normalizeSessionArchiveIssueFilter('totally_unknown')).toBeNull();
         expect(normalizeSessionArchiveIssueFilter(undefined)).toBeNull();
@@ -17,6 +18,7 @@ describe('sessionArchiveFilters', () => {
     it('marks only metric-backed filters as requiring a metrics join', () => {
         expect(sessionArchiveIssueFilterUsesMetrics('crashes')).toBe(true);
         expect(sessionArchiveIssueFilterUsesMetrics('rage')).toBe(true);
+        expect(sessionArchiveIssueFilterUsesMetrics('new_user')).toBe(false);
         expect(sessionArchiveIssueFilterUsesMetrics('all')).toBe(false);
         expect(sessionArchiveIssueFilterUsesMetrics(null)).toBe(false);
     });
@@ -24,6 +26,7 @@ describe('sessionArchiveFilters', () => {
     it('returns SQL conditions only for active issue filters', () => {
         expect(getSessionArchiveIssueFilterCondition('crashes')).toBeDefined();
         expect(getSessionArchiveIssueFilterCondition('slow_api')).toBeDefined();
+        expect(getSessionArchiveIssueFilterCondition('new_user')).toBeDefined();
         expect(getSessionArchiveIssueFilterCondition('all')).toBeUndefined();
         expect(getSessionArchiveIssueFilterCondition(null)).toBeUndefined();
     });

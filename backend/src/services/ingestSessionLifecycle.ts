@@ -18,7 +18,23 @@ export type IngestSessionMetadata = {
     osVersion?: string;
     networkType?: string;
     deviceId?: string;
+    /** Mobile SDK semver (optional; older clients omit — backward compatible) */
+    sdkVersion?: string;
 };
+
+const MAX_INGEST_SDK_VERSION_LEN = 50;
+
+/**
+ * Normalize optional SDK version from ingest payloads. Returns null if missing/invalid.
+ */
+export function normalizeIngestSdkVersion(value: unknown): string | null {
+    if (typeof value !== 'string') return null;
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+    const safe = trimmed.slice(0, MAX_INGEST_SDK_VERSION_LEN);
+    if (!/^[\w.\-+]+$/.test(safe)) return null;
+    return safe;
+}
 
 type EnsureIngestSessionOptions = {
     initialStatus?: string;
@@ -127,6 +143,10 @@ function buildMetadataUpdates(existing: any, metadata: IngestSessionMetadata | u
     }
     if (!existing.appVersion && metadata?.appVersion) {
         updates.appVersion = metadata.appVersion;
+    }
+    const sdkNorm = normalizeIngestSdkVersion(metadata?.sdkVersion);
+    if (sdkNorm && !existing.sdkVersion) {
+        updates.sdkVersion = sdkNorm;
     }
     if (!existing.deviceId && metadata?.deviceId) {
         updates.deviceId = metadata.deviceId;
@@ -251,6 +271,7 @@ export async function ensureIngestSession(
     if (!session) {
         const inferred = inferSessionShape(req, metadata);
         const videoRetention = await resolveVideoRetention(projectId);
+        const initialSdkVersion = normalizeIngestSdkVersion(metadata?.sdkVersion);
 
         const inserted = await db.insert(sessions).values({
             id: sessionId,
@@ -260,6 +281,7 @@ export async function ensureIngestSession(
             deviceModel: inferred.deviceModel,
             osVersion: inferred.osVersion,
             appVersion: metadata?.appVersion,
+            ...(initialSdkVersion ? { sdkVersion: initialSdkVersion } : {}),
             userDisplayId: inferred.userDisplayId,
             anonymousDisplayId: inferred.anonymousDisplayId,
             deviceId: metadata?.deviceId || null,

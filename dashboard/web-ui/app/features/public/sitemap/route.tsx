@@ -8,13 +8,14 @@ import { ARTICLES } from "~/shared/data/engineering";
 
 export async function loader() {
     const baseUrl = "https://rejourney.co";
-    const lastModified = "2026-01-18"; // Last significant update date
+    const lastModified = new Date().toISOString().slice(0, 10);
 
     const staticRoutes = [
         { path: "/", priority: "1.0", changefreq: "daily" },
         { path: "/dashboard", priority: "0.9", changefreq: "daily" },
         { path: "/pricing", priority: "0.8", changefreq: "weekly" },
         { path: "/engineering", priority: "0.9", changefreq: "weekly" },
+        { path: "/changelog", priority: "0.8", changefreq: "weekly" },
     ];
 
     const docRoutes = Object.keys(DOCS_MAP).map(slug => ({

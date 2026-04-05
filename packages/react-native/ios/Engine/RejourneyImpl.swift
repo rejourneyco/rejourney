@@ -78,6 +78,7 @@ public final class RejourneyImpl: NSObject {
         NotificationCenter.default.removeObserver(self)
     }
 
+    //NOTE: iOS cannot detect reliably app kill so we depend server side with the session reconciliation logic 
     private func setupLifecycleListeners() {
         let center = NotificationCenter.default
         center.addObserver(self, selector: #selector(handleTermination), name: UIApplication.willTerminateNotification, object: nil)

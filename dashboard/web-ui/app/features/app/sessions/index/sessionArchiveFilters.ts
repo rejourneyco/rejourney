@@ -7,6 +7,7 @@ export const SESSION_ARCHIVE_ISSUE_FILTERS = [
   'dead_taps',
   'slow_start',
   'slow_api',
+  'new_user',
 ] as const;
 
 export type SessionArchiveIssueFilter = typeof SESSION_ARCHIVE_ISSUE_FILTERS[number];
@@ -23,6 +24,7 @@ export const SESSION_ARCHIVE_ISSUE_FILTER_OPTIONS: Array<{
   { id: 'dead_taps', label: 'Dead Taps' },
   { id: 'slow_start', label: 'Slow Start' },
   { id: 'slow_api', label: 'Slow API' },
+  { id: 'new_user', label: 'New User' },
 ];
 
 export function matchesSessionArchiveIssueFilter(session: any, filter: SessionArchiveIssueFilter): boolean {
@@ -34,5 +36,6 @@ export function matchesSessionArchiveIssueFilter(session: any, filter: SessionAr
   if (filter === 'dead_taps') return (session.deadTapCount || 0) > 0;
   if (filter === 'slow_start') return (session.appStartupTimeMs || 0) > 3000;
   if (filter === 'slow_api') return (session.apiAvgResponseMs || 0) > 1000;
+  if (filter === 'new_user') return Boolean(session.isFirstSession);
   return true;
 }

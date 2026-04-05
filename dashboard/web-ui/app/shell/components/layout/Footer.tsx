@@ -36,6 +36,26 @@ export const Footer: React.FC = () => {
           <button onClick={handleCopyEmail} className="hover:text-black transition-colors uppercase">
             Contact
           </button>
+          <span>•</span>
+          <a
+            href="https://x.com/rejourneyco"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="hover:text-black transition-colors"
+            aria-label="Rejourney on X"
+          >
+            X
+          </a>
+          <span>•</span>
+          <a
+            href="https://github.com/rejourneyco"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="hover:text-black transition-colors"
+            aria-label="Rejourney on GitHub"
+          >
+            GitHub
+          </a>
         </div>
         <div className="text-center text-sm text-muted-foreground mt-4">
           © 2026 Rejourney. All rights reserved.

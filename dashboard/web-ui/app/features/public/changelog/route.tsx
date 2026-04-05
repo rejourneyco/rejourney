@@ -9,8 +9,10 @@ export const meta: Route.MetaFunction = () => [
         name: "description",
         content: "Stay up to date with the latest improvements and features in Rejourney.",
     },
+    { name: "robots", content: "index, follow" },
     { property: "og:title", content: "Changelog - Rejourney" },
     { property: "og:type", content: "website" },
+    { property: "og:url", content: "https://rejourney.co/changelog" },
     { tagName: "link", rel: "canonical", href: "https://rejourney.co/changelog" },
 ];
 

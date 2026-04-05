@@ -46,6 +46,8 @@ export const endSessionSchema = z.object({
         totalBytesUploaded: z.number().optional(),
         totalBytesEvicted: z.number().optional(),
     }).optional(),
+    /** Mobile package semver; optional for older SDKs */
+    sdkVersion: z.string().max(50).optional(),
 });
 
 

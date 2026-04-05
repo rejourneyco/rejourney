@@ -1985,14 +1985,6 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
     const sessionRiskLabel = sessionRiskLevel === 'critical' ? 'High Pressure' : sessionRiskLevel === 'warning' ? 'Watchlist' : 'Stable';
     const sessionRiskGauge = Math.max(6, Math.min(100, issueSignalsPerMinute * 28));
 
-    // User visit count
-    const userIdentifier = session?.deviceId || session?.userId || session?.anonymousId || fullSession?.userId;
-    const userSessions = userIdentifier
-        ? sessions.filter(s => s.deviceId === userIdentifier || s.userId === userIdentifier || s.anonymousId === userIdentifier)
-        : [];
-    const totalVisits = userSessions.length;
-    const isNewUser = totalVisits <= 1;
-
     const formatEventTime = (timestamp: number) => {
         const elapsed = Math.max(0, (timestamp - replayBaseTime) / 1000);
         const mins = Math.floor(elapsed / 60);
@@ -2005,8 +1997,6 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
     const hasSuccessfulRecording =
         (fullSession as any)?.hasSuccessfulRecording
         ?? (session as any)?.hasSuccessfulRecording
-        ?? (fullSession as any)?.replayPromoted
-        ?? session?.replayPromoted
         ?? false;
     const isReplayExpired = (fullSession as any)?.isReplayExpired || session?.isReplayExpired || recordingDeleted;
     // Determine the reason why replay is unavailable (if it is)
@@ -2229,9 +2219,6 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
                             Next
                             <ChevronRight className="h-3.5 w-3.5" />
                         </button>
-                        <span className="rounded-full border border-slate-300 bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">
-                            {isNewUser ? 'New Visitor' : `${totalVisits} Visits`}
-                        </span>
                         <span className={`rounded-full border px-3 py-1 text-xs font-bold ${sessionRiskStyle.badge}`}>
                             {sessionRiskLabel}
                         </span>

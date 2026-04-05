@@ -102,13 +102,12 @@ export interface RecordingSession {
   isReplayExpired?: boolean;
   // Canonical replay availability flag based on screenshot replay data existing.
   hasSuccessfulRecording?: boolean;
-  // Compatibility aliases for older UI code paths.
-  replayPromoted?: boolean;
-  replayPromotedReason?: string | null;
   effectiveStatus?: SessionStatus;
   isLiveIngest?: boolean;
   isBackgroundProcessing?: boolean;
   canOpenReplay?: boolean;
+  /** True when this row is the first-ever session for this visitor (device → anonymous → user id) in the project. */
+  isFirstSession?: boolean;
   // Joined/Hydrated data
   networkRequests?: ApiCall[];
   events?: SessionEvent[];

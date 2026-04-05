@@ -95,7 +95,7 @@ export const demoSessions: RecordingSession[] = [
         networkType: 'wifi',
         status: 'ready',
         hasSuccessfulRecording: true,
-        replayPromoted: true
+        isFirstSession: true,
     },
     // Session with crash
     {
@@ -136,7 +136,8 @@ export const demoSessions: RecordingSession[] = [
         appStartupTimeMs: 850,
         networkType: 'cellular',
         cellularGeneration: '5G',
-        status: 'ready'
+        status: 'ready',
+        isFirstSession: true,
     },
     // High engagement session
     {

@@ -1,6 +1,6 @@
 # Ingest + Session Recording Lifecycle (Visual)
 
-Last updated: 2026-03-29
+Last updated: 2026-04-05
 
 This doc is the ingest/runtime view: package start, upload lanes, relay, worker reconciliation, Redis, and Postgres.
 
@@ -13,6 +13,7 @@ Shortest correct mental model:
 - Redis is the runtime helper plane for cache, idempotency, and limit coordination.
 - A replay becomes visible when at least one screenshot artifact reaches `ready`.
 - A session is finalized by **`reconcileSessionState()`** (driven by artifact workers after jobs complete and by the **session-lifecycle worker** sweep), not just by calling `/session/end`.
+- After a session is **closed to ingest** (see [I8]), the API rejects new presigns, relay `PUT` uploads to S3, fault ingestion, and mutating duplicate `/session/end` calls so Postgres + object storage for that session are not altered by late clients.
 
 ## Flow Index
 
@@ -25,6 +26,7 @@ Shortest correct mental model:
 │ [I5] Redis vs Postgres Ownership                                            │
 │ [I6] Quick Answers / Constants                                              │
 │ [I7] Archive list duration + read model (dashboard)                         │
+│ [I8] Closed-session immutability (ingest + relay)                           │
 └──────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -71,6 +73,28 @@ Max recording duration              backend-configured, clamped server-side
                                     to 1..10 minutes
 ```
 
+### iOS: multitasking and force-quit (no guaranteed `/session/end`)
+
+A common user path is: swipe up to the **app switcher**, then swipe the app away to **force-quit** it (fully terminate the process, not merely leaving it in the background). On that path the OS has usually **already delivered** `UIApplication.didEnterBackgroundNotification`. The app becomes **suspended**; the later swipe **kills the process** with **no reliable opportunity** to run teardown code.
+
+**Why `/api/ingest/session/end` and `explicit_ended_at` may be missing**
+
+- After background, the native layer typically **pauses** the session and flushes best-effort; it does not treat every background as an immediate session end (see the rollover rules above).
+- **`UIApplication.willTerminateNotification`** (and `applicationWillTerminate:`) is **not guaranteed** when the user force-quits from the switcher, especially if the app **was already backgrounded/suspended**. The iOS package observes `willTerminate` in [`RejourneyImpl.swift`](/Users/mora/Desktop/Dev-mac/rejourney/packages/react-native/ios/Engine/RejourneyImpl.swift) for final flush, but that notification **often never fires** in this scenario.
+- The client may therefore **never** emit a final end signal; Postgres may lack **`explicit_ended_at`** for that closure until **server-side reconciliation** infers completion (idle window, artifacts, etc.—see [I4]).
+
+**Expectations**
+
+- This is **normal iOS platform behavior** (the system may terminate a suspended app without running `willTerminate`), not a defect in “failure to detect kill.”
+- Ingest design treats **`reconcileSessionState()`** as the authority for when a row is done; explicit `/session/end` is a strong hint when present, not a prerequisite for every real-world exit.
+
+**Optional tightening (still best-effort)**
+
+- On `didEnterBackground`, a **`beginBackgroundTask`**-bounded flush can improve the odds of shipping pending bytes before suspension; iOS still grants **limited time** and may kill the app without further callbacks. Nothing on the client can **promise** `explicit_ended_at` for every force-quit.
+
+
+The SAME THING WITH ANDROID but with android we detect background in different ways according to OEMs which means we need more background tests on different devices in simulator (TODO. So far we only tested pixel devices).
+
 Package-side rules that matter downstream:
 
 - In the normal React Native flow, the session ID is generated on-device.
@@ -85,6 +109,7 @@ Relevant package files:
 - [`packages/react-native/android/src/main/java/com/rejourney/recording/ReplayOrchestrator.kt`](/Users/mora/Desktop/Dev-mac/rejourney/packages/react-native/android/src/main/java/com/rejourney/recording/ReplayOrchestrator.kt)
 - [`packages/react-native/android/src/main/java/com/rejourney/recording/TelemetryPipeline.kt`](/Users/mora/Desktop/Dev-mac/rejourney/packages/react-native/android/src/main/java/com/rejourney/recording/TelemetryPipeline.kt)
 - [`packages/react-native/android/src/main/java/com/rejourney/engine/DeviceRegistrar.kt`](/Users/mora/Desktop/Dev-mac/rejourney/packages/react-native/android/src/main/java/com/rejourney/engine/DeviceRegistrar.kt)
+- [`packages/react-native/ios/Engine/RejourneyImpl.swift`](/Users/mora/Desktop/Dev-mac/rejourney/packages/react-native/ios/Engine/RejourneyImpl.swift) (foreground / background / `willTerminate` lifecycle, pause and rollover)
 
 ## [I2] Upload Lanes / Session Creation
 
@@ -122,14 +147,17 @@ Session-creation rules:
 - New sessions are inserted with `status='processing'` and a matching `session_metrics` row.
 - Billing/session counting happens only when the session row is first created.
 - Replay screenshot uploads are rejected if the project disables recording or the session is sampled out.
-- If a late artifact appears for a finalized session, `registerPendingArtifact()` reopens it by touching the session with `reopen: true`.
+- Closed sessions (see [I8]) cannot receive new presigns or relay uploads; `registerPendingArtifact()` is guarded so a finalized session is not reopened by late clients.
 
 Relevant routes:
 
 - [`backend/src/routes/ingestUploads.ts`](/Users/mora/Desktop/Dev-mac/rejourney/backend/src/routes/ingestUploads.ts)
 - [`backend/src/routes/ingestLifecycle.ts`](/Users/mora/Desktop/Dev-mac/rejourney/backend/src/routes/ingestLifecycle.ts)
+- [`backend/src/routes/ingestUploadRelay.ts`](/Users/mora/Desktop/Dev-mac/rejourney/backend/src/routes/ingestUploadRelay.ts)
+- [`backend/src/routes/ingestFaults.ts`](/Users/mora/Desktop/Dev-mac/rejourney/backend/src/routes/ingestFaults.ts)
 - [`backend/src/services/ingestSessionLifecycle.ts`](/Users/mora/Desktop/Dev-mac/rejourney/backend/src/services/ingestSessionLifecycle.ts)
 - [`backend/src/services/ingestArtifactLifecycle.ts`](/Users/mora/Desktop/Dev-mac/rejourney/backend/src/services/ingestArtifactLifecycle.ts)
+- [`backend/src/services/sessionIngestImmutability.ts`](/Users/mora/Desktop/Dev-mac/rejourney/backend/src/services/sessionIngestImmutability.ts)
 
 ## [I3] Upload Relay / Artifact + lifecycle workers / Artifact states
 
@@ -212,7 +240,7 @@ Important worker nuance:
 
 Relevant files:
 
-- [`backend/src/routes/ingestUploadRelay.ts`](/Users/mora/Desktop/Dev-mac/rejourney/backend/src/routes/ingestUploadRelay.ts)
+- [`backend/src/routes/ingestUploadRelay.ts`](/Users/mora/Desktop/Dev-mac/rejourney/backend/src/routes/ingestUploadRelay.ts) (enforces [I8] before streaming to S3)
 - [`backend/src/worker/ingestArtifactWorker.ts`](/Users/mora/Desktop/Dev-mac/rejourney/backend/src/worker/ingestArtifactWorker.ts)
 - [`backend/src/worker/replayArtifactWorker.ts`](/Users/mora/Desktop/Dev-mac/rejourney/backend/src/worker/replayArtifactWorker.ts)
 - [`backend/src/worker/sessionLifecycleWorker.ts`](/Users/mora/Desktop/Dev-mac/rejourney/backend/src/worker/sessionLifecycleWorker.ts)
@@ -220,6 +248,33 @@ Relevant files:
 - [`backend/src/worker/startArtifactWorker.ts`](/Users/mora/Desktop/Dev-mac/rejourney/backend/src/worker/startArtifactWorker.ts)
 - [`backend/src/services/artifactJobProcessor.ts`](/Users/mora/Desktop/Dev-mac/rejourney/backend/src/services/artifactJobProcessor.ts)
 - [`backend/src/services/ingestArtifactLifecycle.ts`](/Users/mora/Desktop/Dev-mac/rejourney/backend/src/services/ingestArtifactLifecycle.ts)
+
+## [I8] Closed-session immutability (ingest + relay)
+
+When the dashboard would show **no live ingest** for a row, the server treats that session as **immutable for ingest clients**: further mutations from the SDK are rejected with **409 Conflict** (except idempotent success paths noted below).
+
+**Predicate** (single source of truth: [`sessionIngestImmutability.ts`](/Users/mora/Desktop/Dev-mac/rejourney/backend/src/services/sessionIngestImmutability.ts) `isSessionIngestImmutable`):
+
+- `status` is `failed`, `deleted`, or `ready`, **or**
+- `finalized_at` is set, **or**
+- `explicit_ended_at` is set (client already called `/session/end`).
+
+**What is blocked**
+
+- `POST /api/ingest/presign` and `POST /api/ingest/segment/presign` — no new artifact rows / relay URLs.
+- `PUT /upload/artifacts/:artifactId` (relay) — no new bytes into S3 for that session (even if an old presign URL is reused).
+- `POST /api/ingest/fault` — no new crash/ANR rows or session_metrics bumps for that session.
+
+**What is still allowed (winding down)**
+
+- `POST /api/ingest/batch/complete` and `POST /api/ingest/segment/complete` may still finalize artifacts that were already presigned, but they **do not** update `sessions.last_ingest_activity_at`, session identity fields, or `session_metrics` SDK telemetry while the session is immutable — so the closed session row is not “nudged” by straggling completes.
+- Artifact pipeline code still updates `recording_artifacts` / jobs as needed to process data that already landed; [`ingestArtifactLifecycle.ts`](/Users/mora/Desktop/Dev-mac/rejourney/backend/src/services/ingestArtifactLifecycle.ts) skips `markSessionIngestActivity` when the session is immutable.
+
+**`/session/end`**
+
+- If the session is already immutable, the handler returns `{ success: true, ignored: true, reason: 'session_immutable' }` without changing the database (idempotent).
+
+**Operational note:** If a presign was issued just before the session closed, the client may still attempt a relay `PUT`; that upload is **rejected** once the session is immutable, so the SDK may see 409 on the relay. That is intentional to prevent post-close corruption.
 
 ## [I4] Reconciliation / Auto-Finalizer / endedAt Math
 
@@ -269,6 +324,8 @@ Relevant files:
   -> markSessionIngestActivity(explicitEndedAt=..., closeSource='explicit')
   -> reconcileSessionState()
 ```
+
+**Client reality:** Some exits—especially **iOS background-then-force-quit** from the multitasking UI—often **do not** invoke the native path that calls `/session/end`, so **`explicit_ended_at` may stay unset** until reconciliation. See the **iOS: multitasking and force-quit** note in [I1].
 
 Important reconciliation rules:
 

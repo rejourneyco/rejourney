@@ -4,8 +4,10 @@
  * Session listing, details, and dashboard stats
  */
 
+import { Buffer } from 'node:buffer';
+
 import { Router } from 'express';
-import { eq, and, inArray, gte, lt, isNull, desc, sql, getTableColumns } from 'drizzle-orm';
+import { eq, and, or, inArray, gte, lt, isNull, desc, sql, getTableColumns } from 'drizzle-orm';
 
 import { db, sessions, sessionMetrics, recordingArtifacts, projects, teamMembers, crashes, anrs, errors } from '../db/client.js';
 import { gunzipSync } from 'zlib';
@@ -73,6 +75,59 @@ const sessionsArchiveListColumns = (() => {
     return cols;
 })();
 
+/** `device_id` → `anonymous_hash` → `user_display_id` — matches how the dashboard distinguishes visitors. */
+const archiveVisitorIdentitySql = sql<string>`coalesce(${sessions.deviceId}, ${sessions.anonymousHash}, ${sessions.userDisplayId})`;
+
+type ArchiveListSessionForFirstCheck = Pick<
+    typeof sessions.$inferSelect,
+    'id' | 'projectId' | 'deviceId' | 'anonymousHash' | 'userDisplayId'
+>;
+
+/**
+ * Session ids that are the chronologically first row for each (project, visitor) among identities present on this page.
+ */
+async function resolveArchiveFirstSessionIds(rows: Array<{ session: ArchiveListSessionForFirstCheck }>): Promise<Set<string>> {
+    const firstIds = new Set<string>();
+    const byProject = new Map<string, Set<string>>();
+
+    for (const { session: s } of rows) {
+        const identity = s.deviceId || s.anonymousHash || s.userDisplayId;
+        if (!identity) continue;
+        if (!byProject.has(s.projectId)) byProject.set(s.projectId, new Set());
+        byProject.get(s.projectId)!.add(identity);
+    }
+
+    for (const [projectId, identitySet] of byProject) {
+        const identities = [...identitySet];
+        if (identities.length === 0) continue;
+
+        const rowList = await db
+            .select({
+                id: sessions.id,
+                ident: archiveVisitorIdentitySql,
+                startedAt: sessions.startedAt,
+            })
+            .from(sessions)
+            .where(
+                and(
+                    eq(sessions.projectId, projectId),
+                    or(...identities.map((ident) => sql`${archiveVisitorIdentitySql} = ${ident}`))
+                )
+            )
+            .orderBy(archiveVisitorIdentitySql, sessions.startedAt, sessions.id);
+
+        const seenIdent = new Set<string>();
+        for (const row of rowList) {
+            const ident = row.ident;
+            if (!ident || seenIdent.has(ident)) continue;
+            seenIdent.add(ident);
+            firstIds.add(row.id);
+        }
+    }
+
+    return firstIds;
+}
+
 /**
  * Get time range filter for queries
  */
@@ -99,7 +154,6 @@ function buildSessionArchiveBaseConditions(
         platform?: string;
         status?: string;
         hasRecording?: string;
-        promoted?: string;
         metaKey?: string;
         metaValue?: string;
         eventName?: string;
@@ -118,7 +172,6 @@ function buildSessionArchiveBaseConditions(
         platform,
         status,
         hasRecording,
-        promoted,
         metaKey,
         metaValue,
         eventName,
@@ -147,7 +200,7 @@ function buildSessionArchiveBaseConditions(
     if (platform) baseConditions.push(eq(sessions.platform, platform));
     if (status) baseConditions.push(eq(sessions.status, status));
 
-    const recordingFilter = hasRecording ?? promoted;
+    const recordingFilter = hasRecording;
     if (recordingFilter === 'true') {
         baseConditions.push(eq(sessions.replayAvailable, true));
     }
@@ -227,12 +280,28 @@ function buildSessionArchiveBaseConditions(
     };
 }
 
-function getReplayCompatibilityReason(successfulRecording: boolean): string | null {
-    return successfulRecording ? 'successful_recording' : null;
+type SessionArchiveCursorPayload = { s: string; i: string };
+
+/** Opaque cursor for GET /api/sessions — keyset on (started_at DESC, id DESC). */
+function encodeSessionArchiveCursor(startedAt: Date, id: string): string {
+    const payload: SessionArchiveCursorPayload = { s: startedAt.toISOString(), i: id };
+    return Buffer.from(JSON.stringify(payload), 'utf8').toString('base64url');
 }
 
-function getReplayCompatibilityScore(successfulRecording: boolean): number {
-    return successfulRecording ? 1 : 0;
+function parseSessionArchiveCursor(raw: unknown): { kind: 'keyset'; startedAt: Date; id: string } | { kind: 'legacy'; id: string } | null {
+    if (typeof raw !== 'string' || raw.length === 0) return null;
+    try {
+        const payload = JSON.parse(Buffer.from(raw, 'base64url').toString('utf8')) as SessionArchiveCursorPayload;
+        if (typeof payload?.s === 'string' && typeof payload?.i === 'string') {
+            const startedAt = new Date(payload.s);
+            if (!Number.isNaN(startedAt.getTime())) {
+                return { kind: 'keyset', startedAt, id: payload.i };
+            }
+        }
+    } catch {
+        /* not a base64url keyset cursor */
+    }
+    return { kind: 'legacy', id: raw };
 }
 
 const DETAIL_FETCH_CONCURRENCY = Number(process.env.RJ_REPLAY_DETAIL_FETCH_CONCURRENCY ?? 6);
@@ -487,9 +556,6 @@ function buildSessionBasePayload(
         recordingDeletedAt: session.recordingDeletedAt?.toISOString() ?? null,
         isReplayExpired: session.isReplayExpired,
         hasSuccessfulRecording: successfulRecording,
-        replayPromoted: successfulRecording,
-        replayPromotedReason: getReplayCompatibilityReason(successfulRecording),
-        replayPromotionScore: getReplayCompatibilityScore(successfulRecording),
     };
 }
 
@@ -1043,7 +1109,6 @@ router.get(
             platform,
             status,
             hasRecording,
-            promoted,
             metaKey,
             metaValue,
             eventName,
@@ -1087,7 +1152,6 @@ router.get(
                 platform,
                 status,
                 hasRecording,
-                promoted,
                 metaKey,
                 metaValue,
                 eventName,
@@ -1173,7 +1237,6 @@ router.get(
             offset = 0,
             cursor,
             hasRecording,
-            promoted,
             metaKey,
             metaValue,
             eventName,
@@ -1222,7 +1285,6 @@ router.get(
                 platform,
                 status,
                 hasRecording,
-                promoted,
                 metaKey,
                 metaValue,
                 eventName,
@@ -1236,9 +1298,21 @@ router.get(
             accessibleProjectIds
         );
 
-        // Pagination conditions (cursor) are only applied to the data query, not the count
+        // Pagination: keyset on (started_at DESC, id DESC). Legacy cursors were raw session ids with lt(id) — wrong vs sort order.
         const dataConditions = [...baseConditions];
-        if (cursor) dataConditions.push(lt(sessions.id, cursor));
+        if (cursor) {
+            const parsed = parseSessionArchiveCursor(cursor);
+            if (parsed?.kind === 'keyset') {
+                dataConditions.push(
+                    or(
+                        lt(sessions.startedAt, parsed.startedAt),
+                        and(eq(sessions.startedAt, parsed.startedAt), lt(sessions.id, parsed.id))
+                    )
+                );
+            } else if (parsed?.kind === 'legacy') {
+                dataConditions.push(lt(sessions.id, parsed.id));
+            }
+        }
 
         const runCountQuery = () =>
             needsMetricsJoin
@@ -1272,7 +1346,7 @@ router.get(
             .from(sessions)
             .leftJoin(sessionMetrics, eq(sessions.id, sessionMetrics.sessionId))
             .where(and(...dataConditions))
-            .orderBy(desc(sessions.startedAt))
+            .orderBy(desc(sessions.startedAt), desc(sessions.id))
             .limit(parsedLimit + 1)
             .offset(cursor ? 0 : parseInt(offset) || 0);
 
@@ -1285,7 +1359,11 @@ router.get(
         // Determine if there are more results
         const hasMore = sessionsList.length > parsedLimit;
         const resultSessions = hasMore ? sessionsList.slice(0, parsedLimit) : sessionsList;
-        const nextCursor = hasMore ? resultSessions[resultSessions.length - 1].session.id : null;
+        const lastRow = resultSessions[resultSessions.length - 1]?.session;
+        const nextCursor =
+            hasMore && lastRow ? encodeSessionArchiveCursor(lastRow.startedAt, lastRow.id) : null;
+
+        const firstSessionIds = await resolveArchiveFirstSessionIds(resultSessions);
 
         // Transform to API format
         const sessionsData = resultSessions.map(({ session: s, metrics: m }) => {
@@ -1324,7 +1402,7 @@ router.get(
                 playableDuration: durationSec,
                 status: s.status,
                 ...buildSessionPresentationPayload(presentationState),
-                isFirstSession: false,
+                isFirstSession: firstSessionIds.has(s.id),
                 // Metrics
                 touchCount: m?.touchCount ?? 0,
                 scrollCount: m?.scrollCount ?? 0,
@@ -1367,9 +1445,6 @@ router.get(
                 recordingDeletedAt: s.recordingDeletedAt?.toISOString() ?? null,
                 isReplayExpired: s.isReplayExpired,
                 hasSuccessfulRecording: successfulRecording,
-                replayPromoted: successfulRecording,
-                replayPromotedReason: getReplayCompatibilityReason(successfulRecording),
-                replayPromotionScore: getReplayCompatibilityScore(successfulRecording),
                 // Stats
                 stats: {
                     duration: String(durationSec),
@@ -1879,9 +1954,6 @@ router.get(
             recordingDeletedAt: session.recordingDeletedAt?.toISOString() ?? null,
             isReplayExpired: session.isReplayExpired,
             hasSuccessfulRecording: successfulRecording,
-            replayPromoted: successfulRecording,
-            replayPromotedReason: getReplayCompatibilityReason(successfulRecording),
-            replayPromotionScore: getReplayCompatibilityScore(successfulRecording),
         });
     })
 );

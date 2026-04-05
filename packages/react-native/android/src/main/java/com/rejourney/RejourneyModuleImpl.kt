@@ -44,6 +44,7 @@ import com.facebook.react.modules.network.NetworkingModule
 import okhttp3.OkHttpClient
 import com.rejourney.engine.DeviceRegistrar
 import com.rejourney.engine.DiagnosticLog
+import com.rejourney.engine.RejourneyImpl
 
 import com.rejourney.platform.OEMDetector
 import com.rejourney.platform.SessionLifecycleService
@@ -856,6 +857,7 @@ class RejourneyModuleImpl(
 
     fun setSDKVersion(version: String) {
         sdkVersion = version
+        RejourneyImpl.sdkVersion = version
     }
 
     fun getSDKVersion(promise: Promise) {

@@ -281,7 +281,7 @@ function getSessionLocationLabel(session: RecordingSession): string {
 }
 
 function hasSuccessfulRecording(session: RecordingSession): boolean {
-    return Boolean(session.hasSuccessfulRecording ?? session.replayPromoted);
+    return Boolean(session.hasSuccessfulRecording);
 }
 
 function buildRecommendedSessions(sessions: RecordingSession[]): RecommendedSession[] {

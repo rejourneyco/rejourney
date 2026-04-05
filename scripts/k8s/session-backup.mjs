@@ -479,11 +479,6 @@ async function buildManifest(sessionId) {
         'retentionDays', s.retention_days,
         'isSampledIn', s.is_sampled_in,
         'hasSuccessfulRecording', COALESCE(s.replay_available, false),
-        'replayPromoted', COALESCE(s.replay_available, false),
-        'replayPromotedReason', CASE
-          WHEN COALESCE(s.replay_available, false) THEN 'successful_recording'
-          ELSE NULL
-        END,
         'replaySegmentCount', s.replay_segment_count,
         'replayStorageBytes', s.replay_storage_bytes,
         'geoCountry', s.geo_country,

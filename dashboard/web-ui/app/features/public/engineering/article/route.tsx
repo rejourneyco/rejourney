@@ -8,7 +8,7 @@ import { Header } from "~/shell/components/layout/Header";
 import { Footer } from "~/shell/components/layout/Footer";
 import { ARTICLES } from "~/shared/data/engineering";
 import { ArrowLeft } from "lucide-react";
-import { Link, redirect, useParams } from "react-router";
+import { Link, useParams } from "react-router";
 
 // Loader to validate slug
 export function loader({ params }: LoaderFunctionArgs) {
@@ -26,14 +26,20 @@ export const meta: MetaFunction = ({ params }) => {
     if (!article) {
         return [{ title: "Article Not Found - Rejourney" }];
     }
-    return [
+    const metaTags = [
         { title: `${article.title} - Rejourney Engineering` },
+        { name: "robots", content: "index, follow" },
         { name: "description", content: article.subtitle },
+        ...(article.seoKeywords ? [{ name: "keywords", content: article.seoKeywords }] : []),
         { property: "og:title", content: article.title },
         { property: "og:description", content: article.subtitle },
         { property: "og:type", content: "article" },
+        {
+            property: "og:url",
+            content: `https://rejourney.co/engineering/${article.urlDate}/${article.id}`,
+        },
         { property: "og:image", content: article.image },
-        { property: "article:published_time", content: article.date },
+        { property: "article:published_time", content: `${article.urlDate}T12:00:00.000Z` },
         { property: "article:author", content: article.author.name },
         { name: "twitter:card", content: "summary_large_image" },
         { name: "twitter:title", content: article.title },
@@ -41,6 +47,7 @@ export const meta: MetaFunction = ({ params }) => {
         { name: "twitter:image", content: article.image },
         { tagName: "link", rel: "canonical", href: `https://rejourney.co/engineering/${article.urlDate}/${article.id}` },
     ];
+    return metaTags;
 };
 
 export default function EngineeringArticlePage() {
