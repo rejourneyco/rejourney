@@ -188,6 +188,10 @@ export interface TeamSessionData {
     sessionsUsed: number;
     sessionLimit: number;
     planName: string;
+    /** Base plan cap (Stripe / free tier), without bonus */
+    planSessionLimit: number;
+    /** Extra sessions for this billing period only (0 after period changes) */
+    bonusSessionsActive: number;
 }
 
 export async function getSessionLimitCache(
@@ -200,11 +204,16 @@ export async function getSessionLimitCache(
     try {
         const data = await redisClient.hgetall(key);
         if (!data || !data.cached) return null;
+        const sessionLimit = parseInt(data.sessionLimit || '0', 10);
+        const planSessionLimit = parseInt(data.planSessionLimit || String(sessionLimit), 10);
+        const bonusSessionsActive = parseInt(data.bonusSessionsActive || '0', 10);
         return {
             teamId,
-            sessionsUsed: parseInt(data.sessionsUsed || '0'),
-            sessionLimit: parseInt(data.sessionLimit || '0'),
+            sessionsUsed: parseInt(data.sessionsUsed || '0', 10),
+            sessionLimit,
             planName: data.planName || 'unknown',
+            planSessionLimit,
+            bonusSessionsActive: Number.isFinite(bonusSessionsActive) ? bonusSessionsActive : 0,
         };
     } catch (err) {
         logRedisOperationFailed('get_session_limit_cache', err, { teamId });
@@ -317,6 +326,8 @@ export async function setSessionLimitCache(
         pipeline.hset(key, 'sessionsUsed', sessionData.sessionsUsed.toString());
         pipeline.hset(key, 'sessionLimit', sessionData.sessionLimit.toString());
         pipeline.hset(key, 'planName', sessionData.planName);
+        pipeline.hset(key, 'planSessionLimit', sessionData.planSessionLimit.toString());
+        pipeline.hset(key, 'bonusSessionsActive', sessionData.bonusSessionsActive.toString());
         pipeline.expire(key, ttlSeconds);
         await pipeline.exec();
     } catch (err) {

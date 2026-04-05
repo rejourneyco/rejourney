@@ -1030,6 +1030,10 @@ export interface TeamUsage {
   rejourneyEnabled?: boolean; // Added to enable Rejourney feature
   sessionsUsed: number;
   sessionLimit: number;
+  /** Plan cap without promotional bonus */
+  planSessionLimit?: number;
+  /** Extra sessions this billing period only (not carried to the next cycle) */
+  bonusSessionsActive?: number;
   sessionsRemaining: number;
   percentUsed: number;
   isAtLimit: boolean;
@@ -1069,6 +1073,8 @@ export interface TeamBillingDashboard {
   usage: {
     sessionsUsed: number;
     sessionLimit: number;
+    planSessionLimit?: number;
+    bonusSessionsActive?: number;
     sessionsRemaining: number;
     percentUsed: number;
     isAtLimit: boolean;
@@ -1421,6 +1427,8 @@ export async function getFreeTierStatus(): Promise<FreeTierStatus> {
 export interface TeamSessionUsage {
   sessionsUsed: number;
   sessionLimit: number;
+  planSessionLimit?: number;
+  bonusSessionsActive?: number;
   sessionsRemaining: number;
   percentUsed: number;
   isAtLimit: boolean;

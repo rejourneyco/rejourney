@@ -19,6 +19,7 @@ import {
     FREE_TIER_SESSIONS,
     getTeamBillingPeriod,
     calculateSessionUsage,
+    effectiveBonusSessions,
 } from '../utils/billing.js';
 import { logger } from '../logger.js';
 import { ApiError } from '../middleware/index.js';
@@ -36,6 +37,10 @@ export interface SessionLimitCheckResult {
     planName: string;
     isAtLimit: boolean;
     isNearLimit: boolean;
+    /** Plan cap without bonus (matches Stripe / free tier) */
+    planSessionLimit: number;
+    /** Bonus applied this billing period only; 0 after the period changes */
+    bonusSessionsActive: number;
 }
 
 export interface TeamSessionData {
@@ -43,6 +48,8 @@ export interface TeamSessionData {
     sessionsUsed: number;
     sessionLimit: number;
     planName: string;
+    planSessionLimit: number;
+    bonusSessionsActive: number;
 }
 
 // =============================================================================
@@ -129,6 +136,7 @@ async function fetchTeamSessionData(
             ownerUserId: teams.ownerUserId,
             stripeSubscriptionId: teams.stripeSubscriptionId,
             bonusSessions: teams.bonusSessions,
+            bonusSessionsBillingPeriod: teams.bonusSessionsBillingPeriod,
         })
         .from(teams)
         .where(eq(teams.id, teamId))
@@ -170,10 +178,20 @@ async function fetchTeamSessionData(
         sessionsUsed = await calculateOwnerFreeTierUsage(team.ownerUserId);
     }
 
+    const effectiveBonus = effectiveBonusSessions(
+        team.bonusSessions ?? 0,
+        team.bonusSessionsBillingPeriod,
+        team.billingCycleAnchor ?? null
+    );
+
+    const planSessionLimit = subscription.sessionLimit;
+
     return {
         teamId,
         sessionsUsed,
-        sessionLimit: subscription.sessionLimit + (team.bonusSessions ?? 0),
+        sessionLimit: planSessionLimit + effectiveBonus,
+        planSessionLimit,
+        bonusSessionsActive: effectiveBonus,
         planName: subscription.planName,
     };
 }
@@ -210,7 +228,7 @@ export async function checkAndEnforceSessionLimit(
         () => fetchTeamSessionData(teamId)
     );
 
-    const { sessionsUsed, sessionLimit, planName } = sessionData;
+    const { sessionsUsed, sessionLimit, planName, planSessionLimit, bonusSessionsActive } = sessionData;
     const usage = calculateSessionUsage(sessionsUsed, sessionLimit);
 
     // Check if session limit is reached
@@ -230,6 +248,8 @@ export async function checkAndEnforceSessionLimit(
         planName,
         isAtLimit: usage.isAtLimit,
         isNearLimit: usage.isNearLimit,
+        planSessionLimit,
+        bonusSessionsActive,
     };
 }
 
@@ -242,7 +262,7 @@ export async function getTeamSessionUsage(
 ): Promise<SessionLimitCheckResult> {
     const sessionData = await fetchTeamSessionData(teamId);
 
-    const { sessionsUsed, sessionLimit, planName } = sessionData;
+    const { sessionsUsed, sessionLimit, planName, planSessionLimit, bonusSessionsActive } = sessionData;
     const usage = calculateSessionUsage(sessionsUsed, sessionLimit);
 
     return {
@@ -254,6 +274,8 @@ export async function getTeamSessionUsage(
         planName,
         isAtLimit: usage.isAtLimit,
         isNearLimit: usage.isNearLimit,
+        planSessionLimit,
+        bonusSessionsActive,
     };
 }
 
@@ -324,13 +346,26 @@ export async function checkUserFreeTier(userId: string): Promise<{
 
     // Sum bonus sessions from all free teams owned by this user
     const ownedFreeTeams = await db
-        .select({ bonusSessions: teams.bonusSessions })
+        .select({
+            bonusSessions: teams.bonusSessions,
+            bonusSessionsBillingPeriod: teams.bonusSessionsBillingPeriod,
+            billingCycleAnchor: teams.billingCycleAnchor,
+        })
         .from(teams)
         .where(and(
             eq(teams.ownerUserId, userId),
             isNull(teams.stripeSubscriptionId)
         ));
-    const totalBonus = ownedFreeTeams.reduce((sum, t) => sum + (t.bonusSessions ?? 0), 0);
+    const totalBonus = ownedFreeTeams.reduce(
+        (sum, t) =>
+            sum +
+            effectiveBonusSessions(
+                t.bonusSessions ?? 0,
+                t.bonusSessionsBillingPeriod,
+                t.billingCycleAnchor ?? null
+            ),
+        0
+    );
     const effectiveLimit = FREE_TIER_SESSIONS + totalBonus;
 
     const isExhausted = sessionsUsed >= effectiveLimit;

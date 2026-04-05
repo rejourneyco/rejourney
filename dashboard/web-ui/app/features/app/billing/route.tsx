@@ -353,13 +353,24 @@ export const BillingSettings: React.FC = () => {
     }
   };
 
-  // Calculate usage percentage
-  const usagePercent = sessionUsage?.sessionsUsed && teamPlan?.sessionLimit
-    ? Math.min(100, Math.round((sessionUsage.sessionsUsed / teamPlan.sessionLimit) * 100))
-    : 0;
+  // Effective cap includes time-limited bonus sessions (same as ingest); plan row is base plan only
+  const effectiveSessionLimit =
+    sessionUsage?.sessionLimit ?? teamPlan?.sessionLimit ?? 5000;
+  const planSessionCap =
+    sessionUsage?.planSessionLimit ?? teamPlan?.sessionLimit ?? 5000;
+  const bonusSessionsActive = sessionUsage?.bonusSessionsActive ?? 0;
 
-  const isNearLimit = usagePercent >= 80;
-  const isAtLimit = usagePercent >= 100;
+  const usagePercent =
+    sessionUsage != null ? Math.min(100, sessionUsage.percentUsed) : 0;
+
+  const isNearLimit =
+    sessionUsage != null ? sessionUsage.isNearLimit : usagePercent >= 80;
+  const isAtLimit =
+    sessionUsage != null ? sessionUsage.isAtLimit : usagePercent >= 100;
+
+  const sessionsRemainingDisplay =
+    sessionUsage?.sessionsRemaining ??
+    Math.max(0, effectiveSessionLimit - (sessionUsage?.sessionsUsed ?? 0));
   const isInitialBillingLoading = Boolean(currentTeam)
     && isLoadingBilling
     && !teamPlan
@@ -501,9 +512,15 @@ export const BillingSettings: React.FC = () => {
                     {(sessionUsage?.sessionsUsed ?? 0).toLocaleString()}
                   </span>
                   <span className="text-lg font-bold text-slate-500">
-                    / {(teamPlan?.sessionLimit ?? 5000).toLocaleString()}
+                    / {effectiveSessionLimit.toLocaleString()}
                   </span>
                 </div>
+                {bonusSessionsActive > 0 ? (
+                  <p className="text-xs font-semibold text-slate-600 mt-2 max-w-xl">
+                    Plan includes {planSessionCap.toLocaleString()} sessions; +{bonusSessionsActive.toLocaleString()}{' '}
+                    bonus this billing period. Bonus does not carry over when the period renews.
+                  </p>
+                ) : null}
               </div>
               <div className="text-right">
                 <span className="text-[10px] font-semibold uppercase text-slate-500 tracking-widest">Period Ends</span>
@@ -527,7 +544,7 @@ export const BillingSettings: React.FC = () => {
                   {usagePercent}% used
                 </span>
                 <span className="text-xs font-bold text-slate-500">
-                  {((teamPlan?.sessionLimit ?? 5000) - (sessionUsage?.sessionsUsed ?? 0)).toLocaleString()} remaining
+                  {sessionsRemainingDisplay.toLocaleString()} remaining
                 </span>
               </div>
             </div>

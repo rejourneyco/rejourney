@@ -14,6 +14,7 @@ import {
     canRecord,
     getTeamBillingPeriod,
     getTeamBillingPeriodDates,
+    effectiveBonusSessions,
     formatCentsAsDollars,
     formatSessionCount,
     FREE_TIER_SESSIONS,
@@ -220,6 +221,26 @@ describe('Billing Utilities', () => {
             
             const period = getTeamBillingPeriod(anchor);
             expect(period).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+        });
+    });
+
+    describe('effectiveBonusSessions', () => {
+        it('returns 0 when billing period column is null', () => {
+            expect(effectiveBonusSessions(500, null, null)).toBe(0);
+        });
+
+        it('returns 0 when billing period column does not match current period', () => {
+            const anchor = new Date();
+            const current = getTeamBillingPeriod(anchor);
+            expect(effectiveBonusSessions(500, '2000-01-01', anchor)).toBe(0);
+            expect(effectiveBonusSessions(500, current + '-wrong', anchor)).toBe(0);
+        });
+
+        it('returns bonus when period matches', () => {
+            const anchor = new Date();
+            anchor.setDate(anchor.getDate() - 5);
+            const current = getTeamBillingPeriod(anchor);
+            expect(effectiveBonusSessions(250, current, anchor)).toBe(250);
         });
     });
 

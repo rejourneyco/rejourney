@@ -1,0 +1,1 @@
+ALTER TABLE "teams" ADD COLUMN "bonus_sessions_billing_period" text;

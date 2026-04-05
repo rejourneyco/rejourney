@@ -589,6 +589,8 @@ router.get(
             usage: {
                 sessionsUsed: usage.sessionsUsed,
                 sessionLimit: usage.sessionLimit,
+                planSessionLimit: usage.planSessionLimit,
+                bonusSessionsActive: usage.bonusSessionsActive,
                 sessionsRemaining: usage.sessionsRemaining,
                 percentUsed: usage.percentUsed,
                 isAtLimit: usage.isAtLimit,
