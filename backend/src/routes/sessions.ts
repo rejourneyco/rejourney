@@ -1307,7 +1307,7 @@ router.get(
                     or(
                         lt(sessions.startedAt, parsed.startedAt),
                         and(eq(sessions.startedAt, parsed.startedAt), lt(sessions.id, parsed.id))
-                    )
+                    )!
                 );
             } else if (parsed?.kind === 'legacy') {
                 dataConditions.push(lt(sessions.id, parsed.id));
