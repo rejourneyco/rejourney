@@ -9,6 +9,7 @@ const SHARED_APP_ROUTE_MODULES = [
   { key: "analytics-devices", path: "analytics/devices", file: "features/app/analytics/devices/route.tsx" },
   { key: "analytics-geo", path: "analytics/geo", file: "features/app/analytics/geo/route.tsx" },
   { key: "analytics-journeys", path: "analytics/journeys", file: "features/app/analytics/journeys/route.tsx" },
+  { key: "analytics-heatmaps", path: "analytics/heatmaps", file: "features/app/analytics/heatmaps/route.tsx" },
   { key: "alerts-emails", path: "alerts/emails", file: "features/app/alerts/email/route.tsx" },
   { key: "crashes", path: "stability/crashes", file: "features/app/stability/crashes/index/route.tsx" },
   { key: "crash-detail", path: "stability/crashes/:projectId/:crashId", file: "features/app/stability/crashes/detail/route.tsx" },

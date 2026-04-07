@@ -562,7 +562,7 @@ const IssueSparkline: React.FC<{ dailyEvents?: Record<string, number>; color: st
 };
 
 const EmptyStateCard: React.FC<{ title: string; subtitle: string }> = ({ title, subtitle }) => (
-    <div className="rounded-2xl border border-dashed border-slate-200 bg-white/50 px-6 py-10 text-center">
+                                <div className="rounded-2xl border border-dashed border-slate-200 bg-white/50 px-6 py-10 text-center">
         <p className="text-sm font-semibold text-slate-700">{title}</p>
         <p className="mt-2 text-xs text-slate-500 max-w-sm mx-auto">{subtitle}</p>
     </div>
@@ -574,7 +574,7 @@ const GA4Card: React.FC<{
     children: React.ReactNode;
     className?: string;
 }> = ({ title, action, children, className = '' }) => (
-    <div className={`rounded-2xl border border-slate-200 bg-white shadow-sm flex flex-col ${className}`}>
+    <div className={`border border-gray-200 bg-white flex flex-col ${className}`} style={{ boxShadow: '2px 2px 0 0 rgba(0,0,0,0.07)' }}>
         <div className="flex items-center justify-between px-5 pt-4 pb-2">
             <h3 className="text-sm font-medium text-slate-700">{title}</h3>
             {action ? <div className="flex items-center gap-1.5">{action}</div> : null}
@@ -1269,7 +1269,7 @@ export const GeneralOverview: React.FC = () => {
             <DashboardPageHeader
                 title="General"
                 icon={<MessageSquareWarning className="w-6 h-6" />}
-                iconColor="bg-sky-50"
+                iconColor="bg-[#5dadec]"
             >
                 <div className="flex flex-wrap items-center gap-3">
                     <DataWatermarkBanner dataCompleteThrough={trends?.dataCompleteThrough} />
@@ -1306,7 +1306,7 @@ export const GeneralOverview: React.FC = () => {
                 )}
 
                 {!isLoading && selectedProject?.id && !hasData && (
-                    <div className="rounded-2xl border border-slate-200 bg-white p-6 text-sm text-slate-600 shadow-sm">
+                    <div className="border-2 border-black bg-white p-6 text-sm text-slate-600 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]">
                         No general analytics available for this filter yet.
                     </div>
                 )}
@@ -1323,7 +1323,7 @@ export const GeneralOverview: React.FC = () => {
                                             : 'text-rose-600';
 
                                     return (
-                                        <div key={card.label} className="rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
+                                        <div key={card.label} className="border border-gray-200 bg-white px-4 py-3" style={{ boxShadow: '2px 2px 0 0 rgba(0,0,0,0.07)' }}>
                                             <div className="text-[11px] font-medium uppercase tracking-wide text-slate-500">{card.label}</div>
                                             <div className="mt-2 text-2xl font-semibold text-slate-900">{card.value}</div>
                                             <div className={`mt-1 text-xs font-medium ${deltaClass}`}>
@@ -1462,7 +1462,7 @@ export const GeneralOverview: React.FC = () => {
                             <GA4Card title="Latest app release overview">
                                 <table className="mt-1 w-full text-xs">
                                     <thead>
-                                        <tr className="border-b border-slate-100 text-[11px] text-slate-500">
+                                        <tr className="border-b-2 border-black text-[11px] text-black font-mono">
                                             <th className="py-2 text-left font-medium">APP</th>
                                             <th className="py-2 text-left font-medium">VERSION</th>
                                             <th className="py-2 text-left font-medium">STATUS</th>
@@ -1499,7 +1499,7 @@ export const GeneralOverview: React.FC = () => {
                             <GA4Card title="App stability overview">
                                 <table className="mt-1 w-full text-xs">
                                     <thead>
-                                        <tr className="border-b border-slate-100 text-[11px] text-slate-500">
+                                        <tr className="border-b-2 border-black text-[11px] text-black font-mono">
                                             <th className="py-2 text-left font-medium">APP</th>
                                             <th className="py-2 text-right font-medium">CRASH-FREE</th>
                                             <th className="py-2 text-right font-medium">ANR-FREE</th>
@@ -1664,29 +1664,29 @@ export const GeneralOverview: React.FC = () => {
 
                             <GA4Card title="Acquisition and activation quality">
                                 <div className="grid grid-cols-2 gap-3 text-xs">
-                                    <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                                    <div className="border-2 border-black bg-white p-3">
                                         <div className="text-[11px] uppercase tracking-wide text-slate-500">First session success</div>
                                         <div className="mt-1 text-xl font-semibold text-slate-900">{acquisitionSnapshot.firstSessionSuccessRate.toFixed(1)}%</div>
                                         <div className="mt-0.5 text-[11px] text-slate-500">{formatCompact(acquisitionSnapshot.firstSessionClean)} clean / {formatCompact(acquisitionSnapshot.firstSessionTotal)} total</div>
                                     </div>
-                                    <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                                    <div className="border-2 border-black bg-white p-3">
                                         <div className="text-[11px] uppercase tracking-wide text-slate-500">First session failure</div>
                                         <div className="mt-1 text-xl font-semibold text-slate-900">{acquisitionSnapshot.firstSessionFailureRate.toFixed(1)}%</div>
                                         <div className="mt-0.5 text-[11px] text-slate-500">Crash, ANR, rage, or slow API on first session</div>
                                     </div>
-                                    <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                                    <div className="border-2 border-black bg-white p-3">
                                         <div className="text-[11px] uppercase tracking-wide text-slate-500">Acquired users</div>
                                         <div className="mt-1 text-xl font-semibold text-slate-900">{formatCompact(acquisitionSnapshot.acquiredUsers)}</div>
                                         <div className="mt-0.5 text-[11px] text-slate-500">{acquisitionSnapshot.acquisitionRate.toFixed(1)}% acquisition rate</div>
                                     </div>
-                                    <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                                    <div className="border-2 border-black bg-white p-3">
                                         <div className="text-[11px] uppercase tracking-wide text-slate-500">Returned users</div>
                                         <div className="mt-1 text-xl font-semibold text-slate-900">{formatCompact(acquisitionSnapshot.returnedUsers)}</div>
                                         <div className="mt-0.5 text-[11px] text-slate-500">{acquisitionSnapshot.returnRate.toFixed(1)}% return rate</div>
                                     </div>
                                 </div>
                                 {firstSessionIssueMix.length > 0 && (
-                                    <div className="mt-3 rounded-xl border border-slate-200 bg-white p-3 text-xs">
+                                    <div className="mt-3 border-2 border-black bg-white p-3 text-xs">
                                         <div className="font-medium text-slate-700">First-session issue mix</div>
                                         <div className="mt-2 space-y-2">
                                             {firstSessionIssueMix.map((issue) => (
@@ -1708,7 +1708,7 @@ export const GeneralOverview: React.FC = () => {
 
                         <section className="space-y-3">
                             <div className="flex items-center justify-between">
-                                <h2 className="text-base font-semibold text-slate-900">Top Issues</h2>
+                                    <h2 className="text-base font-black font-mono uppercase text-black">Top Issues</h2>
                                 <div className="flex items-center gap-2">
                                     {topIssuesTotalPages > 1 && (
                                         <div className="flex items-center gap-1">
@@ -1753,21 +1753,21 @@ export const GeneralOverview: React.FC = () => {
                                     subtitle="Issue groups appear here as they are detected."
                                 />
                             ) : (
-                                <div className="rounded-3xl border border-slate-100/80 bg-white shadow-sm ring-1 ring-slate-900/5 overflow-hidden">
-                                    <div className="divide-y divide-slate-100/80">
+                                <div className="border border-gray-200 bg-white overflow-hidden" style={{ boxShadow: '2px 2px 0 0 rgba(0,0,0,0.07)' }}>
+                                    <div className="divide-y divide-gray-200">
                                         {topIssues.map((issue) => {
                                             const issueColor = ISSUE_TYPE_COLOR[issue.issueType] || '#64748b';
                                             return (
                                                 <div
                                                     key={issue.id}
-                                                    className="flex items-center gap-4 px-5 py-3.5 hover:bg-slate-50/80 transition-colors"
+                                                    className="flex items-center gap-4 px-5 py-3.5 hover:bg-[#f4f4f5] transition-colors"
                                                 >
                                                     <NeoBadge variant={ISSUE_TYPE_BADGE_VARIANT[issue.issueType] || 'neutral'} size="sm">
                                                         {issue.issueType.replace('_', ' ')}
                                                     </NeoBadge>
 
                                                     <div className="min-w-0 flex-1">
-                                                        <div className="truncate text-sm font-semibold text-slate-900">
+                                                        <div className="truncate text-sm font-black font-mono uppercase tracking-wide text-black">
                                                             {issue.title}
                                                         </div>
                                                         <div className="truncate text-[11px] text-slate-500 mt-0.5">
@@ -1821,7 +1821,7 @@ export const GeneralOverview: React.FC = () => {
                         <section className="space-y-3">
                             <div className="flex flex-wrap items-center justify-between gap-3">
                                 <div>
-                                    <h2 className="text-base font-semibold text-slate-900">Recommended Sessions</h2>
+                                    <h2 className="text-base font-black font-mono uppercase text-black">Recommended Sessions</h2>
                                     <p className="mt-0.5 text-xs text-slate-500">
                                         Mixed user segments: new, returning, anonymous, platform-specific, and risk-heavy journeys.
                                     </p>
@@ -1851,7 +1851,7 @@ export const GeneralOverview: React.FC = () => {
                                                 return (
                                                     <article
                                                         key={rec.session.id}
-                                                        className="group w-[360px] snap-start rounded-2xl border border-slate-200/80 bg-gradient-to-b from-white to-slate-50/60 p-3 shadow-sm transition-all hover:border-slate-300 hover:shadow-md"
+                                                        className="group w-[360px] snap-start border-2 border-black bg-gradient-to-b from-white to-slate-50/60 p-3 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] transition-all hover:shadow-md"
                                                     >
                                                         <div className="flex items-start justify-between gap-2">
                                                             <div className="min-w-0">
@@ -1893,21 +1893,21 @@ export const GeneralOverview: React.FC = () => {
                                                         </p>
 
                                                         <div className="mt-2 grid grid-cols-3 gap-2 text-[10px]">
-                                                            <div className="rounded-lg border border-slate-200/80 bg-white/90 px-2 py-1.5">
+                                                            <div className="border-2 border-black bg-white/90 px-2 py-1.5">
                                                                 <div className="text-slate-400">Duration</div>
                                                                 <div className="font-semibold text-slate-700">{formatDuration(rec.session.durationSeconds || 0)}</div>
                                                             </div>
-                                                            <div className="rounded-lg border border-slate-200/80 bg-white/90 px-2 py-1.5">
+                                                            <div className="border-2 border-black bg-white/90 px-2 py-1.5">
                                                                 <div className="text-slate-400">Signals</div>
                                                                 <div className="font-semibold text-slate-700">{issueSignalsForSession(rec.session)}</div>
                                                             </div>
-                                                            <div className="rounded-lg border border-slate-200/80 bg-white/90 px-2 py-1.5">
+                                                            <div className="border-2 border-black bg-white/90 px-2 py-1.5">
                                                                 <div className="text-slate-400">Last Seen</div>
                                                                 <div className="font-semibold text-slate-700">{formatLastSeen(rec.session.startedAt)}</div>
                                                             </div>
                                                         </div>
 
-                                                        <div className="mt-3 flex items-start justify-between gap-3 rounded-xl border border-slate-200/80 bg-white/80 p-2.5">
+                                                        <div className="mt-3 flex items-start justify-between gap-3 border-2 border-black bg-white/80 p-2.5">
                                                             <div className="min-w-0 flex-1">
                                                                 <div className="truncate text-[11px] font-semibold uppercase tracking-wide text-slate-700">
                                                                     {rec.session.deviceModel || 'Unknown device'}

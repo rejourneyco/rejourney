@@ -11,6 +11,7 @@ import {
     ShieldAlert,
 } from 'lucide-react';
 import { useSessionData } from '~/shared/providers/SessionContext';
+import { useDemoMode } from '~/shared/providers/DemoModeContext';
 import { getAlltimeHeatmap, getFrictionHeatmap, AlltimeHeatmapScreen, FrictionHeatmap } from '~/shared/api/client';
 import { API_BASE_URL, getCsrfToken } from '~/shared/config/appConfig';
 import { TimeRange } from '~/shared/ui/core/TimeFilter';
@@ -551,6 +552,7 @@ export const TouchHeatmapSection: React.FC<TouchHeatmapSectionProps> = ({
     className = '',
 }) => {
     const { selectedProject } = useSessionData();
+    const { isDemoMode } = useDemoMode();
     const pathPrefix = usePathPrefix();
 
     const [screens, setScreens] = useState<EnrichedHeatmapScreen[]>([]);
@@ -561,6 +563,83 @@ export const TouchHeatmapSection: React.FC<TouchHeatmapSectionProps> = ({
     const [selectedScreenName, setSelectedScreenName] = useState<string | null>(null);
 
     useEffect(() => {
+        if (isDemoMode) {
+            const demoScreens: EnrichedHeatmapScreen[] = [
+                {
+                    name: 'HomeScreen',
+                    visits: 4820, rageTaps: 142, errors: 38, exitRate: 12.4, frictionScore: 34,
+                    screenshotUrl: null, sessionIds: [], touchHotspots: [
+                        { x: 0.5, y: 0.3, intensity: 0.9, isRageTap: false },
+                        { x: 0.3, y: 0.6, intensity: 0.7, isRageTap: true },
+                        { x: 0.7, y: 0.5, intensity: 0.5, isRageTap: false },
+                        { x: 0.5, y: 0.8, intensity: 0.4, isRageTap: false },
+                    ],
+                    rangeVisits: 1240, rangeRageTaps: 48, rangeErrors: 12, rangeExitRate: 12.4,
+                    rangeFrictionScore: 34, rangeImpactScore: 52, rangeRageTapRatePer100: 3.9,
+                    rangeErrorRatePer100: 1.0, rangeIncidentRatePer100: 4.9,
+                    rangeEstimatedAffectedSessions: 61, primarySignal: 'rage_taps',
+                    confidence: 'high', priority: 'critical', evidenceSessionId: null,
+                },
+                {
+                    name: 'CheckoutScreen',
+                    visits: 2100, rageTaps: 89, errors: 55, exitRate: 28.1, frictionScore: 58,
+                    screenshotUrl: null, sessionIds: [], touchHotspots: [
+                        { x: 0.5, y: 0.7, intensity: 0.95, isRageTap: true },
+                        { x: 0.5, y: 0.5, intensity: 0.6, isRageTap: false },
+                        { x: 0.2, y: 0.4, intensity: 0.3, isRageTap: false },
+                    ],
+                    rangeVisits: 540, rangeRageTaps: 22, rangeErrors: 14, rangeExitRate: 28.1,
+                    rangeFrictionScore: 58, rangeImpactScore: 71, rangeRageTapRatePer100: 4.1,
+                    rangeErrorRatePer100: 2.6, rangeIncidentRatePer100: 6.7,
+                    rangeEstimatedAffectedSessions: 36, primarySignal: 'exits',
+                    confidence: 'high', priority: 'critical', evidenceSessionId: null,
+                },
+                {
+                    name: 'ProfileScreen',
+                    visits: 1850, rageTaps: 21, errors: 8, exitRate: 6.2, frictionScore: 12,
+                    screenshotUrl: null, sessionIds: [], touchHotspots: [
+                        { x: 0.5, y: 0.2, intensity: 0.6, isRageTap: false },
+                        { x: 0.5, y: 0.5, intensity: 0.4, isRageTap: false },
+                    ],
+                    rangeVisits: 480, rangeRageTaps: 5, rangeErrors: 2, rangeExitRate: 6.2,
+                    rangeFrictionScore: 12, rangeImpactScore: 18, rangeRageTapRatePer100: 1.0,
+                    rangeErrorRatePer100: 0.4, rangeIncidentRatePer100: 1.4,
+                    rangeEstimatedAffectedSessions: 7, primarySignal: 'mixed',
+                    confidence: 'medium', priority: 'watch', evidenceSessionId: null,
+                },
+                {
+                    name: 'OnboardingScreen',
+                    visits: 3200, rageTaps: 64, errors: 29, exitRate: 41.5, frictionScore: 67,
+                    screenshotUrl: null, sessionIds: [], touchHotspots: [
+                        { x: 0.5, y: 0.85, intensity: 0.88, isRageTap: true },
+                        { x: 0.5, y: 0.6, intensity: 0.5, isRageTap: false },
+                        { x: 0.8, y: 0.3, intensity: 0.3, isRageTap: false },
+                    ],
+                    rangeVisits: 820, rangeRageTaps: 16, rangeErrors: 7, rangeExitRate: 41.5,
+                    rangeFrictionScore: 67, rangeImpactScore: 63, rangeRageTapRatePer100: 2.0,
+                    rangeErrorRatePer100: 0.9, rangeIncidentRatePer100: 2.9,
+                    rangeEstimatedAffectedSessions: 24, primarySignal: 'exits',
+                    confidence: 'high', priority: 'critical', evidenceSessionId: null,
+                },
+                {
+                    name: 'SearchScreen',
+                    visits: 980, rageTaps: 12, errors: 4, exitRate: 8.3, frictionScore: 9,
+                    screenshotUrl: null, sessionIds: [], touchHotspots: [
+                        { x: 0.5, y: 0.15, intensity: 0.7, isRageTap: false },
+                        { x: 0.5, y: 0.4, intensity: 0.3, isRageTap: false },
+                    ],
+                    rangeVisits: 250, rangeRageTaps: 3, rangeErrors: 1, rangeExitRate: 8.3,
+                    rangeFrictionScore: 9, rangeImpactScore: 11, rangeRageTapRatePer100: 1.2,
+                    rangeErrorRatePer100: 0.4, rangeIncidentRatePer100: 1.6,
+                    rangeEstimatedAffectedSessions: 4, primarySignal: 'mixed',
+                    confidence: 'medium', priority: 'watch', evidenceSessionId: null,
+                },
+            ];
+            setScreens(demoScreens);
+            setIsLoading(false);
+            return;
+        }
+
         if (!selectedProject?.id) {
             setScreens([]);
             setIsLoading(false);
@@ -710,7 +789,7 @@ export const TouchHeatmapSection: React.FC<TouchHeatmapSectionProps> = ({
         return () => {
             cancelled = true;
         };
-    }, [selectedProject?.id, timeRange]);
+    }, [selectedProject?.id, timeRange, isDemoMode]);
 
     const sortedScreens = useMemo(() => {
         const copied = [...screens];
@@ -867,7 +946,7 @@ export const TouchHeatmapSection: React.FC<TouchHeatmapSectionProps> = ({
 
     if (!selectedProject?.id) {
         return (
-            <section className={`rounded-2xl border border-slate-200 bg-white p-6 shadow-sm ${className}`.trim()}>
+            <section className={`border-2 border-black bg-white p-6 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] ${className}`.trim()}>
                 <p className="text-sm text-slate-500">Select a project to view touch heatmap intelligence.</p>
             </section>
         );
@@ -875,20 +954,20 @@ export const TouchHeatmapSection: React.FC<TouchHeatmapSectionProps> = ({
 
     if (isLoading) {
         return (
-            <section className={`rounded-2xl border border-slate-200 bg-white p-6 shadow-sm ${className}`.trim()}>
+            <section className={`border-2 border-black bg-white p-6 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] ${className}`.trim()}>
                 <div className="flex items-center gap-3 text-sm text-slate-600">
                     <MousePointer2 className="h-4 w-4 animate-pulse text-blue-600" />
                     Building interaction heatmaps and friction overlays...
                 </div>
-                <div className="mt-4 h-64 animate-pulse rounded-xl border border-slate-200 bg-slate-50" />
+                <div className="mt-4 h-64 animate-pulse border-2 border-black bg-[#f4f4f5]" />
             </section>
         );
     }
 
     if (!screens.length || !selectedScreen) {
         return (
-            <section className={`rounded-2xl border border-slate-200 bg-white p-6 shadow-sm ${className}`.trim()}>
-                <div className={`flex flex-col items-center justify-center rounded-xl border border-slate-200 border-dashed bg-slate-50 text-center ${compact ? 'min-h-[180px]' : 'min-h-[220px]'}`}>
+            <section className={`border-2 border-black bg-white p-6 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] ${className}`.trim()}>
+                <div className={`flex flex-col items-center justify-center border-2 border-dashed border-black bg-[#f4f4f5] text-center ${compact ? 'min-h-[180px]' : 'min-h-[220px]'}`}>
                     <MousePointer2 className="mb-3 h-10 w-10 text-slate-300" />
                     <p className="text-sm font-semibold text-slate-500">No touch heatmap data available yet</p>
                     <p className="mt-1 text-xs text-slate-400">Heatmaps populate after users interact with tracked screens.</p>
@@ -901,11 +980,11 @@ export const TouchHeatmapSection: React.FC<TouchHeatmapSectionProps> = ({
     }
 
     return (
-        <section className={`rounded-3xl border border-slate-100/80 bg-white shadow-sm ring-1 ring-slate-900/5 ${className}`.trim()}>
-            <div className={`border-b border-slate-100/80 ${compact ? 'p-5' : 'p-6'}`}>
+        <section className={`border-2 border-black bg-white shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] ${className}`.trim()}>
+            <div className={`border-b-2 border-black ${compact ? 'p-5' : 'p-6'}`}>
                 <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
                     <div>
-                        <h2 className={`${compact ? 'text-base' : 'text-lg'} font-semibold text-slate-900`}>Interaction Heatmaps</h2>
+                        <h2 className={`${compact ? 'text-base' : 'text-lg'} font-black font-mono uppercase tracking-wide text-black`}>Interaction Heatmaps</h2>
                         <p className="mt-1 text-sm text-slate-500">
                             {compact
                                 ? 'Prioritize high-friction screens with replay evidence.'
@@ -919,8 +998,8 @@ export const TouchHeatmapSection: React.FC<TouchHeatmapSectionProps> = ({
                                 key={option.value}
                                 onClick={() => setSortMode(option.value)}
                                 className={`rounded-xl border px-3 py-1.5 text-xs font-semibold transition-all ${sortMode === option.value
-                                    ? 'border-slate-200 bg-slate-50 text-slate-900 shadow-sm'
-                                    : 'border-transparent bg-transparent text-slate-500 hover:bg-slate-50/50 hover:text-slate-700'
+                                    ? 'border-2 border-black bg-black text-white'
+                                    : 'border-2 border-transparent text-gray-500 hover:border-black hover:text-black'
                                     }`}
                             >
                                 {option.label}
@@ -934,7 +1013,7 @@ export const TouchHeatmapSection: React.FC<TouchHeatmapSectionProps> = ({
                     </div>
                 </div>
                 {partialError && (
-                    <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                    <div className="mt-4 border-2 border-black bg-amber-50 px-3 py-2 text-xs text-amber-900">
                         {partialError}
                     </div>
                 )}
@@ -942,34 +1021,34 @@ export const TouchHeatmapSection: React.FC<TouchHeatmapSectionProps> = ({
 
             <div className={`${compact ? 'space-y-4 p-4' : 'space-y-5 p-5'}`}>
                 <div className={`grid grid-cols-2 gap-3 ${compact ? 'md:grid-cols-4' : 'md:grid-cols-5'}`}>
-                    <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
-                        <div className="text-[11px] uppercase tracking-wide text-slate-500">Tracked screens</div>
-                        <div className="mt-1 text-xl font-semibold text-slate-900">{screens.length}</div>
+                    <div className="border-2 border-black bg-[#f4f4f5] p-3">
+                        <div className="text-[11px] font-mono uppercase tracking-wide text-gray-500">Tracked screens</div>
+                        <div className="mt-1 text-xl font-black font-mono text-black">{screens.length}</div>
                     </div>
                     {!compact && (
-                        <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
-                            <div className="text-[11px] uppercase tracking-wide text-slate-500">All-time touches</div>
-                            <div className="mt-1 text-xl font-semibold text-slate-900">{formatCompact(summary.allTimeTouches)}</div>
+                        <div className="border-2 border-black bg-[#f4f4f5] p-3">
+                            <div className="text-[11px] font-mono uppercase tracking-wide text-gray-500">All-time touches</div>
+                            <div className="mt-1 text-xl font-black font-mono text-black">{formatCompact(summary.allTimeTouches)}</div>
                         </div>
                     )}
-                    <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
-                        <div className="text-[11px] uppercase tracking-wide text-slate-500">{timeRange} visits</div>
-                        <div className="mt-1 text-xl font-semibold text-slate-900">{formatCompact(summary.rangeVisits)}</div>
+                    <div className="border-2 border-black bg-[#f4f4f5] p-3">
+                        <div className="text-[11px] font-mono uppercase tracking-wide text-gray-500">{timeRange} visits</div>
+                        <div className="mt-1 text-xl font-black font-mono text-black">{formatCompact(summary.rangeVisits)}</div>
                     </div>
-                    <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
-                        <div className="text-[11px] uppercase tracking-wide text-slate-500">Affected sessions</div>
-                        <div className="mt-1 text-xl font-semibold text-rose-700">{formatCompact(summary.affectedSessions)}</div>
+                    <div className="border-2 border-black bg-[#f4f4f5] p-3">
+                        <div className="text-[11px] font-mono uppercase tracking-wide text-gray-500">Affected sessions</div>
+                        <div className="mt-1 text-xl font-black font-mono text-[#ef4444]">{formatCompact(summary.affectedSessions)}</div>
                     </div>
-                    <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
-                        <div className="text-[11px] uppercase tracking-wide text-slate-500">Critical screens</div>
-                        <div className="mt-1 text-xl font-semibold text-amber-700">{summary.criticalScreens}</div>
+                    <div className="border-2 border-black bg-[#f4f4f5] p-3">
+                        <div className="text-[11px] font-mono uppercase tracking-wide text-gray-500">Critical screens</div>
+                        <div className="mt-1 text-xl font-black font-mono text-amber-600">{summary.criticalScreens}</div>
                     </div>
                 </div>
 
                 <div className={`grid grid-cols-1 items-stretch ${compact ? 'gap-5 xl:grid-cols-[230px_minmax(0,1fr)]' : 'gap-6 xl:grid-cols-[280px_minmax(0,1fr)_320px]'}`}>
-                    <div className={`flex h-full min-h-0 flex-col rounded-2xl border border-slate-100/80 bg-slate-50/50 ${compact ? 'p-3' : 'p-4'}`}>
-                        <div className={`mb-3 flex items-center justify-between ${compact ? 'px-1' : 'px-2'} text-xs font-semibold uppercase tracking-wide text-slate-500`}>Screen ranking</div>
-                        <div className="relative flex-1 overflow-hidden rounded-xl border border-slate-200 bg-slate-100">
+                    <div className={`flex h-full min-h-0 flex-col border-2 border-black bg-[#f4f4f5] ${compact ? 'p-3' : 'p-4'}`}>
+                        <div className={`mb-3 flex items-center justify-between ${compact ? 'px-1' : 'px-2'} text-xs font-mono font-semibold uppercase tracking-wide text-gray-500`}>Screen ranking</div>
+                        <div className="relative flex-1 overflow-hidden border-2 border-black bg-[#f4f4f5]">
                             <div className="h-full space-y-2 overflow-y-auto p-2 pr-1">
                                 {sortedScreens.map((screen) => {
                                     const isSelected = selectedScreen.name === screen.name;
@@ -978,8 +1057,8 @@ export const TouchHeatmapSection: React.FC<TouchHeatmapSectionProps> = ({
                                             key={screen.name}
                                             onClick={() => setSelectedScreenName(screen.name)}
                                             className={`w-full rounded-xl border px-3 py-2 text-left transition ${isSelected
-                                                ? 'border-slate-900 bg-slate-900 text-white'
-                                                : 'border-slate-200 bg-white text-slate-900 hover:bg-slate-100'
+                                                ? 'border-2 border-black bg-black text-white'
+                                                : 'border-2 border-black bg-white text-black hover:bg-[#f4f4f5]'
                                                 }`}
                                         >
                                             <div className="flex items-center justify-between gap-2">
@@ -988,9 +1067,9 @@ export const TouchHeatmapSection: React.FC<TouchHeatmapSectionProps> = ({
                                                     {screen.rangeIncidentRatePer100.toFixed(1)}/100
                                                 </span>
                                             </div>
-                                            <div className={`mt-2 h-1.5 overflow-hidden rounded-full ${isSelected ? 'bg-white/25' : 'bg-slate-200'}`}>
+                                            <div className={`mt-2 h-1.5 overflow-hidden rounded-full ${isSelected ? 'bg-white/30' : 'bg-gray-200'}`}>
                                                 <div
-                                                    className={isSelected ? 'h-full bg-emerald-300' : 'h-full bg-slate-700'}
+                                                    className={isSelected ? 'h-full bg-[#34d399]' : 'h-full bg-black'}
                                                     style={{ width: `${Math.min(100, Math.max(6, screen.rangeIncidentRatePer100 * 8))}%` }}
                                                 />
                                             </div>
@@ -1005,15 +1084,15 @@ export const TouchHeatmapSection: React.FC<TouchHeatmapSectionProps> = ({
                         </div>
                     </div>
 
-                    <div className={`rounded-2xl border border-slate-200 bg-slate-50 ${compact ? 'p-3.5' : 'p-4'}`}>
+                    <div className={`border-2 border-black bg-[#f4f4f5] ${compact ? 'p-3.5' : 'p-4'}`}>
                         <div className="mb-3 flex items-center justify-between gap-3">
                             <div>
-                                <h3 className={`${compact ? 'text-sm' : 'text-base'} font-semibold text-slate-900`}>{selectedScreen.name}</h3>
-                                <p className="text-xs text-slate-500">Primary signal: {selectedScreen.primarySignal.replace('_', ' ')}</p>
+                                <h3 className={`${compact ? 'text-sm' : 'text-base'} font-black font-mono uppercase tracking-wide text-black`}>{selectedScreen.name}</h3>
+                                <p className="text-xs font-mono text-gray-500">Primary signal: {selectedScreen.primarySignal.replace('_', ' ')}</p>
                             </div>
                             <div className="flex items-center gap-2">
-                                <span className={`rounded-full px-2 py-0.5 text-xs font-semibold uppercase ${priorityChipClass}`}>{selectedScreen.priority}</span>
-                                <span className={`rounded-full px-2 py-0.5 text-xs font-semibold uppercase ${confidenceChipClass}`}>{selectedScreen.confidence}</span>
+                                <span className={`border-2 border-black px-2 py-0.5 text-xs font-mono font-semibold uppercase ${priorityChipClass}`}>{selectedScreen.priority}</span>
+                                <span className={`border-2 border-black px-2 py-0.5 text-xs font-mono font-semibold uppercase ${confidenceChipClass}`}>{selectedScreen.confidence}</span>
                             </div>
                         </div>
 
@@ -1021,7 +1100,7 @@ export const TouchHeatmapSection: React.FC<TouchHeatmapSectionProps> = ({
                             <button
                                 onClick={() => moveSelection(-1)}
                                 disabled={selectedIndex <= 0}
-                                className="rounded-lg border border-slate-300 bg-white p-1.5 text-slate-700 disabled:cursor-not-allowed disabled:opacity-40"
+                                className="border-2 border-black bg-white p-1.5 text-black hover:shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] disabled:cursor-not-allowed disabled:opacity-40 transition-all"
                                 aria-label="Previous screen"
                             >
                                 <ChevronLeft className="h-4 w-4" />
@@ -1029,7 +1108,7 @@ export const TouchHeatmapSection: React.FC<TouchHeatmapSectionProps> = ({
                             <button
                                 onClick={() => moveSelection(1)}
                                 disabled={selectedIndex < 0 || selectedIndex >= sortedScreens.length - 1}
-                                className="rounded-lg border border-slate-300 bg-white p-1.5 text-slate-700 disabled:cursor-not-allowed disabled:opacity-40"
+                                className="border-2 border-black bg-white p-1.5 text-black hover:shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] disabled:cursor-not-allowed disabled:opacity-40 transition-all"
                                 aria-label="Next screen"
                             >
                                 <ChevronRight className="h-4 w-4" />
@@ -1041,28 +1120,28 @@ export const TouchHeatmapSection: React.FC<TouchHeatmapSectionProps> = ({
                         {compact && (
                             <>
                                 <div className="mt-3 grid grid-cols-2 gap-2">
-                                    <div className="rounded-lg border border-slate-200 bg-white px-2.5 py-2">
-                                        <div className="text-[10px] uppercase tracking-wide text-slate-500">Issue rate</div>
-                                        <div className="mt-0.5 text-sm font-semibold text-slate-900">{selectedScreen.rangeIncidentRatePer100.toFixed(1)}/100</div>
+                                    <div className="border-2 border-black bg-white px-2.5 py-2">
+                                        <div className="text-[10px] font-mono uppercase tracking-wide text-gray-500">Issue rate</div>
+                                        <div className="mt-0.5 text-sm font-black font-mono text-black">{selectedScreen.rangeIncidentRatePer100.toFixed(1)}/100</div>
                                     </div>
-                                    <div className="rounded-lg border border-slate-200 bg-white px-2.5 py-2">
-                                        <div className="text-[10px] uppercase tracking-wide text-slate-500">Rage taps</div>
-                                        <div className="mt-0.5 text-sm font-semibold text-rose-700">{selectedScreen.rangeRageTapRatePer100.toFixed(1)}/100</div>
+                                    <div className="border-2 border-black bg-white px-2.5 py-2">
+                                        <div className="text-[10px] font-mono uppercase tracking-wide text-gray-500">Rage taps</div>
+                                        <div className="mt-0.5 text-sm font-black font-mono text-[#ef4444]">{selectedScreen.rangeRageTapRatePer100.toFixed(1)}/100</div>
                                     </div>
-                                    <div className="rounded-lg border border-slate-200 bg-white px-2.5 py-2">
-                                        <div className="text-[10px] uppercase tracking-wide text-slate-500">{timeRange} visits</div>
-                                        <div className="mt-0.5 text-sm font-semibold text-slate-900">{formatCompact(selectedScreen.rangeVisits)}</div>
+                                    <div className="border-2 border-black bg-white px-2.5 py-2">
+                                        <div className="text-[10px] font-mono uppercase tracking-wide text-gray-500">{timeRange} visits</div>
+                                        <div className="mt-0.5 text-sm font-black font-mono text-black">{formatCompact(selectedScreen.rangeVisits)}</div>
                                     </div>
-                                    <div className="rounded-lg border border-slate-200 bg-white px-2.5 py-2">
-                                        <div className="text-[10px] uppercase tracking-wide text-slate-500">All-time touches</div>
-                                        <div className="mt-0.5 text-sm font-semibold text-slate-900">{formatCompact(selectedScreen.visits)}</div>
+                                    <div className="border-2 border-black bg-white px-2.5 py-2">
+                                        <div className="text-[10px] font-mono uppercase tracking-wide text-gray-500">All-time touches</div>
+                                        <div className="mt-0.5 text-sm font-black font-mono text-black">{formatCompact(selectedScreen.visits)}</div>
                                     </div>
                                 </div>
 
                                 {selectedScreen.evidenceSessionId && (
                                     <Link
                                         to={`${pathPrefix}/sessions/${selectedScreen.evidenceSessionId}`}
-                                        className="mt-3 inline-flex items-center gap-1 text-xs font-semibold text-blue-700 hover:text-blue-800"
+                                        className="mt-3 inline-flex items-center gap-1 text-xs font-mono font-semibold text-[#5dadec] hover:text-black"
                                     >
                                         Open evidence replay <ArrowRight className="h-3.5 w-3.5" />
                                     </Link>
@@ -1072,23 +1151,23 @@ export const TouchHeatmapSection: React.FC<TouchHeatmapSectionProps> = ({
                     </div>
 
                     {!compact && (
-                        <div className="rounded-2xl border border-slate-200 bg-white p-4">
+                        <div className="border-2 border-black bg-white p-4">
                             <div className="mb-3 grid grid-cols-2 gap-2">
-                                <div className="rounded-lg border border-slate-200 bg-slate-50 p-2.5">
-                                    <div className="text-[11px] uppercase tracking-wide text-slate-500">Issue rate</div>
-                                    <div className="mt-1 text-xl font-semibold text-slate-900">{selectedScreen.rangeIncidentRatePer100.toFixed(1)}/100</div>
+                                <div className="border-2 border-black bg-[#f4f4f5] p-2.5">
+                                    <div className="text-[11px] font-mono uppercase tracking-wide text-gray-500">Issue rate</div>
+                                    <div className="mt-1 text-xl font-black font-mono text-black">{selectedScreen.rangeIncidentRatePer100.toFixed(1)}/100</div>
                                 </div>
-                                <div className="rounded-lg border border-slate-200 bg-slate-50 p-2.5">
-                                    <div className="text-[11px] uppercase tracking-wide text-slate-500">Rage taps</div>
-                                    <div className="mt-1 text-xl font-semibold text-rose-700">{selectedScreen.rangeRageTapRatePer100.toFixed(1)}/100</div>
+                                <div className="border-2 border-black bg-[#f4f4f5] p-2.5">
+                                    <div className="text-[11px] font-mono uppercase tracking-wide text-gray-500">Rage taps</div>
+                                    <div className="mt-1 text-xl font-black font-mono text-[#ef4444]">{selectedScreen.rangeRageTapRatePer100.toFixed(1)}/100</div>
                                 </div>
-                                <div className="rounded-lg border border-slate-200 bg-slate-50 p-2.5">
-                                    <div className="text-[11px] uppercase tracking-wide text-slate-500">{timeRange} visits</div>
-                                    <div className="mt-1 text-xl font-semibold text-slate-900">{formatCompact(selectedScreen.rangeVisits)}</div>
+                                <div className="border-2 border-black bg-[#f4f4f5] p-2.5">
+                                    <div className="text-[11px] font-mono uppercase tracking-wide text-gray-500">{timeRange} visits</div>
+                                    <div className="mt-1 text-xl font-black font-mono text-black">{formatCompact(selectedScreen.rangeVisits)}</div>
                                 </div>
-                                <div className="rounded-lg border border-slate-200 bg-slate-50 p-2.5">
-                                    <div className="text-[11px] uppercase tracking-wide text-slate-500">All-time touches</div>
-                                    <div className="mt-1 text-xl font-semibold text-slate-900">{formatCompact(selectedScreen.visits)}</div>
+                                <div className="border-2 border-black bg-[#f4f4f5] p-2.5">
+                                    <div className="text-[11px] font-mono uppercase tracking-wide text-gray-500">All-time touches</div>
+                                    <div className="mt-1 text-xl font-black font-mono text-black">{formatCompact(selectedScreen.visits)}</div>
                                 </div>
                             </div>
 
@@ -1099,10 +1178,10 @@ export const TouchHeatmapSection: React.FC<TouchHeatmapSectionProps> = ({
                                     return (
                                         <div key={bar.key}>
                                             <div className="mb-1 flex items-center justify-between text-xs">
-                                                <span className="flex items-center gap-1 text-slate-600"><Icon className="h-3.5 w-3.5" />{bar.label}</span>
+                                                <span className="flex items-center gap-1 text-black"><Icon className="h-3.5 w-3.5" />{bar.label}</span>
                                                 <span className={`font-semibold ${bar.textClass}`}>{bar.value.toFixed(1)}{bar.unit}</span>
                                             </div>
-                                            <div className="h-1.5 overflow-hidden rounded-full bg-slate-200">
+                                            <div className="h-1.5 overflow-hidden rounded-full bg-gray-200">
                                                 <div className={`h-full ${bar.barClass}`} style={{ width: `${Math.max(4, width)}%` }} />
                                             </div>
                                         </div>
@@ -1110,29 +1189,29 @@ export const TouchHeatmapSection: React.FC<TouchHeatmapSectionProps> = ({
                                 })}
                             </div>
 
-                            <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
-                                <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Top friction zones</div>
+                            <div className="border-2 border-black bg-[#f4f4f5] p-3">
+                                <div className="text-xs font-mono font-semibold uppercase tracking-wide text-gray-500">Top friction zones</div>
                                 <div className="mt-2 space-y-2">
                                     {hotspotZones.map((zone) => (
                                         <div key={zone.id} className="flex items-center justify-between text-xs">
-                                            <span className="text-slate-700">{zone.zone}</span>
-                                            <span className={`rounded-full px-2 py-0.5 font-semibold ${zone.isRageTap ? 'bg-rose-100 text-rose-700' : 'bg-emerald-100 text-emerald-700'}`}>
+                                            <span className="text-black">{zone.zone}</span>
+                                            <span className={`px-2 py-0.5 font-mono font-semibold ${zone.isRageTap ? 'border-2 border-[#ef4444] bg-white text-[#ef4444]' : 'border-2 border-[#34d399] bg-white text-[#34d399]'}`}>
                                                 {zone.intensity}% {zone.isRageTap ? 'rage' : 'touch'}
                                             </span>
                                         </div>
                                     ))}
                                     {hotspotZones.length === 0 && (
-                                        <p className="text-xs text-slate-500">No hotspot clusters identified for this screen.</p>
+                                        <p className="text-xs text-gray-500">No hotspot clusters identified for this screen.</p>
                                     )}
                                 </div>
                             </div>
-                            <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-3">
-                                <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Signal distribution</div>
+                            <div className="mt-3 border-2 border-black bg-[#f4f4f5] p-3">
+                                <div className="text-xs font-mono font-semibold uppercase tracking-wide text-gray-500">Signal distribution</div>
                                 <div className="mt-2 grid grid-cols-3 gap-2">
                                     {selectedSignalMix.map((item) => (
-                                        <div key={item.key} className="rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-center">
-                                            <div className="text-[10px] uppercase tracking-wide text-slate-500">{item.label}</div>
-                                            <div className="mt-0.5 text-sm font-semibold text-slate-900">{item.share.toFixed(1)}%</div>
+                                        <div key={item.key} className="border-2 border-black bg-white px-2 py-1.5 text-center">
+                                            <div className="text-[10px] font-mono uppercase tracking-wide text-gray-500">{item.label}</div>
+                                            <div className="mt-0.5 text-sm font-black font-mono text-black">{item.share.toFixed(1)}%</div>
                                         </div>
                                     ))}
                                 </div>
@@ -1141,7 +1220,7 @@ export const TouchHeatmapSection: React.FC<TouchHeatmapSectionProps> = ({
                             {selectedScreen.evidenceSessionId && (
                                 <Link
                                     to={`${pathPrefix}/sessions/${selectedScreen.evidenceSessionId}`}
-                                    className="mt-3 inline-flex items-center gap-1 text-xs font-semibold text-blue-700 hover:text-blue-800"
+                                    className="mt-3 inline-flex items-center gap-1 text-xs font-mono font-semibold text-[#5dadec] hover:text-black"
                                 >
                                     Open evidence replay <ArrowRight className="h-3.5 w-3.5" />
                                 </Link>

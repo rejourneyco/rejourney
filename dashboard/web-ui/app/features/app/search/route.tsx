@@ -16,7 +16,8 @@ import {
     Terminal, 
     Mail, 
     Globe,
-    AlertOctagon
+    AlertOctagon,
+    Flame
 } from 'lucide-react';
 import { useNavigate } from 'react-router';
 import { usePathPrefix } from '~/shell/routing/usePathPrefix';
@@ -45,6 +46,7 @@ export const Search: React.FC = () => {
         { id: 'sessions', title: 'Replays', path: '/sessions', icon: Database, description: 'Watch and inspect user replay sessions', section: 'Monitor', keywords: ['recordings', 'replays', 'videos', 'playback'] },
         { id: 'api', title: 'API Insights', path: '/analytics/api', icon: Activity, description: 'API reliability, latency, and replay-backed evidence', section: 'Analytics', keywords: ['latency', 'endpoints', 'requests', 'network', 'api'] },
         { id: 'journeys', title: 'User Journeys', path: '/analytics/journeys', icon: MapIcon, description: 'User flows and navigation paths', section: 'Analytics', keywords: ['flows', 'navigation', 'screens', 'paths', 'funnels'] },
+        { id: 'heatmaps', title: 'Heatmaps', path: '/analytics/heatmaps', icon: Flame, description: 'Touch heatmaps and interaction friction by screen', section: 'Analytics', keywords: ['heatmap', 'touch', 'tap', 'rage', 'friction', 'interaction', 'hotspot'] },
         { id: 'devices', title: 'Devices', path: '/analytics/devices', icon: Smartphone, description: 'Device models and OS version breakdown', section: 'Analytics', keywords: ['device', 'os', 'model', 'android', 'ios', 'version'] },
         { id: 'geo', title: 'Geographic', path: '/analytics/geo', icon: Globe, description: 'Regional value, engagement segments, and issue hotspots', section: 'Analytics', keywords: ['location', 'country', 'region', 'map', 'world'] },
         // Stability

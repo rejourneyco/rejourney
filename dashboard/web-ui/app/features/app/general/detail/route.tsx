@@ -212,7 +212,7 @@ export const IssueDetail: React.FC = () => {
 
                 {/* Stats Grid */}
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
-                    <NeoCard variant="flat" className="p-4 border border-slate-100/80">
+                    <NeoCard variant="flat" className="p-4 border-2 border-black bg-white">
                         <div className="flex items-center gap-2 text-slate-500 mb-2">
                             <Activity size={14} />
                             <span className="text-xs font-bold uppercase">Events</span>
@@ -220,7 +220,7 @@ export const IssueDetail: React.FC = () => {
                         <div className="text-2xl font-semibold">{issue.eventCount.toLocaleString()}</div>
                     </NeoCard>
 
-                    <NeoCard variant="flat" className="p-4 border border-slate-100/80">
+                    <NeoCard variant="flat" className="p-4 border-2 border-black bg-white">
                         <div className="flex items-center gap-2 text-slate-500 mb-2">
                             <Users size={14} />
                             <span className="text-xs font-bold uppercase">Users</span>
@@ -228,7 +228,7 @@ export const IssueDetail: React.FC = () => {
                         <div className="text-2xl font-semibold">{issue.userCount.toLocaleString()}</div>
                     </NeoCard>
 
-                    <NeoCard variant="flat" className="p-4 border border-slate-100/80">
+                    <NeoCard variant="flat" className="p-4 border-2 border-black bg-white">
                         <div className="flex items-center gap-2 text-slate-500 mb-2">
                             <Calendar size={14} />
                             <span className="text-xs font-bold uppercase">First Seen</span>
@@ -236,7 +236,7 @@ export const IssueDetail: React.FC = () => {
                         <div className="text-sm font-bold">{new Date(issue.firstSeen).toLocaleDateString()}</div>
                     </NeoCard>
 
-                    <NeoCard variant="flat" className="p-4 border border-slate-100/80">
+                    <NeoCard variant="flat" className="p-4 border-2 border-black bg-white">
                         <div className="flex items-center gap-2 text-slate-500 mb-2">
                             <Clock size={14} />
                             <span className="text-xs font-bold uppercase">Last Seen</span>
@@ -248,8 +248,8 @@ export const IssueDetail: React.FC = () => {
                 {/* Stack Trace - Prominent Display for Crash/Error/ANR */}
                 {(issue.issueType === 'crash' || issue.issueType === 'error' || issue.issueType === 'anr') && issue.sampleStackTrace && (
                     <div className="mb-8">
-                        <div className="bg-white border border-slate-100/80 shadow-[8px_8px_0_0_rgba(0,0,0,1)] p-6">
-                            <div className="flex items-center justify-between mb-4 border-b-2 border-slate-100 pb-4">
+                        <div className="bg-white border-2 border-black shadow-[8px_8px_0_0_rgba(0,0,0,1)] p-6">
+                            <div className="flex items-center justify-between mb-4 border-b-2 border-black pb-4">
                                 <div className="flex items-center gap-2">
                                     <Activity className="w-5 h-5 text-slate-900" />
                                     <h2 className="text-xl font-semibold uppercase text-slate-900">
@@ -258,21 +258,20 @@ export const IssueDetail: React.FC = () => {
                                 </div>
                                 <button
                                     onClick={handleCopyStack}
-                                    className="flex items-center gap-2 px-3 py-1.5 text-xs font-semibold uppercase border-2 border-slate-200 hover:border-slate-100/80 hover:bg-slate-50 transition-all"
+                                    className="flex items-center gap-2 px-3 py-1.5 text-xs font-semibold uppercase border-2 border-black bg-white hover:shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] transition-all"
                                 >
-                                    {copied ? <Check className="w-3 h-3 text-green-600" /> : <Copy className="w-3 h-3" />}
                                     {copied ? 'Copied to Clipboard' : 'Copy Trace'}
                                 </button>
                                 <button
                                     onClick={handleDownloadStack}
-                                    className="flex items-center gap-2 px-3 py-1.5 text-xs font-semibold uppercase border-2 border-slate-200 hover:border-slate-100/80 hover:bg-slate-50 transition-all ml-2"
+                                    className="flex items-center gap-2 px-3 py-1.5 text-xs font-semibold uppercase border-2 border-slate-200 hover:border-slate-100/80 hover:bg-[#f4f4f5] transition-all ml-2"
                                 >
                                     <Download className="w-3 h-3" />
                                     Download Trace
                                 </button>
                             </div>
 
-                            <div className="bg-slate-900 text-green-400 p-6 font-mono text-xs overflow-x-auto whitespace-pre border border-slate-100/80 shadow-inner min-h-[400px] leading-relaxed">
+                            <div className="bg-slate-900 text-green-400 p-6 font-mono text-xs overflow-x-auto whitespace-pre border-2 border-black shadow-inner min-h-[400px] leading-relaxed">
                                 {issue.sampleStackTrace || "No stack trace available for this issue."}
                             </div>
 
@@ -296,8 +295,8 @@ export const IssueDetail: React.FC = () => {
                     {/* Left Column - Details */}
                     <div className="space-y-6">
                         {/* Affected Devices & Versions */}
-                        <NeoCard variant="flat" className="p-6 border border-slate-100/80">
-                            <h3 className="text-sm font-semibold uppercase tracking-wider mb-4">Diagnostic Context</h3>
+                        <NeoCard variant="flat" className="p-6 border-2 border-black bg-white">
+                            <h3 className="text-sm font-bold font-mono uppercase text-black mb-4">Diagnostic Context</h3>
 
                             <div className="grid grid-cols-2 gap-6">
                                 {/* Affected Devices */}
@@ -311,7 +310,7 @@ export const IssueDetail: React.FC = () => {
                                                 .map(([device, count]) => (
                                                     <div key={device} className="flex justify-between items-center text-sm">
                                                         <span className="font-medium truncate max-w-[120px]">{device}</span>
-                                                        <span className="font-mono text-xs bg-slate-100 px-2 py-0.5 border border-slate-100/80">{count}</span>
+                                                        <span className="font-mono text-xs bg-slate-100 px-2 py-0.5 border-2 border-black">{count}</span>
                                                     </div>
                                                 ))
                                         ) : (
@@ -331,7 +330,7 @@ export const IssueDetail: React.FC = () => {
                                                 .map(([version, count]) => (
                                                     <div key={version} className="flex justify-between items-center text-sm">
                                                         <span className="font-medium">{version}</span>
-                                                        <span className="font-mono text-xs bg-slate-100 px-2 py-0.5 border border-slate-100/80">{count}</span>
+                                                        <span className="font-mono text-xs bg-slate-100 px-2 py-0.5 border-2 border-black">{count}</span>
                                                     </div>
                                                 ))
                                         ) : (
@@ -344,8 +343,8 @@ export const IssueDetail: React.FC = () => {
 
                         {/* Sample Device Info */}
                         {(issue.sampleDeviceModel || issue.sampleOsVersion || issue.sampleAppVersion) && (
-                            <NeoCard variant="flat" className="p-6 border border-slate-100/80">
-                                <h3 className="text-sm font-semibold uppercase tracking-wider mb-4">Sample Device</h3>
+                            <NeoCard variant="flat" className="p-6 border-2 border-black bg-white">
+                                <h3 className="text-sm font-bold font-mono uppercase text-black mb-4">Sample Device</h3>
                                 <div className="flex items-center gap-3">
                                     <Smartphone size={24} className="text-slate-400" />
                                     <div>
@@ -364,8 +363,8 @@ export const IssueDetail: React.FC = () => {
                     {/* Right Column - Sessions & Events */}
                     <div className="space-y-6">
                         {/* Related Sessions */}
-                        <NeoCard variant="flat" className="p-6 border border-slate-100/80">
-                            <h3 className="text-sm font-semibold uppercase tracking-wider mb-4">Related Sessions</h3>
+                        <NeoCard variant="flat" className="p-6 border-2 border-black bg-white">
+                            <h3 className="text-sm font-bold font-mono uppercase text-black mb-4">Related Sessions</h3>
 
                             {sessions.length > 0 ? (
                                 <div className="flex gap-4 overflow-x-auto pb-4">
@@ -387,14 +386,14 @@ export const IssueDetail: React.FC = () => {
 
                         {/* Recent Events */}
                         {issue.recentEvents && issue.recentEvents.length > 0 && (
-                            <NeoCard variant="flat" className="p-6 border border-slate-100/80">
-                                <h3 className="text-sm font-semibold uppercase tracking-wider mb-4">Recent Occurrences</h3>
+                            <NeoCard variant="flat" className="p-6 border-2 border-black bg-white">
+                                <h3 className="text-sm font-bold font-mono uppercase text-black mb-4">Recent Occurrences</h3>
 
                                 <div className="space-y-3 max-h-96 overflow-y-auto">
                                     {issue.recentEvents.map((event) => (
                                         <div
                                             key={event.id}
-                                            className="flex items-center justify-between p-3 bg-slate-50 border border-slate-200 hover:bg-slate-100 transition-colors"
+                                            className="flex items-center justify-between p-3 bg-[#f4f4f5] border-2 border-black hover:bg-slate-100 transition-colors"
                                         >
                                             <div className="flex-1 min-w-0">
                                                 <div className="flex items-center gap-2">

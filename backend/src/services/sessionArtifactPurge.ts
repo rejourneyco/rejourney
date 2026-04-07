@@ -8,10 +8,7 @@ import {
     sessions,
 } from '../db/client.js';
 import { getRedis } from '../db/redis.js';
-import {
-    deletePrefixFromAllConfiguredStorageEndpoints,
-    deletePrefixFromProjectStorage,
-} from '../db/s3.js';
+import { deletePrefixFromProjectStorage } from '../db/s3.js';
 import { logger } from '../logger.js';
 import {
     beginRetentionDeletionLog,
@@ -56,7 +53,6 @@ export interface PurgeSessionArtifactsOptions {
     now?: Date;
     invalidateCaches?: boolean;
     allowMissingStorage?: boolean;
-    deleteLegacySessionPrefix?: boolean;
     retentionTier?: number | null;
     retentionDays?: number | null;
 }
@@ -85,21 +81,12 @@ export interface ExpiredSessionArtifactRepairResult {
     deletedBytes: number;
 }
 
-export interface LegacySweepResult {
-    deletedObjectCount: number;
-    deletedBytes: number;
-}
-
 export function buildCanonicalSessionStoragePrefix(
     teamId: string,
     projectId: string,
     sessionId: string,
 ): string {
     return `tenant/${teamId}/project/${projectId}/sessions/${sessionId}/`;
-}
-
-export function buildLegacySessionStoragePrefix(sessionId: string): string {
-    return `sessions/${sessionId}/`;
 }
 
 async function invalidatePurgedSessionCaches(sessionId: string): Promise<number> {
@@ -200,93 +187,12 @@ function buildEndpointBreakdown(details: {
     }));
 }
 
-async function recordLegacyPrefixCleanup(params: {
-    runId: string;
-    trigger: string;
-    storagePrefix: string;
-    sessionId?: string | null;
-    projectId?: string | null;
-    teamId?: string | null;
-    details?: Record<string, unknown>;
-}): Promise<LegacySweepResult> {
-    const logId = await beginRetentionDeletionLog({
-        runId: params.runId,
-        scope: 'legacy_sessions_sweep',
-        trigger: params.trigger,
-        sessionId: params.sessionId ?? null,
-        projectId: params.projectId ?? null,
-        teamId: params.teamId ?? null,
-        storagePrefix: params.storagePrefix,
-        details: params.details ?? {},
-    });
-
-    try {
-        const deletionResult = await deletePrefixFromAllConfiguredStorageEndpoints(params.storagePrefix);
-        await finalizeRetentionDeletionLog(logId, {
-            status: 'completed',
-            deletedObjectCount: deletionResult.deletedObjectCount,
-            deletedBytes: deletionResult.deletedBytes,
-            details: {
-                ...(params.details ?? {}),
-                endpointResults: buildEndpointBreakdown(deletionResult.endpointResults),
-            },
-        });
-
-        return {
-            deletedObjectCount: deletionResult.deletedObjectCount,
-            deletedBytes: deletionResult.deletedBytes,
-        };
-    } catch (err) {
-        await finalizeRetentionDeletionLog(logId, {
-            status: 'failed',
-            errorText: err instanceof Error ? err.message : String(err),
-            details: params.details ?? {},
-        });
-        throw err;
-    }
-}
-
-async function cleanupLegacySessionPrefix(params: {
-    runId: string;
-    trigger: string;
-    sessionId: string;
-    projectId: string;
-    teamId: string;
-}): Promise<LegacySweepResult> {
-    return recordLegacyPrefixCleanup({
-        runId: params.runId,
-        trigger: params.trigger,
-        sessionId: params.sessionId,
-        projectId: params.projectId,
-        teamId: params.teamId,
-        storagePrefix: buildLegacySessionStoragePrefix(params.sessionId),
-        details: {
-            legacyMode: 'per_session_prefix',
-        },
-    });
-}
-
-export async function sweepLegacySessionsStorage(
-    runId: string,
-    trigger: string,
-): Promise<LegacySweepResult> {
-    return recordLegacyPrefixCleanup({
-        runId,
-        trigger,
-        storagePrefix: 'sessions/',
-        details: {
-            legacyMode: 'top_level_prefix',
-        },
-    });
-}
-
 export async function purgeSessionArtifacts(
     sessionId: string,
     options: PurgeSessionArtifactsOptions,
 ): Promise<PurgeSessionArtifactsResult> {
     const now = options.now ?? new Date();
     const invalidateCaches = options.invalidateCaches ?? true;
-    const deleteLegacySessionPrefix = options.deleteLegacySessionPrefix ?? true;
     const allowMissingStorage = options.allowMissingStorage ?? false;
     const context = await loadSessionPurgeContext(sessionId);
     let finalizedLog = false;
@@ -422,23 +328,6 @@ export async function purgeSessionArtifacts(
             },
         });
         finalizedLog = true;
-
-        if (deleteLegacySessionPrefix) {
-            try {
-                await cleanupLegacySessionPrefix({
-                    runId: options.runId,
-                    trigger: options.trigger,
-                    sessionId: context.sessionId,
-                    projectId: context.projectId,
-                    teamId: context.teamId,
-                });
-            } catch (legacyErr) {
-                logger.warn(
-                    { err: legacyErr, sessionId: context.sessionId },
-                    'Failed to clean legacy bare sessions/ prefix after canonical purge',
-                );
-            }
-        }
 
         logger.info({
             sessionId: context.sessionId,

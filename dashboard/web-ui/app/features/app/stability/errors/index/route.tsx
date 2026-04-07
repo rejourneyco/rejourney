@@ -357,7 +357,7 @@ export const ErrorsList: React.FC = () => {
                                 Evidence Sample
                               </h4>
                             </div>
-                            <div className="flex justify-center rounded-xl border border-slate-200 bg-slate-50 px-3 py-4">
+                            <div className="flex justify-center border border-gray-200 bg-white px-3 py-4" style={{ boxShadow: '2px 2px 0 0 rgba(0,0,0,0.07)' }}>
                               <MiniSessionCard
                                 session={{
                                   id: group.sampleError.sessionId || '',

@@ -29,7 +29,6 @@ import { useSessionData } from '~/shared/providers/SessionContext';
 import { TimeFilter, TimeRange, DEFAULT_TIME_RANGE } from '~/shared/ui/core/TimeFilter';
 import { SankeyEvidenceSession, SankeyJourney } from '~/features/app/analytics/journeys/components/SankeyJourney';
 import { KpiCardItem, KpiCardsGrid, computePeriodDeltaFromSeries } from '~/features/app/shared/dashboard/KpiCardsGrid';
-import { TouchHeatmapSection } from '~/features/app/shared/dashboard/TouchHeatmapSection';
 import { DashboardGhostLoader } from '~/shared/ui/core/DashboardGhostLoader';
 import {
     getInsightsTrends,
@@ -746,7 +745,7 @@ export const Journeys: React.FC = () => {
                 )}
 
                 {!isLoading && selectedProject?.id && !hasData && (
-                    <div className="rounded-3xl border border-slate-100/80 bg-white ring-1 ring-slate-900/5 p-6 text-sm text-slate-600 shadow-sm">
+                    <div className="border border-gray-200 bg-white p-6 text-sm text-slate-600" style={{ boxShadow: '2px 2px 0 0 rgba(0,0,0,0.07)' }}>
                         No journey activity matched this filter yet.
                     </div>
                 )}
@@ -766,9 +765,9 @@ export const Journeys: React.FC = () => {
                         />
 
                         <section className="grid grid-cols-1 gap-6 xl:grid-cols-2">
-                            <div className="rounded-3xl border border-slate-100/80 bg-white ring-1 ring-slate-900/5 p-5 shadow-sm">
+                            <div className="border border-gray-200 bg-white p-5" style={{ boxShadow: '2px 2px 0 0 rgba(0,0,0,0.07)' }}>
                                 <div className="mb-4 flex items-center justify-between">
-                                    <h2 className="text-lg font-semibold text-slate-900">User Type Mix</h2>
+                                    <h2 className="text-lg font-black font-mono uppercase tracking-wide text-black">User Type Mix</h2>
                                     <Users className="h-5 w-5 text-blue-600" />
                                 </div>
                                 <div className="h-[260px]">
@@ -800,7 +799,7 @@ export const Journeys: React.FC = () => {
                                     {userTypeMixData.map((row) => (
                                         <div
                                             key={row.key}
-                                            className="flex items-center gap-2 rounded-xl border border-slate-100/80 bg-slate-50/50 p-2"
+                                            className="flex items-center gap-2 border border-gray-200 bg-[#f4f4f5] p-2"
                                             style={{ borderLeftWidth: 4, borderLeftColor: row.color }}
                                         >
                                             <div className="flex-1 text-center">
@@ -814,9 +813,9 @@ export const Journeys: React.FC = () => {
                                 </div>
                             </div>
 
-                            <div className="rounded-3xl border border-slate-100/80 bg-white ring-1 ring-slate-900/5 p-5 shadow-sm">
+                            <div className="border border-gray-200 bg-white p-5" style={{ boxShadow: '2px 2px 0 0 rgba(0,0,0,0.07)' }}>
                                 <div className="mb-4 flex items-center justify-between">
-                                    <h2 className="text-lg font-semibold text-slate-900">Top Leakage Stages</h2>
+                                    <h2 className="text-lg font-black font-mono uppercase tracking-wide text-black">Top Leakage Stages</h2>
                                     <AlertTriangle className="h-5 w-5 text-amber-600" />
                                 </div>
                                 <div className="h-[300px]">
@@ -833,11 +832,11 @@ export const Journeys: React.FC = () => {
                             </div>
                         </section>
 
-                        <section className="rounded-3xl border border-slate-100/80 bg-white ring-1 ring-slate-900/5 shadow-sm">
+                        <section className="border border-gray-200 bg-white" style={{ boxShadow: '2px 2px 0 0 rgba(0,0,0,0.07)' }}>
                             <div>
                                 <div className="border-b border-slate-200 px-5 py-4">
                                     <div className="flex items-center justify-between gap-3">
-                                        <h2 className="text-lg font-semibold text-slate-900">Journey Flow Map</h2>
+                                        <h2 className="text-lg font-black font-mono uppercase tracking-wide text-black">Journey Flow Map</h2>
                                         <Compass className="h-5 w-5 text-blue-600" />
                                     </div>
                                     <div className="mt-3 grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-4">
@@ -881,7 +880,7 @@ export const Journeys: React.FC = () => {
                                             />
                                         </label>
 
-                                        <label className="flex items-end gap-2 rounded-xl border border-slate-100/80 bg-slate-50/50 px-3 py-2 text-xs text-slate-700">
+                                        <label className="flex items-end gap-2 border border-gray-200 bg-[#f4f4f5] px-3 py-2 text-xs text-slate-700">
                                             <input
                                                 type="checkbox"
                                                 checked={onlyWithEvidence}
@@ -910,12 +909,10 @@ export const Journeys: React.FC = () => {
                             </div>
                         </section>
 
-                        <TouchHeatmapSection timeRange={timeRange} compact />
-
                         <section className="grid grid-cols-1 gap-6 xl:grid-cols-2">
-                            <div className="rounded-3xl border border-slate-100/80 bg-white ring-1 ring-slate-900/5 p-5 shadow-sm">
+                            <div className="border border-gray-200 bg-white p-5" style={{ boxShadow: '2px 2px 0 0 rgba(0,0,0,0.07)' }}>
                                 <div className="mb-4 flex items-center justify-between">
-                                    <h2 className="text-lg font-semibold text-slate-900">Backtrack Loop Imbalance</h2>
+                                    <h2 className="text-lg font-black font-mono uppercase tracking-wide text-black">Backtrack Loop Imbalance</h2>
                                     <Compass className="h-5 w-5 text-indigo-600" />
                                 </div>
                                 <div className="h-[320px]">
@@ -960,9 +957,9 @@ export const Journeys: React.FC = () => {
                                 </div>
                             </div>
 
-                            <div className="rounded-3xl border border-slate-100/80 bg-white ring-1 ring-slate-900/5 p-5 shadow-sm">
+                            <div className="border border-gray-200 bg-white p-5" style={{ boxShadow: '2px 2px 0 0 rgba(0,0,0,0.07)' }}>
                                 <div className="mb-4 flex items-center justify-between">
-                                    <h2 className="text-lg font-semibold text-slate-900">Backtrack Hotspots by Screen</h2>
+                                    <h2 className="text-lg font-black font-mono uppercase tracking-wide text-black">Backtrack Hotspots by Screen</h2>
                                     <AlertTriangle className="h-5 w-5 text-amber-600" />
                                 </div>
                                 <div className="h-[320px]">
@@ -1007,9 +1004,9 @@ export const Journeys: React.FC = () => {
                         </section>
 
                         <section className="grid grid-cols-1 gap-6 xl:grid-cols-2">
-                            <div className="rounded-3xl border border-slate-100/80 bg-white ring-1 ring-slate-900/5 p-5 shadow-sm">
+                            <div className="border border-gray-200 bg-white p-5" style={{ boxShadow: '2px 2px 0 0 rgba(0,0,0,0.07)' }}>
                                 <div className="mb-4 flex items-center justify-between">
-                                    <h2 className="text-lg font-semibold text-slate-900">Failure Signatures by Journey Cluster</h2>
+                                    <h2 className="text-lg font-black font-mono uppercase tracking-wide text-black">Failure Signatures by Journey Cluster</h2>
                                     <HeartPulse className="h-5 w-5 text-rose-600" />
                                 </div>
                                 <div className="h-[320px]">
@@ -1045,9 +1042,9 @@ export const Journeys: React.FC = () => {
                                 </div>
                             </div>
 
-                            <div className="rounded-3xl border border-slate-100/80 bg-white ring-1 ring-slate-900/5 p-5 shadow-sm">
+                            <div className="border border-gray-200 bg-white p-5" style={{ boxShadow: '2px 2px 0 0 rgba(0,0,0,0.07)' }}>
                                 <div className="mb-4 flex items-center justify-between">
-                                    <h2 className="text-lg font-semibold text-slate-900">Daily Interaction Load</h2>
+                                    <h2 className="text-lg font-black font-mono uppercase tracking-wide text-black">Daily Interaction Load</h2>
                                     <Activity className="h-5 w-5 text-blue-600" />
                                 </div>
                                 <div className="h-[320px]">

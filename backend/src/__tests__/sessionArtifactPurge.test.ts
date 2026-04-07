@@ -20,7 +20,6 @@ const mocks = vi.hoisted(() => ({
         scan: vi.fn(),
     },
     deletePrefixFromProjectStorage: vi.fn(),
-    deletePrefixFromAllConfiguredStorageEndpoints: vi.fn(),
     beginRetentionDeletionLog: vi.fn(),
     finalizeRetentionDeletionLog: vi.fn(),
     logger: {
@@ -52,7 +51,6 @@ vi.mock('../db/redis.js', () => ({
 
 vi.mock('../db/s3.js', () => ({
     deletePrefixFromProjectStorage: mocks.deletePrefixFromProjectStorage,
-    deletePrefixFromAllConfiguredStorageEndpoints: mocks.deletePrefixFromAllConfiguredStorageEndpoints,
 }));
 
 vi.mock('../services/retentionAudit.js', () => ({
@@ -199,9 +197,7 @@ describe('sessionArtifactPurge', () => {
             ],
         ]);
 
-        mocks.beginRetentionDeletionLog
-            .mockResolvedValueOnce('canonical_log')
-            .mockResolvedValueOnce('legacy_log');
+        mocks.beginRetentionDeletionLog.mockResolvedValueOnce('canonical_log');
         mocks.finalizeRetentionDeletionLog.mockResolvedValue(undefined);
 
         mocks.deletePrefixFromProjectStorage.mockResolvedValue({
@@ -220,15 +216,9 @@ describe('sessionArtifactPurge', () => {
                 },
             ],
         });
-        mocks.deletePrefixFromAllConfiguredStorageEndpoints.mockResolvedValue({
-            prefix: 'sessions/session_1/',
-            deletedObjectCount: 1,
-            deletedBytes: 50,
-            endpointResults: [],
-        });
     });
 
-    it('purges canonical storage, deletes narrow DB rows, and logs legacy cleanup separately', async () => {
+    it('purges canonical storage and deletes narrow DB rows', async () => {
         const now = new Date('2026-03-27T12:00:00.000Z');
 
         const result = await purgeSessionArtifacts('session_1', {
@@ -256,7 +246,6 @@ describe('sessionArtifactPurge', () => {
             'tenant/team_1/project/project_1/sessions/session_1/',
             ['endpoint_1', null, 'endpoint_2'],
         );
-        expect(mocks.deletePrefixFromAllConfiguredStorageEndpoints).toHaveBeenCalledWith('sessions/session_1/');
 
         expect(tx.metricsSetPayload).toMatchObject({
             screenshotSegmentCount: 0,
@@ -274,7 +263,7 @@ describe('sessionArtifactPurge', () => {
             updatedAt: now,
         });
 
-        expect(mocks.beginRetentionDeletionLog).toHaveBeenCalledTimes(2);
+        expect(mocks.beginRetentionDeletionLog).toHaveBeenCalledTimes(1);
         expect(mocks.finalizeRetentionDeletionLog).toHaveBeenCalledWith(
             'canonical_log',
             expect.objectContaining({
@@ -283,14 +272,6 @@ describe('sessionArtifactPurge', () => {
                 deletedIngestJobCount: 1,
                 deletedObjectCount: 3,
                 deletedBytes: 900,
-            }),
-        );
-        expect(mocks.finalizeRetentionDeletionLog).toHaveBeenCalledWith(
-            'legacy_log',
-            expect.objectContaining({
-                status: 'completed',
-                deletedObjectCount: 1,
-                deletedBytes: 50,
             }),
         );
     });
@@ -309,7 +290,6 @@ describe('sessionArtifactPurge', () => {
         })).rejects.toThrow('Canonical storage missing for session session_1');
 
         expect(tx.delete).not.toHaveBeenCalled();
-        expect(mocks.deletePrefixFromAllConfiguredStorageEndpoints).not.toHaveBeenCalled();
         expect(mocks.finalizeRetentionDeletionLog).toHaveBeenCalledWith(
             'canonical_log',
             expect.objectContaining({

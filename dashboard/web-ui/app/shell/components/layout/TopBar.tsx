@@ -203,7 +203,7 @@ export const TopBar: React.FC<TopBarProps> = ({ currentProject }) => {
         {/* Mobile Menu Button */}
         <button
           onClick={() => window.dispatchEvent(new CustomEvent('toggleMobileSidebar'))}
-          className="mr-1 flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-500 hover:bg-slate-50 md:hidden"
+          className="mr-1 flex h-8 w-8 items-center justify-center border-2 border-black bg-white text-slate-500 hover:bg-slate-50 md:hidden"
           aria-label="Toggle sidebar"
         >
           <Menu className="h-5 w-5" />
@@ -218,10 +218,10 @@ export const TopBar: React.FC<TopBarProps> = ({ currentProject }) => {
         {currentProject ? (
           <>
             <div className="min-w-0">
-              <h1 className="truncate text-sm font-bold tracking-tight text-slate-800">{currentProject.name}</h1>
+              <h1 className="truncate text-sm font-black font-mono uppercase tracking-wide text-black">{currentProject.name}</h1>
               <div className="mt-0.5 flex flex-wrap items-center gap-2">
                 {currentProject.platforms.map((platform) => (
-                  <span key={platform} className="flex items-center gap-1 rounded-sm border border-slate-200 bg-slate-50 px-1.5 py-0 text-[10px] font-semibold uppercase text-slate-500">
+                  <span key={platform} className="flex items-center gap-1 border-2 border-black bg-white px-1.5 py-0 text-[10px] font-mono uppercase text-black">
                     {platform}
                   </span>
                 ))}
@@ -243,7 +243,7 @@ export const TopBar: React.FC<TopBarProps> = ({ currentProject }) => {
         {currentProject?.publicKey && (
           <button
             onClick={handleCopyPublicKey}
-            className="group hidden h-8 items-center gap-1.5 rounded border border-slate-200 bg-white px-3 py-1.5 text-xs transition-all hover:bg-slate-50 md:flex"
+            className="group hidden h-8 items-center gap-1.5 border-2 border-black bg-white px-3 py-1.5 text-xs transition-all hover:shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] md:flex"
             title={`Copy Public Key: ${currentProject.publicKey}`}
           >
             <span className="font-mono text-slate-500 font-medium text-[11px]">{truncatedKey}</span>
@@ -258,15 +258,15 @@ export const TopBar: React.FC<TopBarProps> = ({ currentProject }) => {
         {/* AI Docs Button */}
         <button
           onClick={handleCopyDocsUrl}
-          className="group flex h-8 items-center gap-1.5 rounded border border-purple-200 bg-purple-50 px-2.5 py-1.5 text-xs transition-all hover:bg-purple-100 sm:px-3"
+          className="group flex h-8 items-center gap-1.5 border-2 border-black bg-white px-2.5 py-1.5 text-xs transition-all hover:shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] sm:px-3"
           title="Copy AI Integration Prompt"
         >
-          <BookOpen className="w-3.5 h-3.5 text-purple-600" />
-          <span className="hidden text-[10px] font-semibold uppercase text-purple-700 sm:inline">AI Docs</span>
+          <BookOpen className="w-3.5 h-3.5 text-black" />
+          <span className="hidden text-[10px] font-semibold uppercase text-black sm:inline">AI Docs</span>
           {copiedDocs ? (
-            <Check className="w-3 h-3 text-purple-600" />
+            <Check className="w-3 h-3 text-black" />
           ) : (
-            <Copy className="w-3 h-3 text-purple-400 group-hover:text-purple-600" />
+            <Copy className="w-3 h-3 text-black group-hover:text-black" />
           )}
         </button>
 
@@ -274,27 +274,27 @@ export const TopBar: React.FC<TopBarProps> = ({ currentProject }) => {
         <button
           onClick={handleRefresh}
           disabled={isRefreshing}
-          className={`flex items-center justify-center w-8 h-8 rounded-md shadow-sm transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed ${isRefreshing
-            ? 'bg-sky-50 border border-sky-300'
+          className={`flex items-center justify-center w-8 h-8 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed ${isRefreshing
+            ? 'bg-white border-2 border-[#5dadec]'
             : refreshCompletedPulse
-              ? 'bg-emerald-50 border border-emerald-300'
-              : 'bg-white hover:bg-slate-50 border border-slate-200'
+              ? 'bg-white border-2 border-[#34d399]'
+              : 'border-2 border-black bg-white hover:shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]'
             }`}
           title={refreshTitle}
         >
-          <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'text-sky-600 animate-spin' : refreshCompletedPulse ? 'text-emerald-600' : 'text-slate-500'}`} />
+          <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'text-[#5dadec] animate-spin' : refreshCompletedPulse ? 'text-[#34d399]' : 'text-slate-500'}`} />
         </button>
 
         {/* Plan / Usage - Team usage this month */}
         {user && currentTeam && (
           <Link
             to={`${pathPrefix}/team`}
-            className="hidden h-8 items-center gap-2 rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs shadow-sm transition-colors hover:border-slate-300 xl:flex"
+            className="hidden h-8 items-center gap-2 rounded-md border-2 border-black bg-white px-3 py-1.5 text-xs transition-colors hover:border-black xl:flex"
             title={`${currentTeam.name} - Usage this month`}
           >
-            <span className="font-semibold text-slate-700 uppercase">{planLabel}</span>
-            <span className="h-3 w-px bg-slate-200"></span>
-            <span className="font-mono font-medium text-slate-500">{sessionsUsed.toLocaleString()}</span>
+            <span className="font-semibold text-black uppercase font-mono">{planLabel}</span>
+            <span className="h-3 w-px bg-black"></span>
+            <span className="font-mono font-medium text-black">{sessionsUsed.toLocaleString()}</span>
           </Link>
         )}
 
@@ -302,9 +302,9 @@ export const TopBar: React.FC<TopBarProps> = ({ currentProject }) => {
         <div className="relative">
           <button
             onClick={() => setShowUserMenu(!showUserMenu)}
-            className="group flex items-center gap-2 rounded-md border border-transparent px-2 py-1.5 text-left transition-colors hover:border-slate-200 hover:bg-slate-50 focus:outline-none"
+            className="group flex items-center gap-2 border-2 border-black bg-white px-2 py-1.5 text-left transition-all hover:shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] focus:outline-none"
           >
-            <div className="w-8 h-8 bg-purple-100 rounded-md flex items-center justify-center text-purple-600 border border-purple-200">
+            <div className="w-8 h-8 bg-white rounded-none flex items-center justify-center text-black border-2 border-black">
               <UserIcon className="w-4 h-4" />
             </div>
             <div className="hidden md:block">
@@ -316,14 +316,14 @@ export const TopBar: React.FC<TopBarProps> = ({ currentProject }) => {
           {showUserMenu && (
             <>
               <div className="fixed inset-0 z-[90]" onClick={() => setShowUserMenu(false)} />
-              <div className="absolute right-0 top-full mt-2 bg-white border border-slate-200 shadow-lg z-[100] w-56 py-1 rounded-md animate-in fade-in zoom-in-95 duration-100">
-                <div className="px-4 py-3 border-b border-slate-100 mb-1">
+              <div className="absolute right-0 top-full mt-2 bg-white border-2 border-black shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] rounded-none z-[100] w-56 py-1 animate-in fade-in zoom-in-95 duration-100">
+                <div className="px-4 py-3 border-b border-gray-200 mb-1">
                   <div className="text-xs font-semibold text-slate-800 truncate">{displayLabel}</div>
                   <div className="text-[10px] text-slate-500 truncate font-mono">{userEmail}</div>
                 </div>
                 <button
                   onClick={() => navigate(`${pathPrefix}/account`)}
-                  className="w-full text-left px-4 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50 flex items-center gap-2"
+                  className="w-full text-left px-4 py-2 text-xs font-medium text-black hover:bg-gray-100 flex items-center gap-2"
                 >
                   <CreditCard className="w-3.5 h-3.5 text-slate-500" />
                   Account

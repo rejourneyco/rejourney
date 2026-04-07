@@ -7,6 +7,7 @@ export async function getBackedUpSessionIds(sessionIds: string[]): Promise<Set<s
     }
 
     try {
+        // Require backup log counts to cover every recording_artifacts row (same scope as purge).
         const result = await pool.query<{ session_id: string }>(
             `
             SELECT bl.session_id
@@ -17,10 +18,8 @@ export async function getBackedUpSessionIds(sessionIds: string[]): Promise<Set<s
                 WHERE ra.session_id = bl.session_id
             ) artifact_stats ON true
             WHERE bl.session_id = ANY($1::varchar[])
-              AND (
-                COALESCE(artifact_stats.artifact_rows, 0) = 0
-                OR bl.artifact_count >= COALESCE(artifact_stats.artifact_rows, 0)
-              )
+              AND bl.artifact_count >= COALESCE(artifact_stats.artifact_rows, 0)
+              AND bl.planned_artifact_count >= COALESCE(artifact_stats.artifact_rows, 0)
             `,
             [sessionIds],
         );

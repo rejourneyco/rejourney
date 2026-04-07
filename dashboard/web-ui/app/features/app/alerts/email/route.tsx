@@ -201,7 +201,7 @@ const AlertTypeCard: React.FC<{
         >
             <div className={`p-5 ${enabled ? 'bg-white' : 'bg-slate-50/50'}`}>
                 <div className="flex items-start justify-between mb-4">
-                    <div className={`p-2.5 bg-slate-50 rounded-xl border border-slate-100 ${variant.icon}`}>
+                    <div className={`p-2.5 bg-[#f4f4f5] border-2 border-black ${variant.icon}`}>
                         {icon}
                     </div>
                     <Toggle enabled={enabled} onChange={onChange} />
@@ -381,7 +381,7 @@ export const AlertEmails: React.FC = () => {
                     icon={<Mail className="w-6 h-6" />}
                     iconColor="bg-red-500"
                 >
-                    <div className="hidden lg:flex items-center gap-2 mr-4 bg-slate-50 border-2 border-slate-200 px-3 py-1 rounded-md">
+                    <div className="hidden lg:flex items-center gap-2 mr-4 bg-[#f4f4f5] border-2 border-black px-3 py-1 rounded-md">
                         <div className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse shadow-[0_0_8px_rgba(16,185,129,0.6)]"></div>
                         <span className="text-[10px] font-bold uppercase text-slate-400">System Ready</span>
                     </div>
@@ -399,10 +399,10 @@ export const AlertEmails: React.FC = () => {
 
             {/* Recipients Section */}
             <NeoCard
-                className="border border-slate-200 shadow-sm"
+                className="border-2 border-black shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]"
                 disablePadding
             >
-                <div className="px-6 py-5 border-b border-slate-100 flex items-center justify-between">
+                <div className="px-6 py-5 border-b-2 border-black flex items-center justify-between">
                     <div>
                         <h2 className="font-bold text-slate-900 text-lg tracking-tight">Alert Recipients</h2>
                         <p className="text-xs font-medium text-slate-500 mt-1">Designate who receives real-time notifications</p>
@@ -433,7 +433,7 @@ export const AlertEmails: React.FC = () => {
                             {recipients.map((recipient) => (
                                 <div
                                     key={recipient.id}
-                                    className="flex items-center justify-between p-4 bg-white border border-slate-200 rounded-xl hover:border-slate-300 transition-colors group"
+                                    className="flex items-center justify-between p-4 bg-white border-2 border-black hover:border-black transition-colors group"
                                 >
                                     <div className="flex items-center gap-4">
                                         {recipient.avatarUrl ? (
@@ -465,8 +465,8 @@ export const AlertEmails: React.FC = () => {
                 {/* Add recipient modal */}
                 {showAddRecipient && (
                     <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center z-[100] p-4">
-                        <NeoCard className="w-full max-w-md border border-slate-200 shadow-xl overflow-hidden" disablePadding>
-                            <div className="px-6 py-5 border-b border-slate-100 flex items-center justify-between bg-white text-slate-900">
+                        <NeoCard className="w-full max-w-md border-2 border-black shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] overflow-hidden" disablePadding>
+                            <div className="px-6 py-5 border-b-2 border-black flex items-center justify-between bg-white text-slate-900">
                                 <h3 className="font-bold tracking-tight text-lg">Add Alert Recipient</h3>
                                 <button onClick={() => setShowAddRecipient(false)} className="p-1 hover:bg-slate-100 rounded-lg transition-colors">
                                     <X className="w-5 h-5" />
@@ -485,7 +485,7 @@ export const AlertEmails: React.FC = () => {
                                             <button
                                                 key={member.userId}
                                                 onClick={() => handleAddRecipient(member.userId)}
-                                                className="w-full flex items-center justify-between p-3 border border-slate-100 rounded-xl hover:bg-slate-50 transition-all group"
+                                                className="w-full flex items-center justify-between p-3 border-2 border-black hover:bg-[#f4f4f5] transition-all group"
                                             >
                                                 <div className="flex items-center gap-3">
                                                     {member.avatarUrl ? (
@@ -563,7 +563,7 @@ export const AlertEmails: React.FC = () => {
             </div>
 
             {/* Rate Limiting Info */}
-            <div className="bg-white border border-slate-200 p-6 rounded-2xl shadow-sm flex items-start gap-5">
+            <div className="border border-gray-200 bg-white p-6 flex items-start gap-5" style={{ boxShadow: '2px 2px 0 0 rgba(0,0,0,0.07)' }}>
                 <div className="p-2.5 bg-indigo-50 text-indigo-600 rounded-xl">
                     <Info className="w-6 h-6" />
                 </div>
@@ -589,9 +589,9 @@ export const AlertEmails: React.FC = () => {
                     <div className="h-px flex-1 bg-slate-200"></div>
                 </div>
 
-                <NeoCard className="border border-slate-200 shadow-sm" disablePadding>
+                <NeoCard className="border-2 border-black shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]" disablePadding>
                     {/* Search & Filter Bar */}
-                    <div className="px-6 py-4 border-b border-slate-100 flex flex-col md:flex-row gap-4 items-start md:items-center justify-between">
+                    <div className="px-6 py-4 border-b-2 border-black flex flex-col md:flex-row gap-4 items-start md:items-center justify-between">
                         <div className="relative flex-1 max-w-md group">
                             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 group-focus-within:text-indigo-600 transition-colors" />
                             <input
@@ -599,7 +599,7 @@ export const AlertEmails: React.FC = () => {
                                 value={emailLogSearch}
                                 onChange={(e) => setEmailLogSearch(e.target.value)}
                                 placeholder="Filter logs..."
-                                className="w-full pl-10 pr-4 py-2 bg-white border border-slate-200 rounded-xl text-sm font-medium placeholder:text-slate-400 focus:outline-none focus:ring-1 focus:ring-indigo-200 focus:border-indigo-400 transition-all shadow-sm"
+                                className="w-full pl-10 pr-4 py-2 bg-white border-2 border-black text-sm font-medium placeholder:text-slate-400 focus:outline-none focus:ring-1 focus:ring-indigo-200 focus:border-indigo-400 transition-all"
                             />
                         </div>
                         <div className="flex items-center gap-3">
@@ -607,7 +607,7 @@ export const AlertEmails: React.FC = () => {
                             <select
                                 value={emailLogTypeFilter}
                                 onChange={(e) => setEmailLogTypeFilter(e.target.value)}
-                                className="text-xs font-bold uppercase px-3 py-2 border border-slate-200 rounded-lg bg-white cursor-pointer hover:bg-slate-50 transition-all outline-none focus:ring-1 focus:ring-indigo-200"
+                                className="text-xs font-bold uppercase px-3 py-2 border-2 border-black bg-white cursor-pointer hover:bg-[#f4f4f5] transition-all outline-none focus:ring-1 focus:ring-indigo-200"
                             >
                                 <option value="all">All Types</option>
                                 <option value="crash">Crashes</option>
@@ -621,7 +621,7 @@ export const AlertEmails: React.FC = () => {
                     {/* Log Table */}
                     <div className="overflow-x-auto">
                         <table className="w-full text-left text-sm">
-                            <thead className="bg-slate-50 border-b border-slate-100 font-bold uppercase text-slate-500 text-[10px] tracking-wider">
+                            <thead className="bg-[#f4f4f5] text-black font-mono border-b-2 border-black font-bold uppercase text-[10px] tracking-wider">
                                 <tr>
                                     <th className="p-4">Timestamp</th>
                                     <th className="p-4">Alert Class</th>
@@ -630,7 +630,7 @@ export const AlertEmails: React.FC = () => {
                                     <th className="p-4 text-right">Delivery</th>
                                 </tr>
                             </thead>
-                            <tbody className="divide-y divide-slate-100">
+                            <tbody className="divide-y divide-gray-200">
                                 {isLoadingLogs ? (
                                     <tr>
                                         <td colSpan={5} className="p-8 text-center">
@@ -660,7 +660,7 @@ export const AlertEmails: React.FC = () => {
                                             api_degradation: 'API',
                                         };
                                         return (
-                                            <tr key={log.id} className="hover:bg-slate-50/50 transition-colors group text-sm">
+                                            <tr key={log.id} className="hover:bg-[#f4f4f5] transition-colors group text-sm">
                                                 <td className="p-4 whitespace-nowrap">
                                                     <div className="font-bold text-slate-900">
                                                         {new Date(log.sentAt).toLocaleDateString()}
@@ -725,7 +725,7 @@ export const AlertEmails: React.FC = () => {
 
                     {/* Pagination */}
                     {emailLogPagination.totalPages > 1 && (
-                        <div className="px-6 py-4 border-t border-slate-100 flex items-center justify-between">
+                        <div className="px-6 py-4 border-t-2 border-black flex items-center justify-between">
                             <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
                                 Page {emailLogPagination.page} / {emailLogPagination.totalPages} • Total: {emailLogPagination.total}
                             </div>

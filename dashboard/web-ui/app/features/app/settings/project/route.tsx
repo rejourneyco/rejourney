@@ -384,7 +384,7 @@ export const ProjectSettings: React.FC<SettingsProps> = ({ projectId: propProjec
   return (
     <div className="min-h-screen flex flex-col font-sans text-slate-900 bg-transparent">
       {/* Sticky Header */}
-      <div className="sticky top-0 z-50 bg-white/95 backdrop-blur-sm border-b border-slate-200">
+      <div className="sticky top-0 z-50 bg-white/95 backdrop-blur-sm border-b-2 border-black">
         <div className="px-6 py-4 flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div className="flex items-center gap-6 flex-1">
             <h1 className="text-3xl font-semibold uppercase tracking-tighter flex items-center gap-3">
@@ -456,7 +456,7 @@ export const ProjectSettings: React.FC<SettingsProps> = ({ projectId: propProjec
                 <div className="space-y-6">
                   {/* iOS Bundle ID */}
                   <div className="space-y-3">
-                    <label className="text-sm font-semibold text-slate-900 uppercase tracking-wide flex items-center gap-2">
+                    <label className="text-sm font-bold font-mono uppercase text-black tracking-wide flex items-center gap-2">
                       <Smartphone className="w-4 h-4" />
                       iOS Bundle ID
                     </label>
@@ -504,7 +504,7 @@ export const ProjectSettings: React.FC<SettingsProps> = ({ projectId: propProjec
 
                   {/* Android Package Name */}
                   <div className="space-y-3">
-                    <label className="text-sm font-semibold text-slate-900 uppercase tracking-wide flex items-center gap-2">
+                    <label className="text-sm font-bold font-mono uppercase text-black tracking-wide flex items-center gap-2">
                       <Shield className="w-4 h-4" />
                       Android Package Name
                     </label>

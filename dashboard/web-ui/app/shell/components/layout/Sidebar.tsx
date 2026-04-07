@@ -12,6 +12,7 @@ import {
   Smartphone,
   Globe,
   Map,
+  Flame,
   Database,
   Settings,
   Users,
@@ -231,6 +232,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       items: [
         { path: p('/analytics/api'), label: 'API Insights', icon: Activity },
         { path: p('/analytics/journeys'), label: 'User Journeys', icon: Map },
+        { path: p('/analytics/heatmaps'), label: 'Heatmaps', icon: Flame },
         { path: p('/analytics/devices'), label: 'Devices', icon: Smartphone },
         { path: p('/analytics/geo'), label: 'Geographic', icon: Globe },
       ],
@@ -282,7 +284,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       {/* Mobile backdrop */}
       {isMobileOpen && (
         <div 
-          className="fixed inset-0 z-40 bg-slate-900/50 backdrop-blur-sm md:hidden"
+          className="fixed inset-0 z-40 bg-black/40 md:hidden"
           onClick={() => setIsMobileOpen(false)}
         />
       )}
@@ -290,7 +292,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       <div
         className={`
         dashboard-sidebar relative flex-shrink-0 h-screen min-h-0 flex flex-col
-        fixed left-0 top-0 md:relative md:left-auto md:top-auto z-50 bg-[#0f172a] transition-transform duration-300 ease-in-out
+        fixed left-0 top-0 md:relative md:left-auto md:top-auto z-50 bg-[#f4f4f5] transition-transform duration-300 ease-in-out
         max-w-[100vw] min-w-0
         ${isResizing ? '' : 'md:transition-[width] md:duration-200 md:ease-out'}
         ${isMobileOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}
@@ -306,7 +308,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           />
         )}
         {/* Brand & Team Switcher */}
-        <div className={`border-b border-slate-700/80 bg-transparent ${collapsedDesktop ? 'p-2' : 'p-4'}`}>
+        <div className={`border-b border-gray-300 bg-transparent ${collapsedDesktop ? 'p-2' : 'p-4'}`}>
           {collapsedDesktop ? (
             <Link
               to={warehousePath}
@@ -316,9 +318,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 setShowAppSelector(false);
                 setIsMobileOpen(false);
               }}
-              className={`mb-3 flex h-10 w-full items-center justify-center rounded-md border text-sky-100 transition-colors ${isWarehouseActive
-                ? 'border-sky-400/70 bg-sky-500/15'
-                : 'border-slate-700 bg-slate-800/80 hover:border-sky-500/50'
+              className={`mb-3 flex h-10 w-full items-center justify-center rounded-none border transition-colors ${isWarehouseActive
+                ? 'border-2 border-[#5dadec] bg-white text-black shadow-[2px_2px_0px_0px_rgba(0,0,0,0.1)]'
+                : 'border-gray-300 bg-white text-black hover:border-black hover:shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]'
                 }`}
             >
               <Database className="h-4 w-4" />
@@ -331,9 +333,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 setShowAppSelector(false);
                 setIsMobileOpen(false);
               }}
-              className={`mb-3 flex w-full items-center justify-between rounded-md border px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.12em] transition-colors ${isWarehouseActive
-                ? 'border-sky-400/70 bg-sky-500/15 text-sky-100'
-                : 'border-slate-700 bg-slate-800/80 text-slate-200 hover:border-sky-500/50 hover:text-sky-100'
+              className={`mb-3 flex w-full items-center justify-between rounded-none border px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.12em] transition-colors ${isWarehouseActive
+                ? 'border-2 border-[#5dadec] bg-white text-black shadow-[2px_2px_0px_0px_rgba(0,0,0,0.1)]'
+                : 'border-gray-300 bg-white text-black hover:border-black hover:shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]'
                 }`}
             >
               <span className="inline-flex items-center gap-2">
@@ -352,10 +354,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 setShowTeamSelector(!showTeamSelector);
                 setShowAppSelector(false);
               }}
-              className={`w-full flex bg-slate-800/80 border border-slate-700 hover:bg-slate-700 transition-colors rounded-md text-sm font-medium text-slate-100 shadow-sm ${collapsedDesktop ? 'justify-center px-2 py-2.5' : 'items-center justify-between px-3 py-2'}`}
+              className={`w-full flex bg-white border border-gray-300 hover:border-black hover:shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] text-black transition-all rounded-none text-sm font-medium ${collapsedDesktop ? 'justify-center px-2 py-2.5' : 'items-center justify-between px-3 py-2'}`}
             >
               <div className={`flex items-center overflow-hidden ${collapsedDesktop ? '' : 'gap-2'}`}>
-                <div className="w-5 h-5 bg-sky-500/20 rounded-sm flex items-center justify-center text-sky-200 font-semibold text-xs shrink-0 border border-sky-400/30">
+                <div className="w-5 h-5 bg-[#f4f4f5] border border-gray-300 flex items-center justify-center text-black font-semibold text-xs shrink-0">
                   {currentTeam?.name?.[0] || 'R'}
                 </div>
                 {!collapsedDesktop && (
@@ -364,12 +366,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   </span>
                 )}
               </div>
-              {!collapsedDesktop && <ChevronDown className="w-4 h-4 text-slate-300 shrink-0" />}
+              {!collapsedDesktop && <ChevronDown className="w-4 h-4 text-black shrink-0" />}
             </button>
 
             {showTeamSelector && (
-              <div className={`absolute top-full mt-2 bg-slate-800 border border-slate-700 shadow-lg rounded-md z-50 animate-in fade-in zoom-in-95 duration-100 ${collapsedDesktop ? 'left-0 w-64' : 'left-0 right-0'}`}>
-                <div className="px-3 py-2 text-xs font-semibold text-slate-300 border-b border-slate-700">
+              <div className={`absolute top-full mt-2 bg-white border-2 border-black shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] rounded-none z-50 animate-in fade-in zoom-in-95 duration-100 ${collapsedDesktop ? 'left-0 w-64' : 'left-0 right-0'}`}>
+                <div className="px-3 py-2 text-xs font-semibold text-black border-b-2 border-black font-mono uppercase">
                   Switch Team
                 </div>
                 <div className="max-h-[200px] overflow-y-auto custom-scrollbar">
@@ -387,16 +389,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
                         setIsMobileOpen(false);
                         navigate(p('/general'));
                       }}
-                      className={`w-full text-left px-3 py-2 text-sm font-medium hover:bg-slate-700/70 flex items-center justify-between group border-b border-slate-700 last:border-0 ${currentTeam?.id === team.id ? 'bg-sky-600/20 text-sky-100' : 'text-slate-200'}`}
+                      className={`w-full text-left px-3 py-2 text-sm font-medium hover:bg-gray-100 flex items-center justify-between group border-b border-gray-200 last:border-0 ${currentTeam?.id === team.id ? 'bg-[#5dadec]/10 text-black font-bold' : 'text-black'}`}
                     >
                       <span className="truncate">
                         {team.name || `Team ${team.id.slice(0, 8)}...`}
                       </span>
-                      {currentTeam?.id === team.id && <Check className="w-4 h-4 text-sky-300" />}
+                      {currentTeam?.id === team.id && <Check className="w-4 h-4 text-[#5dadec]" />}
                     </button>
                   ))}
                 </div>
-                <div className="border-t border-slate-700 p-2 bg-slate-800/90 rounded-b-md">
+                <div className="border-t border-gray-200 p-2 bg-white">
                   <button
                     onClick={() => {
                       setShowTeamSelector(false);
@@ -404,7 +406,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                       setNewTeamName('');
                       setShowCreateTeamModal(true);
                     }}
-                    className="w-full text-left px-3 py-1.5 text-xs text-sky-200 hover:text-sky-100 font-medium flex items-center gap-2"
+                    className="w-full text-left px-3 py-1.5 text-xs text-black hover:text-[#5dadec] font-medium flex items-center gap-2"
                   >
                     <Plus className="w-3 h-3" /> Create Team
                   </button>
@@ -424,32 +426,32 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 setShowAppSelector(!showAppSelector);
                 setShowTeamSelector(false);
               }}
-              className={`w-full flex border border-slate-700 transition-colors bg-slate-800/80 rounded-md text-sm shadow-sm ${loading ? 'cursor-wait opacity-80' : 'hover:border-slate-500'} ${showAppSelector ? 'border-sky-400/60' : ''} ${collapsedDesktop ? 'justify-center px-2 py-2.5' : 'items-center justify-between px-3 py-2'}`}
+              className={`w-full flex bg-white border border-gray-300 transition-all rounded-none text-sm ${loading ? 'cursor-wait opacity-80' : 'hover:border-black hover:shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]'} ${showAppSelector ? 'border-black' : ''} ${collapsedDesktop ? 'justify-center px-2 py-2.5' : 'items-center justify-between px-3 py-2'}`}
             >
               {collapsedDesktop ? (
-                <span className="flex h-6 w-6 items-center justify-center rounded-sm border border-slate-600 bg-slate-900/60 text-[11px] font-semibold text-sky-100">
+                <span className="flex h-6 w-6 items-center justify-center border border-gray-300 bg-white text-[11px] font-semibold text-black">
                   {(currentProject?.name || 'P').slice(0, 1).toUpperCase()}
                 </span>
               ) : (
                 <>
-                  <span className="font-medium text-slate-100 truncate">
+                  <span className="font-medium text-black truncate">
                     {loading ? 'Loading projects...' : (currentProject?.name || 'Select Project')}
                   </span>
-                  <ChevronDown className="w-4 h-4 text-slate-300 shrink-0" />
+                  <ChevronDown className="w-4 h-4 text-black shrink-0" />
                 </>
               )}
             </button>
 
             {showAppSelector && (
-              <div className={`absolute top-full mt-2 bg-slate-800 border border-slate-700 shadow-lg rounded-md z-50 animate-in fade-in zoom-in-95 duration-100 ${collapsedDesktop ? 'left-0 w-64' : 'left-0 right-0'}`}>
-                <div className="px-3 py-2 text-xs font-semibold text-slate-300 border-b border-slate-700">
+              <div className={`absolute top-full mt-2 bg-white border-2 border-black shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] rounded-none z-50 animate-in fade-in zoom-in-95 duration-100 ${collapsedDesktop ? 'left-0 w-64' : 'left-0 right-0'}`}>
+                <div className="px-3 py-2 text-xs font-semibold text-black border-b-2 border-black font-mono uppercase">
                   Projects
                 </div>
                 <div className="max-h-[300px] overflow-y-auto custom-scrollbar">
                   {loading ? (
                     <div className="space-y-2 p-3">
                       {Array.from({ length: 3 }).map((_, index) => (
-                        <div key={index} className="h-9 animate-pulse rounded-md bg-slate-700/60" />
+                        <div key={index} className="h-9 animate-pulse rounded-md bg-gray-200" />
                       ))}
                     </div>
                   ) : projects.length > 0 ? (
@@ -461,26 +463,26 @@ export const Sidebar: React.FC<SidebarProps> = ({
                           setShowAppSelector(false);
                           setIsMobileOpen(false);
                         }}
-                        className={`w-full text-left px-3 py-2 text-sm font-medium flex items-center justify-between border-b border-slate-700 last:border-0 ${currentProject?.id === project.id ? 'bg-sky-600/20 text-sky-100' : 'text-slate-200 hover:bg-slate-700/70'
+                        className={`w-full text-left px-3 py-2 text-sm font-medium flex items-center justify-between border-b border-gray-200 last:border-0 ${currentProject?.id === project.id ? 'bg-[#5dadec]/10 text-black font-bold' : 'text-black hover:bg-gray-100'
                           }`}
                       >
                         <span className="truncate">{project.name}</span>
-                        {currentProject?.id === project.id && <Check className="w-4 h-4 text-sky-300" />}
+                        {currentProject?.id === project.id && <Check className="w-4 h-4 text-[#5dadec]" />}
                       </button>
                     ))
                   ) : (
-                    <div className="px-3 py-4 text-sm text-slate-400">
+                    <div className="px-3 py-4 text-sm text-gray-500">
                       No projects yet for this team.
                     </div>
                   )}
                 </div>
-                <div className="border-t border-slate-700 p-2 bg-slate-800/90 rounded-b-md">
+                <div className="border-t border-gray-200 p-2 bg-white">
                   <button
                     onClick={() => {
                       setShowAppSelector(false);
                       setShowAddAppModal(true);
                     }}
-                    className="w-full text-left px-3 py-1.5 text-xs text-slate-200 hover:text-slate-100 font-medium flex items-center gap-2"
+                    className="w-full text-left px-3 py-1.5 text-xs text-black hover:text-[#5dadec] font-medium flex items-center gap-2"
                   >
                     <Plus className="w-3 h-3" /> New Project
                   </button>
@@ -496,7 +498,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             section.items.length > 0 && (
               <div key={section.section} className="space-y-2">
                 {!collapsedDesktop && (
-                  <div className="px-2 text-[11px] font-semibold text-slate-400 tracking-[0.08em] uppercase">
+                  <div className="px-2 text-[10px] font-bold text-gray-500 tracking-widest uppercase font-mono pb-1 mb-1">
                     {section.section}
                   </div>
                 )}
@@ -508,20 +510,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
                       title={collapsedDesktop ? item.label : undefined}
                       onClick={() => setIsMobileOpen(false)}
                       className={`
-                        flex items-center text-sm font-medium transition-colors rounded-md border relative
+                        flex items-center text-sm font-medium transition-all rounded-none border relative
                         ${collapsedDesktop ? 'justify-center px-2 py-2.5' : 'gap-3 px-3 py-2'}
                         ${isActive(item.path)
-                          ? 'bg-slate-700/80 text-white border-slate-600 shadow-sm'
-                          : 'bg-transparent text-slate-300 border-transparent hover:border-slate-600/70 hover:bg-slate-700/50 hover:text-slate-100'
+                          ? 'bg-white border-black shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] -translate-x-[1px] text-black font-semibold'
+                          : 'text-gray-600 border-transparent hover:bg-white hover:border-gray-300 hover:text-black'
                         }
                       `}
                     >
-                      {isActive(item.path) && (
-                        <span
-                          className={`absolute top-1/2 h-5 w-0.5 -translate-y-1/2 rounded bg-sky-400 ${collapsedDesktop ? 'left-0.5' : 'left-0'}`}
-                        />
-                      )}
-                      <item.icon className={`w-4 h-4 shrink-0 ${isActive(item.path) ? 'text-sky-300' : 'text-slate-400'}`} />
+                      <item.icon className={`w-4 h-4 shrink-0 ${isActive(item.path) ? 'text-[#5dadec]' : 'text-gray-600'}`} />
                       {!collapsedDesktop && <span>{item.label}</span>}
                     </Link>
                   ))}
@@ -532,11 +529,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </div>
 
         {isDesktop && (
-          <div className="mt-auto border-t border-slate-700/80 p-2">
+          <div className="mt-auto border-t border-gray-300 p-2">
             <button
               type="button"
               onClick={() => setCollapsed((c) => !c)}
-              className="flex w-full items-center justify-center gap-2 rounded-md py-2 text-slate-400 transition-colors hover:bg-slate-800/90 hover:text-slate-100"
+              className="flex w-full items-center justify-center gap-2 py-2 text-gray-500 transition-colors hover:text-black hover:bg-white rounded-none"
               title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
               aria-expanded={!collapsed}
             >
