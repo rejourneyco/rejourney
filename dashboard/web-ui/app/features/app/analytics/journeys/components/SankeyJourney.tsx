@@ -276,7 +276,7 @@ export const SankeyJourney: React.FC<SankeyJourneyProps> = ({
 
     if (nodes.length === 0) {
         return (
-            <div className="w-full h-80 flex items-center justify-center bg-slate-50 rounded-xl border border-slate-200">
+            <div className="w-full h-80 flex items-center justify-center border-2 border-black bg-white">
                 <p className="text-slate-500 text-sm font-medium">No flow data available for this filter.</p>
             </div>
         );
@@ -320,7 +320,7 @@ export const SankeyJourney: React.FC<SankeyJourneyProps> = ({
     const canLinkToReplays = Boolean(sessionPathPrefix);
 
     return (
-        <div className="relative rounded-2xl border border-slate-200 bg-gradient-to-b from-white via-white to-slate-50/60 shadow-sm overflow-hidden">
+        <div className="relative border-2 border-black bg-white shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] overflow-hidden">
             <div className="border-b border-slate-200 px-5 py-3 flex flex-col md:flex-row md:items-center md:justify-between gap-2">
                 <div className="text-xs font-semibold text-slate-700">
                     Flow map by transition volume
@@ -430,7 +430,7 @@ export const SankeyJourney: React.FC<SankeyJourneyProps> = ({
 
                 {activeLink && (
                         <div
-                            className={`absolute bg-white rounded-lg shadow-lg border border-slate-200 p-3 text-xs z-20 ${hasPinnedDetails ? 'pointer-events-auto w-[420px]' : 'pointer-events-none w-[260px]'}`}
+                            className={`absolute bg-white border-2 border-black p-3 text-xs z-20 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] ${hasPinnedDetails ? 'pointer-events-auto w-[420px]' : 'pointer-events-none w-[260px]'}`}
                             style={{
                                 left: `calc(${popupLeftPct}% + 42px)`,
                                 top: `${popupTopPct}%`,

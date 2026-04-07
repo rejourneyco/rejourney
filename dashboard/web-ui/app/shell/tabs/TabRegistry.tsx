@@ -7,6 +7,7 @@ import {
     Map,
     Smartphone,
     Globe,
+    Flame,
     AlertOctagon,
     Clock,
     Terminal,
@@ -26,6 +27,7 @@ import { ApiAnalytics } from "~/features/app/analytics/api/route";
 import { Devices } from "~/features/app/analytics/devices/route";
 import { Geo } from "~/features/app/analytics/geo/route";
 import { Journeys } from "~/features/app/analytics/journeys/route";
+import { Heatmaps } from "~/features/app/analytics/heatmaps/route";
 import { AlertEmails } from "~/features/app/alerts/email/route";
 import { CrashesList } from "~/features/app/stability/crashes/index/route";
 import { CrashDetail } from "~/features/app/stability/crashes/detail/route";
@@ -75,6 +77,7 @@ const routes: Array<{
         // Analytics routes
         { pattern: '/analytics/api', getInfo: () => ({ id: 'analytics-api', title: 'API Insights', icon: Activity }), Component: ApiAnalytics },
         { pattern: '/analytics/journeys', getInfo: () => ({ id: 'analytics-journeys', title: 'User Journeys', icon: Map }), Component: Journeys },
+        { pattern: '/analytics/heatmaps', getInfo: () => ({ id: 'analytics-heatmaps', title: 'Heatmaps', icon: Flame }), Component: Heatmaps },
         { pattern: '/analytics/devices', getInfo: () => ({ id: 'analytics-devices', title: 'Devices', icon: Smartphone }), Component: Devices },
         { pattern: '/analytics/geo', getInfo: () => ({ id: 'analytics-geo', title: 'Geographic', icon: Globe }), Component: Geo },
         // Stability routes

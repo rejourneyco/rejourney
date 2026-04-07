@@ -88,10 +88,10 @@ function getTrendState(delta?: KpiCardDelta): KpiTrendState {
 }
 
 function getTrendToneClass(trendState: KpiTrendState): string {
-    if (trendState === 'improving') return 'bg-emerald-100 text-emerald-700';
-    if (trendState === 'declining') return 'bg-rose-100 text-rose-700';
-    if (trendState === 'flat') return 'bg-slate-100 text-slate-700';
-    return 'bg-slate-100 text-slate-500';
+    if (trendState === 'improving') return 'bg-white border-2 border-black text-[#34d399] font-mono font-bold';
+    if (trendState === 'declining') return 'bg-white border-2 border-black text-[#ef4444] font-mono font-bold';
+    if (trendState === 'flat') return 'bg-white border-2 border-black text-slate-500 font-mono font-bold';
+    return 'bg-white border-2 border-black text-slate-500 font-mono font-bold';
 }
 
 function formatDelta(delta: KpiCardDelta): string {
@@ -298,14 +298,14 @@ export const KpiCardsGrid: React.FC<KpiCardsGridProps> = ({
     return (
         <section className={className}>
             {showControls && (
-                <div className="mb-4 rounded-xl border border-slate-100/80 bg-white/80 p-4 shadow-sm backdrop-blur-sm">
+                <div className="mb-4 border border-gray-200 bg-white p-4" style={{ boxShadow: '2px 2px 0 0 rgba(0,0,0,0.06)' }}>
                     <div className="flex flex-wrap items-center gap-3">
-                        <label className="inline-flex items-center gap-2 text-xs font-medium text-slate-500">
+                        <label className="inline-flex items-center gap-2 text-xs font-mono font-semibold text-gray-500 uppercase">
                             Trend
                             <select
                                 value={trendFilter}
                                 onChange={(event) => setTrendFilter(event.target.value as KpiTrendFilter)}
-                                className="rounded-md border border-slate-200/60 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 focus:border-slate-300 focus:outline-none focus:ring-1 focus:ring-slate-300"
+                                className="border-2 border-black bg-white px-2.5 py-1.5 text-xs font-mono font-semibold text-black focus:outline-none rounded-none"
                             >
                                 <option value="all">All</option>
                                 <option value="improving">Improving</option>
@@ -315,12 +315,12 @@ export const KpiCardsGrid: React.FC<KpiCardsGridProps> = ({
                             </select>
                         </label>
 
-                        <label className="inline-flex items-center gap-2 text-xs font-medium text-slate-500">
+                        <label className="inline-flex items-center gap-2 text-xs font-mono font-semibold text-gray-500 uppercase">
                             Sort
                             <select
                                 value={sortMode}
                                 onChange={(event) => setSortMode(event.target.value as KpiSortMode)}
-                                className="rounded-md border border-slate-200/60 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 focus:border-slate-300 focus:outline-none focus:ring-1 focus:ring-slate-300"
+                                className="border-2 border-black bg-white px-2.5 py-1.5 text-xs font-mono font-semibold text-black focus:outline-none rounded-none"
                             >
                                 <option value="default">Default</option>
                                 <option value="value-desc">Highest value</option>
@@ -332,19 +332,19 @@ export const KpiCardsGrid: React.FC<KpiCardsGridProps> = ({
 
                         <button
                             type="button"
-                            className="rounded-md border border-slate-200/60 px-3 py-1.5 text-xs font-medium text-slate-600 transition-colors hover:border-slate-300 hover:bg-slate-50 hover:text-slate-900 focus:outline-none focus:ring-1 focus:ring-slate-300"
+                            className="border-2 border-black bg-white px-3 py-1.5 text-xs font-mono font-semibold text-black uppercase tracking-wide hover:shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] transition-all"
                             onClick={() => setCustomizeOpen((open) => !open)}
                         >
                             {customizeOpen ? 'Hide Customize' : 'Customize'}
                         </button>
 
-                        <span className="ml-auto text-[11px] text-slate-400">
+                        <span className="ml-auto text-[11px] font-mono text-gray-500">
                             {filteredCards.length} cards visible
                         </span>
                     </div>
 
                     {customizeOpen && (
-                        <div className="mt-3 space-y-3 border-t border-slate-100 pt-3">
+                        <div className="mt-3 space-y-3 border-t-2 border-black pt-3">
                             <label className="flex items-center gap-2 text-xs font-medium text-slate-600">
                                 <input
                                     type="checkbox"
@@ -361,7 +361,7 @@ export const KpiCardsGrid: React.FC<KpiCardsGridProps> = ({
                                     return (
                                         <label
                                             key={card.id}
-                                            className={`inline-flex items-center gap-1.5 rounded-md border px-2 py-1.5 text-[11px] font-semibold transition-colors ${selected ? 'border-slate-300 bg-slate-50 shadow-sm text-slate-800' : 'border-slate-100 bg-white text-slate-500 hover:border-slate-200'}`}
+                                            className={`inline-flex items-center gap-1.5 border-2 px-2 py-1.5 text-[11px] font-mono font-semibold transition-all ${selected ? 'border-black bg-white text-black shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]' : 'border-gray-300 bg-white text-gray-500 hover:border-black'}`}
                                         >
                                             <input
                                                 type="checkbox"
@@ -377,7 +377,7 @@ export const KpiCardsGrid: React.FC<KpiCardsGridProps> = ({
 
                             <button
                                 type="button"
-                                className="rounded-md border border-slate-200/60 px-3 py-1.5 text-xs font-medium text-slate-600 transition-colors hover:border-slate-300 hover:bg-slate-50 hover:text-slate-900 focus:outline-none focus:ring-1 focus:ring-slate-300"
+                                className="border-2 border-black bg-white px-3 py-1.5 text-xs font-mono font-semibold text-black uppercase tracking-wide hover:shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] transition-all"
                                 onClick={resetPreferences}
                             >
                                 Reset
@@ -393,20 +393,20 @@ export const KpiCardsGrid: React.FC<KpiCardsGridProps> = ({
                     const deltaLabel = card.delta?.label ?? comparisonLabel;
 
                     return (
-                        <NeoCard key={card.id} className="bg-white !px-6 !pt-4 !pb-4">
+                        <NeoCard key={card.id} className="bg-white !px-6 !pt-4 !pb-4 hover:-translate-x-0.5 hover:-translate-y-0.5 hover:shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] transition-all" style={{ boxShadow: '2px 2px 0 0 rgba(0,0,0,0.08)', border: '1px solid #e5e7eb' }}>
                             <div className="flex items-start justify-between gap-2">
-                                <div className="text-xs font-medium text-slate-500">
+                                <div className="text-xs font-mono font-semibold uppercase tracking-wide text-slate-500">
                                     {card.label}
                                 </div>
                                 <InfoTooltip content={card.info} align="right" />
                             </div>
 
-                            <div className="mt-2 text-[1.75rem] font-semibold leading-tight text-slate-900">
+                            <div className="mt-2 text-[1.75rem] font-black font-mono leading-none text-black">
                                 {card.value}
                             </div>
 
                             <div className="mt-2 flex items-center gap-2">
-                                <span className={`rounded-md px-1.5 py-0.5 text-[11px] font-semibold ${getTrendToneClass(trendState)}`}>
+                                <span className={`px-2 py-0.5 text-xs ${getTrendToneClass(trendState)}`}>
                                     {card.delta ? formatDelta(card.delta) : 'N/A'}
                                 </span>
                                 <span className="text-[11px] text-slate-400">{deltaLabel}</span>

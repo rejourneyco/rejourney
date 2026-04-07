@@ -14,7 +14,6 @@ import { hardDeleteProject } from '../services/deletion.js';
 import {
     purgeSessionArtifacts,
     repairExpiredSessionArtifactsBatch,
-    sweepLegacySessionsStorage,
 } from '../services/sessionArtifactPurge.js';
 import { partitionBackedUpSessions } from '../services/sessionBackupGate.js';
 import {
@@ -40,8 +39,6 @@ type RetentionRunSummary = {
     repairFailed: number;
     skippedNotBackedUpCount: number;
     deletedProjectCount: number;
-    legacyDeletedObjectCount: number;
-    legacyDeletedBytes: number;
     deletedObjectCount: number;
     deletedBytes: number;
     heatmapCacheKeyCount: number;
@@ -268,8 +265,6 @@ async function runRetentionCycle(options: {
             repairFailed: 0,
             skippedNotBackedUpCount: 0,
             deletedProjectCount: 0,
-            legacyDeletedObjectCount: 0,
-            legacyDeletedBytes: 0,
             deletedObjectCount: 0,
             deletedBytes: 0,
             heatmapCacheKeyCount: 0,
@@ -307,8 +302,6 @@ async function runRetentionCycle(options: {
         repairFailed: 0,
         skippedNotBackedUpCount: 0,
         deletedProjectCount: 0,
-        legacyDeletedObjectCount: 0,
-        legacyDeletedBytes: 0,
         deletedObjectCount: 0,
         deletedBytes: 0,
         heatmapCacheKeyCount: 0,
@@ -346,19 +339,6 @@ async function runRetentionCycle(options: {
             if (!options.drainBacklog || !madeProgress || !maybeMoreWork) {
                 break;
             }
-        }
-
-        try {
-            const legacySweep = await sweepLegacySessionsStorage(
-                options.runId,
-                buildTriggerName(options.trigger, 'legacy_sessions_sweep'),
-            );
-            summary.legacyDeletedObjectCount = legacySweep.deletedObjectCount;
-            summary.legacyDeletedBytes = legacySweep.deletedBytes;
-            summary.deletedObjectCount += legacySweep.deletedObjectCount;
-            summary.deletedBytes += legacySweep.deletedBytes;
-        } catch (legacyErr) {
-            logger.warn({ err: legacyErr }, 'Legacy bare sessions/ sweep failed');
         }
 
         if (summary.expiredCount > 0 || summary.repairedCount > 0) {

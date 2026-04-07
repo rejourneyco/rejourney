@@ -656,17 +656,17 @@ export const BillingSettings: React.FC = () => {
                     {price > 0 && <span className="text-sm font-bold text-slate-500">/mo</span>}
                   </div>
 
-                  <div className="py-3 border-t border-slate-200">
+                  <div className="py-3 border-t-2 border-black">
                     <div className="flex items-center gap-2">
                       <div className="w-2 h-2 bg-slate-900" />
-                      <span className="text-sm font-semibold text-slate-900">
+                      <span className="text-sm font-bold font-mono uppercase text-black">
                         {plan.sessionLimit.toLocaleString()} sessions
                       </span>
                     </div>
                     <p className="text-[10px] font-bold text-slate-400 mt-1 ml-4">per month</p>
                     <div className="mt-3 flex items-center gap-2">
                       <div className="w-2 h-2 bg-slate-400" />
-                      <span className="text-sm font-semibold text-slate-900">
+                      <span className="text-sm font-bold font-mono uppercase text-black">
                         {plan.videoRetentionLabel} Video Retention
                       </span>
                     </div>
@@ -691,7 +691,7 @@ export const BillingSettings: React.FC = () => {
                       {isSavingPlan ? '...' : isDowngrade ? 'Downgrade' : 'Upgrade'}
                     </NeoButton>
                   ) : (
-                    <div className="py-3 text-center border-2 border-slate-200 bg-slate-100">
+                    <div className="py-3 text-center border-2 border-black bg-[#f4f4f5]">
                       <span className="text-xs font-bold text-slate-500">Billing admin required</span>
                     </div>
                   )}
@@ -772,10 +772,10 @@ export const BillingSettings: React.FC = () => {
               </div>
             ) : (
               <div className="text-center py-8">
-                <div className="w-16 h-16 bg-slate-100 border-2 border-slate-300 flex items-center justify-center mx-auto mb-4">
+                <div className="w-16 h-16 bg-[#f4f4f5] border-2 border-black flex items-center justify-center mx-auto mb-4">
                   <CreditCard className="w-8 h-8 text-slate-400" />
                 </div>
-                <h3 className="text-lg font-semibold text-slate-900 uppercase mb-2">No Payment Method</h3>
+                <h3 className="text-lg font-black font-mono uppercase tracking-wide text-black uppercase mb-2">No Payment Method</h3>
                 <p className="text-sm font-bold text-slate-500 mb-4 max-w-md mx-auto">
                   Add a payment method to upgrade your plan. Recording pauses at your session limit.
                 </p>
@@ -831,7 +831,7 @@ export const BillingSettings: React.FC = () => {
                 <div className="space-y-6">
                   {/* Plan Change Summary */}
                   <div className="flex items-center justify-center gap-4">
-                    <div className="text-center p-4 bg-slate-100 border-2 border-slate-300 flex-1">
+                    <div className="text-center p-4 bg-[#f4f4f5] border-2 border-black flex-1">
                       <div className="text-xs font-bold text-slate-500 uppercase mb-1">Current</div>
                       <div className="text-lg font-semibold">
                         {planChangeModal.preview.currentPlan.displayName}
@@ -858,7 +858,7 @@ export const BillingSettings: React.FC = () => {
                   </div>
 
                   {/* Session Limit Change */}
-                  <div className="p-4 bg-slate-50 border-2 border-slate-200">
+                  <div className="p-4 bg-[#f4f4f5] border-2 border-black">
                     <div className="flex justify-between items-center">
                       <span className="font-bold text-slate-600">Monthly Session Limit</span>
                       <div className="text-right">
@@ -875,7 +875,7 @@ export const BillingSettings: React.FC = () => {
                     </div>
                   </div>
 
-                  <div className="p-4 bg-slate-50 border-2 border-slate-200">
+                  <div className="p-4 bg-[#f4f4f5] border-2 border-black">
                     <div className="flex justify-between items-center">
                       <span className="font-bold text-slate-600">Video Retention</span>
                       <div className="text-right">
@@ -896,7 +896,7 @@ export const BillingSettings: React.FC = () => {
 
                   {/* Payment Method Warning */}
                   {planChangeModal.preview.requiresPaymentMethod && !planChangeModal.preview.hasPaymentMethod && (
-                    <div className="p-4 bg-slate-100 border-2 border-slate-300">
+                    <div className="p-4 bg-[#f4f4f5] border-2 border-black">
                       <div className="font-semibold text-slate-900 mb-2">Payment Method Required</div>
                       <p className="text-sm text-slate-600 mb-3">
                         You must add a payment method before subscribing to a paid plan.
@@ -917,7 +917,7 @@ export const BillingSettings: React.FC = () => {
                   {/* Warnings */}
                   {planChangeModal.preview.warnings.length > 0 &&
                     !(planChangeModal.preview.requiresPaymentMethod && !planChangeModal.preview.hasPaymentMethod) && (
-                      <div className="p-4 bg-slate-100 border-2 border-slate-300">
+                      <div className="p-4 bg-[#f4f4f5] border-2 border-black">
                         <div className="font-semibold text-slate-900 mb-2">Important</div>
                         <ul className="text-sm text-slate-600 space-y-1">
                           {planChangeModal.preview.warnings.map((warning, i) => (
@@ -929,12 +929,12 @@ export const BillingSettings: React.FC = () => {
 
                   {/* When change takes effect */}
                   {planChangeModal.preview.isImmediate ? (
-                    <div className="p-3 bg-slate-100 border-2 border-slate-300 text-sm">
+                    <div className="p-3 bg-[#f4f4f5] border-2 border-black text-sm">
                       <div className="font-semibold text-slate-900">Takes effect immediately</div>
                       <p className="text-slate-600 mt-1">Your new session limit will be active right away.</p>
                     </div>
                   ) : (
-                    <div className="p-3 bg-slate-100 border-2 border-slate-300 text-sm">
+                    <div className="p-3 bg-[#f4f4f5] border-2 border-black text-sm">
                       <div className="font-semibold text-slate-900">Scheduled for end of billing period</div>
                       <p className="text-slate-600 mt-1">
                         Your downgrade will take effect on {new Date(planChangeModal.preview.effectiveDate).toLocaleDateString()}.

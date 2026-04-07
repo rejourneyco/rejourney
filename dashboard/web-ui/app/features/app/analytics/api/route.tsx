@@ -994,7 +994,7 @@ export const ApiAnalytics: React.FC = () => {
                 )}
 
                 {!isLoading && selectedProject?.id && !hasData && (
-                    <div className="rounded-3xl border border-slate-100/80 bg-white ring-1 ring-slate-900/5 p-6 text-sm text-slate-600 shadow-sm">
+                    <div className="border border-gray-200 bg-white p-6 text-sm text-slate-600" style={{ boxShadow: '2px 2px 0 0 rgba(0,0,0,0.07)' }}>
                         No API telemetry available for this window.
                     </div>
                 )}
@@ -1007,9 +1007,9 @@ export const ApiAnalytics: React.FC = () => {
                             storageKey="analytics-api"
                         />
 
-                        <section className="rounded-3xl border border-slate-100/80 bg-white ring-1 ring-slate-900/5 p-5 shadow-sm">
+                        <section className="border border-gray-200 bg-white p-5" style={{ boxShadow: '2px 2px 0 0 rgba(0,0,0,0.07)' }}>
                             <div className="mb-4 flex items-center justify-between">
-                                <h2 className="text-lg font-semibold text-slate-900">Traffic vs Errors vs Latency</h2>
+                                <h2 className="text-lg font-black font-mono uppercase tracking-wide text-black">Traffic vs Errors vs Latency</h2>
                                 <Activity className="h-5 w-5 text-blue-600" />
                             </div>
                             {trendChartData.length > 0 ? (
@@ -1044,31 +1044,31 @@ export const ApiAnalytics: React.FC = () => {
                             )}
                         </section>
 
-                        <section className="rounded-3xl border border-slate-100/80 bg-white ring-1 ring-slate-900/5 p-5 shadow-sm">
+                        <section className="border border-gray-200 bg-white p-5" style={{ boxShadow: '2px 2px 0 0 rgba(0,0,0,0.07)' }}>
                             <div className="flex flex-col gap-4">
                                 <div className="flex items-center justify-between gap-4">
                                     <div className="flex items-center gap-3">
-                                        <div className="inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-slate-200 bg-slate-50 text-slate-600">
+                                        <div className="inline-flex h-10 w-10 items-center justify-center border-2 border-black bg-[#f4f4f5] text-slate-600">
                                             <Server className="h-5 w-5" />
                                         </div>
                                         <div>
-                                            <h2 className="text-lg font-semibold text-slate-900">Endpoint Hotspots</h2>
+                                            <h2 className="text-lg font-black font-mono uppercase tracking-wide text-black">Endpoint Hotspots</h2>
                                             <p className="text-xs text-slate-500">
                                                 {formatCompact(includedEndpoints.length)} shown
                                                 {excludedEndpointCount > 0 ? ` · ${formatCompact(excludedEndpointCount)} excluded` : ''}
                                             </p>
                                         </div>
                                     </div>
-                                    <span className="hidden rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-medium text-slate-600 sm:inline-flex">
+                                    <span className="hidden border-2 border-black bg-[#f4f4f5] text-black font-mono px-3 py-1.5 text-xs font-medium sm:inline-flex">
                                         {failureCodeSummary}
                                     </span>
                                 </div>
 
-                                <div className="rounded-2xl border border-slate-200 bg-slate-50/80 p-3">
+                                <div className="bg-[#f4f4f5] border border-gray-200 p-3">
                                     <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                                         <div className="flex flex-wrap items-center gap-2">
                                             <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">Failure codes</span>
-                                            <span className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-600 sm:hidden">
+                                            <span className="border-2 border-black bg-[#f4f4f5] text-black font-mono px-2.5 py-1 text-xs font-medium sm:hidden">
                                                 {failureCodeSummary}
                                             </span>
                                         </div>
@@ -1181,12 +1181,12 @@ export const ApiAnalytics: React.FC = () => {
                                 </div>
 
                                 <div className="grid grid-cols-1 gap-5 xl:grid-cols-2">
-                                    <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-                                        <div className="flex items-center justify-between border-b border-slate-100 px-4 py-4">
+                                    <div className="overflow-hidden border border-gray-200 bg-white" style={{ boxShadow: '2px 2px 0 0 rgba(0,0,0,0.07)' }}>
+                                        <div className="flex items-center justify-between border-b-2 border-black px-4 py-4">
                                             <div>
                                                 <div className="flex items-center gap-2">
                                                     <span className="h-2 w-2 rounded-full bg-amber-400" />
-                                                    <h3 className="text-sm font-semibold text-slate-900">Slowest Endpoints</h3>
+                                                    <h3 className="text-sm font-bold font-mono uppercase text-black">Slowest Endpoints</h3>
                                                 </div>
                                                 <p className="mt-1 text-xs text-slate-500">Peak {slowEndpointRows[0] ? `${slowEndpointRows[0].avgLatencyMs} ms` : 'N/A'}</p>
                                             </div>
@@ -1217,14 +1217,14 @@ export const ApiAnalytics: React.FC = () => {
 
                                         <div className="overflow-x-auto">
                                             <div className="min-w-[620px]">
-                                                <div className="grid grid-cols-[42px_minmax(0,1fr)_90px_90px_110px] gap-3 border-b border-slate-100 px-4 py-2 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+                                                <div className="grid grid-cols-[42px_minmax(0,1fr)_90px_90px_110px] gap-3 border-b-2 border-black px-4 py-2 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
                                                     <span>#</span>
                                                     <span>Endpoint</span>
                                                     <span className="text-right">Calls</span>
                                                     <span className="text-right">Fail</span>
                                                     <span className="text-right">Latency</span>
                                                 </div>
-                                                <div className="divide-y divide-slate-100">
+                                                <div className="divide-y divide-gray-200">
                                                     {paginatedSlowEndpoints.length === 0 ? (
                                                         <div className="px-4 py-10 text-sm text-slate-500">No latency data</div>
                                                     ) : (
@@ -1238,7 +1238,7 @@ export const ApiAnalytics: React.FC = () => {
                                                                     <div className="min-w-0">
                                                                         <div className="flex items-center gap-2">
                                                                             {method && (
-                                                                                <span className="inline-flex rounded-md border border-slate-200 bg-slate-50 px-2 py-0.5 text-[11px] font-semibold text-slate-600">
+                                                                                <span className="inline-flex border-2 border-black bg-[#f4f4f5] text-black font-mono px-2 py-0.5 text-[11px] font-semibold">
                                                                                     {method}
                                                                                 </span>
                                                                             )}
@@ -1246,7 +1246,7 @@ export const ApiAnalytics: React.FC = () => {
                                                                         </div>
                                                                         {isVisibleStatusCode(endpoint.mostCommonErrorCode) && (
                                                                             <div className="mt-1">
-                                                                                <span className={`inline-flex rounded-full border px-2 py-0.5 text-[11px] font-medium ${getStatusCodeBadgeClass(endpoint.mostCommonErrorCode)}`}>
+                                                                                <span className={`inline-flex border-2 border-black bg-[#f4f4f5] text-black font-mono px-2 py-0.5 text-[11px] font-medium ${getStatusCodeBadgeClass(endpoint.mostCommonErrorCode)}`}>
                                                                                     {formatStatusCodeLabel(endpoint.mostCommonErrorCode)}
                                                                                 </span>
                                                                             </div>
@@ -1268,12 +1268,12 @@ export const ApiAnalytics: React.FC = () => {
                                         </div>
                                     </div>
 
-                                    <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-                                        <div className="flex items-center justify-between border-b border-slate-100 px-4 py-4">
+                                    <div className="overflow-hidden border border-gray-200 bg-white" style={{ boxShadow: '2px 2px 0 0 rgba(0,0,0,0.07)' }}>
+                                        <div className="flex items-center justify-between border-b-2 border-black px-4 py-4">
                                             <div>
                                                 <div className="flex items-center gap-2">
                                                     <span className="h-2 w-2 rounded-full bg-rose-500" />
-                                                    <h3 className="text-sm font-semibold text-slate-900">Most Erroring Endpoints</h3>
+                                                    <h3 className="text-sm font-bold font-mono uppercase text-black">Most Erroring Endpoints</h3>
                                                 </div>
                                                 <p className="mt-1 text-xs text-slate-500">Top count {errorEndpointRows[0] ? formatCompact(errorEndpointRows[0].displayErrorCount) : 'N/A'}</p>
                                             </div>
@@ -1304,14 +1304,14 @@ export const ApiAnalytics: React.FC = () => {
 
                                         <div className="overflow-x-auto">
                                             <div className="min-w-[620px]">
-                                                <div className="grid grid-cols-[42px_minmax(0,1fr)_90px_100px_110px] gap-3 border-b border-slate-100 px-4 py-2 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+                                                <div className="grid grid-cols-[42px_minmax(0,1fr)_90px_100px_110px] gap-3 border-b-2 border-black px-4 py-2 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
                                                     <span>#</span>
                                                     <span>Endpoint</span>
                                                     <span className="text-right">Calls</span>
                                                     <span className="text-right">Top Code</span>
                                                     <span className="text-right">Errors</span>
                                                 </div>
-                                                <div className="divide-y divide-slate-100">
+                                                <div className="divide-y divide-gray-200">
                                                     {paginatedErrorEndpoints.length === 0 ? (
                                                         <div className="px-4 py-10 text-sm text-slate-500">
                                                             No failing endpoints
@@ -1327,7 +1327,7 @@ export const ApiAnalytics: React.FC = () => {
                                                                     <div className="min-w-0">
                                                                         <div className="flex items-center gap-2">
                                                                             {method && (
-                                                                                <span className="inline-flex rounded-md border border-slate-200 bg-slate-50 px-2 py-0.5 text-[11px] font-semibold text-slate-600">
+                                                                                <span className="inline-flex border-2 border-black bg-[#f4f4f5] text-black font-mono px-2 py-0.5 text-[11px] font-semibold">
                                                                                     {method}
                                                                                 </span>
                                                                             )}
@@ -1338,7 +1338,7 @@ export const ApiAnalytics: React.FC = () => {
                                                                     <div className="text-right text-sm text-slate-700">{formatCompact(endpoint.totalCalls)}</div>
                                                                     <div className="text-right">
                                                                         {isVisibleStatusCode(endpoint.mostCommonErrorCode) ? (
-                                                                            <span className={`inline-flex rounded-full border px-2 py-0.5 text-[11px] font-medium ${getStatusCodeBadgeClass(endpoint.mostCommonErrorCode)}`}>
+                                                                            <span className={`inline-flex border-2 border-black bg-[#f4f4f5] text-black font-mono px-2 py-0.5 text-[11px] font-medium ${getStatusCodeBadgeClass(endpoint.mostCommonErrorCode)}`}>
                                                                                 {formatStatusCodeLabel(endpoint.mostCommonErrorCode)}
                                                                             </span>
                                                                         ) : (
@@ -1361,8 +1361,8 @@ export const ApiAnalytics: React.FC = () => {
                         </section>
 
                         <section className="grid grid-cols-1 gap-6 xl:grid-cols-2">
-                            <div className="rounded-3xl border border-slate-100/80 bg-white ring-1 ring-slate-900/5 p-5 shadow-sm">
-                                <h2 className="mb-4 text-lg font-semibold text-slate-900">API Usage Intensity</h2>
+                            <div className="border border-gray-200 bg-white p-5" style={{ boxShadow: '2px 2px 0 0 rgba(0,0,0,0.07)' }}>
+                                <h2 className="mb-4 text-lg font-black font-mono uppercase tracking-wide text-black">API Usage Intensity</h2>
                                 {apiCallsChartData.length > 0 ? (
                                     <div className="h-[260px]">
                                         <ResponsiveContainer width="100%" height="100%">
@@ -1383,8 +1383,8 @@ export const ApiAnalytics: React.FC = () => {
                                 )}
                             </div>
 
-                            <div className="rounded-3xl border border-slate-100/80 bg-white ring-1 ring-slate-900/5 p-5 shadow-sm">
-                                <h2 className="mb-2 text-lg font-semibold text-slate-900">Network Correlation</h2>
+                            <div className="border border-gray-200 bg-white p-5" style={{ boxShadow: '2px 2px 0 0 rgba(0,0,0,0.07)' }}>
+                                <h2 className="mb-2 text-lg font-black font-mono uppercase tracking-wide text-black">Network Correlation</h2>
                                 {networkCorrelationData.length > 0 ? (
                                     <div className="h-[300px]">
                                         <ResponsiveContainer width="100%" height="100%">
@@ -1399,7 +1399,7 @@ export const ApiAnalytics: React.FC = () => {
                                                         if (!active || !payload?.length) return null;
                                                         const point = payload[0].payload;
                                                         return (
-                                                            <div className="rounded-xl border border-slate-100/80 bg-white px-3 py-2 text-xs shadow-sm ring-1 ring-slate-900/5">
+                                                            <div className="border border-gray-200 bg-white px-3 py-2 text-xs text-slate-700" style={{ boxShadow: '2px 2px 0 0 rgba(0,0,0,0.07)' }}>
                                                                 <div className="font-semibold text-slate-900">{point.network}</div>
                                                                 <div className="mt-1 text-slate-600">Latency: {point.avgLatencyMs} ms</div>
                                                                 <div className="text-slate-600">Fail rate: {point.apiErrorRate.toFixed(2)}%</div>
@@ -1419,9 +1419,9 @@ export const ApiAnalytics: React.FC = () => {
                         </section>
 
                         <section className="grid grid-cols-1 gap-6 xl:grid-cols-3">
-                            <div className="rounded-3xl border border-slate-100/80 bg-white ring-1 ring-slate-900/5 p-5 shadow-sm">
+                            <div className="border border-gray-200 bg-white p-5" style={{ boxShadow: '2px 2px 0 0 rgba(0,0,0,0.07)' }}>
                                 <div className="mb-4 flex items-center justify-between">
-                                    <h2 className="text-lg font-semibold text-slate-900">Regional API Latency</h2>
+                                    <h2 className="text-lg font-black font-mono uppercase tracking-wide text-black">Regional API Latency</h2>
                                     <Globe className="h-5 w-5 text-blue-600" />
                                 </div>
                                 {regionalLatencyChartData.length > 0 ? (
@@ -1441,8 +1441,8 @@ export const ApiAnalytics: React.FC = () => {
                                 )}
                             </div>
 
-                            <div className="rounded-3xl border border-slate-100/80 bg-white ring-1 ring-slate-900/5 p-5 shadow-sm">
-                                <h2 className="mb-4 text-lg font-semibold text-slate-900">Latency by Country</h2>
+                            <div className="border border-gray-200 bg-white p-5" style={{ boxShadow: '2px 2px 0 0 rgba(0,0,0,0.07)' }}>
+                                <h2 className="mb-4 text-lg font-black font-mono uppercase tracking-wide text-black">Latency by Country</h2>
                                 {countryLatencyChartData.length > 0 ? (
                                     <div className="h-[280px]">
                                         <ResponsiveContainer width="100%" height="100%">
@@ -1462,8 +1462,8 @@ export const ApiAnalytics: React.FC = () => {
                                 )}
                             </div>
 
-                            <div className="rounded-3xl border border-slate-100/80 bg-white ring-1 ring-slate-900/5 p-5 shadow-sm">
-                                <h2 className="mb-4 text-lg font-semibold text-slate-900">Network Reliability Snapshot</h2>
+                            <div className="border border-gray-200 bg-white p-5" style={{ boxShadow: '2px 2px 0 0 rgba(0,0,0,0.07)' }}>
+                                <h2 className="mb-4 text-lg font-black font-mono uppercase tracking-wide text-black">Network Reliability Snapshot</h2>
                                 {networkReliabilityChartData.length > 0 ? (
                                     <div className="h-[280px]">
                                         <ResponsiveContainer width="100%" height="100%">
@@ -1484,10 +1484,10 @@ export const ApiAnalytics: React.FC = () => {
                             </div>
                         </section>
 
-                        <section className="rounded-3xl border border-slate-100/80 bg-white ring-1 ring-slate-900/5 p-5 shadow-sm">
+                        <section className="border border-gray-200 bg-white p-5" style={{ boxShadow: '2px 2px 0 0 rgba(0,0,0,0.07)' }}>
                             <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                                 <div>
-                                    <h2 className="text-lg font-semibold text-slate-900">Endpoint Activity</h2>
+                                    <h2 className="text-lg font-black font-mono uppercase tracking-wide text-black">Endpoint Activity</h2>
                                     <p className="mt-1 max-w-2xl text-sm text-slate-500">
                                         Sorted by call volume. Failure code rules and endpoint exclusions apply here.
                                     </p>
@@ -1512,9 +1512,9 @@ export const ApiAnalytics: React.FC = () => {
                                 </div>
                             </div>
 
-                            <div className="overflow-x-auto rounded-2xl border border-slate-100/80 ring-1 ring-slate-900/5 shadow-sm">
+                            <div className="overflow-x-auto border border-gray-200" style={{ boxShadow: '2px 2px 0 0 rgba(0,0,0,0.07)' }}>
                                 <table className="w-full min-w-[1120px] text-left text-sm">
-                                    <thead className="sticky top-0 bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
+                                    <thead className="sticky top-0 bg-[#f4f4f5] text-black font-mono text-xs uppercase tracking-wide">
                                         <tr>
                                             <th
                                                 className="cursor-pointer px-4 py-3 pr-4 hover:text-slate-900"
@@ -1593,7 +1593,7 @@ export const ApiAnalytics: React.FC = () => {
                                             </th>
                                         </tr>
                                     </thead>
-                                    <tbody className="divide-y divide-slate-100">
+                                    <tbody className="divide-y divide-gray-200">
                                         {paginatedEndpoints.length === 0 ? (
                                             <tr>
                                                 <td colSpan={7} className="px-4 py-8 text-center text-sm text-slate-500">
@@ -1602,7 +1602,7 @@ export const ApiAnalytics: React.FC = () => {
                                             </tr>
                                         ) : (
                                             paginatedEndpoints.map((endpoint) => (
-                                                <tr key={endpoint.endpoint} className="transition-colors hover:bg-slate-50">
+                                                <tr key={endpoint.endpoint} className="transition-colors hover:bg-[#f4f4f5]">
                                                     <td className="px-4 py-3 pr-4 font-mono text-[12px] font-semibold text-slate-900">{endpoint.endpoint}</td>
                                                     <td className="px-4 py-3 pr-4 text-right text-slate-700">{formatCompact(endpoint.totalCalls)}</td>
                                                     <td className="px-4 py-3 pr-4 text-right text-slate-700">{formatCompact(endpoint.filteredErrorCount)}</td>
@@ -1610,7 +1610,7 @@ export const ApiAnalytics: React.FC = () => {
                                                     <td className={`px-4 py-3 pr-4 text-right font-semibold ${getLatencyToneClass(endpoint.avgLatencyMs)}`}>{endpoint.avgLatencyMs} ms</td>
                                                     <td className="px-4 py-3 pr-4 text-right">
                                                         {isVisibleStatusCode(endpoint.mostCommonErrorCode) ? (
-                                                            <span className={`inline-flex rounded-full border px-2 py-0.5 text-xs font-semibold ${getStatusCodeBadgeClass(endpoint.mostCommonErrorCode)}`}>
+                                                            <span className={`inline-flex border-2 border-black bg-[#f4f4f5] text-black font-mono px-2 py-0.5 text-xs font-semibold ${getStatusCodeBadgeClass(endpoint.mostCommonErrorCode)}`}>
                                                                 {formatStatusCodeLabel(endpoint.mostCommonErrorCode)}
                                                             </span>
                                                         ) : (
@@ -1618,7 +1618,7 @@ export const ApiAnalytics: React.FC = () => {
                                                         )}
                                                     </td>
                                                     <td className="px-4 py-3 pr-4 text-right">
-                                                        <span className={`inline-flex rounded-full border px-2 py-0.5 text-xs font-semibold ${getRiskBadgeClass(endpoint.riskScore)}`}>
+                                                        <span className={`inline-flex border-2 border-black px-2 py-0.5 text-xs font-semibold ${getRiskBadgeClass(endpoint.riskScore)}`}>
                                                             {endpoint.riskScore.toFixed(1)}
                                                         </span>
                                                     </td>

@@ -438,7 +438,7 @@ export const Devices: React.FC = () => {
                 )}
 
                 {!isLoading && selectedProject?.id && !hasData && (
-                    <div className="rounded-3xl border border-slate-100/80 bg-white ring-1 ring-slate-900/5 p-6 text-sm text-slate-600 shadow-sm">
+                    <div className="border border-gray-200 bg-white p-6 text-sm text-slate-600" style={{ boxShadow: '2px 2px 0 0 rgba(0,0,0,0.07)' }}>
                         No device telemetry available for this range.
                     </div>
                 )}
@@ -458,9 +458,9 @@ export const Devices: React.FC = () => {
                         />
 
                         <section className="grid grid-cols-1 gap-6 xl:grid-cols-2">
-                            <div className="rounded-3xl border border-slate-100/80 bg-white ring-1 ring-slate-900/5 p-5 shadow-sm">
+                            <div className="border border-gray-200 bg-white p-5" style={{ boxShadow: '2px 2px 0 0 rgba(0,0,0,0.07)' }}>
                                 <div className="mb-4 flex items-center justify-between">
-                                    <h2 className="text-lg font-semibold text-slate-900">Top Devices</h2>
+                                    <h2 className="text-lg font-black font-mono uppercase tracking-wide text-black">Top Devices</h2>
                                     <Smartphone className="h-5 w-5 text-indigo-600" />
                                 </div>
                                 <div className="h-[300px]">
@@ -476,9 +476,9 @@ export const Devices: React.FC = () => {
                                 </div>
                             </div>
 
-                            <div className="rounded-3xl border border-slate-100/80 bg-white ring-1 ring-slate-900/5 p-5 shadow-sm">
+                            <div className="border border-gray-200 bg-white p-5" style={{ boxShadow: '2px 2px 0 0 rgba(0,0,0,0.07)' }}>
                                 <div className="mb-4 flex items-center justify-between">
-                                    <h2 className="text-lg font-semibold text-slate-900">Release Risk Curve</h2>
+                                    <h2 className="text-lg font-black font-mono uppercase tracking-wide text-black">Release Risk Curve</h2>
                                     <Layers className="h-5 w-5 text-indigo-600" />
                                 </div>
                                 <div className="h-[300px]">
@@ -500,14 +500,14 @@ export const Devices: React.FC = () => {
                         </section>
 
                         <section className="grid grid-cols-1 gap-6 xl:grid-cols-3">
-                            <div className="rounded-3xl border border-slate-100/80 bg-white ring-1 ring-slate-900/5 p-5 shadow-sm xl:col-span-2">
+                            <div className="border border-gray-200 bg-white p-5 xl:col-span-2" style={{ boxShadow: '2px 2px 0 0 rgba(0,0,0,0.07)' }}>
                                 <div className="mb-4 flex items-center justify-between">
-                                    <h2 className="text-lg font-semibold text-slate-900">Device Risk Leaderboard</h2>
+                                    <h2 className="text-lg font-black font-mono uppercase tracking-wide text-black">Device Risk Leaderboard</h2>
                                     <Smartphone className="h-5 w-5 text-indigo-600" />
                                 </div>
                                 <div className="overflow-x-auto">
                                     <table className="w-full min-w-[960px] text-left text-sm">
-                                        <thead className="text-xs uppercase tracking-wide text-slate-500">
+                                        <thead className="text-xs font-mono uppercase tracking-wide text-gray-500">
                                             <tr>
                                                 <th className="pb-2 pr-4">Device Model</th>
                                                 <th className="pb-2 pr-4 text-right">Sessions</th>
@@ -519,9 +519,9 @@ export const Devices: React.FC = () => {
                                                 <th className="pb-2 pr-4 text-right">Impact</th>
                                             </tr>
                                         </thead>
-                                        <tbody className="divide-y divide-slate-100">
+                                        <tbody className="divide-y divide-gray-200">
                                             {deviceRiskRows.slice(0, 12).map((row) => (
-                                                <tr key={row.model} className="hover:bg-slate-50">
+                                                <tr key={row.model} className="hover:bg-[#f4f4f5]">
                                                     <td className="py-3 pr-4 font-medium text-slate-900">{row.model}</td>
                                                     <td className="py-3 pr-4 text-right text-slate-700">{formatCompact(row.count)}</td>
                                                     <td className="py-3 pr-4 text-right text-slate-700">{row.crashes}</td>
@@ -539,14 +539,14 @@ export const Devices: React.FC = () => {
                                 </div>
                             </div>
 
-                            <div className="space-y-4 rounded-3xl border border-slate-100/80 bg-white ring-1 ring-slate-900/5 p-5 shadow-sm">
+                            <div className="space-y-4 border border-gray-200 bg-white p-5" style={{ boxShadow: '2px 2px 0 0 rgba(0,0,0,0.07)' }}>
                                 <div className="flex items-center justify-between">
-                                    <h2 className="text-lg font-semibold text-slate-900">Coverage Snapshot</h2>
+                                    <h2 className="text-lg font-black font-mono uppercase tracking-wide text-black">Coverage Snapshot</h2>
                                     <Layers className="h-5 w-5 text-indigo-600" />
                                 </div>
 
-                                <div className="rounded-2xl border border-slate-100/80 p-4">
-                                    <div className="text-xs uppercase tracking-wide text-slate-500">Coverage profile</div>
+                                <div className="bg-[#f4f4f5] border border-gray-200 p-4">
+                                    <div className="text-xs font-mono uppercase tracking-wide text-gray-500">Coverage profile</div>
                                     <div className="mt-2 space-y-1 text-sm text-slate-700">
                                         <div className="flex items-center justify-between">
                                             <span>Total sessions</span>
@@ -565,8 +565,8 @@ export const Devices: React.FC = () => {
                                     </div>
                                 </div>
 
-                                <div className="rounded-2xl border border-slate-100/80 p-4">
-                                    <div className="text-xs uppercase tracking-wide text-slate-500">Most volatile OS cohort</div>
+                                <div className="bg-[#f4f4f5] border border-gray-200 p-4">
+                                    <div className="text-xs font-mono uppercase tracking-wide text-gray-500">Most volatile OS cohort</div>
                                     {topOs ? (
                                         <div className="mt-2 space-y-1 text-sm text-slate-700">
                                             <div className="flex items-center justify-between">
@@ -582,8 +582,8 @@ export const Devices: React.FC = () => {
                                     )}
                                 </div>
 
-                                <div className="rounded-2xl border border-slate-100/80 p-4">
-                                    <div className="text-xs uppercase tracking-wide text-slate-500">Highest-risk device model</div>
+                                <div className="bg-[#f4f4f5] border border-gray-200 p-4">
+                                    <div className="text-xs font-mono uppercase tracking-wide text-gray-500">Highest-risk device model</div>
                                     {topDevice ? (
                                         <div className="mt-2 space-y-1 text-sm text-slate-700">
                                             <div className="font-medium text-slate-900">{topDevice.model}</div>
@@ -602,14 +602,14 @@ export const Devices: React.FC = () => {
                         </section>
 
                         <section className="grid grid-cols-1 gap-6 xl:grid-cols-2">
-                            <div className="rounded-3xl border border-slate-100/80 bg-white ring-1 ring-slate-900/5 p-5 shadow-sm">
+                            <div className="border border-gray-200 bg-white p-5" style={{ boxShadow: '2px 2px 0 0 rgba(0,0,0,0.07)' }}>
                                 <div className="mb-4 flex items-center justify-between">
-                                    <h2 className="text-lg font-semibold text-slate-900">Release Reliability Ranking</h2>
+                                    <h2 className="text-lg font-black font-mono uppercase tracking-wide text-black">Release Reliability Ranking</h2>
                                     <Layers className="h-5 w-5 text-indigo-600" />
                                 </div>
                                 <div className="overflow-x-auto">
                                     <table className="w-full min-w-[720px] text-left text-sm">
-                                        <thead className="text-xs uppercase tracking-wide text-slate-500">
+                                        <thead className="text-xs font-mono uppercase tracking-wide text-gray-500">
                                             <tr>
                                                 <th className="pb-2 pr-4">Version</th>
                                                 <th className="pb-2 pr-4 text-right">Sessions</th>
@@ -618,9 +618,9 @@ export const Devices: React.FC = () => {
                                                 <th className="pb-2 pr-4 text-center">Risk Band</th>
                                             </tr>
                                         </thead>
-                                        <tbody className="divide-y divide-slate-100">
+                                        <tbody className="divide-y divide-gray-200">
                                             {releaseRiskRows.map((row) => (
-                                                <tr key={row.version} className="hover:bg-slate-50">
+                                                <tr key={row.version} className="hover:bg-[#f4f4f5]">
                                                     <td className="py-3 pr-4 font-medium text-slate-900">v{row.version}</td>
                                                     <td className="py-3 pr-4 text-right text-slate-700">{formatCompact(row.count)}</td>
                                                     <td className={`py-3 pr-4 text-right font-semibold ${row.failureRate >= 25 ? 'text-rose-700' : row.failureRate >= 15 ? 'text-amber-700' : 'text-emerald-700'}`}>
@@ -646,14 +646,14 @@ export const Devices: React.FC = () => {
                                 </div>
                             </div>
 
-                            <div className="rounded-3xl border border-slate-100/80 bg-white ring-1 ring-slate-900/5 p-5 shadow-sm">
+                            <div className="border border-gray-200 bg-white p-5" style={{ boxShadow: '2px 2px 0 0 rgba(0,0,0,0.07)' }}>
                                 <div className="mb-4 flex items-center justify-between">
-                                    <h2 className="text-lg font-semibold text-slate-900">OS Cohort Risk</h2>
+                                    <h2 className="text-lg font-black font-mono uppercase tracking-wide text-black">OS Cohort Risk</h2>
                                     <Cpu className="h-5 w-5 text-amber-600" />
                                 </div>
                                 <div className="overflow-x-auto">
                                     <table className="w-full min-w-[640px] text-left text-sm">
-                                        <thead className="text-xs uppercase tracking-wide text-slate-500">
+                                        <thead className="text-xs font-mono uppercase tracking-wide text-gray-500">
                                             <tr>
                                                 <th className="pb-2 pr-4">OS Version</th>
                                                 <th className="pb-2 pr-4 text-right">Sessions</th>
@@ -661,9 +661,9 @@ export const Devices: React.FC = () => {
                                                 <th className="pb-2 pr-4 text-right">Impact</th>
                                             </tr>
                                         </thead>
-                                        <tbody className="divide-y divide-slate-100">
+                                        <tbody className="divide-y divide-gray-200">
                                             {osRiskRows.map((row) => (
-                                                <tr key={row.version} className="hover:bg-slate-50">
+                                                <tr key={row.version} className="hover:bg-[#f4f4f5]">
                                                     <td className="py-3 pr-4 font-medium text-slate-900">{row.version}</td>
                                                     <td className="py-3 pr-4 text-right text-slate-700">{formatCompact(row.count)}</td>
                                                     <td className={`py-3 pr-4 text-right font-semibold ${row.incidentRatePer100 >= 18 ? 'text-rose-700' : row.incidentRatePer100 >= 10 ? 'text-amber-700' : 'text-slate-700'}`}>
@@ -679,14 +679,14 @@ export const Devices: React.FC = () => {
                         </section>
 
                         <section className="grid grid-cols-1 gap-6 xl:grid-cols-3">
-                            <div className="rounded-3xl border border-slate-100/80 bg-white ring-1 ring-slate-900/5 p-5 shadow-sm">
+                            <div className="border border-gray-200 bg-white p-5" style={{ boxShadow: '2px 2px 0 0 rgba(0,0,0,0.07)' }}>
                                 <div className="mb-4 flex items-center justify-between">
-                                    <h2 className="text-lg font-semibold text-slate-900">Platform Mix</h2>
+                                    <h2 className="text-lg font-black font-mono uppercase tracking-wide text-black">Platform Mix</h2>
                                     <Smartphone className="h-5 w-5 text-blue-600" />
                                 </div>
                                 <div className="space-y-3">
                                     {Object.entries(data.platforms).map(([platform, count]) => (
-                                        <div key={platform} className="rounded-2xl border border-slate-100/80 p-4">
+                                        <div key={platform} className="bg-[#f4f4f5] border border-gray-200 p-4">
                                             <div className="flex items-center justify-between">
                                                 <div className="flex items-center gap-2 text-sm font-medium uppercase text-slate-900">
                                                     <span
@@ -711,15 +711,15 @@ export const Devices: React.FC = () => {
                                 </div>
                             </div>
 
-                            <div className="rounded-3xl border border-slate-100/80 bg-white ring-1 ring-slate-900/5 p-5 shadow-sm xl:col-span-2">
+                            <div className="border border-gray-200 bg-white p-5 xl:col-span-2" style={{ boxShadow: '2px 2px 0 0 rgba(0,0,0,0.07)' }}>
                                 <div className="mb-4 flex items-center justify-between">
-                                    <h2 className="text-lg font-semibold text-slate-900">Network Reliability by Device Context</h2>
+                                    <h2 className="text-lg font-black font-mono uppercase tracking-wide text-black">Network Reliability by Device Context</h2>
                                     <Clock className="h-5 w-5 text-indigo-600" />
                                 </div>
                                 {(deepMetrics?.networkBreakdown?.length || 0) > 0 ? (
                                     <div className="overflow-x-auto">
                                         <table className="w-full min-w-[760px] text-left text-sm">
-                                            <thead className="text-xs uppercase tracking-wide text-slate-500">
+                                            <thead className="text-xs font-mono uppercase tracking-wide text-gray-500">
                                                 <tr>
                                                     <th className="pb-2 pr-4">Network</th>
                                                     <th className="pb-2 pr-4 text-right">Sessions</th>
@@ -729,12 +729,12 @@ export const Devices: React.FC = () => {
                                                     <th className="pb-2 pr-4 text-center">Status</th>
                                                 </tr>
                                             </thead>
-                                            <tbody className="divide-y divide-slate-100">
+                                            <tbody className="divide-y divide-gray-200">
                                                 {deepMetrics?.networkBreakdown?.slice(0, 8).map((network) => {
                                                     const critical = network.apiErrorRate > 3 || network.avgLatencyMs > 800;
                                                     const watch = !critical && (network.apiErrorRate > 1.5 || network.avgLatencyMs > 450);
                                                     return (
-                                                        <tr key={network.networkType} className="hover:bg-slate-50">
+                                                        <tr key={network.networkType} className="hover:bg-[#f4f4f5]">
                                                             <td className="py-3 pr-4 font-medium text-slate-900">{network.networkType.toUpperCase()}</td>
                                                             <td className="py-3 pr-4 text-right text-slate-700">{formatCompact(network.sessions)}</td>
                                                             <td className="py-3 pr-4 text-right text-slate-700">{formatCompact(network.apiCalls)}</td>
@@ -762,14 +762,14 @@ export const Devices: React.FC = () => {
                         </section>
 
                         {matrixHotspots.length > 0 && (
-                            <section className="rounded-3xl border border-slate-100/80 bg-white ring-1 ring-slate-900/5 p-5 shadow-sm">
+                            <section className="border border-gray-200 bg-white p-5" style={{ boxShadow: '2px 2px 0 0 rgba(0,0,0,0.07)' }}>
                                 <div className="mb-4 flex items-center justify-between">
-                                    <h2 className="text-lg font-semibold text-slate-900">Device-Version Compatibility Hotspots</h2>
+                                    <h2 className="text-lg font-black font-mono uppercase tracking-wide text-black">Device-Version Compatibility Hotspots</h2>
                                     <AlertTriangle className="h-5 w-5 text-amber-600" />
                                 </div>
                                 <div className="overflow-x-auto">
                                     <table className="w-full min-w-[860px] text-left text-sm">
-                                        <thead className="text-xs uppercase tracking-wide text-slate-500">
+                                        <thead className="text-xs font-mono uppercase tracking-wide text-gray-500">
                                             <tr>
                                                 <th className="pb-2 pr-4">Device</th>
                                                 <th className="pb-2 pr-4">Version</th>
@@ -779,9 +779,9 @@ export const Devices: React.FC = () => {
                                                 <th className="pb-2 pr-4 text-right">Impact</th>
                                             </tr>
                                         </thead>
-                                        <tbody className="divide-y divide-slate-100">
+                                        <tbody className="divide-y divide-gray-200">
                                             {matrixHotspots.map((cell) => (
-                                                <tr key={`${cell.device}-${cell.version}`} className="hover:bg-slate-50">
+                                                <tr key={`${cell.device}-${cell.version}`} className="hover:bg-[#f4f4f5]">
                                                     <td className="py-3 pr-4 font-medium text-slate-900">{cell.device}</td>
                                                     <td className="py-3 pr-4 text-slate-700">v{cell.version}</td>
                                                     <td className="py-3 pr-4 text-right text-slate-700">{formatCompact(cell.sessions)}</td>

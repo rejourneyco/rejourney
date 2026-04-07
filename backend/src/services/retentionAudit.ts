@@ -1,7 +1,7 @@
 import { eq } from 'drizzle-orm';
 import { db, retentionDeletionLog } from '../db/client.js';
 
-export type RetentionDeletionScope = 'session_purge' | 'legacy_sessions_sweep';
+export type RetentionDeletionScope = 'session_purge';
 export type RetentionDeletionStatus = 'started' | 'completed' | 'failed' | 'skipped';
 
 export interface RetentionAuditStartParams {

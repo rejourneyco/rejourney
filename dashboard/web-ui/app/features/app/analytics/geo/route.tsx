@@ -345,7 +345,7 @@ export const Geo: React.FC = () => {
                                     offset={14}
                                     className="geo-hover-popup"
                                 >
-                                    <div className="rounded-lg border border-slate-200 bg-white/95 px-2.5 py-2 text-[11px] text-slate-700 shadow-lg backdrop-blur-[2px]">
+                                    <div className="border-2 border-black bg-white px-2.5 py-2 text-[11px] text-slate-700 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] backdrop-blur-[2px]">
                                         <div className="mb-0.5 font-semibold text-slate-900">
                                             {hoveredMarker.city}, {hoveredMarker.country}
                                         </div>

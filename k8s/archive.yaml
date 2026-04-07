@@ -622,7 +622,7 @@ data:
             ELSE 'f'
           END AS endpoint_resolved
         FROM recording_artifacts ra
-        LEFT JOIN storage_endpoints se ON se.id = ra.endpoint_id
+        LEFT JOIN storage_endpoints se ON se.id::text = ra.endpoint_id
         WHERE ra.session_id = ${shellQuote(sessionId)}
           AND ra.status = 'ready'
         ORDER BY

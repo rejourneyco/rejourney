@@ -27,12 +27,12 @@ export const StatCard: React.FC<StatCardProps> = ({
     return (
         <Card className="h-full">
             <div className="flex items-start justify-between mb-4">
-                <div className="font-bold text-slate-500 text-xs font-mono uppercase tracking-wider">{title}</div>
-                {icon && <div className="text-slate-400">{icon}</div>}
+                <div className="text-xs font-mono font-semibold uppercase tracking-wide text-slate-500">{title}</div>
+                {icon && <div className="border-2 border-black bg-white p-1">{icon}</div>}
             </div>
 
             <div className="flex items-end gap-3 mb-2">
-                <div className="text-4xl font-black text-slate-900 font-mono tracking-tighter">
+                <div className="text-[1.75rem] font-black font-mono leading-none text-black">
                     {value}
                 </div>
                 {subValue && (

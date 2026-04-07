@@ -24,7 +24,7 @@ describe('sessionBackupGate', () => {
         vi.clearAllMocks();
     });
 
-    it('returns only sessions that satisfy backup gate SQL semantics', async () => {
+    it('returns only session_ids returned by the DB (stricter backup vs artifact count match)', async () => {
         mocks.pool.query.mockResolvedValue({
             rows: [{ session_id: 'session_without_artifacts' }, { session_id: 'session_with_artifacts_and_backup' }],
         });
@@ -39,6 +39,19 @@ describe('sessionBackupGate', () => {
             'session_without_artifacts',
             'session_with_artifacts_and_backup',
         ]));
+    });
+
+    it('requires both artifact_count and planned_artifact_count to cover lateral artifact_rows in SQL', async () => {
+        mocks.pool.query.mockResolvedValue({ rows: [] });
+
+        await getBackedUpSessionIds(['session_1']);
+
+        expect(mocks.pool.query).toHaveBeenCalledTimes(1);
+        const sql = String(mocks.pool.query.mock.calls[0][0]);
+        expect(sql).toContain('bl.artifact_count >= COALESCE(artifact_stats.artifact_rows, 0)');
+        expect(sql).toContain('bl.planned_artifact_count >= COALESCE(artifact_stats.artifact_rows, 0)');
+        expect(sql).toContain('FROM session_backup_log bl');
+        expect(sql).not.toMatch(/COALESCE\(artifact_stats\.artifact_rows, 0\) = 0/);
     });
 
     it('fails closed when session_backup_log table does not exist', async () => {
