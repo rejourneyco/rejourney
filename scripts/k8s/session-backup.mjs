@@ -41,6 +41,7 @@
  */
 
 import { spawn } from 'node:child_process';
+import crypto from 'node:crypto';
 import { mkdtemp, readFile, rm, stat, unlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -56,6 +57,7 @@ const config = {
   sourceBucket: process.env.S3_BUCKET || '',
   sourceAccessKeyId: process.env.S3_SRC_ACCESS_KEY_ID || process.env.S3_ACCESS_KEY_ID || '',
   sourceSecretAccessKey: process.env.S3_SRC_SECRET_ACCESS_KEY || process.env.S3_SECRET_ACCESS_KEY || '',
+  storageEncryptionKey: process.env.STORAGE_ENCRYPTION_KEY || '',
   r2Endpoint: process.env.R2_ENDPOINT || '',
   r2Bucket: process.env.R2_BUCKET || '',
   r2AccessKeyId: process.env.AWS_ACCESS_KEY_ID || '',
@@ -103,6 +105,46 @@ const RUN_LOCK_NAME = 'global';
 
 const ARTIFACT_CONTENT_TYPE = 'application/gzip';
 const MANIFEST_CONTENT_TYPE = 'application/json';
+
+const endpointCredentialCache = new Map();
+
+function decryptKeyRef(value) {
+  if (!value) return '';
+  const parts = String(value).split(':');
+  if (parts.length !== 3) return String(value);
+  if (!config.storageEncryptionKey || config.storageEncryptionKey.length !== 64) {
+    throw new Error('STORAGE_ENCRYPTION_KEY is required to decrypt endpoint key_ref');
+  }
+  const [ivB64, tagB64, cipherB64] = parts;
+  const iv = Buffer.from(ivB64, 'base64');
+  const tag = Buffer.from(tagB64, 'base64');
+  const encrypted = Buffer.from(cipherB64, 'base64');
+  const key = Buffer.from(config.storageEncryptionKey, 'hex');
+  const decipher = crypto.createDecipheriv('aes-256-gcm', key, iv);
+  decipher.setAuthTag(tag);
+  const plain = Buffer.concat([decipher.update(encrypted), decipher.final()]);
+  return plain.toString('utf8');
+}
+
+function buildSourceAwsEnv(artifact) {
+  if (!artifact.endpointId) {
+    return SRC_AWS_ENV;
+  }
+
+  const cached = endpointCredentialCache.get(artifact.endpointId);
+  if (cached) return cached;
+
+  if (!artifact.accessKeyId || !artifact.keyRef) {
+    throw new Error(`missing credentials for endpoint ${artifact.endpointId}`);
+  }
+
+  const creds = {
+    AWS_ACCESS_KEY_ID: artifact.accessKeyId,
+    AWS_SECRET_ACCESS_KEY: decryptKeyRef(artifact.keyRef),
+  };
+  endpointCredentialCache.set(artifact.endpointId, creds);
+  return creds;
+}
 
 // =============================================================================
 // Utility Helpers
@@ -293,8 +335,10 @@ async function ensureBackupLogTable() {
       backed_up_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       r2_key_prefix TEXT NOT NULL,
       artifact_count INT NOT NULL DEFAULT 0,
-      total_bytes BIGINT NOT NULL DEFAULT 0
+      total_bytes BIGINT NOT NULL DEFAULT 0,
+      planned_artifact_count INT NOT NULL DEFAULT 0
     );
+    ALTER TABLE session_backup_log ADD COLUMN IF NOT EXISTS planned_artifact_count INT NOT NULL DEFAULT 0;
     CREATE INDEX IF NOT EXISTS session_backup_log_backed_up_at_idx
       ON session_backup_log(backed_up_at);
     CREATE TABLE IF NOT EXISTS session_backup_run_lock (
@@ -551,22 +595,32 @@ async function buildManifest(sessionId) {
 async function fetchArtifacts(sessionId) {
   const raw = await runSql(`
     SELECT
-      kind,
-      s3_object_key,
+      ra.kind,
+      ra.s3_object_key,
       COALESCE(size_bytes, 0)::text,
       COALESCE(start_time, 0)::text,
       COALESCE(end_time, 0)::text,
       COALESCE(frame_count, 0)::text,
-      COALESCE(created_at::text, '')
-    FROM recording_artifacts
-    WHERE session_id = ${shellQuote(sessionId)}
-      AND status = 'ready'
-      AND s3_object_key LIKE 'tenant/%'
+      COALESCE(ra.created_at::text, ''),
+      COALESCE(ra.endpoint_id, ''),
+      COALESCE(se.endpoint_url, '') AS endpoint_url,
+      COALESCE(se.bucket, '') AS endpoint_bucket,
+      COALESCE(se.access_key_id, '') AS access_key_id,
+      COALESCE(se.key_ref, '') AS key_ref,
+      CASE
+        WHEN ra.endpoint_id IS NULL THEN 't'
+        WHEN se.id IS NOT NULL THEN 't'
+        ELSE 'f'
+      END AS endpoint_resolved
+    FROM recording_artifacts ra
+    LEFT JOIN storage_endpoints se ON se.id = ra.endpoint_id
+    WHERE ra.session_id = ${shellQuote(sessionId)}
+      AND ra.status = 'ready'
     ORDER BY
-      kind,
+      ra.kind,
       start_time NULLS LAST,
-      created_at ASC,
-      s3_object_key ASC;
+      ra.created_at ASC,
+      ra.s3_object_key ASC;
   `);
 
   return parseRows(raw, [
@@ -577,6 +631,12 @@ async function fetchArtifacts(sessionId) {
     'endTime',
     'frameCount',
     'createdAt',
+    'endpointId',
+    'endpointUrl',
+    'bucket',
+    'accessKeyId',
+    'keyRef',
+    'endpointResolved',
   ]).map((row) => ({
     kind: row.kind,
     s3ObjectKey: row.s3ObjectKey,
@@ -585,19 +645,31 @@ async function fetchArtifacts(sessionId) {
     endTime: Number(row.endTime || 0),
     frameCount: Number(row.frameCount || 0),
     createdAt: row.createdAt,
+    endpointId: row.endpointId || null,
+    endpointUrl: row.endpointUrl || config.sourceEndpoint,
+    bucket: row.bucket || config.sourceBucket,
+    accessKeyId: row.accessKeyId || null,
+    keyRef: row.keyRef || null,
+    endpointResolved: row.endpointResolved === 't',
   }));
 }
 
-async function insertBackupLog(sessionId, prefix, artifactCount, totalBytes) {
+async function insertBackupLog(sessionId, prefix, artifactCount, totalBytes, plannedArtifactCount) {
   await runSql(`
-    INSERT INTO session_backup_log (session_id, r2_key_prefix, artifact_count, total_bytes)
+    INSERT INTO session_backup_log (session_id, r2_key_prefix, artifact_count, total_bytes, planned_artifact_count)
     VALUES (
       ${shellQuote(sessionId)},
       ${shellQuote(prefix)},
       ${Number(artifactCount)},
-      ${Number(totalBytes)}
+      ${Number(totalBytes)},
+      ${Number(plannedArtifactCount)}
     )
-    ON CONFLICT (session_id) DO NOTHING;
+    ON CONFLICT (session_id) DO UPDATE SET
+      backed_up_at = NOW(),
+      r2_key_prefix = EXCLUDED.r2_key_prefix,
+      artifact_count = EXCLUDED.artifact_count,
+      total_bytes = EXCLUDED.total_bytes,
+      planned_artifact_count = EXCLUDED.planned_artifact_count;
   `);
 }
 
@@ -727,37 +799,37 @@ async function maybeRepairSessionMetadata(sessionId, manifest, artifacts) {
 // S3 / R2 Operations with Integrity Checks
 // =============================================================================
 
-async function downloadSourceArtifact(sourceKey, outputPath) {
+async function downloadSourceArtifact(sourceKey, outputPath, artifact) {
   await runCommand(
     'aws',
     [
       '--endpoint-url',
-      config.sourceEndpoint,
+      artifact.endpointUrl,
       's3',
       'cp',
       '--only-show-errors',
-      `s3://${config.sourceBucket}/${sourceKey}`,
+      `s3://${artifact.bucket}/${sourceKey}`,
       outputPath,
     ],
-    { env: SRC_AWS_ENV },
+    { env: buildSourceAwsEnv(artifact) },
   );
 }
 
-async function uploadToSource(localPath, destinationKey, contentType) {
+async function uploadToSource(localPath, destinationKey, contentType, artifact) {
   await runCommand(
     'aws',
     [
       '--endpoint-url',
-      config.sourceEndpoint,
+      artifact.endpointUrl,
       's3',
       'cp',
       '--only-show-errors',
       localPath,
-      `s3://${config.sourceBucket}/${destinationKey}`,
+      `s3://${artifact.bucket}/${destinationKey}`,
       '--content-type',
       contentType,
     ],
-    { env: SRC_AWS_ENV },
+    { env: buildSourceAwsEnv(artifact) },
   );
 }
 
@@ -797,20 +869,20 @@ async function headR2Object(key) {
   return JSON.parse(result.stdout);
 }
 
-async function headSourceObject(key) {
+async function headSourceObject(key, artifact) {
   const result = await runCommand(
     'aws',
     [
       '--endpoint-url',
-      config.sourceEndpoint,
+      artifact.endpointUrl,
       's3api',
       'head-object',
       '--bucket',
-      config.sourceBucket,
+      artifact.bucket,
       '--key',
       key,
     ],
-    { env: SRC_AWS_ENV },
+    { env: buildSourceAwsEnv(artifact) },
   );
   return JSON.parse(result.stdout);
 }
@@ -851,8 +923,8 @@ async function verifyUpload(r2Key, expectedBytes, label) {
   }
 }
 
-async function verifySourceUpload(sourceKey, expectedBytes, label) {
-  const head = await headSourceObject(sourceKey);
+async function verifySourceUpload(sourceKey, expectedBytes, label, artifact) {
+  const head = await headSourceObject(sourceKey, artifact);
   const remoteSize = head.ContentLength;
   if (remoteSize !== expectedBytes) {
     throw new Error(`${label}: source size mismatch after repair (expected ${expectedBytes}, source has ${remoteSize})`);
@@ -893,8 +965,8 @@ async function maybeRepairLegacyHierarchyArtifact(tempPath, artifact, artifactLa
   await writeFile(tempPath, repairedBuffer);
 
   await withRetry(async () => {
-    await uploadToSource(tempPath, artifact.s3ObjectKey, ARTIFACT_CONTENT_TYPE);
-    await verifySourceUpload(artifact.s3ObjectKey, repairedBuffer.length, artifactLabel);
+    await uploadToSource(tempPath, artifact.s3ObjectKey, ARTIFACT_CONTENT_TYPE, artifact);
+    await verifySourceUpload(artifact.s3ObjectKey, repairedBuffer.length, artifactLabel, artifact);
   }, `repair ${artifactLabel}`);
 
   log(`Normalized legacy hierarchy artifact in source S3: ${artifactLabel}`);
@@ -1017,6 +1089,9 @@ async function processSession(session) {
       const artifactLabel = `${session.id}/${artifact.kind}[${i}]`;
 
       try {
+        if (!artifact.endpointResolved) {
+          throw new Error(`artifact ${artifactLabel} references unknown endpoint_id ${artifact.endpointId}`);
+        }
         let sourceSize;
         let backupSize;
         let repairStatus = 'unchanged';
@@ -1024,7 +1099,7 @@ async function processSession(session) {
         let backupFrameCount = artifact.frameCount;
         await withRetry(
           async () => {
-            await downloadSourceArtifact(artifact.s3ObjectKey, tempPath);
+            await downloadSourceArtifact(artifact.s3ObjectKey, tempPath, artifact);
             sourceSize = await verifyDownload(tempPath, artifactLabel);
           },
           `download ${artifactLabel}`,
@@ -1094,16 +1169,26 @@ async function processSession(session) {
 
     const copiedCount = backupArtifacts.filter((a) => a.status === 'copied').length;
 
-    manifest.exportedAt = new Date().toISOString();
-    manifest.backupArtifacts = backupArtifacts;
+    if (missingOnSource > 0) {
+      throw new Error(
+        `session ${session.id} has ${missingOnSource} artifact(s) missing on source storage; refusing to mark backup complete`,
+      );
+    }
+    if (copiedCount !== artifacts.length) {
+      throw new Error(`session ${session.id} copied ${copiedCount}/${artifacts.length} artifacts; refusing to mark backup complete`);
+    }
 
     // Piggyback metadata repairs before writing final manifest
     await maybeRepairSessionMetadata(session.id, manifest, artifacts);
 
+    const finalManifest = await buildManifest(session.id);
+    finalManifest.exportedAt = new Date().toISOString();
+    finalManifest.backupArtifacts = backupArtifacts;
+
     const manifestPath = path.join(tempDir, 'manifest.json');
-    await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
+    await writeFile(manifestPath, `${JSON.stringify(finalManifest, null, 2)}\n`, 'utf8');
     await uploadToR2(manifestPath, `${prefix}/manifest.json`, MANIFEST_CONTENT_TYPE);
-    await insertBackupLog(session.id, prefix, copiedCount, totalBytes);
+    await insertBackupLog(session.id, prefix, copiedCount, totalBytes, artifacts.length);
 
     return {
       ok: true,

@@ -55,6 +55,19 @@ check_prerequisites() {
   fi
 }
 
+# Official images may not publish arm64; default to amd64 emulation on ARM hosts unless overridden.
+maybe_set_docker_platform() {
+  if [ -n "${DOCKER_DEFAULT_PLATFORM:-}" ]; then
+    return
+  fi
+  case "$(uname -m 2>/dev/null)" in
+    arm64|aarch64)
+      export DOCKER_DEFAULT_PLATFORM=linux/amd64
+      print_info "ARM host detected: using DOCKER_DEFAULT_PLATFORM=$DOCKER_DEFAULT_PLATFORM for image pulls"
+      ;;
+  esac
+}
+
 load_env() {
   if [ ! -f "$ENV_FILE" ]; then
     print_error "Missing $ENV_FILE. Run ./scripts/selfhosted/deploy.sh install first."
@@ -217,7 +230,13 @@ ENV
 
 pull_images() {
   print_info "Pulling container images"
-  compose_cmd pull
+  # bootstrap builds from Dockerfile.migration (schema scripts); do not overwrite with registry :latest
+  compose_cmd pull --ignore-buildable
+}
+
+build_bootstrap_image() {
+  print_info "Building migration (bootstrap) image from repository"
+  compose_cmd build bootstrap
 }
 
 start_infrastructure() {
@@ -245,6 +264,7 @@ start_application_services() {
 
 deploy_stack() {
   pull_images
+  build_bootstrap_image
   start_infrastructure
   run_bootstrap
   start_application_services
@@ -287,6 +307,7 @@ update_services() {
 main() {
   print_header
   check_prerequisites
+  maybe_set_docker_platform
 
   case "${1:-install}" in
     install)

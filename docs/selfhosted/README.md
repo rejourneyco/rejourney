@@ -1,182 +1,219 @@
-# Self-Hosted Rejourney
+# Self-hosting Rejourney
 
-Run Rejourney as a single-node Docker Compose deployment with the same backend shape as prod and local-k8s:
+This guide is for **anyone** running Rejourney on their own server (typically a single VPS or dedicated machine) using the official **Docker Compose** stack. You do not need access to Rejourney’s internal infrastructure or Kubernetes.
 
-- Traefik handles TLS and routing
-- API and ingest-upload are separate services
-- Postgres, Redis, and MinIO stay internal-only
-- storage_endpoints in Postgres remain the source of truth for object storage
-- bootstrap reruns schema, seed, and storage-endpoint sync on every install and update
+After setup you get:
 
-This is the official self-hosted path for a single server or VPS.
+- A **web dashboard** at your domain (HTTPS via Let’s Encrypt)
+- An **API** on a subdomain (for the dashboard and mobile SDK)
+- An **ingest (upload) relay** on another subdomain (session uploads go through your server, not directly from phones to object storage)
+- **PostgreSQL**, **Redis**, and either **built-in MinIO** or **your own S3-compatible storage**
+- Background **workers** that process sessions, retention, and alerts (same roles as in Rejourney’s cloud deployment)
 
----
-
-## Architecture
-
-The self-hosted stack now mirrors prod’s public hostname shape more closely:
-
-- `https://example.com` -> dashboard web app
-- `https://www.example.com` -> redirects to `https://example.com`
-- `https://api.example.com` -> API routes
-- `https://ingest.example.com` -> upload relay URLs returned to the SDK
-
-Behind Traefik, the stack runs these services:
-
-- `traefik`
-- `postgres`
-- `redis`
-- `minio` (default) or external S3
-- `bootstrap` (one-shot schema + seed + storage sync)
-- `api`
-- `ingest-upload`
-- `web`
-- `ingest-worker`
-- `retention-worker`
-- `alert-worker`
-
-Two important behavior changes compared with the old self-hosted path:
-
-1. Session uploads no longer rely on the mobile device talking directly to MinIO or your S3 bucket.
-   The SDK still gets a `presignedUrl`, but it now uploads to Rejourney’s `ingest-upload` relay, which writes to storage server-side.
-
-2. Storage routing no longer falls back to `.env` values at runtime.
-   The active storage endpoint is written into Postgres and encrypted in `storage_endpoints`, the same pattern used in prod and local-k8s.
+All commands below assume you are in the **repository root** after cloning (the folder that contains `docker-compose.selfhosted.yml`).
 
 ---
 
-## Requirements
+## What you need beforehand
 
-Minimum recommended server:
+### Server
 
-- Ubuntu 22.04+ or Debian 12+
-- Docker 24+
-- Docker Compose plugin
-- 4 vCPU
-- 8 GB RAM
-- 40 GB SSD
-- ports `80` and `443` open
-- DNS records already pointing at your server
+- **OS:** Ubuntu 22.04+, Debian 12+, or another Linux that runs Docker well  
+- **Docker:** 24 or newer, with the **Docker Compose plugin** (`docker compose version` should work)  
+- **Resources (recommended):** 4 vCPU, 8 GB RAM, 40 GB disk (more if you keep many recordings)  
+- **Network:** Ports **80** and **443** open to the internet (required for Let’s Encrypt HTTP challenge and HTTPS)
 
-You also need:
+### Domain and DNS
 
-- one base domain
-- DNS records for the dashboard, API, and ingest hosts
-- an email address for Let’s Encrypt
+You need **one base domain** you control (for example `example.com`). Before running the installer, create DNS **A** (or **AAAA**) records pointing **all** of these hostnames at your server’s public IP:
 
-Examples:
+| Hostname | Purpose |
+|----------|---------|
+| `example.com` | Dashboard |
+| `www.example.com` | Redirects to the dashboard |
+| `api.example.com` | API (and WebSocket where used) |
+| `ingest.example.com` | Upload relay (SDK uses this automatically once API is configured) |
 
-- dashboard: `example.com`
-- www redirect: `www.example.com`
-- api: `api.example.com`
-- ingest: `ingest.example.com`
+Replace `example.com` with your real domain. Propagation can take a few minutes to hours; TLS certificates will not issue until DNS resolves correctly.
+
+### Let’s Encrypt
+
+You will be asked for an **email address** during install. It is used for certificate expiry notices from Let’s Encrypt.
+
+### Tools on your machine
+
+- `git` to clone the repository  
+- `openssl` (used by the install script to generate secrets)  
+- A shell (bash is fine)
 
 ---
 
-## Install
+## First-time installation
+
+### 1. Clone the repository
 
 ```bash
 git clone https://github.com/rejourneyco/rejourney.git
 cd rejourney
+```
+
+Stay on the default branch (or a release tag if the project documents one for self-hosting).
+
+### 2. Run the installer
+
+```bash
 ./scripts/selfhosted/deploy.sh install
 ```
 
-The operator script will:
+The script will:
 
-1. prompt for your base domain and storage choice
-2. generate `.env.selfhosted`
-3. pull images
-4. start infrastructure services
-5. run `bootstrap` to apply schema, seed defaults, and sync `storage_endpoints`
-6. start API, upload relay, dashboard, and workers
+1. Ask for your **base domain** (e.g. `example.com` — not `https://`, no path).  
+2. Ask for your **Let’s Encrypt email**.  
+3. Ask for **storage**: built-in **MinIO** (recommended) or **external S3-compatible** storage (you will enter endpoint, bucket, region, and keys).  
+4. Create **`.env.selfhosted`** in the repo root with generated passwords and secrets. **Restrict permissions** are applied (`chmod 600`).  
+5. **Pull** published container images (API, web, workers, databases, Traefik, etc.).  
+6. **Build** the **bootstrap / migration** image **from your clone** (it contains the database setup scripts; it is not downloaded from the container registry).  
+7. Start databases, Redis, Traefik, and (if chosen) MinIO, then run a one-shot **bootstrap** container: database schema, optional first-time seed, and storage configuration in the database.  
+8. Start the API, upload relay, dashboard, and workers.
 
-After install, the main commands are:
+First install can take several minutes (image pulls and bootstrap).
+
+### 3. Protect `.env.selfhosted`
+
+This file holds **all secrets** for your deployment (database, Redis, JWT, storage encryption, MinIO credentials if used, etc.). **Back it up** to a safe place (password manager, encrypted backup). If you lose it, you may lose the ability to decrypt stored credentials or to reconstruct the same deployment.
+
+Do not commit it to git (it should be ignored by `.gitignore`).
+
+---
+
+## After installation
+
+### URLs
+
+The installer prints the URLs. In general:
+
+- **Dashboard:** `https://<your-base-domain>`  
+- **API:** `https://api.<your-base-domain>`  
+- **Ingest:** `https://ingest.<your-base-domain>`  
+
+`www.<your-base-domain>` redirects to the dashboard.
+
+### Verify the stack
 
 ```bash
 ./scripts/selfhosted/deploy.sh status
-./scripts/selfhosted/deploy.sh logs
-./scripts/selfhosted/deploy.sh logs api
-./scripts/selfhosted/deploy.sh update
-./scripts/selfhosted/deploy.sh stop
 ```
 
-`stop` preserves volumes and data. It does not wipe Postgres or object storage.
+You should see containers running; `api` and `ingest-upload` should become **healthy** after a short time.
+
+### First login and test recording
+
+1. Open the dashboard in a browser.  
+2. Create an account and a project.  
+3. Configure your app’s Rejourney SDK with your **API URL** (see [SDK configuration](#configuring-your-mobile-app) below).  
+4. Record a short session and confirm it appears in Replay.
+
+If sessions never show up in Replay, see [Troubleshooting](/docs/selfhosted/troubleshooting) (upload relay and ingest worker logs).
 
 ---
 
-## Generated Config
+## Day-to-day operations
 
-The install script writes `.env.selfhosted` in the repo root.
+All of these run from the repo root.
 
-Important fields:
+| Action | Command |
+|--------|---------|
+| Service status | `./scripts/selfhosted/deploy.sh status` |
+| Follow all logs | `./scripts/selfhosted/deploy.sh logs` |
+| Logs for one service | `./scripts/selfhosted/deploy.sh logs api` (replace `api` with `web`, `ingest-upload`, `ingest-worker`, etc.) |
+| **Upgrade** images and rerun bootstrap | `./scripts/selfhosted/deploy.sh update` |
+| Stop everything **without** deleting data | `./scripts/selfhosted/deploy.sh stop` |
+
+**`update`** pulls newer images (where applicable), rebuilds the bootstrap image from your current clone, restarts the stack, and runs bootstrap again so the database schema and storage settings stay aligned with your `.env.selfhosted`. It does **not** wipe Postgres or object storage volumes.
+
+**`stop`** stops containers only; Docker **volumes** (Postgres data, MinIO data, etc.) remain until you remove them explicitly.
+
+---
+
+## Storage: MinIO vs external S3
+
+### Built-in MinIO (default)
+
+- Easiest for a single server: object storage runs **inside Docker** and is not exposed to the public internet by default.  
+- Session bytes are written by the **ingest-upload** service; devices do not need to reach MinIO directly.  
+- Bucket creation is handled during install.
+
+### External S3-compatible storage
+
+Use AWS S3, Cloudflare R2, Hetzner Object Storage, Wasabi, or any S3-compatible API. During install you provide endpoint URL, bucket, region, and access keys.
+
+Examples of endpoint URL styles (your provider’s docs are authoritative):
+
+- AWS: `https://s3.<region>.amazonaws.com`  
+- Cloudflare R2: `https://<account-id>.r2.cloudflarestorage.com`  
+- Hetzner: `https://<location>.your-objectstorage.com`  
+
+If you add a **separate public URL** for downloads, set `S3_PUBLIC_ENDPOINT` in `.env.selfhosted` and run `./scripts/selfhosted/deploy.sh update`.
+
+---
+
+## Important configuration (`.env.selfhosted`)
+
+The installer generates this file. Typical variables include:
+
+- **Domains and public URLs:** `BASE_DOMAIN`, `DASHBOARD_DOMAIN`, `API_DOMAIN`, `INGEST_DOMAIN`, `PUBLIC_*_URL`  
+- **Database:** `DATABASE_URL` (points at the `postgres` service inside Compose)  
+- **Redis:** `REDIS_URL`  
+- **Storage:** `STORAGE_BACKEND`, `S3_*`, and optionally `MINIO_*`  
+- **Security:** `JWT_SECRET`, `JWT_SIGNING_KEY`, `INGEST_HMAC_SECRET`, `STORAGE_ENCRYPTION_KEY`  
+
+Optional integrations (leave blank if unused): Stripe, SMTP, GitHub OAuth, Turnstile, etc.
+
+**Changing storage or domain-related values:** edit `.env.selfhosted`, then run:
 
 ```bash
-BASE_DOMAIN=example.com
-DASHBOARD_DOMAIN=example.com
-WWW_DOMAIN=www.example.com
-API_DOMAIN=api.example.com
-INGEST_DOMAIN=ingest.example.com
-PUBLIC_DASHBOARD_URL=https://example.com
-PUBLIC_API_URL=https://api.example.com
-PUBLIC_INGEST_URL=https://ingest.example.com
-
-DATABASE_URL=postgresql://rejourney:...@postgres:5432/rejourney
-REDIS_URL=redis://:...@redis:6379/0
-
-STORAGE_BACKEND=minio
-S3_ENDPOINT=http://minio:9000
-S3_BUCKET=rejourney
-S3_REGION=us-east-1
-S3_ACCESS_KEY_ID=rejourney
-S3_SECRET_ACCESS_KEY=...
-
-JWT_SECRET=...
-JWT_SIGNING_KEY=...
-INGEST_HMAC_SECRET=...
-STORAGE_ENCRYPTION_KEY=...
+./scripts/selfhosted/deploy.sh update
 ```
 
-Treat `.env.selfhosted` as critical backup material. It contains the credentials needed to decrypt storage secrets and run the stack.
+---
+
+## How database setup works (first boot vs later updates)
+
+You normally do **not** need to run SQL by hand. The **bootstrap** container handles it.
+
+- **Brand-new empty database:** the stack applies the current schema from code, then records which migration versions are already satisfied so future updates only apply **new** migrations.  
+- **Existing database (already initialized):** only **pending** migrations are applied. Your data is not rebuilt from scratch on each `update`.  
+- If the database **already has tables** but the migration history table is **missing or empty** (for example a partial restore), bootstrap **stops with an error** to avoid accidental damage. Advanced recovery options are documented in [Troubleshooting](/docs/selfhosted/troubleshooting).
 
 ---
 
-## Storage Modes
+## Apple Silicon and ARM servers
 
-### Built-in MinIO
+On **ARM64** machines (many Macs, some cloud instances), the deploy script sets `DOCKER_DEFAULT_PLATFORM=linux/amd64` for image pulls when you have not set it yourself, so prebuilt images that only publish `amd64` still run. If you need a different behavior, set `DOCKER_DEFAULT_PLATFORM` in your environment before running the script.
 
-Default and recommended for first install.
-
-- `STORAGE_BACKEND=minio`
-- `minio` and `minio-setup` run inside Docker
-- object storage is private to the Docker network
-- `bootstrap` writes the active MinIO endpoint into `storage_endpoints`
-
-This is the easiest way to match prod/dev behavior without managing a separate S3 service.
-
-### External S3
-
-Supported for advanced installs.
-
-Use this when you want AWS S3, Cloudflare R2, Hetzner Object Storage, Wasabi, or another S3-compatible backend.
-
-The operator script still writes the selected endpoint into Postgres. Runtime reads the database row, not the raw `.env` values.
-
-Provider examples:
-
-- AWS S3: `https://s3.us-east-1.amazonaws.com`
-- Cloudflare R2: `https://<account-id>.r2.cloudflarestorage.com`
-- Hetzner: `https://fsn1.your-objectstorage.com`
-- Wasabi: `https://s3.wasabisys.com`
-
-If you use a different public hostname for direct signed downloads, set `S3_PUBLIC_ENDPOINT` in `.env.selfhosted` before running `update`.
+The **bootstrap** image is always **built on your machine** from the cloned repository, so it always matches your checkout.
 
 ---
 
-## SDK Configuration
+## What runs in Docker (overview)
 
-Your mobile SDK must point to your self-hosted API domain.
+- **Traefik:** HTTPS certificates and routing to the dashboard, API, and ingest hostnames.  
+- **Postgres / Redis:** Application data and queues.  
+- **MinIO:** Optional internal object storage.  
+- **API:** Main HTTP API.  
+- **ingest-upload:** Dedicated service for upload relay traffic.  
+- **web:** Dashboard static UI.  
+- **Workers:** Process ingest queues, replay artifacts, session lifecycle, scheduled retention-style work, and alerts.
 
-### React Native
+There is **no** separate billing batch worker in this stack; billing integration is driven by Stripe and the API when you configure keys.
+
+---
+
+## Configuring your mobile app
+
+Point the SDK at **your** API host (must match `API_DOMAIN` / `PUBLIC_API_URL`).
+
+### React Native example
 
 ```ts
 import { initRejourney, startRejourney } from '@rejourneyco/react-native';
@@ -188,112 +225,32 @@ initRejourney('pk_live_your_public_key', {
 startRejourney();
 ```
 
-That `apiUrl` must match the API hostname from your self-hosted install. Upload relay URLs will use `ingest.example.com` automatically.
+Use your real API URL. Upload URLs are derived for `ingest.<your-domain>` automatically when the server is configured correctly.
 
 ---
 
-## Upgrades
+## Backups
 
-Use the operator script for upgrades:
-
-```bash
-./scripts/selfhosted/deploy.sh update
-```
-
-`update` does all of the following again:
-
-- pulls new images
-- starts infrastructure if needed
-- reruns `bootstrap`
-- reapplies schema
-- reruns normal seed
-- resyncs the active storage endpoint row in Postgres
-- restarts API, upload relay, web, and workers
-
-That means storage endpoint changes in `.env.selfhosted` are applied on update without shelling into the API container manually.
-
----
-
-## First Smoke Test
-
-After install:
-
-1. open the dashboard and create an account
-2. create a project
-3. point a test build of your app at `https://api.example.com`
-4. record one short session
-5. confirm the session appears in Replay
-
-If usage increases but Replay stays empty, the first places to check are:
-
-- `./scripts/selfhosted/deploy.sh logs ingest-upload`
-- `./scripts/selfhosted/deploy.sh logs ingest-worker`
-- `./scripts/selfhosted/deploy.sh logs api`
-
-With the current architecture, a session should only fail to appear if the relay or worker path is unhealthy. The device no longer needs direct connectivity to MinIO.
-
----
-
-## Backup and Restore
-
-Back up at minimum:
-
-- Postgres
-- `.env.selfhosted`
-- MinIO data if you use built-in MinIO
-
-Helper script:
+At minimum, back up **PostgreSQL**, **`.env.selfhosted`**, and (if you use built-in MinIO) **object storage data**.
 
 ```bash
 ./scripts/selfhosted/backup.sh
 ./scripts/selfhosted/backup.sh --full
 ```
 
-Use `--full` when you want MinIO object storage included.
-
-More detail:
-
-- [Backup & Recovery](/docs/selfhosted/backup-recovery)
-- [Troubleshooting](/docs/selfhosted/troubleshooting)
+Details: [Backup & Recovery](/docs/selfhosted/backup-recovery).
 
 ---
 
-## Common Checks
+## Troubleshooting and support
 
-### Services
+- [Troubleshooting](/docs/selfhosted/troubleshooting) — bootstrap failures, TLS, empty Replay, external S3 issues.  
+- [Backup & Recovery](/docs/selfhosted/backup-recovery) — restore order and MinIO.  
 
-```bash
-./scripts/selfhosted/deploy.sh status
-```
-
-### API health
-
-```bash
-docker compose -f docker-compose.selfhosted.yml --env-file .env.selfhosted logs api
-```
-
-### Upload relay health
-
-```bash
-docker compose -f docker-compose.selfhosted.yml --env-file .env.selfhosted logs ingest-upload
-```
-
-### Worker health
-
-```bash
-docker compose -f docker-compose.selfhosted.yml --env-file .env.selfhosted logs ingest-worker
-```
-
-### Bootstrap rerun after config change
-
-```bash
-./scripts/selfhosted/deploy.sh update
-```
+For bugs or improvements to these docs, use the project’s public issue tracker on GitHub.
 
 ---
 
-## Related Docs
+## Related documentation
 
-- [Backup & Recovery](/docs/selfhosted/backup-recovery)
-- [Troubleshooting](/docs/selfhosted/troubleshooting)
-- [Distributed vs Single-Node Cloud](/docs/architecture/distributed-vs-single-node)
+- [Distributed vs single-node cloud](/docs/distributed-vs-single-node/distributed-vs-single-node) — how this compares to a multi-service cloud layout (conceptual).

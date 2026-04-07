@@ -1,6 +1,6 @@
-# Self-Hosted Troubleshooting
+# Self-hosted troubleshooting
 
-This page assumes the official single-node Docker Compose deployment from [Self-Hosted Rejourney](/docs/selfhosted).
+Use this page if you followed [Self-hosted Rejourney](/docs/selfhosted) and something fails or behaves oddly. Commands are run from the **repository root** (where `docker-compose.selfhosted.yml` lives).
 
 ---
 
@@ -54,6 +54,9 @@ Common causes:
 - missing `STORAGE_ENCRYPTION_KEY`
 - invalid S3 credentials
 - broken external S3 endpoint URL
+- on **ARM64**, missing image support (set `DOCKER_DEFAULT_PLATFORM=linux/amd64` or use `./scripts/selfhosted/deploy.sh`, which sets it when unset)
+
+**Schema / migration messages:** On a normal install, the database starts empty and bootstrap sets everything up. If you **restored Postgres from a backup** into a new server but migration metadata is missing, or you pointed the stack at the **wrong database**, bootstrap may exit with an error about an inconsistent database instead of overwriting your data. Unless you are doing advanced recovery, fix `DATABASE_URL` and restore a consistent backup, or start from a clean volume. For deliberate migrate-only recovery, some setups use `REJOURNEY_ALLOW_ORPHAN_DB_MIGRATE_ONLY=1` in `.env.selfhosted` (see maintainer docs or support before using this).
 
 ### Fix
 

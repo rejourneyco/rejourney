@@ -36,20 +36,69 @@ export default function ChangelogPage() {
                     {/* Versions List */}
                     <div className="space-y-24">
 
-                        {/* Version 1.0.11 */}
+                        {/* Versions 1.0.12 – 1.0.15 */}
                         <div className="relative">
                             <div className="absolute -left-4 top-0 bottom-0 w-1 bg-black hidden sm:block" />
                             <div className="flex flex-col md:flex-row gap-8 items-start">
                                 <div className="md:w-1/4">
                                     <div className="sticky top-24">
-                                        <div className="text-4xl font-black uppercase tracking-tighter mb-2">v1.0.11</div>
-                                        <div className="text-xs font-mono font-black uppercase tracking-widest text-blue-600 mb-4">Mar 01, 2026</div>
+                                        <div className="text-4xl font-black uppercase tracking-tighter mb-2">v1.0.12 – v1.0.15</div>
+                                        <div className="text-xs font-mono font-black uppercase tracking-widest text-blue-600 mb-4">Apr 06, 2026</div>
                                         <div className="inline-flex items-center gap-2 px-3 py-1 bg-green-100 text-green-700 text-[10px] font-black uppercase tracking-widest rounded shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] border border-black">
                                             Latest
                                         </div>
                                     </div>
                                 </div>
                                 <div className="md:w-3/4 space-y-8">
+                                    <div>
+                                        <h2 className="text-3xl font-black uppercase tracking-tighter mb-6 flex items-center gap-3">
+                                            <Rocket size={32} strokeWidth={3} />
+                                            React Native Reliability
+                                        </h2>
+                                        <div className="prose prose-lg prose-slate max-w-none">
+                                            <p className="font-bold text-gray-700">
+                                                Versions 1.0.12 through 1.0.15 focus on the React Native SDK: minor bug fixes, more dependable session uploads, and stability improvements on iOS and Android.
+                                            </p>
+                                            <ul className="list-none pl-0 space-y-4 mt-6">
+                                                <li className="flex gap-4">
+                                                    <div className="mt-1 flex-shrink-0 w-6 h-6 bg-black text-white flex items-center justify-center text-[10px] font-bold">01</div>
+                                                    <div>
+                                                        <strong className="uppercase tracking-tight text-sm">Recording Upload Reliability:</strong>
+                                                        <p className="text-gray-600 mt-1">Fixed cases where a session could fail to upload when the user had not interacted with the app long enough to reach the minimum frame threshold—those recordings now upload correctly.</p>
+                                                    </div>
+                                                </li>
+                                                <li className="flex gap-4">
+                                                    <div className="mt-1 flex-shrink-0 w-6 h-6 bg-black text-white flex items-center justify-center text-[10px] font-bold">02</div>
+                                                    <div>
+                                                        <strong className="uppercase tracking-tight text-sm">Stability:</strong>
+                                                        <p className="text-gray-600 mt-1">Hardening and stability fixes across the capture and upload pipeline to reduce edge-case failures in production.</p>
+                                                    </div>
+                                                </li>
+                                                <li className="flex gap-4">
+                                                    <div className="mt-1 flex-shrink-0 w-6 h-6 bg-black text-white flex items-center justify-center text-[10px] font-bold">03</div>
+                                                    <div>
+                                                        <strong className="uppercase tracking-tight text-sm">Minor Bug Fixes:</strong>
+                                                        <p className="text-gray-600 mt-1">Additional small fixes in the React Native package for smoother behavior day to day.</p>
+                                                    </div>
+                                                </li>
+                                            </ul>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Version 1.0.11 */}
+                        <div className="relative">
+                            <div className="absolute -left-4 top-0 bottom-0 w-1 bg-gray-200 hidden sm:block" />
+                            <div className="flex flex-col md:flex-row gap-8 items-start">
+                                <div className="md:w-1/4">
+                                    <div className="sticky top-24">
+                                        <div className="text-4xl font-black uppercase tracking-tighter mb-2 text-gray-400">v1.0.11</div>
+                                        <div className="text-xs font-mono font-black uppercase tracking-widest text-gray-400 mb-4">Mar 01, 2026</div>
+                                    </div>
+                                </div>
+                                <div className="md:w-3/4 space-y-8 opacity-80">
                                     <div>
                                         <h2 className="text-3xl font-black uppercase tracking-tighter mb-6 flex items-center gap-3">
                                             <Rocket size={32} strokeWidth={3} />
@@ -61,56 +110,56 @@ export default function ChangelogPage() {
                                             </p>
                                             <ul className="list-none pl-0 space-y-4 mt-6">
                                                 <li className="flex gap-4">
-                                                    <div className="mt-1 flex-shrink-0 w-6 h-6 bg-black text-white flex items-center justify-center text-[10px] font-bold">01</div>
+                                                    <div className="mt-1 flex-shrink-0 w-6 h-6 bg-gray-200 text-gray-500 flex items-center justify-center text-[10px] font-bold">01</div>
                                                     <div>
                                                         <strong className="uppercase tracking-tight text-sm">Custom Screen Tracking Docs:</strong>
                                                         <p className="text-gray-600 mt-1">Updated documentation that walks through adding your own screen tracking hooks and naming conventions for React Navigation and Expo Router.</p>
                                                     </div>
                                                 </li>
                                                 <li className="flex gap-4">
-                                                    <div className="mt-1 flex-shrink-0 w-6 h-6 bg-black text-white flex items-center justify-center text-[10px] font-bold">02</div>
+                                                    <div className="mt-1 flex-shrink-0 w-6 h-6 bg-gray-200 text-gray-500 flex items-center justify-center text-[10px] font-bold">02</div>
                                                     <div>
                                                         <strong className="uppercase tracking-tight text-sm">Auto Screen Tracking Fixes:</strong>
                                                         <p className="text-gray-600 mt-1">Resolved bugs in the auto screen tracking pipeline for setups that do not use Expo Router, ensuring consistent screen names and session timelines.</p>
                                                     </div>
                                                 </li>
                                                 <li className="flex gap-4">
-                                                    <div className="mt-1 flex-shrink-0 w-6 h-6 bg-black text-white flex items-center justify-center text-[10px] font-bold">03</div>
+                                                    <div className="mt-1 flex-shrink-0 w-6 h-6 bg-gray-200 text-gray-500 flex items-center justify-center text-[10px] font-bold">03</div>
                                                     <div>
                                                         <strong className="uppercase tracking-tight text-sm">Expo Router Bug Fix:</strong>
                                                         <p className="text-gray-600 mt-1">Fixed screen tracking and navigation issues when using Expo Router.</p>
                                                     </div>
                                                 </li>
                                                 <li className="flex gap-4">
-                                                    <div className="mt-1 flex-shrink-0 w-6 h-6 bg-black text-white flex items-center justify-center text-[10px] font-bold">04</div>
+                                                    <div className="mt-1 flex-shrink-0 w-6 h-6 bg-gray-200 text-gray-500 flex items-center justify-center text-[10px] font-bold">04</div>
                                                     <div>
                                                         <strong className="uppercase tracking-tight text-sm">Device Fingerprinting on OS Updates:</strong>
                                                         <p className="text-gray-600 mt-1">More accurate device fingerprinting that correctly handles OS updates, improving session association across system upgrades.</p>
                                                     </div>
                                                 </li>
                                                 <li className="flex gap-4">
-                                                    <div className="mt-1 flex-shrink-0 w-6 h-6 bg-black text-white flex items-center justify-center text-[10px] font-bold">05</div>
+                                                    <div className="mt-1 flex-shrink-0 w-6 h-6 bg-gray-200 text-gray-500 flex items-center justify-center text-[10px] font-bold">05</div>
                                                     <div>
                                                         <strong className="uppercase tracking-tight text-sm">Accurate Device Model ID on iOS:</strong>
                                                         <p className="text-gray-600 mt-1">Improved device model identification on iOS for better analytics and device segmentation.</p>
                                                     </div>
                                                 </li>
                                                 <li className="flex gap-4">
-                                                    <div className="mt-1 flex-shrink-0 w-6 h-6 bg-black text-white flex items-center justify-center text-[10px] font-bold">06</div>
+                                                    <div className="mt-1 flex-shrink-0 w-6 h-6 bg-gray-200 text-gray-500 flex items-center justify-center text-[10px] font-bold">06</div>
                                                     <div>
                                                         <strong className="uppercase tracking-tight text-sm">DOM Capture for Background Sessions:</strong>
                                                         <p className="text-gray-600 mt-1">Fixed DOM capture missing for sessions started from background—visual capture now initializes correctly regardless of app launch state.</p>
                                                     </div>
                                                 </li>
                                                 <li className="flex gap-4">
-                                                    <div className="mt-1 flex-shrink-0 w-6 h-6 bg-black text-white flex items-center justify-center text-[10px] font-bold">07</div>
+                                                    <div className="mt-1 flex-shrink-0 w-6 h-6 bg-gray-200 text-gray-500 flex items-center justify-center text-[10px] font-bold">07</div>
                                                     <div>
                                                         <strong className="uppercase tracking-tight text-sm">Performance Improvements:</strong>
                                                         <p className="text-gray-600 mt-1">Optimizations on both iOS and Android for smoother capture, lower memory usage, and reduced battery impact.</p>
                                                     </div>
                                                 </li>
                                                 <li className="flex gap-4">
-                                                    <div className="mt-1 flex-shrink-0 w-6 h-6 bg-black text-white flex items-center justify-center text-[10px] font-bold">08</div>
+                                                    <div className="mt-1 flex-shrink-0 w-6 h-6 bg-gray-200 text-gray-500 flex items-center justify-center text-[10px] font-bold">08</div>
                                                     <div>
                                                         <strong className="uppercase tracking-tight text-sm">Metadata & Custom Events:</strong>
                                                         <p className="text-gray-600 mt-1">Added metadata support and logging of custom events in the Rejourney package for richer analytics and session context.</p>
@@ -262,7 +311,7 @@ export default function ChangelogPage() {
                         <h3 className="text-4xl font-black uppercase tracking-tighter mb-8">Ready to see it in action?</h3>
                         <div className="flex flex-col sm:flex-row gap-4 justify-center">
                             <a href="/login" className="px-10 py-4 bg-black text-white font-black uppercase tracking-widest text-sm hover:bg-gray-800 transition-colors shadow-[8px_8px_0px_0px_rgba(0,0,0,0.2)]">
-                                Start Free Trial
+                                Dashboard Login
                             </a>
                             <a href="/docs/reactnative/overview" className="px-10 py-4 border-2 border-black text-black font-black uppercase tracking-widest text-sm hover:bg-gray-50 transition-colors">
                                 View Documentation

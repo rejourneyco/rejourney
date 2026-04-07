@@ -1,6 +1,6 @@
-# Self-Hosted Backup & Recovery
+# Self-hosted backup and recovery
 
-For the official single-node Docker Compose deployment, the critical data is:
+If you run Rejourney with [Docker Compose self-hosting](/docs/selfhosted), treat these as **critical** to keep copies of:
 
 - Postgres
 - `.env.selfhosted`
@@ -125,4 +125,57 @@ If replay ingestion fails after restore, check:
 ```bash
 ./scripts/selfhosted/deploy.sh logs ingest-upload
 ./scripts/selfhosted/deploy.sh logs ingest-worker
+```
+
+---
+
+## Multi-Bucket Verification Queries
+
+Run these SQL checks before enabling weighted multi-primary endpoints or after changing project-scoped buckets.
+
+```sql
+-- Sessions whose ready artifacts are split across multiple endpoint_ids.
+SELECT
+  ra.session_id,
+  COUNT(DISTINCT COALESCE(ra.endpoint_id, 'global-default')) AS endpoint_count
+FROM recording_artifacts ra
+WHERE ra.status = 'ready'
+GROUP BY ra.session_id
+HAVING COUNT(DISTINCT COALESCE(ra.endpoint_id, 'global-default')) > 1
+ORDER BY endpoint_count DESC, ra.session_id
+LIMIT 200;
+```
+
+```sql
+-- Ready artifacts with missing/invalid endpoint mapping.
+SELECT
+  ra.id,
+  ra.session_id,
+  ra.kind,
+  ra.endpoint_id,
+  ra.s3_object_key
+FROM recording_artifacts ra
+LEFT JOIN storage_endpoints se ON se.id = ra.endpoint_id
+WHERE ra.status = 'ready'
+  AND ra.endpoint_id IS NOT NULL
+  AND se.id IS NULL
+ORDER BY ra.session_id, ra.kind
+LIMIT 500;
+```
+
+```sql
+-- Backup success ratio by project (uses session_backup_log rows as successful backups).
+SELECT
+  s.project_id,
+  COUNT(*) FILTER (WHERE bl.session_id IS NOT NULL) AS backed_up_sessions,
+  COUNT(*) AS eligible_sessions,
+  ROUND(
+    (COUNT(*) FILTER (WHERE bl.session_id IS NOT NULL)::numeric / NULLIF(COUNT(*), 0)) * 100,
+    2
+  ) AS backup_coverage_percent
+FROM sessions s
+LEFT JOIN session_backup_log bl ON bl.session_id = s.id
+WHERE s.status IN ('ready', 'completed')
+GROUP BY s.project_id
+ORDER BY backup_coverage_percent ASC, eligible_sessions DESC;
 ```

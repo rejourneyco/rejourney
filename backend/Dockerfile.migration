@@ -24,6 +24,5 @@ RUN npm install --omit=dev --legacy-peer-deps
 ENV NODE_ENV=production
 
 
-# Default command matches what we need
-# But we will override it in K8s to include seeding
-CMD ["drizzle-kit", "migrate"]
+# Default for ad-hoc runs; K8s/Compose override with full bootstrap command
+CMD ["node", "--import", "tsx", "scripts/applyDatabaseSchema.ts"]

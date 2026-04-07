@@ -119,6 +119,14 @@ describe('sessionArtifactPurge', () => {
                 sizeBytes: 300,
                 declaredSizeBytes: 280,
             },
+            {
+                id: 'artifact_3',
+                kind: 'hierarchy',
+                s3ObjectKey: 'tenant/team_1/project/project_1/sessions/session_1/hierarchy/1000.json.gz',
+                endpointId: 'endpoint_2',
+                sizeBytes: 80,
+                declaredSizeBytes: null,
+            },
         ];
 
         const jobs = [{ id: 'job_1' }];
@@ -233,12 +241,12 @@ describe('sessionArtifactPurge', () => {
             sessionId: 'session_1',
             projectId: 'project_1',
             teamId: 'team_1',
-            deletedArtifactCount: 2,
+            deletedArtifactCount: 3,
             deletedJobCount: 1,
             deletedObjectCount: 3,
             deletedBytes: 900,
-            plannedArtifactCount: 2,
-            plannedArtifactBytes: 425,
+            plannedArtifactCount: 3,
+            plannedArtifactBytes: 505,
             plannedJobCount: 1,
             storageMissing: false,
         });
@@ -246,7 +254,7 @@ describe('sessionArtifactPurge', () => {
         expect(mocks.deletePrefixFromProjectStorage).toHaveBeenCalledWith(
             'project_1',
             'tenant/team_1/project/project_1/sessions/session_1/',
-            ['endpoint_1', null],
+            ['endpoint_1', null, 'endpoint_2'],
         );
         expect(mocks.deletePrefixFromAllConfiguredStorageEndpoints).toHaveBeenCalledWith('sessions/session_1/');
 
@@ -271,7 +279,7 @@ describe('sessionArtifactPurge', () => {
             'canonical_log',
             expect.objectContaining({
                 status: 'completed',
-                deletedArtifactRowCount: 2,
+                deletedArtifactRowCount: 3,
                 deletedIngestJobCount: 1,
                 deletedObjectCount: 3,
                 deletedBytes: 900,

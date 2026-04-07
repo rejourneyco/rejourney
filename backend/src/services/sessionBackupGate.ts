@@ -9,9 +9,18 @@ export async function getBackedUpSessionIds(sessionIds: string[]): Promise<Set<s
     try {
         const result = await pool.query<{ session_id: string }>(
             `
-            SELECT session_id
-            FROM session_backup_log
-            WHERE session_id = ANY($1::varchar[])
+            SELECT bl.session_id
+            FROM session_backup_log bl
+            LEFT JOIN LATERAL (
+                SELECT COUNT(*)::int AS artifact_rows
+                FROM recording_artifacts ra
+                WHERE ra.session_id = bl.session_id
+            ) artifact_stats ON true
+            WHERE bl.session_id = ANY($1::varchar[])
+              AND (
+                COALESCE(artifact_stats.artifact_rows, 0) = 0
+                OR bl.artifact_count >= COALESCE(artifact_stats.artifact_rows, 0)
+              )
             `,
             [sessionIds],
         );

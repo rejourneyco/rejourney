@@ -278,9 +278,15 @@ export async function resolveRetentionDeletionEndpoints(
     for (const endpointId of extraEndpointIds) {
         if (!endpointId || endpointMap.has(endpointId)) continue;
         const endpoint = await getEndpointById(endpointId);
-        if (endpoint) {
-            endpointMap.set(endpoint.id, endpoint);
+        if (!endpoint) continue;
+        if (endpoint.projectId !== null && endpoint.projectId !== projectId) {
+            logger.warn(
+                { endpointId, endpointProjectId: endpoint.projectId, projectId },
+                'Skipping foreign endpoint during retention deletion resolution',
+            );
+            continue;
         }
+        endpointMap.set(endpoint.id, endpoint);
     }
 
     return Array.from(endpointMap.values());
@@ -885,13 +891,20 @@ async function deletePrefixFromEndpoint(
         deletedBytes += contents.reduce((total, obj) => total + Number(obj.Size ?? 0), 0);
 
         if (objectsToDelete.length > 0) {
-            await client.send(new DeleteObjectsCommand({
+            const deleteResponse = await client.send(new DeleteObjectsCommand({
                 Bucket: bucket,
                 Delete: {
                     Objects: objectsToDelete,
                     Quiet: true,
                 },
             }));
+            const deleteErrors = deleteResponse.Errors ?? [];
+            if (deleteErrors.length > 0) {
+                const sample = deleteErrors[0];
+                throw new Error(
+                    `Failed to delete ${deleteErrors.length} object(s) from ${bucket} for prefix ${normalizedPrefix}; sample key=${sample?.Key ?? 'unknown'} code=${sample?.Code ?? 'unknown'}`,
+                );
+            }
         }
 
         continuationToken = listResponse.NextContinuationToken;

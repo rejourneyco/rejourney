@@ -13,9 +13,9 @@ import { db, sessions, sessionMetrics, recordingArtifacts, projects, teamMembers
 import { gunzipSync } from 'zlib';
 
 import {
+    getSignedDownloadUrl,
     getSignedDownloadUrlForProject,
     downloadFromS3ForArtifact,
-    downloadFromS3ForProject,
     getObjectSizeBytesForArtifact,
 } from '../db/s3.js';
 import {
@@ -1064,36 +1064,6 @@ async function loadHierarchyPayload(session: any, artifactsList: any[]) {
         .sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
 }
 
-type FrameProxyCacheEntry = {
-    data: Buffer;
-    expiresAt: number;
-};
-
-const FRAME_PROXY_CACHE_TTL_MS = Number(process.env.RJ_FRAME_PROXY_CACHE_TTL_MS ?? 5 * 60 * 1000);
-const FRAME_PROXY_CACHE_MAX_ENTRIES = Number(process.env.RJ_FRAME_PROXY_CACHE_MAX_ENTRIES ?? 400);
-const frameProxyCache = new Map<string, FrameProxyCacheEntry>();
-
-function getFrameFromProxyCache(cacheKey: string): Buffer | null {
-    const entry = frameProxyCache.get(cacheKey);
-    if (!entry) return null;
-    if (entry.expiresAt < Date.now()) {
-        frameProxyCache.delete(cacheKey);
-        return null;
-    }
-    return entry.data;
-}
-
-function setFrameProxyCache(cacheKey: string, data: Buffer) {
-    if (frameProxyCache.size >= FRAME_PROXY_CACHE_MAX_ENTRIES) {
-        const oldestKey = frameProxyCache.keys().next().value;
-        if (oldestKey) frameProxyCache.delete(oldestKey);
-    }
-    frameProxyCache.set(cacheKey, {
-        data,
-        expiresAt: Date.now() + FRAME_PROXY_CACHE_TTL_MS,
-    });
-}
-
 /**
  * Export sessions as CSV
  * GET /api/sessions/export
@@ -1608,7 +1578,9 @@ router.get(
                         allEvents.push(...parsed);
                     }
                 }
-                const url = await getSignedDownloadUrlForProject(session.projectId, artifact.s3ObjectKey);
+                const url = artifact.endpointId
+                    ? await getSignedDownloadUrl(artifact.endpointId, artifact.s3ObjectKey)
+                    : await getSignedDownloadUrlForProject(session.projectId, artifact.s3ObjectKey);
                 if (url) eventsUrls.push(url);
             } catch (err) {
                 logger.warn(
@@ -2226,7 +2198,14 @@ router.get(
         if (teamIds.length === 0) throw ApiError.notFound('Frame not found');
 
         const [session] = await db
-            .select({ projectId: sessions.projectId, startedAt: sessions.startedAt })
+            .select({
+                projectId: sessions.projectId,
+                startedAt: sessions.startedAt,
+                endedAt: sessions.endedAt,
+                explicitEndedAt: sessions.explicitEndedAt,
+                finalizedAt: sessions.finalizedAt,
+                lastIngestActivityAt: sessions.lastIngestActivityAt,
+            })
             .from(sessions)
             .where(and(eq(sessions.id, sessionId), inArray(sessions.projectId, 
                 db.select({ id: projects.id }).from(projects).where(and(inArray(projects.teamId, teamIds), isNull(projects.deletedAt)))
@@ -2235,6 +2214,13 @@ router.get(
 
         if (!session) throw ApiError.notFound('Frame not found');
         const sessionStartMs = session.startedAt.getTime();
+        const effectiveSessionEnd = session.endedAt
+            ?? session.explicitEndedAt
+            ?? session.finalizedAt
+            ?? (session.lastIngestActivityAt && session.lastIngestActivityAt > session.startedAt ? session.lastIngestActivityAt : null);
+        const sessionEndMs = effectiveSessionEnd ? effectiveSessionEnd.getTime() : Number.MAX_SAFE_INTEGER;
+        const lowerBoundMs = Math.max(0, sessionStartMs - 30_000);
+        const upperBoundMs = sessionEndMs + 120_000;
 
         // If it was a legacy artifact ID, act as normal S3 fetch
         if (!isTimestamp || isNaN(targetTimestampMs)) {
@@ -2273,7 +2259,7 @@ router.get(
                     eq(recordingArtifacts.status, 'ready')
                 )
             )
-            .orderBy(recordingArtifacts.timestamp);
+            .orderBy(recordingArtifacts.startTime, recordingArtifacts.timestamp, recordingArtifacts.createdAt);
 
         if (artifacts.length === 0) throw ApiError.notFound('No ready screenshot artifacts found for session');
 
@@ -2302,6 +2288,9 @@ router.get(
 
         // Cache all extracted frames for immediate playback
         for (const frame of frames) {
+            if (frame.timestamp < lowerBoundMs || frame.timestamp > upperBoundMs) {
+                continue;
+            }
             const frameCacheKey = `screenshot_frame_data:${sessionId}:${frame.timestamp}`;
             try {
                 // Cache for 10 minutes - typical replay session duration
@@ -2608,21 +2597,9 @@ router.get(
         const sessionId = req.params.id;
         const frameTimestamp = req.params.frameTimestamp;
 
-        // Verify session access before serving frame bytes (with Redis-backed cache).
-        const { session } = await getAuthorizedSessionForFrames(req.user!.id, sessionId);
-
-        // Construct frame S3 key
-        const frameKey = `sessions/${sessionId}/frames/${frameTimestamp}.jpg`;
-
-        const cacheKey = `${session.projectId}:${frameKey}`;
-        const cached = getFrameFromProxyCache(cacheKey);
-        const frameData = cached ?? await downloadFromS3ForProject(session.projectId, frameKey);
-        if (!frameData) throw ApiError.notFound('Frame not found');
-        if (!cached) setFrameProxyCache(cacheKey, frameData);
-
-        res.setHeader('Content-Type', 'image/jpeg');
-        res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
-        res.send(frameData);
+        // Verify access, then delegate to the archive-aware frame endpoint.
+        await getAuthorizedSessionForFrames(req.user!.id, sessionId);
+        return res.redirect(307, `/api/session/frame/${sessionId}/${frameTimestamp}`);
     })
 );
 

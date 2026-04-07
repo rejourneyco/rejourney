@@ -315,6 +315,7 @@ export async function markArtifactUploadStored(params: {
     artifactId: string;
     sizeBytes?: number | null;
     contentType?: string | null;
+    endpointId?: string | null;
 }) {
     const artifactResult = await getArtifactWithSessionById(params.artifactId);
     if (!artifactResult) {
@@ -330,11 +331,13 @@ export async function markArtifactUploadStored(params: {
     const uploadedAt = new Date();
     const nextStatus = artifact.status === 'ready' ? 'ready' : 'uploaded';
     const resolvedSizeBytes = params.sizeBytes ?? artifact.sizeBytes ?? artifact.declaredSizeBytes ?? null;
+    const resolvedEndpointId = params.endpointId ?? artifact.endpointId ?? null;
 
     await db.update(recordingArtifacts)
         .set({
             status: nextStatus,
             sizeBytes: resolvedSizeBytes,
+            endpointId: resolvedEndpointId,
             uploadCompletedAt: artifact.uploadCompletedAt ?? uploadedAt,
         })
         .where(eq(recordingArtifacts.id, artifact.id));
@@ -359,7 +362,7 @@ export async function markArtifactUploadStored(params: {
         artifactId: artifact.id,
         kind: artifact.kind,
         s3ObjectKey: artifact.s3ObjectKey,
-        endpointId: artifact.endpointId ?? null,
+        endpointId: resolvedEndpointId,
         sizeBytes: resolvedSizeBytes,
         contentType: params.contentType ?? null,
         queued: jobState.queued,

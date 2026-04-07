@@ -289,6 +289,7 @@ export async function purgeSessionArtifacts(
     const deleteLegacySessionPrefix = options.deleteLegacySessionPrefix ?? true;
     const allowMissingStorage = options.allowMissingStorage ?? false;
     const context = await loadSessionPurgeContext(sessionId);
+    let finalizedLog = false;
     const canonicalPrefix = buildCanonicalSessionStoragePrefix(
         context.teamId,
         context.projectId,
@@ -336,6 +337,7 @@ export async function purgeSessionArtifacts(
             },
             finishedAt: now,
         });
+        finalizedLog = true;
         throw new Error(`Session ${sessionId} has recording_artifacts outside the canonical prefix`);
     }
 
@@ -360,6 +362,7 @@ export async function purgeSessionArtifacts(
                     endpointResults: buildEndpointBreakdown(deletionResult.endpointResults),
                 },
             });
+            finalizedLog = true;
             throw new Error(`Canonical storage missing for session ${sessionId}`);
         }
 
@@ -418,6 +421,7 @@ export async function purgeSessionArtifacts(
                 endpointResults: buildEndpointBreakdown(deletionResult.endpointResults),
             },
         });
+        finalizedLog = true;
 
         if (deleteLegacySessionPrefix) {
             try {
@@ -464,14 +468,16 @@ export async function purgeSessionArtifacts(
         };
     } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
-        await finalizeRetentionDeletionLog(logId, {
-            status: 'failed',
-            errorText: message,
-            details: {
-                retentionTier: options.retentionTier ?? context.retentionTier,
-                retentionDays: options.retentionDays ?? context.retentionDays,
-            },
-        }).catch(() => {});
+        if (!finalizedLog) {
+            await finalizeRetentionDeletionLog(logId, {
+                status: 'failed',
+                errorText: message,
+                details: {
+                    retentionTier: options.retentionTier ?? context.retentionTier,
+                    retentionDays: options.retentionDays ?? context.retentionDays,
+                },
+            }).catch(() => {});
+        }
         throw err;
     }
 }

@@ -62,6 +62,7 @@ vi.mock('../logger.js', () => ({
 }));
 
 import {
+    markArtifactUploadStored,
     markArtifactUploadInterrupted,
     prepareReplayArtifactForUpload,
 } from '../services/ingestArtifactLifecycle.js';
@@ -270,5 +271,56 @@ describe('ingestArtifactLifecycle', () => {
             'session_1',
             expect.objectContaining({ reopen: true }),
         );
+    });
+
+    it('persists the resolved endpoint when relay upload falls back', async () => {
+        const updateCalls: Array<{ table: unknown; payload: any }> = [];
+        mocks.db.update.mockImplementation((table: unknown) => ({
+            set: vi.fn((payload) => {
+                updateCalls.push({ table, payload });
+                return {
+                    where: vi.fn(async () => ({ table, payload })),
+                };
+            }),
+        }));
+        mocks.db.select.mockReset();
+        queueJoinedSelectResult({
+            artifact: {
+                id: 'artifact_uploaded',
+                status: 'pending',
+                kind: 'screenshots',
+                s3ObjectKey: 'tenant/t/p/s/screenshots/1.tar.gz',
+                endpointId: 'endpoint_old',
+                declaredSizeBytes: 100,
+                sizeBytes: null,
+                uploadCompletedAt: null,
+            },
+            session: {
+                id: 'session_1',
+                projectId: 'project_1',
+            },
+        });
+        // No existing ingest job -> insert one.
+        mocks.db.select.mockImplementationOnce(() => ({
+            from: vi.fn(() => ({
+                where: vi.fn(() => ({
+                    limit: vi.fn(async () => []),
+                })),
+            })),
+        }));
+
+        await markArtifactUploadStored({
+            artifactId: 'artifact_uploaded',
+            endpointId: 'endpoint_new',
+            sizeBytes: 123,
+            contentType: 'application/gzip',
+        });
+
+        expect(updateCalls[0]?.table).toBe(mocks.recordingArtifacts);
+        expect(updateCalls[0]?.payload).toMatchObject({
+            endpointId: 'endpoint_new',
+            status: 'uploaded',
+            sizeBytes: 123,
+        });
     });
 });

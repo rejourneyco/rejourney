@@ -195,13 +195,14 @@ router.put(
             ?? await getObjectSizeBytesForArtifact(
                 session.projectId,
                 artifact.s3ObjectKey,
-                artifact.endpointId,
+                uploadResult.endpointId || artifact.endpointId,
             );
 
         await markArtifactUploadStored({
             artifactId: artifact.id,
             sizeBytes: resolvedSizeBytes,
             contentType,
+            endpointId: uploadResult.endpointId || artifact.endpointId,
         });
 
         res.status(204).end();

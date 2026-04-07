@@ -153,10 +153,17 @@ services:
   minio-setup:
     image: minio/mc:latest
     restart: "no"
-    entrypoint: ["/bin/sh", "-lc"]
-    command: >
-      until mc alias set local http://minio:9000 ${MINIO_ROOT_USER} ${MINIO_ROOT_PASSWORD}; do sleep 2; done &&
-      mc mb -p local/${S3_BUCKET} || true
+    # Image default ENTRYPOINT is `mc`; override so we run a shell script (see local-k8s/minio.yaml).
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -e
+        until mc alias set local http://minio:9000 "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD"; do
+          echo "Waiting for MinIO..."
+          sleep 2
+        done
+        mc mb -p "local/${S3_BUCKET}" || true
+        mc anonymous set download "local/${S3_BUCKET}" || true
     depends_on:
       - minio
     profiles:
@@ -166,6 +173,9 @@ services:
 
   bootstrap:
     image: *migration-image
+    build:
+      context: .
+      dockerfile: backend/Dockerfile.migration
     restart: "no"
     environment:
       <<: *app-env
@@ -179,8 +189,9 @@ services:
       - /bin/sh
       - -lc
       - |
-        drizzle-kit migrate && \
-        npm run db:seed && \
+        node --import tsx scripts/applyDatabaseSchema.ts && \
+        node --import tsx scripts/seedIfDatabaseEmpty.ts && \
+        node --import tsx scripts/bootstrapSystemData.ts && \
         node --import tsx scripts/syncStorageEndpoint.ts
     networks:
       - rejourney-network
@@ -326,10 +337,19 @@ services:
     networks:
       - rejourney-network
 
+  # Matches k8s/workers.yaml retention-worker CronJob (*/15 * * * *): single-shot runs with backlog drain.
   retention-worker:
     image: *api-image
     restart: unless-stopped
-    command: ["node", "dist/worker/retentionWorker.js"]
+    command:
+      - /bin/sh
+      - -c
+      - |
+        set -eu
+        while true; do
+          node dist/worker/retentionWorker.js --once --drain-backlog --trigger=scheduled
+          sleep 900
+        done
     environment:
       <<: *app-env
     depends_on:

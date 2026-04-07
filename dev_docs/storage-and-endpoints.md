@@ -1,3 +1,273 @@
+# Storage Endpoints Visual Guide
+
+Diagram-first reference for multi-bucket, project-scoped endpoints, shadow replication, backup, and retention safety.
+
+---
+
+## 1) System Map
+
+```mermaid
+flowchart LR
+  sdk[SDK] --> presign[PresignAPI]
+  presign --> selectEndpoint[EndpointSelector]
+  selectEndpoint --> primaryWrite[PrimaryBucketWrite]
+  primaryWrite --> persistArtifact[recording_artifacts.endpoint_id]
+  primaryWrite --> shadowWrite[ShadowWritesAsync]
+
+  persistArtifact --> ingestWorker[IngestWorkers]
+  persistArtifact --> replayRoutes[ReplayDownloadRoutes]
+  persistArtifact --> backupWorker[SessionBackupWorker]
+  persistArtifact --> retentionWorker[RetentionDeletionWorker]
+
+  backupWorker --> backupLog[session_backup_log]
+  backupLog --> backupGate[RetentionBackupGate]
+```
+
+---
+
+## 2) Endpoint Resolution Rules
+
+```mermaid
+flowchart TD
+  start[NeedEndpointForProject] --> projectSpecific{ActivePrimaryForProject?}
+  projectSpecific -->|Yes| weightedProject[WeightedPickByPriority]
+  projectSpecific -->|No| globalDefault{ActiveGlobalPrimaryExists?}
+  globalDefault -->|Yes| weightedGlobal[WeightedPickByPriority]
+  globalDefault -->|No| errorNoEndpoint[ThrowNoStorageEndpointConfigured]
+```
+
+```mermaid
+flowchart TD
+  resolveShadows[GetShadowEndpoints] --> allShadows[LoadActiveShadowRows]
+  allShadows --> splitRows[SplitProjectSpecificAndGlobal]
+  splitRows --> ordered[ProjectShadowsThenGlobalShadows]
+```
+
+Notes:
+- `shadow=false` rows are primary candidates.
+- `shadow=true` rows receive async replica writes only.
+- `project_id=NULL` means global default scope.
+
+---
+
+## 3) Data Model (Storage-Critical)
+
+```mermaid
+erDiagram
+  projects ||--o{ storage_endpoints : owns
+  sessions }o--|| projects : belongs_to
+  sessions ||--o{ recording_artifacts : has
+  recording_artifacts }o--|| storage_endpoints : pinned_to
+  sessions ||--o| session_backup_log : backup_status
+
+  storage_endpoints {
+    uuid id
+    uuid project_id
+    text endpoint_url
+    varchar bucket
+    varchar access_key_id
+    varchar key_ref
+    int priority
+    bool active
+    bool shadow
+  }
+
+  recording_artifacts {
+    uuid id
+    varchar session_id
+    text s3_object_key
+    varchar endpoint_id
+    varchar status
+  }
+
+  session_backup_log {
+    varchar session_id
+    int artifact_count
+    int planned_artifact_count
+    bigint total_bytes
+  }
+```
+
+---
+
+## 4) Ingest + Upload Sequence
+
+```mermaid
+sequenceDiagram
+  participant sdk as SDK
+  participant api as API
+  participant s3 as SelectedS3Endpoint
+  participant db as Postgres
+
+  sdk->>api: presign / prepare artifact
+  api->>db: resolve endpoint for project
+  api-->>sdk: signed upload URL + endpoint context
+  sdk->>s3: upload bytes
+  sdk->>api: upload relay complete
+  api->>db: mark stored + persist resolved endpoint_id
+  api-->>sdk: accepted
+```
+
+Critical behavior:
+- If upload fallback picks a different endpoint, stored `endpoint_id` is updated to actual endpoint used.
+
+---
+
+## 5) Backup Worker (Current Safe Model)
+
+```mermaid
+flowchart TD
+  runStart[BackupRunStart] --> loadArtifacts[LoadReadyArtifactsForSession]
+  loadArtifacts --> joinEndpoint[Joinstorage_endpointsByendpoint_id]
+  joinEndpoint --> resolveCreds[ResolvePerArtifactCredentials]
+  resolveCreds --> copyLoop[CopyEachArtifactToR2]
+  copyLoop --> validateCounts{CopiedCountEqualsPlanned?}
+  validateCounts -->|No| failRollback[FailAndRemoveR2Prefix]
+  validateCounts -->|Yes| rebuildManifest[RebuildManifestAfterRepairs]
+  rebuildManifest --> upsertLog[Upsertsession_backup_logWithPlannedCount]
+  upsertLog --> runDone[SessionBackupComplete]
+```
+
+```mermaid
+flowchart TD
+  decryptPath[EndpointHaskey_ref] --> keyCheck{STORAGE_ENCRYPTION_KEYSet?}
+  keyCheck -->|No| failDecrypt[FailBackupSession]
+  keyCheck -->|Yes| aesGcm[AES256GCMDecrypt]
+  aesGcm --> credsReady[UseEndpointAccessKeyAndDecryptedSecret]
+```
+
+Backup completeness contract:
+- Backup row now stores both:
+  - `artifact_count` (copied)
+  - `planned_artifact_count` (expected)
+- Session backup is only considered successful when copied equals planned.
+
+---
+
+## 6) Retention + Deletion Safety
+
+```mermaid
+flowchart TD
+  retentionStart[RetentionCycle] --> backedUpFilter[FilterByBackupGate]
+  backedUpFilter --> purgeCall[PurgeSessionArtifacts]
+  purgeCall --> deleteStorage[DeleteCanonicalPrefixAcrossResolvedEndpoints]
+  deleteStorage --> dbCleanup[DeleteArtifactRowsAndJobs]
+  dbCleanup --> markFlags[SetrecordingDeletedAndReplayExpired]
+  markFlags --> done[RetentionSuccess]
+```
+
+```mermaid
+flowchart TD
+  failureCase[DBFailsAfterStorageDelete] --> retryDefault[NextRunDefaultPurge]
+  retryDefault --> missingStorage[CanonicalStorageMissingError]
+  missingStorage --> autoRepair[WorkerAutoRetriesWithallowMissingStorage]
+  autoRepair --> cleanupRows[CleanupResidualRowsAndFlags]
+```
+
+Deletion hardening now in place:
+- Rejects foreign endpoint IDs during endpoint resolution for project purge.
+- Fails if S3 `DeleteObjects` returns per-object errors (no silent partial success accounting).
+- Retention worker auto-recovers missing-storage replay with repair mode.
+
+---
+
+## 7) Backup Gate Logic
+
+```mermaid
+flowchart TD
+  gateStart[SessionCandidateForExpiry] --> hasRows{ArtifactRowsCount}
+  hasRows -->|0| allow[AllowPurge]
+  hasRows -->|gt0| compare{backup.artifact_count>=artifact_rows?}
+  compare -->|Yes| allow2[AllowPurge]
+  compare -->|No| block[BlockPurgeUntilBackupComplete]
+```
+
+This prevents `artifact_count > 0` partial backups from passing gate checks.
+
+---
+
+## 8) Replay Read Path
+
+```mermaid
+flowchart TD
+  replayReq[ReplayFrameRequest] --> authz[AuthorizeSessionAccess]
+  authz --> archiveRoute[ArchiveAwareFrameRoute]
+  archiveRoute --> pickArtifact[SelectScreenshotArchiveByTime]
+  pickArtifact --> readByEndpoint[DownloadUsingArtifactendpoint_id]
+  readByEndpoint --> windowFilter[FilterFramesToSessionWindow]
+  windowFilter --> response[ReturnNearestFrame]
+```
+
+Compatibility behavior:
+- Legacy frame proxy route redirects to archive-aware route.
+- Artifact-specific signed URLs are used when endpoint pinning exists.
+
+---
+
+## 9) Scope Matrix
+
+```mermaid
+flowchart LR
+  globalPrimary[project_id NULL shadow false] --> allProjects[AllProjectsFallback]
+  projectPrimary[project_id X shadow false] --> oneProject[ProjectXOnly]
+  globalShadow[project_id NULL shadow true] --> replicaAll[ReplicaForAllProjects]
+  projectShadow[project_id X shadow true] --> replicaOne[ReplicaForProjectXOnly]
+```
+
+---
+
+## 10) Operational Checks (Runbook SQL)
+
+```sql
+-- Sessions split across endpoint IDs
+SELECT ra.session_id, COUNT(DISTINCT COALESCE(ra.endpoint_id, 'global-default')) AS endpoint_count
+FROM recording_artifacts ra
+WHERE ra.status = 'ready'
+GROUP BY ra.session_id
+HAVING COUNT(DISTINCT COALESCE(ra.endpoint_id, 'global-default')) > 1
+ORDER BY endpoint_count DESC, ra.session_id
+LIMIT 200;
+```
+
+```sql
+-- Ready artifacts with invalid endpoint references
+SELECT ra.id, ra.session_id, ra.kind, ra.endpoint_id, ra.s3_object_key
+FROM recording_artifacts ra
+LEFT JOIN storage_endpoints se ON se.id = ra.endpoint_id
+WHERE ra.status = 'ready'
+  AND ra.endpoint_id IS NOT NULL
+  AND se.id IS NULL
+ORDER BY ra.session_id, ra.kind
+LIMIT 500;
+```
+
+```sql
+-- Backup coverage by project
+SELECT
+  s.project_id,
+  COUNT(*) FILTER (WHERE bl.session_id IS NOT NULL) AS backed_up_sessions,
+  COUNT(*) AS eligible_sessions,
+  ROUND((COUNT(*) FILTER (WHERE bl.session_id IS NOT NULL)::numeric / NULLIF(COUNT(*), 0)) * 100, 2) AS backup_coverage_percent
+FROM sessions s
+LEFT JOIN session_backup_log bl ON bl.session_id = s.id
+WHERE s.status IN ('ready', 'completed')
+GROUP BY s.project_id
+ORDER BY backup_coverage_percent ASC, eligible_sessions DESC;
+```
+
+---
+
+## 11) Source Files
+
+- `backend/src/db/s3.ts`
+- `backend/src/routes/ingestUploadRelay.ts`
+- `backend/src/services/ingestArtifactLifecycle.ts`
+- `backend/src/services/sessionBackupGate.ts`
+- `backend/src/services/sessionArtifactPurge.ts`
+- `backend/src/worker/retentionWorker.ts`
+- `scripts/k8s/session-backup.mjs`
+- `k8s/archive.yaml`
+- `docs/selfhosted/backup-recovery.md`
 # Storage Endpoints & Shadow System
 
 > Multi-endpoint S3 architecture with redundancy, encryption, and runtime management. The database is the source of truth for storage configuration in production deployments.

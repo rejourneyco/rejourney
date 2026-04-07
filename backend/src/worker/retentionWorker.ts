@@ -148,17 +148,55 @@ async function processExpiredSessions(runId: string, trigger: string): Promise<{
 
         for (const session of backedUp) {
             try {
-                const result = await purgeSessionArtifacts(session.id, {
+                let result = await purgeSessionArtifacts(session.id, {
                     runId,
                     trigger,
                     now,
                     retentionTier: session.retentionTier,
                     retentionDays: session.retentionDays,
                 });
+                if (result.storageMissing) {
+                    result = await purgeSessionArtifacts(session.id, {
+                        runId,
+                        trigger: `${trigger}_retry_missing_storage`,
+                        now,
+                        allowMissingStorage: true,
+                        retentionTier: session.retentionTier,
+                        retentionDays: session.retentionDays,
+                    });
+                }
                 processedCount++;
                 deletedObjectCount += result.deletedObjectCount;
                 deletedBytes += result.deletedBytes;
             } catch (err) {
+                const message = err instanceof Error ? err.message : String(err);
+                if (message.includes('Canonical storage missing')) {
+                    try {
+                        const repairResult = await purgeSessionArtifacts(session.id, {
+                            runId,
+                            trigger: `${trigger}_repair_missing_storage`,
+                            now,
+                            allowMissingStorage: true,
+                            retentionTier: session.retentionTier,
+                            retentionDays: session.retentionDays,
+                        });
+                        processedCount++;
+                        deletedObjectCount += repairResult.deletedObjectCount;
+                        deletedBytes += repairResult.deletedBytes;
+                        logger.warn(
+                            { sessionId: session.id, trigger },
+                            'Recovered retention purge via allowMissingStorage after canonical storage was already gone',
+                        );
+                        continue;
+                    } catch (repairErr) {
+                        failedCount++;
+                        logger.error(
+                            { err: repairErr, sessionId: session.id },
+                            'Failed to recover expired session after canonical storage was already missing',
+                        );
+                        continue;
+                    }
+                }
                 failedCount++;
                 logger.error({ err, sessionId: session.id }, 'Failed to process expired session');
             }
