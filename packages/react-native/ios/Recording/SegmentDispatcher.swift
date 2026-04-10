@@ -88,6 +88,16 @@ final class SegmentDispatcher {
         batchSeqNumber = 0
         billingBlocked = false
         consecutiveFailures = 0
+        circuitOpen = false
+        circuitOpenTime = 0
+        active = true
+        retryLock.lock()
+        let droppedRetries = retryQueue.count
+        retryQueue.removeAll()
+        retryLock.unlock()
+        if droppedRetries > 0 {
+            DiagnosticLog.trace("[SegmentDispatcher] Dropped \(droppedRetries) stale retries while configuring session \(replayId.prefix(20))")
+        }
         resetSessionTelemetry()
     }
     
@@ -182,6 +192,7 @@ final class SegmentDispatcher {
         currentQueueDepth: Int = 0,
         endReason: String? = nil,
         lifecycleVersion: Int? = nil,
+        closeAnchorAtMs: UInt64? = nil,
         completion: @escaping (Bool) -> Void
     ) {
         guard let url = URL(string: "\(endpoint)/api/ingest/session/end") else {
@@ -193,7 +204,7 @@ final class SegmentDispatcher {
         var req = URLRequest(url: url)
         req.httpMethod = "POST"
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        applyAuthHeaders(&req)
+        applyAuthHeaders(&req, sessionId: replayId)
         
         var body: [String: Any] = [
             "sessionId": replayId,
@@ -208,6 +219,9 @@ final class SegmentDispatcher {
         }
         if let lifecycleVersion, lifecycleVersion > 0 {
             body["lifecycleVersion"] = lifecycleVersion
+        }
+        if let closeAnchorAtMs, closeAnchorAtMs > 0 {
+            body["closeAnchorAtMs"] = closeAnchorAtMs
         }
         
         do {
@@ -275,6 +289,11 @@ final class SegmentDispatcher {
             completion?(false)
             return
         }
+        if isUploadForClosedSession(upload.sessionId) {
+            DiagnosticLog.trace("[SegmentDispatcher] Dropping stale \(upload.contentType) upload for closed session \(upload.sessionId.prefix(20))")
+            completion?(false)
+            return
+        }
         
         requestPresignedUrl(upload: upload) { [weak self] presignResponse in
             guard let self, self.active else {
@@ -312,6 +331,11 @@ final class SegmentDispatcher {
     }
     
     private func scheduleRetryIfNeeded(_ upload: PendingUpload, completion: ((Bool) -> Void)?) {
+        if isUploadForClosedSession(upload.sessionId) {
+            DiagnosticLog.trace("[SegmentDispatcher] Discarding retry for closed session \(upload.sessionId.prefix(20))")
+            completion?(false)
+            return
+        }
         if upload.attempt < 3 {
             var retry = upload
             retry.attempt += 1
@@ -349,7 +373,7 @@ final class SegmentDispatcher {
         var req = URLRequest(url: url)
         req.httpMethod = "POST"
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        applyAuthHeaders(&req)
+        applyAuthHeaders(&req, sessionId: upload.sessionId)
         
         var body: [String: Any] = [
             "sessionId": upload.sessionId,
@@ -453,7 +477,7 @@ final class SegmentDispatcher {
         var req = URLRequest(url: url)
         req.httpMethod = "POST"
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        applyAuthHeaders(&req)
+        applyAuthHeaders(&req, sessionId: upload.sessionId)
         
         var body: [String: Any] = [
             "actualSizeBytes": upload.payload.count,
@@ -492,6 +516,11 @@ final class SegmentDispatcher {
             attempt: 0,
             batchNumber: batchNum
         )
+        if isUploadForClosedSession(upload.sessionId) {
+            DiagnosticLog.trace("[SegmentDispatcher] Dropping stale events upload for closed session \(upload.sessionId.prefix(20))")
+            completion?(false)
+            return
+        }
         
         requestPresignedUrl(upload: upload) { [weak self] presignResponse in
             guard let self, let presign = presignResponse else {
@@ -517,16 +546,23 @@ final class SegmentDispatcher {
         }
     }
     
-    private func applyAuthHeaders(_ req: inout URLRequest) {
+    private func applyAuthHeaders(_ req: inout URLRequest, sessionId: String? = nil) {
         if let t = apiToken {
             req.setValue(t, forHTTPHeaderField: "x-rejourney-key")
         }
         if let c = credential {
             req.setValue(c, forHTTPHeaderField: "x-upload-token")
         }
-        if let sid = currentReplayId {
+        if let sid = sessionId ?? currentReplayId {
             req.setValue(sid, forHTTPHeaderField: "x-session-id")
         }
+    }
+
+    private func isUploadForClosedSession(_ sessionId: String) -> Bool {
+        guard let activeSessionId = currentReplayId, !activeSessionId.isEmpty else {
+            return false
+        }
+        return sessionId != activeSessionId
     }
     
     private func ingestFinalizeMetrics(_ metrics: [String: Any]?) {

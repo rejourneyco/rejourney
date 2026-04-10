@@ -62,7 +62,16 @@ export const artifactProcessors: Record<string, ArtifactProcessor> = {
     },
     screenshots: async (context) => {
         const sizeBytes = await loadArtifactObjectSize(context);
-        await processRecoveredReplayArtifact(context.job, context.log);
+        const data = await downloadFromS3ForArtifact(context.projectId, context.s3Key, context.artifact.endpointId);
+        if (!data) throw new Error('Artifact payload missing from S3 for screenshots');
+        await processRecoveredReplayArtifact({
+            artifactId: context.job.artifactId ?? undefined,
+            data,
+            expectedFrameCount: context.artifact.frameCount,
+            job: context.job,
+            log: context.log,
+            sessionStartTime: context.session.startedAt.getTime(),
+        });
         return { sizeBytes };
     },
     hierarchy: async (context) => {
@@ -76,7 +85,16 @@ export const artifactProcessors: Record<string, ArtifactProcessor> = {
         const sizeBytes = repairResult.sizeBytes == null
             ? await loadArtifactObjectSize(context)
             : assertArtifactObjectSize(context.job.kind, repairResult.sizeBytes);
-        await processRecoveredReplayArtifact(context.job, context.log);
+        const data = await downloadFromS3ForArtifact(context.projectId, context.s3Key, context.artifact.endpointId);
+        if (!data) throw new Error('Artifact payload missing from S3 for hierarchy');
+        await processRecoveredReplayArtifact({
+            artifactId: context.job.artifactId ?? undefined,
+            data,
+            expectedFrameCount: context.artifact.frameCount,
+            job: context.job,
+            log: context.log,
+            sessionStartTime: context.session.startedAt.getTime(),
+        });
         return { sizeBytes };
     },
 };

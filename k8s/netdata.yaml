@@ -115,11 +115,11 @@ spec:
               readOnly: true
           resources:
             requests:
-              cpu: 25m
-              memory: 48Mi
+              cpu: 50m
+              memory: 256Mi
             limits:
-              cpu: 100m
-              memory: 112Mi
+              cpu: 200m
+              memory: 512Mi
       volumes:
         - name: proc
           hostPath:

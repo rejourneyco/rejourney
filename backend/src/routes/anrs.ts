@@ -10,6 +10,7 @@ import { eq, and, desc, gte } from 'drizzle-orm';
 import { db, anrs, projects, teamMembers, sessions } from '../db/client.js';
 import { sessionAuth, asyncHandler, ApiError } from '../middleware/index.js';
 import { generateANRFingerprint } from '../services/issueTracker.js';
+import { resolveAnrStackTrace } from '../services/anrStack.js';
 
 const router = Router();
 
@@ -106,7 +107,11 @@ router.get(
 
         for (const row of rows) {
             const anr = row.anr;
-            const fingerprint = generateANRFingerprint(anr.threadState || '');
+            const stackTrace = resolveAnrStackTrace({
+                threadState: anr.threadState,
+                deviceMetadata: anr.deviceMetadata,
+            });
+            const fingerprint = generateANRFingerprint(stackTrace || anr.threadState || '');
             const groupKey = `anrgrp_${crypto.createHash('sha1').update(fingerprint).digest('hex').slice(0, 16)}`;
 
             let group = groups.get(groupKey);
@@ -117,7 +122,7 @@ router.get(
                     projectId: anr.projectId,
                     timestamp: anr.timestamp,
                     durationMs: anr.durationMs,
-                    threadState: anr.threadState,
+                    threadState: stackTrace,
                     deviceMetadata: anr.deviceMetadata,
                     status: anr.status,
                     occurrenceCount: 0,
@@ -202,7 +207,13 @@ router.get(
         if (!anr) {
             throw ApiError.notFound('ANR not found');
         }
-        res.json(anr);
+        res.json({
+            ...anr,
+            threadState: resolveAnrStackTrace({
+                threadState: anr.threadState,
+                deviceMetadata: anr.deviceMetadata,
+            }),
+        });
     })
 );
 

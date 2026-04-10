@@ -1,4 +1,4 @@
-import { eq, or } from 'drizzle-orm';
+import { eq, or, sql } from 'drizzle-orm';
 import {
     db,
     ingestJobs,
@@ -8,7 +8,7 @@ import {
     sessions,
 } from '../db/client.js';
 import { getRedis } from '../db/redis.js';
-import { deletePrefixFromProjectStorage } from '../db/s3.js';
+import { deletePrefixFromBackupR2, deletePrefixFromProjectStorage } from '../db/s3.js';
 import { logger } from '../logger.js';
 import {
     beginRetentionDeletionLog,
@@ -55,6 +55,9 @@ export interface PurgeSessionArtifactsOptions {
     allowMissingStorage?: boolean;
     retentionTier?: number | null;
     retentionDays?: number | null;
+    deleteBackupCopy?: boolean;
+    deleteBackupLogEntry?: boolean;
+    backupKeyPrefix?: string | null;
 }
 
 export interface PurgeSessionArtifactsResult {
@@ -70,6 +73,8 @@ export interface PurgeSessionArtifactsResult {
     plannedJobCount: number;
     cacheKeyCount: number;
     storageMissing: boolean;
+    deletedBackupObjectCount: number;
+    deletedBackupBytes: number;
 }
 
 export interface ExpiredSessionArtifactRepairResult {
@@ -87,6 +92,14 @@ export function buildCanonicalSessionStoragePrefix(
     sessionId: string,
 ): string {
     return `tenant/${teamId}/project/${projectId}/sessions/${sessionId}/`;
+}
+
+export function buildCanonicalSessionBackupPrefix(
+    teamId: string,
+    projectId: string,
+    sessionId: string,
+): string {
+    return `backups/tenant/${teamId}/project/${projectId}/sessions/${sessionId}`;
 }
 
 async function invalidatePurgedSessionCaches(sessionId: string): Promise<number> {
@@ -201,6 +214,8 @@ export async function purgeSessionArtifacts(
         context.projectId,
         context.sessionId,
     );
+    const backupKeyPrefix = options.backupKeyPrefix
+        ?? buildCanonicalSessionBackupPrefix(context.teamId, context.projectId, context.sessionId);
     const plannedArtifactBytes = context.artifacts.reduce(
         (total, artifact) => total + Number(artifact.sizeBytes ?? artifact.declaredSizeBytes ?? 0),
         0,
@@ -253,6 +268,13 @@ export async function purgeSessionArtifacts(
             canonicalPrefix,
             context.artifacts.map((artifact) => artifact.endpointId),
         );
+        let deletedBackupObjectCount = 0;
+        let deletedBackupBytes = 0;
+        if (options.deleteBackupCopy) {
+            const backupDeletion = await deletePrefixFromBackupR2(backupKeyPrefix);
+            deletedBackupObjectCount = backupDeletion.deletedObjectCount;
+            deletedBackupBytes = backupDeletion.deletedBytes;
+        }
         const storageMissing = context.artifacts.length > 0 && deletionResult.deletedObjectCount === 0;
 
         if (storageMissing && !allowMissingStorage) {
@@ -307,6 +329,10 @@ export async function purgeSessionArtifacts(
                     updatedAt: now,
                 })
                 .where(eq(sessions.id, context.sessionId));
+
+            if (options.deleteBackupLogEntry) {
+                await tx.execute(sql`DELETE FROM session_backup_log WHERE session_id = ${context.sessionId}`);
+            }
         });
 
         const cacheKeyCount = invalidateCaches
@@ -325,6 +351,9 @@ export async function purgeSessionArtifacts(
                 retentionTier: options.retentionTier ?? context.retentionTier,
                 retentionDays: options.retentionDays ?? context.retentionDays,
                 endpointResults: buildEndpointBreakdown(deletionResult.endpointResults),
+                backupDeletedObjectCount: deletedBackupObjectCount,
+                backupDeletedBytes: deletedBackupBytes,
+                backupKeyPrefix: options.deleteBackupCopy ? backupKeyPrefix : null,
             },
         });
         finalizedLog = true;
@@ -338,6 +367,8 @@ export async function purgeSessionArtifacts(
             deletedJobCount,
             deletedObjectCount: deletionResult.deletedObjectCount,
             deletedBytes: deletionResult.deletedBytes,
+            deletedBackupObjectCount,
+            deletedBackupBytes,
             storageMissing,
         }, 'Purged canonical session artifacts and storage');
 
@@ -354,6 +385,8 @@ export async function purgeSessionArtifacts(
             plannedJobCount: context.jobs.length,
             cacheKeyCount,
             storageMissing,
+            deletedBackupObjectCount,
+            deletedBackupBytes,
         };
     } catch (err) {
         const message = err instanceof Error ? err.message : String(err);

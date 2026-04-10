@@ -322,6 +322,9 @@ export const sessions = pgTable(
         explicitEndedAt: timestamp('explicit_ended_at'),
         finalizedAt: timestamp('finalized_at'),
         lastIngestActivityAt: timestamp('last_ingest_activity_at').defaultNow().notNull(),
+        lastClientEventAt: timestamp('last_client_event_at'),
+        lastClientForegroundAt: timestamp('last_client_foreground_at'),
+        lastClientBackgroundAt: timestamp('last_client_background_at'),
         durationSeconds: integer('duration_seconds'),
         backgroundTimeSeconds: integer('background_time_seconds').default(0),
         status: varchar('status', { length: 20 }).default('pending').notNull(),
@@ -364,6 +367,7 @@ export const sessions = pgTable(
     (table) => [
         index('sessions_project_started_idx').on(table.projectId, table.startedAt),
         index('sessions_status_idx').on(table.status),
+        index('sessions_backup_ready_started_idx').on(table.status, table.startedAt, table.id),
         index('sessions_replay_available_idx').on(table.replayAvailable, table.startedAt),
         /** Speeds session archive list + count for replay-ready rows per project */
         index('sessions_archive_replay_idx')
@@ -508,11 +512,54 @@ export const ingestJobs = pgTable(
     (table) => [
         index('ingest_jobs_status_next_run_idx').on(table.status, table.nextRunAt),
         index('ingest_jobs_project_id_idx').on(table.projectId),
+        index('ingest_jobs_session_idx').on(table.sessionId),
         /** Speeds EXISTS lookups from session list rows (pending/processing jobs only) */
         index('ingest_jobs_session_pending_idx')
             .on(table.sessionId)
             .where(sql`${table.status} IN ('pending', 'processing')`),
         uniqueIndex('ingest_jobs_artifact_id_unique').on(table.artifactId),
+    ]
+);
+
+export const sessionBackupLog = pgTable(
+    'session_backup_log',
+    {
+        sessionId: varchar('session_id', { length: 64 }).primaryKey(),
+        backedUpAt: timestamp('backed_up_at').defaultNow().notNull(),
+        r2KeyPrefix: text('r2_key_prefix').notNull(),
+        artifactCount: integer('artifact_count').default(0).notNull(),
+        totalBytes: bigint('total_bytes', { mode: 'number' }).default(0).notNull(),
+        plannedArtifactCount: integer('planned_artifact_count').default(0).notNull(),
+        highQuality: boolean('high_quality'),
+        qualityTier: varchar('quality_tier', { length: 32 }),
+        qualityReason: jsonb('quality_reason'),
+        qualityCheckedAt: timestamp('quality_checked_at', { withTimezone: true }),
+        qualityRuleVersion: integer('quality_rule_version'),
+        actualR2ArtifactCount: integer('actual_r2_artifact_count'),
+        actualR2ObjectCount: integer('actual_r2_object_count'),
+        manifestPresent: boolean('manifest_present'),
+    },
+    (table) => [
+        index('session_backup_log_backed_up_at_idx').on(table.backedUpAt),
+    ]
+);
+
+export const sessionBackupQueue = pgTable(
+    'session_backup_queue',
+    {
+        sessionId: varchar('session_id', { length: 64 }).primaryKey().references(() => sessions.id, { onDelete: 'cascade' }),
+        status: varchar('status', { length: 20 }).default('pending').notNull(),
+        attempts: integer('attempts').default(0).notNull(),
+        nextRetryAt: timestamp('next_retry_at'),
+        claimedBy: varchar('claimed_by', { length: 255 }),
+        claimedAt: timestamp('claimed_at'),
+        lastError: text('last_error'),
+        createdAt: timestamp('created_at').defaultNow().notNull(),
+        updatedAt: timestamp('updated_at').defaultNow().notNull(),
+    },
+    (table) => [
+        index('session_backup_queue_claim_idx').on(table.status, table.nextRetryAt, table.createdAt, table.sessionId),
+        index('session_backup_queue_stale_idx').on(table.status, table.claimedAt),
     ]
 );
 

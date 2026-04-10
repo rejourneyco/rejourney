@@ -76,7 +76,6 @@ class VisualCapture private constructor(private val context: Context) {
     private val frameCounter = AtomicLong(0)
     private var sessionEpoch: Long = 0
     private val redactionMask = RedactionMask()
-    private var deferredUntilCommit = false
     private var framesDiskPath: File? = null
     private var currentSessionId: String? = null
     @Volatile var captureGeneration: Int = 0
@@ -177,23 +176,26 @@ class VisualCapture private constructor(private val context: Context) {
      *  avoid race conditions during backgrounding. */
     fun flushBufferToNetwork() {
         // Take frames from buffer synchronously (not via async sendScreenshots)
-        val images = stateLock.withLock {
+        val (images, captureSessionId) = stateLock.withLock {
             val copy = screenshots.toList()
             screenshots.clear()
-            copy
+            Pair(copy, currentSessionId)
         }
         if (images.isEmpty()) return
         // Package and submit synchronously on this thread
-        packageAndShip(images, sessionEpoch)
+        packageAndShip(images, sessionEpoch, captureSessionId)
     }
-    
-    fun activateDeferredMode() {
-        deferredUntilCommit = true
+
+    fun pauseForBackground() {
+        if (stateMachine.currentState != CaptureState.CAPTURING) return
+        stopCaptureTimer()
+        flushBufferToNetwork()
     }
-    
-    fun commitDeferredData() {
-        deferredUntilCommit = false
-        flushBuffer()
+
+    fun resumeFromBackground() {
+        if (stateMachine.currentState == CaptureState.CAPTURING && captureRunnable == null) {
+            startCaptureTimer()
+        }
     }
     
     fun registerRedaction(view: View) {
@@ -252,6 +254,10 @@ class VisualCapture private constructor(private val context: Context) {
         val activity = currentActivity?.get()
         if (activity == null) {
             DiagnosticLog.trace("[VisualCapture] captureFrame skipped - no activity")
+            return
+        }
+        if (!activity.hasWindowFocus()) {
+            DiagnosticLog.trace("[VisualCapture] captureFrame skipped - activity not in foreground")
             return
         }
         
@@ -405,7 +411,7 @@ class VisualCapture private constructor(private val context: Context) {
         stateLock.withLock {
             screenshots.add(Pair(data, captureTs))
             enforceScreenshotCaps()
-            val shouldSend = !deferredUntilCommit && screenshots.size >= uploadBatchSize
+            val shouldSend = screenshots.size >= uploadBatchSize
             
             if (shouldSend) {
                 sendScreenshots()
@@ -422,10 +428,10 @@ class VisualCapture private constructor(private val context: Context) {
     private fun sendScreenshots() {
         // Check backpressure
         // Copy and clear under lock
-        val images = stateLock.withLock {
+        val (images, captureEpoch, captureSessionId) = stateLock.withLock {
             val copy = screenshots.toList()
             screenshots.clear()
-            copy
+            Triple(copy, sessionEpoch, currentSessionId)
         }
         
         if (images.isEmpty()) {
@@ -437,16 +443,16 @@ class VisualCapture private constructor(private val context: Context) {
         
         // All heavy work happens in background
         encodeExecutor.execute {
-            packageAndShip(images, sessionEpoch)
+            packageAndShip(images, captureEpoch, captureSessionId)
         }
     }
     
-    private fun packageAndShip(images: List<Pair<ByteArray, Long>>, sessionEpoch: Long) {
+    private fun packageAndShip(images: List<Pair<ByteArray, Long>>, sessionEpoch: Long, sessionId: String?) {
         val batchStart = SystemClock.elapsedRealtime()
         
         val bundle = packageFrameBundle(images, sessionEpoch) ?: return
         
-        val rid = TelemetryPipeline.shared?.currentReplayId ?: "unknown"
+        val rid = sessionId ?: "unknown"
         val endTs = images.lastOrNull()?.second ?: sessionEpoch
         val fname = "$rid-$endTs.tar.gz"
         
@@ -459,7 +465,8 @@ class VisualCapture private constructor(private val context: Context) {
             filename = fname,
             startMs = images.firstOrNull()?.second ?: sessionEpoch,
             endMs = endTs,
-            frameCount = images.size
+            frameCount = images.size,
+            sessionId = sessionId
         )
     }
     
@@ -505,7 +512,7 @@ class VisualCapture private constructor(private val context: Context) {
         sendScreenshots()
     }
     
-    fun uploadPendingFrames(sessionId: String, completion: ((Boolean) -> Unit)? = null) {
+    fun uploadPendingFrames(sessionId: String, sessionEpochOverride: Long? = null, completion: ((Boolean) -> Unit)? = null) {
         val framesPath = File(context.cacheDir, "rj_pending/$sessionId/frames")
         
         if (!framesPath.exists()) {
@@ -531,12 +538,14 @@ class VisualCapture private constructor(private val context: Context) {
             return
         }
         
-        val bundle = packageFrameBundle(frames, frames.first().second) ?: run {
+        val recoveryEpoch = sessionEpochOverride?.takeIf { it > 0 } ?: frames.first().second
+        val bundle = packageFrameBundle(frames, recoveryEpoch) ?: run {
             completion?.invoke(false)
             return
         }
         
-        SegmentDispatcher.shared.transmitFrameBundle(
+        SegmentDispatcher.shared.transmitFrameBundleForSession(
+            sessionId = sessionId,
             payload = bundle,
             startMs = frames.first().second,
             endMs = frames.last().second,

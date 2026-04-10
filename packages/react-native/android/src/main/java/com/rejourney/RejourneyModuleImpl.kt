@@ -44,13 +44,13 @@ import com.facebook.react.modules.network.NetworkingModule
 import okhttp3.OkHttpClient
 import com.rejourney.engine.DeviceRegistrar
 import com.rejourney.engine.DiagnosticLog
-import com.rejourney.engine.RejourneyImpl
 
 import com.rejourney.platform.OEMDetector
 import com.rejourney.platform.SessionLifecycleService
 import com.rejourney.platform.TaskRemovedListener
 import com.rejourney.recording.*
 import kotlinx.coroutines.*
+import java.lang.ref.WeakReference
 import java.security.MessageDigest
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.locks.ReentrantLock
@@ -74,7 +74,7 @@ class RejourneyModuleImpl(
 
     companion object {
         const val NAME = "Rejourney"
-        var sdkVersion = "1.0.1"
+        var sdkVersion = "1.0.16"
         
         private const val SESSION_TIMEOUT_MS = 60_000L // 60 seconds
         private const val SESSION_ROLLOVER_GRACE_MS = 2_000L
@@ -94,6 +94,7 @@ class RejourneyModuleImpl(
     private var lastSessionConfig: Map<String, Any>? = null
     private var lastApiUrl: String? = null
     private var lastPublicKey: String? = null
+    private var lastKnownActivity: WeakReference<Activity>? = null
 
     private val mainHandler = Handler(Looper.getMainLooper())
     private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
@@ -108,6 +109,19 @@ class RejourneyModuleImpl(
 
     init {
         DiagnosticLog.trace("[Rejourney] RejourneyModuleImpl constructor")
+    }
+
+    private fun currentCaptureActivity(): Activity? {
+        return reactContext.currentActivity ?: lastKnownActivity?.get()
+    }
+
+    private fun updateCaptureActivity(activity: Activity?) {
+        if (activity != null) {
+            lastKnownActivity = WeakReference(activity)
+        }
+        VisualCapture.shared?.setCurrentActivity(activity)
+        ViewHierarchyScanner.shared?.setCurrentActivity(activity)
+        InteractionRecorder.shared?.setCurrentActivity(activity)
     }
 
     /**
@@ -163,24 +177,19 @@ class RejourneyModuleImpl(
                     StabilityMonitor.getInstance(reactContext).transmitStoredReport()
                 }
                 
-                // Register OkHttp interceptor so native/RN fetch() and XHR go through Rejourney.
-                // Use both mechanisms so we catch requests regardless of init order:
-                // 1) OkHttpClientProvider factory + clear cache (correct field: sClient)
-                // 2) NetworkingModule.setCustomClientBuilder — applied on every request's client
+                // Register OkHttp interception so native/RN fetch() and XHR go through
+                // Rejourney without depending on private React Native internals (no
+                // OkHttpClientProvider/sClient reflection — that breaks across RN versions):
+                // 1) RejourneyOkHttpInitProvider installs the factory before RN init.
+                // 2) We re-apply the factory here for late initialization paths.
+                // 3) NetworkingModule.setCustomClientBuilder covers cached clients by
+                //    decorating every per-request builder.
                 try {
                     OkHttpClientProvider.setOkHttpClientFactory(OkHttpClientFactory {
                         OkHttpClientProvider.createClientBuilder()
                             .addInterceptor(RejourneyNetworkInterceptor())
                             .build()
                     })
-                    // React Native caches the client in OkHttpClientProvider.sClient (not "client").
-                    // Clear it so the next getOkHttpClient() uses our factory.
-                    try {
-                        val clientField = OkHttpClientProvider::class.java.getDeclaredField("sClient")
-                        clientField.isAccessible = true
-                        clientField.set(null, null)
-                    } catch (_: Exception) {}
-                    OkHttpClientProvider.getOkHttpClient()
                     // Ensure every request (including those already using a cached client) gets our
                     // interceptor. NetworkingModule builds per-request clients via mClient.newBuilder()
                     // and applies this builder, so this catches all native API calls.
@@ -271,6 +280,9 @@ class RejourneyModuleImpl(
                 backgroundEntryTimeMs = System.currentTimeMillis()
                 DiagnosticLog.notice("[Rejourney] ⏸️ Session '${currentState.sessionId}' paused (app backgrounded)")
                 
+                VisualCapture.shared?.pauseForBackground()
+                ReplayOrchestrator.shared?.pauseForBackground()
+                TelemetryPipeline.shared?.recordAppBackground()
                 // Flush pending data
                 TelemetryPipeline.shared?.dispatchNow()
                 SegmentDispatcher.shared.shipPending()
@@ -355,6 +367,9 @@ class RejourneyModuleImpl(
                     state = SessionState.Active(currentState.sessionId, currentState.startTimeMs)
                     DiagnosticLog.notice("[Rejourney] ▶️ Resuming session '${currentState.sessionId}'")
                 }
+
+                VisualCapture.shared?.resumeFromBackground()
+                ReplayOrchestrator.shared?.resumeFromBackground()
                 
                 // Record foreground event
                 TelemetryPipeline.shared?.recordAppForeground(backgroundDuration)
@@ -364,6 +379,11 @@ class RejourneyModuleImpl(
     }
 
     private fun startNewSessionAfterTimeout() {
+        if (isShuttingDown) {
+            DiagnosticLog.notice("[Rejourney] Skipping session restart during module shutdown")
+            return
+        }
+
         val apiUrl = lastApiUrl ?: return
         val publicKey = lastPublicKey ?: return
         val savedUserId = currentUserIdentity
@@ -371,11 +391,9 @@ class RejourneyModuleImpl(
         DiagnosticLog.notice("[Rejourney] Starting new session after timeout (user: $savedUserId)")
 
         // Refresh activity on capture components (guards against race with onActivityResumed)
-        val activity = reactContext.currentActivity
+        val activity = currentCaptureActivity()
         if (activity != null) {
-            VisualCapture.shared?.setCurrentActivity(activity)
-            ViewHierarchyScanner.shared?.setCurrentActivity(activity)
-            InteractionRecorder.shared?.setCurrentActivity(activity)
+            updateCaptureActivity(activity)
         }
 
         // Try fast path with cached credentials
@@ -407,6 +425,11 @@ class RejourneyModuleImpl(
         onReady: ((String) -> Unit)? = null,
         onTimeout: (() -> Unit)? = null
     ) {
+        if (isShuttingDown) {
+            DiagnosticLog.notice("[Rejourney] Skipping session-ready wait during module shutdown")
+            return
+        }
+
         val maxAttempts = 50 // 5 seconds max
 
         mainHandler.postDelayed({
@@ -479,6 +502,7 @@ class RejourneyModuleImpl(
         if (options.hasKey("captureCrashes")) config["captureCrashes"] = options.getBoolean("captureCrashes")
         if (options.hasKey("captureANR")) config["captureANR"] = options.getBoolean("captureANR")
         if (options.hasKey("wifiOnly")) config["wifiOnly"] = options.getBoolean("wifiOnly")
+        if (options.hasKey("captureLogs")) config["captureLogs"] = options.getBoolean("captureLogs")
         
         if (options.hasKey("fps")) {
             val fps = options.getInt("fps").coerceIn(1, 30)
@@ -531,13 +555,11 @@ class RejourneyModuleImpl(
             DeviceRegistrar.shared?.endpoint = apiUrl
 
             // Set current activity on capture components before starting
-            val activity = reactContext.currentActivity
+            val activity = currentCaptureActivity()
             DiagnosticLog.notice("[Rejourney] startSession: currentActivity=${activity?.javaClass?.simpleName ?: "NULL"}, VisualCapture.shared=${VisualCapture.shared != null}")
             if (activity != null) {
                 DiagnosticLog.notice("[Rejourney] Setting activity on capture components")
-                VisualCapture.shared?.setCurrentActivity(activity)
-                ViewHierarchyScanner.shared?.setCurrentActivity(activity)
-                InteractionRecorder.shared?.setCurrentActivity(activity)
+                updateCaptureActivity(activity)
                 DiagnosticLog.notice("[Rejourney] Activity set on all components")
             } else {
                 DiagnosticLog.fault("[Rejourney] CRITICAL: No current activity available for capture!")
@@ -609,8 +631,16 @@ class RejourneyModuleImpl(
 
             stateLock.withLock {
                 val currentState = state
-                if (currentState is SessionState.Active) {
-                    targetSid = currentState.sessionId
+                when (currentState) {
+                    is SessionState.Active -> {
+                        targetSid = currentState.sessionId
+                    }
+                    is SessionState.Paused -> {
+                        targetSid = currentState.sessionId
+                    }
+                    else -> {
+                        // Nothing to finalize.
+                    }
                 }
                 state = SessionState.Idle
             }
@@ -748,7 +778,7 @@ class RejourneyModuleImpl(
 
         // All other events go through custom event recording
         val payload = try {
-            val json = org.json.JSONObject(details.toHashMap()).toString()
+            val json = org.json.JSONObject(details.toHashMap() as Map<*, *>).toString()
             json
         } catch (e: Exception) {
             "{}"
@@ -857,7 +887,7 @@ class RejourneyModuleImpl(
 
     fun setSDKVersion(version: String) {
         sdkVersion = version
-        RejourneyImpl.sdkVersion = version
+        RejourneySdkInfo.sdkVersion = version
     }
 
     fun getSDKVersion(promise: Promise) {
@@ -953,14 +983,16 @@ class RejourneyModuleImpl(
 
     // MARK: - Activity Lifecycle Callbacks
 
-    override fun onActivityCreated(activity: Activity, savedInstanceState: Bundle?) {}
-    override fun onActivityStarted(activity: Activity) {}
+    override fun onActivityCreated(activity: Activity, savedInstanceState: Bundle?) {
+        lastKnownActivity = WeakReference(activity)
+    }
+    override fun onActivityStarted(activity: Activity) {
+        updateCaptureActivity(activity)
+    }
     override fun onActivityResumed(activity: Activity) {
         // Set current activity on capture components so they can capture the screen
         DiagnosticLog.notice("[Rejourney] onActivityResumed: ${activity.javaClass.simpleName}")
-        VisualCapture.shared?.setCurrentActivity(activity)
-        ViewHierarchyScanner.shared?.setCurrentActivity(activity)
-        InteractionRecorder.shared?.setCurrentActivity(activity)
+        updateCaptureActivity(activity)
     }
     override fun onActivityPaused(activity: Activity) {
         // DO NOT clear activity references on pause!
@@ -977,9 +1009,16 @@ class RejourneyModuleImpl(
     override fun onActivityDestroyed(activity: Activity) {
         // Clear references only on destroy to avoid leaks
         DiagnosticLog.trace("[Rejourney] onActivityDestroyed: ${activity.javaClass.simpleName}")
-        VisualCapture.shared?.setCurrentActivity(null)
-        ViewHierarchyScanner.shared?.setCurrentActivity(null)
-        InteractionRecorder.shared?.setCurrentActivity(null)
+        val fallbackActivity = reactContext.currentActivity?.takeIf { it !== activity }
+        if (fallbackActivity != null) {
+            updateCaptureActivity(fallbackActivity)
+            return
+        }
+
+        if (lastKnownActivity?.get() === activity) {
+            lastKnownActivity = null
+            updateCaptureActivity(null)
+        }
     }
 
     // MARK: - Event Emission (no-ops, dead tap detection is native-side)
@@ -998,14 +1037,21 @@ class RejourneyModuleImpl(
         isShuttingDown = true
         scope.cancel()
         backgroundScope.cancel()
+        mainHandler.removeCallbacksAndMessages(null)
         
         val application = reactContext.applicationContext as? Application
         application?.unregisterActivityLifecycleCallbacks(this)
-        
-        mainHandler.post {
+
+        val removeLifecycleObserver = {
             try {
                 ProcessLifecycleOwner.get().lifecycle.removeObserver(this)
             } catch (_: Exception) {}
+        }
+
+        if (Looper.myLooper() == Looper.getMainLooper()) {
+            removeLifecycleObserver()
+        } else {
+            mainHandler.post { removeLifecycleObserver() }
         }
     }
 }

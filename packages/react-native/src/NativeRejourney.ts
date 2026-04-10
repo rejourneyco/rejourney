@@ -57,6 +57,15 @@ export interface Spec extends TurboModule {
   }>;
 
   /**
+   * Start a recording session with the richer option surface used by JS.
+   */
+  startSessionWithOptions(options: Object): Promise<{
+    success: boolean;
+    sessionId: string;
+    error?: string;
+  }>;
+
+  /**
    * Stop the current recording session
    */
   stopSession(): Promise<{

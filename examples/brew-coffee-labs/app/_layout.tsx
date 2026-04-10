@@ -18,8 +18,8 @@ const REJOURNEY_ENABLED = true;
 
 // Conditionally initialize Rejourney without statically importing the package
 if (REJOURNEY_ENABLED) {
-  const { Rejourney, initRejourney, startRejourney } = require('rejourney');
-  initRejourney('rj_10f00d654fc9a5b19cb011e1995c92c7', {
+  const { Rejourney, initRejourney, startRejourney } = require('@rejourneyco/react-native');
+  initRejourney('rj_02dc583c8036d165cc855419688f14b3', {
     apiUrl: API_URL,
     debug: true,
   });

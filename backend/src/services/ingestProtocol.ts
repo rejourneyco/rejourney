@@ -1,3 +1,4 @@
+import { createHash } from 'crypto';
 import { ApiError } from '../middleware/index.js';
 
 export function extractDeviceIdFromUploadToken(req: any): string | null {
@@ -51,10 +52,23 @@ export function buildReplaySegmentId(params: {
     kind: 'screenshots' | 'hierarchy';
     startTime: number;
     endTime?: number | null;
+    frameCount?: number | null;
+    declaredSizeBytes?: number | null;
 }): string {
     const startTime = Math.floor(Number(params.startTime));
     const endTime = params.endTime == null ? 'na' : String(Math.floor(Number(params.endTime)));
-    return `seg_${params.sessionId}_${params.kind}_${startTime}_${endTime}`;
+    const discriminator = createHash('sha1')
+        .update([
+            params.sessionId,
+            params.kind,
+            String(startTime),
+            endTime,
+            params.frameCount == null ? 'na' : String(Math.floor(Number(params.frameCount))),
+            params.declaredSizeBytes == null ? 'na' : String(Math.floor(Number(params.declaredSizeBytes))),
+        ].join('|'))
+        .digest('hex')
+        .slice(0, 8);
+    return `seg_${params.sessionId}_${params.kind}_${startTime}_${endTime}_${discriminator}`;
 }
 
 export function parseSegmentId(segmentId: string): {

@@ -6,7 +6,7 @@
  */
 
 import { Router } from 'express';
-import { eq, gte, lte, and, desc, asc, inArray } from 'drizzle-orm';
+import { eq, gte, lte, and, desc, asc, inArray, sql } from 'drizzle-orm';
 import { db, sessions, sessionMetrics, projects, teamMembers, appDailyStats, recordingArtifacts, screenTouchHeatmaps, apiEndpointDailyStats } from '../db/client.js';
 import { getRedis } from '../db/redis.js';
 import { asyncHandler, ApiError } from '../middleware/index.js';
@@ -14,10 +14,13 @@ import { logger } from '../logger.js';
 import { sessionAuth } from '../middleware/auth.js';
 import { excludeInternalToolEndpointTraffic } from '../utils/internalToolEndpointFilter.js';
 import { boundedTimeRangeToDays } from '../utils/analyticsTimeRange.js';
+import { buildRetentionCohortRows } from '../services/retentionCohorts.js';
 
 const router = Router();
 const redis = getRedis();
 const CACHE_TTL = 300; // 5 minutes - matches analytics, reduces cold cache on tab switch
+const RETENTION_COHORT_WEEKS = 6;
+const RETENTION_COHORT_ROWS = 6;
 
 /**
  * Returns the last date (YYYY-MM-DD) for which daily rollups are guaranteed
@@ -732,6 +735,94 @@ router.get(
     })
 );
 
+
+/**
+ * GET /api/insights/retention-cohorts
+ *
+ * Weekly retention cohorts based on full activity in the selected time window.
+ */
+router.get(
+    '/retention-cohorts',
+    sessionAuth,
+    asyncHandler(async (req, res) => {
+        const { projectId, timeRange } = req.query;
+
+        const projectIds = projectId
+            ? [projectId as string]
+            : await getAccessibleProjectIds(req.user!.id);
+
+        if (projectIds.length === 0) {
+            res.json({ rows: [] });
+            return;
+        }
+
+        if (projectId && !(await verifyProjectAccess(projectId as string, req.user!.id))) {
+            throw ApiError.forbidden('Access denied');
+        }
+
+        const normalizedTimeRange = typeof timeRange === 'string' ? timeRange : undefined;
+        const cacheKey = `insights:retention-cohorts:${projectIds.sort().join(',')}:${normalizedTimeRange || '30d'}:v1`;
+        const cached = await redis.get(cacheKey);
+        if (cached) {
+            res.json(JSON.parse(cached));
+            return;
+        }
+
+        const days = normalizedTimeRange ? boundedTimeRangeToDays(normalizedTimeRange) : undefined;
+        const startedAfter = typeof days === 'number'
+            ? new Date(Date.now() - (days * 24 * 60 * 60 * 1000))
+            : undefined;
+
+        const rawIdentitySql = sql<string>`
+            coalesce(
+                nullif(trim(${sessions.userDisplayId}), ''),
+                nullif(trim(${sessions.anonymousDisplayId}), ''),
+                nullif(trim(${sessions.anonymousHash}), ''),
+                nullif(trim(${sessions.deviceId}), '')
+            )
+        `;
+        const scopedIdentitySql = sql<string>`
+            case
+                when ${rawIdentitySql} is null then null
+                else ${sessions.projectId} || ':' || ${rawIdentitySql}
+            end
+        `;
+        const weekStartKeySql = sql<string>`
+            to_char(
+                (
+                    date_trunc('day', ${sessions.startedAt})
+                    - (extract(dow from ${sessions.startedAt})::int * interval '1 day')
+                )::date,
+                'YYYY-MM-DD'
+            )
+        `;
+
+        const conditions = [inArray(sessions.projectId, projectIds)];
+        if (startedAfter) {
+            conditions.push(gte(sessions.startedAt, startedAfter));
+        }
+
+        const activityRows = await db
+            .select({
+                userKey: scopedIdentitySql,
+                weekStartKey: weekStartKeySql,
+            })
+            .from(sessions)
+            .where(and(...conditions, sql`${scopedIdentitySql} is not null`))
+            .groupBy(scopedIdentitySql, weekStartKeySql)
+            .orderBy(asc(weekStartKeySql), asc(scopedIdentitySql));
+
+        const response = {
+            rows: buildRetentionCohortRows(activityRows, {
+                weeks: RETENTION_COHORT_WEEKS,
+                maxRows: RETENTION_COHORT_ROWS,
+            }),
+        };
+
+        await redis.set(cacheKey, JSON.stringify(response), 'EX', CACHE_TTL);
+        res.json(response);
+    })
+);
 
 /**
  * GET /api/insights/trends

@@ -60,7 +60,7 @@ Rejourney.trackScreen('Custom Screen Name');
 ```
 
 > [!NOTE]
-> `expo-router` is an **optional peer dependency**. The SDK is carefully architectural to avoid requiring `expo-router` in the main bundle. This prevents Metro from attempting to resolve it at build time in projects where it's not installed, which would otherwise cause a "Requiring unknown module" crash.
+> `expo-router` and `@react-navigation/native` are **optional peer dependencies**. Install them only if you use the related navigation helpers. The core SDK keeps those integrations out of the main bundle so apps that do not use them do not fail Metro resolution at build time.
 
 ## Custom Events & Metadata
 

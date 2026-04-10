@@ -242,8 +242,8 @@ class DeviceRegistrar private constructor(private val context: Context) {
             if (response.isSuccessful && body != null) {
                 try {
                     val json = JSONObject(body)
-                    val token = json.optString("uploadToken", null)
-                    if (token != null) {
+                    val token = json.optString("uploadToken", "")
+                    if (token.isNotEmpty()) {
                         DiagnosticLog.notice("[DeviceRegistrar] Got uploadToken from server")
                         DiagnosticLog.debugCredentialFlow("SUCCESS", fingerprint, true, "Got server credential uploadToken=${token.take(12)}...")
                         uploadCredential = token

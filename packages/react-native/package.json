@@ -31,8 +31,13 @@
         "!lib/**/*.map"
     ],
     "scripts": {
+        "version:sync": "node ./scripts/generate-version.js",
+        "prebuild": "npm run version:sync",
         "build": "npx react-native-builder-bob build",
+        "prepare": "npm run build",
         "prepack": "npx react-native-builder-bob build",
+        "pretest": "npm run version:sync",
+        "pretypescript": "npm run version:sync",
         "typescript": "tsc --noEmit",
         "lint": "eslint \"**/*.{js,ts,tsx}\"",
         "test": "vitest run",
@@ -93,6 +98,9 @@
         "expo-router": ">=3.0.0"
     },
     "peerDependenciesMeta": {
+        "@react-navigation/native": {
+            "optional": true
+        },
         "expo-router": {
             "optional": true
         }

@@ -42,14 +42,45 @@
 
 import { spawn } from 'node:child_process';
 import crypto from 'node:crypto';
+import { createReadStream, createWriteStream } from 'node:fs';
 import { mkdtemp, readFile, rm, stat, unlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { pipeline } from 'node:stream/promises';
 import { gunzipSync, gzipSync } from 'node:zlib';
+import {
+  S3Client,
+  GetObjectCommand,
+  PutObjectCommand,
+  HeadObjectCommand,
+  ListObjectsV2Command,
+  DeleteObjectsCommand,
+} from '@aws-sdk/client-s3';
+import pg from 'pg';
+import { evaluateBackupQuality } from './backup-quality.mjs';
 
 // =============================================================================
 // Configuration
 // =============================================================================
+
+function parseOption(name) {
+  const match = process.argv.slice(2).find((arg) => arg.startsWith(`${name}=`));
+  return match ? match.slice(name.length + 1) : null;
+}
+
+const mode = parseOption('--mode') || 'drain-queue';
+const seedLimitArg = parseOption('--limit');
+const seedLimit = seedLimitArg ? Number(seedLimitArg) : null;
+
+if (!['drain-queue', 'seed-queue'].includes(mode)) {
+  console.error(`Unsupported --mode: ${mode}`);
+  process.exit(1);
+}
+
+if (seedLimitArg && (!Number.isFinite(seedLimit) || seedLimit <= 0)) {
+  console.error(`Invalid --limit value: ${seedLimitArg}`);
+  process.exit(1);
+}
 
 const config = {
   databaseUrl: process.env.DATABASE_URL || '',
@@ -65,9 +96,14 @@ const config = {
   batchSize: Number(process.env.SESSION_BACKUP_BATCH_SIZE || 50),
   batchFetchSize: Number(process.env.SESSION_BACKUP_BATCH_FETCH_SIZE || 200),
   maxParallel: Number(process.env.SESSION_BACKUP_MAX_PARALLEL || 4),
+  artifactParallel: Number(process.env.SESSION_BACKUP_ARTIFACT_PARALLEL || 4),
   maxRetries: Number(process.env.SESSION_BACKUP_MAX_RETRIES || 3),
   lockStaleMinutes: Number(process.env.SESSION_BACKUP_LOCK_STALE_MINUTES || 30),
   lockHeartbeatMs: Number(process.env.SESSION_BACKUP_LOCK_HEARTBEAT_MS || 60000),
+  queueClaimStaleMinutes: Number(process.env.SESSION_BACKUP_QUEUE_CLAIM_STALE_MINUTES || 120),
+  queueRetryBaseSeconds: Number(process.env.SESSION_BACKUP_QUEUE_RETRY_BASE_SECONDS || 60),
+  queueRetryMaxSeconds: Number(process.env.SESSION_BACKUP_QUEUE_RETRY_MAX_SECONDS || 3600),
+  seedBatchSize: Number(process.env.SESSION_BACKUP_SEED_BATCH_SIZE || 500),
   repairLegacyHierarchy: process.env.SESSION_BACKUP_REPAIR_LEGACY_HIERARCHY_GZIP !== '0',
   archiveFriendlyScreenshots: process.env.SESSION_BACKUP_ARCHIVE_FRIENDLY_SCREENSHOTS !== '0',
   reprocessBackedUp: ['1', 'true', 'yes'].includes(String(process.env.SESSION_BACKUP_REPROCESS_BACKED_UP || '').toLowerCase()),
@@ -91,22 +127,61 @@ for (const [label, value] of requiredVars) {
   }
 }
 
-const SRC_AWS_ENV = {
-  AWS_ACCESS_KEY_ID: config.sourceAccessKeyId,
-  AWS_SECRET_ACCESS_KEY: config.sourceSecretAccessKey,
-};
-
-const R2_AWS_ENV = {
-  AWS_ACCESS_KEY_ID: config.r2AccessKeyId,
-  AWS_SECRET_ACCESS_KEY: config.r2SecretAccessKey,
-};
-
 const RUN_LOCK_NAME = 'global';
-
 const ARTIFACT_CONTENT_TYPE = 'application/gzip';
 const MANIFEST_CONTENT_TYPE = 'application/json';
 
-const endpointCredentialCache = new Map();
+// =============================================================================
+// Persistent S3 Clients (connection pooling, zero spawn overhead)
+// =============================================================================
+
+function makeS3Client(endpoint, accessKeyId, secretAccessKey) {
+  return new S3Client({
+    endpoint,
+    region: 'auto',
+    credentials: { accessKeyId, secretAccessKey },
+    forcePathStyle: true,
+  });
+}
+
+const defaultSourceClient = makeS3Client(config.sourceEndpoint, config.sourceAccessKeyId, config.sourceSecretAccessKey);
+const r2Client = makeS3Client(config.r2Endpoint, config.r2AccessKeyId, config.r2SecretAccessKey);
+
+const endpointClientCache = new Map();
+
+function getSourceClientForArtifact(artifact) {
+  if (!artifact.endpointId) return { client: defaultSourceClient, bucket: config.sourceBucket };
+
+  const cached = endpointClientCache.get(artifact.endpointId);
+  if (cached) return cached;
+
+  if (!artifact.accessKeyId || !artifact.keyRef) {
+    throw new Error(`missing credentials for endpoint ${artifact.endpointId}`);
+  }
+
+  const secretKey = decryptKeyRef(artifact.keyRef);
+  const entry = {
+    client: makeS3Client(artifact.endpointUrl, artifact.accessKeyId, secretKey),
+    bucket: artifact.bucket || config.sourceBucket,
+  };
+  endpointClientCache.set(artifact.endpointId, entry);
+  return entry;
+}
+
+// =============================================================================
+// Postgres Pool (replaces psql subprocess calls)
+// =============================================================================
+
+const pool = new pg.Pool({ connectionString: config.databaseUrl, max: 5 });
+
+async function sql(query, params) {
+  const result = await pool.query(query, params);
+  return result;
+}
+
+// =============================================================================
+// Crypto / Helpers
+// =============================================================================
 
 function decryptKeyRef(value) {
   if (!value) return '';
@@ -126,30 +201,6 @@ function decryptKeyRef(value) {
   return plain.toString('utf8');
 }
 
-function buildSourceAwsEnv(artifact) {
-  if (!artifact.endpointId) {
-    return SRC_AWS_ENV;
-  }
-
-  const cached = endpointCredentialCache.get(artifact.endpointId);
-  if (cached) return cached;
-
-  if (!artifact.accessKeyId || !artifact.keyRef) {
-    throw new Error(`missing credentials for endpoint ${artifact.endpointId}`);
-  }
-
-  const creds = {
-    AWS_ACCESS_KEY_ID: artifact.accessKeyId,
-    AWS_SECRET_ACCESS_KEY: decryptKeyRef(artifact.keyRef),
-  };
-  endpointCredentialCache.set(artifact.endpointId, creds);
-  return creds;
-}
-
-// =============================================================================
-// Utility Helpers
-// =============================================================================
-
 function log(message) {
   console.log(`[${new Date().toUTCString().replace('GMT', 'UTC')}] ${message}`);
 }
@@ -158,39 +209,12 @@ function warn(message) {
   console.warn(`  WARN ${message}`);
 }
 
-function shellQuote(value) {
-  return `'${String(value).replace(/'/g, "''")}'`;
-}
-
-function parseRows(text, columns) {
-  return text
-    .split('\n')
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .map((line) => {
-      const parts = line.split('\t');
-      const row = {};
-      columns.forEach((column, index) => {
-        row[column] = parts[index] ?? '';
-      });
-      return row;
-    });
-}
-
-function firstNonEmptyLine(text) {
-  return text
-    .split('\n')
-    .map((line) => line.trim())
-    .find(Boolean) || '';
-}
-
 function isGzipBuffer(buffer) {
   return buffer.length >= 2 && buffer[0] === 0x1f && buffer[1] === 0x8b;
 }
 
 function isBinaryFrameBundle(buffer) {
   if (buffer.length < 16) return false;
-
   const possibleSize = buffer.readUInt32BE(8);
   return (
     buffer[12] === 0xff &&
@@ -257,18 +281,6 @@ function parseBinaryFrames(buffer, sessionStartTime) {
   return frames;
 }
 
-function buildBackedUpFilterClause() {
-  if (config.reprocessBackedUp) {
-    return '';
-  }
-
-  return `
-        AND NOT EXISTS (
-          SELECT 1 FROM session_backup_log bl
-          WHERE bl.session_id = s.id
-        )`;
-}
-
 async function withRetry(fn, label, options = {}) {
   const shouldRetry = options.shouldRetry || (() => true);
   for (let attempt = 1; attempt <= config.maxRetries; attempt++) {
@@ -284,7 +296,7 @@ async function withRetry(fn, label, options = {}) {
 }
 
 // =============================================================================
-// Shell / Process Helpers
+// Shell helper (only used for `tar` now)
 // =============================================================================
 
 function runCommand(command, args, options = {}) {
@@ -319,17 +331,12 @@ function runCommand(command, args, options = {}) {
   });
 }
 
-async function runSql(query) {
-  const result = await runCommand('psql', [config.databaseUrl, '-X', '-A', '-F', '\t', '-t', '-c', query]);
-  return result.stdout.trim();
-}
-
 // =============================================================================
 // Database Setup & Locking
 // =============================================================================
 
 async function ensureBackupLogTable() {
-  await runSql(`
+  await sql(`
     CREATE TABLE IF NOT EXISTS session_backup_log (
       session_id VARCHAR(64) PRIMARY KEY,
       backed_up_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -338,9 +345,35 @@ async function ensureBackupLogTable() {
       total_bytes BIGINT NOT NULL DEFAULT 0,
       planned_artifact_count INT NOT NULL DEFAULT 0
     );
-    ALTER TABLE session_backup_log ADD COLUMN IF NOT EXISTS planned_artifact_count INT NOT NULL DEFAULT 0;
-    CREATE INDEX IF NOT EXISTS session_backup_log_backed_up_at_idx
-      ON session_backup_log(backed_up_at);
+  `);
+  await sql(`ALTER TABLE session_backup_log ADD COLUMN IF NOT EXISTS planned_artifact_count INT NOT NULL DEFAULT 0;`);
+  await sql(`ALTER TABLE session_backup_log ADD COLUMN IF NOT EXISTS high_quality BOOLEAN;`);
+  await sql(`ALTER TABLE session_backup_log ADD COLUMN IF NOT EXISTS quality_tier VARCHAR(32);`);
+  await sql(`ALTER TABLE session_backup_log ADD COLUMN IF NOT EXISTS quality_reason JSONB;`);
+  await sql(`ALTER TABLE session_backup_log ADD COLUMN IF NOT EXISTS quality_checked_at TIMESTAMPTZ;`);
+  await sql(`ALTER TABLE session_backup_log ADD COLUMN IF NOT EXISTS quality_rule_version INT;`);
+  await sql(`ALTER TABLE session_backup_log ADD COLUMN IF NOT EXISTS actual_r2_artifact_count INT;`);
+  await sql(`ALTER TABLE session_backup_log ADD COLUMN IF NOT EXISTS actual_r2_object_count INT;`);
+  await sql(`ALTER TABLE session_backup_log ADD COLUMN IF NOT EXISTS manifest_present BOOLEAN;`);
+  await sql(`CREATE INDEX IF NOT EXISTS session_backup_log_backed_up_at_idx ON session_backup_log(backed_up_at);`);
+  await sql(`
+    CREATE TABLE IF NOT EXISTS session_backup_queue (
+      session_id VARCHAR(64) PRIMARY KEY,
+      status VARCHAR(20) NOT NULL DEFAULT 'pending',
+      attempts INT NOT NULL DEFAULT 0,
+      next_retry_at TIMESTAMPTZ,
+      claimed_by VARCHAR(255),
+      claimed_at TIMESTAMPTZ,
+      last_error TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      CONSTRAINT session_backup_queue_session_id_sessions_id_fk
+        FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+    );
+  `);
+  await sql(`CREATE INDEX IF NOT EXISTS session_backup_queue_claim_idx ON session_backup_queue(status, next_retry_at, created_at, session_id);`);
+  await sql(`CREATE INDEX IF NOT EXISTS session_backup_queue_stale_idx ON session_backup_queue(status, claimed_at);`);
+  await sql(`
     CREATE TABLE IF NOT EXISTS session_backup_run_lock (
       lock_name TEXT PRIMARY KEY,
       owner_id TEXT NOT NULL,
@@ -355,145 +388,382 @@ function buildRunOwnerId() {
 }
 
 async function tryAcquireRunLock(ownerId) {
-  const result = await runSql(`
+  const result = await sql(`
     WITH lock_row AS (
       INSERT INTO session_backup_run_lock (lock_name, owner_id, acquired_at, heartbeat_at)
-      VALUES (
-        ${shellQuote(RUN_LOCK_NAME)},
-        ${shellQuote(ownerId)},
-        NOW(),
-        NOW()
-      )
+      VALUES ($1, $2, NOW(), NOW())
       ON CONFLICT (lock_name) DO UPDATE
       SET owner_id = EXCLUDED.owner_id,
           acquired_at = NOW(),
           heartbeat_at = NOW()
       WHERE session_backup_run_lock.owner_id = EXCLUDED.owner_id
-         OR session_backup_run_lock.heartbeat_at < NOW() - (${Number(config.lockStaleMinutes)} * INTERVAL '1 minute')
+         OR session_backup_run_lock.heartbeat_at < NOW() - ($3 * INTERVAL '1 minute')
       RETURNING owner_id
     )
     SELECT owner_id FROM lock_row;
-  `);
+  `, [RUN_LOCK_NAME, ownerId, config.lockStaleMinutes]);
 
-  return result === ownerId;
+  return result.rows[0]?.owner_id === ownerId;
 }
 
 async function refreshRunLock(ownerId) {
-  const result = firstNonEmptyLine(await runSql(`
+  const result = await sql(`
     UPDATE session_backup_run_lock
     SET heartbeat_at = NOW()
-    WHERE lock_name = ${shellQuote(RUN_LOCK_NAME)}
-      AND owner_id = ${shellQuote(ownerId)}
+    WHERE lock_name = $1
+      AND owner_id = $2
     RETURNING owner_id;
-  `));
+  `, [RUN_LOCK_NAME, ownerId]);
 
-  if (result !== ownerId) {
+  if (result.rows[0]?.owner_id !== ownerId) {
     throw new Error('session backup run lock lost');
   }
 }
 
 async function releaseRunLock(ownerId) {
-  await runSql(`
+  await sql(`
     DELETE FROM session_backup_run_lock
-    WHERE lock_name = ${shellQuote(RUN_LOCK_NAME)}
-      AND owner_id = ${shellQuote(ownerId)};
-  `);
+    WHERE lock_name = $1
+      AND owner_id = $2;
+  `, [RUN_LOCK_NAME, ownerId]);
 }
 
 // =============================================================================
 // Session Queries
 // =============================================================================
 
-function orderedSessionsCte() {
+function buildBackedUpFilterClause(sessionAlias = 's') {
+  if (config.reprocessBackedUp) {
+    return '';
+  }
+
   return `
-    WITH eligible AS (
-      SELECT
-        s.id,
-        s.project_id,
-        p.team_id,
-        regexp_replace(COALESCE(p.name, 'unknown-project'), E'[\\\\t\\\\n\\\\r]+', ' ', 'g') AS project_name,
-        s.started_at,
-        s.started_at::date AS session_date,
-        COALESCE(NULLIF(LOWER(s.platform), ''), 'unknown') AS platform,
-        FLOOR(EXTRACT(EPOCH FROM s.started_at) * 1000)::bigint AS session_start_ms
-      FROM sessions s
-      JOIN projects p ON p.id = s.project_id
-      WHERE s.status IN ('ready', 'completed')
-${buildBackedUpFilterClause()}
-        AND p.deleted_at IS NULL
-    ),
-    ranked AS (
-      SELECT
-        e.*,
-        CASE
-          WHEN e.platform IN ('android', 'ios') THEN
-            ROW_NUMBER() OVER (PARTITION BY e.platform ORDER BY e.started_at ASC, e.id ASC)
-          ELSE NULL
-        END AS mobile_rank,
-        CASE
-          WHEN e.platform NOT IN ('android', 'ios') THEN
-            ROW_NUMBER() OVER (ORDER BY e.started_at ASC, e.id ASC)
-          ELSE NULL
-        END AS other_rank
-      FROM eligible e
-    )
-  `;
+        AND NOT EXISTS (
+          SELECT 1
+          FROM session_backup_log bl
+          WHERE bl.session_id = ${sessionAlias}.id
+        )`;
 }
 
-async function countEligibleSessions() {
-  const result = await runSql(`
-    SELECT COUNT(*)
+function buildMeaningfulSessionMetricsPredicateSql(metricsAlias) {
+  return `
+                    COALESCE(${metricsAlias}.total_events, 0) > 0
+                    OR COALESCE(${metricsAlias}.error_count, 0) > 0
+                    OR COALESCE(${metricsAlias}.touch_count, 0) > 0
+                    OR COALESCE(${metricsAlias}.scroll_count, 0) > 0
+                    OR COALESCE(${metricsAlias}.gesture_count, 0) > 0
+                    OR COALESCE(${metricsAlias}.input_count, 0) > 0
+                    OR COALESCE(${metricsAlias}.api_success_count, 0) > 0
+                    OR COALESCE(${metricsAlias}.api_error_count, 0) > 0
+                    OR COALESCE(${metricsAlias}.api_total_count, 0) > 0
+                    OR COALESCE(${metricsAlias}.rage_tap_count, 0) > 0
+                    OR COALESCE(${metricsAlias}.dead_tap_count, 0) > 0
+                    OR COALESCE(array_length(${metricsAlias}.screens_visited, 1), 0) > 0
+                    OR COALESCE(${metricsAlias}.interaction_score, 0) > 0
+                    OR COALESCE(${metricsAlias}.exploration_score, 0) > 0
+                    OR COALESCE(${metricsAlias}.ux_score, 0) > 0
+                    OR COALESCE(${metricsAlias}.events_size_bytes, 0) > 0
+                    OR COALESCE(${metricsAlias}.custom_event_count, 0) > 0
+                    OR COALESCE(${metricsAlias}.crash_count, 0) > 0
+                    OR COALESCE(${metricsAlias}.anr_count, 0) > 0
+                    OR COALESCE(${metricsAlias}.app_startup_time_ms, 0) > 0
+                    OR COALESCE(${metricsAlias}.sdk_upload_success_count, 0) > 0
+                    OR COALESCE(${metricsAlias}.sdk_upload_failure_count, 0) > 0
+                    OR COALESCE(${metricsAlias}.sdk_retry_attempt_count, 0) > 0
+                    OR COALESCE(${metricsAlias}.sdk_circuit_breaker_open_count, 0) > 0
+                    OR COALESCE(${metricsAlias}.sdk_memory_eviction_count, 0) > 0
+                    OR COALESCE(${metricsAlias}.sdk_offline_persist_count, 0) > 0
+                    OR COALESCE(${metricsAlias}.sdk_upload_success_rate, 0) > 0
+                    OR COALESCE(${metricsAlias}.sdk_avg_upload_duration_ms, 0) > 0
+                    OR COALESCE(${metricsAlias}.sdk_total_bytes_uploaded, 0) > 0
+                    OR COALESCE(${metricsAlias}.sdk_total_bytes_evicted, 0) > 0
+                    OR COALESCE(${metricsAlias}.hierarchy_snapshot_count, 0) > 0
+                    OR COALESCE(${metricsAlias}.screenshot_segment_count, 0) > 0
+                    OR COALESCE(${metricsAlias}.screenshot_total_bytes, 0) > 0
+  `.trim();
+}
+
+function buildEmptySessionPredicateSql(sessionAlias = 's') {
+  return `
+        NOT EXISTS (
+          SELECT 1
+          FROM recording_artifacts ra
+          WHERE ra.session_id = ${sessionAlias}.id
+        )
+        AND NOT EXISTS (
+          SELECT 1
+          FROM ingest_jobs ij
+          WHERE ij.session_id = ${sessionAlias}.id
+        )
+        AND COALESCE(${sessionAlias}.replay_available, false) = false
+        AND COALESCE(${sessionAlias}.replay_segment_count, 0) = 0
+        AND COALESCE(${sessionAlias}.replay_storage_bytes, 0) = 0
+        AND (
+          CASE
+            WHEN ${sessionAlias}.events IS NULL THEN 0
+            WHEN jsonb_typeof(${sessionAlias}.events) = 'array' THEN jsonb_array_length(${sessionAlias}.events)
+            ELSE 0
+          END
+        ) = 0
+        AND COALESCE(${sessionAlias}.metadata, '{}'::jsonb) = '{}'::jsonb
+        AND NOT EXISTS (
+          SELECT 1
+          FROM session_metrics sm
+          WHERE sm.session_id = ${sessionAlias}.id
+            AND (
+              ${buildMeaningfulSessionMetricsPredicateSql('sm')}
+            )
+        )
+  `.trim();
+}
+
+async function cleanupCompletedQueueRows() {
+  if (config.reprocessBackedUp) {
+    return 0;
+  }
+
+  const result = await sql(`
+    DELETE FROM session_backup_queue q
+    WHERE EXISTS (
+      SELECT 1
+      FROM session_backup_log bl
+      WHERE bl.session_id = q.session_id
+    );
+  `);
+  return result.rowCount || 0;
+}
+
+async function cleanupOrphanedQueueRows() {
+  const result = await sql(`
+    DELETE FROM session_backup_queue q
+    WHERE NOT EXISTS (
+      SELECT 1
+      FROM sessions s
+      JOIN projects p ON p.id = s.project_id
+      WHERE s.id = q.session_id
+        AND p.deleted_at IS NULL
+    );
+  `);
+  return result.rowCount || 0;
+}
+
+async function recoverStaleQueueClaims() {
+  const result = await sql(`
+    UPDATE session_backup_queue
+    SET
+      status = 'pending',
+      claimed_by = NULL,
+      claimed_at = NULL,
+      next_retry_at = NOW(),
+      updated_at = NOW(),
+      last_error = COALESCE(last_error, 'claim recovered after stale worker')
+    WHERE status = 'processing'
+      AND claimed_at < NOW() - ($1 * INTERVAL '1 minute');
+  `, [config.queueClaimStaleMinutes]);
+  return result.rowCount || 0;
+}
+
+async function releaseOwnedQueueClaims(ownerId) {
+  const result = await sql(`
+    UPDATE session_backup_queue
+    SET
+      status = 'pending',
+      claimed_by = NULL,
+      claimed_at = NULL,
+      next_retry_at = NOW(),
+      updated_at = NOW(),
+      last_error = COALESCE(last_error, 'run interrupted before backup completed')
+    WHERE status = 'processing'
+      AND claimed_by = $1;
+  `, [ownerId]);
+  return result.rowCount || 0;
+}
+
+async function claimQueueBatch(limit, ownerId) {
+  const emptySessionPredicate = buildEmptySessionPredicateSql('s');
+  const result = await sql(`
+    WITH claimable AS (
+      SELECT q.session_id
+      FROM session_backup_queue q
+      JOIN sessions s ON s.id = q.session_id
+      JOIN projects p ON p.id = s.project_id
+      WHERE q.status = 'pending'
+        AND (q.next_retry_at IS NULL OR q.next_retry_at <= NOW())
+        AND s.status IN ('ready', 'completed')
+        AND p.deleted_at IS NULL
+        AND NOT (
+          ${emptySessionPredicate}
+        )
+${buildBackedUpFilterClause('s')}
+      ORDER BY COALESCE(q.next_retry_at, q.created_at) ASC, q.created_at ASC, q.session_id ASC
+      LIMIT $1
+      FOR UPDATE OF q SKIP LOCKED
+    )
+    UPDATE session_backup_queue q
+    SET
+      status = 'processing',
+      attempts = q.attempts + 1,
+      claimed_by = $2,
+      claimed_at = NOW(),
+      updated_at = NOW(),
+      last_error = NULL
+    FROM claimable c
+    JOIN sessions s ON s.id = c.session_id
+    JOIN projects p ON p.id = s.project_id
+    WHERE q.session_id = c.session_id
+    RETURNING
+      q.session_id,
+      s.project_id,
+      p.team_id,
+      FLOOR(EXTRACT(EPOCH FROM s.started_at) * 1000)::bigint::text AS session_start_ms,
+      q.attempts::int AS attempt_number;
+  `, [limit, ownerId]);
+
+  return result.rows.map((row) => ({
+    id: row.session_id,
+    projectId: row.project_id,
+    teamId: row.team_id,
+    sessionStartMs: Number(row.session_start_ms || 0),
+    attemptNumber: Number(row.attempt_number || 1),
+  }));
+}
+
+async function completeQueueEntry(sessionId) {
+  await sql(`
+    DELETE FROM session_backup_queue
+    WHERE session_id = $1;
+  `, [sessionId]);
+}
+
+function computeQueueRetryDelaySeconds(attemptNumber) {
+  const exponent = Math.max(0, Math.min(10, attemptNumber - 1));
+  return Math.min(
+    config.queueRetryMaxSeconds,
+    Math.max(config.queueRetryBaseSeconds, config.queueRetryBaseSeconds * (2 ** exponent)),
+  );
+}
+
+async function requeueFailedQueueEntry(sessionId, ownerId, errorMessage, attemptNumber) {
+  const delaySeconds = computeQueueRetryDelaySeconds(attemptNumber);
+  await sql(`
+    UPDATE session_backup_queue
+    SET
+      status = 'pending',
+      claimed_by = NULL,
+      claimed_at = NULL,
+      next_retry_at = NOW() + ($2 * INTERVAL '1 second'),
+      updated_at = NOW(),
+      last_error = LEFT($3, 2000)
+    WHERE session_id = $1
+      AND claimed_by = $4;
+  `, [sessionId, delaySeconds, errorMessage, ownerId]);
+  return delaySeconds;
+}
+
+async function fetchSeedCandidates(limit, cursorStartedAt = null, cursorSessionId = null) {
+  const emptySessionPredicate = buildEmptySessionPredicateSql('s');
+  const params = [limit];
+  let cursorClause = '';
+
+  if (cursorStartedAt && cursorSessionId) {
+    params.push(cursorStartedAt, cursorSessionId);
+    cursorClause = `
+      AND (
+        s.started_at > $2::timestamptz
+        OR (s.started_at = $2::timestamptz AND s.id > $3)
+      )`;
+  }
+
+  const result = await sql(`
+    SELECT
+      s.id,
+      s.started_at::text AS started_at
     FROM sessions s
     JOIN projects p ON p.id = s.project_id
     WHERE s.status IN ('ready', 'completed')
-${buildBackedUpFilterClause()}
-      AND p.deleted_at IS NULL;
-  `);
-  return Number(result || 0);
+${buildBackedUpFilterClause('s')}
+      AND p.deleted_at IS NULL
+      AND NOT (
+        ${emptySessionPredicate}
+      )
+      AND NOT EXISTS (
+        SELECT 1
+        FROM session_backup_queue q
+        WHERE q.session_id = s.id
+      )
+${cursorClause}
+    ORDER BY s.started_at ASC, s.id ASC
+    LIMIT $1;
+  `, params);
+
+  return result.rows.map((row) => ({
+    id: row.id,
+    startedAt: row.started_at,
+  }));
 }
 
-async function fetchCandidateSessions(limit, offset = 0) {
-  const rows = await runSql(`
-    ${orderedSessionsCte()}
-    SELECT
-      id,
-      project_id,
-      team_id,
-      project_name,
-      session_date::text,
-      platform,
-      session_start_ms::text,
-      started_at::text
-    FROM ranked
-    ORDER BY
-      CASE WHEN platform IN ('android', 'ios') THEN 0 ELSE 1 END,
-      CASE WHEN platform IN ('android', 'ios') THEN mobile_rank ELSE other_rank END,
-      CASE WHEN platform = 'android' THEN 0 WHEN platform = 'ios' THEN 1 ELSE 0 END,
-      started_at ASC,
-      id ASC
-    LIMIT ${Number(limit)}
-    OFFSET ${Number(offset)};
-  `);
+async function enqueueSeedCandidates(sessionIds) {
+  if (sessionIds.length === 0) {
+    return 0;
+  }
 
-  return parseRows(rows, [
-    'id',
-    'projectId',
-    'teamId',
-    'projectName',
-    'sessionDate',
-    'platform',
-    'sessionStartMs',
-    'startedAt',
-  ]).map((row) => ({
-    id: row.id,
-    projectId: row.projectId,
-    teamId: row.teamId,
-    projectName: row.projectName,
-    sessionDate: row.sessionDate,
-    platform: row.platform || 'unknown',
-    sessionStartMs: Number(row.sessionStartMs || 0),
-    startedAt: row.startedAt,
-  }));
+  const result = await sql(`
+    INSERT INTO session_backup_queue (
+      session_id,
+      status,
+      attempts,
+      created_at,
+      updated_at
+    )
+    SELECT
+      candidate.session_id,
+      'pending',
+      0,
+      NOW(),
+      NOW()
+    FROM UNNEST($1::varchar[]) AS candidate(session_id)
+    ON CONFLICT (session_id) DO NOTHING
+    RETURNING session_id;
+  `, [sessionIds]);
+
+  return result.rows.length;
+}
+
+async function runSeedQueueMode() {
+  log(`Starting session backup queue seeding (pageSize=${config.seedBatchSize}${seedLimit ? `, limit=${seedLimit}` : ''})`);
+
+  let scanned = 0;
+  let enqueued = 0;
+  let cursorStartedAt = null;
+  let cursorSessionId = null;
+
+  while (true) {
+    const pageSize = seedLimit == null
+      ? config.seedBatchSize
+      : Math.min(config.seedBatchSize, Math.max(seedLimit - scanned, 0));
+
+    if (pageSize <= 0) {
+      break;
+    }
+
+    const candidates = await fetchSeedCandidates(pageSize, cursorStartedAt, cursorSessionId);
+    if (candidates.length === 0) {
+      break;
+    }
+
+    scanned += candidates.length;
+    enqueued += await enqueueSeedCandidates(candidates.map((candidate) => candidate.id));
+
+    const lastCandidate = candidates[candidates.length - 1];
+    cursorStartedAt = lastCandidate.startedAt;
+    cursorSessionId = lastCandidate.id;
+
+    if (scanned % 1000 === 0 || candidates.length < pageSize) {
+      log(`Seed progress: scanned=${scanned}, enqueued=${enqueued}`);
+    }
+  }
+
+  log(`Session backup queue seed complete: scanned=${scanned}, enqueued=${enqueued}`);
 }
 
 // =============================================================================
@@ -501,7 +771,7 @@ async function fetchCandidateSessions(limit, offset = 0) {
 // =============================================================================
 
 async function buildManifest(sessionId) {
-  const raw = await runSql(`
+  const result = await sql(`
     SELECT json_build_object(
       'version', '3.0',
       'session', json_build_object(
@@ -580,11 +850,12 @@ async function buildManifest(sessionId) {
         FROM recording_artifacts ra
         WHERE ra.session_id = s.id AND ra.status = 'ready'
       )
-    )::text
+    )::text AS manifest
     FROM sessions s
-    WHERE s.id = ${shellQuote(sessionId)};
-  `);
+    WHERE s.id = $1;
+  `, [sessionId]);
 
+  const raw = result.rows[0]?.manifest;
   if (!raw) {
     throw new Error(`missing session manifest for ${sessionId}`);
   }
@@ -593,119 +864,120 @@ async function buildManifest(sessionId) {
 }
 
 async function fetchArtifacts(sessionId) {
-  const raw = await runSql(`
+  const result = await sql(`
     SELECT
       ra.kind,
       ra.s3_object_key,
-      COALESCE(size_bytes, 0)::text,
-      COALESCE(start_time, 0)::text,
-      COALESCE(end_time, 0)::text,
-      COALESCE(frame_count, 0)::text,
-      COALESCE(ra.created_at::text, ''),
-      COALESCE(ra.endpoint_id, ''),
+      COALESCE(size_bytes, 0)::bigint AS size_bytes,
+      COALESCE(start_time, 0)::bigint AS start_time,
+      COALESCE(end_time, 0)::bigint AS end_time,
+      COALESCE(frame_count, 0)::int AS frame_count,
+      ra.created_at::text AS created_at,
+      ra.endpoint_id,
       COALESCE(se.endpoint_url, '') AS endpoint_url,
       COALESCE(se.bucket, '') AS endpoint_bucket,
       COALESCE(se.access_key_id, '') AS access_key_id,
       COALESCE(se.key_ref, '') AS key_ref,
       CASE
-        WHEN ra.endpoint_id IS NULL THEN 't'
-        WHEN se.id IS NOT NULL THEN 't'
-        ELSE 'f'
+        WHEN ra.endpoint_id IS NULL THEN true
+        WHEN se.id IS NOT NULL THEN true
+        ELSE false
       END AS endpoint_resolved
     FROM recording_artifacts ra
     LEFT JOIN storage_endpoints se ON se.id::text = ra.endpoint_id
-    WHERE ra.session_id = ${shellQuote(sessionId)}
+    WHERE ra.session_id = $1
       AND ra.status = 'ready'
     ORDER BY
       ra.kind,
       start_time NULLS LAST,
       ra.created_at ASC,
       ra.s3_object_key ASC;
-  `);
+  `, [sessionId]);
 
-  return parseRows(raw, [
-    'kind',
-    's3ObjectKey',
-    'sizeBytes',
-    'startTime',
-    'endTime',
-    'frameCount',
-    'createdAt',
-    'endpointId',
-    'endpointUrl',
-    'bucket',
-    'accessKeyId',
-    'keyRef',
-    'endpointResolved',
-  ]).map((row) => ({
+  return result.rows.map((row) => ({
     kind: row.kind,
-    s3ObjectKey: row.s3ObjectKey,
-    sizeBytes: Number(row.sizeBytes || 0),
-    startTime: Number(row.startTime || 0),
-    endTime: Number(row.endTime || 0),
-    frameCount: Number(row.frameCount || 0),
-    createdAt: row.createdAt,
-    endpointId: row.endpointId || null,
-    endpointUrl: row.endpointUrl || config.sourceEndpoint,
-    bucket: row.bucket || config.sourceBucket,
-    accessKeyId: row.accessKeyId || null,
-    keyRef: row.keyRef || null,
-    endpointResolved: row.endpointResolved === 't',
+    s3ObjectKey: row.s3_object_key,
+    sizeBytes: Number(row.size_bytes || 0),
+    startTime: Number(row.start_time || 0),
+    endTime: Number(row.end_time || 0),
+    frameCount: Number(row.frame_count || 0),
+    createdAt: row.created_at || '',
+    endpointId: row.endpoint_id || null,
+    endpointUrl: row.endpoint_url || config.sourceEndpoint,
+    bucket: row.endpoint_bucket || config.sourceBucket,
+    accessKeyId: row.access_key_id || null,
+    keyRef: row.key_ref || null,
+    endpointResolved: row.endpoint_resolved,
   }));
 }
 
-async function insertBackupLog(sessionId, prefix, artifactCount, totalBytes, plannedArtifactCount) {
-  await runSql(`
-    INSERT INTO session_backup_log (session_id, r2_key_prefix, artifact_count, total_bytes, planned_artifact_count)
-    VALUES (
-      ${shellQuote(sessionId)},
-      ${shellQuote(prefix)},
-      ${Number(artifactCount)},
-      ${Number(totalBytes)},
-      ${Number(plannedArtifactCount)}
+async function insertBackupLog(sessionId, prefix, artifactCount, totalBytes, plannedArtifactCount, quality) {
+  await sql(`
+    INSERT INTO session_backup_log (
+      session_id,
+      r2_key_prefix,
+      artifact_count,
+      total_bytes,
+      planned_artifact_count,
+      high_quality,
+      quality_tier,
+      quality_reason,
+      quality_checked_at,
+      quality_rule_version,
+      actual_r2_artifact_count,
+      actual_r2_object_count,
+      manifest_present
     )
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9::timestamptz, $10, $11, $12, $13)
     ON CONFLICT (session_id) DO UPDATE SET
       backed_up_at = NOW(),
       r2_key_prefix = EXCLUDED.r2_key_prefix,
       artifact_count = EXCLUDED.artifact_count,
       total_bytes = EXCLUDED.total_bytes,
-      planned_artifact_count = EXCLUDED.planned_artifact_count;
-  `);
+      planned_artifact_count = EXCLUDED.planned_artifact_count,
+      high_quality = EXCLUDED.high_quality,
+      quality_tier = EXCLUDED.quality_tier,
+      quality_reason = EXCLUDED.quality_reason,
+      quality_checked_at = EXCLUDED.quality_checked_at,
+      quality_rule_version = EXCLUDED.quality_rule_version,
+      actual_r2_artifact_count = EXCLUDED.actual_r2_artifact_count,
+      actual_r2_object_count = EXCLUDED.actual_r2_object_count,
+      manifest_present = EXCLUDED.manifest_present;
+  `, [
+    sessionId,
+    prefix,
+    artifactCount,
+    totalBytes,
+    plannedArtifactCount,
+    quality.highQuality,
+    quality.qualityTier,
+    JSON.stringify(quality.qualityReason),
+    new Date().toISOString(),
+    quality.qualityRuleVersion,
+    quality.actualR2ArtifactCount,
+    quality.actualR2ObjectCount,
+    quality.manifestPresent,
+  ]);
 }
 
-/**
- * Correct size_bytes in recording_artifacts to reflect the real S3 object size.
- * Historical rows have the pre-compression payload size the SDK reported;
- * this piggybacks on the backup download to fix them with zero extra S3 calls.
- */
 async function correctArtifactSize(s3ObjectKey, realBytes) {
-  await runSql(`
+  await sql(`
     UPDATE recording_artifacts
-    SET size_bytes = ${Number(realBytes)}
-    WHERE s3_object_key = ${shellQuote(s3ObjectKey)}
-      AND (size_bytes IS NULL OR size_bytes != ${Number(realBytes)});
-  `).catch(() => {});
+    SET size_bytes = $1
+    WHERE s3_object_key = $2
+      AND (size_bytes IS NULL OR size_bytes != $1);
+  `, [realBytes, s3ObjectKey]).catch(() => {});
 }
 
-/**
- * Piggyback session metadata repairs.
- *
- * While archiving we already have the full manifest + artifact list in
- * memory.  Use that data to fix common drift / NULL issues in the sessions
- * table without any extra S3 calls.  Each repair is a targeted UPDATE that
- * only writes when the stored value actually differs.
- */
 async function maybeRepairSessionMetadata(sessionId, manifest, artifacts) {
   const s = manifest.session || {};
   const repairs = [];
 
-  // ---- 1. duration_seconds ----
   if (s.durationSeconds == null || s.durationSeconds === 0) {
     const startedAt = s.startedAt ? new Date(s.startedAt) : null;
     const explicitEndedAt = s.explicitEndedAt ? new Date(s.explicitEndedAt) : null;
     const endedAt = s.endedAt ? new Date(s.endedAt) : null;
 
-    // Best-effort end time: explicitEndedAt → endedAt → latest artifact endTime
     let bestEndMs = explicitEndedAt ? explicitEndedAt.getTime()
                   : endedAt ? endedAt.getTime() : 0;
     for (const a of artifacts) {
@@ -717,76 +989,63 @@ async function maybeRepairSessionMetadata(sessionId, manifest, artifacts) {
       const backgroundSeconds = Math.max(0, Number(s.backgroundTimeSeconds || 0));
       const duration = Math.max(1, wallClockSeconds - backgroundSeconds);
 
-      await runSql(`
+      await sql(`
         UPDATE sessions
-        SET duration_seconds = ${duration},
-            ended_at = COALESCE(ended_at, ${shellQuote(new Date(bestEndMs).toISOString())}::timestamptz),
+        SET duration_seconds = $1,
+            ended_at = COALESCE(ended_at, $2::timestamptz),
             updated_at = NOW()
-        WHERE id = ${shellQuote(sessionId)}
+        WHERE id = $3
           AND (duration_seconds IS NULL OR duration_seconds = 0);
-      `).catch(() => {});
+      `, [duration, new Date(bestEndMs).toISOString(), sessionId]).catch(() => {});
       repairs.push(`duration=${duration}s`);
     }
   }
 
-  // ---- 2. ended_at ----
   if (!s.endedAt && s.startedAt) {
     let bestEndMs = 0;
     for (const a of artifacts) {
       if (a.endTime && Number(a.endTime) > bestEndMs) bestEndMs = Number(a.endTime);
     }
     if (bestEndMs > 0) {
-      await runSql(`
+      await sql(`
         UPDATE sessions
-        SET ended_at = ${shellQuote(new Date(bestEndMs).toISOString())}::timestamptz,
-            updated_at = NOW()
-        WHERE id = ${shellQuote(sessionId)}
-          AND ended_at IS NULL;
-      `).catch(() => {});
+        SET ended_at = $1::timestamptz, updated_at = NOW()
+        WHERE id = $2 AND ended_at IS NULL;
+      `, [new Date(bestEndMs).toISOString(), sessionId]).catch(() => {});
       repairs.push('ended_at');
     }
   }
 
-  // ---- 3. replay_segment_count ----
   const realScreenshotCount = artifacts.filter((a) => a.kind === 'screenshots').length;
   const storedCount = Number(s.replaySegmentCount || 0);
   if (realScreenshotCount !== storedCount) {
-    await runSql(`
+    await sql(`
       UPDATE sessions
-      SET replay_segment_count = ${realScreenshotCount},
-          updated_at = NOW()
-      WHERE id = ${shellQuote(sessionId)}
-        AND COALESCE(replay_segment_count, 0) != ${realScreenshotCount};
-    `).catch(() => {});
+      SET replay_segment_count = $1, updated_at = NOW()
+      WHERE id = $2 AND COALESCE(replay_segment_count, 0) != $1;
+    `, [realScreenshotCount, sessionId]).catch(() => {});
     repairs.push(`segments=${storedCount}->${realScreenshotCount}`);
   }
 
-  // ---- 4. replay_storage_bytes ----
   const realStorageBytes = artifacts
     .filter((a) => a.kind === 'screenshots')
     .reduce((sum, a) => sum + (Number(a.sizeBytes) || 0), 0);
   const storedBytes = Number(s.replayStorageBytes || 0);
   if (realStorageBytes > 0 && realStorageBytes !== storedBytes) {
-    await runSql(`
+    await sql(`
       UPDATE sessions
-      SET replay_storage_bytes = ${realStorageBytes},
-          updated_at = NOW()
-      WHERE id = ${shellQuote(sessionId)}
-        AND COALESCE(replay_storage_bytes, 0) != ${realStorageBytes};
-    `).catch(() => {});
+      SET replay_storage_bytes = $1, updated_at = NOW()
+      WHERE id = $2 AND COALESCE(replay_storage_bytes, 0) != $1;
+    `, [realStorageBytes, sessionId]).catch(() => {});
     repairs.push(`storage_bytes=${storedBytes}->${realStorageBytes}`);
   }
 
-  // ---- 5. finalized_at ----
   if (s.status === 'ready' && !s.finalizedAt) {
-    await runSql(`
+    await sql(`
       UPDATE sessions
-      SET finalized_at = COALESCE(ended_at, NOW()),
-          updated_at = NOW()
-      WHERE id = ${shellQuote(sessionId)}
-        AND status = 'ready'
-        AND finalized_at IS NULL;
-    `).catch(() => {});
+      SET finalized_at = COALESCE(ended_at, NOW()), updated_at = NOW()
+      WHERE id = $1 AND status = 'ready' AND finalized_at IS NULL;
+    `, [sessionId]).catch(() => {});
     repairs.push('finalized_at');
   }
 
@@ -796,114 +1055,135 @@ async function maybeRepairSessionMetadata(sessionId, manifest, artifacts) {
 }
 
 // =============================================================================
-// S3 / R2 Operations with Integrity Checks
+// S3 / R2 Operations (native SDK — no subprocess overhead)
 // =============================================================================
 
 async function downloadSourceArtifact(sourceKey, outputPath, artifact) {
-  await runCommand(
-    'aws',
-    [
-      '--endpoint-url',
-      artifact.endpointUrl,
-      's3',
-      'cp',
-      '--only-show-errors',
-      `s3://${artifact.bucket}/${sourceKey}`,
-      outputPath,
-    ],
-    { env: buildSourceAwsEnv(artifact) },
-  );
+  const { client, bucket } = getSourceClientForArtifact(artifact);
+  const resp = await client.send(new GetObjectCommand({
+    Bucket: bucket,
+    Key: sourceKey,
+  }));
+  const ws = createWriteStream(outputPath);
+  await pipeline(resp.Body, ws);
 }
 
 async function uploadToSource(localPath, destinationKey, contentType, artifact) {
-  await runCommand(
-    'aws',
-    [
-      '--endpoint-url',
-      artifact.endpointUrl,
-      's3',
-      'cp',
-      '--only-show-errors',
-      localPath,
-      `s3://${artifact.bucket}/${destinationKey}`,
-      '--content-type',
-      contentType,
-    ],
-    { env: buildSourceAwsEnv(artifact) },
-  );
+  const { client, bucket } = getSourceClientForArtifact(artifact);
+  const body = createReadStream(localPath);
+  await client.send(new PutObjectCommand({
+    Bucket: bucket,
+    Key: destinationKey,
+    Body: body,
+    ContentType: contentType,
+  }));
 }
 
 async function uploadToR2(localPath, destinationKey, contentType) {
-  await runCommand(
-    'aws',
-    [
-      '--endpoint-url',
-      config.r2Endpoint,
-      's3',
-      'cp',
-      '--only-show-errors',
-      localPath,
-      `s3://${config.r2Bucket}/${destinationKey}`,
-      '--content-type',
-      contentType,
-    ],
-    { env: R2_AWS_ENV },
-  );
+  const body = createReadStream(localPath);
+  await r2Client.send(new PutObjectCommand({
+    Bucket: config.r2Bucket,
+    Key: destinationKey,
+    Body: body,
+    ContentType: contentType,
+  }));
 }
 
 async function headR2Object(key) {
-  const result = await runCommand(
-    'aws',
-    [
-      '--endpoint-url',
-      config.r2Endpoint,
-      's3api',
-      'head-object',
-      '--bucket',
-      config.r2Bucket,
-      '--key',
-      key,
-    ],
-    { env: R2_AWS_ENV },
-  );
-  return JSON.parse(result.stdout);
+  return r2Client.send(new HeadObjectCommand({
+    Bucket: config.r2Bucket,
+    Key: key,
+  }));
 }
 
 async function headSourceObject(key, artifact) {
-  const result = await runCommand(
-    'aws',
-    [
-      '--endpoint-url',
-      artifact.endpointUrl,
-      's3api',
-      'head-object',
-      '--bucket',
-      artifact.bucket,
-      '--key',
-      key,
-    ],
-    { env: buildSourceAwsEnv(artifact) },
-  );
-  return JSON.parse(result.stdout);
+  const { client, bucket } = getSourceClientForArtifact(artifact);
+  return client.send(new HeadObjectCommand({
+    Bucket: bucket,
+    Key: key,
+  }));
 }
 
 async function removeR2Prefix(prefix) {
-  await runCommand(
-    'aws',
-    ['--endpoint-url', config.r2Endpoint, 's3', 'rm', `s3://${config.r2Bucket}/${prefix}`, '--recursive'],
-    { env: R2_AWS_ENV, allowFailure: true },
+  try {
+    let continuationToken;
+    do {
+      const listResp = await r2Client.send(new ListObjectsV2Command({
+        Bucket: config.r2Bucket,
+        Prefix: prefix,
+        ContinuationToken: continuationToken,
+      }));
+
+      const objects = (listResp.Contents || []).map((obj) => ({ Key: obj.Key }));
+      if (objects.length > 0) {
+        await r2Client.send(new DeleteObjectsCommand({
+          Bucket: config.r2Bucket,
+          Delete: { Objects: objects },
+        }));
+      }
+      continuationToken = listResp.IsTruncated ? listResp.NextContinuationToken : undefined;
+    } while (continuationToken);
+  } catch {
+    // Best-effort rollback
+  }
+}
+
+async function scanR2Prefix(prefix) {
+  const manifestKey = `${prefix}/manifest.json`;
+  let continuationToken;
+  let totalObjectCount = 0;
+  let artifactObjectCount = 0;
+  let manifestCount = 0;
+  let totalBytes = 0;
+
+  do {
+    const listResp = await r2Client.send(new ListObjectsV2Command({
+      Bucket: config.r2Bucket,
+      Prefix: prefix,
+      ContinuationToken: continuationToken,
+    }));
+
+    for (const object of listResp.Contents || []) {
+      const key = object.Key || '';
+      totalObjectCount += 1;
+      totalBytes += Number(object.Size || 0);
+      if (key === manifestKey) {
+        manifestCount += 1;
+      } else {
+        artifactObjectCount += 1;
+      }
+    }
+
+    continuationToken = listResp.IsTruncated ? listResp.NextContinuationToken : undefined;
+  } while (continuationToken);
+
+  return {
+    totalObjectCount,
+    artifactObjectCount,
+    manifestCount,
+    totalBytes,
+  };
+}
+
+function isSourceNotFound(error) {
+  const msg = (error.message || '').toLowerCase();
+  const name = (error.name || '').toLowerCase();
+  const code = (error.Code || error.code || '').toLowerCase();
+  const httpStatus = error.$metadata?.httpStatusCode;
+  return (
+    httpStatus === 404 ||
+    httpStatus === 403 ||
+    msg.includes('not found') ||
+    msg.includes('nosuchkey') ||
+    msg.includes('404') ||
+    msg.includes('does not exist') ||
+    name === 'nosuchkey' ||
+    name === 'notfound' ||
+    code === 'nosuchkey' ||
+    code === 'notfound'
   );
 }
 
-/**
- * Verify downloaded file is non-empty and return its size.
- *
- * NOTE: We intentionally do NOT compare against recording_artifacts.size_bytes.
- * That column stores the pre-compression payload size reported by the SDK,
- * which differs from the actual S3 object size (gzipped). Small payloads
- * grow under gzip (header overhead), large ones shrink. Comparing would
- * reject every correct download.
- */
 async function verifyDownload(filePath, label) {
   const { size } = await stat(filePath);
   if (size === 0) {
@@ -912,9 +1192,6 @@ async function verifyDownload(filePath, label) {
   return size;
 }
 
-/**
- * Verify that the R2 upload matches the local file size.
- */
 async function verifyUpload(r2Key, expectedBytes, label) {
   const head = await headR2Object(r2Key);
   const remoteSize = head.ContentLength;
@@ -931,13 +1208,9 @@ async function verifySourceUpload(sourceKey, expectedBytes, label, artifact) {
   }
 }
 
-/**
- * Returns true if the error looks like a 404 / NoSuchKey from the source.
- */
-function isSourceNotFound(error) {
-  const msg = (error.message || '').toLowerCase();
-  return msg.includes('not found') || msg.includes('nosuchkey') || msg.includes('404') || msg.includes('does not exist');
-}
+// =============================================================================
+// Artifact Transformations (identical logic to before)
+// =============================================================================
 
 async function maybeRepairLegacyHierarchyArtifact(tempPath, artifact, artifactLabel) {
   const currentBuffer = await readFile(tempPath);
@@ -1063,6 +1336,72 @@ async function maybeTransformScreenshotForBackup(tempPath, artifact, artifactLab
 }
 
 // =============================================================================
+// Single Artifact Processing
+// =============================================================================
+
+async function processArtifact(artifact, index, tempDir, session) {
+  const tempPath = path.join(tempDir, `artifact-${index}`);
+  const backupKey = `backups/${artifact.s3ObjectKey}`;
+  const artifactLabel = `${session.id}/${artifact.kind}[${index}]`;
+
+  if (!artifact.endpointResolved) {
+    throw new Error(`artifact ${artifactLabel} references unknown endpoint_id ${artifact.endpointId}`);
+  }
+
+  let sourceSize;
+  let backupSize;
+  let repairStatus = 'unchanged';
+  let backupFormat = 'mirrored_source';
+  let backupFrameCount = artifact.frameCount;
+
+  await withRetry(
+    async () => {
+      await downloadSourceArtifact(artifact.s3ObjectKey, tempPath, artifact);
+      sourceSize = await verifyDownload(tempPath, artifactLabel);
+    },
+    `download ${artifactLabel}`,
+    { shouldRetry: (error) => !isSourceNotFound(error) },
+  );
+
+  const repairResult = await maybeRepairLegacyHierarchyArtifact(tempPath, artifact, artifactLabel);
+  sourceSize = repairResult.sizeBytes;
+  repairStatus = repairResult.status;
+
+  if (artifact.sizeBytes !== sourceSize) {
+    await correctArtifactSize(artifact.s3ObjectKey, sourceSize);
+  }
+
+  const backupTransform = await maybeTransformScreenshotForBackup(
+    tempPath,
+    artifact,
+    artifactLabel,
+    session.sessionStartMs,
+  );
+  backupSize = backupTransform.sizeBytes;
+  backupFormat = backupTransform.backupFormat;
+  backupFrameCount = backupTransform.frameCount;
+
+  await withRetry(async () => {
+    await uploadToR2(tempPath, backupKey, ARTIFACT_CONTENT_TYPE);
+    await verifyUpload(backupKey, backupSize, artifactLabel);
+  }, `upload ${artifactLabel}`);
+
+  await unlink(tempPath).catch(() => {});
+
+  return {
+    kind: artifact.kind,
+    sourceKey: artifact.s3ObjectKey,
+    backupKey,
+    repairStatus,
+    backupFormat,
+    sourceSizeBytes: sourceSize,
+    sizeBytes: backupSize,
+    frameCount: backupFrameCount,
+    status: 'copied',
+  };
+}
+
+// =============================================================================
 // Session Processing — canonical backup with archive-friendly screenshots
 // =============================================================================
 
@@ -1074,96 +1413,52 @@ async function processSession(session) {
   const prefix = buildBackupPrefix(session);
   const tempDir = await mkdtemp(path.join(os.tmpdir(), 'session-backup-'));
 
-  const backupArtifacts = [];
-
   try {
     const artifacts = await fetchArtifacts(session.id);
     const manifest = await buildManifest(session.id);
     let totalBytes = 0;
     let missingOnSource = 0;
 
-    for (let i = 0; i < artifacts.length; i++) {
-      const artifact = artifacts[i];
-      const tempPath = path.join(tempDir, `artifact-${i}`);
-      const backupKey = `backups/${artifact.s3ObjectKey}`;
-      const artifactLabel = `${session.id}/${artifact.kind}[${i}]`;
+    const backupArtifacts = [];
+    const artifactWorkers = Math.min(config.artifactParallel, artifacts.length || 1);
 
+    const artifactResults = await runPool(artifacts, artifactWorkers, async (artifact, i) => {
       try {
-        if (!artifact.endpointResolved) {
-          throw new Error(`artifact ${artifactLabel} references unknown endpoint_id ${artifact.endpointId}`);
-        }
-        let sourceSize;
-        let backupSize;
-        let repairStatus = 'unchanged';
-        let backupFormat = 'mirrored_source';
-        let backupFrameCount = artifact.frameCount;
-        await withRetry(
-          async () => {
-            await downloadSourceArtifact(artifact.s3ObjectKey, tempPath, artifact);
-            sourceSize = await verifyDownload(tempPath, artifactLabel);
-          },
-          `download ${artifactLabel}`,
-          { shouldRetry: (error) => !isSourceNotFound(error) },
-        );
-
-        const repairResult = await maybeRepairLegacyHierarchyArtifact(tempPath, artifact, artifactLabel);
-        sourceSize = repairResult.sizeBytes;
-        repairStatus = repairResult.status;
-
-        if (artifact.sizeBytes !== sourceSize) {
-          await correctArtifactSize(artifact.s3ObjectKey, sourceSize);
-        }
-
-        const backupTransform = await maybeTransformScreenshotForBackup(
-          tempPath,
-          artifact,
-          artifactLabel,
-          session.sessionStartMs,
-        );
-        backupSize = backupTransform.sizeBytes;
-        backupFormat = backupTransform.backupFormat;
-        backupFrameCount = backupTransform.frameCount;
-
-        await withRetry(async () => {
-          await uploadToR2(tempPath, backupKey, ARTIFACT_CONTENT_TYPE);
-          await verifyUpload(backupKey, backupSize, artifactLabel);
-        }, `upload ${artifactLabel}`);
-
-        await unlink(tempPath).catch(() => {});
-
-        backupArtifacts.push({
-          kind: artifact.kind,
-          sourceKey: artifact.s3ObjectKey,
-          backupKey,
-          repairStatus,
-          backupFormat,
-          sourceSizeBytes: sourceSize,
-          sizeBytes: backupSize,
-          frameCount: backupFrameCount,
-          status: 'copied',
-        });
-        totalBytes += backupSize;
+        const result = await processArtifact(artifact, i, tempDir, session);
+        return { ok: true, result };
       } catch (error) {
-        await unlink(tempPath).catch(() => {});
-
         if (isSourceNotFound(error)) {
-          missingOnSource += 1;
-          warn(`${artifactLabel}: source not found, skipping (${error.message})`);
-          backupArtifacts.push({
-            kind: artifact.kind,
-            sourceKey: artifact.s3ObjectKey,
-            backupKey,
-            repairStatus: 'source_missing',
-            backupFormat: 'source_missing',
-            sourceSizeBytes: artifact.sizeBytes,
-            sizeBytes: artifact.sizeBytes,
-            frameCount: artifact.frameCount,
-            status: 'source_missing',
-          });
-          continue;
+          warn(`${session.id}/${artifact.kind}[${i}]: source not found, skipping (${error.message})`);
+          return {
+            ok: true,
+            result: {
+              kind: artifact.kind,
+              sourceKey: artifact.s3ObjectKey,
+              backupKey: `backups/${artifact.s3ObjectKey}`,
+              repairStatus: 'source_missing',
+              backupFormat: 'source_missing',
+              sourceSizeBytes: artifact.sizeBytes,
+              sizeBytes: artifact.sizeBytes,
+              frameCount: artifact.frameCount,
+              status: 'source_missing',
+            },
+            sourceMissing: true,
+          };
         }
+        return { ok: false, error, artifact, index: i };
+      }
+    });
 
-        throw new Error(`artifact ${artifactLabel} failed after ${config.maxRetries} attempts: ${error.message}`);
+    for (const ar of artifactResults) {
+      if (!ar.ok) {
+        const label = `${session.id}/${ar.artifact.kind}[${ar.index}]`;
+        throw new Error(`artifact ${label} failed after ${config.maxRetries} attempts: ${ar.error.message}`);
+      }
+      backupArtifacts.push(ar.result);
+      if (ar.sourceMissing) {
+        missingOnSource += 1;
+      } else if (ar.result.status === 'copied') {
+        totalBytes += ar.result.sizeBytes;
       }
     }
 
@@ -1178,7 +1473,6 @@ async function processSession(session) {
       throw new Error(`session ${session.id} copied ${copiedCount}/${artifacts.length} artifacts; refusing to mark backup complete`);
     }
 
-    // Piggyback metadata repairs before writing final manifest
     await maybeRepairSessionMetadata(session.id, manifest, artifacts);
 
     const finalManifest = await buildManifest(session.id);
@@ -1188,7 +1482,25 @@ async function processSession(session) {
     const manifestPath = path.join(tempDir, 'manifest.json');
     await writeFile(manifestPath, `${JSON.stringify(finalManifest, null, 2)}\n`, 'utf8');
     await uploadToR2(manifestPath, `${prefix}/manifest.json`, MANIFEST_CONTENT_TYPE);
-    await insertBackupLog(session.id, prefix, copiedCount, totalBytes, artifacts.length);
+    const prefixScan = await scanR2Prefix(prefix);
+    if (prefixScan.manifestCount !== 1) {
+      throw new Error(`session ${session.id} expected exactly one manifest.json in R2, found ${prefixScan.manifestCount}`);
+    }
+    if (prefixScan.artifactObjectCount !== copiedCount || prefixScan.artifactObjectCount !== artifacts.length) {
+      throw new Error(
+        `session ${session.id} R2 artifact parity mismatch (planned=${artifacts.length}, copied=${copiedCount}, r2=${prefixScan.artifactObjectCount})`,
+      );
+    }
+
+    const quality = evaluateBackupQuality({
+      manifest: finalManifest,
+      plannedArtifactCount: artifacts.length,
+      artifactCount: copiedCount,
+      actualR2ArtifactCount: prefixScan.artifactObjectCount,
+      actualR2ObjectCount: prefixScan.totalObjectCount,
+      manifestPresent: prefixScan.manifestCount === 1,
+    });
+    await insertBackupLog(session.id, prefix, copiedCount, totalBytes, artifacts.length, quality);
 
     return {
       ok: true,
@@ -1196,6 +1508,8 @@ async function processSession(session) {
       artifactCount: copiedCount,
       missingOnSource,
       totalBytes,
+      highQuality: quality.highQuality,
+      attemptNumber: session.attemptNumber || 1,
     };
   } catch (error) {
     await removeR2Prefix(prefix);
@@ -1203,6 +1517,7 @@ async function processSession(session) {
       ok: false,
       sessionId: session.id,
       reason: error.message,
+      attemptNumber: session.attemptNumber || 1,
     };
   } finally {
     await rm(tempDir, { recursive: true, force: true });
@@ -1226,8 +1541,6 @@ async function runPool(items, workerCount, worker) {
         return;
       }
       results[index] = await worker(items[index], index);
-      // Throttle: give the node CPU breathing room between sessions
-      await new Promise((r) => setTimeout(r, 2000));
     }
   }
 
@@ -1240,11 +1553,20 @@ async function runPool(items, workerCount, worker) {
 // =============================================================================
 
 async function main() {
-  log('Starting session backup (legacy hierarchy gzip repair + archive-friendly screenshot repack)');
+  log(`Starting session backup (${mode}) (legacy hierarchy gzip repair + archive-friendly screenshot repack)`);
+  log(`Config: maxParallel=${config.maxParallel}, artifactParallel=${config.artifactParallel}, batchSize=${config.batchSize}`);
   if (config.reprocessBackedUp) {
     warn('SESSION_BACKUP_REPROCESS_BACKED_UP is enabled; this run will revisit sessions that were already backed up');
   }
   await ensureBackupLogTable();
+  if (mode === 'seed-queue') {
+    try {
+      await runSeedQueueMode();
+    } finally {
+      await pool.end().catch(() => {});
+    }
+    return;
+  }
   const ownerId = buildRunOwnerId();
   const acquired = await tryAcquireRunLock(ownerId);
   if (!acquired) {
@@ -1264,7 +1586,11 @@ async function main() {
     if (cleanedUp) return;
     cleanedUp = true;
     clearInterval(heartbeat);
+    await releaseOwnedQueueClaims(ownerId).catch((error) => {
+      warn(`Failed to release queued backup claims: ${error.message}`);
+    });
     await releaseRunLock(ownerId);
+    await pool.end().catch(() => {});
   };
 
   const handleSignal = (signal) => {
@@ -1278,66 +1604,64 @@ async function main() {
   process.once('SIGINT', () => handleSignal('SIGINT'));
 
   try {
-    const totalEligible = await countEligibleSessions();
-    log(`Found ${totalEligible} sessions to back up (parallelism: ${config.maxParallel}, retries: ${config.maxRetries})`);
-    if (!totalEligible) {
-      return;
+    const cleanedCompleted = await cleanupCompletedQueueRows();
+    if (cleanedCompleted > 0) {
+      log(`Removed ${cleanedCompleted} completed session(s) from the backup queue`);
+    }
+
+    const cleanedOrphans = await cleanupOrphanedQueueRows();
+    if (cleanedOrphans > 0) {
+      log(`Removed ${cleanedOrphans} orphaned session(s) from the backup queue`);
+    }
+
+    const recoveredClaims = await recoverStaleQueueClaims();
+    if (recoveredClaims > 0) {
+      log(`Recovered ${recoveredClaims} stale queued backup claim(s)`);
     }
 
     let backedUp = 0;
     let errors = 0;
     let totalBytes = 0;
-    const failedThisRun = new Set();
+    let claimedBatches = 0;
 
-    while (backedUp < totalEligible) {
-      const batch = [];
-      let offset = 0;
-
-      while (batch.length < config.batchSize) {
-        const candidates = await fetchCandidateSessions(config.batchFetchSize, offset);
-        if (!candidates.length) {
-          break;
-        }
-
-        for (const session of candidates) {
-          if (failedThisRun.has(session.id)) {
-            continue;
-          }
-          batch.push(session);
-          if (batch.length >= config.batchSize) {
-            break;
-          }
-        }
-
-        offset += candidates.length;
-        if (candidates.length < config.batchFetchSize) {
-          break;
-        }
-      }
-
+    while (true) {
+      const batch = await claimQueueBatch(config.batchSize, ownerId);
       if (!batch.length) {
+        if (claimedBatches === 0) {
+          log('No claimable queued sessions found; nothing to back up in this run');
+        }
         break;
       }
 
+      claimedBatches += 1;
+      log(`Claimed ${batch.length} queued session(s) for backup`);
       const results = await runPool(batch, config.maxParallel, processSession);
       for (const result of results) {
         if (result.ok) {
+          await completeQueueEntry(result.sessionId).catch((error) => {
+            warn(`Failed to delete completed queue row for ${result.sessionId}: ${error.message}`);
+          });
           backedUp += 1;
           totalBytes += result.totalBytes;
           const missingNote = result.missingOnSource > 0 ? `, ${result.missingOnSource} missing on source` : '';
           console.log(`  OK ${result.sessionId}: ${result.artifactCount} artifacts, ~${Math.round(result.totalBytes / 1024)} KB${missingNote}`);
         } else {
           errors += 1;
-          failedThisRun.add(result.sessionId);
-          warn(`${result.sessionId}: ${result.reason}`);
+          const delaySeconds = await requeueFailedQueueEntry(
+            result.sessionId,
+            ownerId,
+            result.reason,
+            result.attemptNumber || 1,
+          );
+          warn(`${result.sessionId}: ${result.reason} (retry in ${delaySeconds}s, attempt ${result.attemptNumber || 1})`);
         }
       }
 
       await refreshRunLock(ownerId);
-      log(`Progress: ${backedUp}/${totalEligible} backed up, ${errors} failed this run`);
+      log(`Progress: ${backedUp} backed up, ${errors} retried this run`);
     }
 
-    log(`Session backup complete: ${backedUp} sessions backed up, ${errors} failed this run, ~${Math.round(totalBytes / 1024 / 1024)} MB total`);
+    log(`Session backup complete: ${backedUp} sessions backed up, ${errors} retried this run, ~${Math.round(totalBytes / 1024 / 1024)} MB total`);
   } finally {
     await cleanup();
   }
@@ -1345,5 +1669,6 @@ async function main() {
 
 main().catch((error) => {
   console.error(error.stack || error.message || String(error));
+  pool.end().catch(() => {});
   process.exit(1);
 });

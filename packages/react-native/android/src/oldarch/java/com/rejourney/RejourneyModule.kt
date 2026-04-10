@@ -48,6 +48,15 @@ class RejourneyModule(reactContext: ReactApplicationContext) :
     }
 
     @ReactMethod
+    fun startSessionWithOptions(options: ReadableMap, promise: Promise) {
+        try {
+            impl.startSessionWithOptions(options, promise)
+        } catch (e: Exception) {
+            promise.resolve(createErrorMap("Module initialization failed: ${e.message}"))
+        }
+    }
+
+    @ReactMethod
     fun stopSession(promise: Promise) {
         try {
             impl.stopSession(promise)

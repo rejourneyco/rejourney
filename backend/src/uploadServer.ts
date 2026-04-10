@@ -8,6 +8,7 @@ import { pool } from './db/client.js';
 import { getRedis, getRedisDiagnosticsForLog, initRedis, closeRedis } from './db/redis.js';
 import { errorHandler, notFoundHandler } from './middleware/index.js';
 import ingestUploadRelayRouter from './routes/ingestUploadRelay.js';
+import { isAbortLikeError } from './utils/abortLikeError.js';
 
 const require = createRequire(import.meta.url);
 const pinoHttp = require('pino-http');
@@ -108,6 +109,10 @@ async function start() {
             void shutdown('SIGINT');
         });
         process.on('unhandledRejection', (reason) => {
+            if (isAbortLikeError(reason)) {
+                logger.warn({ err: reason }, 'Ignoring abort-like unhandled rejection in ingest upload relay');
+                return;
+            }
             logger.error({ err: reason }, 'Unhandled rejection in ingest upload relay');
             void shutdown('unhandledRejection', 1);
         });

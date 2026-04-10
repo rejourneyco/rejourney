@@ -77,6 +77,10 @@ const envSchema = z.object({
     S3_ACCESS_KEY_ID: z.string().optional(),
     S3_SECRET_ACCESS_KEY: z.string().optional(),
     S3_PUBLIC_ENDPOINT: z.string().optional(),
+    R2_ENDPOINT: z.string().optional(),
+    R2_BUCKET: z.string().optional(),
+    R2_ACCESS_KEY_ID: z.string().optional(),
+    R2_SECRET_ACCESS_KEY: z.string().optional(),
 
     // Auth
     JWT_SECRET: z.string().min(32),

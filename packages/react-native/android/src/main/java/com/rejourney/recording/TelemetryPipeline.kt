@@ -20,17 +20,15 @@ import android.content.Context
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import com.rejourney.RejourneySdkInfo
 import com.rejourney.engine.DiagnosticLog
 import com.rejourney.engine.DeviceRegistrar
-import com.rejourney.engine.RejourneyImpl
 import com.rejourney.utility.gzipCompress
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.*
-import java.util.concurrent.CountDownLatch
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.Executors
-import java.util.concurrent.TimeUnit
 import java.util.concurrent.locks.ReentrantLock
 import kotlin.concurrent.withLock
 
@@ -94,9 +92,10 @@ class TelemetryPipeline private constructor(private val context: Context) {
     // Event ring buffer
     private val eventRing = EventRingBuffer(5000)
     private val frameQueue = FrameBundleQueue(200)
-    private var deferredMode = false
     private var batchSeq = 0
     private var draining = false
+    private val drainLock = ReentrantLock()
+    private val shutdownCompletions = mutableListOf<() -> Unit>()
     
     private val serialWorker = Executors.newSingleThreadExecutor()
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -159,38 +158,42 @@ class TelemetryPipeline private constructor(private val context: Context) {
         }
     }
     
-    fun shutdown() {
+    fun shutdown(completion: (() -> Unit)? = null, skipVisualFlush: Boolean = false) {
         heartbeatRunnable?.let { mainHandler.removeCallbacks(it) }
         heartbeatRunnable = null
 
-        drainPendingDataForShutdown()
+        drainPendingDataForShutdown(completion, skipVisualFlush)
     }
     
     fun finalizeAndShip() {
         shutdown()
     }
     
-    fun activateDeferredMode() {
-        serialWorker.execute { deferredMode = true }
-    }
-    
-    fun commitDeferredData() {
-        serialWorker.execute {
-            deferredMode = false
-            shipPendingEvents()
-            shipPendingFrames()
-        }
-    }
-    
-    fun submitFrameBundle(payload: ByteArray, filename: String, startMs: Long, endMs: Long, frameCount: Int) {
+    fun submitFrameBundle(
+        payload: ByteArray,
+        filename: String,
+        startMs: Long,
+        endMs: Long,
+        frameCount: Int,
+        sessionId: String? = null
+    ) {
         // Capture the session ID now so frames are always attributed to the
         // session that was active when they were captured, not when they ship.
-        val capturedSessionId = currentReplayId
-        DiagnosticLog.trace("[TelemetryPipeline] submitFrameBundle: $frameCount frames, ${payload.size} bytes, deferredMode=$deferredMode, session=$capturedSessionId")
+        val capturedSessionId = sessionId ?: currentReplayId
+        DiagnosticLog.trace("[TelemetryPipeline] submitFrameBundle: $frameCount frames, ${payload.size} bytes, session=$capturedSessionId")
         serialWorker.execute {
             val bundle = PendingFrameBundle(filename, payload, startMs, endMs, frameCount, capturedSessionId)
             frameQueue.enqueue(bundle)
-            if (!deferredMode) shipPendingFrames()
+            shipPendingFrames()
+        }
+    }
+
+    fun prepareForNewSession(replayId: String) {
+        batchSeq = 0
+        val droppedEvents = eventRing.clear()
+        val droppedFrames = frameQueue.clear()
+        if (droppedEvents > 0 || droppedFrames > 0) {
+            DiagnosticLog.trace("[TelemetryPipeline] Dropped stale pending telemetry for new session ${replayId.take(20)} (events=$droppedEvents, frames=$droppedFrames)")
         }
     }
     
@@ -205,34 +208,31 @@ class TelemetryPipeline private constructor(private val context: Context) {
         return eventRing.size() + frameQueue.size()
     }
 
-    private fun drainPendingDataForShutdown() {
-        if (draining) return
-        draining = true
+    private fun drainPendingDataForShutdown(
+        completion: (() -> Unit)? = null,
+        skipVisualFlush: Boolean = false
+    ) {
+        if (!beginDrain(completion)) return
 
-        // Force any in-memory frames into the upload pipeline before session
-        // teardown clears the active replay ID.
-        VisualCapture.shared?.flushToDisk()
-        VisualCapture.shared?.flushBufferToNetwork()
+        if (!skipVisualFlush) {
+            // Force any in-memory frames into the upload pipeline before session
+            // teardown clears the active replay ID.
+            VisualCapture.shared?.flushToDisk()
+            VisualCapture.shared?.flushBufferToNetwork()
+        }
 
-        val latch = CountDownLatch(1)
         serialWorker.execute {
             try {
                 shipPendingEvents()
                 shipPendingFrames()
             } finally {
-                draining = false
-                latch.countDown()
+                finishDrainIfNeeded()
             }
-        }
-
-        if (!latch.await(1, TimeUnit.SECONDS)) {
-            DiagnosticLog.trace("[TelemetryPipeline] shutdown drain timed out before upload queue kick-off completed")
         }
     }
     
     private fun appSuspending() {
-        if (draining) return
-        draining = true
+        if (!beginDrain()) return
         
         // Flush visual frames to disk for crash safety
         VisualCapture.shared?.flushToDisk()
@@ -245,28 +245,65 @@ class TelemetryPipeline private constructor(private val context: Context) {
             shipPendingFrames()
             
             Thread.sleep(2000)
+            finishDrainIfNeeded()
+        }
+    }
+
+    private fun beginDrain(completion: (() -> Unit)? = null): Boolean {
+        drainLock.withLock {
+            if (completion != null) {
+                shutdownCompletions.add(completion)
+            }
+
+            if (draining) {
+                return false
+            }
+
+            draining = true
+            return true
+        }
+    }
+
+    private fun finishDrainIfNeeded() {
+        val completions = drainLock.withLock {
+            if (!draining) {
+                return@withLock emptyList<() -> Unit>()
+            }
+
             draining = false
+            shutdownCompletions.toList().also { shutdownCompletions.clear() }
+        }
+
+        if (completions.isEmpty()) return
+
+        mainHandler.post {
+            completions.forEach { it() }
         }
     }
     
     private fun uploadPendingSessions() {
-        // TODO: Implement pending session upload
+        // Intentionally deferred: crash/interruption recovery currently restores
+        // pending visual frames via ReplayOrchestrator + VisualCapture only.
+        // Telemetry events remain best-effort and are not replayed from EventBuffer yet.
     }
     
     private fun shipPendingFrames() {
-        if (deferredMode) {
-            DiagnosticLog.trace("[TelemetryPipeline] shipPendingFrames: skipped (deferred mode)")
-            return
-        }
         val next = frameQueue.dequeue()
         if (next == null) {
             DiagnosticLog.trace("[TelemetryPipeline] shipPendingFrames: no frames in queue")
             return
         }
 
+        val activeSession = currentReplayId
+        if (next.sessionId != null && activeSession != null && next.sessionId != activeSession) {
+            DiagnosticLog.trace("[TelemetryPipeline] Dropping stale frame bundle for closed session ${next.sessionId.take(20)} (current=${activeSession.take(20)})")
+            serialWorker.execute { shipPendingFrames() }
+            return
+        }
+
         // Determine which session these frames belong to. Prefer the session ID
         // captured at enqueue time; fall back to the current active session.
-        val targetSession = next.sessionId ?: currentReplayId
+        val targetSession = next.sessionId ?: activeSession
         if (targetSession == null) {
             DiagnosticLog.caution("[TelemetryPipeline] shipPendingFrames: no session ID, requeueing")
             frameQueue.requeue(next)
@@ -287,7 +324,13 @@ class TelemetryPipeline private constructor(private val context: Context) {
             frameCount = next.count
         ) { ok ->
             if (!ok) {
-                frameQueue.requeue(next)
+                val latestSession = currentReplayId
+                if (next.sessionId != null && latestSession != null && next.sessionId != latestSession) {
+                    DiagnosticLog.trace("[TelemetryPipeline] Discarding failed stale frame bundle for closed session ${next.sessionId.take(20)} (current=${latestSession.take(20)})")
+                    serialWorker.execute { shipPendingFrames() }
+                } else {
+                    frameQueue.requeue(next)
+                }
             } else {
                 serialWorker.execute { shipPendingFrames() }
             }
@@ -295,7 +338,6 @@ class TelemetryPipeline private constructor(private val context: Context) {
     }
     
     private fun shipPendingEvents() {
-        if (deferredMode) return
         val batch = eventRing.drain(batchSizeLimit)
         if (batch.isEmpty()) return
         
@@ -341,7 +383,7 @@ class TelemetryPipeline private constructor(private val context: Context) {
             put("isConstrained", orchestrator?.networkIsConstrained ?: false)
             put("isExpensive", orchestrator?.networkIsExpensive ?: false)
             put("appVersion", getAppVersion())
-            put("sdkVersion", RejourneyImpl.sdkVersion)
+            put("sdkVersion", RejourneySdkInfo.sdkVersion)
             put("appId", context.packageName)
             put("screenWidth", displayMetrics.widthPixels)
             put("screenHeight", displayMetrics.heightPixels)
@@ -623,6 +665,13 @@ class TelemetryPipeline private constructor(private val context: Context) {
             "totalBackgroundTime" to totalBackgroundTimeMs
         ))
     }
+
+    fun recordAppBackground() {
+        enqueue(mapOf(
+            "type" to "app_background",
+            "timestamp" to ts(),
+        ))
+    }
     
     private fun cancelDeadTapTimer() {
         deadTapRunnable?.let { mainHandler.removeCallbacks(it) }
@@ -674,6 +723,14 @@ private class EventRingBuffer(private val capacity: Int) {
     }
     
     fun size(): Int = storage.size
+
+    fun clear(): Int {
+        lock.withLock {
+            val cleared = storage.size
+            storage.clear()
+            return cleared
+        }
+    }
 }
 
 private data class PendingFrameBundle(
@@ -713,7 +770,11 @@ private class FrameBundleQueue(private val maxPending: Int) {
     
     fun size(): Int = queue.size
 
-    fun clear() {
-        lock.withLock { queue.clear() }
+    fun clear(): Int {
+        lock.withLock {
+            val cleared = queue.size
+            queue.clear()
+            return cleared
+        }
     }
 }

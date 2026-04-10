@@ -7,6 +7,7 @@ import { ingestProjectRateLimiter } from '../middleware/rateLimit.js';
 import { ensureIngestSession } from '../services/ingestSessionLifecycle.js';
 import { trackANRAsIssue, trackCrashAsIssue } from '../services/issueTracker.js';
 import { assertSessionAcceptsNewIngestWork } from '../services/sessionIngestImmutability.js';
+import { mergeAnrDeviceMetadata, resolveAnrStackTrace } from '../services/anrStack.js';
 
 const router = Router();
 
@@ -45,6 +46,11 @@ router.post(
             const durationMs = incident.context?.durationMs
                 ? parseInt(incident.context.durationMs, 10)
                 : 5000;
+            const stackTrace = resolveAnrStackTrace({
+                threadState: incident.context?.threadState,
+                frames: incident.frames,
+                deviceMetadata: incident.context,
+            });
 
             const dedupeWindowMs = 30_000;
             const minTs = new Date(timestamp.getTime() - dedupeWindowMs);
@@ -70,8 +76,8 @@ router.post(
                 projectId,
                 timestamp,
                 durationMs,
-                threadState: incident.context?.threadState || null,
-                deviceMetadata: incident.context || null,
+                threadState: stackTrace,
+                deviceMetadata: mergeAnrDeviceMetadata(incident.context, stackTrace, incident.context?.threadState),
                 status: 'open',
                 occurrenceCount: 1,
             });
@@ -83,7 +89,7 @@ router.post(
             trackANRAsIssue({
                 projectId,
                 durationMs,
-                threadState: incident.context?.threadState,
+                stackTrace: stackTrace || undefined,
                 timestamp,
                 sessionId,
             }).catch(() => {});

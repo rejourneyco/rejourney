@@ -9,6 +9,7 @@ import { eq, and, sql } from 'drizzle-orm';
 import { db, issues, issueEvents, projects } from '../db/client.js';
 import { logger } from '../logger.js';
 import { triggerCrashAlert, triggerAnrAlert } from './alertService.js';
+import { generateANRFingerprintFromStackTrace } from './anrStack.js';
 
 export interface IssueData {
     projectId: string;
@@ -61,36 +62,7 @@ export function generateFingerprint(type: string, name: string, message: string)
  * Groups by the actual code location causing the hang, not memory addresses
  */
 export function generateANRFingerprint(threadState: string): string {
-    if (!threadState) {
-        return 'anr:ANR:unknown';
-    }
-
-    // Extract meaningful stack frame info (method names, class names)
-    // Look for patterns like: -[ClassName methodName], MyClass.myMethod, etc.
-    const lines = threadState.split('\n');
-    const meaningfulFrames: string[] = [];
-
-    for (const line of lines) {
-        // Skip header lines and memory-only lines
-        if (line.includes('Thread Stack') || line.includes('PC:') || line.includes('LR:') || line.includes('SP:')) {
-            continue;
-        }
-
-        // Extract method/function name from stack frame
-        // Pattern: frame_num   binary_name   addr   method_name + offset
-        const methodMatch = line.match(/\[\w+\s+\w+[:\w]*\]|\w+::\w+[\w:]*|@objc\s+\w+|_\$s[\w.]+/);
-        if (methodMatch) {
-            meaningfulFrames.push(methodMatch[0]);
-        }
-    }
-
-    if (meaningfulFrames.length > 0) {
-        // Use first 3 meaningful frames
-        return `anr:ANR:${meaningfulFrames.slice(0, 3).join(':')}`;
-    }
-
-    // Fallback: group all ANRs without extractable frames together
-    return 'anr:ANR:main_thread_blocked';
+    return generateANRFingerprintFromStackTrace(threadState);
 }
 
 /**
@@ -367,14 +339,17 @@ export async function trackANRAsIssue(params: {
     projectId: string;
     durationMs: number;
     threadState?: string;
+    stackTrace?: string;
     timestamp: Date;
     sessionId?: string;
     deviceModel?: string;
     osVersion?: string;
     appVersion?: string;
 }): Promise<void> {
+    const stackTrace = params.stackTrace || params.threadState;
+
     // Use the specialized ANR fingerprint that ignores memory addresses
-    const fingerprint = generateANRFingerprint(params.threadState || '');
+    const fingerprint = generateANRFingerprint(stackTrace || '');
 
     const issueId = await trackIssue({
         projectId: params.projectId,
@@ -385,7 +360,7 @@ export async function trackANRAsIssue(params: {
         fingerprint,
         timestamp: params.timestamp,
         sessionId: params.sessionId,
-        stackTrace: params.threadState,
+        stackTrace,
         deviceModel: params.deviceModel,
         osVersion: params.osVersion,
         appVersion: params.appVersion,

@@ -42,38 +42,24 @@ import {
     loadSessionWorkAggregate,
     type SessionPresentationState,
 } from '../services/sessionPresentationState.js';
-import { computeSessionDurationSeconds } from '../services/sessionTiming.js';
+import { resolveStoredOrDerivedSessionDurationSeconds } from '../services/sessionTiming.js';
+import { resolveAnrStackTrace } from '../services/anrStack.js';
 
 const router = Router();
-
-/**
- * List rows: `duration_seconds` is sometimes still 0 after finalize while `ended_at` / `explicit_ended_at` are set.
- * Derive playable duration from timestamps when the stored column is missing or zero.
- */
-function resolveArchiveListDurationSeconds(s: {
-    durationSeconds: number | null;
-    startedAt: Date;
-    endedAt: Date | null;
-    explicitEndedAt: Date | null;
-    finalizedAt: Date | null;
-    lastIngestActivityAt: Date | null;
-    backgroundTimeSeconds: number | null;
-}): number {
-    const direct = s.durationSeconds;
-    if (direct != null && direct > 0) return direct;
-    const end =
-        s.endedAt ?? s.explicitEndedAt ?? s.finalizedAt ?? (s.lastIngestActivityAt && s.lastIngestActivityAt > s.startedAt ? s.lastIngestActivityAt : null);
-    if (end && s.startedAt) {
-        return computeSessionDurationSeconds(s.startedAt, end, s.backgroundTimeSeconds);
-    }
-    return Math.max(0, direct ?? 0);
-}
 
 /** Archive list: omit `events` / `metadata` JSONB — they are large and unused for the table (detail API loads full rows). */
 const sessionsArchiveListColumns = (() => {
     const { events: _events, metadata: _metadata, ...cols } = getTableColumns(sessions);
     return cols;
 })();
+
+/** Correlated subselect: last frame time from replay artifacts (not ingest wall clock). */
+const archiveListLatestReplayEndMsSql = sql<number | null>`(
+    select max(${recordingArtifacts.endTime})
+    from ${recordingArtifacts}
+    where ${eq(recordingArtifacts.sessionId, sessions.id)}
+      and ${inArray(recordingArtifacts.kind, ['screenshots', 'hierarchy'])}
+)`.as('latestReplayArtifactEndMs');
 
 /** `device_id` → `anonymous_hash` → `user_display_id` — matches how the dashboard distinguishes visitors. */
 const archiveVisitorIdentitySql = sql<string>`coalesce(${sessions.deviceId}, ${sessions.anonymousHash}, ${sessions.userDisplayId})`;
@@ -482,11 +468,16 @@ function buildSessionBasePayload(
     metrics: any,
     screenshotFrames: Array<{ timestamp: number; url: string; index: number }>,
     readyScreenshotArtifacts = false,
-    presentationState?: SessionPresentationState
+    presentationState?: SessionPresentationState,
+    latestReplayEndMs: number | null = null
 ) {
     const hasRecording = screenshotFrames.length > 0;
     const playbackMode = hasRecording ? 'screenshots' : 'none';
     const successfulRecording = hasSuccessfulRecording(session, metrics, readyScreenshotArtifacts);
+    const durationSeconds = resolveStoredOrDerivedSessionDurationSeconds({
+        ...session,
+        latestReplayEndMs,
+    });
     const sessionPresentationState = presentationState ?? deriveSessionPresentationState({
         status: session.status,
         replayAvailable: session.replayAvailable,
@@ -531,9 +522,9 @@ function buildSessionBasePayload(
             : null,
         startTime: session.startedAt.getTime(),
         endTime: session.endedAt?.getTime(),
-        duration: session.durationSeconds,
+        duration: durationSeconds,
         backgroundTime: session.backgroundTimeSeconds ?? 0,
-        playableDuration: session.durationSeconds ?? 0,
+        playableDuration: durationSeconds,
         status: session.status,
         ...buildSessionPresentationPayload(sessionPresentationState),
         // Session-level JSONB metadata and custom events stored in the sessions table
@@ -817,10 +808,15 @@ function buildSessionFaultEvents(
 
     const anrEvents = sessionAnrs.map((anrRow) => {
         const timestamp = coerceToEpochMs(anrRow.timestamp?.getTime?.() ?? anrRow.timestamp, sessionStartMs);
+        const stackTrace = resolveAnrStackTrace({
+            threadState: anrRow.threadState,
+            deviceMetadata: anrRow.deviceMetadata,
+        });
         const properties: any = {
             anrId: anrRow.id,
             durationMs: anrRow.durationMs,
-            threadState: anrRow.threadState,
+            threadState: stackTrace ?? anrRow.threadState,
+            stackTrace: stackTrace ?? undefined,
             status: anrRow.status,
             consoleMarker: 'RJ_ANR',
         };
@@ -834,9 +830,9 @@ function buildSessionFaultEvents(
             name: 'ANR',
             message: detail,
             level: 'error',
-            stack: anrRow.threadState || undefined,
+            stack: stackTrace || undefined,
             durationMs: anrRow.durationMs,
-            threadState: anrRow.threadState,
+            threadState: stackTrace ?? anrRow.threadState,
             properties,
             payload: properties,
         };
@@ -890,9 +886,26 @@ function mapAnrRowsForPayload(sessionAnrs: any[]) {
         id: anrRow.id,
         timestamp: anrRow.timestamp.getTime(),
         durationMs: anrRow.durationMs,
-        threadState: anrRow.threadState,
+        threadState: resolveAnrStackTrace({
+            threadState: anrRow.threadState,
+            deviceMetadata: anrRow.deviceMetadata,
+        }),
         status: anrRow.status,
     }));
+}
+
+function maxReplayEndMsFromArtifacts(
+    artifacts: Array<{ kind: string; endTime?: number | null; startTime?: number | null }>
+): number | null {
+    let max: number | null = null;
+    for (const a of artifacts) {
+        if (a.kind !== 'screenshots' && a.kind !== 'hierarchy') continue;
+        const t = a.endTime ?? a.startTime ?? null;
+        if (typeof t === 'number' && Number.isFinite(t) && t > 0) {
+            max = max === null ? t : Math.max(max, t);
+        }
+    }
+    return max;
 }
 
 async function loadTimelinePayload(session: any, artifactsList: any[]) {
@@ -961,7 +974,11 @@ async function loadTimelinePayload(session: any, artifactsList: any[]) {
     const allNetwork = parsedNetworkBatches.flat();
 
     const sessionStartMs = session.startedAt.getTime();
-    const sessionEndMs = session.endedAt?.getTime()
+    const timelineReplayEndMs = maxReplayEndMsFromArtifacts(artifactsList);
+    const sessionEndMs =
+        session.endedAt?.getTime()
+        ?? session.explicitEndedAt?.getTime()
+        ?? (timelineReplayEndMs != null && timelineReplayEndMs > 0 ? timelineReplayEndMs : undefined)
         ?? (sessionStartMs + ((session.durationSeconds ?? 0) * 1000));
 
     const { normalizedEvents, coerceToEpochMs } = normalizeEventsForTimeline(allEvents, sessionStartMs, sessionEndMs);
@@ -1312,6 +1329,7 @@ router.get(
             .select({
                 session: { ...sessionsArchiveListColumns },
                 metrics: sessionMetrics,
+                latestReplayArtifactEndMs: archiveListLatestReplayEndMsSql,
             })
             .from(sessions)
             .leftJoin(sessionMetrics, eq(sessions.id, sessionMetrics.sessionId))
@@ -1336,8 +1354,11 @@ router.get(
         const firstSessionIds = await resolveArchiveFirstSessionIds(resultSessions);
 
         // Transform to API format
-        const sessionsData = resultSessions.map(({ session: s, metrics: m }) => {
-            const durationSec = resolveArchiveListDurationSeconds(s);
+        const sessionsData = resultSessions.map(({ session: s, metrics: m, latestReplayArtifactEndMs }) => {
+            const durationSec = resolveStoredOrDerivedSessionDurationSeconds({
+                ...s,
+                latestReplayEndMs: latestReplayArtifactEndMs,
+            });
             const inferPendingFromStatus = s.status === 'processing' || s.status === 'pending';
             const successfulRecording = hasSuccessfulRecording(s, m, false);
             const presentationState = deriveSessionPresentationState({
@@ -1697,7 +1718,11 @@ router.get(
         const eventsUrl = eventsUrls.length > 0 ? eventsUrls[0] : null;
 
         const sessionStartMs = session.startedAt.getTime();
-        const sessionEndMs = session.endedAt?.getTime()
+        const replayEndMs = aggregate.latestReplayArtifactEndMs;
+        const sessionEndMs =
+            session.endedAt?.getTime()
+            ?? session.explicitEndedAt?.getTime()
+            ?? (replayEndMs != null && replayEndMs > 0 ? replayEndMs : undefined)
             ?? (sessionStartMs + ((session.durationSeconds ?? 0) * 1000));
 
         const coerceToEpochMs = (raw: unknown, fallbackMs: number): number => {
@@ -1781,6 +1806,10 @@ router.get(
         const hasRecording = Boolean(session.replayAvailable) && !session.isReplayExpired && !session.recordingDeleted;
         const playbackMode = hasRecording ? 'screenshots' : 'none';
         const successfulRecording = hasSuccessfulRecording(session, metrics, readyScreenshotArtifacts);
+        const durationSeconds = resolveStoredOrDerivedSessionDurationSeconds({
+            ...session,
+            latestReplayEndMs: aggregate.latestReplayArtifactEndMs,
+        });
 
         res.json({
             id: session.id,
@@ -1812,10 +1841,10 @@ router.get(
                 : null,
             startTime: session.startedAt.getTime(),
             endTime: session.endedAt?.getTime(),
-            duration: session.durationSeconds,
+            duration: durationSeconds,
             backgroundTime: session.backgroundTimeSeconds ?? 0,
             // playableDuration is now same as durationSeconds (background already excluded at ingest time)
-            playableDuration: session.durationSeconds ?? 0,
+            playableDuration: durationSeconds,
             status: session.status,
             ...buildSessionPresentationPayload(presentationState),
             // Session-level JSONB metadata accumulated from custom "$user_property" events
@@ -1978,7 +2007,8 @@ router.get(
                 startedAt: session.startedAt,
                 hasPendingWork: aggregate.hasPendingWork,
                 hasPendingReplayWork: aggregate.hasPendingReplayWork,
-            })
+            }),
+            aggregate.latestReplayArtifactEndMs
         );
         const stats = await computeSessionStats(session, metrics, artifactsList, false);
         const responseBody = {
@@ -2197,25 +2227,39 @@ router.get(
         const teamIds = teamMemberships.map((tm) => tm.teamId);
         if (teamIds.length === 0) throw ApiError.notFound('Frame not found');
 
-        const [session] = await db
-            .select({
-                projectId: sessions.projectId,
-                startedAt: sessions.startedAt,
-                endedAt: sessions.endedAt,
-                explicitEndedAt: sessions.explicitEndedAt,
-                finalizedAt: sessions.finalizedAt,
-                lastIngestActivityAt: sessions.lastIngestActivityAt,
-            })
-            .from(sessions)
-            .where(and(eq(sessions.id, sessionId), inArray(sessions.projectId, 
-                db.select({ id: projects.id }).from(projects).where(and(inArray(projects.teamId, teamIds), isNull(projects.deletedAt)))
-            )))
-            .limit(1);
+        const [sessionRows, replayEndRows] = await Promise.all([
+            db
+                .select({
+                    projectId: sessions.projectId,
+                    startedAt: sessions.startedAt,
+                    endedAt: sessions.endedAt,
+                    explicitEndedAt: sessions.explicitEndedAt,
+                    finalizedAt: sessions.finalizedAt,
+                    lastIngestActivityAt: sessions.lastIngestActivityAt,
+                })
+                .from(sessions)
+                .where(and(eq(sessions.id, sessionId), inArray(sessions.projectId,
+                    db.select({ id: projects.id }).from(projects).where(and(inArray(projects.teamId, teamIds), isNull(projects.deletedAt)))
+                )))
+                .limit(1),
+            db
+                .select({ maxEnd: sql<number | null>`max(${recordingArtifacts.endTime})` })
+                .from(recordingArtifacts)
+                .where(and(
+                    eq(recordingArtifacts.sessionId, sessionId),
+                    inArray(recordingArtifacts.kind, ['screenshots', 'hierarchy']),
+                    eq(recordingArtifacts.status, 'ready'),
+                )),
+        ]);
 
+        const session = sessionRows[0];
+        const replayEndRow = replayEndRows[0];
         if (!session) throw ApiError.notFound('Frame not found');
         const sessionStartMs = session.startedAt.getTime();
+        const replayEndMs = replayEndRow?.maxEnd ?? null;
         const effectiveSessionEnd = session.endedAt
             ?? session.explicitEndedAt
+            ?? (replayEndMs != null && replayEndMs > 0 ? new Date(replayEndMs) : null)
             ?? session.finalizedAt
             ?? (session.lastIngestActivityAt && session.lastIngestActivityAt > session.startedAt ? session.lastIngestActivityAt : null);
         const sessionEndMs = effectiveSessionEnd ? effectiveSessionEnd.getTime() : Number.MAX_SAFE_INTEGER;

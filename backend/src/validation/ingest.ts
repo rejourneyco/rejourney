@@ -7,6 +7,7 @@ import { z } from 'zod';
 export const endSessionSchema = z.object({
     sessionId: z.string(),
     endedAt: z.number().optional(),
+    closeAnchorAtMs: z.number().optional(),
     totalBackgroundTimeMs: z.number().optional(), // Background time in milliseconds for billing exclusion
     endReason: z.string().min(1).max(64).optional(), // Optional lifecycle reason (v2+ SDKs)
     lifecycleVersion: z.number().int().min(1).optional(), // Optional lifecycle contract version

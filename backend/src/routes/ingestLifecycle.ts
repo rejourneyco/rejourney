@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { eq } from 'drizzle-orm';
-import { db, sessionMetrics, sessions } from '../db/client.js';
+import { db, projects, sessionMetrics, sessions } from '../db/client.js';
 import { logger } from '../logger.js';
 import { apiKeyAuth, requireScope, asyncHandler } from '../middleware/index.js';
 import { ingestProjectRateLimiter } from '../middleware/rateLimit.js';
@@ -11,12 +11,13 @@ import { extractDeviceIdFromUploadToken } from '../services/ingestProtocol.js';
 import { buildSdkTelemetryMergeSet, normalizeSdkTelemetry } from '../services/ingestSdkTelemetry.js';
 import {
     buildSessionEndMetricsMergeSet,
-    calculateSessionDurationBreakdown,
     normalizeLifecycleVersion,
     normalizeSessionEndReason,
     summarizeSessionEndMetrics,
 } from '../services/ingestSessionEnd.js';
-import { preserveExistingSessionEndedAt } from '../services/sessionTiming.js';
+import { loadSessionWorkAggregate } from '../services/sessionPresentationState.js';
+import { resolveAuthoritativeSessionClose } from '../services/sessionTiming.js';
+import { loadSuccessorSessionStartedAt } from '../services/sessionTimingQuery.js';
 import { markSessionIngestActivity, reconcileSessionState } from '../services/sessionReconciliation.js';
 import { isSessionIngestImmutable } from '../services/sessionIngestImmutability.js';
 import { getRedisDiagnosticsForLog } from '../db/redis.js';
@@ -118,56 +119,72 @@ router.post(
                 .where(eq(sessions.id, session.id));
         }
 
-        const endedAtFallback =
-            session.explicitEndedAt
-            ?? session.endedAt
-            ?? session.lastIngestActivityAt
-            ?? null;
-
-        const { endedAt, wallClockSeconds, backgroundTimeSeconds, durationSeconds } = calculateSessionDurationBreakdown(
-            session.startedAt,
-            data.endedAt,
-            data.totalBackgroundTimeMs,
-            endedAtFallback,
-        );
-        const effectiveEndedAt = preserveExistingSessionEndedAt(endedAt, session.endedAt);
-        const preservedExistingEnd = effectiveEndedAt.getTime() !== endedAt.getTime();
-        const effectiveWallClockSeconds = Math.round((effectiveEndedAt.getTime() - session.startedAt.getTime()) / 1000);
-        const effectiveDurationSeconds = Math.max(1, effectiveWallClockSeconds - backgroundTimeSeconds);
+        const [project] = await db.select({ maxRecordingMinutes: projects.maxRecordingMinutes })
+            .from(projects)
+            .where(eq(projects.id, session.projectId))
+            .limit(1);
+        const aggregate = await loadSessionWorkAggregate(session.id);
+        const successorStartedAt = await loadSuccessorSessionStartedAt({
+            sessionId: session.id,
+            projectId: session.projectId,
+            deviceId: session.deviceId,
+            startedAt: session.startedAt,
+        });
+        const resolvedClose = resolveAuthoritativeSessionClose({
+            startedAt: session.startedAt,
+            persistedEndedAt: session.endedAt ?? session.explicitEndedAt ?? null,
+            lastIngestActivityAt: session.lastIngestActivityAt,
+            lastClientEventAt: session.lastClientEventAt,
+            lastClientForegroundAt: session.lastClientForegroundAt,
+            lastClientBackgroundAt: session.lastClientBackgroundAt,
+            latestReplayEndMs: aggregate.latestReplayArtifactEndMs,
+            reportedEndedAt: data.endedAt,
+            totalBackgroundTimeMs: data.totalBackgroundTimeMs,
+            endReason,
+            closeAnchorAtMs: data.closeAnchorAtMs,
+            storedBackgroundTimeSeconds: session.backgroundTimeSeconds,
+            maxRecordingMinutes: project?.maxRecordingMinutes ?? 10,
+            successorStartedAt,
+        });
+        const closeSource = endReason === 'recovery_finalize' ? 'recovery' : 'explicit';
 
         log.info({
-            wallClockSeconds: effectiveWallClockSeconds,
-            backgroundTimeSeconds,
-            durationSeconds: effectiveDurationSeconds,
-            reportedWallClockSeconds: wallClockSeconds,
-            reportedDurationSeconds: durationSeconds,
+            wallClockSeconds: resolvedClose.wallClockSeconds,
+            backgroundTimeSeconds: resolvedClose.backgroundTimeSeconds,
+            durationSeconds: resolvedClose.durationSeconds,
             endReason,
             lifecycleVersion,
             metricsSummary,
             hadSdkTelemetry: Boolean(normalizedSdkTelemetry),
-            preservedExistingEnd,
+            resolverSource: resolvedClose.source,
+            usedReportedEndedAt: resolvedClose.usedReportedEndedAt,
+            successorCapApplied: resolvedClose.successorCapApplied,
         }, 'Session duration breakdown (durationSeconds = playable time)');
 
         await markSessionIngestActivity(session.id, {
-            at: preservedExistingEnd
-                ? (session.lastIngestActivityAt ?? session.endedAt ?? new Date())
-                : new Date(),
-            explicitEndedAt: effectiveEndedAt,
-            backgroundTimeSeconds,
-            closeSource: 'explicit',
+            at: new Date(),
+            explicitEndedAt: resolvedClose.endedAt,
+            endedAt: resolvedClose.endedAt,
+            durationSeconds: resolvedClose.durationSeconds,
+            backgroundTimeSeconds: resolvedClose.backgroundTimeSeconds,
+            closeSource,
         });
         await reconcileSessionState(session.id);
 
         log.info({
-            durationSeconds: effectiveDurationSeconds,
-            backgroundTimeSeconds,
+            durationSeconds: resolvedClose.durationSeconds,
+            backgroundTimeSeconds: resolvedClose.backgroundTimeSeconds,
             endReason,
             lifecycleVersion,
             metricsSummary,
-            preservedExistingEnd,
+            resolverSource: resolvedClose.source,
         }, 'Session ended');
 
-        res.json({ success: true, durationSeconds: effectiveDurationSeconds, backgroundTimeSeconds });
+        res.json({
+            success: true,
+            durationSeconds: resolvedClose.durationSeconds,
+            backgroundTimeSeconds: resolvedClose.backgroundTimeSeconds,
+        });
     })
 );
 

@@ -18,6 +18,7 @@ package com.rejourney.recording
 
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import com.rejourney.engine.DiagnosticLog
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
@@ -47,7 +48,7 @@ class AnrSentinel private constructor() {
     
     private var watchdogThread: Thread? = null
     private val isActive = AtomicBoolean(false)
-    private val lastResponseTime = AtomicLong(System.currentTimeMillis())
+    private val lastResponseTime = AtomicLong(SystemClock.uptimeMillis())
     private val pingSequence = AtomicInteger(0)
     private val pongSequence = AtomicInteger(0)
     
@@ -58,7 +59,7 @@ class AnrSentinel private constructor() {
 
         // Reset watchdog state on each activation to avoid stale timings from
         // previous app background periods.
-        lastResponseTime.set(System.currentTimeMillis())
+        lastResponseTime.set(SystemClock.uptimeMillis())
         pongSequence.set(pingSequence.get())
         
         startWatchdog()
@@ -83,20 +84,20 @@ class AnrSentinel private constructor() {
                     mainHandler.post {
                         // Main thread is responsive, update pong
                         pongSequence.set(currentPing)
-                        lastResponseTime.set(System.currentTimeMillis())
+                        lastResponseTime.set(SystemClock.uptimeMillis())
                     }
                     
                     Thread.sleep(checkInterval)
                     
                     // Check if main thread responded
-                    val elapsed = System.currentTimeMillis() - lastResponseTime.get()
+                    val elapsed = SystemClock.uptimeMillis() - lastResponseTime.get()
                     val missedPongs = pingSequence.get() - pongSequence.get()
                     
                     if (elapsed >= anrThresholdMs && missedPongs > 0) {
                         captureAnr(elapsed)
                         
                         // Reset to avoid duplicate reports
-                        lastResponseTime.set(System.currentTimeMillis())
+                        lastResponseTime.set(SystemClock.uptimeMillis())
                         pongSequence.set(pingSequence.get())
                     }
                 } catch (e: InterruptedException) {

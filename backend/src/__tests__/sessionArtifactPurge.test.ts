@@ -2,7 +2,10 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
     eq: vi.fn((left, right) => ({ left, right })),
-    or: vi.fn((...conditions) => ({ conditions })),
+    sql: vi.fn((strings: TemplateStringsArray, ...values: unknown[]) => strings.reduce(
+        (acc, chunk, index) => acc + chunk + (index < values.length ? String(values[index]) : ''),
+        '',
+    )),
     db: {
         select: vi.fn(),
         transaction: vi.fn(),
@@ -20,6 +23,7 @@ const mocks = vi.hoisted(() => ({
         scan: vi.fn(),
     },
     deletePrefixFromProjectStorage: vi.fn(),
+    deletePrefixFromBackupR2: vi.fn(),
     beginRetentionDeletionLog: vi.fn(),
     finalizeRetentionDeletionLog: vi.fn(),
     logger: {
@@ -31,7 +35,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('drizzle-orm', () => ({
     eq: mocks.eq,
-    or: mocks.or,
+    sql: mocks.sql,
 }));
 
 let tx: any;
@@ -51,6 +55,7 @@ vi.mock('../db/redis.js', () => ({
 
 vi.mock('../db/s3.js', () => ({
     deletePrefixFromProjectStorage: mocks.deletePrefixFromProjectStorage,
+    deletePrefixFromBackupR2: mocks.deletePrefixFromBackupR2,
 }));
 
 vi.mock('../services/retentionAudit.js', () => ({
@@ -138,6 +143,7 @@ describe('sessionArtifactPurge', () => {
 
         let metricsSetPayload: any = null;
         let sessionsSetPayload: any = null;
+        const executedStatements: unknown[] = [];
 
         tx = {
             delete: vi.fn((table: unknown) => {
@@ -180,11 +186,18 @@ describe('sessionArtifactPurge', () => {
 
                 throw new Error('Unexpected update table');
             }),
+            execute: vi.fn(async (statement: unknown) => {
+                executedStatements.push(statement);
+                return undefined;
+            }),
             get metricsSetPayload() {
                 return metricsSetPayload;
             },
             get sessionsSetPayload() {
                 return sessionsSetPayload;
+            },
+            get executedStatements() {
+                return executedStatements;
             },
         };
 
@@ -216,6 +229,12 @@ describe('sessionArtifactPurge', () => {
                 },
             ],
         });
+        mocks.deletePrefixFromBackupR2.mockResolvedValue({
+            prefix: 'backups/tenant/team_1/project/project_1/sessions/session_1',
+            deletedObjectCount: 1,
+            deletedBytes: 123,
+            endpointResults: [],
+        });
     });
 
     it('purges canonical storage and deletes narrow DB rows', async () => {
@@ -239,6 +258,8 @@ describe('sessionArtifactPurge', () => {
             plannedArtifactBytes: 505,
             plannedJobCount: 1,
             storageMissing: false,
+            deletedBackupObjectCount: 0,
+            deletedBackupBytes: 0,
         });
 
         expect(mocks.deletePrefixFromProjectStorage).toHaveBeenCalledWith(
@@ -272,6 +293,37 @@ describe('sessionArtifactPurge', () => {
                 deletedIngestJobCount: 1,
                 deletedObjectCount: 3,
                 deletedBytes: 900,
+            }),
+        );
+    });
+
+    it('removes stale backup R2 copies and clears the backup log when requested', async () => {
+        const now = new Date('2026-03-27T12:00:00.000Z');
+
+        const result = await purgeSessionArtifacts('session_1', {
+            runId: 'run_4',
+            trigger: 'retention_expiry',
+            now,
+            deleteBackupCopy: true,
+            deleteBackupLogEntry: true,
+            backupKeyPrefix: 'backups/tenant/team_1/project/project_1/sessions/session_1',
+        });
+
+        expect(result.deletedBackupObjectCount).toBe(1);
+        expect(result.deletedBackupBytes).toBe(123);
+        expect(mocks.deletePrefixFromBackupR2).toHaveBeenCalledWith(
+            'backups/tenant/team_1/project/project_1/sessions/session_1',
+        );
+        expect(String(tx.executedStatements[0])).toContain('DELETE FROM session_backup_log');
+        expect(mocks.finalizeRetentionDeletionLog).toHaveBeenCalledWith(
+            'canonical_log',
+            expect.objectContaining({
+                status: 'completed',
+                details: expect.objectContaining({
+                    backupDeletedObjectCount: 1,
+                    backupDeletedBytes: 123,
+                    backupKeyPrefix: 'backups/tenant/team_1/project/project_1/sessions/session_1',
+                }),
             }),
         );
     });

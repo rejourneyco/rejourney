@@ -41,7 +41,7 @@ describe('sessionBackupGate', () => {
         ]));
     });
 
-    it('requires both artifact_count and planned_artifact_count to cover lateral artifact_rows in SQL', async () => {
+    it('requires artifact_count to cover lateral artifact_rows and reads from session_backup_log', async () => {
         mocks.pool.query.mockResolvedValue({ rows: [] });
 
         await getBackedUpSessionIds(['session_1']);
@@ -49,9 +49,11 @@ describe('sessionBackupGate', () => {
         expect(mocks.pool.query).toHaveBeenCalledTimes(1);
         const sql = String(mocks.pool.query.mock.calls[0][0]);
         expect(sql).toContain('bl.artifact_count >= COALESCE(artifact_stats.artifact_rows, 0)');
-        expect(sql).toContain('bl.planned_artifact_count >= COALESCE(artifact_stats.artifact_rows, 0)');
-        expect(sql).toContain('FROM session_backup_log bl');
-        expect(sql).not.toMatch(/COALESCE\(artifact_stats\.artifact_rows, 0\) = 0/);
+        expect(sql).toContain('FROM sessions s');
+        expect(sql).toContain('LEFT JOIN session_backup_log bl ON bl.session_id = s.id');
+        expect(sql).toContain('FROM session_metrics sm');
+        expect(sql).toContain('FROM ingest_jobs ij');
+        expect(sql).toContain('COALESCE(s.replay_segment_count, 0) = 0');
     });
 
     it('fails closed when session_backup_log table does not exist', async () => {
@@ -64,4 +66,3 @@ describe('sessionBackupGate', () => {
         expect(mocks.logger.warn).toHaveBeenCalled();
     });
 });
-

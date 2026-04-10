@@ -26,7 +26,6 @@ public final class ReplayOrchestrator: NSObject {
     @objc public var apiToken: String?
     @objc public var replayId: String?
     @objc public var replayStartMs: UInt64 = 0
-    @objc public var deferredUploadMode = false
     @objc public var frameBundleSize: Int = 3
 
     public var serverEndpoint: String {
@@ -97,7 +96,11 @@ public final class ReplayOrchestrator: NSObject {
     private var _hierarchyTimer: Timer?
     private var _lastHierarchyHash: String?
     private var _durationLimitTimer: DispatchWorkItem?
-    private let lifecycleContractVersion = 2
+    private var _recoveryCheckpointTimer: DispatchSourceTimer?
+    private var _lastActiveCheckpointMs: UInt64 = 0
+    private var _lastBackgroundEntryMs: UInt64?
+    private let lifecycleContractVersion = 3
+    private let recoveryCheckpointIntervalMs: UInt64 = 5_000
 
     private override init() {
         super.init()
@@ -151,45 +154,6 @@ public final class ReplayOrchestrator: NSObject {
         }
     }
 
-    @objc public func beginDeferredReplay(apiToken: String, serverEndpoint: String, captureSettings: [String: Any]? = nil) {
-        self.apiToken = apiToken
-        self.serverEndpoint = serverEndpoint
-        deferredUploadMode = true
-
-        _applySettings(captureSettings)
-
-        DeviceRegistrar.shared.obtainCredential(apiToken: apiToken) { [weak self] ok, cred in
-            guard let self, ok else { return }
-            TelemetryPipeline.shared.apiToken = apiToken
-            TelemetryPipeline.shared.credential = cred
-            SegmentDispatcher.shared.apiToken = apiToken
-            SegmentDispatcher.shared.credential = cred
-        }
-
-        _initSession()
-        TelemetryPipeline.shared.activateDeferredMode()
-
-        let renderCfg = _computeRender(fps: 1, tier: "standard")
-
-        if visualCaptureEnabled {
-            VisualCapture.shared.configure(snapshotInterval: renderCfg.interval, jpegQuality: renderCfg.quality, uploadBatchSize: frameBundleSize)
-            VisualCapture.shared.beginCapture(sessionOrigin: replayStartMs)
-            VisualCapture.shared.activateDeferredMode()
-        }
-
-        if interactionCaptureEnabled { InteractionRecorder.shared.activate() }
-        if faultTrackingEnabled { FaultTracker.shared.activate() }
-
-        _live = true
-    }
-
-    @objc public func commitDeferredReplay() {
-        deferredUploadMode = false
-        TelemetryPipeline.shared.commitDeferredData()
-        VisualCapture.shared.commitDeferredData()
-        TelemetryPipeline.shared.activate()
-    }
-
     @objc public func endReplay() {
         endReplay(completion: nil)
     }
@@ -208,6 +172,7 @@ public final class ReplayOrchestrator: NSObject {
             return
         }
         _live = false
+        _stopRecoveryCheckpointTimer()
 
         let sid = replayId ?? ""
         let termMs = UInt64(Date().timeIntervalSince1970 * 1000)
@@ -239,40 +204,45 @@ public final class ReplayOrchestrator: NSObject {
         // stop a new session's capture that starts before this block runs.
         let haltGeneration = VisualCapture.shared.captureGeneration
 
-        // Do local teardown immediately so lifecycle rollover never depends on network latency.
+        let finalizeSession = {
+            SegmentDispatcher.shared.shipPending()
+
+            guard !self._finalized else {
+                self._clearRecovery()
+                completion?(true, true)
+                self.replayId = nil
+                self.replayStartMs = 0
+                return
+            }
+            self._finalized = true
+
+            SegmentDispatcher.shared.concludeReplay(
+                replayId: sid,
+                concludedAt: termMs,
+                backgroundDurationMs: self._bgTimeMs,
+                metrics: metrics,
+                currentQueueDepth: queueDepthAtFinalize,
+                endReason: endReason,
+                lifecycleVersion: self.lifecycleContractVersion,
+                closeAnchorAtMs: self._currentCloseAnchorMs(for: endReason)
+            ) { [weak self] ok in
+                if ok { self?._clearRecovery() }
+                completion?(true, ok)
+            }
+
+            self.replayId = nil
+            self.replayStartMs = 0
+        }
+
+        // Do local teardown immediately so lifecycle rollover never depends on network latency,
+        // but finish session finalization only after the telemetry drain has been kicked off.
         DispatchQueue.main.async {
             VisualCapture.shared.halt(expectedGeneration: haltGeneration)
-            TelemetryPipeline.shared.shutdown()
+            TelemetryPipeline.shared.shutdown(completion: finalizeSession, skipVisualFlush: true)
             InteractionRecorder.shared.deactivate()
             FaultTracker.shared.deactivate()
             ResponsivenessWatcher.shared.halt()
         }
-        SegmentDispatcher.shared.shipPending()
-
-        guard !_finalized else {
-            _clearRecovery()
-            completion?(true, true)
-            replayId = nil
-            replayStartMs = 0
-            return
-        }
-        _finalized = true
-
-        SegmentDispatcher.shared.concludeReplay(
-            replayId: sid,
-            concludedAt: termMs,
-            backgroundDurationMs: _bgTimeMs,
-            metrics: metrics,
-            currentQueueDepth: queueDepthAtFinalize,
-            endReason: endReason,
-            lifecycleVersion: lifecycleContractVersion
-        ) { [weak self] ok in
-            if ok { self?._clearRecovery() }
-            completion?(true, ok)
-        }
-
-        replayId = nil
-        replayStartMs = 0
     }
 
     @objc public func redactView(_ view: UIView) {
@@ -350,6 +320,9 @@ public final class ReplayOrchestrator: NSObject {
         }
 
         let origStart = checkpoint["startMs"] as? UInt64 ?? 0
+        let timingVersion = checkpoint["timingVersion"] as? Int ?? 0
+        let lastActiveCheckpointMs = checkpoint["lastActiveCheckpointMs"] as? UInt64 ?? 0
+        let lastBackgroundEntryMs = checkpoint["lastBackgroundEntryMs"] as? UInt64 ?? 0
         let nowMs = UInt64(Date().timeIntervalSince1970 * 1000)
 
         DiagnosticLog.notice("[ReplayOrchestrator] Recovering interrupted session: \(recId)")
@@ -382,7 +355,10 @@ public final class ReplayOrchestrator: NSObject {
                 metrics: crashMetrics,
                 currentQueueDepth: queueDepthAtFinalize,
                 endReason: "recovery_finalize",
-                lifecycleVersion: self?.lifecycleContractVersion
+                lifecycleVersion: self?.lifecycleContractVersion,
+                closeAnchorAtMs: timingVersion >= 3
+                    ? (lastBackgroundEntryMs > 0 ? lastBackgroundEntryMs : (lastActiveCheckpointMs > 0 ? lastActiveCheckpointMs : nil))
+                    : nil
             ) { ok in
                 DiagnosticLog.notice("[ReplayOrchestrator] Crash recovery finalize: success=\(ok), sessionId=\(recId)")
                 if ok { self?._clearRecovery() }
@@ -390,7 +366,7 @@ public final class ReplayOrchestrator: NSObject {
             }
         }
 
-        VisualCapture.shared.uploadPendingFrames(sessionId: recId) { uploaded in
+        VisualCapture.shared.uploadPendingFrames(sessionId: recId, sessionEpoch: origStart) { uploaded in
             guard uploaded else {
                 DiagnosticLog.caution("[ReplayOrchestrator] Crash recovery postponed: pending frame upload failed for session \(recId)")
                 completion(nil)
@@ -455,6 +431,8 @@ public final class ReplayOrchestrator: NSObject {
         _visitedScreens.removeAll()
         _bgTimeMs = 0
         _bgStartMs = nil
+        _lastActiveCheckpointMs = replayStartMs
+        _lastBackgroundEntryMs = nil
         _lastHierarchyHash = nil
 
         TelemetryPipeline.shared.currentReplayId = replayId
@@ -463,6 +441,7 @@ public final class ReplayOrchestrator: NSObject {
 
         _attachLifecycle()
         _saveRecovery()
+        _startRecoveryCheckpointTimer()
 
         // Record app startup time
         _recordAppStartup()
@@ -551,6 +530,17 @@ public final class ReplayOrchestrator: NSObject {
         self.apiToken = token
         _initSession()
 
+        if let sid = replayId {
+            SegmentDispatcher.shared.configure(
+                replayId: sid,
+                apiToken: TelemetryPipeline.shared.apiToken ?? token,
+                credential: TelemetryPipeline.shared.credential,
+                projectId: TelemetryPipeline.shared.projectId,
+                isSampledIn: TelemetryPipeline.shared.isSampledIn
+            )
+            TelemetryPipeline.shared.prepareForNewSession(sid)
+        }
+
         // Reactivate the dispatcher in case it was halted from a previous session
         SegmentDispatcher.shared.activate()
         TelemetryPipeline.shared.activate()
@@ -605,7 +595,17 @@ public final class ReplayOrchestrator: NSObject {
 
     private func _saveRecovery() {
         guard let sid = replayId, let token = apiToken else { return }
-        var checkpoint: [String: Any] = ["replayId": sid, "apiToken": token, "startMs": replayStartMs, "endpoint": serverEndpoint]
+        var checkpoint: [String: Any] = [
+            "timingVersion": lifecycleContractVersion,
+            "replayId": sid,
+            "apiToken": token,
+            "startMs": replayStartMs,
+            "lastActiveCheckpointMs": _lastActiveCheckpointMs,
+            "endpoint": serverEndpoint,
+        ]
+        if let lastBackgroundEntryMs = _lastBackgroundEntryMs, lastBackgroundEntryMs > 0 {
+            checkpoint["lastBackgroundEntryMs"] = lastBackgroundEntryMs
+        }
         if let cred = SegmentDispatcher.shared.credential {
             checkpoint["credential"] = cred
         }
@@ -619,6 +619,26 @@ public final class ReplayOrchestrator: NSObject {
         try? FileManager.default.removeItem(at: docs.appendingPathComponent("rejourney_recovery.json"))
     }
 
+    private func _startRecoveryCheckpointTimer() {
+        _stopRecoveryCheckpointTimer()
+        let timer = DispatchSource.makeTimerSource(queue: DispatchQueue.global(qos: .utility))
+        timer.schedule(deadline: .now() + .milliseconds(Int(recoveryCheckpointIntervalMs)), repeating: .milliseconds(Int(recoveryCheckpointIntervalMs)))
+        timer.setEventHandler { [weak self] in
+            guard let self, self._live else { return }
+            if self._bgStartMs == nil {
+                self._lastActiveCheckpointMs = UInt64(Date().timeIntervalSince1970 * 1000)
+                self._saveRecovery()
+            }
+        }
+        _recoveryCheckpointTimer = timer
+        timer.resume()
+    }
+
+    private func _stopRecoveryCheckpointTimer() {
+        _recoveryCheckpointTimer?.cancel()
+        _recoveryCheckpointTimer = nil
+    }
+
     private func _attachLifecycle() {
         NotificationCenter.default.addObserver(self, selector: #selector(_onBackground), name: UIApplication.didEnterBackgroundNotification, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(_onForeground), name: UIApplication.willEnterForegroundNotification, object: nil)
@@ -630,7 +650,10 @@ public final class ReplayOrchestrator: NSObject {
     }
 
     @objc private func _onBackground() {
-        _bgStartMs = UInt64(Date().timeIntervalSince1970 * 1000)
+        let now = UInt64(Date().timeIntervalSince1970 * 1000)
+        _bgStartMs = now
+        _lastBackgroundEntryMs = now
+        _saveRecovery()
         ResponsivenessWatcher.shared.halt()
     }
 
@@ -639,9 +662,21 @@ public final class ReplayOrchestrator: NSObject {
         let now = UInt64(Date().timeIntervalSince1970 * 1000)
         _bgTimeMs += (now - start)
         _bgStartMs = nil
+        _lastBackgroundEntryMs = nil
+        _lastActiveCheckpointMs = now
+        _saveRecovery()
 
         if responsivenessCaptureEnabled {
             ResponsivenessWatcher.shared.activate()
+        }
+    }
+
+    private func _currentCloseAnchorMs(for endReason: String) -> UInt64? {
+        switch endReason {
+        case "background_timeout":
+            return _lastBackgroundEntryMs ?? _bgStartMs
+        default:
+            return nil
         }
     }
 

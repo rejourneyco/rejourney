@@ -51,9 +51,10 @@ public final class TelemetryPipeline: NSObject {
     
     private let _eventRing = EventRingBuffer(capacity: 5000)
     private let _frameQueue = FrameBundleQueue(maxPending: 200)
-    private var _deferredMode = false
     private var _batchSeq = 0
     private var _draining = false
+    private let _drainStateLock = NSLock()
+    private var _shutdownCompletions: [() -> Void] = []
     private var _backgroundTaskId: UIBackgroundTaskIdentifier = .invalid
     
     private let _serialWorker = DispatchQueue(label: "co.rejourney.telemetry", qos: .utility)
@@ -121,37 +122,45 @@ public final class TelemetryPipeline: NSObject {
     }
     
     @objc public func shutdown() {
-        _heartbeat?.invalidate()
-        _heartbeat = nil
+        shutdown(completion: nil)
+    }
+
+    public func shutdown(completion: (() -> Void)? = nil, skipVisualFlush: Bool = false) {
+        if Thread.isMainThread {
+            _heartbeat?.invalidate()
+            _heartbeat = nil
+        } else {
+            DispatchQueue.main.async { [weak self] in
+                self?._heartbeat?.invalidate()
+                self?._heartbeat = nil
+            }
+        }
         NotificationCenter.default.removeObserver(self)
-        
-        _drainPendingDataForShutdown()
+
+        _drainPendingDataForShutdown(completion: completion, skipVisualFlush: skipVisualFlush)
     }
     
     @objc public func finalizeAndShip() {
         shutdown()
     }
     
-    @objc public func activateDeferredMode() {
-        _serialWorker.async { self._deferredMode = true }
-    }
-    
-    @objc public func commitDeferredData() {
-        _serialWorker.async {
-            self._deferredMode = false
-            self._shipPendingEvents()
-            self._shipPendingFrames()
-        }
-    }
-    
-    @objc public func submitFrameBundle(payload: Data, filename: String, startMs: UInt64, endMs: UInt64, frameCount: Int) {
+    @objc public func submitFrameBundle(payload: Data, filename: String, startMs: UInt64, endMs: UInt64, frameCount: Int, sessionId: String? = nil) {
         // Capture the session ID now so frames are always attributed to the
         // session that was active when they were captured, not when they ship.
-        let capturedSessionId = currentReplayId
+        let capturedSessionId = sessionId ?? currentReplayId
         _serialWorker.async {
             let bundle = PendingFrameBundle(tag: filename, payload: payload, rangeStart: startMs, rangeEnd: endMs, count: frameCount, sessionId: capturedSessionId)
             self._frameQueue.enqueue(bundle)
-            if !self._deferredMode { self._shipPendingFrames() }
+            self._shipPendingFrames()
+        }
+    }
+
+    @objc public func prepareForNewSession(_ replayId: String) {
+        _batchSeq = 0
+        let droppedEvents = _eventRing.clear()
+        let droppedFrames = _frameQueue.clear()
+        if droppedEvents > 0 || droppedFrames > 0 {
+            DiagnosticLog.trace("[TelemetryPipeline] Dropped stale pending telemetry for new session \(replayId.prefix(20)) (events=\(droppedEvents), frames=\(droppedFrames))")
         }
     }
     
@@ -166,42 +175,33 @@ public final class TelemetryPipeline: NSObject {
         _eventRing.count + _frameQueue.count
     }
 
-    private func _drainPendingDataForShutdown() {
-        guard !_draining else { return }
-        _draining = true
+    private func _drainPendingDataForShutdown(completion: (() -> Void)? = nil, skipVisualFlush: Bool = false) {
+        guard _beginDrain(completion: completion) else { return }
 
         _backgroundTaskId = UIApplication.shared.beginBackgroundTask(withName: "RejourneyShutdownFlush") { [weak self] in
-            self?._endBackgroundTask()
+            self?._finishDrainIfNeeded()
         }
 
-        // Force any in-memory frames into the upload pipeline before session
-        // teardown clears the active replay ID.
-        VisualCapture.shared.flushToDisk()
-        VisualCapture.shared.flushBufferToNetwork()
+        if !skipVisualFlush {
+            // Force any in-memory frames into the upload pipeline before session
+            // teardown clears the active replay ID.
+            VisualCapture.shared.flushToDisk()
+            VisualCapture.shared.flushBufferToNetwork()
+        }
 
-        let group = DispatchGroup()
-        group.enter()
         _serialWorker.async { [weak self] in
-            defer { group.leave() }
             self?._shipPendingEvents()
             self?._shipPendingFrames()
+            self?._finishDrainIfNeeded()
         }
-
-        if group.wait(timeout: .now() + 1.0) == .timedOut {
-            DiagnosticLog.trace("[TelemetryPipeline] shutdown drain timed out before upload queue kick-off completed")
-        }
-
-        _endBackgroundTask()
-        _draining = false
     }
     
     @objc private func _appSuspending() {
-        guard !_draining else { return }
-        _draining = true
+        guard _beginDrain() else { return }
         
         // Request background time to complete uploads
         _backgroundTaskId = UIApplication.shared.beginBackgroundTask(withName: "RejourneyFlush") { [weak self] in
-            self?._endBackgroundTask()
+            self?._finishDrainIfNeeded()
         }
         
         // Flush visual frames to disk for crash safety
@@ -217,9 +217,7 @@ public final class TelemetryPipeline: NSObject {
             // Allow time for network operations to complete
             Thread.sleep(forTimeInterval: 2.0)
             
-            DispatchQueue.main.async {
-                self?._endBackgroundTask()
-            }
+            self?._finishDrainIfNeeded()
         }
     }
     
@@ -227,12 +225,48 @@ public final class TelemetryPipeline: NSObject {
         guard _backgroundTaskId != .invalid else { return }
         UIApplication.shared.endBackgroundTask(_backgroundTaskId)
         _backgroundTaskId = .invalid
+    }
+
+    private func _beginDrain(completion: (() -> Void)? = nil) -> Bool {
+        _drainStateLock.lock()
+        defer { _drainStateLock.unlock() }
+
+        if let completion {
+            _shutdownCompletions.append(completion)
+        }
+
+        if _draining {
+            return false
+        }
+
+        _draining = true
+        return true
+    }
+
+    private func _finishDrainIfNeeded() {
+        _drainStateLock.lock()
+        guard _draining else {
+            _drainStateLock.unlock()
+            return
+        }
+
         _draining = false
+        let completions = _shutdownCompletions
+        _shutdownCompletions.removeAll()
+        _drainStateLock.unlock()
+
+        _endBackgroundTask()
+
+        guard !completions.isEmpty else { return }
+        DispatchQueue.main.async {
+            completions.forEach { $0() }
+        }
     }
     
     private func _uploadPendingSessions() {
-        // TODO: Re-enable when EventBuffer is added to Xcode project
-        // For now, just upload pending frames
+        // Intentionally deferred: crash/interruption recovery currently restores
+        // pending visual frames via ReplayOrchestrator + VisualCapture only.
+        // Telemetry events remain best-effort and are not replayed from EventBuffer yet.
     }
     
     private func _uploadSessionEvents(sessionId: String, events: [[String: Any]], completion: @escaping (Bool) -> Void) {
@@ -277,9 +311,18 @@ public final class TelemetryPipeline: NSObject {
     }
     
     private func _shipPendingFrames() {
-        guard !_deferredMode, let next = _frameQueue.dequeue() else { return }
+        guard let next = _frameQueue.dequeue() else { return }
 
-        let targetSession = next.sessionId ?? currentReplayId
+        let activeSession = currentReplayId
+        if let bundleSession = next.sessionId,
+           let activeSession,
+           bundleSession != activeSession {
+            DiagnosticLog.trace("[TelemetryPipeline] Dropping stale frame bundle for closed session \(bundleSession.prefix(20)) (current=\(activeSession.prefix(20)))")
+            _serialWorker.async { [weak self] in self?._shipPendingFrames() }
+            return
+        }
+
+        let targetSession = next.sessionId ?? activeSession
         guard let targetSession else {
             _frameQueue.requeue(next)
             return
@@ -296,13 +339,22 @@ public final class TelemetryPipeline: NSObject {
             endMs: next.rangeEnd,
             frameCount: next.count
         ) { [weak self] ok in
-            if !ok { self?._frameQueue.requeue(next) }
-            else { self?._serialWorker.async { self?._shipPendingFrames() } }
+            if !ok {
+                if let bundleSession = next.sessionId,
+                   let latestSession = self?.currentReplayId,
+                   bundleSession != latestSession {
+                    DiagnosticLog.trace("[TelemetryPipeline] Discarding failed stale frame bundle for closed session \(bundleSession.prefix(20)) (current=\(latestSession.prefix(20)))")
+                    self?._serialWorker.async { self?._shipPendingFrames() }
+                } else {
+                    self?._frameQueue.requeue(next)
+                }
+            } else {
+                self?._serialWorker.async { self?._shipPendingFrames() }
+            }
         }
     }
     
     private func _shipPendingEvents() {
-        guard !_deferredMode else { return }
         let batch = _eventRing.drain(maxBytes: _batchSizeLimit)
         guard !batch.isEmpty else { return }
         
@@ -543,6 +595,13 @@ public final class TelemetryPipeline: NSObject {
             "totalBackgroundTime": totalBackgroundTimeMs
         ])
     }
+
+    @objc public func recordAppBackground() {
+        _enqueue([
+            "type": "app_background",
+            "timestamp": _ts(),
+        ])
+    }
     
     // MARK: - Dead Tap Timer
     
@@ -604,6 +663,14 @@ private final class EventRingBuffer {
         }
         return result
     }
+
+    func clear() -> Int {
+        _lock.lock()
+        defer { _lock.unlock() }
+        let cleared = _storage.count
+        _storage.removeAll()
+        return cleared
+    }
 }
 
 private struct PendingFrameBundle {
@@ -650,9 +717,11 @@ private final class FrameBundleQueue {
         _queue.insert(bundle, at: 0)
     }
 
-    func clear() {
+    func clear() -> Int {
         _lock.lock()
         defer { _lock.unlock() }
+        let cleared = _queue.count
         _queue.removeAll()
+        return cleared
     }
 }

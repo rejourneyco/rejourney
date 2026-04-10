@@ -2,12 +2,14 @@ import { eq, sql } from 'drizzle-orm';
 import { db, ingestJobs, projects, recordingArtifacts, sessionMetrics, sessions } from '../db/client.js';
 import { logger } from '../logger.js';
 import { updateDeviceUsage } from './recording.js';
+import { enqueueSessionBackupCandidate } from './sessionBackupQueue.js';
 import {
     deriveSessionPresentationState,
     loadSessionWorkAggregate,
     SESSION_LIVE_INGEST_WINDOW_MS,
 } from './sessionPresentationState.js';
-import { computeSessionDurationSeconds, selectSessionEndedAt } from './sessionTiming.js';
+import { computeSessionDurationSeconds, resolveAuthoritativeSessionClose } from './sessionTiming.js';
+import { loadSuccessorSessionStartedAt } from './sessionTimingQuery.js';
 
 export const SESSION_FINALIZE_IDLE_MS = SESSION_LIVE_INGEST_WINDOW_MS;
 
@@ -21,6 +23,8 @@ type ReconcileSessionResult = {
 type TouchSessionOptions = {
     at?: Date;
     explicitEndedAt?: Date | null;
+    endedAt?: Date | null;
+    durationSeconds?: number | null;
     backgroundTimeSeconds?: number | null;
     closeSource?: string | null;
     reopen?: boolean;
@@ -39,6 +43,12 @@ export async function markSessionIngestActivity(sessionId: string, options: Touc
 
     if (options.explicitEndedAt !== undefined) {
         update.explicitEndedAt = options.explicitEndedAt;
+    }
+    if (options.endedAt !== undefined) {
+        update.endedAt = options.endedAt;
+    }
+    if (options.durationSeconds !== undefined && options.durationSeconds !== null) {
+        update.durationSeconds = Math.max(1, Math.round(options.durationSeconds));
     }
     if (options.backgroundTimeSeconds !== undefined && options.backgroundTimeSeconds !== null) {
         update.backgroundTimeSeconds = Math.max(0, Math.round(options.backgroundTimeSeconds));
@@ -112,15 +122,25 @@ export async function reconcileSessionState(sessionId: string, now = new Date())
     });
     const shouldFinalize = presentationState.shouldFinalize;
 
-    const latestReplayEndMs = aggregate.latestReplayArtifactEndMs;
-    const derivedEndedAt = selectSessionEndedAt({
+    const successorStartedAt = await loadSuccessorSessionStartedAt({
+        sessionId: session.id,
+        projectId: session.projectId,
+        deviceId: session.deviceId,
         startedAt: session.startedAt,
-        explicitEndedAt: session.explicitEndedAt,
-        latestReplayEndMs,
-        persistedEndedAt: session.endedAt,
+    });
+    const resolvedClose = resolveAuthoritativeSessionClose({
+        startedAt: session.startedAt,
+        persistedEndedAt: session.endedAt ?? session.explicitEndedAt ?? null,
+        explicitEndedAtCap: session.explicitEndedAt,
         lastIngestActivityAt: session.lastIngestActivityAt,
+        lastClientEventAt: session.lastClientEventAt,
+        lastClientForegroundAt: session.lastClientForegroundAt,
+        lastClientBackgroundAt: session.lastClientBackgroundAt,
+        latestReplayEndMs: aggregate.latestReplayArtifactEndMs,
+        storedBackgroundTimeSeconds: session.backgroundTimeSeconds,
         maxRecordingMinutes,
         now,
+        successorStartedAt,
     });
 
     const sessionUpdate: Record<string, unknown> = {
@@ -133,10 +153,12 @@ export async function reconcileSessionState(sessionId: string, now = new Date())
 
     if (shouldFinalize) {
         sessionUpdate.status = 'ready';
-        sessionUpdate.endedAt = derivedEndedAt;
-        sessionUpdate.durationSeconds = computeSessionDurationSeconds(session.startedAt, derivedEndedAt, session.backgroundTimeSeconds);
+        sessionUpdate.endedAt = resolvedClose.endedAt;
+        sessionUpdate.backgroundTimeSeconds = resolvedClose.backgroundTimeSeconds;
+        sessionUpdate.durationSeconds = resolvedClose.durationSeconds;
         sessionUpdate.finalizedAt = session.finalizedAt ?? now;
-        sessionUpdate.closeSource = session.explicitEndedAt ? 'explicit' : 'inactivity';
+        sessionUpdate.explicitEndedAt = session.explicitEndedAt ?? resolvedClose.endedAt;
+        sessionUpdate.closeSource = session.closeSource ?? (session.explicitEndedAt ? 'explicit' : 'inactivity');
     } else if (session.status !== 'failed') {
         sessionUpdate.status = 'processing';
         sessionUpdate.finalizedAt = null;
@@ -154,15 +176,22 @@ export async function reconcileSessionState(sessionId: string, now = new Date())
         })
         .where(eq(sessionMetrics.sessionId, sessionId));
 
+    let backupQueued = false;
     if (shouldFinalize && !session.finalizedAt) {
         const minutesRecorded = Math.max(
             0,
-            Math.ceil(computeSessionDurationSeconds(session.startedAt, derivedEndedAt, session.backgroundTimeSeconds) / 60),
+            Math.ceil(computeSessionDurationSeconds(session.startedAt, resolvedClose.endedAt, resolvedClose.backgroundTimeSeconds) / 60),
         );
         await updateDeviceUsage(session.deviceId, session.projectId, {
             requestCount: 1,
             minutesRecorded,
         });
+
+        try {
+            backupQueued = await enqueueSessionBackupCandidate(sessionId);
+        } catch (error) {
+            logger.error({ err: error, sessionId }, 'session backup enqueue failed after finalize');
+        }
     }
 
     logger.info({
@@ -173,6 +202,7 @@ export async function reconcileSessionState(sessionId: string, now = new Date())
         activeJobCount,
         openReplayArtifactCount,
         activeReplayJobCount,
+        backupQueued: shouldFinalize ? backupQueued : false,
         status: shouldFinalize ? 'ready' : session.status === 'failed' ? 'failed' : 'processing',
     }, shouldFinalize ? 'session.finalized' : 'session.reconciled');
 

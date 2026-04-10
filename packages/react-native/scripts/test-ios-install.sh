@@ -8,10 +8,15 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PACKAGE_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 TEST_DIR="/tmp/rejourney-ios-test"
+RN_VERSION="${RN_VERSION:-}"
 
 echo "🧪 Testing iOS Installation"
 echo "============================"
 echo ""
+if [ -n "$RN_VERSION" ]; then
+    echo "Using React Native version: $RN_VERSION"
+    echo ""
+fi
 
 # Step 1: Build the package
 echo "📦 Step 1: Building package..."
@@ -45,7 +50,11 @@ if ! command -v npx &> /dev/null; then
 fi
 
 echo "Creating React Native app (this may take a few minutes)..."
-npx --yes react-native@latest init ValidationApp --skip-install --skip-git
+INIT_ARGS=(--skip-install --skip-git-init)
+if [ -n "$RN_VERSION" ]; then
+    INIT_ARGS+=(--version "$RN_VERSION")
+fi
+npx --yes @react-native-community/cli init ValidationApp "${INIT_ARGS[@]}"
 
 cd "$TEST_DIR/ValidationApp"
 
@@ -80,11 +89,12 @@ fi
 echo ""
 echo "📱 Step 7: Attempting to build (requires Xcode)..."
 if command -v xcodebuild &> /dev/null; then
+    DESTINATION="generic/platform=iOS Simulator"
     xcodebuild -workspace ValidationApp.xcworkspace \
                -scheme ValidationApp \
                -configuration Debug \
                -sdk iphonesimulator \
-               -destination 'platform=iOS Simulator,name=iPhone 15' \
+               -destination "$DESTINATION" \
                clean build \
                CODE_SIGNING_ALLOWED=NO \
                2>&1 | tee /tmp/xcodebuild.log

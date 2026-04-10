@@ -45,7 +45,7 @@ public final class AnrSentinel: NSObject {
         }
 
         _volatile.running = true
-        _volatile.lastResponse = Date().timeIntervalSince1970
+        _volatile.lastResponse = ProcessInfo.processInfo.systemUptime
 
         let t = Thread { [weak self] in self?._watchLoop() }
         t.name = "co.rejourney.anr"
@@ -88,7 +88,7 @@ public final class AnrSentinel: NSObject {
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             os_unfair_lock_lock(self._stateLock)
-            self._volatile.lastResponse = Date().timeIntervalSince1970
+            self._volatile.lastResponse = ProcessInfo.processInfo.systemUptime
             self._volatile.awaitingPong = false
             os_unfair_lock_unlock(self._stateLock)
         }
@@ -103,7 +103,7 @@ public final class AnrSentinel: NSObject {
 
         guard awaiting else { return }
 
-        let now = Date().timeIntervalSince1970
+        let now = ProcessInfo.processInfo.systemUptime
         let delta = now - last
         if delta >= _freezeThreshold {
             // Avoid spamming duplicate ANRs while one long freeze persists.

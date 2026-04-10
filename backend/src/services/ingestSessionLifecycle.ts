@@ -9,6 +9,7 @@ import {
     getVideoRetentionDetailsForTier,
     normalizeVideoRetentionTier,
 } from './videoRetention.js';
+import { parseSessionStartedAt, parseSessionStartedAtOrNull } from './sessionId.js';
 
 export type IngestSessionMetadata = {
     userId?: string;
@@ -54,17 +55,6 @@ type MissingSessionCandidateRow = {
 };
 
 const MATERIALIZE_MISSING_SESSION_MAX_AGE_MS = 6 * 60 * 60 * 1000;
-
-function parseSessionStartedAt(sessionId: string): Date {
-    const parts = sessionId.split('_');
-    if (parts.length >= 3 && parts[0] === 'session') {
-        const ts = Number.parseInt(parts[1] || '', 10);
-        if (Number.isFinite(ts) && ts > 0) {
-            return new Date(ts);
-        }
-    }
-    return new Date();
-}
 
 function toDateOrNull(value: unknown): Date | null {
     if (!value) return null;
@@ -190,9 +180,42 @@ function assertSessionProjectMatch(session: any, projectId: string, source: stri
 }
 
 export function isSessionIdFresh(sessionId: string, maxAgeMs = MATERIALIZE_MISSING_SESSION_MAX_AGE_MS): boolean {
-    const startedAt = parseSessionStartedAt(sessionId);
+    const startedAt = parseSessionStartedAtOrNull(sessionId);
+    if (!startedAt) {
+        return false;
+    }
     const ageMs = Date.now() - startedAt.getTime();
     return Number.isFinite(ageMs) && ageMs >= 0 && ageMs <= maxAgeMs;
+}
+
+export async function maybeBackfillSessionStartedAt(
+    sessionId: string,
+    candidateStartedAtMs: number | null | undefined
+): Promise<any | null> {
+    const candidateMs = Number(candidateStartedAtMs);
+    if (!Number.isFinite(candidateMs) || candidateMs <= 0) {
+        return null;
+    }
+
+    const candidateStartedAt = new Date(candidateMs);
+    let [session] = await db.select().from(sessions).where(eq(sessions.id, sessionId)).limit(1);
+    if (!session) {
+        return null;
+    }
+
+    if (candidateStartedAt >= session.startedAt) {
+        return session;
+    }
+
+    await db.update(sessions)
+        .set({
+            startedAt: candidateStartedAt,
+            updatedAt: new Date(),
+        })
+        .where(eq(sessions.id, sessionId));
+
+    [session] = await db.select().from(sessions).where(eq(sessions.id, sessionId)).limit(1);
+    return session ?? null;
 }
 
 type LifecycleSessionResolution = {

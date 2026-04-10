@@ -22,7 +22,7 @@ import { supabase } from '../../supabase.js'; // Your Supabase client instance
 import { getCurrentSupabaseToken } from '../../authUtils';
 import { router } from 'expo-router';
 import * as FileSystem from 'expo-file-system';
-import Rejourney, { Mask } from 'rejourney';
+import Rejourney, { Mask } from '@rejourneyco/react-native';
 
 // Assume Cloudflare Worker URL is still used for *uploading*, not validation
 const API_URL = process.env.EXPO_PUBLIC_API_URL || 'https://your-worker-name.your-subdomain.workers.dev';

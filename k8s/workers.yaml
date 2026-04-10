@@ -150,11 +150,11 @@ spec:
               value: "1"
           resources:
             requests:
-              cpu: 100m
-              memory: 256Mi
+              cpu: 50m
+              memory: 128Mi
             limits:
-              cpu: 400m
-              memory: 512Mi
+              cpu: 200m
+              memory: 256Mi
           # No standard HTTP port, but we can check if the process is alive via command or if it has a health server
           # For now, let's assume it doesn't have a health server yet, but we can add one or use a dummy check
           # Actually, workers usually have some internal state. Let's add a dummy check if none exists
@@ -271,11 +271,11 @@ spec:
               value: "4"
           resources:
             requests:
-              cpu: 200m
-              memory: 384Mi
+              cpu: 50m
+              memory: 192Mi
             limits:
-              cpu: "1000m"
-              memory: 768Mi
+              cpu: "200m"
+              memory: 384Mi
 
 ---
 apiVersion: apps/v1
@@ -345,11 +345,11 @@ spec:
                   optional: true
           resources:
             requests:
-              cpu: 100m
-              memory: 128Mi
+              cpu: 50m
+              memory: 64Mi
             limits:
-              cpu: 300m
-              memory: 256Mi
+              cpu: 150m
+              memory: 128Mi
 
 ---
 # Retention Worker CronJob
@@ -369,7 +369,8 @@ spec:
   failedJobsHistoryLimit: 5
   jobTemplate:
     spec:
-      activeDeadlineSeconds: 720
+      # Drain-backlog runs can exceed 12m when many tiers/sessions are eligible; avoid spurious DeadlineExceeded.
+      activeDeadlineSeconds: 3600
       backoffLimit: 1
       template:
         metadata:
@@ -431,6 +432,26 @@ spec:
                     secretKeyRef:
                       name: s3-secret
                       key: S3_SECRET_ACCESS_KEY
+                - name: R2_ENDPOINT
+                  valueFrom:
+                    secretKeyRef:
+                      name: r2-backup-secret
+                      key: R2_ENDPOINT
+                - name: R2_BUCKET
+                  valueFrom:
+                    secretKeyRef:
+                      name: r2-backup-secret
+                      key: R2_BUCKET
+                - name: R2_ACCESS_KEY_ID
+                  valueFrom:
+                    secretKeyRef:
+                      name: r2-backup-secret
+                      key: AWS_ACCESS_KEY_ID
+                - name: R2_SECRET_ACCESS_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: r2-backup-secret
+                      key: AWS_SECRET_ACCESS_KEY
                 - name: JWT_SECRET
                   valueFrom:
                     secretKeyRef:
@@ -576,8 +597,8 @@ spec:
                   optional: true
           resources:
             requests:
-              cpu: 50m
-              memory: 128Mi
+              cpu: 25m
+              memory: 64Mi
             limits:
-              cpu: 200m
-              memory: 256Mi
+              cpu: 100m
+              memory: 128Mi

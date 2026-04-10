@@ -41,7 +41,6 @@ public final class VisualCapture: NSObject {
     private var _frameCounter: UInt64 = 0
     private var _sessionEpoch: UInt64 = 0
     private var _redactionMask: RedactionMask
-    private var _deferredUntilCommit = false
     private var _framesDiskPath: URL?
     private var _currentSessionId: String?
     @objc public private(set) var captureGeneration: Int = 0
@@ -173,15 +172,6 @@ public final class VisualCapture: NSObject {
         _flushBuffer()
     }
     
-    @objc public func activateDeferredMode() {
-        _deferredUntilCommit = true
-    }
-    
-    @objc public func commitDeferredData() {
-        _deferredUntilCommit = false
-        _flushBuffer()
-    }
-    
     @objc public func registerRedaction(_ view: UIView) {
         _redactionMask.add(view)
     }
@@ -308,6 +298,7 @@ public final class VisualCapture: NSObject {
             _frameCounter += 1
             let frameNumber = _frameCounter
             let jpegQuality = quality
+            let generation = captureGeneration
             
             // Move JPEG compression off the main thread.
             // drawHierarchy must be on main, but jpegData is thread-safe and
@@ -324,9 +315,13 @@ public final class VisualCapture: NSObject {
                 
                 // Store in buffer (fast operation)
                 self._stateLock.lock()
+                guard generation == self.captureGeneration, self._stateMachine.currentState == .capturing else {
+                    self._stateLock.unlock()
+                    return
+                }
                 self._screenshots.append((data, captureTs))
                 self._enforceScreenshotCaps()
-                let shouldSend = !self._deferredUntilCommit && self._screenshots.count >= self._uploadBatchSize
+                let shouldSend = self._screenshots.count >= self._uploadBatchSize
                 self._stateLock.unlock()
                 
                 if shouldSend {
@@ -359,22 +354,23 @@ public final class VisualCapture: NSObject {
         let images = _screenshots
         _screenshots.removeAll()
         let sessionEpoch = _sessionEpoch
+        let captureSessionId = _currentSessionId
         _stateLock.unlock()
         
         guard !images.isEmpty else { return }
         
         // All heavy work (package, gzip, network) happens in background queue
         _encodeQueue.addOperation { [weak self] in
-            self?._packageAndShip(images: images, sessionEpoch: sessionEpoch)
+            self?._packageAndShip(images: images, sessionEpoch: sessionEpoch, sessionId: captureSessionId)
         }
     }
     
-    private func _packageAndShip(images: [(Data, UInt64)], sessionEpoch: UInt64) {
+    private func _packageAndShip(images: [(Data, UInt64)], sessionEpoch: UInt64, sessionId: String?) {
         let batchStart = CFAbsoluteTimeGetCurrent()
         
         guard let bundle = _packageFrameBundle(images: images, sessionEpoch: sessionEpoch) else { return }
         
-        let rid = TelemetryPipeline.shared.currentReplayId ?? "unknown"
+        let rid = sessionId ?? "unknown"
         let endTs = images.last?.1 ?? sessionEpoch
         let fname = "\(rid)-\(endTs).tar.gz"
         
@@ -387,7 +383,8 @@ public final class VisualCapture: NSObject {
             filename: fname,
             startMs: images.first?.1 ?? sessionEpoch,
             endMs: endTs,
-            frameCount: images.count
+            frameCount: images.count,
+            sessionId: sessionId
         )
     }
     
@@ -415,10 +412,10 @@ public final class VisualCapture: NSObject {
     
     /// Load and upload any pending frames from disk for a session
     @objc public func uploadPendingFrames(sessionId: String) {
-        uploadPendingFrames(sessionId: sessionId, completion: nil)
+        uploadPendingFrames(sessionId: sessionId, sessionEpoch: nil, completion: nil)
     }
     
-    public func uploadPendingFrames(sessionId: String, completion: ((Bool) -> Void)? = nil) {
+    public func uploadPendingFrames(sessionId: String, sessionEpoch: UInt64? = nil, completion: ((Bool) -> Void)? = nil) {
         guard let cacheDir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first else {
             completion?(false)
             return
@@ -443,7 +440,8 @@ public final class VisualCapture: NSObject {
             frames.append((data, ts))
         }
         
-        guard !frames.isEmpty, let bundle = _packageFrameBundle(images: frames, sessionEpoch: frames.first?.1 ?? 0) else {
+        let recoveryEpoch = sessionEpoch ?? frames.first?.1 ?? 0
+        guard !frames.isEmpty, let bundle = _packageFrameBundle(images: frames, sessionEpoch: recoveryEpoch) else {
             completion?(frames.isEmpty)
             return
         }
@@ -451,6 +449,7 @@ public final class VisualCapture: NSObject {
         let endTs = frames.last?.1 ?? 0
         
         SegmentDispatcher.shared.transmitFrameBundle(
+            for: sessionId,
             payload: bundle,
             startMs: frames.first?.1 ?? 0,
             endMs: endTs,
@@ -474,6 +473,7 @@ public final class VisualCapture: NSObject {
         _stateLock.lock()
         let frames = _screenshots
         _screenshots.removeAll()
+        let captureSessionId = _currentSessionId
         _stateLock.unlock()
         
         guard !frames.isEmpty else { return }
@@ -488,7 +488,7 @@ public final class VisualCapture: NSObject {
         
         guard let bundle = _packageFrameBundle(images: frames, sessionEpoch: _sessionEpoch) else { return }
         
-        let rid = TelemetryPipeline.shared.currentReplayId ?? "unknown"
+        let rid = captureSessionId ?? "unknown"
         let endTs = frames.last?.1 ?? _sessionEpoch
         let fname = "\(rid)-\(endTs).tar.gz"
         
@@ -498,7 +498,8 @@ public final class VisualCapture: NSObject {
             filename: fname,
             startMs: frames.first?.1 ?? _sessionEpoch,
             endMs: endTs,
-            frameCount: frames.count
+            frameCount: frames.count,
+            sessionId: captureSessionId
         )
     }
     

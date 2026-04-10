@@ -14,7 +14,7 @@ import { User } from '@/types';
 import config from '@/utils/config';
 import { Rejourney } from 'rejourney';
 
-Rejourney.init('rj_eb4d722475a240f9c69bd2846f17c8b8', {
+Rejourney.init('rj_b8c5fe9468c85611ca0facfc78413396', {
   apiUrl: config.apiUrl || 'http://127.0.0.1:3000',
   debug: true,
   autoTrackExpoRouter: false,

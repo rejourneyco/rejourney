@@ -5,6 +5,8 @@ import { trackANRAsIssue, trackErrorAsIssue } from './issueTracker.js';
 import { normalizeIngestSdkVersion } from './ingestSessionLifecycle.js';
 import { getUniqueScreenCount, mergeScreenPaths, normalizeScreenPath } from '../utils/screenPaths.js';
 import { shouldExcludeNetworkEventFromProductAnalytics } from '../utils/internalToolEndpointFilter.js';
+import { mergeAnrDeviceMetadata, resolveAnrStackTrace } from './anrStack.js';
+import { collectSessionClientEvidence } from './sessionClientEvidence.js';
 
 const MAX_SCREEN_PATH_LENGTH = 200;
 const UNKNOWN_STATUS_CODE_KEY = 'unknown';
@@ -21,6 +23,12 @@ export async function processEventsArtifact(job: any, session: any, metrics: any
     const payload = JSON.parse(data.toString());
     const eventsData = payload.events || [];
     const deviceInfo = payload.deviceInfo;
+    const {
+        maxClientEventAt,
+        maxClientForegroundAt,
+        maxClientBackgroundAt,
+        artifactBackgroundSeconds,
+    } = collectSessionClientEvidence(eventsData);
 
     // Update session metadata from device info
     if (deviceInfo) {
@@ -53,6 +61,26 @@ export async function processEventsArtifact(job: any, session: any, metrics: any
         }
     }
 
+    const sessionEvidenceUpdates: Record<string, unknown> = {};
+    if (maxClientEventAt) {
+        sessionEvidenceUpdates.lastClientEventAt = sql`GREATEST(COALESCE(${sessions.lastClientEventAt}, ${maxClientEventAt}), ${maxClientEventAt})`;
+    }
+    if (maxClientForegroundAt) {
+        sessionEvidenceUpdates.lastClientForegroundAt = sql`GREATEST(COALESCE(${sessions.lastClientForegroundAt}, ${maxClientForegroundAt}), ${maxClientForegroundAt})`;
+    }
+    if (maxClientBackgroundAt) {
+        sessionEvidenceUpdates.lastClientBackgroundAt = sql`GREATEST(COALESCE(${sessions.lastClientBackgroundAt}, ${maxClientBackgroundAt}), ${maxClientBackgroundAt})`;
+    }
+    if (artifactBackgroundSeconds > 0) {
+        sessionEvidenceUpdates.backgroundTimeSeconds = sql`COALESCE(${sessions.backgroundTimeSeconds}, 0) + ${artifactBackgroundSeconds}`;
+    }
+    if (Object.keys(sessionEvidenceUpdates).length > 0) {
+        sessionEvidenceUpdates.updatedAt = new Date();
+        await db.update(sessions)
+            .set(sessionEvidenceUpdates)
+            .where(eq(sessions.id, job.sessionId));
+    }
+
     // Extract event metrics
     let touchCount = 0, scrollCount = 0, gestureCount = 0, inputCount = 0;
     let networkTotalCount = 0, networkSuccessCount = 0, networkErrorCount = 0;
@@ -79,7 +107,8 @@ export async function processEventsArtifact(job: any, session: any, metrics: any
         timestamp: Date;
         durationMs: number;
         threadState?: string;
-        stack?: string;
+        stackTrace?: string;
+        rawThreadState?: string;
         screenName?: string;
     }> = [];
 
@@ -339,11 +368,16 @@ export async function processEventsArtifact(job: any, session: any, metrics: any
                 screenName: currentScreen || undefined,
             });
         } else if (type === 'anr') {
+            const stackTrace = resolveAnrStackTrace({
+                threadState: event.threadState,
+                stack: event.stack,
+            });
             anrEvents.push({
                 timestamp: new Date(event.timestamp || Date.now()),
                 durationMs: event.durationMs || 5000,
-                threadState: event.threadState || 'blocked',
-                stack: event.stack,
+                threadState: stackTrace || event.threadState || 'blocked',
+                stackTrace: stackTrace || undefined,
+                rawThreadState: typeof event.threadState === 'string' ? event.threadState : undefined,
                 screenName: currentScreen || undefined,
             });
         } else if (['keyboard_typing', 'keyboard_show', 'keyboard_hide', 'input', 'text_input'].includes(type)) {
@@ -594,13 +628,12 @@ export async function processEventsArtifact(job: any, session: any, metrics: any
                 timestamp: anrEvent.timestamp,
                 durationMs: anrEvent.durationMs,
                 threadState: anrEvent.threadState || null,
-                deviceMetadata: {
+                deviceMetadata: mergeAnrDeviceMetadata({
                     model: deviceInfo?.model,
                     osVersion: deviceInfo?.systemVersion || deviceInfo?.osVersion,
                     appVersion: deviceInfo?.appVersion,
-                    stack: anrEvent.stack,
                     screenName: anrEvent.screenName,
-                },
+                }, anrEvent.stackTrace || anrEvent.threadState || null, anrEvent.rawThreadState),
                 status: 'open',
                 occurrenceCount: 1,
             });
@@ -608,7 +641,7 @@ export async function processEventsArtifact(job: any, session: any, metrics: any
             trackANRAsIssue({
                 projectId,
                 durationMs: anrEvent.durationMs,
-                threadState: anrEvent.threadState,
+                stackTrace: anrEvent.stackTrace || anrEvent.threadState,
                 timestamp: anrEvent.timestamp,
                 sessionId: job.sessionId,
                 deviceModel: deviceInfo?.model,

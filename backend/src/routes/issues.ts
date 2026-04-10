@@ -10,6 +10,8 @@ import { db, issues, issueEvents, projects, teamMembers, users, errors, crashes,
 import { sessionAuth, asyncHandler, ApiError } from '../middleware/index.js';
 import { writeApiRateLimiter } from '../middleware/rateLimit.js';
 import { excludeInternalToolEndpointTraffic } from '../utils/internalToolEndpointFilter.js';
+import { generateANRFingerprintFromStackTrace, resolveAnrStackTrace } from '../services/anrStack.js';
+import { generateFingerprint } from '../services/issueTracker.js';
 
 const router = Router();
 
@@ -661,12 +663,6 @@ router.post(
             }
         };
 
-        // Helper to generate fingerprint
-        const generateFingerprint = (type: string, name: string, message: string): string => {
-            const normalized = `${type}:${name}:${(message || '').slice(0, 100).toLowerCase().replace(/[0-9]/g, 'N')}`;
-            return normalized;
-        };
-
         // Process all errors
         const errorsList = await db
             .select({
@@ -742,7 +738,11 @@ router.post(
             .where(eq(anrs.projectId, projectId));
 
         for (const anr of anrList) {
-            const fingerprint = generateFingerprint('anr', 'ANR', anr.threadState?.slice(0, 100) || anr.id);
+            const stackTrace = resolveAnrStackTrace({
+                threadState: anr.threadState,
+                deviceMetadata: anr.deviceMetadata,
+            });
+            const fingerprint = generateANRFingerprintFromStackTrace(stackTrace || 'blocked');
 
             // Extract device info from deviceMetadata JSONB
             const deviceMeta = (anr.deviceMetadata as Record<string, any>) || {};
@@ -757,7 +757,7 @@ router.post(
                 isHandled: false,
                 timestamp: anr.timestamp,
                 sessionId: anr.sessionId || undefined,
-                stackTrace: anr.threadState || undefined,
+                stackTrace: stackTrace || undefined,
                 deviceModel,
                 osVersion,
                 appVersion,

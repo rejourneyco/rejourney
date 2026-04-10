@@ -77,6 +77,13 @@ class RejourneyModule(reactContext: ReactApplicationContext) :
 
     @ReactMethod
     @DoNotStrip
+    override fun startSessionWithOptions(options: ReadableMap, promise: Promise) {
+           val instance = getImplOrReject(promise) ?: return
+           instance.startSessionWithOptions(options, promise)
+    }
+
+    @ReactMethod
+    @DoNotStrip
     override fun stopSession(promise: Promise) {
            val instance = getImplOrReject(promise) ?: return
            instance.stopSession(promise)

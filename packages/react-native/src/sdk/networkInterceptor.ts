@@ -441,6 +441,7 @@ export function initNetworkInterceptor(
   }
 ): void {
   logCallback = callback;
+  config.enabled = true;
 
   if (options?.ignoreUrls) {
     config.ignorePatterns = options.ignoreUrls

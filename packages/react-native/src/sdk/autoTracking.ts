@@ -35,6 +35,7 @@ import type {
   DeviceInfo,
   ErrorEvent,
 } from '../types';
+import { resolveRejourneyNativeModule } from './resolveRejourneyNative';
 import { logger } from './utils';
 
 // Lazy-loaded React Native modules
@@ -64,22 +65,13 @@ function getRejourneyNativeModule() {
   const RN = getRN();
   if (!RN) return null;
 
-  const { TurboModuleRegistry, NativeModules } = RN;
-  let nativeModule = null;
+  const resolution = resolveRejourneyNativeModule(RN);
 
-  if (TurboModuleRegistry && typeof TurboModuleRegistry.get === 'function') {
-    try {
-      nativeModule = TurboModuleRegistry.get('Rejourney');
-    } catch {
-      // Ignore
-    }
+  if (resolution.turboLookupError) {
+    logger.debug('TurboModuleRegistry.get("Rejourney") failed in autoTracking; falling back', resolution.turboLookupError);
   }
 
-  if (!nativeModule && NativeModules) {
-    nativeModule = NativeModules.Rejourney ?? null;
-  }
-
-  return nativeModule;
+  return resolution.module;
 }
 
 type OnErrorEventHandler = ((
@@ -139,6 +131,7 @@ export interface AutoTrackingConfig {
   rageTapThreshold?: number;
   rageTapTimeWindow?: number;
   rageTapRadius?: number;
+  detectRageTaps?: boolean;
   trackJSErrors?: boolean;
   trackPromiseRejections?: boolean;
   trackReactNativeErrors?: boolean;
@@ -205,6 +198,7 @@ export function initAutoTracking(
     rageTapThreshold: 3,
     rageTapTimeWindow: 500,
     rageTapRadius: 50,
+    detectRageTaps: true,
     trackJSErrors: true,
     trackPromiseRejections: true,
     trackReactNativeErrors: true,
@@ -287,7 +281,9 @@ export function trackTap(tap: TapEvent): void {
     }
   }
 
-  detectRageTap();
+  if (config.detectRageTaps !== false) {
+    detectRageTap();
+  }
   metrics.touchCount++;
   metrics.totalEvents++;
   // Dead tap detection is now handled natively in TelemetryPipeline
@@ -766,6 +762,18 @@ export function trackNavigationState(state: any): void {
   }
 }
 
+export function loadReactNavigationNative(
+  loader: (moduleName: string) => any = require
+) {
+  try {
+    return loader('@react-navigation/native');
+  } catch {
+    throw new Error(
+      'Rejourney.useNavigationTracking() requires the optional peer dependency @react-navigation/native. Install it to use this helper.'
+    );
+  }
+}
+
 /**
  * React hook for navigation tracking.
  * 
@@ -793,7 +801,7 @@ export function trackNavigationState(state: any): void {
  */
 export function useNavigationTracking() {
   const React = require('react');
-  const { createNavigationContainerRef } = require('@react-navigation/native');
+  const { createNavigationContainerRef } = loadReactNavigationNative();
 
   const navigationRef = React.useRef(createNavigationContainerRef());
 

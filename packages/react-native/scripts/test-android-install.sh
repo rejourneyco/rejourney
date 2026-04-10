@@ -8,10 +8,15 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PACKAGE_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 TEST_DIR="/tmp/rejourney-android-test"
+RN_VERSION="${RN_VERSION:-}"
 
 echo "🧪 Testing Android Installation"
 echo "==============================="
 echo ""
+if [ -n "$RN_VERSION" ]; then
+    echo "Using React Native version: $RN_VERSION"
+    echo ""
+fi
 
 # Step 1: Build the package
 echo "📦 Step 1: Building package..."
@@ -39,7 +44,11 @@ mkdir -p "$TEST_DIR"
 cd "$TEST_DIR"
 
 echo "Creating React Native app (this may take a few minutes)..."
-npx --yes @react-native-community/cli init ValidationApp --skip-install --skip-git
+INIT_ARGS=(--skip-install --skip-git-init)
+if [ -n "$RN_VERSION" ]; then
+    INIT_ARGS+=(--version "$RN_VERSION")
+fi
+npx --yes @react-native-community/cli init ValidationApp "${INIT_ARGS[@]}"
 
 cd "$TEST_DIR/ValidationApp"
 
@@ -52,6 +61,14 @@ npm install "$PACK_PATH"
 echo ""
 echo "🤖 Step 5: Verifying Android integration..."
 cd android
+
+if [ -z "$ANDROID_HOME" ] && [ -d "$HOME/Library/Android/sdk" ]; then
+    export ANDROID_HOME="$HOME/Library/Android/sdk"
+fi
+
+if [ -n "$ANDROID_HOME" ] && [ ! -f "local.properties" ]; then
+    printf "sdk.dir=%s\n" "$ANDROID_HOME" > local.properties
+fi
 
 if [ ! -f "gradlew" ]; then
     echo "❌ Error: gradlew not found"

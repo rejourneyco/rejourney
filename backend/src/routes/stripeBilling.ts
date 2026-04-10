@@ -35,15 +35,17 @@ import {
 } from '../utils/billing.js';
 import {
     getStripePlans,
-    getStripePlan,
     getTeamSubscription,
     previewPlanChange,
     executePlanChange,
-    createCheckoutSession,
     cancelSubscription,
     type StripePlan,
 } from '../services/stripeProducts.js';
 import { getTeamSessionUsage } from '../services/quotaCheck.js';
+import {
+    completeHostedCheckoutForTeam,
+    createHostedCheckoutForTeam,
+} from '../services/stripeHostedCheckout.js';
 
 const router = Router();
 
@@ -345,37 +347,41 @@ router.post(
     validate(teamIdParamSchema, 'params'),
     requireBillingAdmin,
     asyncHandler(async (req, res) => {
-        if (!isStripeEnabled()) {
-            throw ApiError.serviceUnavailable('Stripe is not enabled');
-        }
-
         const teamId = req.params.teamId;
-        const { planName } = req.body;
-
-        if (!planName) {
-            throw ApiError.badRequest('planName is required');
-        }
-
-        // Look up the plan by name to get the priceId
-        const plan = await getStripePlan(planName);
-        if (!plan) {
-            throw ApiError.badRequest(`Plan not found: ${planName}`);
-        }
-
-        const baseUrl = config.PUBLIC_DASHBOARD_URL || 'http://localhost:8080';
-        const successUrl = `${baseUrl}/settings/billing?session_id={CHECKOUT_SESSION_ID}`;
-        const cancelUrl = `${baseUrl}/settings/billing?canceled=true`;
-
-        const result = await createCheckoutSession(teamId, plan.priceId, successUrl, cancelUrl);
-
-        if (!result) {
-            throw ApiError.internal('Failed to create checkout session');
-        }
+        const { planName, successUrl, cancelUrl } = req.body;
+        const result = await createHostedCheckoutForTeam({
+            teamId,
+            planName,
+            successUrl,
+            cancelUrl,
+        });
 
         res.json({
             sessionId: result.sessionId,
             url: result.url,
         });
+    })
+);
+
+/**
+ * Complete a Stripe Checkout Session after returning to the app
+ * POST /api/teams/:teamId/billing/checkout/complete
+ */
+router.post(
+    '/:teamId/billing/checkout/complete',
+    sessionAuth,
+    validate(teamIdParamSchema, 'params'),
+    requireBillingAdmin,
+    asyncHandler(async (req, res) => {
+        const teamId = req.params.teamId;
+        const { sessionId } = req.body;
+
+        const result = await completeHostedCheckoutForTeam({
+            teamId,
+            sessionId,
+        });
+
+        res.json(result);
     })
 );
 
@@ -659,16 +665,38 @@ router.put(
             throw ApiError.badRequest('Plan change must be confirmed. Use preview endpoint first.');
         }
 
-        const result = await executePlanChange(teamId, planName, userId);
+        const requestId = (req.headers['x-request-id'] as string | undefined) || 'unknown';
 
-        logger.info({
-            teamId,
-            planName,
-            changeType: result.changeType,
-            userId,
-        }, 'Plan change executed');
+        try {
+            logger.info(
+                { teamId, planName, userId, requestId, event: 'billing.plan_change.put_attempt' },
+                'PUT billing/plan attempt',
+            );
+            const result = await executePlanChange(teamId, planName, userId);
 
-        res.json(result);
+            logger.info({
+                teamId,
+                planName,
+                changeType: result.changeType,
+                userId,
+                requestId,
+            }, 'Plan change executed');
+
+            res.json(result);
+        } catch (err: unknown) {
+            logger.error(
+                {
+                    err,
+                    teamId,
+                    planName,
+                    userId,
+                    requestId,
+                    event: 'billing.plan_change.put_failed',
+                },
+                'PUT billing/plan failed before response',
+            );
+            throw err;
+        }
     })
 );
 

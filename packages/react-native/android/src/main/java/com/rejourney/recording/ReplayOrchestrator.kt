@@ -77,7 +77,6 @@ class ReplayOrchestrator private constructor(private val context: Context) {
     var apiToken: String? = null
     var replayId: String? = null
     var replayStartMs: Long = 0
-    var deferredUploadMode = false
     var frameBundleSize: Int = 3
 
     var serverEndpoint: String
@@ -141,7 +140,11 @@ class ReplayOrchestrator private constructor(private val context: Context) {
     private var hierarchyRunnable: Runnable? = null
     private var lastHierarchyHash: String? = null
     private var durationLimitRunnable: Runnable? = null
-    private val lifecycleContractVersion = 2
+    private var recoveryCheckpointRunnable: Runnable? = null
+    private var lastActiveCheckpointMs: Long = 0
+    private var lastBackgroundEntryMs: Long? = null
+    private val lifecycleContractVersion = 3
+    private val recoveryCheckpointIntervalMs = 5_000L
 
     private val mainHandler = Handler(Looper.getMainLooper())
 
@@ -201,45 +204,6 @@ class ReplayOrchestrator private constructor(private val context: Context) {
         }
     }
 
-    fun beginDeferredReplay(apiToken: String, serverEndpoint: String, captureSettings: Map<String, Any>? = null) {
-        this.apiToken = apiToken
-        this.serverEndpoint = serverEndpoint
-        deferredUploadMode = true
-
-        applySettings(captureSettings)
-
-        DeviceRegistrar.shared?.obtainCredential(apiToken) { ok, cred ->
-            if (!ok) return@obtainCredential
-            TelemetryPipeline.shared?.apiToken = apiToken
-            TelemetryPipeline.shared?.credential = cred
-            SegmentDispatcher.shared.apiToken = apiToken
-            SegmentDispatcher.shared.credential = cred
-        }
-
-        initSession()
-        TelemetryPipeline.shared?.activateDeferredMode()
-
-        val renderCfg = computeRender(1, "standard")
-
-        if (visualCaptureEnabled) {
-            VisualCapture.shared?.configure(renderCfg.first, renderCfg.second, frameBundleSize)
-            VisualCapture.shared?.beginCapture(replayStartMs)
-            VisualCapture.shared?.activateDeferredMode()
-        }
-
-        if (interactionCaptureEnabled) InteractionRecorder.shared?.activate()
-        if (faultTrackingEnabled) StabilityMonitor.shared?.activate()
-
-        live = true
-    }
-
-    fun commitDeferredReplay() {
-        deferredUploadMode = false
-        TelemetryPipeline.shared?.commitDeferredData()
-        VisualCapture.shared?.commitDeferredData()
-        TelemetryPipeline.shared?.activate()
-    }
-
     fun endReplay(completion: ((Boolean, Boolean) -> Unit)? = null) {
         endReplayInternal("unspecified", completion)
     }
@@ -254,6 +218,7 @@ class ReplayOrchestrator private constructor(private val context: Context) {
             return
         }
         live = false
+        stopRecoveryCheckpointTimer()
 
         val sid = replayId ?: ""
         val termMs = System.currentTimeMillis()
@@ -283,40 +248,45 @@ class ReplayOrchestrator private constructor(private val context: Context) {
         // stop a new session's capture that starts before this block runs.
         val haltGeneration = VisualCapture.shared?.captureGeneration ?: -1
 
-        // Do local teardown immediately so lifecycle rollover never depends on network latency.
+        val finalizeSession = finalize@{
+            SegmentDispatcher.shared.shipPending()
+
+            if (finalized) {
+                clearRecovery()
+                completion?.invoke(true, true)
+                replayId = null
+                replayStartMs = 0
+                return@finalize
+            }
+            finalized = true
+
+            SegmentDispatcher.shared.concludeReplay(
+                sid,
+                termMs,
+                bgTimeMs,
+                metrics,
+                queueDepthAtFinalize,
+                endReason = endReason,
+                lifecycleVersion = lifecycleContractVersion,
+                closeAnchorAtMs = currentCloseAnchorAtMs(endReason)
+            ) { ok ->
+                if (ok) clearRecovery()
+                completion?.invoke(true, ok)
+            }
+
+            replayId = null
+            replayStartMs = 0
+        }
+
+        // Do local teardown immediately so lifecycle rollover never depends on network latency,
+        // but finish session finalization only after the telemetry drain has been kicked off.
         mainHandler.post {
             VisualCapture.shared?.halt(haltGeneration)
-            TelemetryPipeline.shared?.shutdown()
+            TelemetryPipeline.shared?.shutdown(completion = finalizeSession, skipVisualFlush = true) ?: finalizeSession()
             InteractionRecorder.shared?.deactivate()
             StabilityMonitor.shared?.deactivate()
             AnrSentinel.shared?.deactivate()
         }
-        SegmentDispatcher.shared.shipPending()
-
-        if (finalized) {
-            clearRecovery()
-            completion?.invoke(true, true)
-            replayId = null
-            replayStartMs = 0
-            return
-        }
-        finalized = true
-
-        SegmentDispatcher.shared.concludeReplay(
-            sid,
-            termMs,
-            bgTimeMs,
-            metrics,
-            queueDepthAtFinalize,
-            endReason = endReason,
-            lifecycleVersion = lifecycleContractVersion
-        ) { ok ->
-            if (ok) clearRecovery()
-            completion?.invoke(true, ok)
-        }
-
-        replayId = null
-        replayStartMs = 0
     }
 
     fun redactView(view: View) {
@@ -373,6 +343,22 @@ class ReplayOrchestrator private constructor(private val context: Context) {
         TelemetryPipeline.shared?.recordUserAssociation(userId)
     }
 
+    fun pauseForBackground() {
+        val now = System.currentTimeMillis()
+        lastBackgroundEntryMs = now
+        saveRecovery()
+        stopHierarchyCapture()
+    }
+
+    fun resumeFromBackground() {
+        lastBackgroundEntryMs = null
+        lastActiveCheckpointMs = System.currentTimeMillis()
+        saveRecovery()
+        if (live && hierarchyCaptureEnabled && hierarchyRunnable == null) {
+            startHierarchyCapture()
+        }
+    }
+
     fun currentReplayId(): String {
         return replayId ?: ""
     }
@@ -392,22 +378,24 @@ class ReplayOrchestrator private constructor(private val context: Context) {
         try {
             val data = recoveryFile.readText()
             val checkpoint = JSONObject(data)
-            val recId = checkpoint.optString("replayId", null)
-
-            if (recId == null) {
+            val recId = checkpoint.optString("replayId", "")
+            if (recId.isBlank()) {
                 clearRecovery()
                 completion(null)
                 return
             }
 
             val origStart = checkpoint.optLong("startMs", 0)
+            val timingVersion = checkpoint.optInt("timingVersion", 0)
+            val lastActiveCheckpointMs = checkpoint.optLong("lastActiveCheckpointMs", 0)
+            val lastBackgroundEntryMs = checkpoint.optLong("lastBackgroundEntryMs", 0)
             val nowMs = System.currentTimeMillis()
 
             DiagnosticLog.notice("[ReplayOrchestrator] Recovering interrupted session: $recId")
 
-            checkpoint.optString("apiToken", null)?.let { SegmentDispatcher.shared.apiToken = it }
-            checkpoint.optString("endpoint", null)?.let { SegmentDispatcher.shared.endpoint = it }
-            checkpoint.optString("credential", null)?.let { SegmentDispatcher.shared.credential = it }
+            checkpoint.optString("apiToken", "").takeIf { it.isNotBlank() }?.let { SegmentDispatcher.shared.apiToken = it }
+            checkpoint.optString("endpoint", "").takeIf { it.isNotBlank() }?.let { SegmentDispatcher.shared.endpoint = it }
+            checkpoint.optString("credential", "").takeIf { it.isNotBlank() }?.let { SegmentDispatcher.shared.credential = it }
             SegmentDispatcher.shared.currentReplayId = recId
             SegmentDispatcher.shared.activate()
             TelemetryPipeline.shared?.currentReplayId = recId
@@ -427,7 +415,14 @@ class ReplayOrchestrator private constructor(private val context: Context) {
                     crashMetrics,
                     queueDepthAtFinalize,
                     endReason = "recovery_finalize",
-                    lifecycleVersion = lifecycleContractVersion
+                    lifecycleVersion = lifecycleContractVersion,
+                    closeAnchorAtMs = if (timingVersion >= 3) {
+                        when {
+                            lastBackgroundEntryMs > 0 -> lastBackgroundEntryMs
+                            lastActiveCheckpointMs > 0 -> lastActiveCheckpointMs
+                            else -> null
+                        }
+                    } else null
                 ) { ok ->
                     DiagnosticLog.notice("[ReplayOrchestrator] Crash recovery finalize: success=$ok, sessionId=$recId")
                     if (ok) {
@@ -441,7 +436,7 @@ class ReplayOrchestrator private constructor(private val context: Context) {
             if (visualCapture == null) {
                 finalizeRecoveredSession()
             } else {
-                visualCapture.uploadPendingFrames(recId) { framesUploaded ->
+                visualCapture.uploadPendingFrames(recId, origStart) { framesUploaded ->
                     if (!framesUploaded) {
                         DiagnosticLog.caution("[ReplayOrchestrator] Crash recovery postponed: pending frame upload failed for session $recId")
                         completion(null)
@@ -512,6 +507,8 @@ class ReplayOrchestrator private constructor(private val context: Context) {
         visitedScreens.clear()
         bgTimeMs = 0
         bgStartMs = null
+        lastActiveCheckpointMs = replayStartMs
+        lastBackgroundEntryMs = null
         lastHierarchyHash = null
 
         TelemetryPipeline.shared?.currentReplayId = replayId
@@ -520,6 +517,7 @@ class ReplayOrchestrator private constructor(private val context: Context) {
 
         attachLifecycle()
         saveRecovery()
+        startRecoveryCheckpointTimer()
 
         recordAppStartup()
     }
@@ -635,6 +633,17 @@ class ReplayOrchestrator private constructor(private val context: Context) {
         initSession()
         DiagnosticLog.trace("[ReplayOrchestrator] Session initialized: replayId=$replayId")
 
+        replayId?.let { sid ->
+            SegmentDispatcher.shared.configure(
+                replayId = sid,
+                apiToken = TelemetryPipeline.shared?.apiToken ?: token,
+                credential = TelemetryPipeline.shared?.credential,
+                projectId = TelemetryPipeline.shared?.projectId,
+                isSampledIn = TelemetryPipeline.shared?.isSampledIn ?: true
+            )
+            TelemetryPipeline.shared?.prepareForNewSession(sid)
+        }
+
         // Reactivate the dispatcher in case it was halted from a previous session
         SegmentDispatcher.shared.activate()
         TelemetryPipeline.shared?.activate()
@@ -697,9 +706,12 @@ class ReplayOrchestrator private constructor(private val context: Context) {
         val token = apiToken ?: return
 
         val checkpoint = JSONObject().apply {
+            put("timingVersion", lifecycleContractVersion)
             put("replayId", sid)
             put("apiToken", token)
             put("startMs", replayStartMs)
+            put("lastActiveCheckpointMs", lastActiveCheckpointMs)
+            lastBackgroundEntryMs?.takeIf { it > 0 }?.let { put("lastBackgroundEntryMs", it) }
             put("endpoint", serverEndpoint)
             SegmentDispatcher.shared.credential?.let { put("credential", it) }
         }
@@ -713,6 +725,33 @@ class ReplayOrchestrator private constructor(private val context: Context) {
         try {
             File(context.filesDir, "rejourney_recovery.json").delete()
         } catch (_: Exception) { }
+    }
+
+    private fun startRecoveryCheckpointTimer() {
+        stopRecoveryCheckpointTimer()
+        recoveryCheckpointRunnable = object : Runnable {
+            override fun run() {
+                if (!live) return
+                if (bgStartMs == null) {
+                    lastActiveCheckpointMs = System.currentTimeMillis()
+                    saveRecovery()
+                }
+                mainHandler.postDelayed(this, recoveryCheckpointIntervalMs)
+            }
+        }
+        mainHandler.postDelayed(recoveryCheckpointRunnable!!, recoveryCheckpointIntervalMs)
+    }
+
+    private fun stopRecoveryCheckpointTimer() {
+        recoveryCheckpointRunnable?.let { mainHandler.removeCallbacks(it) }
+        recoveryCheckpointRunnable = null
+    }
+
+    private fun currentCloseAnchorAtMs(endReason: String): Long? {
+        return when (endReason) {
+            "background_timeout" -> lastBackgroundEntryMs ?: bgStartMs
+            else -> null
+        }?.takeIf { it > 0 }
     }
 
     private fun attachLifecycle() {

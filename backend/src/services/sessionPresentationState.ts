@@ -163,19 +163,33 @@ export function deriveSessionPresentationState(
     const explicitEndedAt = toDateOrNull(input.explicitEndedAt);
     const finalizedAt = toDateOrNull(input.finalizedAt);
     const lastIngestActivityAt = toDateOrNull(input.lastIngestActivityAt);
-    const replayAvailableAt = toDateOrNull(input.replayAvailableAt);
-    const startedAt = toDateOrNull(input.startedAt) ?? now;
     const cutoffMs = now.getTime() - SESSION_LIVE_INGEST_WINDOW_MS;
     const liveClockMs = lastIngestActivityAt?.getTime() ?? 0;
-    const idleClock = replayAvailableAt ?? lastIngestActivityAt ?? startedAt;
     const hasPendingWork = Boolean(input.hasPendingWork);
     const hasPendingReplayWork = Boolean(input.hasPendingReplayWork);
     const canOpenReplay = Boolean(input.replayAvailable) && !input.recordingDeleted && !input.isReplayExpired;
-    const isLiveIngest = !explicitEndedAt && liveClockMs > cutoffMs;
-    const isIdle = idleClock.getTime() <= cutoffMs;
-    const shouldFinalize = !hasPendingReplayWork && (Boolean(explicitEndedAt) || Boolean(finalizedAt) || isIdle);
+    const status = input.status ?? 'processing';
+    const serverClosed =
+        status === 'ready'
+        || status === 'failed'
+        || status === 'deleted'
+        || finalizedAt != null;
+    const isLiveIngest =
+        !serverClosed
+        && !explicitEndedAt
+        && liveClockMs > cutoffMs;
+    /**
+     * Finalize when ingest has been quiet — not when replay first became available.
+     * Using replayAvailableAt here kept sessions "hot" forever after the first frame
+     * and let new replay segments extend the timeline indefinitely.
+     */
+    const isIngestQuiescent = liveClockMs <= cutoffMs;
+    const isIdle = isIngestQuiescent;
+    const shouldFinalize =
+        !hasPendingReplayWork
+        && (Boolean(explicitEndedAt) || Boolean(finalizedAt) || isIngestQuiescent);
 
-    let effectiveStatus = input.status ?? 'processing';
+    let effectiveStatus = status;
     if (effectiveStatus !== 'failed' && effectiveStatus !== 'deleted') {
         if (shouldFinalize) {
             effectiveStatus = 'ready';

@@ -11,7 +11,7 @@
  */
 
 import Stripe from 'stripe';
-import { eq, and, inArray, isNull } from 'drizzle-orm';
+import { eq, and, inArray } from 'drizzle-orm';
 import { config } from '../config.js';
 import { logger } from '../logger.js';
 import { db, teams, stripeWebhookEvents, billingUsage, users, teamMembers } from '../db/client.js';
@@ -56,6 +56,19 @@ function getStripe(): Stripe | null {
 export function isStripeEnabled(): boolean {
     return getStripe() !== null;
 }
+
+function isProvisionedSubscriptionStatus(status: Stripe.Subscription.Status): boolean {
+    return status === 'active' || status === 'trialing';
+}
+
+export type CheckoutSessionSyncResult = {
+    sessionId: string;
+    teamId: string;
+    customerId: string | null;
+    subscriptionId: string | null;
+    subscriptionStatus: Stripe.Subscription.Status | null;
+    provisioned: boolean;
+};
 
 // =============================================================================
 // Customer Management
@@ -630,6 +643,138 @@ async function resolveSubscriptionRetentionTier(
     }
 }
 
+async function syncTeamToCheckoutSession(
+    teamId: string,
+    session: Stripe.Checkout.Session,
+): Promise<CheckoutSessionSyncResult> {
+    const client = getStripe();
+    if (!client) {
+        throw new Error('Stripe is not enabled');
+    }
+
+    if (session.mode !== 'subscription') {
+        throw new Error('Checkout session is not a subscription checkout');
+    }
+
+    const metadataTeamId = session.metadata?.teamId || session.client_reference_id || null;
+    if (metadataTeamId && metadataTeamId !== teamId) {
+        throw new Error('Checkout session does not belong to this team');
+    }
+
+    const subscriptionId = typeof session.subscription === 'string'
+        ? session.subscription
+        : session.subscription?.id || null;
+    const customerId = typeof session.customer === 'string'
+        ? session.customer
+        : session.customer?.id || null;
+    const billingEmail = session.customer_details?.email || session.customer_email || null;
+
+    const updateData: Record<string, unknown> = {
+        updatedAt: new Date(),
+    };
+
+    if (customerId) {
+        updateData.stripeCustomerId = customerId;
+    }
+
+    if (billingEmail) {
+        updateData.billingEmail = billingEmail;
+    }
+
+    if (!subscriptionId) {
+        await db.update(teams)
+            .set(updateData)
+            .where(eq(teams.id, teamId));
+
+        return {
+            sessionId: session.id,
+            teamId,
+            customerId,
+            subscriptionId: null,
+            subscriptionStatus: null,
+            provisioned: false,
+        };
+    }
+
+    const subscription = await client.subscriptions.retrieve(subscriptionId, {
+        expand: ['items.data.price.product', 'default_payment_method'],
+    });
+
+    const subscriptionTeamId = subscription.metadata?.teamId || null;
+    if (subscriptionTeamId && subscriptionTeamId !== teamId) {
+        throw new Error('Checkout subscription does not belong to this team');
+    }
+
+    const defaultPaymentMethodId =
+        typeof subscription.default_payment_method === 'string'
+            ? subscription.default_payment_method
+            : subscription.default_payment_method?.id || null;
+
+    updateData.stripeSubscriptionId = subscription.id;
+    if (defaultPaymentMethodId) {
+        updateData.stripePaymentMethodId = defaultPaymentMethodId;
+    }
+
+    const provisioned = isProvisionedSubscriptionStatus(subscription.status);
+    if (provisioned) {
+        updateData.stripePriceId = subscription.items.data[0]?.price.id || null;
+        updateData.billingCycleAnchor = new Date((subscription as any).current_period_start * 1000);
+        updateData.paymentFailedAt = null;
+    } else if (
+        subscription.status === 'incomplete'
+        || subscription.status === 'incomplete_expired'
+        || subscription.status === 'unpaid'
+    ) {
+        updateData.stripePriceId = null;
+    }
+
+    await db.update(teams)
+        .set(updateData)
+        .where(eq(teams.id, teamId));
+
+    const retentionTier = provisioned
+        ? await resolveSubscriptionRetentionTier(subscription)
+        : FREE_VIDEO_RETENTION_TIER;
+    await syncTeamVideoRetention(teamId, retentionTier);
+
+    const { invalidateSessionCache } = await import('./quotaCheck.js');
+    await invalidateSessionCache(teamId);
+
+    logger.info({
+        teamId,
+        sessionId: session.id,
+        customerId,
+        subscriptionId: subscription.id,
+        subscriptionStatus: subscription.status,
+        provisioned,
+    }, 'Synchronized team billing state from Checkout session');
+
+    return {
+        sessionId: session.id,
+        teamId,
+        customerId,
+        subscriptionId: subscription.id,
+        subscriptionStatus: subscription.status,
+        provisioned,
+    };
+}
+
+export async function syncCheckoutSessionForTeam(
+    teamId: string,
+    sessionId: string,
+): Promise<CheckoutSessionSyncResult> {
+    const client = getStripe();
+    if (!client) {
+        throw new Error('Stripe is not enabled');
+    }
+
+    const session = await client.checkout.sessions.retrieve(sessionId, {
+        expand: ['customer'],
+    });
+
+    return syncTeamToCheckoutSession(teamId, session);
+}
+
 /**
  * Handle checkout.session.completed webhook
  * Called when a Stripe Checkout Session completes successfully
@@ -643,80 +788,13 @@ async function handleCheckoutSessionCompleted(session: Stripe.Checkout.Session):
     }
 
     const teamId = session.metadata?.teamId;
-    const subscriptionId = typeof session.subscription === 'string' 
-        ? session.subscription 
-        : session.subscription?.id;
-
     if (!teamId) {
         logger.warn({ sessionId: session.id }, 'Checkout session missing teamId metadata');
         return;
     }
 
-    if (!subscriptionId) {
-        logger.warn({ sessionId: session.id, teamId }, 'Checkout session missing subscription ID');
-        return;
-    }
-
     try {
-        const client = getStripe();
-
-        // Update team with subscription ID immediately
-        await db.update(teams)
-            .set({
-                stripeSubscriptionId: subscriptionId,
-                updatedAt: new Date(),
-            })
-            .where(eq(teams.id, teamId));
-
-        // Self-heal: if checkout already produced an active/trialing subscription,
-        // set anchor here instead of waiting for follow-up webhook ordering.
-        if (client) {
-            try {
-                const subscription = await client.subscriptions.retrieve(subscriptionId);
-                if (subscription.status === 'active' || subscription.status === 'trialing') {
-                    const currentPeriodStart = (subscription as any).current_period_start;
-                    const anchor = currentPeriodStart
-                        ? new Date(currentPeriodStart * 1000)
-                        : null;
-                    const priceId = subscription.items.data[0]?.price.id || null;
-
-                    if (anchor) {
-                        await db.update(teams)
-                            .set({
-                                billingCycleAnchor: anchor,
-                                stripePriceId: priceId,
-                                updatedAt: new Date(),
-                            })
-                            .where(and(eq(teams.id, teamId), isNull(teams.billingCycleAnchor)));
-
-                        try {
-                            const { invalidateSessionCache } = await import('./quotaCheck.js');
-                            await invalidateSessionCache(teamId);
-                        } catch (cacheErr) {
-                            logger.warn({ err: cacheErr, teamId }, 'Failed to invalidate session cache after checkout anchor self-heal');
-                        }
-
-                        logger.info({
-                            teamId,
-                            subscriptionId,
-                            anchor,
-                            status: subscription.status,
-                        }, 'Checkout self-healed missing billing cycle anchor');
-                    }
-                }
-            } catch (healErr) {
-                logger.warn({ err: healErr, teamId, subscriptionId }, 'Checkout anchor self-heal failed');
-            }
-        }
-
-        logger.info({
-            teamId,
-            sessionId: session.id,
-            subscriptionId,
-        }, 'Checkout session completed - subscription ID updated');
-
-        // The subscription.created event will handle setting up billing cycle anchor and price
-        // But we update subscription ID here immediately for faster sync
+        await syncTeamToCheckoutSession(teamId, session);
     } catch (err) {
         logger.error({ err, sessionId: session.id, teamId }, 'Failed to handle checkout session completed');
         throw err;

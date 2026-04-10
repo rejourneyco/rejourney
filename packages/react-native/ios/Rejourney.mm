@@ -141,6 +141,20 @@ RCT_EXPORT_METHOD(startSession : (NSString *)userId apiUrl : (NSString *)
               reject:reject];
 }
 
+RCT_EXPORT_METHOD(startSessionWithOptions : (NSDictionary *)options resolve : (
+    RCTPromiseResolveBlock)resolve reject : (RCTPromiseRejectBlock)reject) {
+  RejourneyImpl *impl = [self ensureImpl];
+  if (!impl) {
+    resolve(@{
+      @"success" : @NO,
+      @"sessionId" : @"",
+      @"error" : @"Native module not available - cannot start recording"
+    });
+    return;
+  }
+  [impl startSessionWithOptions:options resolve:resolve reject:reject];
+}
+
 RCT_EXPORT_METHOD(stopSession : (RCTPromiseResolveBlock)
                       resolve reject : (RCTPromiseRejectBlock)reject) {
   RejourneyImpl *impl = [self ensureImpl];

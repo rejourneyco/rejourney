@@ -1,8 +1,10 @@
 export {
   addPaymentMethod,
   clearCache,
+  completeCheckoutSession,
   confirmPlanChange,
   createBillingPortalSession,
+  createCheckoutSession,
   createSetupIntent,
   getAvailablePlans,
   getBillingAlertSettings,
@@ -19,6 +21,8 @@ export {
 export type {
   BillingAlertSettings,
   BillingPlan,
+  CheckoutCompletionResponse,
+  CheckoutSessionResponse,
   PaymentMethod,
   PlanChangePreview,
   StripeStatus,

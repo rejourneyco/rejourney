@@ -49,7 +49,7 @@ const baseContext = {
     metrics: { sessionId: 'session-1' },
     projectId: 'project-1',
     s3Key: 'artifacts/key',
-    session: { id: 'session-1', projectId: 'project-1' },
+    session: { id: 'session-1', projectId: 'project-1', startedAt: new Date('2026-04-07T00:00:00.000Z') },
 };
 
 describe('artifactJobProcessor routing', () => {

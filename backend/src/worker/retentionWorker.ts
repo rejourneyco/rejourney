@@ -1,6 +1,12 @@
 /**
  * Retention Worker
  *
+ * Deletes S3 objects and recording_artifacts rows for sessions whose
+ * retention period has expired AND that have been safely backed up.
+ *
+ * Safety rule: only touches sessions backed by a complete session_backup_log
+ * entry, unless the session is provably empty and safe to purge outright.
+ *
  * Default mode (local/dev): long-running loop.
  * Production mode: `--once` for cron-style single-cycle execution.
  */
@@ -16,6 +22,7 @@ import {
     repairExpiredSessionArtifactsBatch,
 } from '../services/sessionArtifactPurge.js';
 import { partitionBackedUpSessions } from '../services/sessionBackupGate.js';
+import { buildEmptySessionPredicateSql } from '../services/sessionRetentionEligibility.js';
 import {
     buildRetentionRunOwnerId,
     refreshRetentionRunLock,
@@ -97,6 +104,33 @@ async function writeRetentionHeartbeat(summary: RetentionRunSummary): Promise<vo
     }
 }
 
+type SessionPurgeMetadata = {
+    session_id: string;
+    backup_r2_key_prefix: string | null;
+    empty_session: boolean;
+};
+
+async function loadSessionPurgeMetadata(sessionIds: string[]): Promise<Map<string, SessionPurgeMetadata>> {
+    if (sessionIds.length === 0) {
+        return new Map();
+    }
+
+    const emptySessionPredicate = buildEmptySessionPredicateSql('s');
+    const result = await pool.query<SessionPurgeMetadata>(
+        `
+        SELECT
+            s.id AS session_id,
+            bl.r2_key_prefix AS backup_r2_key_prefix,
+            (${emptySessionPredicate}) AS empty_session
+        FROM sessions s
+        LEFT JOIN session_backup_log bl ON bl.session_id = s.id
+        WHERE s.id = ANY($1::varchar[])
+        `,
+        [sessionIds],
+    );
+    return new Map(result.rows.map((row) => [row.session_id, row]));
+}
+
 async function processExpiredSessions(runId: string, trigger: string): Promise<{
     processedCount: number;
     failedCount: number;
@@ -143,7 +177,11 @@ async function processExpiredSessions(runId: string, trigger: string): Promise<{
         const { backedUp, notBackedUp } = await partitionBackedUpSessions(expiredSessions);
         skippedNotBackedUpCount += notBackedUp.length;
 
+        const metadataBySessionId = await loadSessionPurgeMetadata(backedUp.map((session) => session.id));
+
         for (const session of backedUp) {
+            const purgeMetadata = metadataBySessionId.get(session.id);
+
             try {
                 let result = await purgeSessionArtifacts(session.id, {
                     runId,
@@ -151,6 +189,9 @@ async function processExpiredSessions(runId: string, trigger: string): Promise<{
                     now,
                     retentionTier: session.retentionTier,
                     retentionDays: session.retentionDays,
+                    deleteBackupCopy: purgeMetadata?.empty_session ?? false,
+                    deleteBackupLogEntry: purgeMetadata?.empty_session ?? false,
+                    backupKeyPrefix: purgeMetadata?.backup_r2_key_prefix,
                 });
                 if (result.storageMissing) {
                     result = await purgeSessionArtifacts(session.id, {
@@ -160,6 +201,9 @@ async function processExpiredSessions(runId: string, trigger: string): Promise<{
                         allowMissingStorage: true,
                         retentionTier: session.retentionTier,
                         retentionDays: session.retentionDays,
+                        deleteBackupCopy: purgeMetadata?.empty_session ?? false,
+                        deleteBackupLogEntry: purgeMetadata?.empty_session ?? false,
+                        backupKeyPrefix: purgeMetadata?.backup_r2_key_prefix,
                     });
                 }
                 processedCount++;
@@ -176,6 +220,9 @@ async function processExpiredSessions(runId: string, trigger: string): Promise<{
                             allowMissingStorage: true,
                             retentionTier: session.retentionTier,
                             retentionDays: session.retentionDays,
+                            deleteBackupCopy: purgeMetadata?.empty_session ?? false,
+                            deleteBackupLogEntry: purgeMetadata?.empty_session ?? false,
+                            backupKeyPrefix: purgeMetadata?.backup_r2_key_prefix,
                         });
                         processedCount++;
                         deletedObjectCount += repairResult.deletedObjectCount;

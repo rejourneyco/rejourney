@@ -54,6 +54,14 @@ import type { Spec } from './NativeRejourney';
 
 // SDK version is safe - no react-native imports
 import { SDK_VERSION } from './sdk/constants';
+import { resolveRejourneyNativeModule } from './sdk/resolveRejourneyNative';
+import {
+  DEFAULT_REMOTE_CONFIG,
+  deriveRemoteStartState,
+  evaluateInitAttempt,
+  type RemoteConfig,
+} from './sdk/runtimeState';
+import { buildNativeStartOptions, shouldStartWithConfig } from './sdk/sessionConfig';
 
 // =============================================================================
 // Lazy Module Loading
@@ -222,6 +230,13 @@ let _lastScrollTime: number = 0;
 let _lastScrollOffset: number = 0;
 const SCROLL_THROTTLE_MS = 100;
 
+function clearMetricsInterval(): void {
+  if (_metricsInterval) {
+    clearInterval(_metricsInterval);
+    _metricsInterval = null;
+  }
+}
+
 // Helper to save/load user identity
 // NOW HANDLED NATIVELY - No-op on JS side to avoid unnecessary bridge calls
 async function persistUserIdentity(_identity: string | null): Promise<void> {
@@ -241,17 +256,6 @@ async function loadPersistedUserIdentity(): Promise<string | null> {
 }
 
 let _storedConfig: RejourneyConfig | null = null;
-
-// Remote config from backend - controls sample rate and enable/disable
-interface RemoteConfig {
-  projectId: string;
-  rejourneyEnabled: boolean;
-  recordingEnabled: boolean;
-  sampleRate: number;
-  maxRecordingMinutes: number;
-  billingBlocked?: boolean;
-  billingReason?: string;
-}
 
 // Result type for fetchRemoteConfig - distinguishes network errors from access denial
 type ConfigFetchResult =
@@ -385,31 +389,11 @@ function getRejourneyNative(): Spec | null {
 
   try {
     const RN = require('react-native');
-    const { NativeModules, TurboModuleRegistry } = RN;
+    const { module: nativeModule, via: loadedVia, turboLookupError } =
+      resolveRejourneyNativeModule(RN);
 
-    // Track how the module was loaded
-    let loadedVia: 'TurboModules' | 'NativeModules' | 'none' = 'none';
-    let nativeModule: Spec | null = null;
-
-    // Try TurboModuleRegistry first (New Architecture)
-    if (TurboModuleRegistry && typeof TurboModuleRegistry.get === 'function') {
-      try {
-        nativeModule = TurboModuleRegistry.get('Rejourney');
-        if (nativeModule) {
-          loadedVia = 'TurboModules';
-        }
-      } catch (turboError) {
-        // TurboModuleRegistry.get failed, will try NativeModules
-        getLogger().debug('TurboModuleRegistry.get failed:', turboError);
-      }
-    }
-
-    // Fall back to NativeModules (Old Architecture / Interop Layer)
-    if (!nativeModule && NativeModules) {
-      nativeModule = NativeModules.Rejourney ?? null;
-      if (nativeModule) {
-        loadedVia = 'NativeModules';
-      }
+    if (turboLookupError) {
+      getLogger().debug('TurboModuleRegistry.get failed:', turboLookupError);
     }
 
     _rejourneyNative = nativeModule;
@@ -441,6 +425,17 @@ function getRejourneyNative(): Spec | null {
   }
 
   return _rejourneyNative;
+}
+
+function syncNativeSdkVersion(nativeModule?: Spec | null): void {
+  const native = nativeModule ?? getRejourneyNative();
+  if (!native) return;
+
+  try {
+    native.setSDKVersion(SDK_VERSION);
+  } catch (error) {
+    getLogger().debug('Failed to sync native SDK version:', error);
+  }
 }
 
 /**
@@ -504,6 +499,16 @@ export const Rejourney: RejourneyAPI = {
       throw new Error('SDK not initialized. Call initRejourney() first.');
     }
 
+    const startGate = shouldStartWithConfig(_storedConfig, __DEV__);
+    if (!startGate.allowed) {
+      if (startGate.reason === 'disabled') {
+        getLogger().info('Recording disabled by local SDK configuration');
+      } else if (startGate.reason === 'disabled-in-dev') {
+        getLogger().info('Recording disabled in development by local SDK configuration');
+      }
+      return false;
+    }
+
     const nativeModule = getRejourneyNative();
     if (!nativeModule) {
       // Common causes:
@@ -514,6 +519,7 @@ export const Rejourney: RejourneyAPI = {
     }
 
     getLogger().debug('Native module found, checking if already recording...');
+    syncNativeSdkVersion(nativeModule);
 
     if (_isRecording) {
       getLogger().warn('Recording already started');
@@ -539,15 +545,19 @@ export const Rejourney: RejourneyAPI = {
         return false;
       }
 
-      // For success, extract the config; for network_error, proceed with null
+      // For success, keep the server config. For network errors, explicitly reset
+      // session-scoped remote settings so stale native sampling state cannot leak
+      // across restarts.
       _remoteConfig = configResult.status === 'success' ? configResult.config : null;
+      const remoteStartState = deriveRemoteStartState(_remoteConfig, shouldRecordSession);
+      _sessionSampledOut = remoteStartState.sessionSampledOut;
 
       if (_remoteConfig) {
         // =========================================================
         // CASE 1: Rejourney completely disabled - abort early, nothing captured
         // This is the most performant case - no native calls made
         // =========================================================
-        if (!_remoteConfig.rejourneyEnabled) {
+        if (remoteStartState.blockedReason === 'disabled') {
           getLogger().logRecordingRemoteDisabled();
           getLogger().info('Rejourney disabled by project settings - no data captured');
           return false;
@@ -556,38 +566,33 @@ export const Rejourney: RejourneyAPI = {
         // =========================================================
         // CASE 2: Billing blocked - abort early, nothing captured
         // =========================================================
-        if (_remoteConfig.billingBlocked) {
+        if (remoteStartState.blockedReason === 'billingBlocked') {
           getLogger().warn(`Recording blocked: ${_remoteConfig.billingReason || 'billing issue'}`);
           return false;
         }
-
-        // =========================================================
-        // CASE 3: Session sampled out - CONTINUE but disable REPLAY only
-        // Telemetry, events, and crash tracking still work
-        // =========================================================
-        _sessionSampledOut = !shouldRecordSession(_remoteConfig.sampleRate ?? 100);
         if (_sessionSampledOut) {
           getLogger().info(`Session sampled out (rate: ${_remoteConfig.sampleRate}%) - telemetry only, no visual replay capture`);
         }
 
-        // =========================================================
-        // CASE 4: recordingEnabled=false in dashboard - telemetry only
-        // Effective recording = dashboard setting AND not sampled out
-        // =========================================================
-        const effectiveRecordingEnabled = _remoteConfig.recordingEnabled && !_sessionSampledOut;
-
-        // Pass config to native - this controls visual capture on/off
-        await nativeModule.setRemoteConfig(
-          _remoteConfig.rejourneyEnabled,
-          effectiveRecordingEnabled,
-          _remoteConfig.sampleRate,
-          _remoteConfig.maxRecordingMinutes
-        );
       } else {
         // Network error (not access denied) - proceed with defaults
         // This is "fail-open" behavior for temporary network issues
         getLogger().debug('Remote config unavailable (network issue), proceeding with defaults');
       }
+
+      // CASE 4: recordingEnabled=false in dashboard - telemetry only.
+      // Effective recording = chosen config AND not sampled out.
+      const effectiveRemoteConfig = remoteStartState.effectiveRemoteConfig ?? DEFAULT_REMOTE_CONFIG;
+      const effectiveRecordingEnabled = effectiveRemoteConfig.recordingEnabled && !_sessionSampledOut;
+
+      // Always push an explicit config to native so a previously sampled-out or
+      // recording-disabled session cannot poison the next session after a config outage.
+      await nativeModule.setRemoteConfig(
+        effectiveRemoteConfig.rejourneyEnabled,
+        effectiveRecordingEnabled,
+        effectiveRemoteConfig.sampleRate,
+        effectiveRemoteConfig.maxRecordingMinutes
+      );
 
       const deviceId = await getAutoTracking().ensurePersistentAnonymousId();
 
@@ -598,8 +603,22 @@ export const Rejourney: RejourneyAPI = {
       const userId = _userIdentity || deviceId;
       getLogger().debug(`userId=${userId.substring(0, 8)}...`);
 
-      const result = await nativeModule.startSession(userId, apiUrl, publicKey);
-      getLogger().debug('Native startSession returned:', JSON.stringify(result));
+      const startSessionWithOptions = (
+        nativeModule as Spec & {
+          startSessionWithOptions?: (options: object) => Promise<{
+            success: boolean;
+            sessionId: string;
+            error?: string;
+          }>;
+        }
+      ).startSessionWithOptions;
+
+      const result = typeof startSessionWithOptions === 'function'
+        ? await startSessionWithOptions(
+          buildNativeStartOptions(_storedConfig, userId, apiUrl, publicKey)
+        )
+        : await nativeModule.startSession(userId, apiUrl, publicKey);
+      getLogger().debug('Native session start returned:', JSON.stringify(result));
 
       if (!result?.success) {
         const reason = result?.error || 'Native startSession returned success=false';
@@ -617,7 +636,7 @@ export const Rejourney: RejourneyAPI = {
       if (__DEV__) {
         _metricsInterval = setInterval(async () => {
           if (!_isRecording) {
-            if (_metricsInterval) clearInterval(_metricsInterval);
+            clearMetricsInterval();
             return;
           }
           try {
@@ -636,6 +655,7 @@ export const Rejourney: RejourneyAPI = {
 
       getAutoTracking().initAutoTracking(
         {
+          detectRageTaps: _storedConfig?.detectRageTaps !== false,
           rageTapThreshold: _storedConfig?.rageTapThreshold ?? 3,
           rageTapTimeWindow: _storedConfig?.rageTapTimeWindow ?? 500,
           rageTapRadius: 50,
@@ -645,6 +665,7 @@ export const Rejourney: RejourneyAPI = {
           trackConsoleLogs: _storedConfig?.trackConsoleLogs ?? true,
           collectDeviceInfo: _storedConfig?.collectDeviceInfo !== false,
           autoTrackExpoRouter: _storedConfig?.autoTrackExpoRouter !== false,
+          maxSessionDurationMs: _storedConfig?.maxSessionDuration,
         },
         {
           // Rage tap callback - log as frustration event
@@ -728,6 +749,7 @@ export const Rejourney: RejourneyAPI = {
    */
   async _stopSession(): Promise<void> {
     if (!_isRecording) {
+      clearMetricsInterval();
       getLogger().warn('No active recording to stop');
       return;
     }
@@ -742,15 +764,12 @@ export const Rejourney: RejourneyAPI = {
 
       await safeNativeCall('stopSession', () => getRejourneyNative()!.stopSession(), undefined);
 
-      if (_metricsInterval) {
-        clearInterval(_metricsInterval);
-        _metricsInterval = null;
-      }
-
       _isRecording = false;
       getLogger().logSessionEnd('current');
     } catch (error) {
       getLogger().error('Failed to stop recording:', error);
+    } finally {
+      clearMetricsInterval();
     }
   },
 
@@ -1592,11 +1611,15 @@ export function initRejourney(
   publicRouteKey: string,
   options?: Omit<RejourneyConfig, 'publicRouteKey'>
 ): void {
-  if (!publicRouteKey || typeof publicRouteKey !== 'string') {
+  const initAttempt = evaluateInitAttempt(publicRouteKey);
+  if (!initAttempt.valid) {
     getLogger().warn('Rejourney: Invalid public route key provided. SDK will be disabled.');
-    _initializationFailed = true;
+    _initializationFailed = initAttempt.initializationFailed;
+    _isInitialized = initAttempt.initialized;
     return;
   }
+
+  _initializationFailed = initAttempt.initializationFailed;
 
   _storedConfig = {
     ...options,
@@ -1616,6 +1639,7 @@ export function initRejourney(
   (async () => {
     try {
       setupLifecycleManagement();
+      syncNativeSdkVersion();
       getLogger().logObservabilityStart();
       getLogger().logInitSuccess(SDK_VERSION);
     } catch (error) {

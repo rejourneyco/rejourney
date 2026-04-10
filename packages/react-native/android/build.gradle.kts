@@ -109,6 +109,7 @@ tasks.named("preBuild").configure {
 dependencies {
     // React Native
     implementation("com.facebook.react:react-android")
+    // Prefer stable AndroidX artifacts; avoid alpha security-crypto unless a feature requires it.
 
     // Kotlin Coroutines
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
@@ -118,9 +119,6 @@ dependencies {
 
     // WorkManager for background uploads
     implementation("androidx.work:work-runtime-ktx:2.9.0")
-
-    // Encrypted SharedPreferences for secure storage
-    implementation("androidx.security:security-crypto:1.1.0-alpha06")
 
     // AndroidX Core
     implementation("androidx.core:core-ktx:1.12.0")

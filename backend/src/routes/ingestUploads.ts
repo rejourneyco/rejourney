@@ -8,7 +8,7 @@ import { generateS3Key, getEndpointForProject } from '../db/s3.js';
 import { apiKeyAuth, requireScope, asyncHandler, ApiError } from '../middleware/index.js';
 import { ingestDeviceRateLimiter, ingestProjectRateLimiter } from '../middleware/rateLimit.js';
 import { updateDeviceUsage } from '../services/recording.js';
-import { ensureIngestSession } from '../services/ingestSessionLifecycle.js';
+import { ensureIngestSession, maybeBackfillSessionStartedAt } from '../services/ingestSessionLifecycle.js';
 import { checkAndEnforceSessionLimit, checkBillingStatus, incrementProjectSessionCount } from '../services/quotaCheck.js';
 import { enforceIngestByteBudget } from '../services/ingestByteBudget.js';
 import {
@@ -35,6 +35,8 @@ import {
     assertSessionAcceptsNewIngestWork,
     isSessionIngestImmutable,
 } from '../services/sessionIngestImmutability.js';
+import { SESSION_LIVE_INGEST_WINDOW_MS } from '../services/sessionPresentationState.js';
+import { reconcileSessionState } from '../services/sessionReconciliation.js';
 
 const router = Router();
 
@@ -413,7 +415,7 @@ router.post(
             endpoint: 'segment/presign',
         });
 
-        const { session, created: isNewSession } = await ensureIngestSession(projectId, data.sessionId, req, {
+        let { session, created: isNewSession } = await ensureIngestSession(projectId, data.sessionId, req, {
             platform: data.platform,
             deviceModel: data.deviceModel,
             appVersion: data.appVersion,
@@ -421,7 +423,26 @@ router.post(
             sdkVersion: typeof data.sdkVersion === 'string' ? data.sdkVersion : undefined,
         });
 
+        const startTimeInt = Math.floor(Number(data.startTime));
+        const endTimeInt = data.endTime ? Math.floor(Number(data.endTime)) : null;
+        const backfilledSession = await maybeBackfillSessionStartedAt(session.id, startTimeInt);
+        if (backfilledSession) {
+            session = backfilledSession;
+        }
+
         assertSessionAcceptsNewIngestWork(session);
+
+        if (data.kind === 'screenshots' || data.kind === 'hierarchy') {
+            const ingestCutoffMs = Date.now() - SESSION_LIVE_INGEST_WINDOW_MS;
+            if (session.lastIngestActivityAt.getTime() <= ingestCutoffMs) {
+                await reconcileSessionState(session.id);
+                const [refreshed] = await db.select().from(sessions).where(eq(sessions.id, session.id)).limit(1);
+                if (refreshed) {
+                    session = refreshed;
+                }
+                assertSessionAcceptsNewIngestWork(session);
+            }
+        }
 
         if (isNewSession && project.rejourneyEnabled) {
             await incrementProjectSessionCount(projectId, teamId, 1);
@@ -448,13 +469,16 @@ router.post(
             return;
         }
 
-        if (data.kind === 'screenshots' && project.maxRecordingMinutes) {
+        if ((data.kind === 'screenshots' || data.kind === 'hierarchy') && project.maxRecordingMinutes) {
             const maxRecordingMs = project.maxRecordingMinutes * 60 * 1000;
             const sessionStartMs = session.startedAt.getTime();
             const segmentStartMs = Number(data.startTime);
-            const elapsedMs = segmentStartMs - sessionStartMs;
+            const segmentEndMs = endTimeInt ?? segmentStartMs;
+            const wallGraceMs = 120_000;
+            const elapsedStartMs = segmentStartMs - sessionStartMs;
+            const elapsedEndMs = segmentEndMs - sessionStartMs;
 
-            if (elapsedMs > maxRecordingMs) {
+            if (elapsedStartMs > maxRecordingMs) {
                 logIngestPresignSkip({
                     route: '/api/ingest/segment/presign',
                     projectId,
@@ -463,9 +487,36 @@ router.post(
                     kind: data.kind,
                     extra: {
                         segmentStartMs,
+                        segmentEndMs,
                         sessionStartMs,
-                        elapsedMs,
+                        elapsedStartMs,
                         maxRecordingMs,
+                        maxRecordingMinutes: project.maxRecordingMinutes,
+                    },
+                });
+
+                res.json({
+                    skipUpload: true,
+                    sessionId: data.sessionId,
+                    reason: `Recording limit exceeded (${project.maxRecordingMinutes} minutes max)`,
+                });
+                return;
+            }
+
+            if (elapsedEndMs > maxRecordingMs + wallGraceMs) {
+                logIngestPresignSkip({
+                    route: '/api/ingest/segment/presign',
+                    projectId,
+                    reason: 'exceeds_max_recording_duration_end',
+                    sessionId: data.sessionId,
+                    kind: data.kind,
+                    extra: {
+                        segmentStartMs,
+                        segmentEndMs,
+                        sessionStartMs,
+                        elapsedEndMs,
+                        maxRecordingMs,
+                        wallGraceMs,
                         maxRecordingMinutes: project.maxRecordingMinutes,
                     },
                 });
@@ -496,13 +547,13 @@ router.post(
                 subFolder = 'other';
         }
 
-        const startTimeInt = Math.floor(Number(data.startTime));
-        const endTimeInt = data.endTime ? Math.floor(Number(data.endTime)) : null;
         const segmentId = buildReplaySegmentId({
             sessionId: session.id,
             kind: data.kind,
             startTime: startTimeInt,
             endTime: endTimeInt,
+            frameCount: data.frameCount,
+            declaredSizeBytes: requestedSizeBytes,
         });
         const filename = `${startTimeInt}.${extension}`;
         const s3Key = generateS3Key(teamId, projectId, session.id, subFolder, filename);

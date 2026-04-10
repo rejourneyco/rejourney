@@ -25,11 +25,13 @@ import {
     getGeoSummary,
     getGrowthObservability,
     getObservabilityDeepMetrics,
+    getRetentionCohorts,
     getUserEngagementTrends,
     GeoSummary,
     GrowthObservability,
     InsightsTrends,
     ObservabilityDeepMetrics,
+    RetentionCohortRow,
     UserEngagementTrends,
 } from '~/shared/api/client';
 import { DataWatermarkBanner } from '~/features/app/shared/dashboard/DataWatermarkBanner';
@@ -57,7 +59,7 @@ const toUtcDateKey = (value: string): string | null => {
 const formatDateLabel = (dateKey: string): string => {
     const date = new Date(`${dateKey}T00:00:00Z`);
     if (Number.isNaN(date.getTime())) return dateKey;
-    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
 };
 
 const formatCompact = (value: number): string => {
@@ -92,28 +94,12 @@ const pointChange = (current: number, previous: number): number | null => {
 
 const formatSigned = (value: number, digits: number = 1): string => `${value > 0 ? '+' : ''}${value.toFixed(digits)}`;
 const RETENTION_COHORT_WEEKS = 6;
-const RETENTION_COHORT_ROWS = 6;
-
-function getCohortUserKey(session: RecordingSession): string | null {
-    return session.userId || session.anonymousId || session.anonymousDisplayName || session.deviceId || null;
-}
-
-function getUtcWeekStartKey(isoDate: string): string | null {
-    const date = new Date(isoDate);
-    if (Number.isNaN(date.getTime())) return null;
-
-    const utcDate = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
-    const day = utcDate.getUTCDay();
-    utcDate.setUTCDate(utcDate.getUTCDate() - day); // Sunday week start
-    return utcDate.toISOString().slice(0, 10);
-}
-
 function formatWeekRange(weekStartKey: string): string {
     const start = new Date(`${weekStartKey}T00:00:00Z`);
     const end = new Date(start);
     end.setUTCDate(end.getUTCDate() + 6);
 
-    const format = (d: Date) => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    const format = (d: Date) => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
     return `${format(start)} - ${format(end)}`;
 }
 
@@ -618,6 +604,7 @@ export const GeneralOverview: React.FC = () => {
     const [geoSummary, setGeoSummary] = useState<GeoSummary | null>(null);
     const [issues, setIssues] = useState<Issue[]>([]);
     const [sessions, setSessions] = useState<RecordingSession[]>([]);
+    const [retentionCohortRows, setRetentionCohortRows] = useState<RetentionCohortRow[]>([]);
     const [topIssuesPage, setTopIssuesPage] = useState(0);
     const [extendedInsightsLoading, setExtendedInsightsLoading] = useState(false);
     const [extendedInsightsLoaded, setExtendedInsightsLoaded] = useState(false);
@@ -658,6 +645,7 @@ export const GeneralOverview: React.FC = () => {
             setGeoSummary(null);
             setIssues([]);
             setSessions([]);
+            setRetentionCohortRows([]);
             return;
         }
 
@@ -689,6 +677,7 @@ export const GeneralOverview: React.FC = () => {
             getObservabilityDeepMetrics(selectedProject.id, obsRange, 'summary'),
             getUserEngagementTrends(selectedProject.id, obsRange),
             getGeoSummary(selectedProject.id, obsRange),
+            getRetentionCohorts(selectedProject.id, timeRange),
             api.getIssues(selectedProject.id, timeRange),
             api.getSessionsPaginated({
                 projectId: selectedProject.id,
@@ -696,7 +685,7 @@ export const GeneralOverview: React.FC = () => {
                 limit: 120,
                 includeTotal: false,
             }),
-        ]).then(([obsData, deepData, engagementData, geoData, issueData, replayData]) => {
+        ]).then(([obsData, deepData, engagementData, geoData, cohortData, issueData, replayData]) => {
             if (isCancelled) return;
 
             const failedSections: string[] = [];
@@ -727,6 +716,12 @@ export const GeneralOverview: React.FC = () => {
             } else {
                 failedSections.push('geographic activity');
                 setGeoSummary(null);
+            }
+
+            if (cohortData.status === 'fulfilled') {
+                setRetentionCohortRows(cohortData.value.rows || []);
+            } else {
+                setRetentionCohortRows([]);
             }
 
             if (issueData.status === 'fulfilled') {
@@ -913,76 +908,12 @@ export const GeneralOverview: React.FC = () => {
         }));
     }, [trendChartData]);
 
-    const retentionCohorts = useMemo(() => {
-        const weeklyActiveUsers = new Map<string, Set<string>>();
-        const userFirstWeek = new Map<string, string>();
-
-        for (const session of sessions) {
-            const userKey = getCohortUserKey(session);
-            if (!userKey) continue;
-
-            const weekKey = getUtcWeekStartKey(session.startedAt);
-            if (!weekKey) continue;
-
-            if (!weeklyActiveUsers.has(weekKey)) {
-                weeklyActiveUsers.set(weekKey, new Set<string>());
-            }
-            weeklyActiveUsers.get(weekKey)!.add(userKey);
-
-            const existingFirst = userFirstWeek.get(userKey);
-            if (!existingFirst || weekKey < existingFirst) {
-                userFirstWeek.set(userKey, weekKey);
-            }
-        }
-
-        const weekKeys = Array.from(weeklyActiveUsers.keys()).sort((a, b) => a.localeCompare(b));
-        if (weekKeys.length === 0) return [];
-
-        const weekIndex = new Map<string, number>();
-        weekKeys.forEach((key, idx) => weekIndex.set(key, idx));
-
-        const cohortMembers = new Map<string, Set<string>>();
-        for (const [userKey, firstWeek] of userFirstWeek.entries()) {
-            if (!cohortMembers.has(firstWeek)) {
-                cohortMembers.set(firstWeek, new Set<string>());
-            }
-            cohortMembers.get(firstWeek)!.add(userKey);
-        }
-
-        const rows = weekKeys
-            .map((cohortWeek) => {
-                const members = cohortMembers.get(cohortWeek);
-                if (!members || members.size === 0) return null;
-
-                const index = weekIndex.get(cohortWeek);
-                if (index === undefined) return null;
-
-                const retention = Array.from({ length: RETENTION_COHORT_WEEKS }, (_, offset) => {
-                    const targetWeek = weekKeys[index + offset];
-                    if (!targetWeek) return null;
-                    if (offset === 0) return 100;
-
-                    const activeUsers = weeklyActiveUsers.get(targetWeek);
-                    if (!activeUsers) return 0;
-
-                    let retained = 0;
-                    for (const user of members) {
-                        if (activeUsers.has(user)) retained += 1;
-                    }
-                    return (retained / members.size) * 100;
-                });
-
-                return {
-                    weekStartKey: cohortWeek,
-                    label: formatWeekRange(cohortWeek),
-                    users: members.size,
-                    retention,
-                };
-            })
-            .filter((row): row is NonNullable<typeof row> => Boolean(row));
-
-        return rows.slice(-RETENTION_COHORT_ROWS);
-    }, [sessions]);
+    const retentionCohortTableRows = useMemo(() => {
+        return retentionCohortRows.map((row) => ({
+            ...row,
+            label: formatWeekRange(row.weekStartKey),
+        }));
+    }, [retentionCohortRows]);
 
     const trendComparison = useMemo(() => {
         if (!trendChartData.length) return null;
@@ -1599,7 +1530,7 @@ export const GeneralOverview: React.FC = () => {
                                             </tr>
                                         </thead>
                                         <tbody>
-                                            {retentionCohorts.map((row) => (
+                                            {retentionCohortTableRows.map((row) => (
                                                 <tr key={row.weekStartKey}>
                                                     <td className="whitespace-nowrap py-1 pr-2 align-middle text-slate-700">
                                                         <div className="font-semibold">{row.label}</div>
@@ -1617,7 +1548,7 @@ export const GeneralOverview: React.FC = () => {
                                                     ))}
                                                 </tr>
                                             ))}
-                                            {retentionCohorts.length === 0 && (
+                                            {retentionCohortTableRows.length === 0 && (
                                                 <tr>
                                                     <td colSpan={RETENTION_COHORT_WEEKS + 1} className="py-5 text-center text-slate-400">
                                                         Not enough user-level replay sessions for cohort retention yet.

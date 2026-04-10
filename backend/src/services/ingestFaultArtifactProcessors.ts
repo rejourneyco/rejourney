@@ -1,6 +1,7 @@
 import { eq, sql } from 'drizzle-orm';
 import { db, sessions, sessionMetrics, anrs, crashes, appDailyStats } from '../db/client.js';
 import { trackANRAsIssue, trackCrashAsIssue } from './issueTracker.js';
+import { mergeAnrDeviceMetadata, resolveAnrStackTrace } from './anrStack.js';
 
 export async function processCrashesArtifact(job: any, _session: any, projectId: string, _s3ObjectKey: string, data: Buffer, log: any) {
     const payload = JSON.parse(data.toString());
@@ -118,14 +119,20 @@ export async function processAnrsArtifact(job: any, _session: any, projectId: st
         const deviceModel = deviceMeta.model || deviceMeta.deviceModel;
         const osVersion = deviceMeta.systemVersion || deviceMeta.osVersion;
         const appVersion = deviceMeta.appVersion;
+        const stackTrace = resolveAnrStackTrace({
+            threadState: anr.threadState,
+            stack: anr.stackTrace,
+            frames: anr.frames,
+            deviceMetadata: anr.deviceMetadata,
+        });
 
         await db.insert(anrs).values({
             sessionId: anrSessionId,
             projectId,
             timestamp: new Date(anr.timestamp || Date.now()),
             durationMs: anr.durationMs || 5000,
-            threadState: anr.threadState,
-            deviceMetadata: anr.deviceMetadata,
+            threadState: stackTrace,
+            deviceMetadata: mergeAnrDeviceMetadata(anr.deviceMetadata, stackTrace, anr.threadState),
             status: 'open',
             occurrenceCount: 1
         });
@@ -134,7 +141,7 @@ export async function processAnrsArtifact(job: any, _session: any, projectId: st
         trackANRAsIssue({
             projectId,
             durationMs: anr.durationMs || 5000,
-            threadState: anr.threadState,
+            stackTrace: stackTrace || undefined,
             timestamp: new Date(anr.timestamp || Date.now()),
             sessionId: anrSessionId,
             deviceModel,

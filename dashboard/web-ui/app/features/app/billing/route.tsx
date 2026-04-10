@@ -3,12 +3,12 @@ import { useSearchParams, Link } from 'react-router';
 import { useTeam } from '~/shared/providers/TeamContext';
 import { useAuth } from '~/shared/providers/AuthContext';
 import { useDemoMode } from '~/shared/providers/DemoModeContext';
+import { useToast } from '~/shared/providers/ToastContext';
 import { usePathPrefix } from '~/shell/routing/usePathPrefix';
 import { NeoButton } from '~/shared/ui/core/neo/NeoButton';
 import { NeoCard } from '~/shared/ui/core/neo/NeoCard';
 import { NeoBadge } from '~/shared/ui/core/neo/NeoBadge';
 import { SettingsLayout } from '~/shell/components/layout/SettingsLayout';
-import { PaymentMethodModal } from '~/features/app/billing/components/StripePaymentForm';
 import {
   CreditCard,
   Check,
@@ -34,9 +34,10 @@ import {
   createBillingPortalSession,
   setupStripeForTeam,
   getTeamPlan,
-  updateTeamPlan,
   getTeamSessionUsage,
   clearCache,
+  completeCheckoutSession,
+  createCheckoutSession,
   TeamUsage,
   StripeStatus,
   PaymentMethod,
@@ -51,6 +52,13 @@ import {
   BillingPlan,
 } from '~/features/app/billing/api';
 import { DashboardGhostLoader } from '~/shared/ui/core/DashboardGhostLoader';
+import {
+  buildBillingCheckoutReturnUrls,
+  buildCenteredPopupFeatures,
+  isBillingCheckoutReturnMessage,
+  launchBillingCheckout,
+  parseBillingCheckoutSearchParams,
+} from '~/features/app/billing/checkoutFlow';
 
 const PLAN_DESCRIPTIONS: Record<string, string> = {
   free: 'Perfect for Stable Monthly Rejourney',
@@ -62,6 +70,7 @@ const PLAN_DESCRIPTIONS: Record<string, string> = {
 export const BillingSettings: React.FC = () => {
   const { isDemoMode } = useDemoMode();
   const { user } = useAuth();
+  const { showToast } = useToast();
   const { currentTeam, teamMembers, isLoading: teamsLoading } = useTeam();
   const [searchParams, setSearchParams] = useSearchParams();
   const pathPrefix = usePathPrefix();
@@ -79,9 +88,7 @@ export const BillingSettings: React.FC = () => {
 
   // UI state
   const [isLoadingPortal, setIsLoadingPortal] = useState(false);
-  const [isSettingUpStripe, setIsSettingUpStripe] = useState(false);
   const [isSavingPlan, setIsSavingPlan] = useState(false);
-  const [showPaymentModal, setShowPaymentModal] = useState(false);
 
   // Plan change modal state
   const [planChangeModal, setPlanChangeModal] = useState<{
@@ -103,6 +110,18 @@ export const BillingSettings: React.FC = () => {
   const currentMember = teamMembers.find(m => m.userId === user?.id);
   const isBillingAdmin = isOwner || currentMember?.role === 'admin' || currentMember?.role === 'billing_admin';
   const hasPaymentMethod = paymentMethods.length > 0;
+
+  const resetPlanChangeModal = useCallback(() => {
+    setPlanChangeModal({
+      isOpen: false,
+      preview: null,
+      isLoading: false,
+      isConfirming: false,
+      selectedPlan: null,
+    });
+  }, []);
+
+  const wait = useCallback((ms: number) => new Promise(resolve => setTimeout(resolve, ms)), []);
 
   // Load billing data
   const loadTeamBilling = useCallback(async () => {
@@ -164,45 +183,130 @@ export const BillingSettings: React.FC = () => {
     loadTeamBilling();
   }, [loadTeamBilling]);
 
-  // Listen for messages from the Stripe portal return page
+  const refreshPlanPreview = useCallback(async () => {
+    if (!planChangeModal.isOpen || !planChangeModal.selectedPlan || !currentTeam) {
+      return;
+    }
+
+    try {
+      const preview = await previewPlanChange(currentTeam.id, planChangeModal.selectedPlan);
+      setPlanChangeModal(prev => ({
+        ...prev,
+        preview,
+      }));
+    } catch (err) {
+      console.error('Failed to refresh plan preview:', err);
+    }
+  }, [currentTeam, planChangeModal.isOpen, planChangeModal.selectedPlan]);
+
+  const syncCompletedCheckout = useCallback(async (sessionId: string) => {
+    if (!currentTeam) {
+      return null;
+    }
+
+    let lastResult: Awaited<ReturnType<typeof completeCheckoutSession>> | null = null;
+
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      lastResult = await completeCheckoutSession(currentTeam.id, sessionId);
+      if (lastResult.provisioned) {
+        return lastResult;
+      }
+
+      if (attempt < 4) {
+        await wait(800 * (attempt + 1));
+      }
+    }
+
+    return lastResult;
+  }, [currentTeam, wait]);
+
+  const refreshBillingAfterCheckout = useCallback(async (
+    status: 'success' | 'canceled',
+    sessionId?: string | null,
+  ) => {
+    if (status === 'success') {
+      let checkoutSyncResult: Awaited<ReturnType<typeof completeCheckoutSession>> | null = null;
+      if (sessionId && currentTeam) {
+        checkoutSyncResult = await syncCompletedCheckout(sessionId);
+      }
+
+      clearCache();
+      await loadTeamBilling();
+      if (currentTeam) {
+        window.dispatchEvent(new CustomEvent('planChanged', {
+          detail: { teamId: currentTeam.id }
+        }));
+      }
+      resetPlanChangeModal();
+      setBillingError(null);
+      if (checkoutSyncResult && !checkoutSyncResult.provisioned) {
+        showToast('Checkout finished, but Stripe is still finalizing the subscription. Billing will update shortly.');
+      } else {
+        showToast('Subscription complete. Refreshing billing...');
+      }
+      return;
+    }
+
+    setPlanChangeModal(prev => ({ ...prev, isConfirming: false }));
+    showToast('Checkout canceled.');
+  }, [currentTeam, loadTeamBilling, resetPlanChangeModal, showToast, syncCompletedCheckout]);
+
+  // Listen for messages from Stripe return pages
   useEffect(() => {
     const handleMessage = async (event: MessageEvent) => {
       // Verify origin for security
       if (event.origin !== window.location.origin) return;
+
+      if (isBillingCheckoutReturnMessage(event.data)) {
+        await refreshBillingAfterCheckout(event.data.status, event.data.sessionId);
+        return;
+      }
 
       if (event.data?.type === 'STRIPE_PORTAL_CLOSED') {
         // Refresh billing data when portal closes
         await loadTeamBilling();
 
         // If plan change modal is open, refresh the preview with updated payment methods
-        if (planChangeModal.isOpen && planChangeModal.selectedPlan && currentTeam) {
-          try {
-            const preview = await previewPlanChange(currentTeam.id, planChangeModal.selectedPlan);
-            setPlanChangeModal(prev => ({
-              ...prev,
-              preview,
-            }));
-          } catch (err) {
-            console.error('Failed to refresh plan preview:', err);
-          }
-        }
+        await refreshPlanPreview();
       }
     };
 
     window.addEventListener('message', handleMessage);
     return () => window.removeEventListener('message', handleMessage);
-  }, [loadTeamBilling, planChangeModal.isOpen, planChangeModal.selectedPlan, currentTeam]);
+  }, [loadTeamBilling, refreshBillingAfterCheckout, refreshPlanPreview]);
 
-  // Handle deep link from email
+  // Handle billing return query params and deep links
   useEffect(() => {
     const billingParam = searchParams.get('action');
     if (billingParam === 'setup' && !hasPaymentMethod && isBillingAdmin && stripeStatus?.enabled && !stripeStatus?.selfHosted) {
-      setSearchParams(prev => {
-        prev.delete('action');
-        return prev;
-      });
+      const nextParams = new URLSearchParams(searchParams);
+      nextParams.delete('action');
+      setSearchParams(nextParams);
+      return;
     }
-  }, [searchParams, hasPaymentMethod, isBillingAdmin, stripeStatus, setSearchParams]);
+
+    const { status, sessionId } = parseBillingCheckoutSearchParams(searchParams);
+    if (!status) {
+      return;
+    }
+
+    const nextParams = new URLSearchParams(searchParams);
+    nextParams.delete('checkout');
+    nextParams.delete('session_id');
+    setSearchParams(nextParams);
+
+    refreshBillingAfterCheckout(status, sessionId).catch((err) => {
+      console.error('Failed to refresh billing after checkout return:', err);
+      setBillingError(err instanceof Error ? err.message : 'Failed to refresh billing');
+    });
+  }, [
+    searchParams,
+    hasPaymentMethod,
+    isBillingAdmin,
+    stripeStatus,
+    setSearchParams,
+    refreshBillingAfterCheckout,
+  ]);
 
   // Open plan change preview modal
   const handlePlanClick = async (planName: string) => {
@@ -238,11 +342,33 @@ export const BillingSettings: React.FC = () => {
 
   // Confirm the plan change
   const handleConfirmPlanChange = async () => {
-    if (!currentTeam || !planChangeModal.selectedPlan) return;
+    if (!currentTeam || !planChangeModal.selectedPlan || !planChangeModal.preview) return;
 
     setPlanChangeModal(prev => ({ ...prev, isConfirming: true }));
 
     try {
+      if (planChangeModal.preview.changeType === 'new') {
+        const { successUrl, cancelUrl } = buildBillingCheckoutReturnUrls(window.location.origin, pathPrefix);
+        const result = await createCheckoutSession(
+          currentTeam.id,
+          planChangeModal.selectedPlan,
+          successUrl,
+          cancelUrl,
+        );
+
+        const launchMode = launchBillingCheckout(result.url, {
+          openWindow: (url, target, features) => window.open(url, target, features),
+          assignLocation: (url) => window.location.assign(url),
+          screenWidth: window.screen.width,
+          screenHeight: window.screen.height,
+        });
+
+        if (launchMode === 'popup') {
+          resetPlanChangeModal();
+        }
+        return;
+      }
+
       const result = await confirmPlanChange(currentTeam.id, planChangeModal.selectedPlan);
       if (result.success) {
         // Clear ALL caches to force fresh data from server
@@ -256,13 +382,7 @@ export const BillingSettings: React.FC = () => {
           detail: { teamId: currentTeam.id }
         }));
 
-        setPlanChangeModal({
-          isOpen: false,
-          preview: null,
-          isLoading: false,
-          isConfirming: false,
-          selectedPlan: null,
-        });
+        resetPlanChangeModal();
         // Show success message
         setBillingError(null);
       }
@@ -275,13 +395,7 @@ export const BillingSettings: React.FC = () => {
   // Close the modal
   const handleCloseModal = () => {
     if (!planChangeModal.isConfirming) {
-      setPlanChangeModal({
-        isOpen: false,
-        preview: null,
-        isLoading: false,
-        isConfirming: false,
-        selectedPlan: null,
-      });
+      resetPlanChangeModal();
     }
   };
 
@@ -291,43 +405,31 @@ export const BillingSettings: React.FC = () => {
     handlePlanClick(planName);
   };
 
-  const handleSetupStripe = async () => {
-    if (!currentTeam) return;
-    try {
-      setIsSettingUpStripe(true);
-      setBillingError(null);
-      await setupStripeForTeam(currentTeam.id);
-
-      // Open the in-app payment method modal instead of popup
-      setShowPaymentModal(true);
-    } catch (err) {
-      setBillingError(err instanceof Error ? err.message : 'Failed to setup billing');
-    } finally {
-      setIsSettingUpStripe(false);
-    }
-  };
-
   const handleOpenBillingPortal = async () => {
     if (!currentTeam) return;
     try {
       setIsLoadingPortal(true);
+      setBillingError(null);
+      if (!stripeStatus?.hasCustomer) {
+        await setupStripeForTeam(currentTeam.id);
+      }
+
       // Use current origin to ensure it works in both dev (localhost) and prod (your domain)
       // Use special return page that closes the popup window
       const returnUrl = `${window.location.origin}${pathPrefix}/billing/return`;
       const { url } = await createBillingPortalSession(currentTeam.id, returnUrl);
 
-      // Open window as a centered modal-like popup to feel more integrated
-      // Calculate center position
-      const width = 1000;
-      const height = 700;
-      const left = (window.screen.width / 2) - (width / 2);
-      const top = (window.screen.height / 2) - (height / 2);
+      const features = buildCenteredPopupFeatures({
+        width: 1000,
+        height: 700,
+        screenWidth: window.screen.width,
+        screenHeight: window.screen.height,
+      });
 
-      // Open window immediately (synchronously) to avoid pop-up blocker
       const portalWindow = window.open(
         url,
         'stripeBillingPortal',
-        `width=${width},height=${height},left=${left},top=${top},resizable=yes,scrollbars=yes,toolbar=no,menubar=no,location=no`
+        features,
       );
 
       if (!portalWindow) {
@@ -614,6 +716,7 @@ export const BillingSettings: React.FC = () => {
             const currentPlanName = teamPlan?.planName?.toLowerCase() || 'free';
             const isCurrentPlan = currentPlanName === plan.name;
             const isDowngrade = teamPlan && availablePlans.findIndex(p => p.name === currentPlanName) > availablePlans.findIndex(p => p.name === plan.name);
+            const isNewPaidSubscription = currentPlanName === 'free' && plan.priceCents > 0;
             // Disable free plan only if already on free
             const isFreePlanDisabled = plan.name === 'free' && isCurrentPlan;
             // Disable plan if it's already scheduled for downgrade
@@ -688,7 +791,7 @@ export const BillingSettings: React.FC = () => {
                       onClick={() => handlePlanClick(plan.name)}
                       disabled={isSavingPlan || isFreePlanDisabled}
                     >
-                      {isSavingPlan ? '...' : isDowngrade ? 'Downgrade' : 'Upgrade'}
+                      {isSavingPlan ? '...' : isDowngrade ? 'Downgrade' : isNewPaidSubscription ? 'Subscribe' : 'Upgrade'}
                     </NeoButton>
                   ) : (
                     <div className="py-3 text-center border-2 border-black bg-[#f4f4f5]">
@@ -713,7 +816,7 @@ export const BillingSettings: React.FC = () => {
                 <AlertOctagon className="w-8 h-8 text-rose-600" />
                 <div className="flex-1">
                   <div className="font-semibold text-rose-900 uppercase tracking-wide">Payment Failed</div>
-                  <div className="text-sm font-bold text-rose-700">Please update your payment method to continue recording.</div>
+                  <div className="text-sm font-bold text-rose-700">Please update your payment method in Stripe Billing to continue recording.</div>
                 </div>
               </div>
             )}
@@ -738,34 +841,18 @@ export const BillingSettings: React.FC = () => {
                       </div>
                       {pm.isDefault && <NeoBadge variant="success" size="sm">DEFAULT</NeoBadge>}
                     </div>
-                    {isBillingAdmin && (
-                      <NeoButton
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => setShowPaymentModal(true)}
-                      >
-                        Update
-                      </NeoButton>
-                    )}
                   </div>
                 ))}
 
                 {isBillingAdmin && (
-                  <div className="flex gap-3 pt-2">
-                    <NeoButton
-                      variant="secondary"
-                      onClick={() => setShowPaymentModal(true)}
-                      leftIcon={<CreditCard className="w-4 h-4" />}
-                    >
-                      Add Another Payment Method
-                    </NeoButton>
+                  <div className="pt-2">
                     <NeoButton
                       variant="ghost"
                       onClick={handleOpenBillingPortal}
                       disabled={isLoadingPortal}
                       leftIcon={<ExternalLink className="w-4 h-4" />}
                     >
-                      {isLoadingPortal ? 'Opening...' : 'Manage in Stripe Portal'}
+                      {isLoadingPortal ? 'Opening...' : 'Manage in Stripe Billing'}
                     </NeoButton>
                   </div>
                 )}
@@ -777,15 +864,16 @@ export const BillingSettings: React.FC = () => {
                 </div>
                 <h3 className="text-lg font-black font-mono uppercase tracking-wide text-black uppercase mb-2">No Payment Method</h3>
                 <p className="text-sm font-bold text-slate-500 mb-4 max-w-md mx-auto">
-                  Add a payment method to upgrade your plan. Recording pauses at your session limit.
+                  Manage your payment method in Stripe Billing. Recording pauses at your session limit until a valid card is on file.
                 </p>
                 {isBillingAdmin && (
                   <NeoButton
                     variant="primary"
-                    onClick={() => setShowPaymentModal(true)}
-                    leftIcon={<CreditCard className="w-4 h-4" />}
+                    onClick={handleOpenBillingPortal}
+                    disabled={isLoadingPortal}
+                    leftIcon={<ExternalLink className="w-4 h-4" />}
                   >
-                    Add Payment Method
+                    {isLoadingPortal ? 'Opening...' : 'Open Stripe Billing'}
                   </NeoButton>
                 )}
               </div>
@@ -899,17 +987,15 @@ export const BillingSettings: React.FC = () => {
                     <div className="p-4 bg-[#f4f4f5] border-2 border-black">
                       <div className="font-semibold text-slate-900 mb-2">Payment Method Required</div>
                       <p className="text-sm text-slate-600 mb-3">
-                        You must add a payment method before subscribing to a paid plan.
+                        Add or update your payment method in Stripe Billing, then return here to finish this change.
                       </p>
                       <NeoButton
                         variant="primary"
                         size="sm"
-                        onClick={() => {
-                          handleCloseModal();
-                          setShowPaymentModal(true);
-                        }}
+                        onClick={handleOpenBillingPortal}
+                        disabled={isLoadingPortal}
                       >
-                        Add Payment Method
+                        {isLoadingPortal ? 'Opening...' : 'Open Stripe Billing'}
                       </NeoButton>
                     </div>
                   )}
@@ -967,12 +1053,10 @@ export const BillingSettings: React.FC = () => {
                   <NeoButton
                     variant="primary"
                     className="flex-1"
-                    onClick={() => {
-                      handleCloseModal();
-                      setShowPaymentModal(true);
-                    }}
+                    onClick={handleOpenBillingPortal}
+                    disabled={isLoadingPortal}
                   >
-                    Add Payment Method
+                    {isLoadingPortal ? 'Opening...' : 'Open Stripe Billing'}
                   </NeoButton>
                 ) : (
                   <NeoButton
@@ -1000,31 +1084,6 @@ export const BillingSettings: React.FC = () => {
         </div>
       )}
 
-      {/* Payment Method Modal */}
-      {currentTeam && (
-        <PaymentMethodModal
-          teamId={currentTeam.id}
-          isOpen={showPaymentModal}
-          onClose={() => setShowPaymentModal(false)}
-          onSuccess={async () => {
-            await loadTeamBilling();
-            setShowPaymentModal(false);
-
-            // If plan change modal is open, refresh the preview with updated payment methods
-            if (planChangeModal.isOpen && planChangeModal.selectedPlan && currentTeam) {
-              try {
-                const preview = await previewPlanChange(currentTeam.id, planChangeModal.selectedPlan);
-                setPlanChangeModal(prev => ({
-                  ...prev,
-                  preview,
-                }));
-              } catch (err) {
-                console.error('Failed to refresh plan preview:', err);
-              }
-            }
-          }}
-        />
-      )}
     </SettingsLayout>
   );
 };

@@ -5,6 +5,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
+import packageJson from '../../../package.json';
 import {
   SDK_VERSION,
   DEFAULT_CONFIG,
@@ -25,6 +26,10 @@ describe('constants', () => {
       expect(SDK_VERSION).toBeTruthy();
       expect(typeof SDK_VERSION).toBe('string');
       expect(SDK_VERSION).toMatch(/^\d+\.\d+\.\d+/);
+    });
+
+    it('should match package.json', () => {
+      expect(SDK_VERSION).toBe(packageJson.version);
     });
   });
 

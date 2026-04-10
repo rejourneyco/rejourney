@@ -16,8 +16,8 @@
 
 package com.rejourney.recording
 
+import com.rejourney.RejourneySdkInfo
 import com.rejourney.engine.DiagnosticLog
-import com.rejourney.engine.RejourneyImpl
 import kotlinx.coroutines.*
 import okhttp3.*
 import com.rejourney.recording.RejourneyNetworkInterceptor
@@ -148,6 +148,17 @@ class SegmentDispatcher private constructor() {
         batchSeqNumber = 0
         billingBlocked = false
         consecutiveFailures = 0
+        circuitOpen = false
+        circuitOpenTime = 0
+        active = true
+        val droppedRetries = retryLock.withLock {
+            val dropped = retryQueue.size
+            retryQueue.clear()
+            dropped
+        }
+        if (droppedRetries > 0) {
+            DiagnosticLog.trace("[SegmentDispatcher] Dropped $droppedRetries stale retries while configuring session ${replayId.take(20)}")
+        }
         resetSessionTelemetry()
     }
     
@@ -278,6 +289,7 @@ class SegmentDispatcher private constructor() {
         currentQueueDepth: Int = 0,
         endReason: String? = null,
         lifecycleVersion: Int? = null,
+        closeAnchorAtMs: Long? = null,
         completion: (Boolean) -> Unit
     ) {
         val url = "$endpoint/api/ingest/session/end"
@@ -286,15 +298,16 @@ class SegmentDispatcher private constructor() {
         val body = JSONObject().apply {
             put("sessionId", replayId)
             put("endedAt", concludedAt)
-            put("sdkVersion", RejourneyImpl.sdkVersion)
+            put("sdkVersion", RejourneySdkInfo.sdkVersion)
             if (backgroundDurationMs > 0) put("totalBackgroundTimeMs", backgroundDurationMs)
             metrics?.let { put("metrics", JSONObject(it)) }
             put("sdkTelemetry", buildSdkTelemetry(currentQueueDepth))
             if (!endReason.isNullOrBlank()) put("endReason", endReason)
             if ((lifecycleVersion ?: 0) > 0) put("lifecycleVersion", lifecycleVersion)
+            if ((closeAnchorAtMs ?: 0) > 0) put("closeAnchorAtMs", closeAnchorAtMs)
         }
         
-        val request = buildRequest(url, body)
+        val request = buildRequest(url, body, replayId)
         
         scope.launch {
             try {
@@ -362,6 +375,11 @@ class SegmentDispatcher private constructor() {
             completion?.invoke(false)
             return
         }
+        if (isUploadForClosedSession(upload.sessionId)) {
+            DiagnosticLog.trace("[SegmentDispatcher] Dropping stale ${upload.contentType} upload for closed session ${upload.sessionId.take(20)}")
+            completion?.invoke(false)
+            return
+        }
         
         val presignResponse = requestPresignedUrl(upload)
         if (presignResponse == null) {
@@ -396,6 +414,11 @@ class SegmentDispatcher private constructor() {
     }
     
     private fun scheduleRetryIfNeeded(upload: PendingUpload, completion: ((Boolean) -> Unit)?) {
+        if (isUploadForClosedSession(upload.sessionId)) {
+            DiagnosticLog.trace("[SegmentDispatcher] Discarding retry for closed session ${upload.sessionId.take(20)}")
+            completion?.invoke(false)
+            return
+        }
         if (upload.attempt < 3) {
             val retry = upload.copy(attempt = upload.attempt + 1)
             retryLock.withLock {
@@ -430,7 +453,7 @@ class SegmentDispatcher private constructor() {
         val body = JSONObject().apply {
             put("sessionId", upload.sessionId)
             put("sizeBytes", upload.payload.size)
-            put("sdkVersion", RejourneyImpl.sdkVersion)
+            put("sdkVersion", RejourneySdkInfo.sdkVersion)
             
             if (upload.contentType == "events") {
                 put("contentType", "events")
@@ -445,7 +468,7 @@ class SegmentDispatcher private constructor() {
             }
         }
         
-        val request = buildRequest(url, body)
+        val request = buildRequest(url, body, upload.sessionId)
         val startTime = System.currentTimeMillis()
         
         return try {
@@ -473,11 +496,10 @@ class SegmentDispatcher private constructor() {
                 return PresignResponse(skipUpload = true)
             }
             
-            val presignedUrl = json.optString("presignedUrl", null) ?: return null
-            val batchId = json.optString("batchId", null) 
-                ?: json.optString("segmentId", "") 
-                ?: ""
-            
+            val presignedUrl = json.optString("presignedUrl", "").takeIf { it.isNotBlank() } ?: return null
+            val batchId = json.optString("batchId", "").takeIf { it.isNotBlank() }
+                ?: json.optString("segmentId", "")
+
             DiagnosticLog.debugPresignResponse(response.code, batchId, presignedUrl, durationMs)
             PresignResponse(presignedUrl, batchId)
         } catch (e: Exception) {
@@ -536,7 +558,7 @@ class SegmentDispatcher private constructor() {
             }
         }
         
-        val request = buildRequest(url, body)
+        val request = buildRequest(url, body, upload.sessionId)
         
         return try {
             val response = httpClient.newCall(request).execute()
@@ -563,6 +585,11 @@ class SegmentDispatcher private constructor() {
             attempt = 0,
             batchNumber = batchNum
         )
+        if (isUploadForClosedSession(upload.sessionId)) {
+            DiagnosticLog.trace("[SegmentDispatcher] Dropping stale events upload for closed session ${upload.sessionId.take(20)}")
+            completion?.invoke(false)
+            return
+        }
         
         val presignResponse = requestPresignedUrl(upload)
         if (presignResponse == null) {
@@ -590,9 +617,10 @@ class SegmentDispatcher private constructor() {
         completion?.invoke(confirmOk)
     }
     
-    private fun buildRequest(url: String, body: JSONObject): Request {
+    private fun buildRequest(url: String, body: JSONObject, sessionId: String? = null): Request {
+        val requestSessionId = sessionId?.takeIf { it.isNotBlank() } ?: currentReplayId
         // Log auth state before building request
-        DiagnosticLog.trace("[SegmentDispatcher] buildRequest: apiToken=${apiToken?.take(15) ?: "NULL"}, credential=${credential?.take(15) ?: "NULL"}, replayId=${currentReplayId?.take(20) ?: "NULL"}")
+        DiagnosticLog.trace("[SegmentDispatcher] buildRequest: apiToken=${apiToken?.take(15) ?: "NULL"}, credential=${credential?.take(15) ?: "NULL"}, replayId=${requestSessionId?.take(20) ?: "NULL"}")
         
         val requestBody = body.toString().toRequestBody("application/json".toMediaType())
         
@@ -605,12 +633,17 @@ class SegmentDispatcher private constructor() {
                     header("x-rejourney-key", it)
                 } ?: DiagnosticLog.fault("[SegmentDispatcher] ⚠️ apiToken is NULL - auth will fail!")
                 credential?.let { header("x-upload-token", it) }
-                currentReplayId?.let { header("x-session-id", it) }
+                requestSessionId?.let { header("x-session-id", it) }
             }
             .build()
             
         DiagnosticLog.debugNetworkRequest("POST", url, request.headers.toMultimap().mapValues { it.value.first() })
         return request
+    }
+
+    private fun isUploadForClosedSession(sessionId: String): Boolean {
+        val activeSessionId = currentReplayId
+        return !activeSessionId.isNullOrBlank() && sessionId != activeSessionId
     }
     
     private fun ingestFinalizeMetrics(metrics: Map<String, Any>?) {

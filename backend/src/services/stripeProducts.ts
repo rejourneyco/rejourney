@@ -18,6 +18,7 @@ import { logger } from '../logger.js';
 import { db, teams, projects, projectUsage, users, teamMembers } from '../db/client.js';
 import { getTeamBillingPeriod } from '../utils/billing.js';
 import { ApiError } from '../middleware/errorHandler.js';
+import { stripeErrorLogFields } from '../utils/stripeErrorLog.js';
 import {
     FREE_VIDEO_RETENTION_TIER,
     getVideoRetentionDetailsForTier,
@@ -92,6 +93,15 @@ export interface PlanChangeResult {
     effectiveDate: Date;
     isImmediate: boolean;
     message: string;
+}
+
+interface DerivedPlanChangePreview {
+    changeType: PlanChangePreview['changeType'];
+    isImmediate: boolean;
+    chargeAmountCents: number;
+    creditAmountCents: number;
+    requiresPaymentMethod: boolean;
+    warnings: string[];
 }
 
 // =============================================================================
@@ -419,6 +429,75 @@ function getFreePlan(): StripePlan {
 export function invalidatePriceCache(): void {
     priceCache = null;
     priceCacheExpiry = 0;
+}
+
+export function derivePlanChangePreviewState(
+    currentSub: TeamSubscriptionInfo,
+    newPlan: StripePlan,
+    actualPriceId: string,
+    hasPaymentMethod: boolean,
+): DerivedPlanChangePreview {
+    let changeType: PlanChangePreview['changeType'];
+    let isImmediate = true;
+    let chargeAmountCents = 0;
+    const creditAmountCents = 0;
+
+    if (!currentSub.subscriptionId) {
+        changeType = newPlan.priceCents > 0 ? 'new' : 'same';
+        if (changeType === 'new') {
+            chargeAmountCents = newPlan.priceCents;
+        }
+    } else if (currentSub.priceId === actualPriceId) {
+        changeType = 'same';
+    } else {
+        if (currentSub.scheduledPriceId === actualPriceId) {
+            throw new Error(`You already have a scheduled downgrade to ${newPlan.displayName}. You cannot schedule the same plan change again.`);
+        }
+
+        const currentIdx = PLAN_ORDER.indexOf(currentSub.planName);
+        const newIdx = PLAN_ORDER.indexOf(newPlan.name);
+        const isHigherPlan = newIdx > currentIdx && newIdx >= 0 && currentIdx >= 0;
+        const isHigherPrice = newPlan.priceCents > currentSub.priceCents;
+        const isMoreSessions = newPlan.sessionLimit > currentSub.sessionLimit;
+
+        if (isHigherPlan || isHigherPrice || isMoreSessions) {
+            changeType = 'upgrade';
+            chargeAmountCents = newPlan.priceCents;
+        } else {
+            changeType = 'downgrade';
+            isImmediate = false;
+        }
+    }
+
+    const requiresPaymentMethod = changeType !== 'new' && newPlan.priceCents > 0;
+    const warnings: string[] = [];
+
+    if (changeType === 'new') {
+        if (chargeAmountCents > 0) {
+            warnings.push(`You'll enter payment details and confirm any required authentication in secure Stripe Checkout.`);
+            warnings.push(`You'll be charged $${(chargeAmountCents / 100).toFixed(2)} when checkout completes.`);
+        }
+        warnings.push('Unused sessions from your free tier will not carry over.');
+    } else if (changeType === 'upgrade') {
+        if (!hasPaymentMethod && requiresPaymentMethod) {
+            warnings.push('You must add a payment method before upgrading to a paid plan.');
+        } else if (chargeAmountCents > 0) {
+            warnings.push(`You'll be charged $${(chargeAmountCents / 100).toFixed(2)} now.`);
+        }
+        warnings.push('Your billing cycle will reset and unused sessions will not carry over.');
+    } else if (changeType === 'downgrade') {
+        warnings.push(`Your downgrade will take effect on ${currentSub.currentPeriodEnd?.toLocaleDateString() || 'the next billing cycle'}.`);
+        warnings.push(`You'll keep your current ${currentSub.sessionLimit.toLocaleString()} session limit until then.`);
+    }
+
+    return {
+        changeType,
+        isImmediate,
+        chargeAmountCents,
+        creditAmountCents,
+        requiresPaymentMethod,
+        warnings,
+    };
 }
 
 // =============================================================================
@@ -841,6 +920,7 @@ export async function createCheckoutSession(
     try {
         const session = await client.checkout.sessions.create({
             mode: 'subscription',
+            client_reference_id: teamId,
             customer: team.stripeCustomerId || undefined,
             customer_email: !team.stripeCustomerId ? team.billingEmail || undefined : undefined,
             line_items: [{
@@ -920,51 +1000,14 @@ export async function previewPlanChange(
             .limit(1);
 
         const hasPaymentMethod = !!team?.stripePaymentMethodId;
-        const requiresPaymentMethod = newPlan.priceCents > 0;
-
-        // Determine change type
-        let changeType: 'upgrade' | 'downgrade' | 'same' | 'new';
-        let isImmediate = true;
-        let chargeAmountCents = 0;
-        const creditAmountCents = 0;
-
-        // If no subscription, this is always a new subscription (even if going to free)
-        if (!currentSub.subscriptionId) {
-            // New subscription - going from free tier to a paid plan
-            if (newPlan.priceCents > 0) {
-                changeType = 'new';
-                chargeAmountCents = newPlan.priceCents;
-            } else {
-                // Already on free, trying to go to free - same plan
-                changeType = 'same';
-            }
-        } else if (currentSub.priceId === actualPriceId) {
-            // Same price ID
-            changeType = 'same';
-        } else {
-            // Check if there's already a scheduled downgrade to this same plan
-            if (currentSub.scheduledPriceId === actualPriceId) {
-                throw new Error(`You already have a scheduled downgrade to ${newPlan.displayName}. You cannot schedule the same plan change again.`);
-            }
-
-            // Has existing subscription - determine if upgrade or downgrade
-            const currentIdx = PLAN_ORDER.indexOf(currentSub.planName);
-            const newIdx = PLAN_ORDER.indexOf(newPlan.name);
-
-            // Upgrade if: higher in plan order OR higher price OR more sessions
-            const isHigherPlan = newIdx > currentIdx && newIdx >= 0 && currentIdx >= 0;
-            const isHigherPrice = newPlan.priceCents > currentSub.priceCents;
-            const isMoreSessions = newPlan.sessionLimit > currentSub.sessionLimit;
-
-            if (isHigherPlan || isHigherPrice || isMoreSessions) {
-                changeType = 'upgrade';
-                isImmediate = true;
-                chargeAmountCents = newPlan.priceCents;
-            } else {
-                changeType = 'downgrade';
-                isImmediate = false; // Downgrades take effect at period end
-            }
-        }
+        const {
+            changeType,
+            isImmediate,
+            chargeAmountCents,
+            creditAmountCents,
+            requiresPaymentMethod,
+            warnings,
+        } = derivePlanChangePreviewState(currentSub, newPlan, actualPriceId, hasPaymentMethod);
 
         // Calculate days remaining
         let daysRemainingInCycle = 0;
@@ -972,27 +1015,6 @@ export async function previewPlanChange(
             daysRemainingInCycle = Math.max(0, Math.ceil(
                 (currentSub.currentPeriodEnd.getTime() - Date.now()) / (1000 * 60 * 60 * 24)
             ));
-        }
-
-        // Build warnings
-        const warnings: string[] = [];
-
-        if (changeType === 'new' || changeType === 'upgrade') {
-            if (!hasPaymentMethod && requiresPaymentMethod) {
-                warnings.push('You must add a payment method before subscribing to a paid plan.');
-            } else if (chargeAmountCents > 0) {
-                warnings.push(`You'll be charged $${(chargeAmountCents / 100).toFixed(2)} now.`);
-            }
-            if (changeType === 'upgrade') {
-                warnings.push('Your billing cycle will reset and unused sessions will not carry over.');
-            } else if (changeType === 'new') {
-                warnings.push('Unused sessions from your free tier will not carry over.');
-            }
-        }
-
-        if (changeType === 'downgrade') {
-            warnings.push(`Your downgrade will take effect on ${currentSub.currentPeriodEnd?.toLocaleDateString() || 'the next billing cycle'}.`);
-            warnings.push(`You'll keep your current ${currentSub.sessionLimit.toLocaleString()} session limit until then.`);
         }
 
         // Always return a currentPlan, even for free tier
@@ -1154,7 +1176,18 @@ export async function executePlanChange(
                 metadata: { teamId },
             });
         } catch (err: any) {
-            logger.error({ err, teamId, customerId: team.stripeCustomerId, priceId: actualPriceId }, 'Failed to create Stripe subscription');
+            logger.error(
+                {
+                    err,
+                    teamId,
+                    customerId: team.stripeCustomerId,
+                    priceId: actualPriceId,
+                    paymentBehavior: 'error_if_incomplete',
+                    ...stripeErrorLogFields(err),
+                    event: 'billing.stripe_subscription_create_failed',
+                },
+                'Failed to create Stripe subscription (check stripeStatusCode 402 / stripeCode for 3DS or card issues)',
+            );
             if (err.code === 'resource_missing') {
                 throw new Error(`Stripe price not found: ${actualPriceId}. Make sure the price exists in your Stripe dashboard.`);
             }
@@ -1196,7 +1229,17 @@ export async function executePlanChange(
                     billing_cycle_anchor: 'now', // Reset billing cycle on upgrade
                 });
             } catch (err: any) {
-                logger.error({ err, teamId, subscriptionId: team.stripeSubscriptionId, priceId: actualPriceId }, 'Failed to update Stripe subscription');
+                logger.error(
+                    {
+                        err,
+                        teamId,
+                        subscriptionId: team.stripeSubscriptionId,
+                        priceId: actualPriceId,
+                        ...stripeErrorLogFields(err),
+                        event: 'billing.stripe_subscription_update_failed',
+                    },
+                    'Failed to update Stripe subscription',
+                );
                 if (err.code === 'resource_missing') {
                     throw new Error(`Stripe price not found: ${actualPriceId}. Make sure the price exists in your Stripe dashboard.`);
                 }

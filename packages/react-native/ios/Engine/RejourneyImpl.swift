@@ -21,7 +21,7 @@ import CommonCrypto
 @objc(RejourneyImpl)
 public final class RejourneyImpl: NSObject {
     @objc public static let shared = RejourneyImpl()
-    @objc public static var sdkVersion = "1.0.1"
+    @objc public static var sdkVersion = "1.0.16"
 
     // MARK: - State Machine
 
@@ -89,16 +89,26 @@ public final class RejourneyImpl: NSObject {
     // MARK: - State Transitions
 
     @objc private func handleTermination() {
+        let shouldFinalize: Bool
         stateLock.lock()
-        defer { stateLock.unlock() }
-
         switch state {
         case .active, .paused:
             state = .terminated
+            shouldFinalize = true
+        default:
+            shouldFinalize = false
+        }
+        stateLock.unlock()
+
+        guard shouldFinalize else { return }
+
+        if let replayId = ReplayOrchestrator.shared.replayId, !replayId.isEmpty {
+            ReplayOrchestrator.shared.endReplayWithReason("termination") { success, uploaded in
+                DiagnosticLog.notice("[Rejourney] Termination finalization completed (success: \(success), uploaded: \(uploaded))")
+            }
+        } else {
             TelemetryPipeline.shared.finalizeAndShip()
             SegmentDispatcher.shared.shipPending()
-        default:
-            break
         }
     }
 
@@ -110,6 +120,7 @@ public final class RejourneyImpl: NSObject {
             state = .paused(sessionId: sid, startTime: start)
             backgroundStartTime = Date().timeIntervalSince1970
             DiagnosticLog.notice("[Rejourney] ⏸️ Session '\(sid)' paused (app backgrounded)")
+            TelemetryPipeline.shared.recordAppBackground()
             TelemetryPipeline.shared.dispatchNow()
             SegmentDispatcher.shared.shipPending()
             // Stop the heartbeat timer to prevent event uploads while backgrounded
@@ -341,6 +352,7 @@ public final class RejourneyImpl: NSObject {
         if let val = options["captureCrashes"] as? Bool { config["captureCrashes"] = val }
         if let val = options["captureANR"] as? Bool { config["captureANR"] = val }
         if let val = options["wifiOnly"] as? Bool { config["wifiOnly"] = val }
+        if let val = options["captureLogs"] as? Bool { config["captureLogs"] = val }
 
         if let fps = options["fps"] as? Int {
             config["captureRate"] = 1.0 / Double(max(1, min(fps, 30)))
@@ -434,8 +446,11 @@ public final class RejourneyImpl: NSObject {
             var targetSid = ""
 
             self.stateLock.lock()
-            if case .active(let sid, _) = self.state {
+            switch self.state {
+            case .active(let sid, _), .paused(let sid, _):
                 targetSid = sid
+            default:
+                break
             }
             self.state = .idle
             self.stateLock.unlock()

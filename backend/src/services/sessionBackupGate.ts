@@ -1,5 +1,6 @@
 import { pool } from '../db/client.js';
 import { logger } from '../logger.js';
+import { buildEmptySessionPredicateSql } from './sessionRetentionEligibility.js';
 
 export async function getBackedUpSessionIds(sessionIds: string[]): Promise<Set<string>> {
     if (sessionIds.length === 0) {
@@ -7,19 +8,30 @@ export async function getBackedUpSessionIds(sessionIds: string[]): Promise<Set<s
     }
 
     try {
-        // Require backup log counts to cover every recording_artifacts row (same scope as purge).
+        const emptySessionPredicate = buildEmptySessionPredicateSql('s');
+        // Require backup log counts to cover every recording_artifacts row, but let
+        // truly empty sessions age out without waiting on a backup row.
         const result = await pool.query<{ session_id: string }>(
             `
-            SELECT bl.session_id
-            FROM session_backup_log bl
+            SELECT s.id AS session_id
+            FROM sessions s
+            LEFT JOIN session_backup_log bl ON bl.session_id = s.id
             LEFT JOIN LATERAL (
                 SELECT COUNT(*)::int AS artifact_rows
                 FROM recording_artifacts ra
-                WHERE ra.session_id = bl.session_id
+                WHERE ra.session_id = s.id
             ) artifact_stats ON true
-            WHERE bl.session_id = ANY($1::varchar[])
-              AND bl.artifact_count >= COALESCE(artifact_stats.artifact_rows, 0)
-              AND bl.planned_artifact_count >= COALESCE(artifact_stats.artifact_rows, 0)
+            WHERE s.id = ANY($1::varchar[])
+              AND (
+                (
+                    bl.session_id IS NOT NULL
+                    AND bl.artifact_count >= COALESCE(artifact_stats.artifact_rows, 0)
+                    AND bl.planned_artifact_count >= COALESCE(artifact_stats.artifact_rows, 0)
+                )
+                OR (
+                    ${emptySessionPredicate}
+                )
+              )
             `,
             [sessionIds],
         );

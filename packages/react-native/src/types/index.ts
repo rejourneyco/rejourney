@@ -25,7 +25,7 @@ export interface RejourneyConfig {
   enabled?: boolean;
   /** Visual capture FPS (default: 1 = capture every 1000ms) */
   captureFPS?: number;
-  /** Maximum session duration in milliseconds (default: 30 minutes) */
+  /** Maximum session duration in milliseconds (default: 10 minutes) */
   maxSessionDuration?: number;
   /** Maximum storage size in bytes (default: 50MB) */
   maxStorageSize?: number;
@@ -47,10 +47,17 @@ export interface RejourneyConfig {
   detectRageTaps?: boolean;
   /** Rage tap threshold - number of taps in quick succession (default: 3) */
   rageTapThreshold?: number;
-  /** Rage tap time window in ms (default: 1000) */
+  /** Rage tap time window in ms (default: 500) */
   rageTapTimeWindow?: number;
   /** Enable debug logging (default: false) */
   debug?: boolean;
+  /**
+   * Screenshot compression preset passed to native replay (default: medium).
+   * Maps to native `quality`: low / medium / high.
+   */
+  captureQuality?: 'low' | 'medium' | 'high';
+  /** When true, prefer uploading on Wi‑Fi only (native `wifiOnly`, default: false) */
+  wifiOnly?: boolean;
   autoStartRecording?: boolean;
   /** API URL for session uploads (default: https://api.rejourney.co) */
   apiUrl?: string;
@@ -107,6 +114,7 @@ export interface RejourneyConfig {
   /**
    * Automatically intercept console.log/info/warn/error and include them in session recordings.
    * Useful for debugging sessions. Capped at 1,000 logs per session. (default: true)
+   * When set, the value is forwarded to native capture as `captureLogs`.
    */
   trackConsoleLogs?: boolean;
 }

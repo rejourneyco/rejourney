@@ -104,14 +104,28 @@ async function fetchJson<T>(endpoint: string, options: RequestInit = {}): Promis
 
   if (!response.ok) {
     const text = await response.text().catch(() => '');
-    // Try to parse JSON error response for better error messages
+    let parsed: unknown;
     try {
-      const errorJson = JSON.parse(text);
-      if (errorJson.message) {
-        throw new Error(errorJson.message);
-      }
+      parsed = JSON.parse(text);
     } catch {
-      // Not JSON or no message field, use fallback
+      parsed = undefined;
+    }
+    if (typeof window !== 'undefined') {
+      console.error('[fetchJson] API error', {
+        method,
+        endpoint,
+        status: response.status,
+        statusText: response.statusText,
+        body: parsed ?? text,
+      });
+    }
+    if (
+      parsed &&
+      typeof parsed === 'object' &&
+      'message' in parsed &&
+      typeof (parsed as { message: unknown }).message === 'string'
+    ) {
+      throw new Error((parsed as { message: string }).message);
     }
     throw new Error(`API error: ${response.status} ${response.statusText}${text ? ` - ${text}` : ''}`);
   }
@@ -1174,11 +1188,24 @@ export interface PlanChangePreview {
 export interface PlanChangeResult {
   success: boolean;
   plan: TeamPlanInfo;
-  changeType: 'upgrade' | 'downgrade';
+  changeType: 'upgrade' | 'downgrade' | 'new';
   effectiveDate: string;
   isImmediate: boolean;
   scheduledDowngradeDate?: string;
   message: string;
+}
+
+export interface CheckoutSessionResponse {
+  sessionId: string;
+  url: string;
+}
+
+export interface CheckoutCompletionResponse {
+  success: boolean;
+  provisioned: boolean;
+  subscriptionStatus: string | null;
+  subscriptionId: string | null;
+  customerId: string | null;
 }
 
 /**
@@ -1220,6 +1247,34 @@ export async function confirmPlanChange(
     }
   );
   return res;
+}
+
+export async function createCheckoutSession(
+  teamId: string,
+  planName: string,
+  successUrl: string,
+  cancelUrl: string,
+): Promise<CheckoutSessionResponse> {
+  return fetchJson<CheckoutSessionResponse>(
+    `/api/teams/${teamId}/billing/checkout`,
+    {
+      method: 'POST',
+      body: JSON.stringify({ planName, successUrl, cancelUrl }),
+    },
+  );
+}
+
+export async function completeCheckoutSession(
+  teamId: string,
+  sessionId: string,
+): Promise<CheckoutCompletionResponse> {
+  return fetchJson<CheckoutCompletionResponse>(
+    `/api/teams/${teamId}/billing/checkout/complete`,
+    {
+      method: 'POST',
+      body: JSON.stringify({ sessionId }),
+    },
+  );
 }
 
 /**
@@ -1817,6 +1872,16 @@ export interface InsightsTrends {
   dataCompleteThrough?: string;
 }
 
+export interface RetentionCohortRow {
+  weekStartKey: string;
+  users: number;
+  retention: Array<number | null>;
+}
+
+export interface RetentionCohortsResponse {
+  rows: RetentionCohortRow[];
+}
+
 export interface FrictionHeatmap {
   screens: Array<{
     name: string;
@@ -1906,6 +1971,87 @@ export async function getInsightsTrends(projectId?: string, timeRange?: string):
   const endpoint = `/api/insights/trends?${params.toString()}`;
   // 2 min cache - KPI cards depend on this, keep warm for snappy tab switching
   return fetchWithCache<InsightsTrends>(endpoint, {}, endpoint, 120000);
+}
+
+export async function getRetentionCohorts(projectId?: string, timeRange?: string): Promise<RetentionCohortsResponse> {
+  if (isDemoMode()) {
+    const weeklyActiveUsers = new Map<string, Set<string>>();
+    const userFirstWeek = new Map<string, string>();
+
+    for (const session of demoSessions) {
+      const userKey = session.userId || session.anonymousId || session.anonymousDisplayName || session.deviceId;
+      if (!userKey) continue;
+
+      const startedAt = new Date(session.startedAt);
+      if (Number.isNaN(startedAt.getTime())) continue;
+
+      const utcDate = new Date(Date.UTC(
+        startedAt.getUTCFullYear(),
+        startedAt.getUTCMonth(),
+        startedAt.getUTCDate()
+      ));
+      utcDate.setUTCDate(utcDate.getUTCDate() - utcDate.getUTCDay());
+      const weekStartKey = utcDate.toISOString().slice(0, 10);
+
+      if (!weeklyActiveUsers.has(weekStartKey)) {
+        weeklyActiveUsers.set(weekStartKey, new Set<string>());
+      }
+      weeklyActiveUsers.get(weekStartKey)!.add(userKey);
+
+      const existingFirstWeek = userFirstWeek.get(userKey);
+      if (!existingFirstWeek || weekStartKey < existingFirstWeek) {
+        userFirstWeek.set(userKey, weekStartKey);
+      }
+    }
+
+    const weekKeys = Array.from(weeklyActiveUsers.keys()).sort((a, b) => a.localeCompare(b));
+    const weekIndex = new Map(weekKeys.map((key, index) => [key, index]));
+    const cohortMembers = new Map<string, Set<string>>();
+
+    for (const [userKey, firstWeek] of userFirstWeek.entries()) {
+      if (!cohortMembers.has(firstWeek)) {
+        cohortMembers.set(firstWeek, new Set<string>());
+      }
+      cohortMembers.get(firstWeek)!.add(userKey);
+    }
+
+    return {
+      rows: weekKeys
+        .map((cohortWeek) => {
+          const members = cohortMembers.get(cohortWeek);
+          const index = weekIndex.get(cohortWeek);
+          if (!members || index === undefined) return null;
+
+          return {
+            weekStartKey: cohortWeek,
+            users: members.size,
+            retention: Array.from({ length: 6 }, (_, offset) => {
+              const targetWeek = weekKeys[index + offset];
+              if (!targetWeek) return null;
+              if (offset === 0) return 100;
+
+              const activeUsers = weeklyActiveUsers.get(targetWeek);
+              if (!activeUsers) return 0;
+
+              let retained = 0;
+              for (const userKey of members) {
+                if (activeUsers.has(userKey)) retained += 1;
+              }
+
+              return (retained / members.size) * 100;
+            }),
+          };
+        })
+        .filter((row): row is RetentionCohortRow => Boolean(row))
+        .slice(-6),
+    };
+  }
+
+  const params = new URLSearchParams();
+  if (projectId) params.set('projectId', projectId);
+  if (timeRange) params.set('timeRange', timeRange);
+  const endpoint = `/api/insights/retention-cohorts?${params.toString()}`;
+  return fetchWithCache<RetentionCohortsResponse>(endpoint, {}, endpoint, 120000);
 }
 
 /**
@@ -3151,6 +3297,7 @@ export const api = {
   getFrictionHeatmap,
   getApiLatencyByLocation,
   getInsightsTrends,
+  getRetentionCohorts,
   getIssues,
   getIssue,
   getIssueSessions,
