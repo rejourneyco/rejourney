@@ -59,6 +59,8 @@ export async function markSessionIngestActivity(sessionId: string, options: Touc
     if (options.reopen) {
         update.status = 'processing';
         update.finalizedAt = null;
+        update.explicitEndedAt = null;
+        update.endedAt = null;
         if (options.closeSource === undefined) {
             update.closeSource = null;
         }
@@ -157,7 +159,7 @@ export async function reconcileSessionState(sessionId: string, now = new Date())
         sessionUpdate.backgroundTimeSeconds = resolvedClose.backgroundTimeSeconds;
         sessionUpdate.durationSeconds = resolvedClose.durationSeconds;
         sessionUpdate.finalizedAt = session.finalizedAt ?? now;
-        sessionUpdate.explicitEndedAt = session.explicitEndedAt ?? resolvedClose.endedAt;
+        sessionUpdate.explicitEndedAt = session.explicitEndedAt ?? null;
         sessionUpdate.closeSource = session.closeSource ?? (session.explicitEndedAt ? 'explicit' : 'inactivity');
     } else if (session.status !== 'failed') {
         sessionUpdate.status = 'processing';

@@ -5,6 +5,7 @@ export type SessionIngestGuardRow = {
     status: string;
     finalizedAt?: Date | null;
     explicitEndedAt?: Date | null;
+    closeSource?: string | null;
 };
 
 /**
@@ -13,16 +14,18 @@ export type SessionIngestGuardRow = {
  * explicit client end, server finalization, or terminal status.
  */
 export function isSessionIngestImmutable(session: SessionIngestGuardRow): boolean {
+    const inactivityClosed = session.closeSource === 'inactivity';
+
     if (session.status === 'failed' || session.status === 'deleted') {
         return true;
     }
-    if (session.status === 'ready') {
+    if (session.status === 'ready' && !inactivityClosed) {
         return true;
     }
-    if (session.finalizedAt != null) {
+    if (session.finalizedAt != null && !inactivityClosed) {
         return true;
     }
-    if (session.explicitEndedAt != null) {
+    if (session.explicitEndedAt != null && !inactivityClosed) {
         return true;
     }
     return false;

@@ -28,6 +28,17 @@ describe('sessionIngestImmutability', () => {
         ).toBe(true);
     });
 
+    it('allows sessions auto-closed for inactivity to reopen for new ingest', () => {
+        expect(
+            isSessionIngestImmutable({
+                status: 'ready',
+                finalizedAt: new Date(),
+                explicitEndedAt: new Date(),
+                closeSource: 'inactivity',
+            }),
+        ).toBe(false);
+    });
+
     it('throws conflict from assertSessionAcceptsNewIngestWork when immutable', () => {
         expect(() =>
             assertSessionAcceptsNewIngestWork({
