@@ -158,6 +158,7 @@ The backup drainer in [`session-backup.mjs`](/Users/mora/Desktop/Dev-mac/rejourn
 
 - acquires a global Postgres run lock in `session_backup_run_lock`
 - cleans up completed queue rows
+- removes stale queue rows for sessions that currently have zero ready artifacts
 - removes orphaned queue rows
 - recovers stale claims
 - claims a batch with `FOR UPDATE SKIP LOCKED`
