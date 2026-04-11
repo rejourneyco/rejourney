@@ -129,11 +129,11 @@ spec:
                   key: PUBLIC_DASHBOARD_URL
                   optional: true
             - name: RJ_INGEST_JOB_CONCURRENCY
-              value: "4"
+              value: "8"
             - name: RJ_INGEST_BATCH_SIZE
-              value: "20"
+              value: "40"
             - name: RJ_INGEST_MAX_RUNNABLE_PER_SESSION
-              value: "1"
+              value: "2"
           resources:
             requests:
               cpu: 75m
