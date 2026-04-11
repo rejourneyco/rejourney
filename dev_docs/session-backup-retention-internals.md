@@ -18,7 +18,7 @@ This is not the user-facing product story. It is the worker/runtime story.
 
 - Backups copy ready recording artifacts from primary storage into Cloudflare R2.
 - A session is not backupable just because it exists. It must be finalized and have at least one `ready` artifact.
-- The backup queue is the handoff layer between session finalization and the backup CronJob.
+- The backup queue is fed both by session finalization and by a periodic queue seeder, then drained by the backup CronJob.
 - `session_backup_log` is the ledger that says "this session backup completed successfully for N planned/copied artifacts".
 - Retention is fail-safe. It does not purge normal sessions unless backup safety checks pass first.
 - Normal retention does not delete the `sessions` row. It deletes recording payloads and marks the row as replay-expired / recording-deleted.
@@ -135,7 +135,13 @@ This means:
 Session finalized
   -> enqueueSessionBackupCandidate()
   -> session_backup_queue(status='pending')
-  -> session-backup CronJob claims rows
+
+Periodic seed run
+  -> fetchSeedCandidates(oldest first, eligible only)
+  -> session_backup_queue(status='pending')
+
+session-backup CronJob
+  -> claims rows
   -> copies artifacts to R2
   -> writes session_backup_log
   -> deletes queue row
