@@ -10,6 +10,121 @@ import { eq, and, isNull } from 'drizzle-orm';
 import { db, userSessions, users, apiKeys, projects, teams, teamMembers } from '../db/client.js';
 import { logger } from '../logger.js';
 
+const AUTH_CONTEXT_CACHE_TTL_MS = 5 * 60 * 1000;
+const API_KEY_LAST_USED_WRITE_INTERVAL_MS = 5 * 60 * 1000;
+
+type RequestProjectContext = NonNullable<Express.Request['project']>;
+type RequestApiKeyContext = NonNullable<Express.Request['apiKey']>;
+type CachedAuthContext = {
+    expiresAt: number;
+    project: RequestProjectContext;
+    apiKey: RequestApiKeyContext;
+};
+type UploadTokenPayload = {
+    type?: string;
+    deviceId?: string | null;
+    projectId?: string | null;
+    teamId?: string | null;
+    projectName?: string | null;
+    recordingEnabled?: boolean;
+    rejourneyEnabled?: boolean;
+    iat?: number;
+    exp?: number;
+};
+
+const authContextCache = new Map<string, CachedAuthContext>();
+const apiKeyLastUsedAt = new Map<string, number>();
+
+function getCachedAuthContext(cacheKey: string): CachedAuthContext | null {
+    const cached = authContextCache.get(cacheKey);
+    if (!cached) {
+        return null;
+    }
+
+    if (cached.expiresAt <= Date.now()) {
+        authContextCache.delete(cacheKey);
+        return null;
+    }
+
+    return cached;
+}
+
+function setCachedAuthContext(cacheKey: string, context: {
+    project: RequestProjectContext;
+    apiKey: RequestApiKeyContext;
+}): void {
+    authContextCache.set(cacheKey, {
+        ...context,
+        expiresAt: Date.now() + AUTH_CONTEXT_CACHE_TTL_MS,
+    });
+}
+
+function applyCachedAuthContext(req: Request, context: CachedAuthContext): void {
+    req.project = context.project;
+    req.apiKey = context.apiKey;
+}
+
+function buildProjectContext(project: {
+    id: string;
+    teamId: string;
+    name: string;
+    recordingEnabled?: boolean | null;
+    rejourneyEnabled?: boolean | null;
+}, apiKey: RequestApiKeyContext): CachedAuthContext {
+    return {
+        expiresAt: Date.now() + AUTH_CONTEXT_CACHE_TTL_MS,
+        project: {
+            id: project.id,
+            teamId: project.teamId,
+            name: project.name,
+            recordingEnabled: project.recordingEnabled ?? undefined,
+            rejourneyEnabled: project.rejourneyEnabled ?? undefined,
+        },
+        apiKey,
+    };
+}
+
+function decodeUploadTokenPayload(token: string): UploadTokenPayload | null {
+    try {
+        const dotIdx = token.indexOf('.');
+        if (dotIdx <= 0) {
+            return null;
+        }
+
+        const payloadB64 = token.substring(0, dotIdx);
+        const payload = JSON.parse(Buffer.from(payloadB64, 'base64').toString());
+        if (!payload || typeof payload !== 'object') {
+            return null;
+        }
+
+        return payload as UploadTokenPayload;
+    } catch {
+        return null;
+    }
+}
+
+function buildUploadTokenCacheKey(projectId: string): string {
+    return `upload-project:${projectId}`;
+}
+
+function buildApiKeyCacheKey(hashedKey: string): string {
+    return `api-key:${hashedKey}`;
+}
+
+function buildPublicKeyCacheKey(projectKey: string): string {
+    return `public-key:${projectKey}`;
+}
+
+function shouldWriteApiKeyLastUsed(apiKeyId: string): boolean {
+    const now = Date.now();
+    const lastWriteAt = apiKeyLastUsedAt.get(apiKeyId) ?? 0;
+    if ((now - lastWriteAt) < API_KEY_LAST_USED_WRITE_INTERVAL_MS) {
+        return false;
+    }
+
+    apiKeyLastUsedAt.set(apiKeyId, now);
+    return true;
+}
 
 // Extend Express Request type
 declare global {
@@ -194,12 +309,11 @@ export async function apiKeyAuth(
         // Try upload token first (from /api/ingest/auth/device)
         if (uploadToken) {
             try {
-                // Token format: base64(JSON payload).hmac_sha256_hex
-                const dotIdx = uploadToken.indexOf('.');
-                if (dotIdx > 0) {
-                    const payloadB64 = uploadToken.substring(0, dotIdx);
+                const payload = decodeUploadTokenPayload(uploadToken);
+                if (payload) {
+                    const dotIdx = uploadToken.indexOf('.');
+                    const payloadB64 = dotIdx > 0 ? uploadToken.substring(0, dotIdx) : '';
                     const signature = uploadToken.substring(dotIdx + 1);
-                    const payload = JSON.parse(Buffer.from(payloadB64, 'base64').toString());
 
                     if (payload.type === 'upload' && payload.deviceId && payload.projectId) {
                         // SECURITY: Check token expiry
@@ -234,7 +348,42 @@ export async function apiKeyAuth(
                             }
 
                             if (hmacValid || redisValid) {
-                                // Valid upload token — lookup project
+                                const embeddedContext = (
+                                    typeof payload.teamId === 'string'
+                                    && typeof payload.projectName === 'string'
+                                    && typeof payload.recordingEnabled === 'boolean'
+                                    && typeof payload.rejourneyEnabled === 'boolean'
+                                )
+                                    ? buildProjectContext(
+                                        {
+                                            id: payload.projectId,
+                                            teamId: payload.teamId,
+                                            name: payload.projectName,
+                                            recordingEnabled: payload.recordingEnabled,
+                                            rejourneyEnabled: payload.rejourneyEnabled,
+                                        },
+                                        {
+                                            id: 'device-auth',
+                                            projectId: payload.projectId,
+                                            scopes: ['ingest'],
+                                        },
+                                    )
+                                    : null;
+
+                                if (embeddedContext) {
+                                    setCachedAuthContext(buildUploadTokenCacheKey(payload.projectId), embeddedContext);
+                                    applyCachedAuthContext(req, embeddedContext);
+                                    next();
+                                    return;
+                                }
+
+                                const cachedUploadContext = getCachedAuthContext(buildUploadTokenCacheKey(payload.projectId));
+                                if (cachedUploadContext) {
+                                    applyCachedAuthContext(req, cachedUploadContext);
+                                    next();
+                                    return;
+                                }
+
                                 const [projectResult] = await db
                                     .select({
                                         project: projects,
@@ -246,26 +395,27 @@ export async function apiKeyAuth(
                                     .limit(1);
 
                                 if (projectResult && !projectResult.project.deletedAt) {
-                                    const proj = projectResult.project;
-
-                                    req.project = {
-                                        id: proj.id,
-                                        teamId: proj.teamId,
-                                        name: proj.name,
-                                        recordingEnabled: proj.recordingEnabled,
-                                        rejourneyEnabled: (proj as any).rejourneyEnabled,
-                                    };
-                                    req.apiKey = {
-                                        id: 'device-auth',
-                                        projectId: proj.id,
-                                        scopes: ['ingest'],
-                                    };
-
+                                    const context = buildProjectContext(
+                                        {
+                                            id: projectResult.project.id,
+                                            teamId: projectResult.project.teamId,
+                                            name: projectResult.project.name,
+                                            recordingEnabled: projectResult.project.recordingEnabled,
+                                            rejourneyEnabled: (projectResult.project as any).rejourneyEnabled,
+                                        },
+                                        {
+                                            id: 'device-auth',
+                                            projectId: projectResult.project.id,
+                                            scopes: ['ingest'],
+                                        },
+                                    );
+                                    setCachedAuthContext(buildUploadTokenCacheKey(payload.projectId), context);
+                                    applyCachedAuthContext(req, context);
                                     next();
                                     return;
-                                } else {
-                                    logger.warn({ projectId: payload.projectId }, 'Project not found or deleted for upload token');
                                 }
+
+                                logger.warn({ projectId: payload.projectId }, 'Project not found or deleted for upload token');
                             } else {
                                 logger.debug({ deviceId: payload.deviceId }, 'Upload token HMAC/Redis validation failed, falling back');
                             }
@@ -290,6 +440,20 @@ export async function apiKeyAuth(
             keyPrefix: projectKey.substring(0, 10),
             hashedKeyPrefix: hashedKey.substring(0, 16)
         }, 'Looking up key');
+
+        const cachedApiKeyContext = getCachedAuthContext(buildApiKeyCacheKey(hashedKey));
+        if (cachedApiKeyContext) {
+            applyCachedAuthContext(req, cachedApiKeyContext);
+            next();
+            return;
+        }
+
+        const cachedPublicKeyContext = getCachedAuthContext(buildPublicKeyCacheKey(projectKey));
+        if (cachedPublicKeyContext) {
+            applyCachedAuthContext(req, cachedPublicKeyContext);
+            next();
+            return;
+        }
 
         // Find API key with project and team
         const [keyResult] = await db
@@ -318,21 +482,20 @@ export async function apiKeyAuth(
                 .limit(1);
 
             if (projectByPubKey && !projectByPubKey.project.deletedAt) {
-                const proj = projectByPubKey.project;
-
-                req.project = {
-                    id: proj.id,
-                    teamId: proj.teamId,
-                    name: proj.name,
-                    recordingEnabled: proj.recordingEnabled,
-                    rejourneyEnabled: (proj as any).rejourneyEnabled,
-                };
-                req.apiKey = {
+                const context = buildProjectContext({
+                    id: projectByPubKey.project.id,
+                    teamId: projectByPubKey.project.teamId,
+                    name: projectByPubKey.project.name,
+                    recordingEnabled: projectByPubKey.project.recordingEnabled,
+                    rejourneyEnabled: (projectByPubKey.project as any).rejourneyEnabled,
+                }, {
                     id: 'project-public-key',
-                    projectId: proj.id,
+                    projectId: projectByPubKey.project.id,
                     scopes: ['ingest'],
-                };
-                logger.debug({ projectId: proj.id }, 'Authenticated via project public key fallback');
+                });
+                setCachedAuthContext(buildPublicKeyCacheKey(projectKey), context);
+                applyCachedAuthContext(req, context);
+                logger.debug({ projectId: projectByPubKey.project.id }, 'Authenticated via project public key fallback');
                 next();
                 return;
             }
@@ -349,25 +512,27 @@ export async function apiKeyAuth(
         }
 
         // Update last used timestamp (non-blocking)
-        db.update(apiKeys)
-            .set({ lastUsedAt: new Date() })
-            .where(eq(apiKeys.id, keyResult.key.id))
-            .then(() => { })
-            .catch((err) => logger.warn({ err }, 'Failed to update API key lastUsedAt'));
+        if (shouldWriteApiKeyLastUsed(keyResult.key.id)) {
+            db.update(apiKeys)
+                .set({ lastUsedAt: new Date() })
+                .where(eq(apiKeys.id, keyResult.key.id))
+                .then(() => { })
+                .catch((err) => logger.warn({ err }, 'Failed to update API key lastUsedAt'));
+        }
 
-        // Attach to request
-        req.apiKey = {
-            id: keyResult.key.id,
-            projectId: keyResult.key.projectId,
-            scopes: keyResult.key.scopes || [],
-        };
-        req.project = {
+        const context = buildProjectContext({
             id: keyResult.project.id,
             teamId: keyResult.project.teamId,
             name: keyResult.project.name,
             recordingEnabled: keyResult.project.recordingEnabled,
             rejourneyEnabled: (keyResult.project as any).rejourneyEnabled,
-        };
+        }, {
+            id: keyResult.key.id,
+            projectId: keyResult.key.projectId,
+            scopes: keyResult.key.scopes || [],
+        });
+        setCachedAuthContext(buildApiKeyCacheKey(hashedKey), context);
+        applyCachedAuthContext(req, context);
 
         next();
     } catch (err) {

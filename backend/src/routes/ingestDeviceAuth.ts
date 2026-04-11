@@ -27,15 +27,17 @@ router.post(
         }
 
         const [project] = await db
-            .select({
-                id: projects.id,
-                teamId: projects.teamId,
-                name: projects.name,
-                deletedAt: projects.deletedAt,
-            })
-            .from(projects)
-            .where(eq(projects.publicKey, projectKey))
-            .limit(1);
+        .select({
+            id: projects.id,
+            teamId: projects.teamId,
+            name: projects.name,
+            recordingEnabled: projects.recordingEnabled,
+            rejourneyEnabled: projects.rejourneyEnabled,
+            deletedAt: projects.deletedAt,
+        })
+        .from(projects)
+        .where(eq(projects.publicKey, projectKey))
+        .limit(1);
 
         if (!project || project.deletedAt) {
             throw ApiError.unauthorized('Invalid project key');
@@ -46,6 +48,10 @@ router.post(
             type: 'upload',
             deviceId,
             projectId: project.id,
+            teamId: project.teamId,
+            projectName: project.name,
+            recordingEnabled: project.recordingEnabled,
+            rejourneyEnabled: project.rejourneyEnabled,
             iat: Math.floor(Date.now() / 1000),
             exp: Math.floor(Date.now() / 1000) + tokenTTL,
         });

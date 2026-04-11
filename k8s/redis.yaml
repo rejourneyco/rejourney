@@ -56,18 +56,18 @@ spec:
             - /data
             # Stay below cgroup memory limit so the kernel does not OOMKill the pod
             - --maxmemory
-            - "580mb"
+            - "900mb"
             - --maxmemory-policy
             - allkeys-lru
           ports:
             - containerPort: 6379
           resources:
             requests:
-              cpu: 50m
-              memory: 192Mi
+              cpu: 200m
+              memory: 384Mi
             limits:
-              cpu: 500m
-              memory: 816Mi
+              cpu: "1"
+              memory: 1280Mi
           volumeMounts:
             - name: redis-data
               mountPath: /data

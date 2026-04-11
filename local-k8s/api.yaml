@@ -229,23 +229,27 @@ spec:
                   optional: true
           resources:
             requests:
-              cpu: 100m
-              memory: 256Mi
+              cpu: 250m
+              memory: 384Mi
             limits:
-              cpu: 750m
-              memory: 512Mi
+              cpu: 1500m
+              memory: 768Mi
           livenessProbe:
             httpGet:
-              path: /health
+              path: /health/live
               port: 3000
             initialDelaySeconds: 15
             periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 5
           readinessProbe:
             httpGet:
-              path: /health
+              path: /health/ready
               port: 3000
             initialDelaySeconds: 5
             periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 2
 
 ---
 apiVersion: v1
@@ -386,10 +390,10 @@ spec:
                   optional: true
           resources:
             requests:
-              cpu: 100m
+              cpu: 75m
               memory: 192Mi
             limits:
-              cpu: 750m
+              cpu: 300m
               memory: 384Mi
           livenessProbe:
             httpGet:

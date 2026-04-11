@@ -169,8 +169,13 @@ router.post(
         assertSessionAcceptsNewIngestWork(session);
 
         if (isNewSession && project.rejourneyEnabled) {
-            await incrementProjectSessionCount(projectId, teamId, 1);
-            logger.debug({ projectId, teamId, sessionId: session.id }, 'Session counted for billing');
+            incrementProjectSessionCount(projectId, teamId, 1)
+                .then(() => {
+                    logger.debug({ projectId, teamId, sessionId: session.id }, 'Session counted for billing');
+                })
+                .catch((err) => {
+                    logger.warn({ err, projectId, teamId, sessionId: session.id }, 'Failed to increment project session count');
+                });
 
             updateDeviceUsage(deviceAuthId || session.deviceId || null, projectId, {
                 sessionsStarted: 1,
@@ -450,8 +455,13 @@ router.post(
         assertSessionAcceptsNewIngestWork(session);
 
         if (isNewSession && project.rejourneyEnabled) {
-            await incrementProjectSessionCount(projectId, teamId, 1);
-            logger.debug({ projectId, teamId, sessionId: session.id }, 'Session counted for billing');
+            incrementProjectSessionCount(projectId, teamId, 1)
+                .then(() => {
+                    logger.debug({ projectId, teamId, sessionId: session.id }, 'Session counted for billing');
+                })
+                .catch((err) => {
+                    logger.warn({ err, projectId, teamId, sessionId: session.id }, 'Failed to increment project session count');
+                });
 
             updateDeviceUsage(segmentDeviceId || session.deviceId || null, projectId, {
                 sessionsStarted: 1,

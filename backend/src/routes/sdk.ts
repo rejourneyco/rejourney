@@ -113,19 +113,46 @@ router.get(
         // Check billing status (session limits)
         let billingBlocked = false;
         let billingReason: string | undefined;
+        const billingCacheKey = `sdk:billing:${project.teamId}`;
+        let billingCacheHit = false;
 
-        const { teams } = await import('../db/client.js');
-        const [team] = await db
-            .select({ ownerUserId: teams.ownerUserId })
-            .from(teams)
-            .where(eq(teams.id, project.teamId))
-            .limit(1);
+        try {
+            const cached = await getRedis().get(billingCacheKey);
+            if (cached) {
+                const parsed = JSON.parse(cached) as { billingBlocked?: boolean; billingReason?: string };
+                billingBlocked = Boolean(parsed.billingBlocked);
+                billingReason = typeof parsed.billingReason === 'string' ? parsed.billingReason : undefined;
+                billingCacheHit = true;
+            }
+        } catch {
+            billingCacheHit = false;
+        }
 
-        if (team?.ownerUserId) {
-            const { canUserRecord } = await import('./stripeBilling.js');
-            const billingStatus = await canUserRecord(team.ownerUserId, project.teamId);
-            billingBlocked = !billingStatus.canRecord;
-            billingReason = billingStatus.reason;
+        if (!billingCacheHit) {
+            const { teams } = await import('../db/client.js');
+            const [team] = await db
+                .select({ ownerUserId: teams.ownerUserId })
+                .from(teams)
+                .where(eq(teams.id, project.teamId))
+                .limit(1);
+
+            if (team?.ownerUserId) {
+                const { canUserRecord } = await import('./stripeBilling.js');
+                const billingStatus = await canUserRecord(team.ownerUserId, project.teamId);
+                billingBlocked = !billingStatus.canRecord;
+                billingReason = billingStatus.reason;
+            }
+
+            try {
+                await getRedis().set(
+                    billingCacheKey,
+                    JSON.stringify({ billingBlocked, billingReason: billingReason ?? null }),
+                    'EX',
+                    60,
+                );
+            } catch {
+                // ignore cache errors
+            }
         }
 
         res.json({

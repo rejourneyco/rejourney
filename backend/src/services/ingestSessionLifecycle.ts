@@ -338,9 +338,13 @@ export async function ensureIngestSession(
         [session] = await db.select().from(sessions).where(eq(sessions.id, sessionId)).limit(1);
     }
 
-    await db.insert(sessionMetrics)
-        .values({ sessionId })
-        .onConflictDoNothing();
+    try {
+        await db.insert(sessionMetrics)
+            .values({ sessionId })
+            .onConflictDoNothing();
+    } catch (err) {
+        logger.warn({ err, sessionId, projectId }, 'Failed to ensure session_metrics row');
+    }
 
     await maybeRunGeoLookup(session.id, req);
 

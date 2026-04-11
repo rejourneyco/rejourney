@@ -27,7 +27,7 @@ metadata:
   labels:
     app.kubernetes.io/part-of: rejourney
 spec:
-  replicas: 1  # Standard for single-node small VPS to save RAM
+  replicas: 2  # On the 8 vCPU node, two API pods give better latency and isolate event-loop stalls
   strategy:
     type: RollingUpdate
     rollingUpdate:
@@ -251,11 +251,11 @@ spec:
                   optional: true
           resources:
             requests:
-              cpu: 100m
-              memory: 256Mi
+              cpu: 500m
+              memory: 768Mi
             limits:
-              cpu: "500m"
-              memory: 512Mi
+              cpu: "2"
+              memory: 1536Mi
           livenessProbe:
             httpGet:
               path: /health/live
@@ -299,7 +299,7 @@ metadata:
   labels:
     app.kubernetes.io/part-of: rejourney
 spec:
-  replicas: 1
+  replicas: 2
   strategy:
     type: RollingUpdate
     rollingUpdate:
@@ -409,11 +409,11 @@ spec:
                   optional: true
           resources:
             requests:
-              cpu: 50m
-              memory: 128Mi
-            limits:
-              cpu: "200m"
+              cpu: 200m
               memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 768Mi
           livenessProbe:
             httpGet:
               path: /health

@@ -143,18 +143,18 @@ spec:
                   key: PUBLIC_DASHBOARD_URL
                   optional: true
             - name: RJ_INGEST_JOB_CONCURRENCY
-              value: "4"
+              value: "8"
             - name: RJ_INGEST_BATCH_SIZE
-              value: "20"
+              value: "40"
             - name: RJ_INGEST_MAX_RUNNABLE_PER_SESSION
-              value: "1"
+              value: "2"
           resources:
             requests:
-              cpu: 50m
-              memory: 128Mi
-            limits:
-              cpu: 200m
+              cpu: 150m
               memory: 256Mi
+            limits:
+              cpu: 1
+              memory: 768Mi
           # No standard HTTP port, but we can check if the process is alive via command or if it has a health server
           # For now, let's assume it doesn't have a health server yet, but we can add one or use a dummy check
           # Actually, workers usually have some internal state. Let's add a dummy check if none exists
@@ -271,11 +271,11 @@ spec:
               value: "4"
           resources:
             requests:
-              cpu: 50m
-              memory: 192Mi
-            limits:
-              cpu: "200m"
+              cpu: 200m
               memory: 384Mi
+            limits:
+              cpu: "1500m"
+              memory: 1Gi
 
 ---
 apiVersion: apps/v1
@@ -345,11 +345,11 @@ spec:
                   optional: true
           resources:
             requests:
-              cpu: 50m
-              memory: 64Mi
-            limits:
-              cpu: 150m
+              cpu: 100m
               memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 384Mi
 
 ---
 # Retention Worker CronJob
@@ -477,11 +477,11 @@ spec:
                       optional: true
               resources:
                 requests:
-                  cpu: 10m
-                  memory: 32Mi
+                  cpu: 200m
+                  memory: 256Mi
                 limits:
-                  cpu: 100m
-                  memory: 64Mi
+                  cpu: "1"
+                  memory: 768Mi
 
 
 ---
@@ -597,8 +597,8 @@ spec:
                   optional: true
           resources:
             requests:
-              cpu: 25m
-              memory: 64Mi
-            limits:
-              cpu: 100m
+              cpu: 50m
               memory: 128Mi
+            limits:
+              cpu: 300m
+              memory: 256Mi

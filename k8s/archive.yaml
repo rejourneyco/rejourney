@@ -2057,24 +2057,24 @@ spec:
                       name: r2-backup-secret
                       key: AWS_SECRET_ACCESS_KEY
                 - name: SESSION_BACKUP_BATCH_SIZE
-                  value: "40"
+                  value: "60"
                 - name: SESSION_BACKUP_BATCH_FETCH_SIZE
-                  value: "200"
+                  value: "300"
                 - name: SESSION_BACKUP_MAX_PARALLEL
-                  value: "4"
+                  value: "6"
                 - name: SESSION_BACKUP_ARTIFACT_PARALLEL
-                  value: "4"
+                  value: "6"
                 - name: SESSION_BACKUP_REPAIR_LEGACY_HIERARCHY_GZIP
                   value: "1"
                 - name: SESSION_BACKUP_ARCHIVE_FRIENDLY_SCREENSHOTS
                   value: "1"
               resources:
                 requests:
-                  cpu: 200m
-                  memory: 768Mi
+                  cpu: 500m
+                  memory: 1Gi
                 limits:
-                  cpu: "1"
-                  memory: 1536Mi
+                  cpu: "2500m"
+                  memory: 3Gi
 ---
 apiVersion: batch/v1
 kind: CronJob
@@ -2116,7 +2116,7 @@ spec:
                   cd /tmp/backup-runner
                   npm init -y > /dev/null 2>&1
                   npm install --no-audit --no-fund @aws-sdk/client-s3 pg > /dev/null 2>&1
-                  exec node session-backup.mjs --mode=seed-queue --limit=1000
+                  exec node session-backup.mjs --mode=seed-queue --limit=2000
               volumeMounts:
                 - name: backup-script
                   mountPath: /scripts
@@ -2173,15 +2173,15 @@ spec:
                       name: r2-backup-secret
                       key: AWS_SECRET_ACCESS_KEY
                 - name: SESSION_BACKUP_SEED_BATCH_SIZE
-                  value: "1000"
+                  value: "2000"
                 - name: SESSION_BACKUP_REPAIR_LEGACY_HIERARCHY_GZIP
                   value: "1"
                 - name: SESSION_BACKUP_ARCHIVE_FRIENDLY_SCREENSHOTS
                   value: "1"
               resources:
                 requests:
-                  cpu: 100m
-                  memory: 256Mi
-                limits:
-                  cpu: 300m
+                  cpu: 250m
                   memory: 512Mi
+                limits:
+                  cpu: "1"
+                  memory: 1Gi
