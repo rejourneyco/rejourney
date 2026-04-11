@@ -16,7 +16,7 @@ import {
     summarizeSessionEndMetrics,
 } from '../services/ingestSessionEnd.js';
 import { loadSessionWorkAggregate } from '../services/sessionPresentationState.js';
-import { resolveAuthoritativeSessionClose } from '../services/sessionTiming.js';
+import { hasStoredClosedTiming, resolveAuthoritativeSessionClose } from '../services/sessionTiming.js';
 import { loadSuccessorSessionStartedAt } from '../services/sessionTimingQuery.js';
 import { markSessionIngestActivity, reconcileSessionState } from '../services/sessionReconciliation.js';
 import { isSessionIngestImmutable } from '../services/sessionIngestImmutability.js';
@@ -119,6 +119,30 @@ router.post(
                 .where(eq(sessions.id, session.id));
         }
 
+        const preserveStoredCloseTiming = hasStoredClosedTiming({
+            endedAt: session.endedAt,
+            durationSeconds: session.durationSeconds,
+        });
+
+        if (preserveStoredCloseTiming) {
+            log.info({
+                preservedEndedAt: session.endedAt.toISOString(),
+                preservedDurationSeconds: session.durationSeconds,
+                preservedBackgroundTimeSeconds: session.backgroundTimeSeconds ?? 0,
+                endReason,
+                lifecycleVersion,
+                metricsSummary,
+                hadSdkTelemetry: Boolean(normalizedSdkTelemetry),
+            }, 'Session already finalized; preserving stored close timing');
+
+            res.json({
+                success: true,
+                durationSeconds: session.durationSeconds,
+                backgroundTimeSeconds: session.backgroundTimeSeconds ?? 0,
+            });
+            return;
+        }
+
         const [project] = await db.select({ maxRecordingMinutes: projects.maxRecordingMinutes })
             .from(projects)
             .where(eq(projects.id, session.projectId))
@@ -132,21 +156,15 @@ router.post(
         });
         const resolvedClose = resolveAuthoritativeSessionClose({
             startedAt: session.startedAt,
-            persistedEndedAt: session.endedAt ?? session.explicitEndedAt ?? null,
             lastIngestActivityAt: session.lastIngestActivityAt,
-            lastClientEventAt: session.lastClientEventAt,
-            lastClientForegroundAt: session.lastClientForegroundAt,
-            lastClientBackgroundAt: session.lastClientBackgroundAt,
             latestReplayEndMs: aggregate.latestReplayArtifactEndMs,
             reportedEndedAt: data.endedAt,
             totalBackgroundTimeMs: data.totalBackgroundTimeMs,
-            endReason,
             closeAnchorAtMs: data.closeAnchorAtMs,
             storedBackgroundTimeSeconds: session.backgroundTimeSeconds,
             maxRecordingMinutes: project?.maxRecordingMinutes ?? 10,
             successorStartedAt,
         });
-        const closeSource = endReason === 'recovery_finalize' ? 'recovery' : 'explicit';
 
         log.info({
             wallClockSeconds: resolvedClose.wallClockSeconds,
@@ -162,12 +180,11 @@ router.post(
         }, 'Session duration breakdown (durationSeconds = playable time)');
 
         await markSessionIngestActivity(session.id, {
-            at: new Date(),
-            explicitEndedAt: resolvedClose.endedAt,
+            at: resolvedClose.endedAt,
+            updatedAt: new Date(),
             endedAt: resolvedClose.endedAt,
             durationSeconds: resolvedClose.durationSeconds,
             backgroundTimeSeconds: resolvedClose.backgroundTimeSeconds,
-            closeSource,
         });
         await reconcileSessionState(session.id);
 

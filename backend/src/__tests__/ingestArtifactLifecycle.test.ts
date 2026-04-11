@@ -65,6 +65,7 @@ import {
     markArtifactUploadStored,
     markArtifactUploadInterrupted,
     prepareReplayArtifactForUpload,
+    registerPendingArtifact,
 } from '../services/ingestArtifactLifecycle.js';
 
 function queueJoinedSelectResult(result: any) {
@@ -220,6 +221,73 @@ describe('ingestArtifactLifecycle', () => {
         });
     });
 
+    it('does not logically reopen a closed session for delayed replay artifact retries', async () => {
+        queueJoinedSelectResult({
+            artifact: {
+                id: 'artifact_abandoned',
+                status: 'abandoned',
+                kind: 'hierarchy',
+                clientUploadId: 'seg_session_1_hierarchy_1000_na',
+            },
+            session: {
+                id: 'session_1',
+                projectId: 'project_1',
+                status: 'ready',
+                endedAt: new Date('2026-04-10T12:01:01.000Z'),
+            },
+        });
+
+        await prepareReplayArtifactForUpload({
+            projectId: 'project_1',
+            sessionId: 'session_1',
+            kind: 'hierarchy',
+            s3ObjectKey: 'tenant/team/project/session/hierarchy/1000.json.gz',
+            endpointId: 'endpoint_1',
+            clientUploadId: 'seg_session_1_hierarchy_1000_na',
+            declaredSizeBytes: 64,
+            timestamp: 1000,
+            startTime: 1000,
+            endTime: null,
+            frameCount: 1,
+        });
+
+        expect(mocks.markSessionIngestActivity).toHaveBeenCalledTimes(1);
+        expect(mocks.markSessionIngestActivity.mock.calls[0]?.[0]).toBe('session_1');
+        expect(mocks.markSessionIngestActivity.mock.calls[0]?.[1]).not.toMatchObject({ reopen: true });
+    });
+
+    it('registers delayed replay artifacts for closed sessions without clearing close timing', async () => {
+        mocks.db.select.mockImplementationOnce(() => ({
+            from: vi.fn(() => ({
+                where: vi.fn(() => ({
+                    limit: vi.fn(async () => [{
+                        id: 'session_1',
+                        projectId: 'project_1',
+                        status: 'ready',
+                        endedAt: new Date('2026-04-10T12:01:01.000Z'),
+                    }]),
+                })),
+            })),
+        }));
+
+        await registerPendingArtifact({
+            sessionId: 'session_1',
+            kind: 'screenshots',
+            s3ObjectKey: 'tenant/team/project/session/screenshots/1000.tar.gz',
+            endpointId: 'endpoint_1',
+            clientUploadId: 'seg_session_1_screenshots_1000_na',
+            declaredSizeBytes: 128,
+            timestamp: 1000,
+            startTime: 1000,
+            endTime: null,
+            frameCount: 1,
+        });
+
+        expect(mocks.markSessionIngestActivity).toHaveBeenCalledTimes(1);
+        expect(mocks.markSessionIngestActivity.mock.calls[0]?.[0]).toBe('session_1');
+        expect(mocks.markSessionIngestActivity.mock.calls[0]?.[1]).not.toMatchObject({ reopen: true });
+    });
+
     it('marks interrupted uploads abandoned immediately and fails any active job', async () => {
         const updateCalls: Array<{ table: unknown; payload: any }> = [];
         mocks.db.update.mockImplementation((table: unknown) => ({
@@ -271,6 +339,34 @@ describe('ingestArtifactLifecycle', () => {
             'session_1',
             expect.objectContaining({ reopen: true }),
         );
+    });
+
+    it('does not logically reopen a closed session when a delayed upload is interrupted', async () => {
+        queueJoinedSelectResult({
+            artifact: {
+                id: 'artifact_pending',
+                status: 'pending',
+                kind: 'screenshots',
+                clientUploadId: 'seg_session_1_screenshots_1000_na',
+                uploadCompletedAt: null,
+            },
+            session: {
+                id: 'session_1',
+                projectId: 'project_1',
+                status: 'ready',
+                endedAt: new Date('2026-04-10T12:01:01.000Z'),
+            },
+        });
+
+        await markArtifactUploadInterrupted({
+            artifactId: 'artifact_pending',
+            reason: 'relay_upload_aborted',
+            errorMsg: 'Error: aborted',
+        });
+
+        expect(mocks.markSessionIngestActivity).toHaveBeenCalledTimes(1);
+        expect(mocks.markSessionIngestActivity.mock.calls[0]?.[0]).toBe('session_1');
+        expect(mocks.markSessionIngestActivity.mock.calls[0]?.[1]).not.toMatchObject({ reopen: true });
     });
 
     it('persists the resolved endpoint when relay upload falls back', async () => {

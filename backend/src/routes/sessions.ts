@@ -42,7 +42,8 @@ import {
     loadSessionWorkAggregate,
     type SessionPresentationState,
 } from '../services/sessionPresentationState.js';
-import { resolveStoredOrDerivedSessionDurationSeconds } from '../services/sessionTiming.js';
+import { durationSecondsForDisplay } from '../services/sessionTiming.js';
+import { hasNewerSessionForSameVisitor } from '../services/sessionTimingQuery.js';
 import { resolveAnrStackTrace } from '../services/anrStack.js';
 
 const router = Router();
@@ -63,6 +64,20 @@ const archiveListLatestReplayEndMsSql = sql<number | null>`(
 
 /** `device_id` → `anonymous_hash` → `user_display_id` — matches how the dashboard distinguishes visitors. */
 const archiveVisitorIdentitySql = sql<string>`coalesce(${sessions.deviceId}, ${sessions.anonymousHash}, ${sessions.userDisplayId})`;
+
+/** True when a strictly later session exists for the same project + visitor (archive list LIVE badge). */
+const archiveListHasNewerVisitorSessionSql = sql<boolean>`(
+    EXISTS (
+        SELECT 1 FROM sessions s2
+        WHERE s2.project_id = ${sessions.projectId}
+          AND coalesce(s2.device_id, s2.anonymous_hash, s2.user_display_id) IS NOT NULL
+          AND coalesce(s2.device_id, s2.anonymous_hash, s2.user_display_id) = ${archiveVisitorIdentitySql}
+          AND (
+            s2.started_at > ${sessions.startedAt}
+            OR (s2.started_at = ${sessions.startedAt} AND s2.id > ${sessions.id})
+          )
+    )
+)`.as('hasNewerSessionOnVisitor');
 
 type ArchiveListSessionForFirstCheck = Pick<
     typeof sessions.$inferSelect,
@@ -474,20 +489,19 @@ function buildSessionBasePayload(
     const hasRecording = screenshotFrames.length > 0;
     const playbackMode = hasRecording ? 'screenshots' : 'none';
     const successfulRecording = hasSuccessfulRecording(session, metrics, readyScreenshotArtifacts);
-    const durationSeconds = resolveStoredOrDerivedSessionDurationSeconds({
+    const durationSeconds = durationSecondsForDisplay({
         ...session,
         latestReplayEndMs,
+        replayAvailable: session.replayAvailable,
     });
     const sessionPresentationState = presentationState ?? deriveSessionPresentationState({
         status: session.status,
         replayAvailable: session.replayAvailable,
         recordingDeleted: session.recordingDeleted,
         isReplayExpired: session.isReplayExpired,
-        explicitEndedAt: session.explicitEndedAt,
-        finalizedAt: session.finalizedAt,
         lastIngestActivityAt: session.lastIngestActivityAt,
-        replayAvailableAt: session.replayAvailableAt,
         startedAt: session.startedAt,
+        endedAt: session.endedAt,
         hasPendingWork: false,
         hasPendingReplayWork: false,
     });
@@ -977,8 +991,8 @@ async function loadTimelinePayload(session: any, artifactsList: any[]) {
     const timelineReplayEndMs = maxReplayEndMsFromArtifacts(artifactsList);
     const sessionEndMs =
         session.endedAt?.getTime()
-        ?? session.explicitEndedAt?.getTime()
         ?? (timelineReplayEndMs != null && timelineReplayEndMs > 0 ? timelineReplayEndMs : undefined)
+        ?? session.lastIngestActivityAt?.getTime()
         ?? (sessionStartMs + ((session.durationSeconds ?? 0) * 1000));
 
     const { normalizedEvents, coerceToEpochMs } = normalizeEventsForTimeline(allEvents, sessionStartMs, sessionEndMs);
@@ -1324,12 +1338,13 @@ router.get(
             return;
         }
 
-        // List payload: no per-row EXISTS (detail view loads precise ingest state). Omit events/metadata JSONB.
+        // List payload: one correlated EXISTS for visitor supersession (stops false LIVE on old rows). Omit events/metadata JSONB.
         const dataQuery = db
             .select({
                 session: { ...sessionsArchiveListColumns },
                 metrics: sessionMetrics,
                 latestReplayArtifactEndMs: archiveListLatestReplayEndMsSql,
+                hasNewerSessionOnVisitor: archiveListHasNewerVisitorSessionSql,
             })
             .from(sessions)
             .leftJoin(sessionMetrics, eq(sessions.id, sessionMetrics.sessionId))
@@ -1354,25 +1369,31 @@ router.get(
         const firstSessionIds = await resolveArchiveFirstSessionIds(resultSessions);
 
         // Transform to API format
-        const sessionsData = resultSessions.map(({ session: s, metrics: m, latestReplayArtifactEndMs }) => {
-            const durationSec = resolveStoredOrDerivedSessionDurationSeconds({
+        const sessionsData = resultSessions.map(
+            ({ session: s, metrics: m, latestReplayArtifactEndMs, hasNewerSessionOnVisitor }) => {
+            const durationSec = durationSecondsForDisplay({
                 ...s,
                 latestReplayEndMs: latestReplayArtifactEndMs,
+                replayAvailable: s.replayAvailable,
             });
-            const inferPendingFromStatus = s.status === 'processing' || s.status === 'pending';
             const successfulRecording = hasSuccessfulRecording(s, m, false);
+            /**
+             * Archive list intentionally skips per-row artifact/job EXISTS (perf). Do not infer
+             * pending work from `status === 'processing'` — that forced hasPendingReplayWork=true,
+             * blocked shouldFinalize in deriveSessionPresentationState, and kept rows "LIVE" /
+             * background-processing in the UI long after ingest went quiet.
+             */
             const presentationState = deriveSessionPresentationState({
                 status: s.status,
                 replayAvailable: s.replayAvailable,
                 recordingDeleted: s.recordingDeleted,
                 isReplayExpired: s.isReplayExpired,
-                explicitEndedAt: s.explicitEndedAt,
-                finalizedAt: s.finalizedAt,
                 lastIngestActivityAt: s.lastIngestActivityAt,
-                replayAvailableAt: s.replayAvailableAt,
                 startedAt: s.startedAt,
-                hasPendingWork: inferPendingFromStatus,
-                hasPendingReplayWork: inferPendingFromStatus,
+                endedAt: s.endedAt,
+                hasPendingWork: false,
+                hasPendingReplayWork: false,
+                supersededByNewerVisitorSession: Boolean(hasNewerSessionOnVisitor),
             });
             return {
                 id: s.id,
@@ -1493,19 +1514,28 @@ router.get(
 
         const session = sessionResult.session;
         const metrics = sessionResult.metrics;
-        const aggregate = await loadSessionWorkAggregate(session.id);
+        const [aggregate, supersededByNewerVisitorSession] = await Promise.all([
+            loadSessionWorkAggregate(session.id),
+            hasNewerSessionForSameVisitor({
+                projectId: session.projectId,
+                sessionId: session.id,
+                startedAt: session.startedAt,
+                deviceId: session.deviceId,
+                anonymousHash: session.anonymousHash,
+                userDisplayId: session.userDisplayId,
+            }),
+        ]);
         const presentationState = deriveSessionPresentationState({
             status: session.status,
             replayAvailable: session.replayAvailable,
             recordingDeleted: session.recordingDeleted,
             isReplayExpired: session.isReplayExpired,
-            explicitEndedAt: session.explicitEndedAt,
-            finalizedAt: session.finalizedAt,
             lastIngestActivityAt: session.lastIngestActivityAt,
-            replayAvailableAt: session.replayAvailableAt,
             startedAt: session.startedAt,
+            endedAt: session.endedAt,
             hasPendingWork: aggregate.hasPendingWork,
             hasPendingReplayWork: aggregate.hasPendingReplayWork,
+            supersededByNewerVisitorSession,
         });
 
         // Verify user has access
@@ -1721,8 +1751,8 @@ router.get(
         const replayEndMs = aggregate.latestReplayArtifactEndMs;
         const sessionEndMs =
             session.endedAt?.getTime()
-            ?? session.explicitEndedAt?.getTime()
             ?? (replayEndMs != null && replayEndMs > 0 ? replayEndMs : undefined)
+            ?? session.lastIngestActivityAt?.getTime()
             ?? (sessionStartMs + ((session.durationSeconds ?? 0) * 1000));
 
         const coerceToEpochMs = (raw: unknown, fallbackMs: number): number => {
@@ -1806,9 +1836,10 @@ router.get(
         const hasRecording = Boolean(session.replayAvailable) && !session.isReplayExpired && !session.recordingDeleted;
         const playbackMode = hasRecording ? 'screenshots' : 'none';
         const successfulRecording = hasSuccessfulRecording(session, metrics, readyScreenshotArtifacts);
-        const durationSeconds = resolveStoredOrDerivedSessionDurationSeconds({
+        const durationSeconds = durationSecondsForDisplay({
             ...session,
             latestReplayEndMs: aggregate.latestReplayArtifactEndMs,
+            replayAvailable: session.replayAvailable,
         });
 
         res.json({
@@ -1977,9 +2008,17 @@ router.get(
             return;
         }
 
-        const [artifactsList, aggregate] = await Promise.all([
+        const [artifactsList, aggregate, supersededByNewerVisitorSession] = await Promise.all([
             getReadyArtifacts(session.id),
             loadSessionWorkAggregate(session.id),
+            hasNewerSessionForSameVisitor({
+                projectId: session.projectId,
+                sessionId: session.id,
+                startedAt: session.startedAt,
+                deviceId: session.deviceId,
+                anonymousHash: session.anonymousHash,
+                userDisplayId: session.userDisplayId,
+            }),
         ]);
 
         const screenshotArtifacts = artifactsList.filter((a) => a.kind === 'screenshots');
@@ -2000,13 +2039,12 @@ router.get(
                 replayAvailable: session.replayAvailable,
                 recordingDeleted: session.recordingDeleted,
                 isReplayExpired: session.isReplayExpired,
-                explicitEndedAt: session.explicitEndedAt,
-                finalizedAt: session.finalizedAt,
                 lastIngestActivityAt: session.lastIngestActivityAt,
-                replayAvailableAt: session.replayAvailableAt,
                 startedAt: session.startedAt,
+                endedAt: session.endedAt,
                 hasPendingWork: aggregate.hasPendingWork,
                 hasPendingReplayWork: aggregate.hasPendingReplayWork,
+                supersededByNewerVisitorSession,
             }),
             aggregate.latestReplayArtifactEndMs
         );
@@ -2233,8 +2271,6 @@ router.get(
                     projectId: sessions.projectId,
                     startedAt: sessions.startedAt,
                     endedAt: sessions.endedAt,
-                    explicitEndedAt: sessions.explicitEndedAt,
-                    finalizedAt: sessions.finalizedAt,
                     lastIngestActivityAt: sessions.lastIngestActivityAt,
                 })
                 .from(sessions)
@@ -2258,9 +2294,7 @@ router.get(
         const sessionStartMs = session.startedAt.getTime();
         const replayEndMs = replayEndRow?.maxEnd ?? null;
         const effectiveSessionEnd = session.endedAt
-            ?? session.explicitEndedAt
             ?? (replayEndMs != null && replayEndMs > 0 ? new Date(replayEndMs) : null)
-            ?? session.finalizedAt
             ?? (session.lastIngestActivityAt && session.lastIngestActivityAt > session.startedAt ? session.lastIngestActivityAt : null);
         const sessionEndMs = effectiveSessionEnd ? effectiveSessionEnd.getTime() : Number.MAX_SAFE_INTEGER;
         const lowerBoundMs = Math.max(0, sessionStartMs - 30_000);

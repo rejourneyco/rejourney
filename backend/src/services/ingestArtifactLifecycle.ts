@@ -44,6 +44,26 @@ function isReplayArtifactKind(kind: string | null | undefined): boolean {
     return kind === 'screenshots' || kind === 'hierarchy';
 }
 
+function hasClosedTiming(session: { endedAt?: Date | string | null }): boolean {
+    if (!session.endedAt) {
+        return false;
+    }
+    const endedAt = session.endedAt instanceof Date ? session.endedAt : new Date(String(session.endedAt));
+    return Number.isFinite(endedAt.getTime());
+}
+
+async function touchSessionForArtifactMutation(
+    session: { id: string; endedAt?: Date | string | null },
+    at = new Date()
+): Promise<void> {
+    if (hasClosedTiming(session)) {
+        await markSessionIngestActivity(session.id, { at });
+        return;
+    }
+
+    await markSessionIngestActivity(session.id, { at, reopen: true });
+}
+
 async function ensureArtifactProcessingJob(artifact: any): Promise<QueueArtifactJobResult> {
     const replay = isReplayArtifactKind(artifact.kind);
     const [existingJob] = await db.select().from(ingestJobs)
@@ -206,7 +226,7 @@ export async function prepareReplayArtifactForUpload(
         throw ApiError.conflict('Session is closed to ingest; no new uploads or mutations are accepted.');
     }
 
-    await markSessionIngestActivity(session.id, { reopen: true });
+    await touchSessionForArtifactMutation(session);
 
     const update = buildArtifactRetryUpdate(params);
 
@@ -280,7 +300,7 @@ export async function registerPendingArtifact(params: PendingArtifactParams) {
     }
     assertSessionAcceptsNewIngestWork(guardSession);
 
-    await markSessionIngestActivity(params.sessionId, { reopen: true });
+    await touchSessionForArtifactMutation(guardSession);
 
     const [artifact] = await db.insert(recordingArtifacts).values({
         sessionId: params.sessionId,
@@ -420,7 +440,7 @@ export async function markArtifactUploadInterrupted(params: {
         ));
 
     if (!isSessionIngestImmutable(session)) {
-        await markSessionIngestActivity(session.id, { at: now, reopen: true });
+        await touchSessionForArtifactMutation(session, now);
     }
 
     logger.warn({

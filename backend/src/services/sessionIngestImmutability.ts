@@ -3,29 +3,20 @@ import { ApiError } from '../middleware/errorHandler.js';
 /** Minimal session row shape for ingest immutability checks */
 export type SessionIngestGuardRow = {
     status: string;
-    finalizedAt?: Date | null;
-    explicitEndedAt?: Date | null;
-    closeSource?: string | null;
+    recordingDeleted?: boolean | null;
+    isReplayExpired?: boolean | null;
 };
 
 /**
  * When true, the session must not accept new ingest work (presigns, relay bytes,
- * fault rows, or mutating /session/end). Aligns with dashboard "no live ingest":
- * explicit client end, server finalization, or terminal status.
+ * fault rows, or mutating /session/end). Hard stops only: terminal status or
+ * retention-purged recording. `ready` is reopenable.
  */
 export function isSessionIngestImmutable(session: SessionIngestGuardRow): boolean {
-    const inactivityClosed = session.closeSource === 'inactivity';
-
     if (session.status === 'failed' || session.status === 'deleted') {
         return true;
     }
-    if (session.status === 'ready' && !inactivityClosed) {
-        return true;
-    }
-    if (session.finalizedAt != null && !inactivityClosed) {
-        return true;
-    }
-    if (session.explicitEndedAt != null && !inactivityClosed) {
+    if (session.recordingDeleted || session.isReplayExpired) {
         return true;
     }
     return false;

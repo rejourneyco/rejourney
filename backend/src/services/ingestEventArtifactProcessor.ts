@@ -6,8 +6,6 @@ import { normalizeIngestSdkVersion } from './ingestSessionLifecycle.js';
 import { getUniqueScreenCount, mergeScreenPaths, normalizeScreenPath } from '../utils/screenPaths.js';
 import { shouldExcludeNetworkEventFromProductAnalytics } from '../utils/internalToolEndpointFilter.js';
 import { mergeAnrDeviceMetadata, resolveAnrStackTrace } from './anrStack.js';
-import { collectSessionClientEvidence } from './sessionClientEvidence.js';
-
 const MAX_SCREEN_PATH_LENGTH = 200;
 const UNKNOWN_STATUS_CODE_KEY = 'unknown';
 
@@ -23,13 +21,6 @@ export async function processEventsArtifact(job: any, session: any, metrics: any
     const payload = JSON.parse(data.toString());
     const eventsData = payload.events || [];
     const deviceInfo = payload.deviceInfo;
-    const {
-        maxClientEventAt,
-        maxClientForegroundAt,
-        maxClientBackgroundAt,
-        artifactBackgroundSeconds,
-    } = collectSessionClientEvidence(eventsData);
-
     // Update session metadata from device info
     if (deviceInfo) {
         const sessionUpdates: any = { updatedAt: new Date() };
@@ -59,26 +50,6 @@ export async function processEventsArtifact(job: any, session: any, metrics: any
                 })
                 .where(eq(sessionMetrics.sessionId, job.sessionId));
         }
-    }
-
-    const sessionEvidenceUpdates: Record<string, unknown> = {};
-    if (maxClientEventAt) {
-        sessionEvidenceUpdates.lastClientEventAt = sql`GREATEST(COALESCE(${sessions.lastClientEventAt}, ${maxClientEventAt}), ${maxClientEventAt})`;
-    }
-    if (maxClientForegroundAt) {
-        sessionEvidenceUpdates.lastClientForegroundAt = sql`GREATEST(COALESCE(${sessions.lastClientForegroundAt}, ${maxClientForegroundAt}), ${maxClientForegroundAt})`;
-    }
-    if (maxClientBackgroundAt) {
-        sessionEvidenceUpdates.lastClientBackgroundAt = sql`GREATEST(COALESCE(${sessions.lastClientBackgroundAt}, ${maxClientBackgroundAt}), ${maxClientBackgroundAt})`;
-    }
-    if (artifactBackgroundSeconds > 0) {
-        sessionEvidenceUpdates.backgroundTimeSeconds = sql`COALESCE(${sessions.backgroundTimeSeconds}, 0) + ${artifactBackgroundSeconds}`;
-    }
-    if (Object.keys(sessionEvidenceUpdates).length > 0) {
-        sessionEvidenceUpdates.updatedAt = new Date();
-        await db.update(sessions)
-            .set(sessionEvidenceUpdates)
-            .where(eq(sessions.id, job.sessionId));
     }
 
     // Extract event metrics

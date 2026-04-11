@@ -1,7 +1,5 @@
 import { coerceTimestampToDate } from './sessionClientEvidence.js';
 
-export const MAX_REPORTED_END_DRIFT_MS = 15_000;
-
 export function computeSessionDurationSeconds(
     startedAt: Date,
     endedAt: Date,
@@ -12,18 +10,26 @@ export function computeSessionDurationSeconds(
     return Math.max(1, wallClockSeconds - backgroundSeconds);
 }
 
+export function hasStoredClosedTiming(params: {
+    endedAt?: Date | null;
+    durationSeconds?: number | null;
+}): boolean {
+    return Boolean(
+        params.endedAt instanceof Date
+        && Number.isFinite(params.endedAt.getTime())
+        && typeof params.durationSeconds === 'number'
+        && params.durationSeconds > 0
+    );
+}
+
 export function resolveStoredOrDerivedSessionDurationSeconds(params: {
     durationSeconds: number | null;
     startedAt: Date;
     endedAt: Date | null;
-    explicitEndedAt: Date | null;
-    finalizedAt: Date | null;
     lastIngestActivityAt: Date | null;
     backgroundTimeSeconds: number | null;
     /**
-     * Max segment end_ms from ready replay artifacts (screenshots/hierarchy).
-     * Prefer this over `lastIngestActivityAt` for open sessions: ingest bookkeeping
-     * can run long after the last frame while the client never calls /session/end.
+     * Max segment end_ms from replay artifacts (screenshots/hierarchy).
      */
     latestReplayEndMs?: number | null;
 }): number {
@@ -33,12 +39,7 @@ export function resolveStoredOrDerivedSessionDurationSeconds(params: {
     const replayEndMs = Number(params.latestReplayEndMs);
     const replayEnd = Number.isFinite(replayEndMs) && replayEndMs > 0 ? new Date(replayEndMs) : null;
 
-    const end =
-        params.endedAt
-        ?? params.explicitEndedAt
-        ?? replayEnd
-        ?? params.finalizedAt
-        ?? null;
+    const end = params.endedAt ?? replayEnd ?? null;
 
     if (end) {
         return computeSessionDurationSeconds(params.startedAt, end, params.backgroundTimeSeconds);
@@ -47,15 +48,33 @@ export function resolveStoredOrDerivedSessionDurationSeconds(params: {
     return Math.max(0, direct ?? 0);
 }
 
-function latestDate(...values: Array<Date | null | undefined>): Date | null {
-    let latest: Date | null = null;
-    for (const value of values) {
-        if (!value || !Number.isFinite(value.getTime())) continue;
-        if (!latest || value.getTime() > latest.getTime()) {
-            latest = value;
-        }
+/**
+ * Playable length for dashboard/API when `ended_at` was closed with a structural cap
+ * but replay artifacts end much earlier (short real recording).
+ */
+export function durationSecondsForDisplay(params: {
+    durationSeconds: number | null;
+    startedAt: Date;
+    endedAt: Date | null;
+    lastIngestActivityAt: Date | null;
+    backgroundTimeSeconds: number | null;
+    latestReplayEndMs?: number | null;
+    replayAvailable?: boolean | null;
+}): number {
+    const wall = resolveStoredOrDerivedSessionDurationSeconds(params);
+    const replayMs = Number(params.latestReplayEndMs);
+    if (!params.replayAvailable || !params.endedAt || !Number.isFinite(replayMs) || replayMs <= 0) {
+        return wall;
     }
-    return latest;
+    const replayEnd = new Date(replayMs);
+    if (params.endedAt.getTime() - replayEnd.getTime() < 2 * 60 * 1000) {
+        return wall;
+    }
+    const fromReplay = computeSessionDurationSeconds(params.startedAt, replayEnd, params.backgroundTimeSeconds);
+    if (fromReplay > 0 && wall > fromReplay + 120) {
+        return fromReplay;
+    }
+    return wall;
 }
 
 function normalizeBackgroundTimeSeconds(value: number | null | undefined): number {
@@ -69,13 +88,6 @@ function normalizeReportedBackgroundTimeSeconds(value: unknown): number | null {
     return Math.max(0, Math.round(ms / 1000));
 }
 
-function clampToUpperBound(startedAt: Date, candidate: Date, upperBound: Date | null): Date {
-    if (!upperBound) return candidate;
-    if (upperBound.getTime() < startedAt.getTime()) return startedAt;
-    if (candidate.getTime() > upperBound.getTime()) return upperBound;
-    return candidate;
-}
-
 export function clampSessionEndedAt(startedAt: Date, candidate: Date, maxRecordingMinutes: number): Date {
     const capMs = Math.max(120_000, maxRecordingMinutes * 60 * 1000 + 120_000);
     const upper = new Date(startedAt.getTime() + capMs);
@@ -83,6 +95,12 @@ export function clampSessionEndedAt(startedAt: Date, candidate: Date, maxRecordi
     if (!Number.isFinite(t) || t < startedAt.getTime()) return startedAt;
     if (t > upper.getTime()) return upper;
     return candidate;
+}
+
+/** Latest instant allowed by project recording policy (deterministic; not wall clock). */
+export function recordingPolicyUpperBoundEndedAt(startedAt: Date, maxRecordingMinutes: number): Date {
+    const farFuture = new Date(startedAt.getTime() + 365 * 24 * 60 * 60 * 1000);
+    return clampSessionEndedAt(startedAt, farFuture, maxRecordingMinutes);
 }
 
 export function resolveReportedSessionEndedAt(
@@ -101,43 +119,18 @@ export function resolveReportedSessionEndedAt(
     return new Date();
 }
 
-export function preserveExistingSessionEndedAt(
-    reportedEndedAt: Date,
-    persistedEndedAt?: Date | null,
-    allowedExtensionMs = 60_000
-): Date {
-    if (!persistedEndedAt || !Number.isFinite(persistedEndedAt.getTime())) {
-        return reportedEndedAt;
-    }
-
-    if (!Number.isFinite(reportedEndedAt.getTime())) {
-        return persistedEndedAt;
-    }
-
-    if (reportedEndedAt.getTime() > persistedEndedAt.getTime() + allowedExtensionMs) {
-        return persistedEndedAt;
-    }
-
-    return reportedEndedAt;
-}
-
 export type AuthoritativeSessionCloseParams = {
     startedAt: Date;
-    persistedEndedAt?: Date | null;
-    explicitEndedAtCap?: Date | null;
     lastIngestActivityAt?: Date | null;
-    lastClientEventAt?: Date | null;
-    lastClientForegroundAt?: Date | null;
-    lastClientBackgroundAt?: Date | null;
     latestReplayEndMs?: number | null;
+    /** `/session/end` body — optional hint */
     reportedEndedAt?: unknown;
-    totalBackgroundTimeMs?: unknown;
-    endReason?: string | null;
     closeAnchorAtMs?: unknown;
+    totalBackgroundTimeMs?: unknown;
     storedBackgroundTimeSeconds?: number | null;
     maxRecordingMinutes: number;
+    /** Next session on same device+project; caps ended_at so timelines do not overlap. */
     successorStartedAt?: Date | null;
-    now?: Date;
 };
 
 export type AuthoritativeSessionClose = {
@@ -149,20 +142,19 @@ export type AuthoritativeSessionClose = {
     wallClockSeconds: number;
     source:
         | 'close_anchor'
-        | 'recovery_background'
-        | 'recovery_replay'
-        | 'recovery_event'
-        | 'recovery_persisted'
-        | 'recovery_ingest'
-        | 'backend_evidence'
         | 'reported'
-        | 'persisted'
+        | 'replay_end'
         | 'ingest_activity'
-        | 'fallback_now';
+        | 'recording_cap';
     successorCapApplied: boolean;
     usedReportedEndedAt: boolean;
 };
 
+/**
+ * Server-first end time: optional `/session/end` hints, then replay end, then last ingest,
+ * then recording policy upper bound (never wall clock — avoids "ends when worker ran").
+ * Finally min() with successor session start when the same device has a later session.
+ */
 export function resolveAuthoritativeSessionClose(params: AuthoritativeSessionCloseParams): AuthoritativeSessionClose {
     const reportedEndedAt = coerceTimestampToDate(params.reportedEndedAt);
     const closeAnchorAt = coerceTimestampToDate(params.closeAnchorAtMs);
@@ -170,143 +162,98 @@ export function resolveAuthoritativeSessionClose(params: AuthoritativeSessionClo
         && Number(params.latestReplayEndMs) > 0
         ? new Date(Number(params.latestReplayEndMs))
         : null;
-    const persistedEndedAt = params.persistedEndedAt ?? null;
     const lastIngestActivityAt = params.lastIngestActivityAt ?? null;
-    const lastClientEventAt = params.lastClientEventAt ?? null;
-    const lastClientForegroundAt = params.lastClientForegroundAt ?? null;
-    const lastClientBackgroundAt = params.lastClientBackgroundAt ?? null;
-    const backgroundBoundary = lastClientBackgroundAt
-        && (!lastClientForegroundAt || lastClientBackgroundAt.getTime() >= lastClientForegroundAt.getTime())
-        ? lastClientBackgroundAt
-        : null;
+    const policyUpper = recordingPolicyUpperBoundEndedAt(params.startedAt, params.maxRecordingMinutes);
 
-    const strongestBackendEvidence = latestDate(
-        backgroundBoundary,
-        latestReplayEndedAt,
-        lastClientEventAt,
-    );
-
-    let endedAt: Date | null = null;
-    let evidenceEndedAt: Date | null = null;
-    let source: AuthoritativeSessionClose['source'] = 'fallback_now';
+    let endedAt: Date;
+    let source: AuthoritativeSessionClose['source'];
     let usedReportedEndedAt = false;
 
     if (closeAnchorAt) {
         endedAt = closeAnchorAt;
-        evidenceEndedAt = closeAnchorAt;
         source = 'close_anchor';
-    } else if (params.endReason === 'background_timeout' && backgroundBoundary) {
-        endedAt = backgroundBoundary;
-        evidenceEndedAt = backgroundBoundary;
-        source = 'backend_evidence';
-    } else if (params.endReason === 'recovery_finalize') {
-        endedAt = backgroundBoundary
-            ?? latestReplayEndedAt
-            ?? lastClientEventAt
-            ?? persistedEndedAt
-            ?? lastIngestActivityAt
-            ?? params.now
-            ?? new Date();
-        evidenceEndedAt = backgroundBoundary ?? latestReplayEndedAt ?? lastClientEventAt ?? persistedEndedAt ?? lastIngestActivityAt;
-        source = backgroundBoundary
-            ? 'recovery_background'
-            : latestReplayEndedAt
-                ? 'recovery_replay'
-                : lastClientEventAt
-                    ? 'recovery_event'
-                    : persistedEndedAt
-                        ? 'recovery_persisted'
-                        : lastIngestActivityAt
-                            ? 'recovery_ingest'
-                            : 'fallback_now';
-    } else if (strongestBackendEvidence) {
-        evidenceEndedAt = strongestBackendEvidence;
-        source = 'backend_evidence';
-        if (reportedEndedAt) {
-            const clampedMs = Math.min(
-                Math.max(reportedEndedAt.getTime(), strongestBackendEvidence.getTime()),
-                strongestBackendEvidence.getTime() + MAX_REPORTED_END_DRIFT_MS,
-            );
-            endedAt = new Date(clampedMs);
-            usedReportedEndedAt = true;
-        } else {
-            endedAt = strongestBackendEvidence;
-        }
     } else if (reportedEndedAt) {
         endedAt = reportedEndedAt;
         source = 'reported';
         usedReportedEndedAt = true;
-    } else if (persistedEndedAt) {
-        endedAt = persistedEndedAt;
-        source = 'persisted';
+    } else if (latestReplayEndedAt) {
+        endedAt = latestReplayEndedAt;
+        source = 'replay_end';
     } else if (lastIngestActivityAt) {
         endedAt = lastIngestActivityAt;
         source = 'ingest_activity';
     } else {
-        endedAt = params.now ?? new Date();
-        source = 'fallback_now';
+        endedAt = policyUpper;
+        source = 'recording_cap';
     }
 
     let boundedEndedAt = clampSessionEndedAt(params.startedAt, endedAt, params.maxRecordingMinutes);
-    const explicitEndedAtCap = params.explicitEndedAtCap ?? null;
-    boundedEndedAt = clampToUpperBound(params.startedAt, boundedEndedAt, explicitEndedAtCap);
-    const successorStartedAt = params.successorStartedAt ?? null;
-    const cappedBySuccessor = successorStartedAt && boundedEndedAt.getTime() > successorStartedAt.getTime();
-    boundedEndedAt = clampToUpperBound(params.startedAt, boundedEndedAt, successorStartedAt);
+
+    const successor = params.successorStartedAt ?? null;
+    let successorCapApplied = false;
+    if (
+        successor
+        && Number.isFinite(successor.getTime())
+        && successor.getTime() > params.startedAt.getTime()
+    ) {
+        const before = boundedEndedAt.getTime();
+        boundedEndedAt = new Date(Math.min(boundedEndedAt.getTime(), successor.getTime()));
+        if (boundedEndedAt.getTime() !== before) {
+            successorCapApplied = true;
+        }
+    }
 
     const storedBackgroundSeconds = normalizeBackgroundTimeSeconds(params.storedBackgroundTimeSeconds);
     const reportedBackgroundSeconds = normalizeReportedBackgroundTimeSeconds(params.totalBackgroundTimeMs);
-    const anchoredBeforeReportedSeconds = reportedEndedAt && boundedEndedAt.getTime() < reportedEndedAt.getTime()
-        ? Math.max(0, Math.round((reportedEndedAt.getTime() - boundedEndedAt.getTime()) / 1000))
-        : 0;
+    const anchoredBeforeReportedSeconds =
+        source === 'close_anchor'
+        && reportedEndedAt
+        && boundedEndedAt.getTime() < reportedEndedAt.getTime()
+            ? Math.max(0, Math.round((reportedEndedAt.getTime() - boundedEndedAt.getTime()) / 1000))
+            : 0;
     const adjustedReportedBackgroundSeconds = reportedBackgroundSeconds == null
         ? null
         : Math.max(0, reportedBackgroundSeconds - anchoredBeforeReportedSeconds);
     const backgroundTimeSeconds = adjustedReportedBackgroundSeconds == null
         ? storedBackgroundSeconds
-        : Math.max(storedBackgroundSeconds, adjustedReportedBackgroundSeconds ?? 0);
+        : Math.max(storedBackgroundSeconds, adjustedReportedBackgroundSeconds);
+
     const wallClockSeconds = Math.round((boundedEndedAt.getTime() - params.startedAt.getTime()) / 1000);
     const durationSeconds = computeSessionDurationSeconds(params.startedAt, boundedEndedAt, backgroundTimeSeconds);
 
     return {
         endedAt: boundedEndedAt,
-        evidenceEndedAt,
+        evidenceEndedAt: latestReplayEndedAt,
         reportedEndedAt,
         backgroundTimeSeconds,
         durationSeconds,
         wallClockSeconds,
         source,
-        successorCapApplied: Boolean(cappedBySuccessor),
+        successorCapApplied,
         usedReportedEndedAt,
     };
 }
 
 type SelectSessionEndedAtParams = {
     startedAt: Date;
-    explicitEndedAt?: Date | null;
     latestReplayEndMs?: number | null;
     persistedEndedAt?: Date | null;
     lastIngestActivityAt?: Date | null;
     maxRecordingMinutes: number;
-    now?: Date;
 };
-
 
 export function selectSessionEndedAt(params: SelectSessionEndedAtParams): Date {
     const latestReplayEndedAt = Number.isFinite(params.latestReplayEndMs)
         && Number(params.latestReplayEndMs) > 0
         ? new Date(Number(params.latestReplayEndMs))
         : null;
-    const boundedExplicitEndedAt = params.explicitEndedAt
-        ? preserveExistingSessionEndedAt(params.explicitEndedAt, params.persistedEndedAt)
-        : null;
 
-    const rawCandidate = boundedExplicitEndedAt
-        ?? latestReplayEndedAt
+    const policyUpper = recordingPolicyUpperBoundEndedAt(params.startedAt, params.maxRecordingMinutes);
+    const rawCandidate =
+        latestReplayEndedAt
         ?? params.persistedEndedAt
         ?? params.lastIngestActivityAt
-        ?? params.now
-        ?? new Date();
+        ?? policyUpper;
 
     return clampSessionEndedAt(params.startedAt, rawCandidate, params.maxRecordingMinutes);
 }

@@ -810,6 +810,7 @@ export const RecordingsList: React.FC = () => {
                 isLiveIngest ||
                 isBackgroundProcessing ||
                 effectiveStatus === 'processing' ||
+                effectiveStatus === 'pending' ||
                 session.status === 'processing' ||
                 session.status === 'pending' ||
                 hasReplay;
@@ -821,8 +822,7 @@ export const RecordingsList: React.FC = () => {
                 (!canOpenReplay &&
                   (isBackgroundProcessing ||
                     effectiveStatus === 'processing' ||
-                    session.status === 'processing' ||
-                    session.status === 'pending'));
+                    effectiveStatus === 'pending'));
 
               const hasIssues = (session.crashCount || 0) > 0 ||
                 ((session as any).anrCount || 0) > 0 ||

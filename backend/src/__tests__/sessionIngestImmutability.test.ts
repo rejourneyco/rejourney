@@ -11,44 +11,30 @@ describe('sessionIngestImmutability', () => {
         expect(isSessionIngestImmutable({ status: 'deleted' })).toBe(true);
     });
 
-    it('treats ready, finalized, or explicitly ended sessions as immutable', () => {
-        expect(isSessionIngestImmutable({ status: 'processing' })).toBe(false);
-        expect(isSessionIngestImmutable({ status: 'ready' })).toBe(true);
-        expect(
-            isSessionIngestImmutable({
-                status: 'processing',
-                finalizedAt: new Date(),
-            }),
-        ).toBe(true);
-        expect(
-            isSessionIngestImmutable({
-                status: 'processing',
-                explicitEndedAt: new Date(),
-            }),
-        ).toBe(true);
+    it('treats purged or expired recordings as immutable', () => {
+        expect(isSessionIngestImmutable({ status: 'processing', recordingDeleted: true })).toBe(true);
+        expect(isSessionIngestImmutable({ status: 'ready', isReplayExpired: true })).toBe(true);
     });
 
-    it('allows sessions auto-closed for inactivity to reopen for new ingest', () => {
-        expect(
-            isSessionIngestImmutable({
-                status: 'ready',
-                finalizedAt: new Date(),
-                explicitEndedAt: new Date(),
-                closeSource: 'inactivity',
-            }),
-        ).toBe(false);
+    it('allows processing and ready sessions to accept new ingest', () => {
+        expect(isSessionIngestImmutable({ status: 'processing' })).toBe(false);
+        expect(isSessionIngestImmutable({ status: 'ready' })).toBe(false);
     });
 
     it('throws conflict from assertSessionAcceptsNewIngestWork when immutable', () => {
         expect(() =>
             assertSessionAcceptsNewIngestWork({
-                status: 'ready',
+                status: 'failed',
             }),
         ).toThrow(ApiError);
         try {
-            assertSessionAcceptsNewIngestWork({ status: 'ready' });
+            assertSessionAcceptsNewIngestWork({ status: 'failed' });
         } catch (e: any) {
             expect(e.statusCode).toBe(409);
         }
+    });
+
+    it('does not throw for a ready session', () => {
+        expect(() => assertSessionAcceptsNewIngestWork({ status: 'ready' })).not.toThrow();
     });
 });

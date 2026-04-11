@@ -108,14 +108,27 @@ export async function enqueueSessionBackupCandidate(sessionId: string): Promise<
             JOIN projects p ON p.id = s.project_id
             WHERE s.id = $1
               AND s.status IN ('ready', 'completed')
+              AND s.ended_at IS NOT NULL
               AND p.deleted_at IS NULL
               AND NOT (
                 ${emptySessionPredicate}
               )
-              AND NOT EXISTS (
-                SELECT 1
-                FROM session_backup_log bl
-                WHERE bl.session_id = s.id
+              AND (
+                NOT EXISTS (
+                  SELECT 1
+                  FROM session_backup_log bl
+                  WHERE bl.session_id = s.id
+                )
+                OR EXISTS (
+                  SELECT 1
+                  FROM session_backup_log bl
+                  WHERE bl.session_id = s.id
+                    AND bl.artifact_count < (
+                      SELECT COUNT(*)::int
+                      FROM recording_artifacts ra
+                      WHERE ra.session_id = s.id
+                    )
+                )
               )
             ON CONFLICT (session_id) DO NOTHING
             RETURNING session_id

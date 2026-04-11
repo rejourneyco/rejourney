@@ -8,8 +8,8 @@ import {
     loadSessionWorkAggregate,
     SESSION_LIVE_INGEST_WINDOW_MS,
 } from './sessionPresentationState.js';
-import { computeSessionDurationSeconds, resolveAuthoritativeSessionClose } from './sessionTiming.js';
-import { loadSuccessorSessionStartedAt } from './sessionTimingQuery.js';
+import { computeSessionDurationSeconds, hasStoredClosedTiming, resolveAuthoritativeSessionClose } from './sessionTiming.js';
+import { hasNewerSessionForSameVisitor, loadSuccessorSessionStartedAt } from './sessionTimingQuery.js';
 
 export const SESSION_FINALIZE_IDLE_MS = SESSION_LIVE_INGEST_WINDOW_MS;
 
@@ -22,11 +22,10 @@ type ReconcileSessionResult = {
 
 type TouchSessionOptions = {
     at?: Date;
-    explicitEndedAt?: Date | null;
+    updatedAt?: Date;
     endedAt?: Date | null;
     durationSeconds?: number | null;
     backgroundTimeSeconds?: number | null;
-    closeSource?: string | null;
     reopen?: boolean;
 };
 
@@ -36,14 +35,12 @@ async function ensureMetricsRow(sessionId: string) {
 
 export async function markSessionIngestActivity(sessionId: string, options: TouchSessionOptions = {}): Promise<void> {
     const at = options.at ?? new Date();
+    const updatedAt = options.updatedAt ?? new Date();
     const update: Record<string, unknown> = {
         lastIngestActivityAt: at,
-        updatedAt: at,
+        updatedAt,
     };
 
-    if (options.explicitEndedAt !== undefined) {
-        update.explicitEndedAt = options.explicitEndedAt;
-    }
     if (options.endedAt !== undefined) {
         update.endedAt = options.endedAt;
     }
@@ -53,17 +50,10 @@ export async function markSessionIngestActivity(sessionId: string, options: Touc
     if (options.backgroundTimeSeconds !== undefined && options.backgroundTimeSeconds !== null) {
         update.backgroundTimeSeconds = Math.max(0, Math.round(options.backgroundTimeSeconds));
     }
-    if (options.closeSource !== undefined) {
-        update.closeSource = options.closeSource;
-    }
     if (options.reopen) {
         update.status = 'processing';
-        update.finalizedAt = null;
-        update.explicitEndedAt = null;
         update.endedAt = null;
-        if (options.closeSource === undefined) {
-            update.closeSource = null;
-        }
+        update.durationSeconds = null;
     }
 
     await db.update(sessions)
@@ -78,13 +68,32 @@ export async function reconcileSessionState(sessionId: string, now = new Date())
         return {
             sessionId,
             replayAvailable: Boolean(session.replayAvailable),
-            finalized: Boolean(session.finalizedAt),
+            finalized: false,
+            status: session.status,
+        };
+    }
+
+    if (session.status === 'completed') {
+        return {
+            sessionId,
+            replayAvailable: Boolean(session.replayAvailable),
+            finalized: true,
             status: session.status,
         };
     }
 
     await ensureMetricsRow(sessionId);
-    const aggregate = await loadSessionWorkAggregate(sessionId);
+    const [aggregate, supersededByNewerVisitorSession] = await Promise.all([
+        loadSessionWorkAggregate(sessionId),
+        hasNewerSessionForSameVisitor({
+            projectId: session.projectId,
+            sessionId: session.id,
+            startedAt: session.startedAt,
+            deviceId: session.deviceId,
+            anonymousHash: session.anonymousHash,
+            userDisplayId: session.userDisplayId,
+        }),
+    ]);
 
     const readyScreenshotCount = aggregate.readyScreenshotCount;
     const readyScreenshotBytes = aggregate.readyScreenshotBytes;
@@ -101,25 +110,20 @@ export async function reconcileSessionState(sessionId: string, now = new Date())
     const maxRecordingMinutes = project?.maxRecordingMinutes ?? 10;
 
     const replayAvailable = readyScreenshotCount > 0;
-    const replayAvailableAt = replayAvailable
-        ? session.replayAvailableAt
-            ?? aggregate.latestReadyAt
-            ?? session.lastIngestActivityAt
-            ?? now
-        : null;
+
+    const normalizedStatus = session.status === 'pending' ? 'processing' : session.status;
 
     const presentationState = deriveSessionPresentationState({
-        status: session.status,
+        status: normalizedStatus,
         replayAvailable,
         recordingDeleted: session.recordingDeleted,
         isReplayExpired: session.isReplayExpired,
-        explicitEndedAt: session.explicitEndedAt,
-        finalizedAt: session.finalizedAt,
         lastIngestActivityAt: session.lastIngestActivityAt,
-        replayAvailableAt,
         startedAt: session.startedAt,
+        endedAt: session.endedAt,
         hasPendingWork: aggregate.hasPendingWork,
         hasPendingReplayWork: aggregate.hasPendingReplayWork,
+        supersededByNewerVisitorSession,
         now,
     });
     const shouldFinalize = presentationState.shouldFinalize;
@@ -130,24 +134,22 @@ export async function reconcileSessionState(sessionId: string, now = new Date())
         deviceId: session.deviceId,
         startedAt: session.startedAt,
     });
+
     const resolvedClose = resolveAuthoritativeSessionClose({
         startedAt: session.startedAt,
-        persistedEndedAt: session.endedAt ?? session.explicitEndedAt ?? null,
-        explicitEndedAtCap: session.explicitEndedAt,
         lastIngestActivityAt: session.lastIngestActivityAt,
-        lastClientEventAt: session.lastClientEventAt,
-        lastClientForegroundAt: session.lastClientForegroundAt,
-        lastClientBackgroundAt: session.lastClientBackgroundAt,
         latestReplayEndMs: aggregate.latestReplayArtifactEndMs,
         storedBackgroundTimeSeconds: session.backgroundTimeSeconds,
         maxRecordingMinutes,
-        now,
         successorStartedAt,
+    });
+    const preserveStoredCloseTiming = hasStoredClosedTiming({
+        endedAt: session.endedAt,
+        durationSeconds: session.durationSeconds,
     });
 
     const sessionUpdate: Record<string, unknown> = {
         replayAvailable,
-        replayAvailableAt,
         replaySegmentCount: readyScreenshotCount,
         replayStorageBytes: readyScreenshotBytes,
         updatedAt: now,
@@ -155,15 +157,15 @@ export async function reconcileSessionState(sessionId: string, now = new Date())
 
     if (shouldFinalize) {
         sessionUpdate.status = 'ready';
-        sessionUpdate.endedAt = resolvedClose.endedAt;
-        sessionUpdate.backgroundTimeSeconds = resolvedClose.backgroundTimeSeconds;
-        sessionUpdate.durationSeconds = resolvedClose.durationSeconds;
-        sessionUpdate.finalizedAt = session.finalizedAt ?? now;
-        sessionUpdate.explicitEndedAt = session.explicitEndedAt ?? null;
-        sessionUpdate.closeSource = session.closeSource ?? (session.explicitEndedAt ? 'explicit' : 'inactivity');
+        sessionUpdate.endedAt = preserveStoredCloseTiming ? session.endedAt : resolvedClose.endedAt;
+        sessionUpdate.backgroundTimeSeconds = preserveStoredCloseTiming
+            ? (session.backgroundTimeSeconds ?? 0)
+            : resolvedClose.backgroundTimeSeconds;
+        sessionUpdate.durationSeconds = preserveStoredCloseTiming
+            ? session.durationSeconds
+            : resolvedClose.durationSeconds;
     } else if (session.status !== 'failed') {
         sessionUpdate.status = 'processing';
-        sessionUpdate.finalizedAt = null;
     }
 
     await db.update(sessions)
@@ -179,15 +181,17 @@ export async function reconcileSessionState(sessionId: string, now = new Date())
         .where(eq(sessionMetrics.sessionId, sessionId));
 
     let backupQueued = false;
-    if (shouldFinalize && !session.finalizedAt) {
-        const minutesRecorded = Math.max(
-            0,
-            Math.ceil(computeSessionDurationSeconds(session.startedAt, resolvedClose.endedAt, resolvedClose.backgroundTimeSeconds) / 60),
-        );
-        await updateDeviceUsage(session.deviceId, session.projectId, {
-            requestCount: 1,
-            minutesRecorded,
-        });
+    if (shouldFinalize) {
+        if (session.status !== 'ready') {
+            const minutesRecorded = Math.max(
+                0,
+                Math.ceil(computeSessionDurationSeconds(session.startedAt, resolvedClose.endedAt, resolvedClose.backgroundTimeSeconds) / 60),
+            );
+            await updateDeviceUsage(session.deviceId, session.projectId, {
+                requestCount: 1,
+                minutesRecorded,
+            });
+        }
 
         try {
             backupQueued = await enqueueSessionBackupCandidate(sessionId);
@@ -226,8 +230,7 @@ export async function reconcileDueSessions(batchSize = 500, maxBatches = 20): Pr
             from ${sessions} s
             where s.status in ('processing', 'pending')
             and (
-                s.explicit_ended_at is not null
-                or s.last_ingest_activity_at <= ${cutoff}
+                s.last_ingest_activity_at <= ${cutoff}
                 or (
                     s.replay_available = true
                     and not exists (
@@ -252,7 +255,7 @@ export async function reconcileDueSessions(batchSize = 500, maxBatches = 20): Pr
                     )
                 )
             )
-            order by coalesce(s.explicit_ended_at, s.replay_available_at, s.last_ingest_activity_at, s.started_at) asc, s.id asc
+            order by coalesce(s.last_ingest_activity_at, s.started_at) asc, s.id asc
             limit ${batchSize}
         `);
         const rows = (result as any).rows as Array<{ id: string }> | undefined;
@@ -287,7 +290,6 @@ export async function backfillArtifactDrivenLifecycleState(): Promise<void> {
                     coalesce(max(ra.upload_completed_at), s.started_at),
                     coalesce(max(ra.ready_at), s.started_at),
                     coalesce(max(ij.updated_at), s.started_at),
-                    coalesce(s.explicit_ended_at, s.started_at),
                     coalesce(s.ended_at, s.started_at),
                     coalesce(s.updated_at, s.started_at)
                 ) as activity_at

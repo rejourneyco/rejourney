@@ -1,6 +1,7 @@
 import { sql } from 'drizzle-orm';
 import { db, ingestJobs, recordingArtifacts, sessions } from '../db/client.js';
 
+/** Inactivity window before fail-safe session finalization (no ingest touches). */
 export const SESSION_LIVE_INGEST_WINDOW_MS = 60_000;
 
 export type SessionWorkAggregate = {
@@ -45,13 +46,14 @@ type DeriveSessionPresentationStateInput = {
     replayAvailable?: boolean | null;
     recordingDeleted?: boolean | null;
     isReplayExpired?: boolean | null;
-    explicitEndedAt?: Date | string | null;
-    finalizedAt?: Date | string | null;
     lastIngestActivityAt?: Date | string | null;
-    replayAvailableAt?: Date | string | null;
     startedAt?: Date | string | null;
+    /** Server-resolved session end; recording is closed even if workers keep bumping lastIngestActivityAt. */
+    endedAt?: Date | string | null;
     hasPendingWork?: boolean;
     hasPendingReplayWork?: boolean;
+    /** Visitor started a newer session; do not treat stale ingest touches on this row as "live". */
+    supersededByNewerVisitorSession?: boolean;
     now?: Date;
 };
 
@@ -160,40 +162,36 @@ export function deriveSessionPresentationState(
     input: DeriveSessionPresentationStateInput
 ): SessionPresentationState {
     const now = input.now ?? new Date();
-    const explicitEndedAt = toDateOrNull(input.explicitEndedAt);
-    const finalizedAt = toDateOrNull(input.finalizedAt);
     const lastIngestActivityAt = toDateOrNull(input.lastIngestActivityAt);
     const cutoffMs = now.getTime() - SESSION_LIVE_INGEST_WINDOW_MS;
     const liveClockMs = lastIngestActivityAt?.getTime() ?? 0;
     const hasPendingWork = Boolean(input.hasPendingWork);
     const hasPendingReplayWork = Boolean(input.hasPendingReplayWork);
     const canOpenReplay = Boolean(input.replayAvailable) && !input.recordingDeleted && !input.isReplayExpired;
-    const status = input.status ?? 'processing';
-    const serverClosed =
-        status === 'ready'
-        || status === 'failed'
-        || status === 'deleted'
-        || finalizedAt != null;
+    const status = input.status === 'pending' ? 'processing' : (input.status ?? 'processing');
+    const hardTerminal = status === 'failed' || status === 'deleted';
+    const superseded = Boolean(input.supersededByNewerVisitorSession);
+    const recordingClosed = toDateOrNull(input.endedAt) != null;
     const isLiveIngest =
-        !serverClosed
-        && !explicitEndedAt
+        !superseded
+        && !recordingClosed
+        && !hardTerminal
+        && status !== 'ready'
+        && status !== 'completed'
         && liveClockMs > cutoffMs;
-    /**
-     * Finalize when ingest has been quiet — not when replay first became available.
-     * Using replayAvailableAt here kept sessions "hot" forever after the first frame
-     * and let new replay segments extend the timeline indefinitely.
-     */
-    const isIngestQuiescent = liveClockMs <= cutoffMs;
+    const isIngestQuiescent = superseded || recordingClosed || liveClockMs <= cutoffMs;
     const isIdle = isIngestQuiescent;
     const shouldFinalize =
-        !hasPendingReplayWork
-        && (Boolean(explicitEndedAt) || Boolean(finalizedAt) || isIngestQuiescent);
+        status !== 'completed'
+        && !hasPendingReplayWork
+        && isIngestQuiescent
+        && (status === 'ready' || !hardTerminal);
 
     let effectiveStatus = status;
-    if (effectiveStatus !== 'failed' && effectiveStatus !== 'deleted') {
+    if (effectiveStatus !== 'failed' && effectiveStatus !== 'deleted' && effectiveStatus !== 'completed') {
         if (shouldFinalize) {
             effectiveStatus = 'ready';
-        } else if (isLiveIngest || hasPendingReplayWork || effectiveStatus === 'processing' || effectiveStatus === 'pending') {
+        } else if (isLiveIngest || hasPendingReplayWork || effectiveStatus === 'processing') {
             effectiveStatus = 'processing';
         }
     }

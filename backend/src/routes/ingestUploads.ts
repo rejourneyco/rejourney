@@ -35,9 +35,6 @@ import {
     assertSessionAcceptsNewIngestWork,
     isSessionIngestImmutable,
 } from '../services/sessionIngestImmutability.js';
-import { SESSION_LIVE_INGEST_WINDOW_MS } from '../services/sessionPresentationState.js';
-import { reconcileSessionState } from '../services/sessionReconciliation.js';
-
 const router = Router();
 
 function logIngestPresignSkip(meta: {
@@ -431,18 +428,6 @@ router.post(
         }
 
         assertSessionAcceptsNewIngestWork(session);
-
-        if (data.kind === 'screenshots' || data.kind === 'hierarchy') {
-            const ingestCutoffMs = Date.now() - SESSION_LIVE_INGEST_WINDOW_MS;
-            if (session.lastIngestActivityAt.getTime() <= ingestCutoffMs) {
-                await reconcileSessionState(session.id);
-                const [refreshed] = await db.select().from(sessions).where(eq(sessions.id, session.id)).limit(1);
-                if (refreshed) {
-                    session = refreshed;
-                }
-                assertSessionAcceptsNewIngestWork(session);
-            }
-        }
 
         if (isNewSession && project.rejourneyEnabled) {
             await incrementProjectSessionCount(projectId, teamId, 1);

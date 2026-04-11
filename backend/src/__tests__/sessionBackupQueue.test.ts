@@ -40,6 +40,8 @@ describe('sessionBackupQueue', () => {
         expect(query).toContain('FROM session_backup_log bl');
         expect(query).toContain('ON CONFLICT (session_id) DO NOTHING');
         expect(query).toContain("s.status IN ('ready', 'completed')");
+        expect(query).toContain('s.ended_at IS NOT NULL');
+        expect(query).toContain('recording_artifacts ra');
         expect(query).toContain('FROM ingest_jobs ij');
         expect(query).toContain('FROM session_metrics sm');
     });
