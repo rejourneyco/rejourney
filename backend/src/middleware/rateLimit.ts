@@ -8,6 +8,10 @@ import { Request, Response, NextFunction } from 'express';
 import { checkRateLimit, isRedisConnected, getRedis, getRedisDiagnosticsForLog } from '../db/redis.js';
 import { rateLimits } from '../config.js';
 import { logger } from '../logger.js';
+import {
+    buildIngestDeviceRateLimitKey,
+    buildIngestProjectRateLimitKey,
+} from '../utils/ingestRateLimitKey.js';
 
 /**
  * ioredis uses "reconnecting" (and "connect") after idle drops or network blips.
@@ -161,34 +165,16 @@ export const dashboardStatsRateLimiter = rateLimit({
 // Ingest rate limiter (per project)
 export const ingestProjectRateLimiter = rateLimit({
     ...rateLimits.ingest.perProject,
-    keyGenerator: (req) => `rate:ingest:project:${req.project?.id || 'unknown'}`,
+    keyGenerator: buildIngestProjectRateLimitKey,
     failOpen: false, // Ingest must be rate limited
     message: 'Ingest rate limit exceeded for this project.',
 });
 
-// Ingest rate limiter (per device)
-// SECURITY: Extract device ID from signed upload token to prevent header spoofing
+// Ingest rate limiter (per device/session)
+// Never bucket ingest traffic by req.ip because proxies collapse many clients into one key.
 export const ingestDeviceRateLimiter = rateLimit({
     ...rateLimits.ingest.perDevice,
-    keyGenerator: (req) => {
-        // Try to get device ID from signed token first (tamper-proof)
-        const uploadToken = req.headers['x-upload-token'] as string;
-        if (uploadToken) {
-            try {
-                const [payloadB64] = uploadToken.split('.');
-                if (payloadB64) {
-                    const payload = JSON.parse(Buffer.from(payloadB64, 'base64').toString('utf8'));
-                    if (payload.deviceId) {
-                        return `rate:ingest:device:${payload.deviceId}`;
-                    }
-                }
-            } catch {
-                // Fall through to IP-based limiting
-            }
-        }
-        // Fallback to IP-based limiting (less spoofable than client headers)
-        return `rate:ingest:ip:${req.ip || 'unknown'}`;
-    },
+    keyGenerator: buildIngestDeviceRateLimitKey,
     failOpen: false,
     message: 'Ingest rate limit exceeded for this device.',
 });

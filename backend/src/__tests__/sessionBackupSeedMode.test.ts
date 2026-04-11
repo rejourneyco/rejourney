@@ -1,8 +1,12 @@
 import { readFileSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
+const TEST_DIR = dirname(fileURLToPath(import.meta.url));
+
 function readWorkspaceFile(relativePathFromTestFile: string): string {
-    return readFileSync(new URL(relativePathFromTestFile, import.meta.url), 'utf8');
+    return readFileSync(resolve(TEST_DIR, relativePathFromTestFile), 'utf8');
 }
 
 function extractFunctionBlock(source: string, functionName: string): string {

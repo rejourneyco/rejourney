@@ -155,7 +155,9 @@ export const isTest = config.NODE_ENV === 'test';
 export const rateLimits = {
     // Ingest uploads: per-project
     ingest: {
-        perProject: { windowMs: 60_000, max: 600 },
+        // 600/min was too low for healthy multi-device production traffic and caused
+        // legitimate ingest to self-throttle long before byte-budget protections kicked in.
+        perProject: { windowMs: 60_000, max: 6000 },
         perDevice: { windowMs: 60_000, max: 120 },
         maxBodyBytes: 5 * 1024 * 1024, // 5 MB
         byteQuota: {

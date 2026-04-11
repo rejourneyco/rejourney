@@ -1,8 +1,15 @@
 import { createHash } from 'crypto';
 import { ApiError } from '../middleware/index.js';
 
-export function extractDeviceIdFromUploadToken(req: any): string | null {
-    const token = req.headers['x-upload-token'] as string;
+interface UploadTokenPayload {
+    type?: string;
+    deviceId?: string | null;
+    projectId?: string | null;
+    iat?: number;
+    exp?: number;
+}
+
+export function decodeUploadTokenPayload(token: string | null | undefined): UploadTokenPayload | null {
     if (!token) return null;
 
     try {
@@ -10,10 +17,24 @@ export function extractDeviceIdFromUploadToken(req: any): string | null {
         if (!payloadB64) return null;
 
         const payload = JSON.parse(Buffer.from(payloadB64, 'base64').toString('utf8'));
-        return payload.deviceId || null;
+        if (!payload || typeof payload !== 'object') {
+            return null;
+        }
+
+        return payload as UploadTokenPayload;
     } catch {
         return null;
     }
+}
+
+export function extractDeviceIdFromUploadToken(req: any): string | null {
+    const token = req.headers['x-upload-token'] as string;
+    return decodeUploadTokenPayload(token)?.deviceId || null;
+}
+
+export function extractProjectIdFromUploadToken(req: any): string | null {
+    const token = req.headers['x-upload-token'] as string;
+    return decodeUploadTokenPayload(token)?.projectId || null;
 }
 
 export function parseRequestedSizeBytes(value: unknown): number {
