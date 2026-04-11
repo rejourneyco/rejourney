@@ -437,12 +437,27 @@ function buildBackedUpFilterClause(sessionAlias = 's') {
     return '';
   }
 
+  const readyArtifactCount = buildReadyArtifactCountSql(sessionAlias);
+
   return `
         AND NOT EXISTS (
           SELECT 1
           FROM session_backup_log bl
           WHERE bl.session_id = ${sessionAlias}.id
+            AND bl.artifact_count >= ${readyArtifactCount}
+            AND bl.planned_artifact_count >= ${readyArtifactCount}
         )`;
+}
+
+function buildReadyArtifactCountSql(sessionAlias = 's') {
+  return `
+        (
+          SELECT COUNT(*)::int
+          FROM recording_artifacts ra
+          WHERE ra.session_id = ${sessionAlias}.id
+            AND ra.status = 'ready'
+        )
+  `.trim();
 }
 
 function buildMeaningfulSessionMetricsPredicateSql(metricsAlias) {
@@ -522,12 +537,18 @@ async function cleanupCompletedQueueRows() {
     return 0;
   }
 
+  const readyArtifactCount = buildReadyArtifactCountSql('s');
+
   const result = await sql(`
     DELETE FROM session_backup_queue q
     WHERE EXISTS (
       SELECT 1
-      FROM session_backup_log bl
-      WHERE bl.session_id = q.session_id
+      FROM sessions s
+      JOIN session_backup_log bl ON bl.session_id = s.id
+      WHERE s.id = q.session_id
+        AND ${readyArtifactCount} > 0
+        AND bl.artifact_count >= ${readyArtifactCount}
+        AND bl.planned_artifact_count >= ${readyArtifactCount}
     );
   `);
   return result.rowCount || 0;
@@ -581,6 +602,7 @@ async function releaseOwnedQueueClaims(ownerId) {
 
 async function claimQueueBatch(limit, ownerId) {
   const emptySessionPredicate = buildEmptySessionPredicateSql('s');
+  const readyArtifactCount = buildReadyArtifactCountSql('s');
   const result = await sql(`
     WITH claimable AS (
       SELECT q.session_id
@@ -591,6 +613,7 @@ async function claimQueueBatch(limit, ownerId) {
         AND (q.next_retry_at IS NULL OR q.next_retry_at <= NOW())
         AND s.status IN ('ready', 'completed')
         AND p.deleted_at IS NULL
+        AND ${readyArtifactCount} > 0
         AND NOT (
           ${emptySessionPredicate}
         )
@@ -662,6 +685,7 @@ async function requeueFailedQueueEntry(sessionId, ownerId, errorMessage, attempt
 
 async function fetchSeedCandidates(limit, cursorStartedAt = null, cursorSessionId = null) {
   const emptySessionPredicate = buildEmptySessionPredicateSql('s');
+  const readyArtifactCount = buildReadyArtifactCountSql('s');
   const params = [limit];
   let cursorClause = '';
 
@@ -683,6 +707,7 @@ async function fetchSeedCandidates(limit, cursorStartedAt = null, cursorSessionI
     WHERE s.status IN ('ready', 'completed')
 ${buildBackedUpFilterClause('s')}
       AND p.deleted_at IS NULL
+      AND ${readyArtifactCount} > 0
       AND NOT (
         ${emptySessionPredicate}
       )
@@ -1415,6 +1440,9 @@ async function processSession(session) {
 
   try {
     const artifacts = await fetchArtifacts(session.id);
+    if (artifacts.length === 0) {
+      throw new Error(`session ${session.id} has no ready artifacts to back up`);
+    }
     const manifest = await buildManifest(session.id);
     let totalBytes = 0;
     let missingOnSource = 0;

@@ -73,6 +73,17 @@ NOT EXISTS (
 `.trim();
 }
 
+function buildReadyArtifactCountSql(sessionAlias = 's'): string {
+    return `
+(
+                SELECT COUNT(*)::int
+                FROM recording_artifacts ra
+                WHERE ra.session_id = ${sessionAlias}.id
+                  AND ra.status = 'ready'
+            )
+`.trim();
+}
+
 function isMissingBackupQueueTableError(err: unknown): boolean {
     return Boolean(err && typeof err === 'object' && 'code' in err && (err as { code?: string }).code === '42P01');
 }
@@ -87,6 +98,7 @@ export async function enqueueSessionBackupCandidate(sessionId: string): Promise<
     }
 
     const emptySessionPredicate = buildEmptySessionPredicateSql('s');
+    const readyArtifactCount = buildReadyArtifactCountSql('s');
 
     try {
         const result = await pool.query<{ session_id: string }>(
@@ -110,25 +122,16 @@ export async function enqueueSessionBackupCandidate(sessionId: string): Promise<
               AND s.status IN ('ready', 'completed')
               AND s.ended_at IS NOT NULL
               AND p.deleted_at IS NULL
+              AND ${readyArtifactCount} > 0
               AND NOT (
                 ${emptySessionPredicate}
               )
-              AND (
-                NOT EXISTS (
-                  SELECT 1
-                  FROM session_backup_log bl
-                  WHERE bl.session_id = s.id
-                )
-                OR EXISTS (
-                  SELECT 1
-                  FROM session_backup_log bl
-                  WHERE bl.session_id = s.id
-                    AND bl.artifact_count < (
-                      SELECT COUNT(*)::int
-                      FROM recording_artifacts ra
-                      WHERE ra.session_id = s.id
-                    )
-                )
+              AND NOT EXISTS (
+                SELECT 1
+                FROM session_backup_log bl
+                WHERE bl.session_id = s.id
+                  AND bl.artifact_count >= ${readyArtifactCount}
+                  AND bl.planned_artifact_count >= ${readyArtifactCount}
               )
             ON CONFLICT (session_id) DO NOTHING
             RETURNING session_id

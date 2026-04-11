@@ -41,9 +41,12 @@ describe('sessionBackupQueue', () => {
         expect(query).toContain('ON CONFLICT (session_id) DO NOTHING');
         expect(query).toContain("s.status IN ('ready', 'completed')");
         expect(query).toContain('s.ended_at IS NOT NULL');
+        expect(query).toContain("ra.status = 'ready'");
+        expect(query).toContain('AND (');
         expect(query).toContain('recording_artifacts ra');
         expect(query).toContain('FROM ingest_jobs ij');
         expect(query).toContain('FROM session_metrics sm');
+        expect(query).toContain('bl.planned_artifact_count >=');
     });
 
     it('returns false without querying when session id is empty', async () => {

@@ -167,6 +167,7 @@ Session Backup Deployment Notes:
 - The source-of-truth script for that job is [session-backup.mjs](../scripts/k8s/session-backup.mjs), and GitHub Actions now runs [check-archive-sync.sh](../scripts/k8s/check-archive-sync.sh) before `kubectl apply`.
 - A deploy from `main` now updates the backup job logic, including legacy hierarchy gzip repair and archive-friendly screenshot repacking for R2.
 - The live CronJob can be suspended during reset, but the committed manifest controls whether it resumes after the next deploy.
+- Detailed queue / backup / retention rules live in [Session Backup + Retention Internals](./session-backup-retention-internals.md).
 
 Current Production Runtime Notes:
 
@@ -188,7 +189,9 @@ Retention + Backup Coordination:
 - Production retention now runs as a CronJob every 15 minutes with `concurrencyPolicy: Forbid`.
 - The container entrypoint is `node dist/worker/retentionWorker.js --once --drain-backlog --trigger=scheduled`.
 - Retention also takes a Postgres run lock in `retention_run_lock`, so a manual backfill and the CronJob cannot overlap.
-- Retention only purges a session after that session appears in `session_backup_log`.
+- Retention only purges a session after backup safety checks pass:
+  - normally that means a complete `session_backup_log` row exists
+  - truly empty sessions are the intentional exception and may be purged outright
 - This means retention is intentionally fail-safe on fresh deploys:
   - if `session_backup_log` does not exist yet, retention skips session purges
   - if a session has not been backed up yet, retention skips that session
