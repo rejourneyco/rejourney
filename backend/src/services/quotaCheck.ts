@@ -300,7 +300,6 @@ export async function checkBillingStatus(
 ): Promise<{ canRecord: boolean; reason?: string }> {
     const [team] = await db
         .select({
-            ownerUserId: teams.ownerUserId,
             paymentFailedAt: teams.paymentFailedAt,
         })
         .from(teams)
@@ -319,9 +318,8 @@ export async function checkBillingStatus(
         };
     }
 
-    // Check if owner can record (free tier check)
-    const { canUserRecord } = await import('../routes/stripeBilling.js');
-    return canUserRecord(team.ownerUserId, teamId);
+    // Session-limit enforcement is handled separately via checkAndEnforceSessionLimit().
+    return { canRecord: true };
 }
 
 // =============================================================================
@@ -541,4 +539,3 @@ export async function checkAndSendUsageAlerts(teamId: string, period: string): P
 
     logger.info({ teamId, alertType, percentUsed, recipientsCount: recipientEmails.length }, 'Sent usage alert emails');
 }
-

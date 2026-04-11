@@ -56,6 +56,20 @@ function logIngestPresignSkip(meta: {
     );
 }
 
+async function findExistingProjectSession(projectId: string, sessionId?: string | null) {
+    if (!sessionId) {
+        return null;
+    }
+
+    const [session] = await db
+        .select()
+        .from(sessions)
+        .where(and(eq(sessions.id, sessionId), eq(sessions.projectId, projectId)))
+        .limit(1);
+
+    return session ?? null;
+}
+
 router.post(
     '/presign',
     apiKeyAuth,
@@ -82,12 +96,10 @@ router.post(
             throw ApiError.forbidden('Rejourney is disabled for this project');
         }
 
-        const billingStatus = await checkBillingStatus(teamId);
-        if (!billingStatus.canRecord) {
-            throw ApiError.paymentRequired(billingStatus.reason || 'Recording blocked - billing issue');
-        }
-
-        await checkAndEnforceSessionLimit(teamId);
+        const providedSessionId = typeof data.sessionId === 'string' && data.sessionId !== ''
+            ? data.sessionId
+            : null;
+        const sessionId = providedSessionId ?? `session_${Date.now()}_${randomBytes(16).toString('hex')}`;
 
         const idempotencyKey = req.headers['idempotency-key'] as string;
         if (idempotencyKey) {
@@ -133,9 +145,14 @@ router.post(
             endpoint: 'presign',
         });
 
-        let sessionId = data.sessionId;
-        if (!sessionId || sessionId === '') {
-            sessionId = `session_${Date.now()}_${randomBytes(16).toString('hex')}`;
+        const existingSession = await findExistingProjectSession(projectId, providedSessionId);
+        if (!existingSession) {
+            const billingStatus = await checkBillingStatus(teamId);
+            if (!billingStatus.canRecord) {
+                throw ApiError.paymentRequired(billingStatus.reason || 'Recording blocked - billing issue');
+            }
+
+            await checkAndEnforceSessionLimit(teamId);
         }
 
         const { session, created: isNewSession } = await ensureIngestSession(projectId, sessionId, req, {
@@ -359,13 +376,6 @@ router.post(
             return;
         }
 
-        const billingStatus = await checkBillingStatus(teamId);
-        if (!billingStatus.canRecord) {
-            throw ApiError.paymentRequired(billingStatus.reason || 'Recording blocked - billing issue');
-        }
-
-        await checkAndEnforceSessionLimit(teamId);
-
         const idempotencyKey = req.headers['idempotency-key'] as string;
         if (idempotencyKey) {
             const existing = await getIdempotencyStatus(projectId, idempotencyKey);
@@ -411,6 +421,16 @@ router.post(
             bytes: requestedSizeBytes,
             endpoint: 'segment/presign',
         });
+
+        const existingSession = await findExistingProjectSession(projectId, data.sessionId);
+        if (!existingSession) {
+            const billingStatus = await checkBillingStatus(teamId);
+            if (!billingStatus.canRecord) {
+                throw ApiError.paymentRequired(billingStatus.reason || 'Recording blocked - billing issue');
+            }
+
+            await checkAndEnforceSessionLimit(teamId);
+        }
 
         let { session, created: isNewSession } = await ensureIngestSession(projectId, data.sessionId, req, {
             platform: data.platform,
