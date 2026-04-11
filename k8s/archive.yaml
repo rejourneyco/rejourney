@@ -563,6 +563,25 @@ data:
       return result.rowCount || 0;
     }
 
+    async function cleanupZeroReadyArtifactQueueRows() {
+      const readyArtifactCount = buildReadyArtifactCountSql('s');
+
+      const result = await sql(`
+        DELETE FROM session_backup_queue q
+        WHERE q.status = 'pending'
+          AND EXISTS (
+            SELECT 1
+            FROM sessions s
+            JOIN projects p ON p.id = s.project_id
+            WHERE s.id = q.session_id
+              AND s.status IN ('ready', 'completed')
+              AND p.deleted_at IS NULL
+              AND ${readyArtifactCount} = 0
+          );
+      `);
+      return result.rowCount || 0;
+    }
+
     async function cleanupOrphanedQueueRows() {
       const result = await sql(`
         DELETE FROM session_backup_queue q
@@ -1646,6 +1665,11 @@ data:
           log(`Removed ${cleanedCompleted} completed session(s) from the backup queue`);
         }
 
+        const cleanedZeroReady = await cleanupZeroReadyArtifactQueueRows();
+        if (cleanedZeroReady > 0) {
+          log(`Removed ${cleanedZeroReady} queued session(s) that no longer have ready artifacts`);
+        }
+
         const cleanedOrphans = await cleanupOrphanedQueueRows();
         if (cleanedOrphans > 0) {
           log(`Removed ${cleanedOrphans} orphaned session(s) from the backup queue`);
@@ -1944,7 +1968,7 @@ metadata:
   labels:
     app.kubernetes.io/part-of: rejourney
 spec:
-  schedule: "0 4 * * *"
+  schedule: "0 * * * *"
   suspend: false
   concurrencyPolicy: Forbid
   successfulJobsHistoryLimit: 3
@@ -2033,11 +2057,11 @@ spec:
                       name: r2-backup-secret
                       key: AWS_SECRET_ACCESS_KEY
                 - name: SESSION_BACKUP_BATCH_SIZE
-                  value: "25"
+                  value: "40"
                 - name: SESSION_BACKUP_BATCH_FETCH_SIZE
                   value: "200"
                 - name: SESSION_BACKUP_MAX_PARALLEL
-                  value: "3"
+                  value: "4"
                 - name: SESSION_BACKUP_ARTIFACT_PARALLEL
                   value: "4"
                 - name: SESSION_BACKUP_REPAIR_LEGACY_HIERARCHY_GZIP

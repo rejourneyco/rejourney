@@ -164,6 +164,7 @@ Admins: **Tailscale** (100.x) → SSH / `kubectl` / `port-forward` (not through 
 Session Backup Deployment Notes:
 
 - The session backup CronJob is deployed from [archive.yaml](../k8s/archive.yaml).
+- Production currently schedules that CronJob hourly so queued backupable sessions do not wait for a once-daily drain.
 - The source-of-truth script for that job is [session-backup.mjs](../scripts/k8s/session-backup.mjs), and GitHub Actions now runs [check-archive-sync.sh](../scripts/k8s/check-archive-sync.sh) before `kubectl apply`.
 - A deploy from `main` now updates the backup job logic, including legacy hierarchy gzip repair and archive-friendly screenshot repacking for R2.
 - The live CronJob can be suspended during reset, but the committed manifest controls whether it resumes after the next deploy.

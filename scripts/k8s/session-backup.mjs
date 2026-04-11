@@ -554,6 +554,25 @@ async function cleanupCompletedQueueRows() {
   return result.rowCount || 0;
 }
 
+async function cleanupZeroReadyArtifactQueueRows() {
+  const readyArtifactCount = buildReadyArtifactCountSql('s');
+
+  const result = await sql(`
+    DELETE FROM session_backup_queue q
+    WHERE q.status = 'pending'
+      AND EXISTS (
+        SELECT 1
+        FROM sessions s
+        JOIN projects p ON p.id = s.project_id
+        WHERE s.id = q.session_id
+          AND s.status IN ('ready', 'completed')
+          AND p.deleted_at IS NULL
+          AND ${readyArtifactCount} = 0
+      );
+  `);
+  return result.rowCount || 0;
+}
+
 async function cleanupOrphanedQueueRows() {
   const result = await sql(`
     DELETE FROM session_backup_queue q
@@ -1635,6 +1654,11 @@ async function main() {
     const cleanedCompleted = await cleanupCompletedQueueRows();
     if (cleanedCompleted > 0) {
       log(`Removed ${cleanedCompleted} completed session(s) from the backup queue`);
+    }
+
+    const cleanedZeroReady = await cleanupZeroReadyArtifactQueueRows();
+    if (cleanedZeroReady > 0) {
+      log(`Removed ${cleanedZeroReady} queued session(s) that no longer have ready artifacts`);
     }
 
     const cleanedOrphans = await cleanupOrphanedQueueRows();
