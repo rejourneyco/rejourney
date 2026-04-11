@@ -37,10 +37,5 @@ export const db = drizzle({
 // Export pool for direct access when needed (e.g., raw queries, health checks)
 export { pool };
 
-// Graceful shutdown
-process.on('beforeExit', async () => {
-    await pool.end();
-});
-
 // Export schema for use in queries
 export * from './schema.js';
