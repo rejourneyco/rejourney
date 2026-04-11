@@ -43,8 +43,8 @@ describe('session backup seed mode', () => {
         expect(manifest).toContain('schedule: "0 * * * *"');
         expect(manifest).toContain('name: session-backup-seed');
         expect(manifest).toContain('schedule: "*/5 * * * *"');
-        expect(manifest).toContain('exec node session-backup.mjs --mode=seed-queue --limit=1000');
+        expect(manifest).toContain('exec node session-backup.mjs --mode=seed-queue --limit=2000');
         expect(manifest).toContain('name: SESSION_BACKUP_SEED_BATCH_SIZE');
-        expect(manifest).toContain('value: "1000"');
+        expect(manifest).toContain('value: "2000"');
     });
 });
