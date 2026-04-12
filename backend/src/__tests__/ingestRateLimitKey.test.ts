@@ -99,4 +99,28 @@ describe('ingestRateLimitKey', () => {
         expect(key).toBe('rate:ingest:invalid:unscoped:/auth/device');
         expect(key).not.toContain('10.42.0.1');
     });
+
+    it('reuses the same base device key across ingest routes so middleware can scope buckets by route', () => {
+        const request = {
+            headers: {
+                'x-upload-token': buildUploadToken({
+                    projectId: 'project_live',
+                    deviceId: 'device_live',
+                }),
+            },
+            body: {},
+            path: '/segment/presign',
+            project: { id: 'project_live' },
+        };
+
+        expect(buildIngestDeviceRateLimitKey(request)).toBe(
+            'rate:ingest:device:project:project_live:device_live',
+        );
+
+        request.path = '/presign';
+
+        expect(buildIngestDeviceRateLimitKey(request)).toBe(
+            'rate:ingest:device:project:project_live:device_live',
+        );
+    });
 });

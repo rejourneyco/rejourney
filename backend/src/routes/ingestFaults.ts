@@ -3,7 +3,7 @@ import { and, eq, gte, lte, sql } from 'drizzle-orm';
 import { db, anrs, crashes, sessionMetrics } from '../db/client.js';
 import { logger } from '../logger.js';
 import { apiKeyAuth, requireScope, asyncHandler, ApiError } from '../middleware/index.js';
-import { ingestProjectRateLimiter } from '../middleware/rateLimit.js';
+import { ingestFaultProjectRateLimiter } from '../middleware/rateLimit.js';
 import { ensureIngestSession } from '../services/ingestSessionLifecycle.js';
 import { trackANRAsIssue, trackCrashAsIssue } from '../services/issueTracker.js';
 import { assertSessionAcceptsNewIngestWork } from '../services/sessionIngestImmutability.js';
@@ -15,7 +15,7 @@ router.post(
     '/fault',
     apiKeyAuth,
     requireScope('ingest'),
-    ingestProjectRateLimiter,
+    ingestFaultProjectRateLimiter,
     asyncHandler(async (req, res) => {
         const projectId = req.project!.id;
         const incident = req.body;

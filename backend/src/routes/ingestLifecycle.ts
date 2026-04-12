@@ -3,7 +3,7 @@ import { eq } from 'drizzle-orm';
 import { db, projects, sessionMetrics, sessions } from '../db/client.js';
 import { logger } from '../logger.js';
 import { apiKeyAuth, requireScope, asyncHandler } from '../middleware/index.js';
-import { ingestProjectRateLimiter } from '../middleware/rateLimit.js';
+import { ingestLifecycleProjectRateLimiter } from '../middleware/rateLimit.js';
 import { validate } from '../middleware/validation.js';
 import { endSessionSchema } from '../validation/ingest.js';
 import { normalizeIngestSdkVersion, resolveLifecycleSession } from '../services/ingestSessionLifecycle.js';
@@ -28,7 +28,7 @@ router.post(
     '/session/end',
     apiKeyAuth,
     requireScope('ingest'),
-    ingestProjectRateLimiter,
+    ingestLifecycleProjectRateLimiter,
     validate(endSessionSchema),
     asyncHandler(async (req, res) => {
         const data = req.body;

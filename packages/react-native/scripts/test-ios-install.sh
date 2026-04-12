@@ -7,7 +7,8 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PACKAGE_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-TEST_DIR="/tmp/rejourney-ios-test"
+# Override in CI (e.g. matrix jobs) to avoid parallel workers clashing on /tmp.
+TEST_DIR="${REJOURNEY_INSTALL_TEST_DIR:-/tmp/rejourney-ios-test}"
 NPM_CACHE_DIR="$TEST_DIR/.npm-cache"
 RN_VERSION="${RN_VERSION:-}"
 

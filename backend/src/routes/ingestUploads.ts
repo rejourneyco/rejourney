@@ -6,7 +6,12 @@ import { logger } from '../logger.js';
 import { getIdempotencyStatus, setIdempotencyStatus } from '../db/redis.js';
 import { generateS3Key, getEndpointForProject } from '../db/s3.js';
 import { apiKeyAuth, requireScope, asyncHandler, ApiError } from '../middleware/index.js';
-import { ingestDeviceRateLimiter, ingestProjectRateLimiter } from '../middleware/rateLimit.js';
+import {
+    ingestBatchDeviceRateLimiter,
+    ingestBatchProjectRateLimiter,
+    ingestSegmentProjectRateLimiter,
+    ingestSegmentDeviceRateLimiter,
+} from '../middleware/rateLimit.js';
 import { updateDeviceUsage } from '../services/recording.js';
 import { ensureIngestSession, maybeBackfillSessionStartedAt } from '../services/ingestSessionLifecycle.js';
 import { checkAndEnforceSessionLimit, checkBillingStatus, incrementProjectSessionCount } from '../services/quotaCheck.js';
@@ -74,8 +79,8 @@ router.post(
     '/presign',
     apiKeyAuth,
     requireScope('ingest'),
-    ingestProjectRateLimiter,
-    ingestDeviceRateLimiter,
+    ingestBatchProjectRateLimiter,
+    ingestBatchDeviceRateLimiter,
     asyncHandler(async (req, res) => {
         const data = req.body;
         const projectId = req.project!.id;
@@ -242,7 +247,7 @@ router.post(
     '/batch/complete',
     apiKeyAuth,
     requireScope('ingest'),
-    ingestProjectRateLimiter,
+    ingestBatchProjectRateLimiter,
     asyncHandler(async (req, res) => {
         const { batchId, actualSizeBytes, eventCount, frameCount, sdkTelemetry } = req.body;
         const projectId = req.project!.id;
@@ -340,8 +345,8 @@ router.post(
     '/segment/presign',
     apiKeyAuth,
     requireScope('ingest'),
-    ingestProjectRateLimiter,
-    ingestDeviceRateLimiter,
+    ingestSegmentProjectRateLimiter,
+    ingestSegmentDeviceRateLimiter,
     asyncHandler(async (req, res) => {
         const data = req.body;
         const projectId = req.project!.id;
@@ -681,7 +686,7 @@ router.post(
     '/segment/complete',
     apiKeyAuth,
     requireScope('ingest'),
-    ingestProjectRateLimiter,
+    ingestSegmentProjectRateLimiter,
     asyncHandler(async (req, res) => {
         const { segmentId, actualSizeBytes, frameCount, sdkTelemetry } = req.body;
         const projectId = req.project!.id;

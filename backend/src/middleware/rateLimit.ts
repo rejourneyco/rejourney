@@ -140,6 +140,13 @@ export function rateLimit(options: RateLimitOptions) {
     };
 }
 
+function scopeRateLimitKey(
+    scope: string,
+    baseKeyGenerator: (req: Request) => string,
+): (req: Request) => string {
+    return (req: Request) => `${baseKeyGenerator(req)}:bucket:${scope}`;
+}
+
 /**
  * Pre-configured rate limiters
  */
@@ -162,21 +169,64 @@ export const dashboardStatsRateLimiter = rateLimit({
     message: 'Too many stats requests. Please wait before refreshing.',
 });
 
-// Ingest rate limiter (per project)
-export const ingestProjectRateLimiter = rateLimit({
-    ...rateLimits.ingest.perProject,
-    keyGenerator: buildIngestProjectRateLimitKey,
-    failOpen: false, // Ingest must be rate limited
-    message: 'Ingest rate limit exceeded for this project.',
+// Keep ingest project buckets split by route family so hot replay traffic does
+// not cannibalize other ingest paths.
+export const ingestAuthProjectRateLimiter = rateLimit({
+    ...rateLimits.ingest.perProjectAuth,
+    keyGenerator: scopeRateLimitKey('auth-device', buildIngestProjectRateLimitKey),
+    failOpen: false,
+    message: 'Device ingest auth rate limit exceeded for this project.',
 });
 
-// Ingest rate limiter (per device/session)
-// Never bucket ingest traffic by req.ip because proxies collapse many clients into one key.
-export const ingestDeviceRateLimiter = rateLimit({
-    ...rateLimits.ingest.perDevice,
-    keyGenerator: buildIngestDeviceRateLimitKey,
+export const ingestBatchProjectRateLimiter = rateLimit({
+    ...rateLimits.ingest.perProjectBatch,
+    keyGenerator: scopeRateLimitKey('batch-ingest', buildIngestProjectRateLimitKey),
     failOpen: false,
-    message: 'Ingest rate limit exceeded for this device.',
+    message: 'Batch ingest rate limit exceeded for this project.',
+});
+
+export const ingestSegmentProjectRateLimiter = rateLimit({
+    ...rateLimits.ingest.perProjectSegment,
+    keyGenerator: scopeRateLimitKey('segment-ingest', buildIngestProjectRateLimitKey),
+    failOpen: false,
+    message: 'Replay ingest rate limit exceeded for this project.',
+});
+
+export const ingestLifecycleProjectRateLimiter = rateLimit({
+    ...rateLimits.ingest.perProjectLifecycle,
+    keyGenerator: scopeRateLimitKey('lifecycle', buildIngestProjectRateLimitKey),
+    failOpen: false,
+    message: 'Session lifecycle ingest rate limit exceeded for this project.',
+});
+
+export const ingestFaultProjectRateLimiter = rateLimit({
+    ...rateLimits.ingest.perProjectFault,
+    keyGenerator: scopeRateLimitKey('fault', buildIngestProjectRateLimitKey),
+    failOpen: false,
+    message: 'Fault ingest rate limit exceeded for this project.',
+});
+
+// Keep ingest hot paths in separate device buckets so auth, batch presigns, and
+// replay segment presigns do not cannibalize each other.
+export const ingestDeviceAuthRateLimiter = rateLimit({
+    ...rateLimits.ingest.perDeviceAuth,
+    keyGenerator: scopeRateLimitKey('auth-device', buildIngestDeviceRateLimitKey),
+    failOpen: false,
+    message: 'Device ingest auth rate limit exceeded.',
+});
+
+export const ingestBatchDeviceRateLimiter = rateLimit({
+    ...rateLimits.ingest.perDeviceBatch,
+    keyGenerator: scopeRateLimitKey('batch-presign', buildIngestDeviceRateLimitKey),
+    failOpen: false,
+    message: 'Ingest batch rate limit exceeded for this device.',
+});
+
+export const ingestSegmentDeviceRateLimiter = rateLimit({
+    ...rateLimits.ingest.perDeviceSegment,
+    keyGenerator: scopeRateLimitKey('segment-presign', buildIngestDeviceRateLimitKey),
+    failOpen: false,
+    message: 'Ingest segment rate limit exceeded for this device.',
 });
 
 // OTP send rate limiter
