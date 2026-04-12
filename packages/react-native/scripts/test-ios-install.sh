@@ -8,7 +8,11 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PACKAGE_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 TEST_DIR="/tmp/rejourney-ios-test"
+NPM_CACHE_DIR="$TEST_DIR/.npm-cache"
 RN_VERSION="${RN_VERSION:-}"
+
+mkdir -p "$NPM_CACHE_DIR"
+export npm_config_cache="$NPM_CACHE_DIR"
 
 echo "🧪 Testing iOS Installation"
 echo "============================"
@@ -26,11 +30,17 @@ npm run prepare
 # Step 2: Pack the library
 echo ""
 echo "📦 Step 2: Packing library..."
-PACK_FILE=$(npm pack 2>&1 | tail -1 | sed 's/.*\///')
+PACK_OUTPUT=$(npm pack --json)
+if ! PACK_FILE=$(printf '%s' "$PACK_OUTPUT" | node -e "const fs = require('fs'); const text = fs.readFileSync(0, 'utf8'); const match = text.match(/(?:^|\\n)(\\[\\s*\\{[\\s\\S]*\\])\\s*$/); if (!match) process.exit(1); const data = JSON.parse(match[1]); process.stdout.write(data[0]?.filename || '');"); then
+    PACK_FILE=""
+fi
 PACK_PATH="$PACKAGE_DIR/$PACK_FILE"
 
 if [ ! -f "$PACK_PATH" ]; then
     echo "❌ Error: Failed to create package file"
+    if [ -n "$PACK_OUTPUT" ]; then
+        echo "$PACK_OUTPUT"
+    fi
     exit 1
 fi
 
@@ -63,9 +73,27 @@ echo ""
 echo "📥 Step 4: Installing packed library..."
 npm install "$PACK_PATH"
 
-# Step 5: Install pods
+# Step 5: Import the package in JS so Metro resolves the published entrypoint
 echo ""
-echo "🍎 Step 5: Installing CocoaPods..."
+echo "🧩 Step 5: Wiring the package into the validation app..."
+node "$PACKAGE_DIR/scripts/configure-validation-app.js" "$TEST_DIR/ValidationApp"
+
+# Step 6: Bundle the app without optional peers to verify Metro-safe imports
+echo ""
+echo "📦 Step 6: Bundling the app to verify JS dependency resolution..."
+BUNDLE_DIR="$TEST_DIR/ValidationApp/.rejourney-smoke/ios"
+mkdir -p "$BUNDLE_DIR/assets"
+npx react-native bundle \
+    --platform ios \
+    --dev false \
+    --entry-file index.js \
+    --bundle-output "$BUNDLE_DIR/main.jsbundle" \
+    --assets-dest "$BUNDLE_DIR/assets" \
+    --reset-cache
+
+# Step 7: Install pods
+echo ""
+echo "🍎 Step 7: Installing CocoaPods..."
 cd ios
 
 if ! command -v pod &> /dev/null; then
@@ -75,9 +103,9 @@ fi
 
 pod install
 
-# Step 6: Verify podspec was found
+# Step 8: Verify podspec was found
 echo ""
-echo "🔍 Step 6: Verifying podspec integration..."
+echo "🔍 Step 8: Verifying podspec integration..."
 if grep -q "rejourney" Podfile.lock; then
     echo "✅ rejourney pod found in Podfile.lock"
 else
@@ -85,9 +113,9 @@ else
     exit 1
 fi
 
-# Step 7: Try to build (optional - requires Xcode)
+# Step 9: Try to build (optional - requires Xcode)
 echo ""
-echo "📱 Step 7: Attempting to build (requires Xcode)..."
+echo "📱 Step 9: Attempting to build (requires Xcode)..."
 if command -v xcodebuild &> /dev/null; then
     DESTINATION="generic/platform=iOS Simulator"
     xcodebuild -workspace ValidationApp.xcworkspace \

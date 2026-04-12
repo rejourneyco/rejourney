@@ -2070,11 +2070,11 @@ spec:
                   value: "1"
               resources:
                 requests:
-                  cpu: 500m
-                  memory: 1Gi
+                  cpu: 300m
+                  memory: 768Mi
                 limits:
-                  cpu: "2500m"
-                  memory: 3Gi
+                  cpu: "2000m"
+                  memory: 2Gi
 ---
 apiVersion: batch/v1
 kind: CronJob
@@ -2180,8 +2180,8 @@ spec:
                   value: "1"
               resources:
                 requests:
-                  cpu: 250m
-                  memory: 512Mi
+                  cpu: 100m
+                  memory: 256Mi
                 limits:
-                  cpu: "1"
-                  memory: 1Gi
+                  cpu: "500m"
+                  memory: 512Mi

@@ -111,8 +111,10 @@ apply_file() {
 
 wait_infra() {
     kubectl wait --for=condition=ready pod -l app=postgres -n "$NAMESPACE" --timeout=180s
-    kubectl wait --for=condition=ready pod -l app=redis -n "$NAMESPACE" --timeout=120s
-    kubectl wait --for=condition=ready pod -l app=minio -n "$NAMESPACE" --timeout=120s
+    # Deployments can briefly run two pods during a rolling update; `kubectl wait` on every
+    # pod then blocks on the terminating replica. Rollout status waits for the deployment to finish.
+    kubectl rollout status deployment/redis -n "$NAMESPACE" --timeout=180s
+    kubectl rollout status deployment/minio -n "$NAMESPACE" --timeout=180s
     kubectl wait --for=condition=complete job/minio-setup -n "$NAMESPACE" --timeout=180s || true
 }
 

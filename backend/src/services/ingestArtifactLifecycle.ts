@@ -1,8 +1,10 @@
 import { and, eq, inArray, isNull, lte, or, sql } from 'drizzle-orm';
 import { db, ingestJobs, recordingArtifacts, sessions } from '../db/client.js';
+import { getObjectSizeBytesForArtifact } from '../db/s3.js';
 import { logger } from '../logger.js';
 import {
     ABANDONED_ARTIFACT_TTL_MS,
+    REPLAY_PENDING_ARTIFACT_GRACE_MS,
     STALE_PROCESSING_JOB_TTL_MS,
 } from './ingestUploadRelay.js';
 import { markSessionIngestActivity } from './sessionReconciliation.js';
@@ -38,6 +40,11 @@ type ReplayArtifactPreparationResult = {
     artifact: any;
     action: 'created' | 'reused' | 'reopened' | 'skip';
     alreadyCompleted: boolean;
+};
+
+type StalePendingReplayRecoveryResult = {
+    checked: number;
+    recovered: number;
 };
 
 function isReplayArtifactKind(kind: string | null | undefined): boolean {
@@ -580,8 +587,80 @@ export async function queueRecoverableArtifacts(limit = 100): Promise<number> {
     return queued;
 }
 
+export async function recoverStalePendingReplayArtifacts(limit = 100): Promise<StalePendingReplayRecoveryResult> {
+    const cutoff = new Date(Date.now() - ABANDONED_ARTIFACT_TTL_MS);
+    const rows = await db.select({
+        artifact: recordingArtifacts,
+        projectId: sessions.projectId,
+    })
+        .from(recordingArtifacts)
+        .innerJoin(sessions, eq(recordingArtifacts.sessionId, sessions.id))
+        .where(and(
+            eq(recordingArtifacts.status, 'pending'),
+            isNull(recordingArtifacts.uploadCompletedAt),
+            sql`${recordingArtifacts.kind} in ('screenshots', 'hierarchy')`,
+            lte(recordingArtifacts.createdAt, cutoff),
+        ))
+        .limit(limit);
+
+    if (rows.length === 0) {
+        return { checked: 0, recovered: 0 };
+    }
+
+    let recovered = 0;
+
+    for (const row of rows) {
+        const sizeBytes = await getObjectSizeBytesForArtifact(
+            row.projectId,
+            row.artifact.s3ObjectKey,
+            row.artifact.endpointId,
+        );
+
+        if (!sizeBytes || sizeBytes <= 0) {
+            continue;
+        }
+
+        const recoveredAt = new Date();
+        await db.update(recordingArtifacts)
+            .set({
+                status: 'uploaded',
+                sizeBytes,
+                uploadCompletedAt: row.artifact.uploadCompletedAt ?? recoveredAt,
+            })
+            .where(eq(recordingArtifacts.id, row.artifact.id));
+
+        await markSessionIngestActivity(row.artifact.sessionId, { at: recoveredAt });
+
+        const jobState = await ensureArtifactProcessingJob({
+            ...row.artifact,
+            projectId: row.projectId,
+            status: 'uploaded',
+        });
+
+        recovered += 1;
+        logger.info({
+            event: 'artifact.recovered_from_storage',
+            replayArtifact: true,
+            sessionId: row.artifact.sessionId,
+            artifactId: row.artifact.id,
+            kind: row.artifact.kind,
+            s3ObjectKey: row.artifact.s3ObjectKey,
+            endpointId: row.artifact.endpointId ?? null,
+            sizeBytes,
+            queued: jobState.queued,
+            alreadyCompleted: jobState.alreadyCompleted,
+        }, 'artifact.recovered_from_storage');
+    }
+
+    return {
+        checked: rows.length,
+        recovered,
+    };
+}
+
 export async function abandonExpiredPendingArtifacts(limit = 100): Promise<number> {
     const cutoff = new Date(Date.now() - ABANDONED_ARTIFACT_TTL_MS);
+    const replayGraceCutoff = new Date(Date.now() - REPLAY_PENDING_ARTIFACT_GRACE_MS);
     const rows = await db.select({
         id: recordingArtifacts.id,
         sessionId: recordingArtifacts.sessionId,
@@ -594,6 +673,10 @@ export async function abandonExpiredPendingArtifacts(limit = 100): Promise<numbe
             eq(recordingArtifacts.status, 'pending'),
             isNull(recordingArtifacts.uploadCompletedAt),
             lte(recordingArtifacts.createdAt, cutoff),
+            or(
+                sql`${recordingArtifacts.kind} not in ('screenshots', 'hierarchy')`,
+                lte(recordingArtifacts.createdAt, replayGraceCutoff),
+            ),
         ))
         .limit(limit);
 

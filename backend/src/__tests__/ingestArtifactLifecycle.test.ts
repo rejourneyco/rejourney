@@ -34,6 +34,7 @@ const mocks = vi.hoisted(() => ({
         warn: vi.fn(),
         error: vi.fn(),
     },
+    getObjectSizeBytesForArtifact: vi.fn(),
 }));
 
 vi.mock('drizzle-orm', () => ({
@@ -61,7 +62,12 @@ vi.mock('../logger.js', () => ({
     logger: mocks.logger,
 }));
 
+vi.mock('../db/s3.js', () => ({
+    getObjectSizeBytesForArtifact: mocks.getObjectSizeBytesForArtifact,
+}));
+
 import {
+    recoverStalePendingReplayArtifacts,
     markArtifactUploadStored,
     markArtifactUploadInterrupted,
     prepareReplayArtifactForUpload,
@@ -75,6 +81,16 @@ function queueJoinedSelectResult(result: any) {
                 where: vi.fn(() => ({
                     limit: vi.fn(async () => result ? [result] : []),
                 })),
+            })),
+        })),
+    }));
+}
+
+function simpleSelectResult(result: any[] = []) {
+    mocks.db.select.mockImplementationOnce(() => ({
+        from: vi.fn(() => ({
+            where: vi.fn(() => ({
+                limit: vi.fn(async () => result),
             })),
         })),
     }));
@@ -99,6 +115,7 @@ describe('ingestArtifactLifecycle', () => {
                 }]),
             })),
         }));
+        mocks.getObjectSizeBytesForArtifact.mockReset();
     });
 
     it('skips replay upload when the segment is already ready', async () => {
@@ -418,5 +435,84 @@ describe('ingestArtifactLifecycle', () => {
             status: 'uploaded',
             sizeBytes: 123,
         });
+    });
+
+    it('recovers stale pending replay artifacts when the object already exists in storage', async () => {
+        const updateCalls: Array<{ table: unknown; payload: any }> = [];
+        mocks.db.update.mockImplementation((table: unknown) => ({
+            set: vi.fn((payload) => {
+                updateCalls.push({ table, payload });
+                return {
+                    where: vi.fn(async () => ({ table, payload })),
+                };
+            }),
+        }));
+        mocks.getObjectSizeBytesForArtifact.mockResolvedValueOnce(2048);
+        mocks.db.select.mockReset();
+        queueJoinedSelectResult({
+            artifact: {
+                id: 'artifact_pending',
+                sessionId: 'session_1',
+                status: 'pending',
+                kind: 'screenshots',
+                s3ObjectKey: 'tenant/team/project/session/screenshots/1000.tar.gz',
+                endpointId: 'endpoint_1',
+                uploadCompletedAt: null,
+            },
+            projectId: 'project_1',
+        });
+        simpleSelectResult([]);
+
+        const result = await recoverStalePendingReplayArtifacts(10);
+
+        expect(result).toEqual({ checked: 1, recovered: 1 });
+        expect(mocks.getObjectSizeBytesForArtifact).toHaveBeenCalledWith(
+            'project_1',
+            'tenant/team/project/session/screenshots/1000.tar.gz',
+            'endpoint_1',
+        );
+        expect(updateCalls[0]?.table).toBe(mocks.recordingArtifacts);
+        expect(updateCalls[0]?.payload).toMatchObject({
+            status: 'uploaded',
+            sizeBytes: 2048,
+        });
+        expect(mocks.markSessionIngestActivity).toHaveBeenCalledWith(
+            'session_1',
+            expect.objectContaining({ at: expect.any(Date) }),
+        );
+        expect(mocks.db.insert).toHaveBeenCalledWith(mocks.ingestJobs);
+    });
+
+    it('leaves stale pending replay artifacts recoverable when the storage object is still missing', async () => {
+        const updateCalls: Array<{ table: unknown; payload: any }> = [];
+        mocks.db.update.mockImplementation((table: unknown) => ({
+            set: vi.fn((payload) => {
+                updateCalls.push({ table, payload });
+                return {
+                    where: vi.fn(async () => ({ table, payload })),
+                };
+            }),
+        }));
+        mocks.getObjectSizeBytesForArtifact.mockResolvedValueOnce(null);
+        mocks.db.select.mockReset();
+        queueJoinedSelectResult({
+            artifact: {
+                id: 'artifact_pending',
+                sessionId: 'session_1',
+                status: 'pending',
+                kind: 'hierarchy',
+                s3ObjectKey: 'tenant/team/project/session/hierarchy/1000.json.gz',
+                endpointId: 'endpoint_1',
+                uploadCompletedAt: null,
+            },
+            projectId: 'project_1',
+        });
+
+        const result = await recoverStalePendingReplayArtifacts(10);
+
+        expect(result).toEqual({ checked: 1, recovered: 0 });
+        expect(updateCalls).toHaveLength(0);
+        expect(mocks.markSessionIngestActivity).not.toHaveBeenCalled();
+        expect(mocks.db.insert).not.toHaveBeenCalled();
     });
 });

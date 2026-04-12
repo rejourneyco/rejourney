@@ -1,6 +1,6 @@
 {
     "name": "@rejourneyco/react-native",
-    "version": "1.0.17",
+    "version": "1.0.18",
     "description": "Rejourney Session Recording SDK for React Native",
     "main": "lib/commonjs/index.js",
     "module": "lib/module/index.js",
@@ -34,6 +34,7 @@
         "version:sync": "node ./scripts/generate-version.js",
         "prebuild": "npm run version:sync",
         "build": "npx react-native-builder-bob build",
+        "postbuild": "npm run verify:optional-peers",
         "prepare": "npm run build",
         "prepack": "npx react-native-builder-bob build",
         "pretest": "npm run version:sync",
@@ -45,6 +46,7 @@
         "test:coverage": "vitest run --coverage",
         "release": "release-it",
         "verify:ios": "./scripts/verify-ios-structure.sh",
+        "verify:optional-peers": "node ./scripts/verify-optional-peer-safety.js",
         "verify:package": "./scripts/verify-package-content.sh",
         "test:ios-install": "./scripts/test-ios-install.sh",
         "test:android-install": "./scripts/test-android-install.sh",
