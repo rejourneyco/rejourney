@@ -42,6 +42,10 @@ jobs:
         working-directory: ./packages/react-native
         run: npm run prepack
 
+      - name: Verify optional peer safety (built artifacts)
+        working-directory: ./packages/react-native
+        run: npm run verify:optional-peers
+
       - name: Verify package content
         working-directory: ./packages/react-native
         run: npm run verify:package
@@ -87,46 +91,61 @@ jobs:
           distribution: 'zulu'
           java-version: '17'
 
-      - name: Build & Pack SDK
+      - name: Setup Android SDK
+        if: matrix.platform == 'android'
+        uses: android-actions/setup-android@v3
+
+      - name: Install monorepo dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Bare RN — iOS install smoke (test-ios-install.sh)
+        if: matrix.platform == 'ios' && matrix.app_type == 'bare'
+        working-directory: ./packages/react-native
+        env:
+          REJOURNEY_INSTALL_TEST_DIR: /tmp/rejourney-ci-install-${{ github.run_id }}-${{ github.run_attempt }}-ios-bare
+        run: chmod +x ./scripts/test-ios-install.sh && ./scripts/test-ios-install.sh
+
+      - name: Bare RN — Android install smoke (test-android-install.sh)
+        if: matrix.platform == 'android' && matrix.app_type == 'bare'
+        working-directory: ./packages/react-native
+        env:
+          REJOURNEY_INSTALL_TEST_DIR: /tmp/rejourney-ci-install-${{ github.run_id }}-${{ github.run_attempt }}-android-bare
+        run: chmod +x ./scripts/test-android-install.sh && ./scripts/test-android-install.sh
+
+      - name: Build & Pack SDK (Expo matrix)
+        if: matrix.app_type == 'expo'
         run: |
-          npm ci --ignore-scripts
           cd packages/react-native && npm run prepack
           PACK_FILE=$(npm pack 2>&1 | tail -1 | sed 's/.*\///')
           echo "PACK_FILE=$PACK_FILE" >> $GITHUB_ENV
 
-      - name: Create Test App
+      - name: Create Test App (Expo)
+        if: matrix.app_type == 'expo'
         run: |
           cd /tmp
-          if [ "${{ matrix.app_type }}" == "expo" ]; then
-            npx create-expo-app ValidationApp -t default
-          else
-            npx --yes @react-native-community/cli init ValidationApp --skip-install
-          fi
-      
-      - name: Install SDK in Test App
+          npx create-expo-app ValidationApp -t default
+
+      - name: Install SDK in Test App (Expo)
+        if: matrix.app_type == 'expo'
         run: |
           cd /tmp/ValidationApp
           npm install
           npm install "$GITHUB_WORKSPACE/packages/react-native/$PACK_FILE"
 
-      - name: Build iOS
-        if: matrix.platform == 'ios'
+      - name: Build iOS (Expo)
+        if: matrix.platform == 'ios' && matrix.app_type == 'expo'
         working-directory: /tmp/ValidationApp
         run: |
-          if [ "${{ matrix.app_type }}" == "expo" ]; then
-            npx expo prebuild --platform ios
-          fi
+          npx expo prebuild --platform ios
           cd ios
           pod install
           xcodebuild -workspace ValidationApp.xcworkspace -scheme ValidationApp -configuration Debug -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' clean build CODE_SIGNING_ALLOWED=NO | xcpretty
 
-      - name: Build Android
-        if: matrix.platform == 'android'
+      - name: Build Android (Expo)
+        if: matrix.platform == 'android' && matrix.app_type == 'expo'
         working-directory: /tmp/ValidationApp
         run: |
-          if [ "${{ matrix.app_type }}" == "expo" ]; then
-            npx expo prebuild --platform android
-          fi
+          npx expo prebuild --platform android
           cd android
           chmod +x gradlew
           ./gradlew assembleDebug --no-daemon

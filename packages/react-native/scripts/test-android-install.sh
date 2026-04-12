@@ -7,7 +7,8 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PACKAGE_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-TEST_DIR="/tmp/rejourney-android-test"
+# Override in CI (e.g. matrix jobs) to avoid parallel workers clashing on /tmp.
+TEST_DIR="${REJOURNEY_INSTALL_TEST_DIR:-/tmp/rejourney-android-test}"
 NPM_CACHE_DIR="$TEST_DIR/.npm-cache"
 RN_VERSION="${RN_VERSION:-}"
 
@@ -90,8 +91,14 @@ echo ""
 echo "🤖 Step 7: Verifying Android integration..."
 cd android
 
+if [ -z "$ANDROID_HOME" ] && [ -n "$ANDROID_SDK_ROOT" ]; then
+    export ANDROID_HOME="$ANDROID_SDK_ROOT"
+fi
 if [ -z "$ANDROID_HOME" ] && [ -d "$HOME/Library/Android/sdk" ]; then
     export ANDROID_HOME="$HOME/Library/Android/sdk"
+fi
+if [ -z "$ANDROID_HOME" ] && [ -d "$HOME/Android/Sdk" ]; then
+    export ANDROID_HOME="$HOME/Android/Sdk"
 fi
 
 if [ -n "$ANDROID_HOME" ] && [ ! -f "local.properties" ]; then
@@ -109,8 +116,11 @@ chmod +x gradlew
 echo ""
 echo "🤖 Step 8: Attempting to build (requires Android SDK)..."
 
-# Check if ANDROID_HOME is set
-if [ -n "$ANDROID_HOME" ] || [ -d "$HOME/Library/Android/sdk" ]; then
+# Check if Android SDK is available
+if [ -n "$ANDROID_HOME" ] || [ -d "$HOME/Library/Android/sdk" ] || [ -d "$HOME/Android/Sdk" ]; then
+    if [ -z "$ANDROID_HOME" ] && [ -d "$HOME/Android/Sdk" ]; then
+        export ANDROID_HOME="$HOME/Android/Sdk"
+    fi
     ./gradlew assembleDebug --no-daemon
     
     if [ $? -eq 0 ]; then

@@ -5,14 +5,18 @@ import { db, projects } from '../db/client.js';
 import { logger } from '../logger.js';
 import { getRedis, getRedisDiagnosticsForLog } from '../db/redis.js';
 import { asyncHandler, ApiError } from '../middleware/index.js';
-import { ingestDeviceRateLimiter } from '../middleware/rateLimit.js';
+import {
+    ingestAuthProjectRateLimiter,
+    ingestDeviceAuthRateLimiter,
+} from '../middleware/rateLimit.js';
 import { config } from '../config.js';
 
 const router = Router();
 
 router.post(
     '/auth/device',
-    ingestDeviceRateLimiter,
+    ingestAuthProjectRateLimiter,
+    ingestDeviceAuthRateLimiter,
     asyncHandler(async (req, res) => {
         const projectKey =
             (req.headers['x-rejourney-key'] as string) ||

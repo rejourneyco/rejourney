@@ -155,10 +155,19 @@ export const isTest = config.NODE_ENV === 'test';
 export const rateLimits = {
     // Ingest uploads: per-project
     ingest: {
-        // 600/min was too low for healthy multi-device production traffic and caused
-        // legitimate ingest to self-throttle long before byte-budget protections kicked in.
-        perProject: { windowMs: 60_000, max: 6000 },
-        perDevice: { windowMs: 60_000, max: 120 },
+        // Split project buckets by route family so hot replay traffic does not
+        // starve batch ingest, lifecycle closure, or fault ingest.
+        perProjectAuth: { windowMs: 60_000, max: 3000 },
+        perProjectBatch: { windowMs: 60_000, max: 6000 },
+        perProjectSegment: { windowMs: 60_000, max: 12000 },
+        perProjectLifecycle: { windowMs: 60_000, max: 4000 },
+        perProjectFault: { windowMs: 60_000, max: 2000 },
+        // Keep device auth conservative, but do not let it share a bucket with
+        // high-frequency ingest presign routes.
+        perDeviceAuth: { windowMs: 60_000, max: 120 },
+        perDeviceBatch: { windowMs: 60_000, max: 120 },
+        // Replay sessions can legitimately emit many segment presigns per minute.
+        perDeviceSegment: { windowMs: 60_000, max: 600 },
         maxBodyBytes: 5 * 1024 * 1024, // 5 MB
         byteQuota: {
             maxObjectBytes: config.INGEST_MAX_OBJECT_BYTES,

@@ -222,7 +222,48 @@ spec:
                   number: 80
 
 ---
-# Separate Ingress for API with rate limiting
+# Dedicated ingest ingress on api.rejourney.co so high-frequency ingest routes
+# use the relaxed ingest edge bucket instead of the generic API limiter.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: rejourney-api-ingest-ingress
+  namespace: rejourney
+  labels:
+    app.kubernetes.io/part-of: rejourney
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    traefik.ingress.kubernetes.io/router.tls: "true"
+    traefik.ingress.kubernetes.io/router.priority: "110"
+    traefik.ingress.kubernetes.io/router.middlewares: rejourney-security-headers@kubernetescrd,rejourney-rate-limit-ingest@kubernetescrd
+spec:
+  ingressClassName: traefik
+  tls:
+    - hosts:
+        - api.rejourney.co
+      secretName: rejourney-api-tls
+  rules:
+    - host: api.rejourney.co
+      http:
+        paths:
+          - path: /api/ingest
+            pathType: Prefix
+            backend:
+              service:
+                name: api
+                port:
+                  number: 3000
+          - path: /api/sdk/config
+            pathType: Exact
+            backend:
+              service:
+                name: api
+                port:
+                  number: 3000
+
+---
+# Separate Ingress for general API traffic with stricter rate limiting
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
@@ -234,6 +275,7 @@ metadata:
     cert-manager.io/cluster-issuer: letsencrypt-prod
     traefik.ingress.kubernetes.io/router.entrypoints: websecure
     traefik.ingress.kubernetes.io/router.tls: "true"
+    traefik.ingress.kubernetes.io/router.priority: "10"
     traefik.ingress.kubernetes.io/router.middlewares: rejourney-security-headers@kubernetescrd,rejourney-rate-limit-api@kubernetescrd
 spec:
   ingressClassName: traefik
