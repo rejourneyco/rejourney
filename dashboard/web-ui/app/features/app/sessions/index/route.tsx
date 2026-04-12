@@ -37,7 +37,12 @@ import { TimeFilter, TimeRange, DEFAULT_TIME_RANGE, TIME_RANGE_OPTIONS } from '~
 import { NeoBadge } from '~/shared/ui/core/neo/NeoBadge';
 import { NeoButton } from '~/shared/ui/core/neo/NeoButton';
 import { NeoCard } from '~/shared/ui/core/neo/NeoCard';
-import { getSessionsArchiveTotalCount, getSessionsPaginated, getAvailableFilters } from '~/shared/api/client';
+import {
+  getSessionsArchiveTotalCount,
+  getSessionsPaginated,
+  getAvailableFilters,
+  type SessionArchiveSortKey,
+} from '~/shared/api/client';
 import { useDemoMode } from '~/shared/providers/DemoModeContext';
 import { useSessionData } from '~/shared/providers/SessionContext';
 import { useSafeTeam } from '~/shared/providers/TeamContext';
@@ -126,6 +131,7 @@ export const RecordingsList: React.FC = () => {
   const [hasMore, setHasMore] = useState(false);
   const [totalCount, setTotalCount] = useState<number | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
+  const [debouncedSearchQuery, setDebouncedSearchQuery] = useState('');
   const [rowsPerPage, setRowsPerPage] = useState(50);
 
   // Advanced Filters
@@ -148,6 +154,14 @@ export const RecordingsList: React.FC = () => {
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [expandedSessionId, setExpandedSessionId] = useState<string | null>(null);
   const activeRequestIdRef = useRef(0);
+
+  useEffect(() => {
+    const t = window.setTimeout(() => setDebouncedSearchQuery(searchQuery), 350);
+    return () => window.clearTimeout(t);
+  }, [searchQuery]);
+
+  const primarySortKey: SortKey = sortConfigs[0]?.key ?? 'date';
+  const primarySortDir: SortDirection = sortConfigs[0]?.direction ?? 'desc';
 
   const selectedProjectId = selectedProject?.id;
   const selectedProjectTeamId = selectedProject?.teamId;
@@ -197,6 +211,7 @@ export const RecordingsList: React.FC = () => {
         setTotalCount(null);
       }
 
+      const qLive = debouncedSearchQuery.trim() || undefined;
       const archiveQuery = {
         cursor,
         limit: rowsPerPage,
@@ -212,6 +227,9 @@ export const RecordingsList: React.FC = () => {
         eventCountValue: eventCountValue ? eventCountValue : undefined,
         eventPropKey: eventPropKey ? eventPropKey : undefined,
         eventPropValue: eventPropValue ? eventPropValue : undefined,
+        q: qLive,
+        sort: primarySortKey as SessionArchiveSortKey,
+        sortDir: primarySortDir,
         includeTotal: false as const,
       };
 
@@ -238,6 +256,7 @@ export const RecordingsList: React.FC = () => {
           eventCountValue: archiveQuery.eventCountValue,
           eventPropKey: archiveQuery.eventPropKey,
           eventPropValue: archiveQuery.eventPropValue,
+          q: archiveQuery.q,
         }).then((n) => {
           if (requestId !== activeRequestIdRef.current) return;
           setTotalCount(n);
@@ -258,10 +277,33 @@ export const RecordingsList: React.FC = () => {
         setIsLoadingMore(false);
       }
     }
-  }, [timeRange, isDemoMode, demoSessions, selectedProjectId, isContextLoading, isProjectFromCurrentTeam, filter, metaKeyFilter, metaValueFilter, eventNameFilter, rowsPerPage, dateFilter, eventCountOp, eventCountValue, eventPropKey, eventPropValue]);
+  }, [
+    timeRange,
+    isDemoMode,
+    demoSessions,
+    selectedProjectId,
+    isContextLoading,
+    isProjectFromCurrentTeam,
+    filter,
+    metaKeyFilter,
+    metaValueFilter,
+    eventNameFilter,
+    rowsPerPage,
+    dateFilter,
+    eventCountOp,
+    eventCountValue,
+    eventPropKey,
+    eventPropValue,
+    debouncedSearchQuery,
+    primarySortKey,
+    primarySortDir,
+  ]);
 
-  // Initial fetch and refetch when time range or project changes
-  const fetchScopeKey = `${isDemoMode ? 'demo' : 'live'}:${timeRange}:${dateFilter}:${currentTeam?.id || 'no-team'}:${selectedProjectId || 'no-project'}:${isContextLoading ? 'loading' : 'ready'}:${projects.length}:${isProjectFromCurrentTeam ? 'valid' : 'invalid'}:${filter}:${metaKeyFilter}:${metaValueFilter}:${eventNameFilter}:${rowsPerPage}:${eventCountOp}:${eventCountValue}:${eventPropKey}:${eventPropValue}`;
+  // Initial fetch and refetch when time range or project changes (live: include debounced search + primary sort for server round-trip)
+  const fetchScopeKeyBase = `${timeRange}:${dateFilter}:${currentTeam?.id || 'no-team'}:${selectedProjectId || 'no-project'}:${isContextLoading ? 'loading' : 'ready'}:${projects.length}:${isProjectFromCurrentTeam ? 'valid' : 'invalid'}:${filter}:${metaKeyFilter}:${metaValueFilter}:${eventNameFilter}:${rowsPerPage}:${eventCountOp}:${eventCountValue}:${eventPropKey}:${eventPropValue}`;
+  const fetchScopeKey = isDemoMode
+    ? `demo:${fetchScopeKeyBase}`
+    : `live:${fetchScopeKeyBase}:${debouncedSearchQuery}:${primarySortKey}:${primarySortDir}`;
 
   useEffect(() => {
     const requestId = ++activeRequestIdRef.current;
@@ -327,25 +369,28 @@ export const RecordingsList: React.FC = () => {
     }
   }, [nextCursor, isLoadingMore, fetchSessions]);
 
-  // Search matches only rows already loaded (server has no text search on this endpoint).
-  // Issue pills, time range, metadata, etc. are applied on the server across the full archive;
-  // use Load more / next page to fetch additional matching rows in stable order.
-  // Only show sessions with successful screenshot recordings.
+  // Live: search + primary column sort run on the server; only hide rows without a successful recording.
+  // Demo: full static list — search and multi-column sort stay client-side.
   const filteredSessions = useMemo(() => {
-    let result = sessions.filter(session => {
-      if (!hasSuccessfulRecording(session)) return false;
-
-      const matchesSearch =
-        session.id.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        (session.userId && session.userId.toLowerCase().includes(searchQuery.toLowerCase())) ||
-        ((session as any).anonymousDisplayName && (session as any).anonymousDisplayName.toLowerCase().includes(searchQuery.toLowerCase())) ||
-        (session.deviceModel && session.deviceModel.toLowerCase().includes(searchQuery.toLowerCase()));
-
-      if (!matchesSearch) return false;
-      return true;
-    });
-
-    result.sort((a, b) => {
+    const withRecording = sessions.filter((session) => hasSuccessfulRecording(session));
+    if (!isDemoMode) {
+      return withRecording;
+    }
+    const q = searchQuery.trim().toLowerCase();
+    let result = withRecording;
+    if (q) {
+      result = result.filter((session) => {
+        return (
+          session.id.toLowerCase().includes(q) ||
+          (session.userId && session.userId.toLowerCase().includes(q)) ||
+          ((session as any).anonymousDisplayName &&
+            (session as any).anonymousDisplayName.toLowerCase().includes(q)) ||
+          (session.deviceModel && session.deviceModel.toLowerCase().includes(q))
+        );
+      });
+    }
+    const sorted = [...result];
+    sorted.sort((a, b) => {
       for (const { key, direction } of sortConfigs) {
         let comparison = 0;
         switch (key) {
@@ -376,6 +421,9 @@ export const RecordingsList: React.FC = () => {
           case 'anrs':
             comparison = ((a as any).anrCount || 0) - ((b as any).anrCount || 0);
             break;
+          case 'errors':
+            comparison = (a.errorCount || 0) - (b.errorCount || 0);
+            break;
           case 'rage':
             comparison = (a.rageTapCount || 0) - (b.rageTapCount || 0);
             break;
@@ -389,9 +437,8 @@ export const RecordingsList: React.FC = () => {
       }
       return 0;
     });
-
-    return result;
-  }, [sessions, searchQuery, sortConfigs]);
+    return sorted;
+  }, [sessions, isDemoMode, searchQuery, sortConfigs]);
 
   const handleCopyUserId = (e: React.MouseEvent, userId: string) => {
     e.stopPropagation();
@@ -402,7 +449,17 @@ export const RecordingsList: React.FC = () => {
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchQuery, filter, sortConfigs, dateFilter, eventCountOp, eventCountValue, eventPropKey, eventPropValue]);
+  }, [
+    searchQuery,
+    debouncedSearchQuery,
+    filter,
+    sortConfigs,
+    dateFilter,
+    eventCountOp,
+    eventCountValue,
+    eventPropKey,
+    eventPropValue,
+  ]);
 
   const totalPages = Math.ceil(filteredSessions.length / rowsPerPage);
   const paginatedSessions = useMemo(() => {
@@ -419,6 +476,7 @@ export const RecordingsList: React.FC = () => {
   const archiveCountLabel = `${totalCount === null ? '…' : totalCount.toLocaleString()} total replays · ${archiveScopeLabel}`;
 
   const handleSort = (key: SortKey, multiSort: boolean) => {
+    const allowMultiColumn = isDemoMode && multiSort;
     setSortConfigs(prev => {
       const existingIndex = prev.findIndex(s => s.key === key);
       if (existingIndex >= 0) {
@@ -428,14 +486,14 @@ export const RecordingsList: React.FC = () => {
           updated[existingIndex] = { key, direction: 'asc' };
           return updated;
         } else {
-          return prev.filter((_, i) => i !== existingIndex);
+          const next = prev.filter((_, i) => i !== existingIndex);
+          return next.length > 0 ? next : [{ key: 'date' as SortKey, direction: 'desc' as SortDirection }];
         }
       } else {
-        if (multiSort) {
+        if (allowMultiColumn) {
           return [...prev, { key, direction: 'desc' }];
-        } else {
-          return [{ key, direction: 'desc' }];
         }
+        return [{ key, direction: 'desc' }];
       }
     });
   };
@@ -456,7 +514,11 @@ export const RecordingsList: React.FC = () => {
     <div
       onClick={(e) => handleSort(sortKey, e.shiftKey)}
       className={`flex items-center cursor-pointer select-none hover:text-slate-900 transition-colors group ${align === 'right' ? 'justify-end' : align === 'center' ? 'justify-center' : 'justify-start'} ${className}`}
-      title="Click to sort, Shift+Click for multi-column sort"
+      title={
+        isDemoMode
+          ? 'Click to sort, Shift+click for multi-column sort (full demo list)'
+          : 'Click to sort the full archive. Shift+click is only available in demo mode — live data uses the primary column on the server.'
+      }
     >
       <span className="flex items-center gap-1">
         {label}
@@ -500,6 +562,10 @@ export const RecordingsList: React.FC = () => {
               if (eventCountValue) params.append('eventCountValue', eventCountValue);
               if (eventPropKey) params.append('eventPropKey', eventPropKey);
               if (eventPropValue) params.append('eventPropValue', eventPropValue);
+              const qExport = debouncedSearchQuery.trim();
+              if (qExport) params.append('q', qExport);
+              params.append('sort', primarySortKey);
+              params.append('sortDir', primarySortDir);
               window.location.href = `/api/sessions/export?${params.toString()}`;
             }}
             className="bg-black text-white p-2 border-2 border-black hover:shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] transition-all"

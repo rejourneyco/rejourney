@@ -7,7 +7,7 @@
 import { Buffer } from 'node:buffer';
 
 import { Router } from 'express';
-import { eq, and, or, inArray, gte, lt, isNull, desc, sql, getTableColumns } from 'drizzle-orm';
+import { eq, and, or, inArray, gte, lt, isNull, desc, asc, sql, getTableColumns } from 'drizzle-orm';
 
 import { db, sessions, sessionMetrics, recordingArtifacts, projects, teamMembers, crashes, anrs, errors } from '../db/client.js';
 import { gunzipSync } from 'zlib';
@@ -43,6 +43,18 @@ import {
     type SessionPresentationState,
 } from '../services/sessionPresentationState.js';
 import { durationSecondsForDisplay } from '../services/sessionTiming.js';
+import {
+    archiveKeysetMatchesRequest,
+    archiveListSortNeedsMetricsJoin,
+    archiveListSortSqlExpr,
+    buildArchiveListKeysetCondition,
+    buildArchiveTextSearchCondition,
+    encodeArchiveListCursor,
+    extractArchiveSortKeyFromRow,
+    normalizeArchiveListSortDir,
+    normalizeArchiveListSortKey,
+    parseArchiveListCursor,
+} from '../services/sessionArchiveListSort.js';
 import { hasNewerSessionForSameVisitor } from '../services/sessionTimingQuery.js';
 import { resolveAnrStackTrace } from '../services/anrStack.js';
 
@@ -164,6 +176,8 @@ function buildSessionArchiveBaseConditions(
         eventPropKey?: string;
         eventPropValue?: string;
         issueFilter?: string;
+        /** Case-insensitive substring match across id, user display, device, model, anonymous fields */
+        q?: string;
     },
     accessibleProjectIds: string[]
 ) {
@@ -182,6 +196,7 @@ function buildSessionArchiveBaseConditions(
         eventPropKey,
         eventPropValue,
         issueFilter,
+        q,
     } = filters;
 
     const startedAfter = getTimeRangeFilter(timeRange);
@@ -272,6 +287,9 @@ function buildSessionArchiveBaseConditions(
     const issueFilterCondition = getSessionArchiveIssueFilterCondition(normalizedIssueFilter);
     if (issueFilterCondition) baseConditions.push(issueFilterCondition);
 
+    const textSearch = typeof q === 'string' ? buildArchiveTextSearchCondition(q) : null;
+    if (textSearch) baseConditions.push(textSearch);
+
     return {
         baseConditions,
         needsMetricsJoin: Boolean(
@@ -279,30 +297,6 @@ function buildSessionArchiveBaseConditions(
             || sessionArchiveIssueFilterUsesMetrics(normalizedIssueFilter)
         ),
     };
-}
-
-type SessionArchiveCursorPayload = { s: string; i: string };
-
-/** Opaque cursor for GET /api/sessions — keyset on (started_at DESC, id DESC). */
-function encodeSessionArchiveCursor(startedAt: Date, id: string): string {
-    const payload: SessionArchiveCursorPayload = { s: startedAt.toISOString(), i: id };
-    return Buffer.from(JSON.stringify(payload), 'utf8').toString('base64url');
-}
-
-function parseSessionArchiveCursor(raw: unknown): { kind: 'keyset'; startedAt: Date; id: string } | { kind: 'legacy'; id: string } | null {
-    if (typeof raw !== 'string' || raw.length === 0) return null;
-    try {
-        const payload = JSON.parse(Buffer.from(raw, 'base64url').toString('utf8')) as SessionArchiveCursorPayload;
-        if (typeof payload?.s === 'string' && typeof payload?.i === 'string') {
-            const startedAt = new Date(payload.s);
-            if (!Number.isNaN(startedAt.getTime())) {
-                return { kind: 'keyset', startedAt, id: payload.i };
-            }
-        }
-    } catch {
-        /* not a base64url keyset cursor */
-    }
-    return { kind: 'legacy', id: raw };
 }
 
 const DETAIL_FETCH_CONCURRENCY = Number(process.env.RJ_REPLAY_DETAIL_FETCH_CONCURRENCY ?? 6);
@@ -1119,7 +1113,16 @@ router.get(
             eventPropKey,
             eventPropValue,
             issueFilter,
+            q,
+            sort: sortRaw,
+            sortDir: sortDirRaw,
         } = req.query as any;
+
+        const sortKey = normalizeArchiveListSortKey(sortRaw);
+        const sortDir = normalizeArchiveListSortDir(sortDirRaw);
+        const exportSortExpr = archiveListSortSqlExpr(sortKey);
+        const exportOrderPrimary = sortDir === 'desc' ? desc(exportSortExpr) : asc(exportSortExpr);
+        const exportOrderSecondary = sortDir === 'desc' ? desc(sessions.id) : asc(sessions.id);
 
         // Get user's accessible project IDs
         const teamMemberships = await db
@@ -1162,6 +1165,7 @@ router.get(
                 eventPropKey,
                 eventPropValue,
                 issueFilter,
+                q: typeof q === 'string' ? q : undefined,
             },
             accessibleProjectIds
         );
@@ -1175,7 +1179,7 @@ router.get(
             .from(sessions)
             .leftJoin(sessionMetrics, eq(sessions.id, sessionMetrics.sessionId))
             .where(and(...baseConditions))
-            .orderBy(desc(sessions.startedAt));
+            .orderBy(exportOrderPrimary, exportOrderSecondary);
 
         // Set Headers for CSV Download
         res.setHeader('Content-Type', 'text/csv');
@@ -1247,12 +1251,17 @@ router.get(
             eventPropKey,
             eventPropValue,
             issueFilter,
+            q,
+            sort: sortRaw,
+            sortDir: sortDirRaw,
             includeTotal: includeTotalRaw,
             countOnly: countOnlyRaw,
         } = req.query as any;
         const parsedLimit = Math.min(parseInt(limit) || 50, 300); // Max 300 per request
         const includeTotal = includeTotalRaw !== 'false' && includeTotalRaw !== '0';
         const countOnly = countOnlyRaw === 'true' || countOnlyRaw === '1';
+        const sortKey = normalizeArchiveListSortKey(sortRaw);
+        const sortDir = normalizeArchiveListSortDir(sortDirRaw);
 
         // Get user's accessible project IDs
         const teamMemberships = await db
@@ -1295,28 +1304,27 @@ router.get(
                 eventPropKey,
                 eventPropValue,
                 issueFilter,
+                q: typeof q === 'string' ? q : undefined,
             },
             accessibleProjectIds
         );
 
-        // Pagination: keyset on (started_at DESC, id DESC). Legacy cursors were raw session ids with lt(id) — wrong vs sort order.
+        const needsMetricsJoinEffective = needsMetricsJoin || archiveListSortNeedsMetricsJoin(sortKey);
+        const sortExpr = archiveListSortSqlExpr(sortKey);
+        const orderPrimary = sortDir === 'desc' ? desc(sortExpr) : asc(sortExpr);
+        const orderSecondary = sortDir === 'desc' ? desc(sessions.id) : asc(sessions.id);
+
         const dataConditions = [...baseConditions];
         if (cursor) {
-            const parsed = parseSessionArchiveCursor(cursor);
-            if (parsed?.kind === 'keyset') {
-                dataConditions.push(
-                    or(
-                        lt(sessions.startedAt, parsed.startedAt),
-                        and(eq(sessions.startedAt, parsed.startedAt), lt(sessions.id, parsed.id))
-                    )!
-                );
-            } else if (parsed?.kind === 'legacy') {
-                dataConditions.push(lt(sessions.id, parsed.id));
+            const parsedCursor = parseArchiveListCursor(cursor);
+            if (parsedCursor && archiveKeysetMatchesRequest(parsedCursor, sortKey, sortDir)) {
+                const keysetSql = buildArchiveListKeysetCondition(sortKey, sortDir, parsedCursor);
+                if (keysetSql) dataConditions.push(keysetSql);
             }
         }
 
         const runCountQuery = () =>
-            needsMetricsJoin
+            needsMetricsJoinEffective
                 ? db
                       .select({ count: sql<number>`count(*)::int` })
                       .from(sessions)
@@ -1345,11 +1353,12 @@ router.get(
                 metrics: sessionMetrics,
                 latestReplayArtifactEndMs: archiveListLatestReplayEndMsSql,
                 hasNewerSessionOnVisitor: archiveListHasNewerVisitorSessionSql,
+                archiveSortKey: sortExpr.as('archive_sort_key'),
             })
             .from(sessions)
             .leftJoin(sessionMetrics, eq(sessions.id, sessionMetrics.sessionId))
             .where(and(...dataConditions))
-            .orderBy(desc(sessions.startedAt), desc(sessions.id))
+            .orderBy(orderPrimary, orderSecondary)
             .limit(parsedLimit + 1)
             .offset(cursor ? 0 : parseInt(offset) || 0);
 
@@ -1362,9 +1371,21 @@ router.get(
         // Determine if there are more results
         const hasMore = sessionsList.length > parsedLimit;
         const resultSessions = hasMore ? sessionsList.slice(0, parsedLimit) : sessionsList;
-        const lastRow = resultSessions[resultSessions.length - 1]?.session;
-        const nextCursor =
-            hasMore && lastRow ? encodeSessionArchiveCursor(lastRow.startedAt, lastRow.id) : null;
+        const lastListRow = resultSessions[resultSessions.length - 1];
+        let nextCursor: string | null = null;
+        if (hasMore && lastListRow) {
+            const { kt, kn } = extractArchiveSortKeyFromRow(sortKey, {
+                archiveSortKey: lastListRow.archiveSortKey,
+                session: lastListRow.session,
+            });
+            nextCursor = encodeArchiveListCursor({
+                sortKey,
+                sortDir,
+                id: lastListRow.session.id,
+                kt,
+                kn,
+            });
+        }
 
         const firstSessionIds = await resolveArchiveFirstSessionIds(resultSessions);
 

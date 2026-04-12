@@ -735,6 +735,21 @@ export interface PaginatedSessionsResponse {
   totalCount: number | null;
 }
 
+/** Allowlisted archive column sorts — must match backend `ARCHIVE_LIST_SORT_KEYS`. */
+export type SessionArchiveSortKey =
+  | 'date'
+  | 'duration'
+  | 'apiResponse'
+  | 'startup'
+  | 'screens'
+  | 'apiSuccess'
+  | 'apiError'
+  | 'crashes'
+  | 'anrs'
+  | 'errors'
+  | 'rage'
+  | 'network';
+
 /** Shared query string for session archive list + count-only requests */
 export type SessionArchiveQuery = {
   cursor?: string | null;
@@ -761,6 +776,10 @@ export type SessionArchiveQuery = {
   eventCountValue?: string;
   eventPropKey?: string;
   eventPropValue?: string;
+  /** Server-side substring search (session id, user, device, model, anonymous fields) */
+  q?: string;
+  sort?: SessionArchiveSortKey;
+  sortDir?: 'asc' | 'desc';
   /** When false, server omits expensive count(*) — use getSessionsArchiveTotalCount for the total */
   includeTotal?: boolean;
 };
@@ -782,6 +801,9 @@ function buildSessionArchiveQueryString(params: SessionArchiveQuery & { countOnl
     eventCountValue,
     eventPropKey,
     eventPropValue,
+    q,
+    sort,
+    sortDir,
     includeTotal,
     countOnly,
   } = params;
@@ -804,6 +826,9 @@ function buildSessionArchiveQueryString(params: SessionArchiveQuery & { countOnl
   if (eventCountValue) queryParams.set('eventCountValue', eventCountValue);
   if (eventPropKey) queryParams.set('eventPropKey', eventPropKey);
   if (eventPropValue) queryParams.set('eventPropValue', eventPropValue);
+  if (q && q.trim()) queryParams.set('q', q.trim());
+  if (sort) queryParams.set('sort', sort);
+  if (sortDir) queryParams.set('sortDir', sortDir);
   if (includeTotal === false) queryParams.set('includeTotal', 'false');
 
   return queryParams.toString();

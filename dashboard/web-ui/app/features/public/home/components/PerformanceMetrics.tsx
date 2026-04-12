@@ -1,13 +1,53 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Activity, ArrowDownRight, ArrowUpRight } from 'lucide-react';
 import {
-    Area,
+    Bar,
+    BarChart,
+    Cell,
     ResponsiveContainer,
-    YAxis,
     Tooltip,
-    ReferenceLine,
-    ComposedChart,
+    XAxis,
+    YAxis,
 } from 'recharts';
+
+const BUNDLEPHOBIA_REJOURNEY =
+    'https://bundlephobia.com/package/@rejourneyco/react-native@1.0.17';
+const BUNDLEPHOBIA_SENTRY =
+    'https://bundlephobia.com/package/@sentry/react-native@8.7.0';
+
+/** BundlePhobia npm entry-point sizes (minified + gzipped), fixed versions. */
+const bundleCompareRows = [
+    {
+        key: 'rejourney',
+        label: 'Rejourney',
+        shortLabel: '@rejourneyco/react-native',
+        version: '1.0.17',
+        minifiedKb: 39.7,
+        gzipKb: 13.2,
+        href: BUNDLEPHOBIA_REJOURNEY,
+        gzipFill: '#3b82c4',
+        minExtraFill: '#93c5fd',
+    },
+    {
+        key: 'sentry',
+        label: 'Sentry',
+        shortLabel: '@sentry/react-native',
+        version: '8.7.0',
+        minifiedKb: 403,
+        gzipKb: 135.3,
+        href: BUNDLEPHOBIA_SENTRY,
+        gzipFill: '#b91c1c',
+        minExtraFill: '#f87171',
+    },
+] as const;
+
+const bundleChartData = bundleCompareRows.map((row) => ({
+    name: row.label,
+    gzipKb: row.gzipKb,
+    minifiedAboveGzipKb: Math.max(0, row.minifiedKb - row.gzipKb),
+    minifiedKb: row.minifiedKb,
+    href: row.href,
+}));
 
 export const PerformanceMetrics: React.FC = () => {
     const sectionRef = useRef<HTMLElement>(null);
@@ -30,24 +70,9 @@ export const PerformanceMetrics: React.FC = () => {
         return () => observer.disconnect();
     }, []);
 
-    /** Sentry RN SDK size (MB): was 7.1, recent releases stepped up to 7.6. */
-    const sentrySdkMbBaseline = 7.1;
-    const sentrySdkMbCurrent = 7.6;
-    /** Rejourney: ~970 KB early releases, 1.6 MB peak (new features), then optimized down to current. */
-    const rejourneyPeakMb = 1.6;
-    const rejourneyCurrentMb = 1.18;
-
-    const comparisonData = [
-        { version: 'v1.0', Rejourney: 0.97, Sentry: sentrySdkMbBaseline },
-        { version: 'v1.1', Rejourney: 0.97, Sentry: sentrySdkMbBaseline },
-        { version: 'v1.2', Rejourney: 0.97, Sentry: sentrySdkMbBaseline },
-        { version: 'v1.3', Rejourney: rejourneyPeakMb, Sentry: sentrySdkMbBaseline },
-        { version: 'v1.4', Rejourney: rejourneyPeakMb, Sentry: sentrySdkMbCurrent },
-        { version: 'v1.5', Rejourney: rejourneyPeakMb, Sentry: sentrySdkMbCurrent },
-        { version: 'v1.6', Rejourney: rejourneyCurrentMb, Sentry: sentrySdkMbCurrent },
-    ];
-
-    const rejourneyEfficiencyX = (sentrySdkMbCurrent / rejourneyCurrentMb).toFixed(1);
+    const rejourneyRow = bundleCompareRows[0];
+    const sentryRow = bundleCompareRows[1];
+    const rejourneyEfficiencyX = (sentryRow.minifiedKb / rejourneyRow.minifiedKb).toFixed(1);
 
     return (
         <section ref={sectionRef} className="w-full px-4 sm:px-6 lg:px-8 py-24 border-t-2 border-black bg-slate-50 relative overflow-hidden">
@@ -68,14 +93,14 @@ export const PerformanceMetrics: React.FC = () => {
                             <span className="text-gray-400">Extreme Impact.</span>
                         </h2>
                         <p className="font-mono text-sm text-gray-500 uppercase tracking-widest">
-                            {rejourneyEfficiencyX}x Efficiency Advantage over industry standards
+                            {rejourneyEfficiencyX}× smaller minified JS bundle vs {sentryRow.shortLabel}@{sentryRow.version} (BundlePhobia)
                         </p>
                     </div>
 
                     {/* Floating Badge */}
                     <div className="hidden lg:block bg-black text-white p-6 border-2 border-black shadow-[8px_8px_0px_0px_rgba(93,173,236,1)] rotate-2">
                         <p className="text-4xl font-black font-mono">{rejourneyEfficiencyX}X</p>
-                        <p className="text-[10px] uppercase font-bold tracking-widest mt-1">Smaller SDK Size</p>
+                        <p className="text-[10px] uppercase font-bold tracking-widest mt-1">Smaller JS bundle</p>
                     </div>
                 </div>
 
@@ -87,132 +112,158 @@ export const PerformanceMetrics: React.FC = () => {
 
                         {/* Chart Area */}
                         <div className="flex flex-col h-full">
-                            <div className="flex justify-between items-center mb-6 border-b-2 border-black pb-2">
-                                <h3 className="text-lg font-black uppercase tracking-tight">SDK Size Comparison</h3>
-                                <div className="flex gap-4">
+                            <div className="flex flex-col gap-2 sm:flex-row sm:justify-between sm:items-center mb-6 border-b-2 border-black pb-2">
+                                <h3 className="text-lg font-black uppercase tracking-tight">Npm bundle size (BundlePhobia)</h3>
+                                <div className="flex flex-wrap gap-4">
                                     <div className="flex items-center gap-2">
-                                        <div className="w-3 h-3 bg-[#ef4444] border-2 border-black"></div>
-                                        <span className="text-[10px] font-bold uppercase">Sentry</span>
+                                        <div className="w-3 h-3 bg-[#1e3a5f] border-2 border-black" aria-hidden />
+                                        <span className="text-[10px] font-bold uppercase">Gzip</span>
                                     </div>
                                     <div className="flex items-center gap-2">
-                                        <div className="w-3 h-3 bg-[#5dadec] border-2 border-black"></div>
-                                        <span className="text-[10px] font-bold uppercase">Rejourney</span>
+                                        <div className="w-3 h-3 bg-[#bfdbfe] border-2 border-black" aria-hidden />
+                                        <span className="text-[10px] font-bold uppercase">Minified − gzip</span>
                                     </div>
                                 </div>
                             </div>
 
-                            <div className="flex-grow min-h-[250px] relative border-2 border-black bg-slate-50 p-4">
+                            <div className="flex-grow min-h-[280px] relative border-2 border-black bg-slate-50 p-4">
                                 {isVisible && (
                                     <ResponsiveContainer width="100%" height="100%">
-                                        <ComposedChart data={comparisonData} margin={{ top: 8, right: 12, left: 0, bottom: 0 }}>
+                                        <BarChart
+                                            data={bundleChartData}
+                                            margin={{ top: 8, right: 12, left: 0, bottom: 8 }}
+                                            barCategoryGap="28%"
+                                        >
+                                            <XAxis
+                                                dataKey="name"
+                                                axisLine={{ stroke: '#000' }}
+                                                tickLine={{ stroke: '#000' }}
+                                                tick={{ fill: '#000', fontSize: 11, fontFamily: 'monospace', fontWeight: 800 }}
+                                            />
                                             <YAxis
-                                                hide={false}
                                                 axisLine={false}
-                                                tickLine={true}
+                                                tickLine={{ stroke: '#000' }}
                                                 tick={{ fill: '#000', fontSize: 10, fontFamily: 'monospace', fontWeight: 'bold' }}
-                                                tickFormatter={(value) => `${value}MB`}
-                                                domain={[0, 8.5]}
-                                                width={40}
+                                                tickFormatter={(v) => `${v} kB`}
+                                                domain={[0, Math.ceil(sentryRow.minifiedKb * 1.08)]}
+                                                width={44}
                                             />
                                             <Tooltip
+                                                cursor={{ fill: 'rgba(0,0,0,0.04)' }}
                                                 contentStyle={{
                                                     backgroundColor: '#000',
                                                     border: 'none',
                                                     color: '#fff',
                                                     fontSize: '12px',
                                                     fontFamily: 'monospace',
-                                                    textTransform: 'uppercase'
+                                                    textTransform: 'uppercase',
                                                 }}
                                                 itemStyle={{ color: '#fff' }}
-                                                formatter={(value: number | undefined, name) => {
+                                                formatter={(value: number | undefined, name: string | undefined) => {
                                                     const v = value ?? 0;
-                                                    const series = name ?? '';
-                                                    if (series !== 'Rejourney') return [`${v} MB`, series];
-                                                    const label = v < 1 ? `${Math.round(v * 1000)} KB` : `${v} MB`;
-                                                    return [label, series];
+                                                    const n = name ?? '';
+                                                    if (n === 'minifiedAboveGzipKb') return [`${v.toFixed(1)} kB`, 'Minified − gzip'];
+                                                    if (n === 'gzipKb') return [`${v.toFixed(1)} kB`, 'Gzipped'];
+                                                    return [`${v} kB`, n];
+                                                }}
+                                                labelFormatter={(_, payload) => {
+                                                    const p = payload?.[0]?.payload as { minifiedKb?: number; href?: string } | undefined;
+                                                    const total = p?.minifiedKb;
+                                                    return total != null ? `Total minified: ${total} kB` : '';
                                                 }}
                                             />
-                                            <ReferenceLine
-                                                x="v1.3"
-                                                stroke="#5dadec"
-                                                strokeWidth={2}
-                                                strokeDasharray="4 4"
-                                                label={{
-                                                    value: '↗ New features',
-                                                    position: 'insideTopLeft',
-                                                    fill: '#000',
-                                                    fontSize: 10,
-                                                    fontWeight: 800,
-                                                    fontFamily: 'monospace',
-                                                }}
-                                            />
-                                            <ReferenceLine
-                                                x="v1.4"
-                                                stroke="#ef4444"
-                                                strokeWidth={2}
-                                                strokeDasharray="4 4"
-                                                label={{
-                                                    value: '↗ Sentry 7.6',
-                                                    position: 'insideBottomRight',
-                                                    fill: '#ef4444',
-                                                    fontSize: 10,
-                                                    fontWeight: 800,
-                                                    fontFamily: 'monospace',
-                                                }}
-                                            />
-                                            <ReferenceLine
-                                                x="v1.6"
-                                                stroke="#5dadec"
-                                                strokeWidth={2}
-                                                strokeDasharray="4 4"
-                                                label={{
-                                                    value: '↘ Size work',
-                                                    position: 'insideTopRight',
-                                                    fill: '#000',
-                                                    fontSize: 10,
-                                                    fontWeight: 800,
-                                                    fontFamily: 'monospace',
-                                                }}
-                                            />
-                                            <Area type="stepAfter" dataKey="Sentry" stroke="#ef4444" strokeWidth={3} fill="#ef4444" fillOpacity={0.1} isAnimationActive={true} />
-                                            <Area type="stepAfter" dataKey="Rejourney" stroke="#5dadec" strokeWidth={3} fill="#5dadec" fillOpacity={0.1} isAnimationActive={true} />
-                                        </ComposedChart>
+                                            <Bar dataKey="gzipKb" stackId="bp" radius={[0, 0, 0, 0]}>
+                                                {bundleCompareRows.map((row) => (
+                                                    <Cell key={`g-${row.key}`} fill={row.gzipFill} />
+                                                ))}
+                                            </Bar>
+                                            <Bar dataKey="minifiedAboveGzipKb" stackId="bp" radius={[2, 2, 0, 0]}>
+                                                {bundleCompareRows.map((row) => (
+                                                    <Cell key={`m-${row.key}`} fill={row.minExtraFill} />
+                                                ))}
+                                            </Bar>
+                                        </BarChart>
                                     </ResponsiveContainer>
                                 )}
                             </div>
+                            <ul className="mt-4 flex flex-col gap-2 font-mono text-[10px] font-bold uppercase text-gray-600">
+                                {bundleCompareRows.map((row) => (
+                                    <li key={row.key}>
+                                        <a
+                                            href={row.href}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            className="underline decoration-2 underline-offset-2 hover:text-black"
+                                        >
+                                            {row.shortLabel}@{row.version} — BundlePhobia
+                                        </a>
+                                    </li>
+                                ))}
+                            </ul>
+                            <p className="mt-2 text-[10px] font-mono text-gray-500 uppercase leading-relaxed">
+                                Bar height = minified size; darker segment = gzipped transfer size (same layout as BundlePhobia).
+                            </p>
                         </div>
 
-                        {/* Comparative Stats (Side Panel) */}
+                        {/* Comparative Stats (Side Panel) — Rejourney first (smaller), Sentry second */}
                         <div className="lg:border-l-2 lg:border-black lg:border-dashed lg:pl-12 flex flex-col justify-center space-y-10">
                             <div>
-                                <p className="text-[10px] font-black uppercase tracking-widest text-[#ef4444] mb-2">Sentry RN SDK</p>
+                                <p className="text-[10px] font-black uppercase tracking-widest text-[#5dadec] mb-2">
+                                    {rejourneyRow.shortLabel}
+                                </p>
                                 <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
-                                    <span className="text-6xl font-black font-mono tracking-tighter">{sentrySdkMbCurrent}</span>
-                                    <span className="text-xl font-bold uppercase">MB</span>
-                                    <span className="flex items-center gap-1 text-[10px] font-bold font-mono uppercase text-gray-500">
-                                        <ArrowUpRight className="w-3.5 h-3.5 text-[#ef4444]" aria-hidden />
-                                        up from {sentrySdkMbBaseline} MB
+                                    <span className="text-5xl sm:text-6xl font-black font-mono tracking-tighter text-[#5dadec]">
+                                        {rejourneyRow.minifiedKb}
+                                    </span>
+                                    <span className="text-xl font-bold uppercase text-[#5dadec]">kB</span>
+                                    <span className="text-[10px] font-bold font-mono uppercase text-gray-500">
+                                        minified
                                     </span>
                                 </div>
-                                <p className="text-[10px] font-mono text-gray-500 uppercase mt-2 max-w-[200px] leading-tight">
-                                    Heavy dependencies impact cold starts & binary size.
+                                <p className="text-sm font-mono font-bold text-gray-700 mt-1">
+                                    {rejourneyRow.gzipKb} kB gzipped
                                 </p>
+                                <a
+                                    href={rejourneyRow.href}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="mt-2 inline-flex items-center gap-1 text-[10px] font-bold font-mono uppercase text-gray-500 underline decoration-2 underline-offset-2 hover:text-black"
+                                >
+                                    <ArrowDownRight className="w-3.5 h-3.5 text-[#008000]" aria-hidden />
+                                    BundlePhobia @{rejourneyRow.version}
+                                </a>
                             </div>
 
                             <div className="w-full h-px bg-black border-t border-dashed"></div>
 
                             <div>
-                                <p className="text-[10px] font-black uppercase tracking-widest text-[#5dadec] mb-2">Rejourney SDK</p>
+                                <p className="text-[10px] font-black uppercase tracking-widest text-[#ef4444] mb-2">
+                                    {sentryRow.shortLabel}
+                                </p>
                                 <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
-                                    <span className="text-6xl font-black font-mono tracking-tighter text-[#5dadec]">{rejourneyCurrentMb}</span>
-                                    <span className="text-xl font-bold uppercase text-[#5dadec]">MB</span>
-                               
-                                    <span className="w-full flex items-center gap-1 text-[10px] font-bold font-mono uppercase text-gray-500">
-                                        <ArrowDownRight className="w-3.5 h-3.5 text-[#008000]" aria-hidden />
-                                        down from {rejourneyPeakMb} MB peak
+                                    <span className="text-5xl sm:text-6xl font-black font-mono tracking-tighter">
+                                        {sentryRow.minifiedKb}
+                                    </span>
+                                    <span className="text-xl font-bold uppercase">kB</span>
+                                    <span className="text-[10px] font-bold font-mono uppercase text-gray-500">
+                                        minified
                                     </span>
                                 </div>
-                         
+                                <p className="text-sm font-mono font-bold text-gray-700 mt-1">
+                                    {sentryRow.gzipKb} kB gzipped
+                                </p>
+                                <a
+                                    href={sentryRow.href}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="mt-2 inline-flex items-center gap-1 text-[10px] font-bold font-mono uppercase text-gray-500 underline decoration-2 underline-offset-2 hover:text-black"
+                                >
+                                    <ArrowUpRight className="w-3.5 h-3.5 text-[#ef4444]" aria-hidden />
+                                    BundlePhobia @{sentryRow.version}
+                                </a>
+                                <p className="text-[10px] font-mono text-gray-500 uppercase mt-3 max-w-[240px] leading-tight">
+                                    Includes transitive npm dependencies in BundlePhobia&apos;s model.
+                                </p>
                             </div>
                         </div>
                     </div>

@@ -609,6 +609,7 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
     const [timelineCopied, setTimelineCopied] = useState(false);
     const [domCopied, setDomCopied] = useState(false);
     const [metadataCopied, setMetadataCopied] = useState(false);
+    const [userIdCopied, setUserIdCopied] = useState(false);
 
     // DOM Inspector state
     const [hierarchySnapshots, setHierarchySnapshots] = useState<HierarchySnapshot[]>([]);
@@ -1825,6 +1826,17 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
     const geoDisplay = formatGeoDisplay(geoLocation);
     const sessionLocationWithFlag = `${geoDisplay.flagEmoji} ${geoDisplay.fullLabel}`;
 
+    const rawReplayUserId = (fullSession?.userId ?? '').trim();
+    const anonymousFallback = ((fullSession as any)?.anonymousDisplayName as string | undefined)?.trim() || '';
+    const replayUserIdCopyValue =
+        rawReplayUserId && rawReplayUserId.toLowerCase() !== 'anonymous'
+            ? rawReplayUserId
+            : anonymousFallback;
+    const replayUserIdLabel = replayUserIdCopyValue || 'Anonymous';
+    const replayUserIdShown =
+        replayUserIdLabel.length > 7 ? `${replayUserIdLabel.slice(0, 7)}…` : replayUserIdLabel;
+    const canCopyReplayUserId = Boolean(replayUserIdCopyValue);
+
     // Calculate metrics
     const metrics = fullSession?.metrics || {};
     const rageTapCount =
@@ -2132,6 +2144,17 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
         }
     };
 
+    const copyReplayUserId = async () => {
+        if (!replayUserIdCopyValue) return;
+        try {
+            await navigator.clipboard.writeText(replayUserIdCopyValue);
+            setUserIdCopied(true);
+            setTimeout(() => setUserIdCopied(false), 2000);
+        } catch {
+            setUserIdCopied(false);
+        }
+    };
+
     const downloadMetadata = () => {
         if (!metadataJson) return;
         const file = new Blob([metadataJson], { type: 'application/json' });
@@ -2172,6 +2195,37 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
                                 <span className="border-2 border-black bg-[#f4f4f5] px-2 py-0.5 font-mono text-[10px] font-semibold text-black">
                                     {(id || '').slice(0, 20)}
                                 </span>
+                                {canCopyReplayUserId ? (
+                                    <button
+                                        type="button"
+                                        onClick={copyReplayUserId}
+                                        className="inline-flex items-center gap-1 border-2 border-black bg-[#f4f4f5] px-2 py-0.5 text-left transition hover:bg-white hover:shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:translate-x-px active:translate-y-px active:shadow-none"
+                                        title={`${replayUserIdLabel} — click to copy`}
+                                        aria-label={`Copy user ID: ${replayUserIdLabel}`}
+                                    >
+                                        <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-600">
+                                            UID
+                                        </span>
+                                        <span className="font-mono text-[10px] font-semibold text-black">{replayUserIdShown}</span>
+                                        <span className="shrink-0 text-slate-500" aria-hidden>
+                                            {userIdCopied ? (
+                                                <Check className="h-3 w-3 text-emerald-600" strokeWidth={2.25} />
+                                            ) : (
+                                                <Copy className="h-3 w-3" strokeWidth={2.25} />
+                                            )}
+                                        </span>
+                                    </button>
+                                ) : (
+                                    <span
+                                        className="inline-flex items-center gap-1 border-2 border-black bg-[#f4f4f5] px-2 py-0.5"
+                                        title={replayUserIdLabel}
+                                    >
+                                        <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-600">
+                                            UID
+                                        </span>
+                                        <span className="font-mono text-[10px] font-semibold text-black">{replayUserIdShown}</span>
+                                    </span>
+                                )}
                             </div>
 
                             <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-slate-600">
