@@ -2,6 +2,7 @@ import { logger } from '../logger.js';
 import {
     abandonExpiredPendingArtifacts,
     queueRecoverableArtifacts,
+    recoverStalePendingReplayArtifacts,
     requeueStaleProcessingJobs,
 } from '../services/ingestArtifactLifecycle.js';
 import { reconcileDueSessions } from '../services/sessionReconciliation.js';
@@ -20,6 +21,7 @@ export function startSessionLifecycleWorker(): void {
             }
             lastSessionSweepAt = now;
 
+            const recoveredPendingReplay = await recoverStalePendingReplayArtifacts(100);
             const abandoned = await abandonExpiredPendingArtifacts(100);
             const requeued = await requeueStaleProcessingJobs(100);
             const recovered = await queueRecoverableArtifacts(100);
@@ -28,8 +30,21 @@ export function startSessionLifecycleWorker(): void {
                 SESSION_LIFECYCLE_WORKER.reconcileMaxBatches,
             );
 
-            if (abandoned > 0 || requeued > 0 || recovered > 0 || reconciled > 0) {
-                logger.info({ abandoned, requeued, recovered, reconciled }, 'session.reconcile_sweep');
+            if (
+                recoveredPendingReplay.checked > 0
+                || abandoned > 0
+                || requeued > 0
+                || recovered > 0
+                || reconciled > 0
+            ) {
+                logger.info({
+                    abandoned,
+                    requeued,
+                    recovered,
+                    recoveredPendingReplay: recoveredPendingReplay.recovered,
+                    stalePendingReplayChecked: recoveredPendingReplay.checked,
+                    reconciled,
+                }, 'session.reconcile_sweep');
             }
         },
         pollIntervalMs: SESSION_LIFECYCLE_WORKER.pollIntervalMs,

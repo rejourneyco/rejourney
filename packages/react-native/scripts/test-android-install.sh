@@ -8,7 +8,11 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PACKAGE_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 TEST_DIR="/tmp/rejourney-android-test"
+NPM_CACHE_DIR="$TEST_DIR/.npm-cache"
 RN_VERSION="${RN_VERSION:-}"
+
+mkdir -p "$NPM_CACHE_DIR"
+export npm_config_cache="$NPM_CACHE_DIR"
 
 echo "🧪 Testing Android Installation"
 echo "==============================="
@@ -26,11 +30,17 @@ npm run prepare
 # Step 2: Pack the library
 echo ""
 echo "📦 Step 2: Packing library..."
-PACK_FILE=$(npm pack 2>&1 | tail -1 | sed 's/.*\///')
+PACK_OUTPUT=$(npm pack --json)
+if ! PACK_FILE=$(printf '%s' "$PACK_OUTPUT" | node -e "const fs = require('fs'); const text = fs.readFileSync(0, 'utf8'); const match = text.match(/(?:^|\\n)(\\[\\s*\\{[\\s\\S]*\\])\\s*$/); if (!match) process.exit(1); const data = JSON.parse(match[1]); process.stdout.write(data[0]?.filename || '');"); then
+    PACK_FILE=""
+fi
 PACK_PATH="$PACKAGE_DIR/$PACK_FILE"
 
 if [ ! -f "$PACK_PATH" ]; then
     echo "❌ Error: Failed to create package file"
+    if [ -n "$PACK_OUTPUT" ]; then
+        echo "$PACK_OUTPUT"
+    fi
     exit 1
 fi
 
@@ -57,9 +67,27 @@ echo ""
 echo "📥 Step 4: Installing packed library..."
 npm install "$PACK_PATH"
 
-# Step 5: Verify Android integration
+# Step 5: Import the package in JS so Metro resolves the published entrypoint
 echo ""
-echo "🤖 Step 5: Verifying Android integration..."
+echo "🧩 Step 5: Wiring the package into the validation app..."
+node "$PACKAGE_DIR/scripts/configure-validation-app.js" "$TEST_DIR/ValidationApp"
+
+# Step 6: Bundle the app without optional peers to verify Metro-safe imports
+echo ""
+echo "📦 Step 6: Bundling the app to verify JS dependency resolution..."
+BUNDLE_DIR="$TEST_DIR/ValidationApp/.rejourney-smoke/android"
+mkdir -p "$BUNDLE_DIR/assets"
+npx react-native bundle \
+    --platform android \
+    --dev false \
+    --entry-file index.js \
+    --bundle-output "$BUNDLE_DIR/index.android.bundle" \
+    --assets-dest "$BUNDLE_DIR/assets" \
+    --reset-cache
+
+# Step 7: Verify Android integration
+echo ""
+echo "🤖 Step 7: Verifying Android integration..."
 cd android
 
 if [ -z "$ANDROID_HOME" ] && [ -d "$HOME/Library/Android/sdk" ]; then
@@ -77,9 +105,9 @@ fi
 
 chmod +x gradlew
 
-# Step 6: Attempt to build (optional - requires Android SDK)
+# Step 8: Attempt to build (optional - requires Android SDK)
 echo ""
-echo "🤖 Step 6: Attempting to build (requires Android SDK)..."
+echo "🤖 Step 8: Attempting to build (requires Android SDK)..."
 
 # Check if ANDROID_HOME is set
 if [ -n "$ANDROID_HOME" ] || [ -d "$HOME/Library/Android/sdk" ]; then

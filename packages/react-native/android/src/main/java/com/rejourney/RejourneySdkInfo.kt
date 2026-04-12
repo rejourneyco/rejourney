@@ -2,5 +2,5 @@ package com.rejourney
 
 object RejourneySdkInfo {
     @JvmStatic
-    var sdkVersion: String = "1.0.17"
+    var sdkVersion: String = "1.0.18"
 }

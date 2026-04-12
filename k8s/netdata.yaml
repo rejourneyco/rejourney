@@ -115,10 +115,10 @@ spec:
               readOnly: true
           resources:
             requests:
-              cpu: 50m
+              cpu: 25m
               memory: 256Mi
             limits:
-              cpu: 250m
+              cpu: 150m
               memory: 512Mi
       volumes:
         - name: proc

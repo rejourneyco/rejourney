@@ -170,7 +170,7 @@ metadata:
   labels:
     app.kubernetes.io/part-of: rejourney
 spec:
-  replicas: 1
+  replicas: 2
   strategy:
     type: RollingUpdate
     rollingUpdate:
@@ -264,15 +264,15 @@ spec:
                   key: PUBLIC_DASHBOARD_URL
                   optional: true
             - name: RJ_INGEST_JOB_CONCURRENCY
-              value: "8"
+              value: "10"
             - name: RJ_INGEST_BATCH_SIZE
-              value: "40"
+              value: "60"
             - name: RJ_INGEST_MAX_RUNNABLE_PER_SESSION
-              value: "4"
+              value: "5"
           resources:
             requests:
-              cpu: 200m
-              memory: 384Mi
+              cpu: 300m
+              memory: 512Mi
             limits:
               cpu: "1500m"
               memory: 1Gi
@@ -477,11 +477,11 @@ spec:
                       optional: true
               resources:
                 requests:
-                  cpu: 200m
-                  memory: 256Mi
+                  cpu: 100m
+                  memory: 192Mi
                 limits:
-                  cpu: "1"
-                  memory: 768Mi
+                  cpu: "500m"
+                  memory: 512Mi
 
 
 ---

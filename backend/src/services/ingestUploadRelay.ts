@@ -3,6 +3,7 @@ import { config } from '../config.js';
 
 export const ARTIFACT_UPLOAD_URL_TTL_SECONDS = 3600;
 export const ABANDONED_ARTIFACT_TTL_MS = 10 * 60 * 1000;
+export const REPLAY_PENDING_ARTIFACT_GRACE_MS = 30 * 60 * 1000;
 export const STALE_PROCESSING_JOB_TTL_MS = 5 * 60 * 1000;
 
 type UploadRelayTokenPayload = {
