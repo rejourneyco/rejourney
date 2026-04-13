@@ -38,6 +38,8 @@ spec:
 ---
 # Higher safety-net limit for ingest traffic. The app and WAF are the primary
 # controls; Traefik should not be the bottleneck for upload-heavy sessions.
+# Per-source-IP limit — each unique device/NAT IP gets its own bucket.
+# Raised to accommodate CGNAT scenarios (many devices sharing one exit IP).
 apiVersion: traefik.io/v1alpha1
 kind: Middleware
 metadata:
@@ -47,8 +49,8 @@ metadata:
     app.kubernetes.io/part-of: rejourney
 spec:
   rateLimit:
-    average: 6000
-    burst: 12000
+    average: 20000
+    burst: 40000
     period: 1m
     sourceCriterion:
       ipStrategy:
