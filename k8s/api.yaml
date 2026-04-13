@@ -234,6 +234,13 @@ spec:
                   name: app-secret
                   key: DASHBOARD_ORIGIN
                   optional: true
+            # Ingest byte quotas (tuned for 100k+ sessions with burst uploads)
+            - name: INGEST_PROJECT_BYTES_PER_MINUTE
+              value: "5368709120"       # 5 GB/min (default was 512 MB)
+            - name: INGEST_PROJECT_BYTES_PER_DAY
+              value: "536870912000"     # 500 GB/day (default was 100 GB)
+            - name: INGEST_IP_BYTES_PER_MINUTE
+              value: "524288000"        # 500 MB/min (default was 100 MB, raised for CGNAT)
             # Monitoring
             - name: UPTIME_KUMA_BASE_URL
               value: "http://uptime-kuma.rejourney.svc.cluster.local:3001"

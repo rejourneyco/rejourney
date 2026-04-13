@@ -158,8 +158,8 @@ export const rateLimits = {
         // Split project buckets by route family so hot replay traffic does not
         // starve batch ingest, lifecycle closure, or fault ingest.
         perProjectAuth: { windowMs: 60_000, max: 3000 },
-        perProjectBatch: { windowMs: 60_000, max: 6000 },
-        perProjectSegment: { windowMs: 60_000, max: 12000 },
+        perProjectBatch: { windowMs: 60_000, max: 20000 },
+        perProjectSegment: { windowMs: 60_000, max: 50000 },
         perProjectLifecycle: { windowMs: 60_000, max: 4000 },
         perProjectFault: { windowMs: 60_000, max: 2000 },
         // Keep device auth conservative, but do not let it share a bucket with
@@ -167,7 +167,7 @@ export const rateLimits = {
         perDeviceAuth: { windowMs: 60_000, max: 120 },
         perDeviceBatch: { windowMs: 60_000, max: 120 },
         // Replay sessions can legitimately emit many segment presigns per minute.
-        perDeviceSegment: { windowMs: 60_000, max: 600 },
+        perDeviceSegment: { windowMs: 60_000, max: 1500 },
         maxBodyBytes: 5 * 1024 * 1024, // 5 MB
         byteQuota: {
             maxObjectBytes: config.INGEST_MAX_OBJECT_BYTES,
