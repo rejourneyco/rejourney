@@ -24,7 +24,7 @@ export default function DPA() {
                 {/* Main Content */}
                 <div>
                     <h1 className="text-4xl font-bold mb-4">Data Processing Agreement</h1>
-                    <p className="text-sm text-muted-foreground mb-8">Last Updated: January 2025</p>
+                    <p className="text-sm text-muted-foreground mb-8">Last Updated: April 13, 2026</p>
 
                     <div className="bg-muted/30 border border-input rounded-lg p-8 space-y-6">
                         <div className="text-sm leading-relaxed space-y-6">
@@ -44,7 +44,7 @@ export default function DPA() {
 
                             <h3 className="text-base font-semibold mt-6 mb-2">3. Sub-processors</h3>
                             <p>
-                                Controller grants a general authorization for Processor to engage Sub-processors. Current Sub-processors include:
+                                Controller grants a general authorization for Processor to engage Sub-processors. Processor will provide Controller with at least 14 days' prior written notice (via email or dashboard notification) before adding or replacing any Sub-processor. Controller may object in writing within 14 days of such notice. Current Sub-processors are listed below:
                             </p>
                             <div className="overflow-x-auto my-4">
                                 <table className="min-w-full border border-input text-xs">
@@ -53,6 +53,7 @@ export default function DPA() {
                                             <th className="px-4 py-2 border-b border-input">Sub-processor</th>
                                             <th className="px-4 py-2 border-b border-input">Purpose</th>
                                             <th className="px-4 py-2 border-b border-input">Location</th>
+                                            <th className="px-4 py-2 border-b border-input">Transfer Mechanism</th>
                                         </tr>
                                     </thead>
                                     <tbody>
@@ -60,16 +61,31 @@ export default function DPA() {
                                             <td className="px-4 py-2 border-b border-input">Hetzner Online GmbH</td>
                                             <td className="px-4 py-2 border-b border-input">Hosting & Infrastructure</td>
                                             <td className="px-4 py-2 border-b border-input">Germany (EU)</td>
+                                            <td className="px-4 py-2 border-b border-input">EU — no transfer</td>
                                         </tr>
                                         <tr>
                                             <td className="px-4 py-2 border-b border-input">Cloudflare R2</td>
                                             <td className="px-4 py-2 border-b border-input">Session Data Storage</td>
-                                            <td className="px-4 py-2 border-b border-input">Global (EU Preference)</td>
+                                            <td className="px-4 py-2 border-b border-input">EU (Guaranteed)</td>
+                                            <td className="px-4 py-2 border-b border-input">EU — no transfer</td>
                                         </tr>
                                         <tr>
                                             <td className="px-4 py-2 border-b border-input">ZeptoMail (Zoho)</td>
                                             <td className="px-4 py-2 border-b border-input">Email Notifications</td>
                                             <td className="px-4 py-2 border-b border-input">United States</td>
+                                            <td className="px-4 py-2 border-b border-input">SCCs (Art. 46(2)(c))</td>
+                                        </tr>
+                                        <tr>
+                                            <td className="px-4 py-2 border-b border-input">Stripe</td>
+                                            <td className="px-4 py-2 border-b border-input">Payment Processing</td>
+                                            <td className="px-4 py-2 border-b border-input">United States</td>
+                                            <td className="px-4 py-2 border-b border-input">SCCs (Art. 46(2)(c))</td>
+                                        </tr>
+                                        <tr>
+                                            <td className="px-4 py-2 border-b border-input">Microsoft Clarity</td>
+                                            <td className="px-4 py-2 border-b border-input">Website Analytics & Session Recording</td>
+                                            <td className="px-4 py-2 border-b border-input">United States</td>
+                                            <td className="px-4 py-2 border-b border-input">SCCs (Art. 46(2)(c))</td>
                                         </tr>
                                     </tbody>
                                 </table>
@@ -82,7 +98,7 @@ export default function DPA() {
 
                             <h3 className="text-base font-semibold mt-6 mb-2">5. Data Breach Notification</h3>
                             <p>
-                                Processor will notify Controller without undue delay (and in no case later than 72 hours) after becoming aware of a personal data breach.
+                                Processor will notify Controller without undue delay (and in no case later than 72 hours) after becoming aware of a personal data breach. Processor will provide Controller with all information reasonably necessary to allow Controller to comply with its own notification obligations to supervisory authorities and data subjects under GDPR Articles 33–34.
                             </p>
 
                             <hr className="border-input my-8" />
@@ -94,7 +110,7 @@ export default function DPA() {
 
                             <p className="mt-4"><strong>B. Description of Transfer</strong></p>
                             <p>Categories of data subjects: End-users of the Controller's mobile applications.</p>
-                            <p>Categories of personal data: IP addresses, device identifiers, session recordings, and interaction metadata.</p>
+                            <p>Categories of personal data: IP addresses, device identifiers, approximate geolocation (country, region, city), session recordings, and interaction metadata.</p>
                             <p>Sensitive data: None. <strong>Controller is responsible for ensuring that no sensitive data is transmitted to Processor by utilizing the provided masking and redaction tools.</strong></p>
 
                             <h2 className="text-xl font-bold mb-4 mt-8">Annex II: Technical and Organizational Measures</h2>

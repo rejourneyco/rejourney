@@ -76,7 +76,7 @@ export function ClarityConsentBanner() {
             <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Privacy Controls</p>
             <h2 className="mt-1 text-sm font-bold text-slate-900">Allow Analytics?</h2>
             <p className="mt-2 text-xs leading-relaxed text-slate-600">
-                We use cookies to analyze how you interact with our website, understand your browsing habits, and improve your experience. By clicking 'Accept', you consent to our use of these analytics cookies.
+                We use cookies to analyze how you interact with our website, understand your browsing habits, and improve your experience. By clicking 'Accept', you consent to our use of these analytics cookies. These are non-essential cookies. The site will work without them.
             </p>
             <div className="mt-4 flex flex-wrap gap-2">
                 <button

@@ -24,7 +24,7 @@ export default function TermsOfService() {
                 {/* Main Content */}
                 <div>
                     <h1 className="text-4xl font-bold mb-4">Terms of Service</h1>
-                    <p className="text-sm text-muted-foreground mb-8">Last Updated: {new Date().toLocaleDateString()}</p>
+                    <p className="text-sm text-muted-foreground mb-8">Last Updated: March 1, 2026</p>
 
                     <div className="bg-muted/30 border border-input rounded-lg p-8 space-y-6">
                         <div className="text-sm leading-relaxed space-y-6">
@@ -70,7 +70,7 @@ export default function TermsOfService() {
                                 <li>In any way that violates any applicable local, state, national, or international law.</li>
                                 <li>To infringe upon or violate our intellectual property rights or the intellectual property rights of others.</li>
                                 <li>To upload or transmit viruses, worms, or any other type of malicious code.</li>
-                                <li>Infringe upon the specfic open source license detalied in the public source code</li>
+                                <li>Infringe upon the specific open source license detailed in the public source code</li>
                                 <li>To use the Service for any unauthorized commercial purposes or for the benefit of any third party.</li>
                             </ul>
                             <p className="mt-4">
@@ -99,7 +99,7 @@ export default function TermsOfService() {
                                 <strong>GDPR Compliance:</strong> Rejourney is committed to GDPR compliance. We process data within the European Union and act as a Data Processor for the session data you collect.
                             </p>
                             <p className="mt-2 text-muted-foreground italic">
-                                Note: Session recordings are retained for 7 days by default, after which they are automatically deleted. Aggregated metadata is retained indefinitely.
+                            Note: Session recordings are retained for 7 days by default, after which they are automatically deleted unless you have a paid subscription. Personally identifiable session metadata is retained for the duration of your session retention period. After a session recording is deleted, anonymized aggregate event data (containing no personal identifiers) is retained indefinitely for product analytics.
                             </p>
 
                             <h3 id="ip" className="text-base font-semibold mt-6 mb-2">6. Intellectual Property</h3>
@@ -130,7 +130,7 @@ export default function TermsOfService() {
 
                             <h3 id="general" className="text-base font-semibold mt-6 mb-2">10. General Provisions</h3>
                             <p>
-                                <strong>Governing Law:</strong> These Terms shall be governed by the laws of the European Union, without regard to its conflict of law provisions.
+                                <strong>Governing Law:</strong> These Terms shall be governed by the laws of the State of Texas, United States, without regard to its conflict of law provisions. Notwithstanding the foregoing, nothing in these Terms limits the application of the EU General Data Protection Regulation (GDPR) to the extent it applies to the processing of personal data of individuals in the European Economic Area.
                             </p>
                             <p className="mt-2">
                                 <strong>Entire Agreement:</strong> These Terms, along with our Privacy Policy and DPA, constitute the entire agreement between you and Rejourney regarding the Service.
