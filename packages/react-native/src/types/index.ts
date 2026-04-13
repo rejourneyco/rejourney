@@ -63,7 +63,15 @@ export interface RejourneyConfig {
   apiUrl?: string;
   /** Collect detailed device information (default: true) */
   collectDeviceInfo?: boolean;
-  /** Collect IP address and geolocation data (default: true) */
+  /**
+   * Collect IP address and geolocation data (default: true).
+   *
+   * When enabled, the SDK collects the device's IP address and derives approximate
+   * location (country, region, city, latitude, longitude). This constitutes personal
+   * data under GDPR. Ensure your privacy policy discloses this collection and that
+   * you have a valid lawful basis before enabling geolocation for EEA users.
+   * Consider disabling or restricting to country-level if precise location is not needed.
+   */
   collectGeoLocation?: boolean;
   /** Delay after navigation before capturing (ms) - allows animations to complete (default: 300) */
   postNavigationDelay?: number;
@@ -115,6 +123,11 @@ export interface RejourneyConfig {
    * Automatically intercept console.log/info/warn/error and include them in session recordings.
    * Useful for debugging sessions. Capped at 1,000 logs per session. (default: true)
    * When set, the value is forwarded to native capture as `captureLogs`.
+   *
+   * ⚠️ Privacy warning: Console logs may contain PII (e.g. user emails in error messages,
+   * API responses, debug data). Disable this option or sanitize your logs if sensitive
+   * data may appear in console output. Disclosure of console log capture is required
+   * in your privacy policy.
    */
   trackConsoleLogs?: boolean;
 }

@@ -228,3 +228,42 @@ import { Mask } from '@rejourneyco/react-native';
 ```
 
 Masked content appears as a solid rectangle in replays and is never captured at the source.
+
+## User Consent & GDPR
+
+> [!IMPORTANT]
+> **You are the Data Controller.** Rejourney acts as a Data Processor on your behalf. You are responsible for ensuring your end-users are informed about session recording and that you have a valid legal basis for processing their data (e.g. consent or legitimate interests).
+
+### What you must do
+
+1. **Disclose session recording in your app's privacy policy.** Include language such as:
+
+   > *"We use Rejourney to record anonymized AND non-anonymized session replays of your in-app activity to help us improve the product, track crashes and issues, and reduce product friction. Session data may include screen interactions, device information, and approximate location. Text inputs and sensitive UI elements are automatically masked and never captured."*
+
+2. **Gate recording behind consent** (recommended for EEA users):
+
+   ```javascript
+   // Only start recording after the user accepts your privacy policy / consent prompt
+   Rejourney.init('pk_live_your_public_key');
+
+   // Call this after consent is confirmed
+   function onUserConsented() {
+     Rejourney.start();
+   }
+   ```
+
+3. **Respect opt-outs.** If a user withdraws consent, stop recording and clear their data:
+
+   ```javascript
+   Rejourney.stop();
+   Rejourney.clearUserIdentity();
+   ```
+
+### Console log capture
+
+Console log capture is enabled by default (`trackConsoleLogs: true`). Console logs can contain PII depending on your app's logging practices. Disable it if sensitive data may appear in logs:
+
+```javascript
+Rejourney.init('pk_live_your_public_key', { trackConsoleLogs: false });
+```
+```
