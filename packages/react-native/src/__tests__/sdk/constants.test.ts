@@ -39,19 +39,16 @@ describe('constants', () => {
       expect(DEFAULT_CONFIG).toHaveProperty('captureFPS');
       expect(DEFAULT_CONFIG).toHaveProperty('captureOnEvents');
       expect(DEFAULT_CONFIG).toHaveProperty('maxSessionDuration');
-      expect(DEFAULT_CONFIG).toHaveProperty('maxStorageSize');
-      expect(DEFAULT_CONFIG).toHaveProperty('autoScreenTracking');
-      expect(DEFAULT_CONFIG).toHaveProperty('autoGestureTracking');
-      expect(DEFAULT_CONFIG).toHaveProperty('privacyOcclusion');
+      expect(DEFAULT_CONFIG).toHaveProperty('collectDeviceInfo');
+      expect(DEFAULT_CONFIG).toHaveProperty('collectGeoLocation');
     });
 
     it('should have valid default values', () => {
       expect(DEFAULT_CONFIG.enabled).toBe(true);
       expect(DEFAULT_CONFIG.captureFPS).toBeGreaterThan(0);
       expect(DEFAULT_CONFIG.maxSessionDuration).toBeGreaterThan(0);
-      expect(DEFAULT_CONFIG.maxStorageSize).toBeGreaterThan(0);
-      expect(typeof DEFAULT_CONFIG.autoScreenTracking).toBe('boolean');
-      expect(typeof DEFAULT_CONFIG.autoGestureTracking).toBe('boolean');
+      expect(DEFAULT_CONFIG.collectDeviceInfo).toBe(true);
+      expect(DEFAULT_CONFIG.collectGeoLocation).toBe(true);
     });
   });
 

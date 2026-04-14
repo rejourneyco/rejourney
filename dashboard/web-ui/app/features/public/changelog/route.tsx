@@ -36,14 +36,14 @@ export default function ChangelogPage() {
                     {/* Versions List */}
                     <div className="space-y-24">
 
-                        {/* Version 1.0.17 */}
+                        {/* Versions 1.0.17 – 1.0.18 */}
                         <div className="relative">
                             <div className="absolute -left-4 top-0 bottom-0 w-1 bg-black hidden sm:block" />
                             <div className="flex flex-col md:flex-row gap-8 items-start">
                                 <div className="md:w-1/4">
                                     <div className="sticky top-24">
-                                        <div className="text-4xl font-black uppercase tracking-tighter mb-2">v1.0.17</div>
-                                        <div className="text-xs font-mono font-black uppercase tracking-widest text-blue-600 mb-4">Apr 10, 2026</div>
+                                        <div className="text-4xl font-black uppercase tracking-tighter mb-2">v1.0.17 – v1.0.19</div>
+                                        <div className="text-xs font-mono font-black uppercase tracking-widest text-blue-600 mb-4">Apr 13, 2026</div>
                                         <div className="inline-flex items-center gap-2 px-3 py-1 bg-green-100 text-green-700 text-[10px] font-black uppercase tracking-widest rounded shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] border border-black">
                                             Latest
                                         </div>
@@ -57,7 +57,7 @@ export default function ChangelogPage() {
                                         </h2>
                                         <div className="prose prose-lg prose-slate max-w-none">
                                             <p className="font-bold text-gray-700">
-                                                Version 1.0.17 updates the React Native SDK across JavaScript, iOS, and Android: replay finalization now waits for the telemetry pipeline to drain before concluding a session (so uploads complete on termination), recovery checkpoints and lifecycle metadata are stronger, Android capture and OkHttp setup are more reliable across RN versions, and the JS layer hardens remote config and session start so stale settings cannot carry across sessions.
+                                                Versions 1.0.17 and 1.0.18 update the React Native SDK across JavaScript, iOS, and Android: replay finalization now waits for the telemetry pipeline to drain before concluding a session (so uploads complete on termination), recovery checkpoints and lifecycle metadata are stronger, Android capture and OkHttp setup are more reliable across RN versions, the JS layer hardens remote config and session start so stale settings cannot carry across sessions, and GDPR geolocation control is now properly enforced end-to-end.
                                             </p>
                                             <ul className="list-none pl-0 space-y-4 mt-6">
                                                 <li className="flex gap-4">
@@ -107,6 +107,20 @@ export default function ChangelogPage() {
                                                     <div>
                                                         <strong className="uppercase tracking-tight text-sm">Docs &amp; Peers:</strong>
                                                         <p className="text-gray-600 mt-1">README clarifies that both Expo Router and React Navigation are optional peers—install only if you use those integrations so Metro does not resolve missing navigation packages.</p>
+                                                    </div>
+                                                </li>
+                                                <li className="flex gap-4">
+                                                    <div className="mt-1 flex-shrink-0 w-6 h-6 bg-black text-white flex items-center justify-center text-[10px] font-bold">08</div>
+                                                    <div>
+                                                        <strong className="uppercase tracking-tight text-sm">GDPR Geolocation Control:</strong>
+                                                        <p className="text-gray-600 mt-1">New opt-out for IP-derived geolocation. Pass <code className="text-sm">collectGeoLocation: false</code> to <code className="text-sm">Rejourney.init()</code> and the SDK forwards a flag to the native layer that suppresses the backend geolocation lookup for that session—no country, region, or city is stored. Useful for minimising personal data collection under GDPR or for users in EEA regions where you don't have a lawful basis for location tracking.</p>
+                                                    </div>
+                                                </li>
+                                                <li className="flex gap-4">
+                                                    <div className="mt-1 flex-shrink-0 w-6 h-6 bg-black text-white flex items-center justify-center text-[10px] font-bold">09</div>
+                                                    <div>
+                                                        <strong className="uppercase tracking-tight text-sm">Fix: React Navigation Metro Crash (NON EXPO ROUTER):</strong>
+                                                        <p className="text-gray-600 mt-1">Apps using <code className="text-sm">useNavigationTracking()</code> with <code className="text-sm">@react-navigation/native</code> installed could crash at runtime because the internal loader abstraction prevented Metro from tracing the module dependency. The loader parameter has been removed; the SDK now calls <code className="text-sm">require()</code> directly so Metro bundles the module correctly.</p>
                                                     </div>
                                                 </li>
                                             </ul>

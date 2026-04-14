@@ -762,13 +762,11 @@ export function trackNavigationState(state: any): void {
   }
 }
 
-export function loadReactNavigationNative(
-  loader: (moduleName: string) => any = require
-) {
+export function loadReactNavigationNative() {
   try {
     // Prevent Metro from statically resolving this optional peer dependency.
     const REACT_NAVIGATION_NATIVE = '@react-navigation/native';
-    return loader(REACT_NAVIGATION_NATIVE);
+    return require(REACT_NAVIGATION_NATIVE);
   } catch {
     throw new Error(
       'Rejourney.useNavigationTracking() requires the optional peer dependency @react-navigation/native. Install it to use this helper.'

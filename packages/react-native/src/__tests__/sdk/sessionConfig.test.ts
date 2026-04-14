@@ -96,5 +96,51 @@ describe('sessionConfig', () => {
         captureLogs: false,
       });
     });
+
+    it('forwards collectGeoLocation: false to suppress backend geolocation lookup', () => {
+      expect(
+        buildNativeStartOptions({ collectGeoLocation: false }, 'u1')
+      ).toEqual({
+        userId: 'u1',
+        apiUrl: 'https://api.rejourney.co',
+        publicKey: '',
+        collectGeoLocation: false,
+      });
+    });
+
+    it('forwards collectGeoLocation: true explicitly', () => {
+      expect(
+        buildNativeStartOptions({ collectGeoLocation: true }, 'u1')
+      ).toMatchObject({ collectGeoLocation: true });
+    });
+
+    it('omits collectGeoLocation when not set, leaving native to use its default', () => {
+      const opts = buildNativeStartOptions({}, 'u1');
+      expect(opts).not.toHaveProperty('collectGeoLocation');
+    });
+
+    it('omits wifiOnly when not set', () => {
+      const opts = buildNativeStartOptions({}, 'u1');
+      expect(opts).not.toHaveProperty('wifiOnly');
+    });
+
+    it('omits captureLogs when trackConsoleLogs is not set', () => {
+      const opts = buildNativeStartOptions({}, 'u1');
+      expect(opts).not.toHaveProperty('captureLogs');
+    });
+  });
+
+  describe('shouldStartWithConfig edge cases', () => {
+    it('allows recording when config is null', () => {
+      expect(shouldStartWithConfig(null, false)).toEqual({ allowed: true });
+    });
+
+    it('allows recording when enabled is explicitly true', () => {
+      expect(shouldStartWithConfig({ enabled: true }, false)).toEqual({ allowed: true });
+    });
+
+    it('allows recording in dev when disableInDev is false', () => {
+      expect(shouldStartWithConfig({ disableInDev: false }, true)).toEqual({ allowed: true });
+    });
   });
 });

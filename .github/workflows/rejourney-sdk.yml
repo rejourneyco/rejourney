@@ -58,6 +58,64 @@ jobs:
            echo "✅ Package structure valid"
 
   # ------------------------------------------------------------------
+  # METRO BUNDLE WITH OPTIONAL PEERS
+  # Validates that Metro can trace through optional-peer code paths
+  # (useNavigationTracking, useExpoRouterTracking) when those peers are
+  # installed. Runs on Ubuntu — no Xcode/Gradle needed, just Metro.
+  # This job would have caught the loader-abstraction Metro bug.
+  # ------------------------------------------------------------------
+  metro-optional-peers:
+    needs: [sdk]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Install monorepo dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Build & pack SDK
+        working-directory: ./packages/react-native
+        run: |
+          npm run prepack
+          PACK_FILE=$(npm pack --json | node -e "process.stdout.write(JSON.parse(require('fs').readFileSync(0,'utf8'))[0].filename)")
+          echo "PACK_FILE=$PACK_FILE" >> $GITHUB_ENV
+
+      - name: Create bare RN validation app
+        run: |
+          npx --yes @react-native-community/cli init ValidationApp \
+            --skip-install --skip-git-init \
+            --directory /tmp/rj-optional-peers-${{ github.run_id }}
+          echo "APP_DIR=/tmp/rj-optional-peers-${{ github.run_id }}" >> $GITHUB_ENV
+
+      - name: Install SDK and optional peers
+        run: |
+          cd "$APP_DIR"
+          npm install
+          npm install "$GITHUB_WORKSPACE/packages/react-native/$PACK_FILE"
+          npm install @react-navigation/native
+
+      - name: Configure validation app (with nav peer)
+        run: |
+          node "$GITHUB_WORKSPACE/packages/react-native/scripts/configure-validation-app.js" \
+            "$APP_DIR" --with-nav-peer
+
+      - name: Metro bundle with @react-navigation/native
+        run: |
+          cd "$APP_DIR"
+          BUNDLE_OUT="$APP_DIR/.rj-smoke"
+          mkdir -p "$BUNDLE_OUT/assets"
+          npx react-native bundle \
+            --platform android \
+            --dev false \
+            --entry-file index.js \
+            --bundle-output "$BUNDLE_OUT/main.bundle" \
+            --assets-dest "$BUNDLE_OUT/assets" \
+            --reset-cache
+
+  # ------------------------------------------------------------------
   # MOBILE INTEGRATION CHECKS
   # ------------------------------------------------------------------
   mobile-integration:
@@ -154,7 +212,7 @@ jobs:
   # PUBLISH SDK TO NPM
   # ------------------------------------------------------------------
   publish-sdk:
-    needs: [mobile-integration]
+    needs: [mobile-integration, metro-optional-peers]
     if: success() && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:

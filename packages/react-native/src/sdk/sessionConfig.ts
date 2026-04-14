@@ -15,6 +15,8 @@ export interface NativeStartOptions {
   wifiOnly?: boolean;
   /** Native replay console capture toggle (ReplayOrchestrator `captureLogs`) */
   captureLogs?: boolean;
+  /** When false, suppresses IP geolocation lookup for this session */
+  collectGeoLocation?: boolean;
 }
 
 export interface StartGateResult {
@@ -83,6 +85,10 @@ export function buildNativeStartOptions(
 
   if (typeof config?.trackConsoleLogs === 'boolean') {
     options.captureLogs = config.trackConsoleLogs;
+  }
+
+  if (typeof config?.collectGeoLocation === 'boolean') {
+    options.collectGeoLocation = config.collectGeoLocation;
   }
 
   return options;

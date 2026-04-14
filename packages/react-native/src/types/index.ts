@@ -8,18 +8,12 @@
 // ============================================================================
 
 export interface RejourneyConfig {
-  /** 
+  /**
    * Public route key for authentication (required)
    * Get this from your Rejourney dashboard at https://rejourney.co
    * @example 'pk_live_xxxxxxxxxxxx'
    */
   publicRouteKey?: string;
-  /** Project ID (UUID) required for ingest + auth */
-  projectId?: string;
-  /** iOS bundle identifier (for  verification) */
-  bundleId?: string;
-  /** Android package name (for  verification) */
-  packageName?: string;
 
   /** Enable or disable recording (default: true) */
   enabled?: boolean;
@@ -27,20 +21,8 @@ export interface RejourneyConfig {
   captureFPS?: number;
   /** Maximum session duration in milliseconds (default: 10 minutes) */
   maxSessionDuration?: number;
-  /** Maximum storage size in bytes (default: 50MB) */
-  maxStorageSize?: number;
-  /** Enable automatic screen name detection with React Navigation (default: true) */
-  autoScreenTracking?: boolean;
   /** Enable automatic screen name detection with Expo Router (default: true) */
   autoTrackExpoRouter?: boolean;
-  /** Enable automatic gesture detection (default: true) */
-  autoGestureTracking?: boolean;
-  /** Enable privacy occlusion for text inputs (default: true) */
-  privacyOcclusion?: boolean;
-  /** Enable compression for stored sessions (default: true) */
-  enableCompression?: boolean;
-  /** Skip captures during inactivity longer than this (ms) (default: 5000) */
-  inactivityThreshold?: number;
   /** Disable recording in development mode (default: false) */
   disableInDev?: boolean;
   /** Enable rage tap detection (default: true) */
@@ -58,7 +40,6 @@ export interface RejourneyConfig {
   captureQuality?: 'low' | 'medium' | 'high';
   /** When true, prefer uploading on Wi‑Fi only (native `wifiOnly`, default: false) */
   wifiOnly?: boolean;
-  autoStartRecording?: boolean;
   /** API URL for session uploads (default: https://api.rejourney.co) */
   apiUrl?: string;
   /** Collect detailed device information (default: true) */
@@ -66,19 +47,13 @@ export interface RejourneyConfig {
   /**
    * Collect IP address and geolocation data (default: true).
    *
-   * When enabled, the SDK collects the device's IP address and derives approximate
-   * location (country, region, city, latitude, longitude). This constitutes personal
-   * data under GDPR. Ensure your privacy policy discloses this collection and that
-   * you have a valid lawful basis before enabling geolocation for EEA users.
-   * Consider disabling or restricting to country-level if precise location is not needed.
+   * When enabled, the SDK passes a flag to the native layer which includes the device's
+   * IP address for server-side geolocation lookup (country, region, city). This data
+   * constitutes personal data under GDPR. Ensure your privacy policy discloses this
+   * and that you have a valid lawful basis before enabling for EEA users.
+   * Set to `false` to suppress geolocation collection entirely.
    */
   collectGeoLocation?: boolean;
-  /** Delay after navigation before capturing (ms) - allows animations to complete (default: 300) */
-  postNavigationDelay?: number;
-  /** Delay after gestures/taps before capturing (ms) - shows result not animation (default: 200) */
-  postGestureDelay?: number;
-  /** Delay after modals/alerts before capturing (ms) - ensures full render (default: 400) */
-  postModalDelay?: number;
 
   // ========================================================================
   // Authentication Callbacks

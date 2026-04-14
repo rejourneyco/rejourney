@@ -11,12 +11,12 @@ const filesToCheck = [
 
 const unsafePatterns = [
   {
-    description: "direct require('@react-navigation/native')",
+    description: "direct require('@react-navigation/native') with string literal (Metro will bundle the optional peer unconditionally)",
     regex: /require\((['"])@react-navigation\/native\1\)/g,
   },
   {
-    description: "direct loader('@react-navigation/native')",
-    regex: /loader\((['"])@react-navigation\/native\1\)/g,
+    description: "loader() call used for optional peer loading (must use require() directly so Metro can trace it)",
+    regex: /\bloader\s*\(/g,
   },
 ];
 

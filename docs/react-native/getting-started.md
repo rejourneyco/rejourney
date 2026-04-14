@@ -266,4 +266,11 @@ Console log capture is enabled by default (`trackConsoleLogs: true`). Console lo
 ```javascript
 Rejourney.init('pk_live_your_public_key', { trackConsoleLogs: false });
 ```
+
+### Geolocation
+
+IP-derived geolocation (country, region, city) is collected by default. When `collectGeoLocation` is `false`, the SDK passes a flag to the native layer that suppresses the IP geolocation lookup on the backend — no location data is stored for that session. Disable it if you do not need location data or want to minimise data collection for EEA users:
+
+```javascript
+Rejourney.init('pk_live_your_public_key', { collectGeoLocation: false });
 ```
