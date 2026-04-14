@@ -34,13 +34,14 @@ Use this page if you followed [Self-hosted Rejourney](/docs/selfhosted) and some
 
 ---
 
-## 1. Install or update fails during bootstrap
+## 1. Install or update fails before or during bootstrap
 
 ### Symptoms
 
 - `bootstrap` exits non-zero
 - app services never become healthy
 - `status` shows API or workers waiting on bootstrap
+- install or update exits with `Database authentication failed before bootstrap.`
 
 ### Checks
 
@@ -51,23 +52,45 @@ docker compose -f docker-compose.selfhosted.yml --env-file .env.selfhosted logs 
 Common causes:
 
 - bad `DATABASE_URL`
+- credentials mismatch (e.g. from an earlier failed deployment)
 - missing `STORAGE_ENCRYPTION_KEY`
 - invalid S3 credentials
 - broken external S3 endpoint URL
 - on **ARM64**, missing image support (set `DOCKER_DEFAULT_PLATFORM=linux/amd64` or use `./scripts/selfhosted/deploy.sh`, which sets it when unset)
 
-**Schema / migration messages:** On a normal install, the database starts empty and bootstrap sets everything up. If you **restored Postgres from a backup** into a new server but migration metadata is missing, or you pointed the stack at the **wrong database**, bootstrap may exit with an error about an inconsistent database instead of overwriting your data. Unless you are doing advanced recovery, fix `DATABASE_URL` and restore a consistent backup, or start from a clean volume. For deliberate migrate-only recovery, some setups use `REJOURNEY_ALLOW_ORPHAN_DB_MIGRATE_ONLY=1` in `.env.selfhosted` (see maintainer docs or support before using this).
+Recovery:
 
-### Fix
-
-1. correct `.env.selfhosted`
-2. rerun:
+1. If you still have the original `.env.selfhosted`, restore it and run:
 
 ```bash
 ./scripts/selfhosted/deploy.sh update
 ```
 
-That reruns schema, seed, and storage-endpoint sync.
+2. If you do not need old data, wipe and reinstall:
+
+```bash
+./scripts/selfhosted/deploy.sh reset
+./scripts/selfhosted/deploy.sh install
+```
+
+**Schema / migration messages:** On a normal install, the database starts empty and bootstrap sets everything up. If you **restored Postgres from a backup** into a new server but migration metadata is missing, or you pointed the stack at the **wrong database**, bootstrap may exit with an error about an inconsistent database instead of overwriting your data. Unless you are doing advanced recovery, fix `DATABASE_URL` and restore a consistent backup, or start from a clean volume. For deliberate migrate-only recovery, some setups use `REJOURNEY_ALLOW_ORPHAN_DB_MIGRATE_ONLY=1` in `.env.selfhosted` (see maintainer docs or support before using this).
+
+### Fix
+
+1. If you have the original `.env.selfhosted`, restore it and rerun:
+
+```bash
+./scripts/selfhosted/deploy.sh update
+```
+
+2. If you do not have the original `.env.selfhosted`, wipe and reinstall:
+
+```bash
+./scripts/selfhosted/deploy.sh reset
+./scripts/selfhosted/deploy.sh install
+```
+
+`update` reruns schema, seed, and storage-endpoint sync. `reset` removes self-hosted containers and data volumes so a fresh install can generate new credentials safely.
 
 ---
 
