@@ -80,7 +80,7 @@ jobs:
         working-directory: ./packages/react-native
         run: |
           npm run prepack
-          PACK_FILE=$(npm pack --json | node -e "process.stdout.write(JSON.parse(require('fs').readFileSync(0,'utf8'))[0].filename)")
+          PACK_FILE=$(npm pack 2>&1 | tail -1 | sed 's/.*\///')
           echo "PACK_FILE=$PACK_FILE" >> $GITHUB_ENV
 
       - name: Create bare RN validation app
