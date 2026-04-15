@@ -16,13 +16,9 @@ env:
 jobs:
   # ------------------------------------------------------------------
   # VERSION CHECK (Root)
-  # Connects to VPS via Tailscale to compare package.json versions.
-  #
   # Required GitHub secrets:
-  #   VPS_SSH_KEY        — private key for SSH auth (root@VPS)
-  #   VPS_HOST           — VPS Tailscale IP (100.x.x.x) or MagicDNS hostname
-  #   TS_OAUTH_CLIENT_ID — Tailscale OAuth client ID  (Settings → OAuth clients)
-  #   TS_OAUTH_SECRET    — Tailscale OAuth secret
+  #   VPS_SSH_KEY — private key for SSH auth (root@VPS)
+  #   VPS_HOST    — VPS host / IP (set to Tailscale IP if SSH is locked to tailnet)
   # ------------------------------------------------------------------
   check-version:
     runs-on: ubuntu-latest
@@ -31,14 +27,6 @@ jobs:
       changed: ${{ steps.version-check.outputs.changed }}
     steps:
       - uses: actions/checkout@v4
-
-      - name: Setup Tailscale
-        uses: tailscale/github-action@v2
-        with:
-          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
-          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
-          tags: tag:ci
-          ephemeral: true
 
       - name: Install SSH Key
         run: |
@@ -219,101 +207,88 @@ jobs:
 
   # ------------------------------------------------------------------
   # DEPLOY TO VPS
-  # Connects via Tailscale so VPS SSH port does not need to be open
-  # on the public internet.
-  #
-  # Required GitHub secrets (in addition to the ones above):
-  #   GITHUB_TOKEN       — auto-provided by Actions (for GHCR image pulls)
   # ------------------------------------------------------------------
   deploy:
     needs: [build-images, check-version]
     if: success() && github.ref == 'refs/heads/main' && (needs.check-version.outputs.changed == 'true' || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-latest
     steps:
-      - name: Setup Tailscale
-        uses: tailscale/github-action@v2
-        with:
-          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
-          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
-          tags: tag:ci
-          ephemeral: true
+       - name: Deploy to VPS
+         uses: appleboy/ssh-action@v1.0.3
+         env:
+           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+           IMAGE_TAG: ${{ github.sha }}
+         with:
+           host: ${{ secrets.VPS_HOST }}
+           username: root
+           key: ${{ secrets.VPS_SSH_KEY }}
+           timeout: 60m
+           command_timeout: 60m
+           envs: GITHUB_TOKEN,IMAGE_TAG
+           script: |
+             set -euo pipefail
 
-      - name: Deploy to VPS
-        uses: appleboy/ssh-action@v1.0.3
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          IMAGE_TAG: ${{ github.sha }}
-        with:
-          host: ${{ secrets.VPS_HOST }}
-          username: root
-          key: ${{ secrets.VPS_SSH_KEY }}
-          timeout: 60m
-          command_timeout: 60m
-          envs: GITHUB_TOKEN,IMAGE_TAG
-          script: |
-            set -euo pipefail
+             # Update Repo
+             # Ensure the directory exists
+             if [ ! -d "/opt/rejourney" ]; then
+               echo "Directory /opt/rejourney not found, cloning..."
+               git clone https://${GITHUB_TOKEN}@github.com/${{ github.repository }}.git /opt/rejourney
+             fi
 
-            # Update Repo
-            # Ensure the directory exists
-            if [ ! -d "/opt/rejourney" ]; then
-              echo "Directory /opt/rejourney not found, cloning..."
-              git clone https://${GITHUB_TOKEN}@github.com/${{ github.repository }}.git /opt/rejourney
-            fi
+             # SAFE CD: Exit if cd fails
+             cd /opt/rejourney || exit 1
 
-            # SAFE CD: Exit if cd fails
-            cd /opt/rejourney || exit 1
+             # Use token for origin to allow fetching
+             git remote set-url origin https://${GITHUB_TOKEN}@github.com/${{ github.repository }}.git
 
-            # Use token for origin to allow fetching
-            git remote set-url origin https://${GITHUB_TOKEN}@github.com/${{ github.repository }}.git
+             # If it's not a git repo, initialize it (fallback)
+             if [ ! -d ".git" ]; then
+               echo "Not a git repository, fixing..."
+               # CAREFUL: Only delete if we are CONFIRMED in /opt/rejourney
+               if [ "$(pwd)" == "/opt/rejourney" ]; then
+                   rm -rf * .[^.]*
+                   git clone https://${GITHUB_TOKEN}@github.com/${{ github.repository }}.git .
+               else
+                   echo "CRITICAL ERROR: Wrong directory $(pwd). Aborting wipe."
+                   exit 1
+               fi
+             else
+               git fetch origin main
+               git reset --hard origin/main
+             fi
 
-            # If it's not a git repo, initialize it (fallback)
-            if [ ! -d ".git" ]; then
-              echo "Not a git repository, fixing..."
-              # CAREFUL: Only delete if we are CONFIRMED in /opt/rejourney
-              if [ "$(pwd)" == "/opt/rejourney" ]; then
-                  rm -rf * .[^.]*
-                  git clone https://${GITHUB_TOKEN}@github.com/${{ github.repository }}.git .
-              else
-                  echo "CRITICAL ERROR: Wrong directory $(pwd). Aborting wipe."
-                  exit 1
-              fi
-            else
-              git fetch origin main
-              git reset --hard origin/main
-            fi
+             bash scripts/k8s/deploy-release.sh "${IMAGE_TAG}" "${{ github.repository }}"
 
-            bash scripts/k8s/deploy-release.sh "${IMAGE_TAG}" "${{ github.repository }}"
+             # Clean up old images
+             echo "🧹 Cleaning up old images..."
+             if command -v crictl &> /dev/null; then
+               crictl rmi --prune
+             elif command -v docker &> /dev/null; then
+               docker image prune -af --filter "until=24h"
+             fi
 
-            # Clean up old images
-            echo "🧹 Cleaning up old images..."
-            if command -v crictl &> /dev/null; then
-              crictl rmi --prune
-            elif command -v docker &> /dev/null; then
-              docker image prune -af --filter "until=24h"
-            fi
+             # ============================================
+             # CLEANUP: Run after every deployment
+             # ============================================
+             echo "🧹 Running post-deploy cleanup..."
 
-            # ============================================
-            # CLEANUP: Run after every deployment
-            # ============================================
-            echo "🧹 Running post-deploy cleanup..."
+             # 1. Clean up completed/failed pods
+             echo "  → Cleaning completed pods..."
+             kubectl delete pods -n rejourney --field-selector=status.phase==Succeeded --ignore-not-found
+             kubectl delete pods -n rejourney --field-selector=status.phase==Failed --ignore-not-found
 
-            # 1. Clean up completed/failed pods
-            echo "  → Cleaning completed pods..."
-            kubectl delete pods -n rejourney --field-selector=status.phase==Succeeded --ignore-not-found
-            kubectl delete pods -n rejourney --field-selector=status.phase==Failed --ignore-not-found
+             # 2. Clean up old debug pods (using kubectl native approach, no jq needed)
+             echo "  → Cleaning stale debug pods..."
+             kubectl get pods -n rejourney --no-headers -o custom-columns=":metadata.name" | grep "^debug-" | xargs -r kubectl delete pod -n rejourney --ignore-not-found || true
 
-            # 2. Clean up old debug pods (using kubectl native approach, no jq needed)
-            echo "  → Cleaning stale debug pods..."
-            kubectl get pods -n rejourney --no-headers -o custom-columns=":metadata.name" | grep "^debug-" | xargs -r kubectl delete pod -n rejourney --ignore-not-found || true
+             # 3. Clean up old completed job pods (keep last 3)
+             echo "  → Cleaning old job pods..."
+             kubectl get pods -n rejourney -o name | grep -E 'postgres-backup-|db-setup' | head -n -3 | xargs -r kubectl delete -n rejourney --ignore-not-found || true
 
-            # 3. Clean up old completed job pods (keep last 3)
-            echo "  → Cleaning old job pods..."
-            kubectl get pods -n rejourney -o name | grep -E 'postgres-backup-|db-setup' | head -n -3 | xargs -r kubectl delete -n rejourney --ignore-not-found || true
+             # 4. Clean containerd garbage (exited containers)
+             echo "  → Cleaning exited containers..."
+             if command -v crictl &> /dev/null; then
+               crictl rm $(crictl ps -a -q --state exited) 2>/dev/null || true
+             fi
 
-            # 4. Clean containerd garbage (exited containers)
-            echo "  → Cleaning exited containers..."
-            if command -v crictl &> /dev/null; then
-              crictl rm $(crictl ps -a -q --state exited) 2>/dev/null || true
-            fi
-
-            echo "✅ Cleanup complete!"
+             echo "✅ Cleanup complete!"
