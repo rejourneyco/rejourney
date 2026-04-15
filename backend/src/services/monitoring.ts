@@ -25,7 +25,8 @@ export type WorkerName =
     | 'sessionLifecycleWorker'
     | 'retentionWorker'
     | 'statsAggregator'
-    | 'alertWorker';
+    | 'alertWorker'
+    | 'stripeSyncWorker';
 
 interface UptimeKumaConfig {
     baseUrl: string;
@@ -282,6 +283,7 @@ export async function getWorkerStatuses(): Promise<Record<WorkerName, WorkerHeal
         'retentionWorker',
         'statsAggregator',
         'alertWorker',
+        'stripeSyncWorker',
     ];
 
     const statuses: Record<WorkerName, WorkerHealthMetrics> = {} as any;

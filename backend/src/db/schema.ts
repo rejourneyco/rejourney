@@ -98,6 +98,8 @@ export const teams = pgTable('teams', {
     // Billing cycle anchor - when the team's billing cycle started
     billingCycleAnchor: timestamp('billing_cycle_anchor'),
     paymentFailedAt: timestamp('payment_failed_at'), // Set when payment fails, cleared on success
+    stripeCurrentPeriodStart: timestamp('stripe_current_period_start'), // Stripe's authoritative billing period start
+    stripeCurrentPeriodEnd: timestamp('stripe_current_period_end'),     // Stripe's authoritative billing period end
     retentionTier: integer('retention_tier').default(1).notNull(), // Defaults to free video retention
     bonusSessions: integer('bonus_sessions').default(0).notNull(), // Manual override: extra sessions beyond plan limit
     /** When set, bonus_sessions only applies for this billing period string (see getTeamBillingPeriod). */

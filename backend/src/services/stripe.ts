@@ -862,33 +862,101 @@ async function handlePaymentMethodDetached(paymentMethod: Stripe.PaymentMethod):
 }
 
 /**
- * Handle invoice.paid event
+ * Handle invoice.paid event.
+ *
+ * On renewal: Stripe fires invoice.paid before (or independently of) subscription.updated.
+ * We fetch the subscription here to sync billingCycleAnchor and the period columns so that
+ * session counting uses the correct period even if subscription.updated is delayed or missed.
  */
 async function handleInvoicePaid(invoice: Stripe.Invoice): Promise<void> {
-    const teamId = invoice.metadata?.teamId;
-    if (!teamId) {
-        logger.warn({ invoiceId: invoice.id }, 'Invoice missing teamId metadata');
+    const invoiceData = invoice as any;
+
+    // Resolve subscription ID from invoice
+    const subscriptionId: string | null =
+        typeof invoiceData.subscription === 'string'
+            ? invoiceData.subscription
+            : invoiceData.subscription?.id ?? null;
+
+    // Resolve teamId from metadata first, then fall back to subscription lookup
+    let targetTeamId: string | null = invoice.metadata?.teamId ?? null;
+
+    if (!targetTeamId && subscriptionId) {
+        const [team] = await db
+            .select({ id: teams.id })
+            .from(teams)
+            .where(eq(teams.stripeSubscriptionId, subscriptionId))
+            .limit(1);
+        targetTeamId = team?.id ?? null;
+    }
+
+    if (!targetTeamId) {
+        logger.warn({ invoiceId: invoice.id, subscriptionId }, 'invoice.paid: could not resolve teamId');
         return;
     }
 
-    // Clear payment failed status
-    await db.update(teams)
-        .set({ paymentFailedAt: null })
-        .where(eq(teams.id, teamId));
+    const updateFields: Record<string, any> = {
+        paymentFailedAt: null,
+    };
 
-    // Update billing usage with paid status
+    // For subscription renewal invoices, sync the billing cycle anchor and period columns
+    // from Stripe so session counting stays aligned even if subscription.updated is delayed.
+    if (subscriptionId) {
+        const client = getStripe();
+        if (client) {
+            try {
+                const sub = await client.subscriptions.retrieve(subscriptionId);
+                const subData = sub as any;
+                const newPeriodStart = new Date(subData.current_period_start * 1000);
+                const newPeriodEnd   = new Date(subData.current_period_end   * 1000);
+
+                updateFields.stripeCurrentPeriodStart = newPeriodStart;
+                updateFields.stripeCurrentPeriodEnd   = newPeriodEnd;
+
+                // Sync anchor if it has drifted more than 1 hour
+                const [currentTeam] = await db
+                    .select({ billingCycleAnchor: teams.billingCycleAnchor })
+                    .from(teams)
+                    .where(eq(teams.id, targetTeamId))
+                    .limit(1);
+
+                if (currentTeam) {
+                    const driftMs = currentTeam.billingCycleAnchor
+                        ? Math.abs(newPeriodStart.getTime() - currentTeam.billingCycleAnchor.getTime())
+                        : Infinity;
+                    if (driftMs > 60 * 60 * 1000) {
+                        updateFields.billingCycleAnchor = newPeriodStart;
+                        logger.warn({
+                            teamId: targetTeamId,
+                            oldAnchor: currentTeam.billingCycleAnchor,
+                            newAnchor: newPeriodStart,
+                        }, 'Billing cycle anchor synced via invoice.paid webhook');
+                    }
+                }
+            } catch (err) {
+                logger.error({ err, subscriptionId, teamId: targetTeamId }, 'Failed to fetch subscription in handleInvoicePaid');
+            }
+        }
+    }
+
+    await db.update(teams)
+        .set(updateFields)
+        .where(eq(teams.id, targetTeamId));
+
+    // Update billing usage record if the period is encoded in invoice metadata
     const period = invoice.metadata?.period;
     if (period) {
-        // Update only the specific period's record, not all records for this team
         await db.update(billingUsage)
             .set({ invoiceStatus: 'paid' })
             .where(and(
-                eq(billingUsage.teamId, teamId),
+                eq(billingUsage.teamId, targetTeamId),
                 eq(billingUsage.period, period)
             ));
     }
 
-    logger.info({ teamId, invoiceId: invoice.id }, 'Invoice paid');
+    const { invalidateSessionCache } = await import('./quotaCheck.js');
+    await invalidateSessionCache(targetTeamId);
+
+    logger.info({ teamId: targetTeamId, invoiceId: invoice.id, anchorSynced: 'billingCycleAnchor' in updateFields }, 'Invoice paid');
 }
 
 /**
@@ -1130,11 +1198,12 @@ async function handleSubscriptionUpdated(subscription: Stripe.Subscription): Pro
     // Get current price ID from subscription
     const priceId = subscription.items.data[0]?.price.id;
 
-    // Get current team state to check if this is a downgrade
+    // Get current team state
     const [currentTeam] = await db
         .select({
             stripePriceId: teams.stripePriceId,
             billingCycleAnchor: teams.billingCycleAnchor,
+            paymentFailedAt: teams.paymentFailedAt,
         })
         .from(teams)
         .where(eq(teams.id, targetTeamId))
@@ -1145,26 +1214,43 @@ async function handleSubscriptionUpdated(subscription: Stripe.Subscription): Pro
         return;
     }
 
-    // Determine if this is a downgrade (price decreased) or upgrade (price increased)
-    const isDowngrade = currentTeam.stripePriceId && priceId &&
-        currentTeam.stripePriceId !== priceId;
+    const newPeriodStart = new Date(subData.current_period_start * 1000);
+    const newPeriodEnd   = new Date(subData.current_period_end   * 1000);
 
-    // For downgrades: keep the same billing cycle anchor (don't reset)
-    // For upgrades: billing cycle was already reset in executePlanChange
-    // For new subscriptions: set the anchor
     const updateData: Record<string, any> = {
         stripePriceId: priceId || null,
+        stripeCurrentPeriodStart: newPeriodStart,
+        stripeCurrentPeriodEnd: newPeriodEnd,
         updatedAt: new Date(),
     };
 
+    // Sync billingCycleAnchor whenever Stripe's period start drifts >1 hour from the stored anchor.
+    // This covers: new subscriptions, auto-renewals, upgrades, and scheduled downgrades executing.
+    // The >1h threshold avoids spurious resets from minor timestamp rounding.
     if (!currentTeam.billingCycleAnchor) {
-        // New subscription (or incomplete -> active transition) - set anchor
-        updateData.billingCycleAnchor = new Date(subData.current_period_start * 1000);
-    } else if (!isDowngrade) {
-        // Upgrade or other change - update anchor (upgrades already reset it, but sync it)
-        updateData.billingCycleAnchor = new Date(subData.current_period_start * 1000);
+        updateData.billingCycleAnchor = newPeriodStart;
+    } else {
+        const anchorDriftMs = Math.abs(newPeriodStart.getTime() - currentTeam.billingCycleAnchor.getTime());
+        if (anchorDriftMs > 60 * 60 * 1000) {
+            updateData.billingCycleAnchor = newPeriodStart;
+            logger.warn({
+                teamId: targetTeamId,
+                oldAnchor: currentTeam.billingCycleAnchor,
+                newAnchor: newPeriodStart,
+                anchorDriftMs,
+            }, 'Billing cycle anchor synced via subscription.updated webhook');
+        }
     }
-    // For downgrades: explicitly do NOT update billingCycleAnchor
+
+    // Sync paymentFailedAt based on subscription status.
+    // past_due / unpaid → pause recordings immediately (same as invoice.payment_failed).
+    // active / trialing → clear any prior payment failure.
+    const subStatus = subscription.status as string;
+    if (subStatus === 'past_due' || subStatus === 'unpaid') {
+        updateData.paymentFailedAt = currentTeam.paymentFailedAt ?? new Date();
+    } else if (subStatus === 'active' || subStatus === 'trialing') {
+        updateData.paymentFailedAt = null;
+    }
 
     await db.update(teams)
         .set(updateData)
@@ -1182,8 +1268,8 @@ async function handleSubscriptionUpdated(subscription: Stripe.Subscription): Pro
         subscriptionId: subscription.id,
         status: subscription.status,
         priceId,
-        isDowngrade,
-        billingCyclePreserved: isDowngrade,
+        newPeriodStart,
+        anchorUpdated: 'billingCycleAnchor' in updateData,
     }, 'Subscription updated via webhook');
 }
 

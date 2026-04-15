@@ -602,3 +602,77 @@ spec:
             limits:
               cpu: 300m
               memory: 256Mi
+
+---
+# Stripe Sync Worker CronJob
+# Hourly reconciliation of team billing state against Stripe.
+# Corrects desynced billingCycleAnchor, stripePriceId, paymentFailedAt,
+# and migrates project_usage period keys when the anchor shifts.
+# Safe to run at any time: no-op for teams already in sync.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: stripe-sync-worker
+  namespace: rejourney
+  labels:
+    app.kubernetes.io/part-of: rejourney
+spec:
+  schedule: "17 * * * *"   # offset from :00 to spread load
+  suspend: false
+  concurrencyPolicy: Forbid  # skip if previous run still going
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 5
+  jobTemplate:
+    spec:
+      activeDeadlineSeconds: 1800  # 30 min hard cap
+      backoffLimit: 1
+      template:
+        metadata:
+          labels:
+            app: stripe-sync-worker
+        spec:
+          restartPolicy: OnFailure
+          imagePullSecrets:
+            - name: ghcr-secret
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            fsGroup: 1000
+          containers:
+            - name: worker
+              image: ghcr.io/rejourneyco/rejourney/api:latest
+              imagePullPolicy: Always
+              command: ["node", "dist/worker/stripeSyncWorker.js"]
+              env:
+                - name: NODE_ENV
+                  value: production
+                - name: DATABASE_URL
+                  valueFrom:
+                    secretKeyRef:
+                      name: postgres-secret
+                      key: DATABASE_URL
+                - name: REDIS_URL
+                  valueFrom:
+                    secretKeyRef:
+                      name: redis-secret
+                      key: REDIS_URL
+                - name: STRIPE_SECRET_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: stripe-secret
+                      key: STRIPE_SECRET_KEY
+                - name: UPTIME_KUMA_BASE_URL
+                  value: "http://uptime-kuma.rejourney.svc.cluster.local:3001"
+                - name: UPTIME_KUMA_TOKENS
+                  valueFrom:
+                    secretKeyRef:
+                      name: monitoring-tokens
+                      key: tokens
+                      optional: true
+              resources:
+                requests:
+                  cpu: 100m
+                  memory: 128Mi
+                limits:
+                  cpu: 500m
+                  memory: 256Mi
