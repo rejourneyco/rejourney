@@ -1,0 +1,76 @@
+# Prometheus Pushgateway - Receives worker heartbeat pushes
+# Replaces: Uptime Kuma push monitors
+#
+# Workers POST to http://pushgateway.rejourney.svc.cluster.local:9091/metrics/job/<name>
+# VictoriaMetrics scrapes this endpoint; Grafana alerts on stale worker_last_heartbeat_unix.
+#
+# Access: kubectl -n rejourney port-forward svc/pushgateway 9091:9091
+#         http://127.0.0.1:9091
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pushgateway
+  namespace: rejourney
+  labels:
+    app: pushgateway
+    app.kubernetes.io/part-of: rejourney
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: pushgateway
+  template:
+    metadata:
+      labels:
+        app: pushgateway
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        fsGroup: 65534
+      containers:
+        - name: pushgateway
+          image: prom/pushgateway:v1.9.0
+          args:
+            - --web.listen-address=:9091
+            - --persistence.interval=5m
+          ports:
+            - containerPort: 9091
+          resources:
+            requests:
+              cpu: 10m
+              memory: 20Mi
+            limits:
+              cpu: 50m
+              memory: 64Mi
+          livenessProbe:
+            httpGet:
+              path: /-/healthy
+              port: 9091
+            initialDelaySeconds: 5
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /-/ready
+              port: 9091
+            initialDelaySeconds: 5
+            periodSeconds: 10
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: pushgateway
+  namespace: rejourney
+  labels:
+    app: pushgateway
+    app.kubernetes.io/part-of: rejourney
+spec:
+  type: ClusterIP
+  ports:
+    - port: 9091
+      targetPort: 9091
+  selector:
+    app: pushgateway

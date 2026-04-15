@@ -462,3 +462,25 @@ spec:
     app.kubernetes.io/name: traefik
 
 # Traefik dashboard: no public Ingress — use kubectl port-forward (dev_docs/admin-tools-private-access.md)
+
+---
+# Service exposing Traefik's Prometheus metrics port for VictoriaMetrics to scrape
+# Note: This is in kube-system namespace, not pruned with rejourney resources
+apiVersion: v1
+kind: Service
+metadata:
+  name: traefik-metrics
+  namespace: kube-system
+  labels:
+    app.kubernetes.io/instance: traefik-kube-system
+    app.kubernetes.io/name: traefik
+spec:
+  type: ClusterIP
+  ports:
+    - name: metrics
+      port: 9100
+      targetPort: 9100
+      protocol: TCP
+  selector:
+    app.kubernetes.io/instance: traefik-kube-system
+    app.kubernetes.io/name: traefik

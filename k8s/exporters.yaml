@@ -1,0 +1,408 @@
+# Exporters - Metrics exporters for VictoriaMetrics scraping
+# Replaces: NetData (system + K8s + Postgres visibility)
+#
+# Contains:
+#   1. node-exporter  — VPS system metrics (CPU, RAM, disk, network)
+#   2. kube-state-metrics — K8s object state (pods, deployments, CronJobs)
+#   3. postgres-exporter  — PostgreSQL metrics (connections, queries, table sizes)
+#
+# NOTE: ClusterRole/ClusterRoleBinding resources here are cluster-scoped and
+# intentionally omit the app.kubernetes.io/part-of=rejourney label so the
+# kubectl apply --prune step in deploy-release.sh never touches them.
+
+# ============================================================
+# 1. NODE EXPORTER
+# ============================================================
+
+---
+# ServiceAccount for node-exporter (cluster-scoped, no part-of label)
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: node-exporter
+  namespace: rejourney
+
+---
+# node-exporter DaemonSet — runs on every node, mounts host paths read-only
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: node-exporter
+  namespace: rejourney
+  labels:
+    app: node-exporter
+    app.kubernetes.io/part-of: rejourney
+spec:
+  selector:
+    matchLabels:
+      app: node-exporter
+  template:
+    metadata:
+      labels:
+        app: node-exporter
+    spec:
+      serviceAccountName: node-exporter
+      hostPID: true
+      containers:
+        - name: node-exporter
+          image: prom/node-exporter:v1.8.2
+          args:
+            - --path.procfs=/host/proc
+            - --path.sysfs=/host/sys
+            - --path.rootfs=/host/root
+            - --collector.filesystem.mount-points-exclude=^/(dev|proc|sys|var/lib/docker/.+|var/lib/kubelet/pods/.+|var/lib/rancher/k3s/.+)($$|/)
+            - --web.listen-address=:9100
+          ports:
+            - containerPort: 9100
+          securityContext:
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 65534
+          volumeMounts:
+            - name: proc
+              mountPath: /host/proc
+              readOnly: true
+            - name: sys
+              mountPath: /host/sys
+              readOnly: true
+            - name: root
+              mountPath: /host/root
+              readOnly: true
+              mountPropagation: HostToContainer
+          resources:
+            requests:
+              cpu: 10m
+              memory: 20Mi
+            limits:
+              cpu: 50m
+              memory: 50Mi
+      tolerations:
+        - operator: Exists
+          effect: NoSchedule
+      volumes:
+        - name: proc
+          hostPath:
+            path: /proc
+        - name: sys
+          hostPath:
+            path: /sys
+        - name: root
+          hostPath:
+            path: /
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: node-exporter
+  namespace: rejourney
+  labels:
+    app: node-exporter
+    app.kubernetes.io/part-of: rejourney
+spec:
+  type: ClusterIP
+  ports:
+    - port: 9100
+      targetPort: 9100
+  selector:
+    app: node-exporter
+
+# ============================================================
+# 2. KUBE-STATE-METRICS
+# ============================================================
+
+---
+# ServiceAccount for kube-state-metrics (no part-of label — cluster-scoped)
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: kube-state-metrics
+  namespace: rejourney
+
+---
+# ClusterRole — read-only access to K8s objects (no part-of label)
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: kube-state-metrics
+rules:
+  - apiGroups: [""]
+    resources:
+      - configmaps
+      - endpoints
+      - namespaces
+      - nodes
+      - persistentvolumeclaims
+      - persistentvolumes
+      - pods
+      - replicationcontrollers
+      - resourcequotas
+      - secrets
+      - services
+    verbs: ["list", "watch"]
+  - apiGroups: ["apps"]
+    resources:
+      - daemonsets
+      - deployments
+      - replicasets
+      - statefulsets
+    verbs: ["list", "watch"]
+  - apiGroups: ["batch"]
+    resources:
+      - cronjobs
+      - jobs
+    verbs: ["list", "watch"]
+  - apiGroups: ["autoscaling"]
+    resources:
+      - horizontalpodautoscalers
+    verbs: ["list", "watch"]
+  - apiGroups: ["storage.k8s.io"]
+    resources:
+      - storageclasses
+      - volumeattachments
+    verbs: ["list", "watch"]
+
+---
+# ClusterRoleBinding (no part-of label)
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: kube-state-metrics
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: kube-state-metrics
+subjects:
+  - kind: ServiceAccount
+    name: kube-state-metrics
+    namespace: rejourney
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kube-state-metrics
+  namespace: rejourney
+  labels:
+    app: kube-state-metrics
+    app.kubernetes.io/part-of: rejourney
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: kube-state-metrics
+  template:
+    metadata:
+      labels:
+        app: kube-state-metrics
+    spec:
+      serviceAccountName: kube-state-metrics
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        fsGroup: 65534
+      containers:
+        - name: kube-state-metrics
+          image: registry.k8s.io/kube-state-metrics/kube-state-metrics:v2.13.0
+          args:
+            - --resources=cronjobs,daemonsets,deployments,jobs,namespaces,nodes,persistentvolumeclaims,pods,replicasets,services,statefulsets
+            - --port=8080
+            - --telemetry-port=8081
+          ports:
+            - containerPort: 8080
+              name: metrics
+            - containerPort: 8081
+              name: telemetry
+          securityContext:
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+          resources:
+            requests:
+              cpu: 10m
+              memory: 30Mi
+            limits:
+              cpu: 100m
+              memory: 100Mi
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 8081
+            initialDelaySeconds: 5
+            periodSeconds: 10
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kube-state-metrics
+  namespace: rejourney
+  labels:
+    app: kube-state-metrics
+    app.kubernetes.io/part-of: rejourney
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8080
+      targetPort: 8080
+      name: metrics
+  selector:
+    app: kube-state-metrics
+
+# ============================================================
+# 3. POSTGRES EXPORTER
+# ============================================================
+# Connects read-only to PostgreSQL and exposes metrics for Grafana.
+#
+# IMPORTANT: Uses the existing postgres-secret DATABASE_URL.
+# For tighter security, create a dedicated read-only monitoring user:
+#   kubectl exec -it postgres-0 -n rejourney -- psql -U rejourney -d rejourney -c \
+#     "CREATE USER monitoring WITH PASSWORD '<pw>'; GRANT pg_monitor TO monitoring;"
+# Then create a separate postgres-exporter-secret with that connection string.
+#
+# OPTIONAL (enables dashboard 9628 query stats):
+#   kubectl exec -it postgres-0 -n rejourney -- psql -U rejourney -d rejourney -c \
+#     "CREATE EXTENSION IF NOT EXISTS pg_stat_statements;"
+# Also add to k8s/postgres.yaml container args: -c shared_preload_libraries=pg_stat_statements
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: postgres-exporter-queries
+  namespace: rejourney
+  labels:
+    app.kubernetes.io/part-of: rejourney
+data:
+  queries.yaml: |
+    pg_database_size:
+      query: >
+        SELECT datname, pg_database_size(datname) AS size_bytes
+        FROM pg_database
+        WHERE datistemplate = false
+      metrics:
+        - datname:
+            usage: "LABEL"
+            description: "Database name"
+        - size_bytes:
+            usage: "GAUGE"
+            description: "Database size in bytes"
+
+    pg_table_size:
+      query: >
+        SELECT schemaname, tablename,
+               pg_total_relation_size(schemaname||'.'||tablename) AS total_bytes,
+               pg_relation_size(schemaname||'.'||tablename) AS table_bytes,
+               pg_indexes_size(schemaname||'.'||tablename) AS index_bytes
+        FROM pg_tables
+        WHERE schemaname = 'public'
+        ORDER BY total_bytes DESC
+        LIMIT 30
+      metrics:
+        - schemaname:
+            usage: "LABEL"
+        - tablename:
+            usage: "LABEL"
+        - total_bytes:
+            usage: "GAUGE"
+            description: "Total table size including indexes"
+        - table_bytes:
+            usage: "GAUGE"
+            description: "Table data size"
+        - index_bytes:
+            usage: "GAUGE"
+            description: "Index size"
+
+    pg_connections:
+      query: >
+        SELECT state, count(*) AS count
+        FROM pg_stat_activity
+        WHERE datname = current_database()
+        GROUP BY state
+      metrics:
+        - state:
+            usage: "LABEL"
+        - count:
+            usage: "GAUGE"
+            description: "Number of connections by state"
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres-exporter
+  namespace: rejourney
+  labels:
+    app: postgres-exporter
+    app.kubernetes.io/part-of: rejourney
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgres-exporter
+  template:
+    metadata:
+      labels:
+        app: postgres-exporter
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+      containers:
+        - name: postgres-exporter
+          image: prometheuscommunity/postgres-exporter:v0.15.0
+          env:
+            - name: DATA_SOURCE_NAME
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: DATABASE_URL
+            - name: PG_EXPORTER_EXTEND_QUERY_PATH
+              value: "/etc/postgres-exporter/queries.yaml"
+            - name: PG_EXPORTER_AUTO_DISCOVER_DATABASES
+              value: "false"
+          ports:
+            - containerPort: 9187
+          volumeMounts:
+            - name: queries
+              mountPath: /etc/postgres-exporter
+          resources:
+            requests:
+              cpu: 10m
+              memory: 20Mi
+            limits:
+              cpu: 50m
+              memory: 50Mi
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 9187
+            initialDelaySeconds: 10
+            periodSeconds: 30
+      volumes:
+        - name: queries
+          configMap:
+            name: postgres-exporter-queries
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres-exporter
+  namespace: rejourney
+  labels:
+    app: postgres-exporter
+    app.kubernetes.io/part-of: rejourney
+spec:
+  type: ClusterIP
+  ports:
+    - port: 9187
+      targetPort: 9187
+  selector:
+    app: postgres-exporter

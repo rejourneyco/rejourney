@@ -377,6 +377,13 @@ export const sessions = pgTable(
             .where(sql`${table.replayAvailable} = true`),
         /** Speeds “first session for device” checks on the archive list */
         index('sessions_project_device_started_idx').on(table.projectId, table.deviceId, table.startedAt),
+        /** Speeds first-session checks (resolveArchiveFirstSessionIds), new_user filter NOT EXISTS, and live-badge visitor EXISTS — all use coalesce(device_id, anonymous_hash, user_display_id) */
+        index('sessions_visitor_identity_started_idx').on(
+            table.projectId,
+            sql`coalesce(${table.deviceId}, ${table.anonymousHash}, ${table.userDisplayId})`,
+            table.startedAt,
+            table.id
+        ),
         index('sessions_user_display_id_idx').on(table.userDisplayId),
         index('sessions_anonymous_hash_idx').on(table.anonymousHash),
         index('sessions_events_idx').using('gin', table.events),

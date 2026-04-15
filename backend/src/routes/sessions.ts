@@ -7,7 +7,7 @@
 import { Buffer } from 'node:buffer';
 
 import { Router } from 'express';
-import { eq, and, or, inArray, gte, lt, isNull, desc, asc, sql, getTableColumns } from 'drizzle-orm';
+import { eq, and, inArray, gte, lt, isNull, desc, asc, sql, getTableColumns } from 'drizzle-orm';
 
 import { db, sessions, sessionMetrics, recordingArtifacts, projects, teamMembers, crashes, anrs, errors } from '../db/client.js';
 import { gunzipSync } from 'zlib';
@@ -114,26 +114,19 @@ async function resolveArchiveFirstSessionIds(rows: Array<{ session: ArchiveListS
         const identities = [...identitySet];
         if (identities.length === 0) continue;
 
-        const rowList = await db
-            .select({
-                id: sessions.id,
-                ident: archiveVisitorIdentitySql,
-                startedAt: sessions.startedAt,
-            })
-            .from(sessions)
-            .where(
-                and(
-                    eq(sessions.projectId, projectId),
-                    or(...identities.map((ident) => sql`${archiveVisitorIdentitySql} = ${ident}`))
-                )
-            )
-            .orderBy(archiveVisitorIdentitySql, sessions.startedAt, sessions.id);
+        // DISTINCT ON returns exactly one row per identity — the chronologically earliest session.
+        // = ANY(ARRAY[...]) works well with the sessions_visitor_identity_started_idx expression index.
+        const result = await db.execute<{ id: string }>(sql`
+            SELECT DISTINCT ON (coalesce(device_id, anonymous_hash, user_display_id)) id
+            FROM sessions
+            WHERE project_id = ${projectId}
+              AND coalesce(device_id, anonymous_hash, user_display_id) = ANY(
+                  ARRAY[${sql.join(identities.map((i) => sql`${i}`), sql`, `)}]
+              )
+            ORDER BY coalesce(device_id, anonymous_hash, user_display_id), started_at ASC, id ASC
+        `);
 
-        const seenIdent = new Set<string>();
-        for (const row of rowList) {
-            const ident = row.ident;
-            if (!ident || seenIdent.has(ident)) continue;
-            seenIdent.add(ident);
+        for (const row of result.rows) {
             firstIds.add(row.id);
         }
     }

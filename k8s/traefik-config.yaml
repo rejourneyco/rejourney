@@ -14,7 +14,20 @@ metadata:
   namespace: kube-system
 spec:
   valuesContent: |-
+    # Expose Prometheus metrics for VictoriaMetrics to scrape
+    metrics:
+      prometheus:
+        addEntryPointsLabels: true
+        addServicesLabels: true
+        addRoutersLabels: true
+        entryPoint: metrics
+
     ports:
+      # Internal-only metrics endpoint (not exposed externally)
+      metrics:
+        port: 9100
+        expose:
+          default: false
       web:
         forwardedHeaders:
           trustedIPs:

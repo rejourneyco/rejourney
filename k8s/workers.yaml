@@ -90,14 +90,8 @@ spec:
                   name: app-secret
                   key: STORAGE_ENCRYPTION_KEY
             # Monitoring
-            - name: UPTIME_KUMA_BASE_URL
-              value: "http://uptime-kuma.rejourney.svc.cluster.local:3001"
-            - name: UPTIME_KUMA_TOKENS
-              valueFrom:
-                secretKeyRef:
-                  name: monitoring-tokens
-                  key: tokens
-                  optional: true
+            - name: PUSHGATEWAY_URL
+              value: "http://pushgateway.rejourney.svc.cluster.local:9091"
             # SMTP (for alert emails)
             - name: SMTP_HOST
               valueFrom:
@@ -249,14 +243,8 @@ spec:
                 secretKeyRef:
                   name: app-secret
                   key: STORAGE_ENCRYPTION_KEY
-            - name: UPTIME_KUMA_BASE_URL
-              value: "http://uptime-kuma.rejourney.svc.cluster.local:3001"
-            - name: UPTIME_KUMA_TOKENS
-              valueFrom:
-                secretKeyRef:
-                  name: monitoring-tokens
-                  key: tokens
-                  optional: true
+            - name: PUSHGATEWAY_URL
+              value: "http://pushgateway.rejourney.svc.cluster.local:9091"
             - name: PUBLIC_DASHBOARD_URL
               valueFrom:
                 secretKeyRef:
@@ -335,14 +323,8 @@ spec:
                 secretKeyRef:
                   name: app-secret
                   key: STORAGE_ENCRYPTION_KEY
-            - name: UPTIME_KUMA_BASE_URL
-              value: "http://uptime-kuma.rejourney.svc.cluster.local:3001"
-            - name: UPTIME_KUMA_TOKENS
-              valueFrom:
-                secretKeyRef:
-                  name: monitoring-tokens
-                  key: tokens
-                  optional: true
+            - name: PUSHGATEWAY_URL
+              value: "http://pushgateway.rejourney.svc.cluster.local:9091"
           resources:
             requests:
               cpu: 100m
@@ -467,14 +449,8 @@ spec:
                     secretKeyRef:
                       name: app-secret
                       key: STORAGE_ENCRYPTION_KEY
-                - name: UPTIME_KUMA_BASE_URL
-                  value: "http://uptime-kuma.rejourney.svc.cluster.local:3001"
-                - name: UPTIME_KUMA_TOKENS
-                  valueFrom:
-                    secretKeyRef:
-                      name: monitoring-tokens
-                      key: tokens
-                      optional: true
+                - name: PUSHGATEWAY_URL
+                  value: "http://pushgateway.rejourney.svc.cluster.local:9091"
               resources:
                 requests:
                   cpu: 100m
@@ -587,14 +563,8 @@ spec:
                   key: PUBLIC_DASHBOARD_URL
                   optional: true
             # Monitoring
-            - name: UPTIME_KUMA_BASE_URL
-              value: "http://uptime-kuma.rejourney.svc.cluster.local:3001"
-            - name: UPTIME_KUMA_TOKENS
-              valueFrom:
-                secretKeyRef:
-                  name: monitoring-tokens
-                  key: tokens
-                  optional: true
+            - name: PUSHGATEWAY_URL
+              value: "http://pushgateway.rejourney.svc.cluster.local:9091"
           resources:
             requests:
               cpu: 50m
@@ -678,14 +648,8 @@ spec:
                       name: app-secret
                       key: STORAGE_ENCRYPTION_KEY
                       optional: true
-                - name: UPTIME_KUMA_BASE_URL
-                  value: "http://uptime-kuma.rejourney.svc.cluster.local:3001"
-                - name: UPTIME_KUMA_TOKENS
-                  valueFrom:
-                    secretKeyRef:
-                      name: monitoring-tokens
-                      key: tokens
-                      optional: true
+                - name: PUSHGATEWAY_URL
+                  value: "http://pushgateway.rejourney.svc.cluster.local:9091"
               resources:
                 requests:
                   cpu: 100m

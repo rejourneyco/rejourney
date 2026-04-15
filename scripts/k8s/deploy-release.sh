@@ -50,6 +50,21 @@ render_manifests() {
   done
 }
 
+ensure_grafana_secret() {
+  if kubectl get secret grafana-secret -n "${NAMESPACE}" >/dev/null 2>&1; then
+    log "grafana-secret already exists, skipping"
+    return
+  fi
+
+  log "Creating grafana-secret with random admin password..."
+  local pass
+  pass="$(openssl rand -hex 16)"
+  kubectl create secret generic grafana-secret \
+    --namespace "${NAMESPACE}" \
+    --from-literal=admin-password="${pass}"
+  log "grafana-secret created. Retrieve password: kubectl get secret grafana-secret -n ${NAMESPACE} -o jsonpath='{.data.admin-password}' | base64 -d"
+}
+
 ensure_cert_manager() {
   if kubectl get namespace cert-manager >/dev/null 2>&1; then
     return
@@ -162,6 +177,7 @@ main() {
   kubectl apply -f "${K8S_DIR}/namespace.yaml"
   kubectl apply -f "${K8S_DIR}/traefik-config.yaml"
   ensure_cert_manager
+  ensure_grafana_secret
 
   bash "${ROOT_DIR}/scripts/k8s/check-archive-sync.sh"
 
@@ -190,6 +206,12 @@ main() {
   log "Removing legacy Traefik dashboard Ingress if present..."
   kubectl delete ingress traefik-dashboard-ingress -n kube-system --ignore-not-found
 
+  # NetData RBAC was cluster-scoped (no part-of=rejourney label) so --prune never removes it.
+  log "Removing legacy NetData cluster resources if present..."
+  kubectl delete clusterrole netdata --ignore-not-found
+  kubectl delete clusterrolebinding netdata --ignore-not-found
+  kubectl delete serviceaccount netdata -n "${NAMESPACE}" --ignore-not-found
+
   wait_for_postgres
   wait_for_job
   print_migration_status "after"
@@ -203,6 +225,10 @@ main() {
   wait_for_deployment session-lifecycle-worker
   wait_for_deployment retention-worker
   wait_for_deployment alert-worker
+  wait_for_deployment victoria-metrics
+  wait_for_deployment grafana
+  wait_for_deployment gatus
+  wait_for_deployment pushgateway
 
   cleanup_finished_pods
   log "Release applied successfully for image tag ${IMAGE_TAG}"
