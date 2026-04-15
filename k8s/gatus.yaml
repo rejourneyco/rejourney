@@ -1,0 +1,184 @@
+# Gatus - Endpoint health monitoring and status page
+# Replaces: Uptime Kuma (HTTP health checks, SSL cert monitoring)
+# Access: kubectl -n rejourney port-forward svc/gatus 8090:8080
+#         http://127.0.0.1:8090
+#
+# Note: Worker heartbeats are handled by Pushgateway (pushgateway.yaml), not Gatus.
+# Gatus covers: HTTP endpoint health, SSL cert expiry, PostgreSQL/Redis TCP connectivity.
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: gatus-data
+  namespace: rejourney
+  labels:
+    app.kubernetes.io/part-of: rejourney
+spec:
+  storageClassName: local-path
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 500Mi
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: gatus-config
+  namespace: rejourney
+  labels:
+    app.kubernetes.io/part-of: rejourney
+data:
+  config.yaml: |
+    storage:
+      type: sqlite
+      path: /data/gatus.db
+
+    web:
+      port: 8080
+
+    # ── HTTP + SSL endpoint checks ──────────────────────────────────────
+
+    endpoints:
+      - name: API Health
+        url: https://api.rejourney.co/health/ready
+        interval: 2m
+        conditions:
+          - "[STATUS] == 200"
+          - "[RESPONSE_TIME] < 500"
+
+      - name: API Liveness
+        url: https://api.rejourney.co/health/live
+        interval: 2m
+        conditions:
+          - "[STATUS] == 200"
+
+      - name: Ingest Health
+        url: https://ingest.rejourney.co/health/ingest
+        interval: 2m
+        conditions:
+          - "[STATUS] == 200"
+          - "[RESPONSE_TIME] < 1000"
+
+      - name: Dashboard
+        url: https://rejourney.co
+        interval: 2m
+        conditions:
+          - "[STATUS] == 200"
+
+      # TLS cert expiry checks (fires when < 14 days remain)
+      - name: API TLS
+        url: https://api.rejourney.co
+        interval: 1h
+        conditions:
+          - "[STATUS] == 200"
+          - "[CERTIFICATE_EXPIRATION] > 336h"
+
+      - name: Ingest TLS
+        url: https://ingest.rejourney.co
+        interval: 1h
+        conditions:
+          - "[STATUS] == 200"
+          - "[CERTIFICATE_EXPIRATION] > 336h"
+
+      - name: Dashboard TLS
+        url: https://rejourney.co
+        interval: 1h
+        conditions:
+          - "[STATUS] == 200"
+          - "[CERTIFICATE_EXPIRATION] > 336h"
+
+      # Internal TCP connectivity checks
+      - name: PostgreSQL
+        url: tcp://postgres.rejourney.svc.cluster.local:5432
+        interval: 30s
+        conditions:
+          - "[CONNECTED] == true"
+
+      - name: Redis
+        url: tcp://redis.rejourney.svc.cluster.local:6379
+        interval: 30s
+        conditions:
+          - "[CONNECTED] == true"
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gatus
+  namespace: rejourney
+  labels:
+    app: gatus
+    app.kubernetes.io/part-of: rejourney
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: gatus
+  template:
+    metadata:
+      labels:
+        app: gatus
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+      containers:
+        - name: gatus
+          image: twinproduction/gatus:v5.12.0
+          env:
+            - name: GATUS_CONFIG_PATH
+              value: /config/config.yaml
+          ports:
+            - containerPort: 8080
+          volumeMounts:
+            - name: config
+              mountPath: /config
+            - name: data
+              mountPath: /data
+          resources:
+            requests:
+              cpu: 10m
+              memory: 30Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+      volumes:
+        - name: config
+          configMap:
+            name: gatus-config
+        - name: data
+          persistentVolumeClaim:
+            claimName: gatus-data
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: gatus
+  namespace: rejourney
+  labels:
+    app: gatus
+    app.kubernetes.io/part-of: rejourney
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8080
+      targetPort: 8080
+  selector:
+    app: gatus

@@ -1891,6 +1891,7 @@ export interface InsightsTrends {
     avgDurationSeconds: number;
     errorCount: number;
     appVersionBreakdown: Record<string, number>;
+    appVersionDauBreakdown?: Record<string, number>;
     totalApiCalls: number;
   }>;
   /** Last date (YYYY-MM-DD) for which rollups are complete. Metrics exclude days after this. */

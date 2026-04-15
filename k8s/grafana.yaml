@@ -1,0 +1,156 @@
+# Grafana - Unified monitoring dashboard
+# Replaces: NetData UI, Traefik Dashboard
+# Access: kubectl -n rejourney port-forward svc/grafana 3000:3000
+#         http://127.0.0.1:3000  (admin / see grafana-secret)
+#
+# SETUP — create this secret before first deploy:
+#   kubectl create secret generic grafana-secret -n rejourney \
+#     --from-literal=admin-password=$(openssl rand -hex 16)
+#
+# DASHBOARDS — import these IDs after first login (Dashboards → Import):
+#   1860  — Node Exporter Full       (CPU, RAM, disk, network)
+#   13332 — Kubernetes Cluster       (pod/deployment health, resource usage)
+#   9628  — PostgreSQL               (connections, query stats, table sizes)
+#   17346 — Traefik                  (requests/s, latency, error rate per route)
+#   10229 — VictoriaMetrics          (VM internal health, ingestion rate)
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: grafana-data
+  namespace: rejourney
+  labels:
+    app.kubernetes.io/part-of: rejourney
+spec:
+  storageClassName: local-path
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 2Gi
+
+---
+# Auto-provision VictoriaMetrics as the default datasource
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-datasources
+  namespace: rejourney
+  labels:
+    app.kubernetes.io/part-of: rejourney
+data:
+  datasources.yaml: |
+    apiVersion: 1
+    datasources:
+      - name: VictoriaMetrics
+        type: prometheus
+        access: proxy
+        url: http://victoria-metrics.rejourney.svc.cluster.local:8428
+        isDefault: true
+        editable: false
+        jsonData:
+          timeInterval: "30s"
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: grafana
+  namespace: rejourney
+  labels:
+    app: grafana
+    app.kubernetes.io/part-of: rejourney
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: grafana
+  template:
+    metadata:
+      labels:
+        app: grafana
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 472
+        fsGroup: 472
+      containers:
+        - name: grafana
+          image: grafana/grafana:11.4.0
+          env:
+            - name: GF_SERVER_ROOT_URL
+              value: "http://localhost:3000"
+            - name: GF_AUTH_ANONYMOUS_ENABLED
+              value: "false"
+            - name: GF_AUTH_BASIC_ENABLED
+              value: "true"
+            - name: GF_SECURITY_ADMIN_USER
+              value: "admin"
+            - name: GF_SECURITY_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: grafana-secret
+                  key: admin-password
+            - name: GF_PATHS_PROVISIONING
+              value: "/etc/grafana/provisioning"
+            - name: GF_ANALYTICS_REPORTING_ENABLED
+              value: "false"
+            - name: GF_ANALYTICS_CHECK_FOR_UPDATES
+              value: "false"
+            - name: GF_SNAPSHOTS_EXTERNAL_ENABLED
+              value: "false"
+            - name: GF_LOG_LEVEL
+              value: "warn"
+            - name: GF_INSTALL_PLUGINS
+              value: ""
+          ports:
+            - containerPort: 3000
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/grafana
+            - name: datasources
+              mountPath: /etc/grafana/provisioning/datasources
+          resources:
+            requests:
+              cpu: 100m
+              memory: 150Mi
+            limits:
+              cpu: 500m
+              memory: 280Mi
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: 3000
+            initialDelaySeconds: 30
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: 3000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: grafana-data
+        - name: datasources
+          configMap:
+            name: grafana-datasources
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: grafana
+  namespace: rejourney
+  labels:
+    app: grafana
+    app.kubernetes.io/part-of: rejourney
+spec:
+  type: ClusterIP
+  ports:
+    - port: 3000
+      targetPort: 3000
+  selector:
+    app: grafana

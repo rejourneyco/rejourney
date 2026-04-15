@@ -813,7 +813,8 @@ export const GeneralOverview: React.FC = () => {
 
         const versionSet = new Set<string>();
         for (const day of trends.daily) {
-            for (const version of Object.keys(day.appVersionBreakdown || {})) {
+            const breakdown = day.appVersionDauBreakdown || day.appVersionBreakdown || {};
+            for (const version of Object.keys(breakdown)) {
                 if (isKnownVersion(version)) versionSet.add(version);
             }
         }
@@ -826,8 +827,9 @@ export const GeneralOverview: React.FC = () => {
                 if (!dateKey) return null;
 
                 const row: Record<string, string | number> = { dateKey };
+                const breakdown = entry.appVersionDauBreakdown || entry.appVersionBreakdown || {};
                 for (const version of versions) {
-                    row[version] = Number(entry.appVersionBreakdown?.[version] || 0);
+                    row[version] = Number(breakdown[version] || 0);
                 }
                 return row;
             })

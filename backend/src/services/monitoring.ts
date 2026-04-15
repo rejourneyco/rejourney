@@ -1,15 +1,17 @@
 /**
  * Monitoring Service
- * 
- * Utility to ping Uptime Kuma Push URLs and report health metrics.
- * 
+ *
+ * Pushes worker heartbeat metrics to Prometheus Pushgateway.
+ * VictoriaMetrics scrapes the Pushgateway; Grafana alerts on stale workers.
+ *
  * Environment Variables:
- *   UPTIME_KUMA_BASE_URL: Base URL for Uptime Kuma push endpoints
- *   UPTIME_KUMA_TOKENS: JSON object mapping worker names to push tokens
- * 
+ *   PUSHGATEWAY_URL: Base URL for Prometheus Pushgateway
+ *
  * Example:
- *   UPTIME_KUMA_BASE_URL=http://uptime-kuma.rejourney.svc.cluster.local:3001 (in-cluster; set in k8s)
- *   UPTIME_KUMA_TOKENS={"ingestWorker":"abc123","billingWorker":"def456"}
+ *   PUSHGATEWAY_URL=http://pushgateway.rejourney.svc.cluster.local:9091 (in-cluster; set in k8s)
+ *
+ * Grafana alert to detect stale workers:
+ *   time() - worker_last_heartbeat_unix{job="ingestWorker"} > 240
  */
 
 import { sql } from 'drizzle-orm';
@@ -27,11 +29,6 @@ export type WorkerName =
     | 'statsAggregator'
     | 'alertWorker'
     | 'stripeSyncWorker';
-
-interface UptimeKumaConfig {
-    baseUrl: string;
-    tokens: Record<WorkerName, string>;
-}
 
 interface QueueHealth {
     pendingJobs: number;
@@ -57,31 +54,21 @@ interface WorkerHealthMetrics {
     metrics?: Record<string, number | string>;
 }
 
-// Parse Uptime Kuma configuration from environment
-function getUptimeKumaConfig(): UptimeKumaConfig | null {
-    const baseUrl = process.env.UPTIME_KUMA_BASE_URL;
-    const tokensJson = process.env.UPTIME_KUMA_TOKENS;
-
-    if (!baseUrl || !tokensJson) {
-        return null;
-    }
-
-    try {
-        const tokens = JSON.parse(tokensJson) as Record<WorkerName, string>;
-        return { baseUrl, tokens };
-    } catch {
-        logger.warn('Failed to parse UPTIME_KUMA_TOKENS');
-        return null;
-    }
+function getPushgatewayUrl(): string | null {
+    return process.env.PUSHGATEWAY_URL ?? null;
 }
 
 /**
- * Send a heartbeat to Uptime Kuma for a specific worker
- * 
- * @param workerName - Name of the worker
- * @param status - 'up' or 'down' status
- * @param message - Optional message (e.g., error details)
- * @param ping - Optional ping/latency value in ms
+ * Push a heartbeat metric to Prometheus Pushgateway for a specific worker.
+ *
+ * Pushes two gauges:
+ *   worker_up{job="<workerName>"}                  — 1 if up, 0 if down
+ *   worker_last_heartbeat_unix{job="<workerName>"}  — unix timestamp of this push
+ *
+ * @param workerName - Name of the worker (used as the Pushgateway job label)
+ * @param status - 'up' or 'down'
+ * @param message - Optional message (logged on down status)
+ * @param ping - Optional processing time in ms (pushed as worker_heartbeat_duration_ms)
  */
 export async function pingWorker(
     workerName: WorkerName,
@@ -89,54 +76,56 @@ export async function pingWorker(
     message?: string,
     ping?: number
 ): Promise<void> {
-    const kumaConfig = getUptimeKumaConfig();
+    const baseUrl = getPushgatewayUrl();
 
-    if (!kumaConfig) {
-        // Monitoring not configured, skip silently
-        logger.debug({ workerName }, 'Uptime Kuma not configured, skipping heartbeat');
+    if (!baseUrl) {
+        logger.debug({ workerName }, 'Pushgateway not configured, skipping heartbeat');
         return;
     }
 
-    const token = kumaConfig.tokens[workerName];
-    if (!token) {
-        logger.debug({ workerName }, 'No Uptime Kuma token for worker');
-        return;
+    if (status === 'down' && message) {
+        logger.warn({ workerName, message }, 'Worker reported down status');
     }
 
     try {
-        // Uptime Kuma Push URL format: BASE_URL/api/push/TOKEN?status=up&msg=MSG&ping=PING
-        const url = new URL(`/api/push/${token}`, kumaConfig.baseUrl);
-        url.searchParams.set('status', status);
+        const workerUp = status === 'up' ? 1 : 0;
+        const nowSeconds = Date.now() / 1000;
 
-        if (message) {
-            url.searchParams.set('msg', message);
-        }
+        let body =
+            `# TYPE worker_up gauge\n` +
+            `# HELP worker_up 1 if worker is healthy, 0 if down\n` +
+            `worker_up ${workerUp}\n` +
+            `# TYPE worker_last_heartbeat_unix gauge\n` +
+            `# HELP worker_last_heartbeat_unix Unix timestamp of last worker heartbeat\n` +
+            `worker_last_heartbeat_unix ${nowSeconds}\n`;
+
         if (ping !== undefined) {
-            url.searchParams.set('ping', String(ping));
+            body +=
+                `# TYPE worker_heartbeat_duration_ms gauge\n` +
+                `# HELP worker_heartbeat_duration_ms Processing time of last worker run in ms\n` +
+                `worker_heartbeat_duration_ms ${ping}\n`;
         }
 
-        // Create abort controller with timeout
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 5000);
 
         try {
-            const response = await fetch(url.toString(), {
-                method: 'GET',
+            const response = await fetch(`${baseUrl}/metrics/job/${workerName}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'text/plain' },
+                body,
                 signal: controller.signal,
             });
 
             if (!response.ok) {
-                logger.warn({
-                    workerName,
-                    status: response.status
-                }, 'Uptime Kuma push failed');
+                logger.warn({ workerName, status: response.status }, 'Pushgateway push failed');
             }
         } finally {
             clearTimeout(timeoutId);
         }
     } catch (error) {
         // Don't let monitoring failures affect worker operation
-        logger.debug({ workerName, error }, 'Failed to send heartbeat to Uptime Kuma');
+        logger.debug({ workerName, error }, 'Failed to send heartbeat to Pushgateway');
     }
 }
 
@@ -148,7 +137,7 @@ export async function checkQueueHealth(): Promise<QueueHealth> {
         const staleReplayArtifactCutoffSeconds = Math.floor(ABANDONED_ARTIFACT_TTL_MS / 1000);
         const replayGraceSeconds = Math.floor(REPLAY_PENDING_ARTIFACT_GRACE_MS / 1000);
         const result = await db.execute(sql`
-            SELECT 
+            SELECT
                 COUNT(*) FILTER (WHERE status = 'pending' AND (next_run_at IS NULL OR next_run_at <= NOW())) as pending_jobs,
                 COUNT(*) FILTER (WHERE status = 'processing') as processing_jobs,
                 COUNT(*) FILTER (WHERE status = 'dlq') as dlq_jobs,

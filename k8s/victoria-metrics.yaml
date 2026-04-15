@@ -1,0 +1,150 @@
+# VictoriaMetrics - Lightweight Prometheus-compatible time-series metrics
+# Replaces: NetData (metrics backend), Traefik Dashboard (visualized via Grafana)
+# Access: kubectl -n rejourney port-forward svc/victoria-metrics 8428:8428
+#         http://127.0.0.1:8428  (raw query UI + /api/v1 PromQL)
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: victoria-metrics-data
+  namespace: rejourney
+  labels:
+    app.kubernetes.io/part-of: rejourney
+spec:
+  storageClassName: local-path
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: victoria-metrics-scrape
+  namespace: rejourney
+  labels:
+    app.kubernetes.io/part-of: rejourney
+data:
+  scrape.yaml: |
+    global:
+      scrape_interval: 30s
+      scrape_timeout: 10s
+
+    scrape_configs:
+      # Node / VPS system metrics (CPU, RAM, disk, network)
+      - job_name: node-exporter
+        static_configs:
+          - targets: ['node-exporter.rejourney.svc.cluster.local:9100']
+
+      # Kubernetes object state (pod status, deployment replicas, etc.)
+      - job_name: kube-state-metrics
+        static_configs:
+          - targets: ['kube-state-metrics.rejourney.svc.cluster.local:8080']
+
+      # PostgreSQL metrics (connections, query stats, table sizes, bloat)
+      - job_name: postgres-exporter
+        static_configs:
+          - targets: ['postgres-exporter.rejourney.svc.cluster.local:9187']
+
+      # Worker heartbeats pushed by application workers
+      - job_name: pushgateway
+        honor_labels: true
+        static_configs:
+          - targets: ['pushgateway.rejourney.svc.cluster.local:9091']
+
+      # Traefik request metrics (requests/s, latency, error rate per route)
+      - job_name: traefik
+        static_configs:
+          - targets: ['traefik-metrics.kube-system.svc.cluster.local:9100']
+
+      # VictoriaMetrics self-metrics
+      - job_name: victoria-metrics
+        static_configs:
+          - targets: ['localhost:8428']
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: victoria-metrics
+  namespace: rejourney
+  labels:
+    app: victoria-metrics
+    app.kubernetes.io/part-of: rejourney
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: victoria-metrics
+  template:
+    metadata:
+      labels:
+        app: victoria-metrics
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+      containers:
+        - name: victoria-metrics
+          image: victoriametrics/victoria-metrics:v1.102.0
+          args:
+            - -storageDataPath=/victoria-metrics-data
+            - -retentionPeriod=90d
+            - -httpListenAddr=:8428
+            - -promscrape.config=/etc/vm/scrape.yaml
+            - -promscrape.configCheckInterval=30s
+            - -search.maxQueryLen=16384
+          ports:
+            - containerPort: 8428
+          volumeMounts:
+            - name: data
+              mountPath: /victoria-metrics-data
+            - name: scrape-config
+              mountPath: /etc/vm
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8428
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8428
+            initialDelaySeconds: 5
+            periodSeconds: 10
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: victoria-metrics-data
+        - name: scrape-config
+          configMap:
+            name: victoria-metrics-scrape
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: victoria-metrics
+  namespace: rejourney
+  labels:
+    app: victoria-metrics
+    app.kubernetes.io/part-of: rejourney
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8428
+      targetPort: 8428
+  selector:
+    app: victoria-metrics

@@ -904,6 +904,7 @@ router.get(
             avgDurationSeconds: number;
             errorCount: number;
             appVersionBreakdown: Record<string, number>;
+            appVersionDauBreakdown: Record<string, number>;
             totalApiCalls: number; // NEW: Total API calls for the day
         }> = {};
 
@@ -926,6 +927,7 @@ router.get(
                     avgDurationSeconds: 0,
                     errorCount: 0,
                     appVersionBreakdown: {} as Record<string, number>,
+                    appVersionDauBreakdown: {} as Record<string, number>,
                     totalApiCalls: 0,
                 };
             }
@@ -991,10 +993,58 @@ router.get(
                     avgDurationSeconds: 0,
                     errorCount: 0,
                     appVersionBreakdown: {} as Record<string, number>,
+                    appVersionDauBreakdown: {} as Record<string, number>,
                     totalApiCalls: 0,
                 };
             }
             dailyMap[date].totalApiCalls += Number(s.totalCalls);
+        }
+
+        // Build true DAU-by-version directly from raw sessions:
+        // count distinct users (deviceId) per day + app version.
+        const versionDauConditions = [
+            inArray(sessions.projectId, projectIds),
+            sql`DATE(${sessions.startedAt}) <= ${lastRolledUpDate}`,
+            sql`${sessions.deviceId} IS NOT NULL`,
+        ];
+        if (startStr) {
+            versionDauConditions.push(sql`DATE(${sessions.startedAt}) >= ${startStr}`);
+        }
+
+        const sessionDate = sql<string>`DATE(${sessions.startedAt})`;
+        const normalizedVersion = sql<string>`COALESCE(NULLIF(${sessions.appVersion}, ''), 'Unknown')`;
+
+        const versionDauRows = await db
+            .select({
+                date: sessionDate,
+                version: normalizedVersion,
+                uniqueUsers: sql<number>`COUNT(DISTINCT ${sessions.deviceId})::int`,
+            })
+            .from(sessions)
+            .where(and(...versionDauConditions))
+            .groupBy(sessionDate, normalizedVersion);
+
+        for (const row of versionDauRows) {
+            if (!dailyMap[row.date]) {
+                dailyMap[row.date] = {
+                    sessions: 0,
+                    crashes: 0,
+                    rageTaps: 0,
+                    deadTaps: 0,
+                    avgUxScore: 0,
+                    count: 0,
+                    uniqueUserIds: new Set<string>(),
+                    dau: 0,
+                    avgApiResponseMs: 0,
+                    apiErrorRate: 0,
+                    avgDurationSeconds: 0,
+                    errorCount: 0,
+                    appVersionBreakdown: {} as Record<string, number>,
+                    appVersionDauBreakdown: {} as Record<string, number>,
+                    totalApiCalls: 0,
+                };
+            }
+            dailyMap[row.date].appVersionDauBreakdown[row.version] = Number(row.uniqueUsers) || 0;
         }
 
         // Calculate DAU for each day
@@ -1056,6 +1106,7 @@ router.get(
                     avgDurationSeconds,
                     errorCount: data.errorCount,
                     appVersionBreakdown: data.appVersionBreakdown,
+                    appVersionDauBreakdown: data.appVersionDauBreakdown,
                     totalApiCalls: data.totalApiCalls, // Pass through
                 };
             });

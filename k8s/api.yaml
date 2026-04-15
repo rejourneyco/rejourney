@@ -242,14 +242,8 @@ spec:
             - name: INGEST_IP_BYTES_PER_MINUTE
               value: "524288000"        # 500 MB/min (default was 100 MB, raised for CGNAT)
             # Monitoring
-            - name: UPTIME_KUMA_BASE_URL
-              value: "http://uptime-kuma.rejourney.svc.cluster.local:3001"
-            - name: UPTIME_KUMA_TOKENS
-              valueFrom:
-                secretKeyRef:
-                  name: monitoring-tokens
-                  key: tokens
-                  optional: true
+            - name: PUSHGATEWAY_URL
+              value: "http://pushgateway.rejourney.svc.cluster.local:9091"
             - name: DEBUG_HEALTH_TOKEN
               valueFrom:
                 secretKeyRef:

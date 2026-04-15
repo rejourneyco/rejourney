@@ -17,6 +17,20 @@ This doc owns the CI, image-build, deploy, `db-setup`, and local parity flow.
 └──────────────────────────────────────────────────────────────────────────────┘
 ```
 
+## GitHub Secrets Required
+
+| Secret | Used by | Value |
+|--------|---------|-------|
+| `VPS_SSH_KEY` | check-version, deploy | SSH private key for `root@VPS` |
+| `VPS_HOST` | check-version, deploy | **Tailscale IP** (100.x.x.x) or MagicDNS hostname — NOT the public IP |
+| `TS_OAUTH_CLIENT_ID` | check-version, deploy | Tailscale OAuth client ID (Admin → Settings → OAuth clients, tag: `tag:ci`) |
+| `TS_OAUTH_SECRET` | check-version, deploy | Tailscale OAuth secret |
+| `GITHUB_TOKEN` | deploy | Auto-provided by Actions |
+| `VITE_STRIPE_PUBLISHABLE_KEY` | build-images | Stripe publishable key |
+| `TURNSTILE_SITE_KEY` | build-images | Cloudflare Turnstile site key |
+
+VPS SSH port does not need to be open on the public internet. CI joins the Tailscale tailnet via `tailscale/github-action@v2` before connecting, so only Tailscale peers can reach the VPS admin port.
+
 ## [C1] GitHub Actions Pipeline
 
 ```text
@@ -92,7 +106,7 @@ Primary workflow file:
 ## [C2] Production Deploy On The VPS
 
 ```text
-┌──────────────────────────────┐      SSH       ┌──────────────────────────────┐
+┌──────────────────────────────┐  Tailscale+SSH  ┌──────────────────────────────┐
 │ GitHub Actions deploy job    │───────────────▶│ VPS: /opt/rejourney         │
 │ appleboy/ssh-action          │                │ fetch/reset origin/main      │
 └──────────────┬───────────────┘                └──────────────┬───────────────┘
