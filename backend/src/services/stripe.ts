@@ -717,8 +717,12 @@ async function syncTeamToCheckoutSession(
 
     const provisioned = isProvisionedSubscriptionStatus(subscription.status);
     if (provisioned) {
+        const periodStart = new Date((subscription as any).current_period_start * 1000);
+        const periodEnd   = new Date((subscription as any).current_period_end   * 1000);
         updateData.stripePriceId = subscription.items.data[0]?.price.id || null;
-        updateData.billingCycleAnchor = new Date((subscription as any).current_period_start * 1000);
+        updateData.billingCycleAnchor = periodStart;
+        updateData.stripeCurrentPeriodStart = periodStart;
+        updateData.stripeCurrentPeriodEnd   = periodEnd;
         updateData.paymentFailedAt = null;
     } else if (
         subscription.status === 'incomplete'
@@ -1059,7 +1063,10 @@ async function handleSubscriptionCreated(subscription: Stripe.Subscription): Pro
         };
 
         if (isPaymentConfirmed) {
+            const periodEnd = new Date(subData.current_period_end * 1000);
             updateFields.billingCycleAnchor = newAnchor;
+            updateFields.stripeCurrentPeriodStart = newAnchor;
+            updateFields.stripeCurrentPeriodEnd   = periodEnd;
             updateFields.stripePriceId = subscription.items.data[0]?.price.id || null;
         }
 

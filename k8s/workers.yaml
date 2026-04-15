@@ -661,6 +661,23 @@ spec:
                     secretKeyRef:
                       name: stripe-secret
                       key: STRIPE_SECRET_KEY
+                # Required by app config validation
+                - name: JWT_SECRET
+                  valueFrom:
+                    secretKeyRef:
+                      name: app-secret
+                      key: JWT_SECRET
+                - name: INGEST_HMAC_SECRET
+                  valueFrom:
+                    secretKeyRef:
+                      name: app-secret
+                      key: INGEST_HMAC_SECRET
+                - name: STORAGE_ENCRYPTION_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: app-secret
+                      key: STORAGE_ENCRYPTION_KEY
+                      optional: true
                 - name: UPTIME_KUMA_BASE_URL
                   value: "http://uptime-kuma.rejourney.svc.cluster.local:3001"
                 - name: UPTIME_KUMA_TOKENS
