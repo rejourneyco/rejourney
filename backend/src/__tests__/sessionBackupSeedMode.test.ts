@@ -24,16 +24,29 @@ describe('session backup seed mode', () => {
         const script = readWorkspaceFile('../../../scripts/k8s/session-backup.mjs');
         const block = extractFunctionBlock(script, 'fetchSeedCandidates');
 
-        expect(block).toContain("const emptySessionPredicate = buildEmptySessionPredicateSql('s');");
-        expect(block).toContain("const readyArtifactCount = buildReadyArtifactCountSql('s');");
-        expect(block).toContain("${buildBackedUpFilterClause('s')}");
-        expect(block).toContain("AND ${readyArtifactCount} > 0");
-        expect(block).toContain('AND NOT (');
+        expect(block).toContain('LEFT JOIN session_backup_log bl ON bl.session_id = s.id');
+        expect(block).toContain("${buildReadyArtifactStatsJoin('s')}");
+        expect(block).toContain('artifact_stats.ready_artifact_count > 0');
+        expect(block).toContain("${buildNotFullyBackedUpPredicate('bl', 'artifact_stats.ready_artifact_count')}");
         expect(block).toContain('FROM session_backup_queue q');
         expect(block).toContain('WHERE q.session_id = s.id');
         expect(block).toContain("s.started_at > $2::timestamptz");
         expect(block).toContain("s.started_at = $2::timestamptz AND s.id > $3");
         expect(block).toContain('ORDER BY s.started_at ASC, s.id ASC');
+        expect(block).not.toContain('FROM ingest_jobs ij');
+        expect(block).not.toContain('FROM session_metrics sm');
+    });
+
+    it('claims queued sessions using next_retry_at ordering instead of COALESCE sorting', () => {
+        const script = readWorkspaceFile('../../../scripts/k8s/session-backup.mjs');
+        const block = extractFunctionBlock(script, 'claimQueueBatch');
+
+        expect(block).toContain('AND q.next_retry_at <= NOW()');
+        expect(block).toContain('ORDER BY q.next_retry_at ASC, q.created_at ASC, q.session_id ASC');
+        expect(block).toContain('LEFT JOIN session_backup_log bl ON bl.session_id = s.id');
+        expect(block).toContain("${buildReadyArtifactStatsJoin('s')}");
+        expect(block).toContain("${buildNotFullyBackedUpPredicate('bl', 'artifact_stats.ready_artifact_count')}");
+        expect(block).not.toContain('COALESCE(q.next_retry_at, q.created_at)');
     });
 
     it('deploys a dedicated session-backup-seed cronjob that runs seed-queue every 5 minutes', () => {

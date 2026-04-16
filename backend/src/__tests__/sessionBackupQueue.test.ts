@@ -37,16 +37,18 @@ describe('sessionBackupQueue', () => {
         expect(query).toContain('INSERT INTO session_backup_queue');
         expect(query).toContain('FROM sessions s');
         expect(query).toContain('JOIN projects p ON p.id = s.project_id');
-        expect(query).toContain('FROM session_backup_log bl');
+        expect(query).toContain('LEFT JOIN session_backup_log bl ON bl.session_id = s.id');
+        expect(query).toContain('JOIN LATERAL (');
+        expect(query).toContain('artifact_stats.ready_artifact_count > 0');
         expect(query).toContain('ON CONFLICT (session_id) DO NOTHING');
         expect(query).toContain("s.status IN ('ready', 'completed')");
         expect(query).toContain('s.ended_at IS NOT NULL');
         expect(query).toContain("ra.status = 'ready'");
-        expect(query).toContain('AND (');
-        expect(query).toContain('recording_artifacts ra');
-        expect(query).toContain('FROM ingest_jobs ij');
-        expect(query).toContain('FROM session_metrics sm');
-        expect(query).toContain('bl.planned_artifact_count >=');
+        expect(query).toContain('next_retry_at');
+        expect(query).toContain('NOW(),');
+        expect(query).toContain('bl.planned_artifact_count < artifact_stats.ready_artifact_count');
+        expect(query).not.toContain('FROM ingest_jobs ij');
+        expect(query).not.toContain('FROM session_metrics sm');
     });
 
     it('returns false without querying when session id is empty', async () => {

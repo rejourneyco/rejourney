@@ -344,52 +344,115 @@ data:
     // Database Setup & Locking
     // =============================================================================
 
-    async function ensureBackupLogTable() {
-      await sql(`
-        CREATE TABLE IF NOT EXISTS session_backup_log (
-          session_id VARCHAR(64) PRIMARY KEY,
-          backed_up_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-          r2_key_prefix TEXT NOT NULL,
-          artifact_count INT NOT NULL DEFAULT 0,
-          total_bytes BIGINT NOT NULL DEFAULT 0,
-          planned_artifact_count INT NOT NULL DEFAULT 0
-        );
-      `);
-      await sql(`ALTER TABLE session_backup_log ADD COLUMN IF NOT EXISTS planned_artifact_count INT NOT NULL DEFAULT 0;`);
-      await sql(`ALTER TABLE session_backup_log ADD COLUMN IF NOT EXISTS high_quality BOOLEAN;`);
-      await sql(`ALTER TABLE session_backup_log ADD COLUMN IF NOT EXISTS quality_tier VARCHAR(32);`);
-      await sql(`ALTER TABLE session_backup_log ADD COLUMN IF NOT EXISTS quality_reason JSONB;`);
-      await sql(`ALTER TABLE session_backup_log ADD COLUMN IF NOT EXISTS quality_checked_at TIMESTAMPTZ;`);
-      await sql(`ALTER TABLE session_backup_log ADD COLUMN IF NOT EXISTS quality_rule_version INT;`);
-      await sql(`ALTER TABLE session_backup_log ADD COLUMN IF NOT EXISTS actual_r2_artifact_count INT;`);
-      await sql(`ALTER TABLE session_backup_log ADD COLUMN IF NOT EXISTS actual_r2_object_count INT;`);
-      await sql(`ALTER TABLE session_backup_log ADD COLUMN IF NOT EXISTS manifest_present BOOLEAN;`);
-      await sql(`CREATE INDEX IF NOT EXISTS session_backup_log_backed_up_at_idx ON session_backup_log(backed_up_at);`);
-      await sql(`
-        CREATE TABLE IF NOT EXISTS session_backup_queue (
-          session_id VARCHAR(64) PRIMARY KEY,
-          status VARCHAR(20) NOT NULL DEFAULT 'pending',
-          attempts INT NOT NULL DEFAULT 0,
-          next_retry_at TIMESTAMPTZ,
-          claimed_by VARCHAR(255),
-          claimed_at TIMESTAMPTZ,
-          last_error TEXT,
-          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-          updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-          CONSTRAINT session_backup_queue_session_id_sessions_id_fk
-            FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
-        );
-      `);
-      await sql(`CREATE INDEX IF NOT EXISTS session_backup_queue_claim_idx ON session_backup_queue(status, next_retry_at, created_at, session_id);`);
-      await sql(`CREATE INDEX IF NOT EXISTS session_backup_queue_stale_idx ON session_backup_queue(status, claimed_at);`);
-      await sql(`
-        CREATE TABLE IF NOT EXISTS session_backup_run_lock (
-          lock_name TEXT PRIMARY KEY,
-          owner_id TEXT NOT NULL,
-          acquired_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-          heartbeat_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-        );
-      `);
+    async function tableExists(tableName) {
+      const result = await sql(`
+        SELECT EXISTS (
+          SELECT 1
+          FROM pg_catalog.pg_tables
+          WHERE schemaname = 'public'
+            AND tablename = $1
+        ) AS exists;
+      `, [tableName]);
+      return Boolean(result.rows[0]?.exists);
+    }
+
+    async function columnExists(tableName, columnName) {
+      const result = await sql(`
+        SELECT EXISTS (
+          SELECT 1
+          FROM information_schema.columns
+          WHERE table_schema = 'public'
+            AND table_name = $1
+            AND column_name = $2
+        ) AS exists;
+      `, [tableName, columnName]);
+      return Boolean(result.rows[0]?.exists);
+    }
+
+    async function indexExists(indexName) {
+      const result = await sql(`
+        SELECT EXISTS (
+          SELECT 1
+          FROM pg_catalog.pg_class c
+          JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+          WHERE n.nspname = 'public'
+            AND c.relkind = 'i'
+            AND c.relname = $1
+        ) AS exists;
+      `, [indexName]);
+      return Boolean(result.rows[0]?.exists);
+    }
+
+    async function ensureBackupSchema() {
+      if (!(await tableExists('session_backup_log'))) {
+        await sql(`
+          CREATE TABLE session_backup_log (
+            session_id VARCHAR(64) PRIMARY KEY,
+            backed_up_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            r2_key_prefix TEXT NOT NULL,
+            artifact_count INT NOT NULL DEFAULT 0,
+            total_bytes BIGINT NOT NULL DEFAULT 0,
+            planned_artifact_count INT NOT NULL DEFAULT 0
+          );
+        `);
+      }
+
+      const sessionBackupLogColumns = [
+        ['planned_artifact_count', 'ALTER TABLE session_backup_log ADD COLUMN planned_artifact_count INT NOT NULL DEFAULT 0;'],
+        ['high_quality', 'ALTER TABLE session_backup_log ADD COLUMN high_quality BOOLEAN;'],
+        ['quality_tier', 'ALTER TABLE session_backup_log ADD COLUMN quality_tier VARCHAR(32);'],
+        ['quality_reason', 'ALTER TABLE session_backup_log ADD COLUMN quality_reason JSONB;'],
+        ['quality_checked_at', 'ALTER TABLE session_backup_log ADD COLUMN quality_checked_at TIMESTAMPTZ;'],
+        ['quality_rule_version', 'ALTER TABLE session_backup_log ADD COLUMN quality_rule_version INT;'],
+        ['actual_r2_artifact_count', 'ALTER TABLE session_backup_log ADD COLUMN actual_r2_artifact_count INT;'],
+        ['actual_r2_object_count', 'ALTER TABLE session_backup_log ADD COLUMN actual_r2_object_count INT;'],
+        ['manifest_present', 'ALTER TABLE session_backup_log ADD COLUMN manifest_present BOOLEAN;'],
+      ];
+      for (const [columnName, ddl] of sessionBackupLogColumns) {
+        if (!(await columnExists('session_backup_log', columnName))) {
+          await sql(ddl);
+        }
+      }
+
+      if (!(await indexExists('session_backup_log_backed_up_at_idx'))) {
+        await sql('CREATE INDEX session_backup_log_backed_up_at_idx ON session_backup_log(backed_up_at);');
+      }
+
+      if (!(await tableExists('session_backup_queue'))) {
+        await sql(`
+          CREATE TABLE session_backup_queue (
+            session_id VARCHAR(64) PRIMARY KEY,
+            status VARCHAR(20) NOT NULL DEFAULT 'pending',
+            attempts INT NOT NULL DEFAULT 0,
+            next_retry_at TIMESTAMPTZ,
+            claimed_by VARCHAR(255),
+            claimed_at TIMESTAMPTZ,
+            last_error TEXT,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            CONSTRAINT session_backup_queue_session_id_sessions_id_fk
+              FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+          );
+        `);
+      }
+
+      if (!(await indexExists('session_backup_queue_claim_idx'))) {
+        await sql('CREATE INDEX session_backup_queue_claim_idx ON session_backup_queue(status, next_retry_at, created_at, session_id);');
+      }
+      if (!(await indexExists('session_backup_queue_stale_idx'))) {
+        await sql('CREATE INDEX session_backup_queue_stale_idx ON session_backup_queue(status, claimed_at);');
+      }
+
+      if (!(await tableExists('session_backup_run_lock'))) {
+        await sql(`
+          CREATE TABLE session_backup_run_lock (
+            lock_name TEXT PRIMARY KEY,
+            owner_id TEXT NOT NULL,
+            acquired_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            heartbeat_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+          );
+        `);
+      }
     }
 
     function buildRunOwnerId() {
@@ -441,102 +504,27 @@ data:
     // Session Queries
     // =============================================================================
 
-    function buildBackedUpFilterClause(sessionAlias = 's') {
-      if (config.reprocessBackedUp) {
-        return '';
-      }
-
-      const readyArtifactCount = buildReadyArtifactCountSql(sessionAlias);
-
+    function buildReadyArtifactStatsJoin(sessionAlias = 's', statsAlias = 'artifact_stats') {
       return `
-            AND NOT EXISTS (
-              SELECT 1
-              FROM session_backup_log bl
-              WHERE bl.session_id = ${sessionAlias}.id
-                AND bl.artifact_count >= ${readyArtifactCount}
-                AND bl.planned_artifact_count >= ${readyArtifactCount}
-            )`;
-    }
-
-    function buildReadyArtifactCountSql(sessionAlias = 's') {
-      return `
-            (
-              SELECT COUNT(*)::int
+            JOIN LATERAL (
+              SELECT COUNT(*)::int AS ready_artifact_count
               FROM recording_artifacts ra
               WHERE ra.session_id = ${sessionAlias}.id
                 AND ra.status = 'ready'
-            )
+            ) ${statsAlias} ON true
       `.trim();
     }
 
-    function buildMeaningfulSessionMetricsPredicateSql(metricsAlias) {
-      return `
-                        COALESCE(${metricsAlias}.total_events, 0) > 0
-                        OR COALESCE(${metricsAlias}.error_count, 0) > 0
-                        OR COALESCE(${metricsAlias}.touch_count, 0) > 0
-                        OR COALESCE(${metricsAlias}.scroll_count, 0) > 0
-                        OR COALESCE(${metricsAlias}.gesture_count, 0) > 0
-                        OR COALESCE(${metricsAlias}.input_count, 0) > 0
-                        OR COALESCE(${metricsAlias}.api_success_count, 0) > 0
-                        OR COALESCE(${metricsAlias}.api_error_count, 0) > 0
-                        OR COALESCE(${metricsAlias}.api_total_count, 0) > 0
-                        OR COALESCE(${metricsAlias}.rage_tap_count, 0) > 0
-                        OR COALESCE(${metricsAlias}.dead_tap_count, 0) > 0
-                        OR COALESCE(array_length(${metricsAlias}.screens_visited, 1), 0) > 0
-                        OR COALESCE(${metricsAlias}.interaction_score, 0) > 0
-                        OR COALESCE(${metricsAlias}.exploration_score, 0) > 0
-                        OR COALESCE(${metricsAlias}.ux_score, 0) > 0
-                        OR COALESCE(${metricsAlias}.events_size_bytes, 0) > 0
-                        OR COALESCE(${metricsAlias}.custom_event_count, 0) > 0
-                        OR COALESCE(${metricsAlias}.crash_count, 0) > 0
-                        OR COALESCE(${metricsAlias}.anr_count, 0) > 0
-                        OR COALESCE(${metricsAlias}.app_startup_time_ms, 0) > 0
-                        OR COALESCE(${metricsAlias}.sdk_upload_success_count, 0) > 0
-                        OR COALESCE(${metricsAlias}.sdk_upload_failure_count, 0) > 0
-                        OR COALESCE(${metricsAlias}.sdk_retry_attempt_count, 0) > 0
-                        OR COALESCE(${metricsAlias}.sdk_circuit_breaker_open_count, 0) > 0
-                        OR COALESCE(${metricsAlias}.sdk_memory_eviction_count, 0) > 0
-                        OR COALESCE(${metricsAlias}.sdk_offline_persist_count, 0) > 0
-                        OR COALESCE(${metricsAlias}.sdk_upload_success_rate, 0) > 0
-                        OR COALESCE(${metricsAlias}.sdk_avg_upload_duration_ms, 0) > 0
-                        OR COALESCE(${metricsAlias}.sdk_total_bytes_uploaded, 0) > 0
-                        OR COALESCE(${metricsAlias}.sdk_total_bytes_evicted, 0) > 0
-                        OR COALESCE(${metricsAlias}.hierarchy_snapshot_count, 0) > 0
-                        OR COALESCE(${metricsAlias}.screenshot_segment_count, 0) > 0
-                        OR COALESCE(${metricsAlias}.screenshot_total_bytes, 0) > 0
-      `.trim();
-    }
+    function buildNotFullyBackedUpPredicate(logAlias = 'bl', readyArtifactCountExpr = 'artifact_stats.ready_artifact_count') {
+      if (config.reprocessBackedUp) {
+        return 'TRUE';
+      }
 
-    function buildEmptySessionPredicateSql(sessionAlias = 's') {
       return `
-            NOT EXISTS (
-              SELECT 1
-              FROM recording_artifacts ra
-              WHERE ra.session_id = ${sessionAlias}.id
-            )
-            AND NOT EXISTS (
-              SELECT 1
-              FROM ingest_jobs ij
-              WHERE ij.session_id = ${sessionAlias}.id
-            )
-            AND COALESCE(${sessionAlias}.replay_available, false) = false
-            AND COALESCE(${sessionAlias}.replay_segment_count, 0) = 0
-            AND COALESCE(${sessionAlias}.replay_storage_bytes, 0) = 0
-            AND (
-              CASE
-                WHEN ${sessionAlias}.events IS NULL THEN 0
-                WHEN jsonb_typeof(${sessionAlias}.events) = 'array' THEN jsonb_array_length(${sessionAlias}.events)
-                ELSE 0
-              END
-            ) = 0
-            AND COALESCE(${sessionAlias}.metadata, '{}'::jsonb) = '{}'::jsonb
-            AND NOT EXISTS (
-              SELECT 1
-              FROM session_metrics sm
-              WHERE sm.session_id = ${sessionAlias}.id
-                AND (
-                  ${buildMeaningfulSessionMetricsPredicateSql('sm')}
-                )
+            (
+              ${logAlias}.session_id IS NULL
+              OR ${logAlias}.artifact_count < ${readyArtifactCountExpr}
+              OR ${logAlias}.planned_artifact_count < ${readyArtifactCountExpr}
             )
       `.trim();
     }
@@ -546,38 +534,30 @@ data:
         return 0;
       }
 
-      const readyArtifactCount = buildReadyArtifactCountSql('s');
-
       const result = await sql(`
         DELETE FROM session_backup_queue q
-        WHERE EXISTS (
-          SELECT 1
-          FROM sessions s
-          JOIN session_backup_log bl ON bl.session_id = s.id
-          WHERE s.id = q.session_id
-            AND ${readyArtifactCount} > 0
-            AND bl.artifact_count >= ${readyArtifactCount}
-            AND bl.planned_artifact_count >= ${readyArtifactCount}
-        );
+        USING sessions s
+        JOIN session_backup_log bl ON bl.session_id = s.id
+        ${buildReadyArtifactStatsJoin('s')}
+        WHERE q.session_id = s.id
+          AND artifact_stats.ready_artifact_count > 0
+          AND bl.artifact_count >= artifact_stats.ready_artifact_count
+          AND bl.planned_artifact_count >= artifact_stats.ready_artifact_count;
       `);
       return result.rowCount || 0;
     }
 
     async function cleanupZeroReadyArtifactQueueRows() {
-      const readyArtifactCount = buildReadyArtifactCountSql('s');
-
       const result = await sql(`
         DELETE FROM session_backup_queue q
-        WHERE q.status = 'pending'
-          AND EXISTS (
-            SELECT 1
-            FROM sessions s
-            JOIN projects p ON p.id = s.project_id
-            WHERE s.id = q.session_id
-              AND s.status IN ('ready', 'completed')
-              AND p.deleted_at IS NULL
-              AND ${readyArtifactCount} = 0
-          );
+        USING sessions s
+        JOIN projects p ON p.id = s.project_id
+        ${buildReadyArtifactStatsJoin('s')}
+        WHERE q.session_id = s.id
+          AND q.status = 'pending'
+          AND s.status IN ('ready', 'completed')
+          AND p.deleted_at IS NULL
+          AND artifact_stats.ready_artifact_count = 0;
       `);
       return result.rowCount || 0;
     }
@@ -628,25 +608,34 @@ data:
       return result.rowCount || 0;
     }
 
+    async function normalizePendingQueueRetryTimes() {
+      const result = await sql(`
+        UPDATE session_backup_queue
+        SET
+          next_retry_at = created_at,
+          updated_at = NOW()
+        WHERE status = 'pending'
+          AND next_retry_at IS NULL;
+      `);
+      return result.rowCount || 0;
+    }
+
     async function claimQueueBatch(limit, ownerId) {
-      const emptySessionPredicate = buildEmptySessionPredicateSql('s');
-      const readyArtifactCount = buildReadyArtifactCountSql('s');
       const result = await sql(`
         WITH claimable AS (
           SELECT q.session_id
           FROM session_backup_queue q
           JOIN sessions s ON s.id = q.session_id
           JOIN projects p ON p.id = s.project_id
+          ${buildReadyArtifactStatsJoin('s')}
+          LEFT JOIN session_backup_log bl ON bl.session_id = s.id
           WHERE q.status = 'pending'
-            AND (q.next_retry_at IS NULL OR q.next_retry_at <= NOW())
+            AND q.next_retry_at <= NOW()
             AND s.status IN ('ready', 'completed')
             AND p.deleted_at IS NULL
-            AND ${readyArtifactCount} > 0
-            AND NOT (
-              ${emptySessionPredicate}
-            )
-    ${buildBackedUpFilterClause('s')}
-          ORDER BY COALESCE(q.next_retry_at, q.created_at) ASC, q.created_at ASC, q.session_id ASC
+            AND artifact_stats.ready_artifact_count > 0
+            AND ${buildNotFullyBackedUpPredicate('bl', 'artifact_stats.ready_artifact_count')}
+          ORDER BY q.next_retry_at ASC, q.created_at ASC, q.session_id ASC
           LIMIT $1
           FOR UPDATE OF q SKIP LOCKED
         )
@@ -712,8 +701,6 @@ data:
     }
 
     async function fetchSeedCandidates(limit, cursorStartedAt = null, cursorSessionId = null) {
-      const emptySessionPredicate = buildEmptySessionPredicateSql('s');
-      const readyArtifactCount = buildReadyArtifactCountSql('s');
       const params = [limit];
       let cursorClause = '';
 
@@ -732,13 +719,12 @@ data:
           s.started_at::text AS started_at
         FROM sessions s
         JOIN projects p ON p.id = s.project_id
+        ${buildReadyArtifactStatsJoin('s')}
+        LEFT JOIN session_backup_log bl ON bl.session_id = s.id
         WHERE s.status IN ('ready', 'completed')
-    ${buildBackedUpFilterClause('s')}
           AND p.deleted_at IS NULL
-          AND ${readyArtifactCount} > 0
-          AND NOT (
-            ${emptySessionPredicate}
-          )
+          AND artifact_stats.ready_artifact_count > 0
+          AND ${buildNotFullyBackedUpPredicate('bl', 'artifact_stats.ready_artifact_count')}
           AND NOT EXISTS (
             SELECT 1
             FROM session_backup_queue q
@@ -765,6 +751,7 @@ data:
           session_id,
           status,
           attempts,
+          next_retry_at,
           created_at,
           updated_at
         )
@@ -772,6 +759,7 @@ data:
           candidate.session_id,
           'pending',
           0,
+          NOW(),
           NOW(),
           NOW()
         FROM UNNEST($1::varchar[]) AS candidate(session_id)
@@ -1614,7 +1602,7 @@ data:
       if (config.reprocessBackedUp) {
         warn('SESSION_BACKUP_REPROCESS_BACKED_UP is enabled; this run will revisit sessions that were already backed up');
       }
-      await ensureBackupLogTable();
+      await ensureBackupSchema();
       if (mode === 'seed-queue') {
         try {
           await runSeedQueueMode();
@@ -1660,6 +1648,11 @@ data:
       process.once('SIGINT', () => handleSignal('SIGINT'));
 
       try {
+        const normalizedPendingRetryTimes = await normalizePendingQueueRetryTimes();
+        if (normalizedPendingRetryTimes > 0) {
+          log(`Normalized next_retry_at for ${normalizedPendingRetryTimes} queued session(s)`);
+        }
+
         const cleanedCompleted = await cleanupCompletedQueueRows();
         if (cleanedCompleted > 0) {
           log(`Removed ${cleanedCompleted} completed session(s) from the backup queue`);
@@ -2122,7 +2115,7 @@ metadata:
     app.kubernetes.io/part-of: rejourney
 spec:
   schedule: "*/5 * * * *"
-  suspend: false
+  suspend: true
   concurrencyPolicy: Forbid
   successfulJobsHistoryLimit: 2
   failedJobsHistoryLimit: 3
