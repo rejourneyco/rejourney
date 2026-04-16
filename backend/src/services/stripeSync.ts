@@ -128,14 +128,24 @@ async function rebuildProjectUsageInTx(
     periodEnd: Date,
     quotaVersion: number
 ): Promise<{ staleRowsZeroed: number; correctCount: number; wasOff: boolean }> {
-    // 1. Zero out all rows for this project that are NOT in the correct period
-    //    (these were written with a stale anchor and no longer apply)
+    // 1. Delete ghost rows — rows whose period string falls *within* the current
+    //    Stripe billing window but doesn't match the correct period string.
+    //    These were created by the 30-day anchor math rolling over early inside a
+    //    31-day calendar month (e.g. period "2026-04-15" while Stripe says the
+    //    current window is "2026-03-16" → "2026-04-16").
+    //
+    //    Rows with a period *before* the current window are legitimate historical
+    //    records and are left untouched.
+    const periodStartString = correctPeriod; // YYYY-MM-DD — lexicographically safe to compare
     const staleRows = await tx
         .select({ id: projectUsage.id, period: projectUsage.period, sessions: projectUsage.sessions })
         .from(projectUsage)
         .where(and(
             eq(projectUsage.projectId, projectId),
-            ne(projectUsage.period, correctPeriod)
+            ne(projectUsage.period, correctPeriod),
+            // Only rows whose period date is >= the current period start are ghost rows.
+            // Anything before that is a legitimate prior-period record.
+            sql`${projectUsage.period} >= ${periodStartString}`
         ));
 
     let staleRowsZeroed = 0;
@@ -149,7 +159,7 @@ async function rebuildProjectUsageInTx(
             stalePeriod: row.period,
             correctPeriod,
             deletedSessions: row.sessions,
-        }, 'Stripe sync: deleted stale wrong-period project_usage row');
+        }, 'Stripe sync: deleted ghost wrong-period project_usage row');
     }
 
     // 2. Count ground-truth sessions for the correct period
@@ -336,13 +346,15 @@ export async function syncTeamFromStripe(
     if (teamProjects.length > 0) {
         const projectIds = teamProjects.map(p => p.id);
 
-        // Check for any non-zero rows in the wrong period
+        // Check for any ghost rows within the current billing window
+        // (period >= correctPeriod but != correctPeriod — caused by early anchor rollover)
         const staleNonZeroRows = await db
             .select({ id: projectUsage.id })
             .from(projectUsage)
             .where(and(
                 inArray(projectUsage.projectId, projectIds),
                 ne(projectUsage.period, correctPeriod),
+                sql`${projectUsage.period} >= ${correctPeriod}`,
                 sql`${projectUsage.sessions} > 0`
             ))
             .limit(1);
