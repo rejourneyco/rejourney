@@ -18,6 +18,7 @@ import { sendBillingWarningEmail } from './email.js';
 import {
     FREE_TIER_SESSIONS,
     getTeamBillingPeriod,
+    getEffectiveBillingPeriod,
     calculateSessionUsage,
     effectiveBonusSessions,
 } from '../utils/billing.js';
@@ -137,6 +138,8 @@ async function fetchTeamSessionData(
             stripeSubscriptionId: teams.stripeSubscriptionId,
             bonusSessions: teams.bonusSessions,
             bonusSessionsBillingPeriod: teams.bonusSessionsBillingPeriod,
+            stripeCurrentPeriodStart: teams.stripeCurrentPeriodStart,
+            stripeCurrentPeriodEnd: teams.stripeCurrentPeriodEnd,
         })
         .from(teams)
         .where(eq(teams.id, teamId))
@@ -148,8 +151,13 @@ async function fetchTeamSessionData(
 
     const subscription = await getTeamSubscription(teamId);
 
-    // Use team's billing period based on their anchor, or override if provided
-    const period = periodOverride ?? getTeamBillingPeriod(team?.billingCycleAnchor ?? null);
+    // Use Stripe period boundaries when available (handles calendar-month subscriptions
+    // where 30-day anchor math would roll the period a day early in 31-day months).
+    const period = periodOverride ?? getEffectiveBillingPeriod(
+        team.billingCycleAnchor ?? null,
+        team.stripeCurrentPeriodStart ?? null,
+        team.stripeCurrentPeriodEnd ?? null,
+    );
 
     let sessionsUsed = 0;
 
@@ -181,7 +189,8 @@ async function fetchTeamSessionData(
     const effectiveBonus = effectiveBonusSessions(
         team.bonusSessions ?? 0,
         team.bonusSessionsBillingPeriod,
-        team.billingCycleAnchor ?? null
+        team.billingCycleAnchor ?? null,
+        period
     );
 
     const planSessionLimit = subscription.sessionLimit;
@@ -214,12 +223,20 @@ export async function checkAndEnforceSessionLimit(
 ): Promise<SessionLimitCheckResult> {
     // Get team's billing cycle anchor to determine current period
     const [team] = await db
-        .select({ billingCycleAnchor: teams.billingCycleAnchor })
+        .select({
+            billingCycleAnchor: teams.billingCycleAnchor,
+            stripeCurrentPeriodStart: teams.stripeCurrentPeriodStart,
+            stripeCurrentPeriodEnd: teams.stripeCurrentPeriodEnd,
+        })
         .from(teams)
         .where(eq(teams.id, teamId))
         .limit(1);
 
-    const currentPeriod = getTeamBillingPeriod(team?.billingCycleAnchor ?? null);
+    const currentPeriod = getEffectiveBillingPeriod(
+        team?.billingCycleAnchor ?? null,
+        team?.stripeCurrentPeriodStart ?? null,
+        team?.stripeCurrentPeriodEnd ?? null,
+    );
 
     // Use distributed locking to prevent cache stampede race conditions
     const sessionData = await getSessionLimitCacheWithLock(
@@ -398,12 +415,20 @@ export async function incrementProjectSessionCount(
 ): Promise<void> {
     // Get team's billing cycle anchor to determine current period
     const [team] = await db
-        .select({ billingCycleAnchor: teams.billingCycleAnchor })
+        .select({
+            billingCycleAnchor: teams.billingCycleAnchor,
+            stripeCurrentPeriodStart: teams.stripeCurrentPeriodStart,
+            stripeCurrentPeriodEnd: teams.stripeCurrentPeriodEnd,
+        })
         .from(teams)
         .where(eq(teams.id, teamId))
         .limit(1);
 
-    const period = getTeamBillingPeriod(team?.billingCycleAnchor ?? null);
+    const period = getEffectiveBillingPeriod(
+        team?.billingCycleAnchor ?? null,
+        team?.stripeCurrentPeriodStart ?? null,
+        team?.stripeCurrentPeriodEnd ?? null,
+    );
 
     // Upsert project usage
     await db
