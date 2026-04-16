@@ -365,8 +365,12 @@ class Logger {
     this.notice('💧 Starting Rejourney observability');
   }
 
-  logRecordingStart(): void {
-    this.notice('Starting recording');
+  logRecordingStart(observeOnly?: boolean): void {
+    if (observeOnly) {
+      this.notice('Starting session in observe-only mode (telemetry active, visual recording disabled)');
+    } else {
+      this.notice('Starting recording');
+    }
   }
 
   logRecordingRemoteDisabled(): void {

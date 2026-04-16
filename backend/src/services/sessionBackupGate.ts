@@ -11,6 +11,8 @@ export async function getBackedUpSessionIds(sessionIds: string[]): Promise<Set<s
         const emptySessionPredicate = buildEmptySessionPredicateSql('s');
         // Require backup log counts to cover every recording_artifacts row, but let
         // truly empty sessions age out without waiting on a backup row.
+        // observeOnly sessions (no visual artifacts by design) are also treated as
+        // "nothing to archive" — their telemetry lives in the DB, not in R2.
         const result = await pool.query<{ session_id: string }>(
             `
             SELECT s.id AS session_id
@@ -30,6 +32,9 @@ export async function getBackedUpSessionIds(sessionIds: string[]): Promise<Set<s
                 )
                 OR (
                     ${emptySessionPredicate}
+                )
+                OR (
+                    s.observe_only = true
                 )
               )
             `,

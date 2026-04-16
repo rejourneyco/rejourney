@@ -21,7 +21,7 @@ import CommonCrypto
 @objc(RejourneyImpl)
 public final class RejourneyImpl: NSObject {
     @objc public static let shared = RejourneyImpl()
-    @objc public static var sdkVersion = "1.0.19"
+    @objc public static var sdkVersion = "1.1.0"
 
     // MARK: - State Machine
 
@@ -353,6 +353,8 @@ public final class RejourneyImpl: NSObject {
         if let val = options["captureANR"] as? Bool { config["captureANR"] = val }
         if let val = options["wifiOnly"] as? Bool { config["wifiOnly"] = val }
         if let val = options["captureLogs"] as? Bool { config["captureLogs"] = val }
+        if let val = options["collectGeoLocation"] as? Bool { config["collectGeoLocation"] = val }
+        if let val = options["observeOnly"] as? Bool { config["observeOnly"] = val }
 
         if let fps = options["fps"] as? Int {
             config["captureRate"] = 1.0 / Double(max(1, min(fps, 30)))

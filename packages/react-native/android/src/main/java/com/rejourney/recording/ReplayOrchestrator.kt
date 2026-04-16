@@ -543,6 +543,8 @@ class ReplayOrchestrator private constructor(private val context: Context) {
         consoleCaptureEnabled = (cfg["captureLogs"] as? Boolean) ?: true
         wifiRequired = (cfg["wifiOnly"] as? Boolean) ?: false
         frameBundleSize = (cfg["screenshotBatchSize"] as? Int) ?: 3
+        SegmentDispatcher.shared.collectGeoLocation = (cfg["collectGeoLocation"] as? Boolean) ?: true
+        SegmentDispatcher.shared.observeOnly = (cfg["observeOnly"] as? Boolean) ?: false
     }
 
     private fun monitorNetwork(token: String) {

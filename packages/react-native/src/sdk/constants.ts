@@ -26,6 +26,7 @@ export { SDK_VERSION };
 /** Default configuration values */
 export const DEFAULT_CONFIG = {
   enabled: true,
+  observeOnly: false,
   captureFPS: 1.0,
   captureOnEvents: true,
   maxSessionDuration: 10 * 60 * 1000,

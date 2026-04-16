@@ -38,7 +38,7 @@
  * </Mask>
  * ```
  */
-import React from 'react';
+import React, { useRef } from 'react';
 import type { ViewProps } from 'react-native';
 
 let _RN: typeof import('react-native') | null = null;
@@ -67,22 +67,31 @@ export interface MaskProps extends ViewProps {
 export const Mask: React.FC<MaskProps> = ({ children, style, ...props }) => {
     const RN = getRN();
 
+    // Stable unique nativeID so the Android scanner can detect this view via
+    // the `rj_occlude` prefix even on RN versions where accessibilityHint is
+    // not stored as a view tag.
+    const nativeId = useRef(`rj_occlude_${Math.random().toString(36).slice(2)}`);
+
     if (!RN) {
         return <>{children}</>;
     }
 
-    const { View, StyleSheet } = RN;
-
-    const styles = StyleSheet.create({
-        container: {
-        },
-    });
+    const { View } = RN;
 
     return (
         <View
             {...props}
-            style={[styles.container, style]}
+            style={style}
+            // iOS detection: accessibilityHint maps to UIView.accessibilityHint
             accessibilityHint="rejourney_occlude"
+            // Android detection: accessibilityLabel maps to contentDescription,
+            // checked first in shouldMask(). accessible={false} prevents screen readers
+            // from announcing the internal label on the wrapper itself while still
+            // allowing children to be accessible individually.
+            accessibilityLabel="rejourney_occlude"
+            accessible={false}
+            // Secondary Android signal via nativeID tag (rj_occlude prefix)
+            nativeID={nativeId.current}
             collapsable={false}
         >
             {children}

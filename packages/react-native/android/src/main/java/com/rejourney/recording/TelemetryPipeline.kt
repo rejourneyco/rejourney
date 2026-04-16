@@ -221,32 +221,59 @@ class TelemetryPipeline private constructor(private val context: Context) {
             VisualCapture.shared?.flushBufferToNetwork()
         }
 
-        serialWorker.execute {
+        // FIX: flushBufferToNetwork() submits encode work to VisualCapture.encodeExecutor,
+        // which then dispatches frame bundles to serialWorker. Without waiting for the
+        // encode executor, shipPendingFrames() below races and often runs before those bundles
+        // are in frameQueue — causing them to be missed entirely.
+        //
+        // We wait on a plain Thread (not serialWorker) to avoid blocking either queue,
+        // then submit the ship + upload-wait work to serialWorker.
+        Thread {
+            // Step A: wait for encode executor — ensures frameQueue is fully populated.
+            // Wrapped in try/catch so an unexpected interruption doesn't skip finishDrain.
             try {
-                shipPendingEvents()
-                shipPendingFrames()
-            } finally {
-                finishDrainIfNeeded()
+                VisualCapture.shared?.waitForEncodingToComplete()
+            } catch (_: Exception) { }
+
+            // Step B: ship events + frames, then wait for actual network uploads
+            serialWorker.execute {
+                try {
+                    shipPendingEvents()
+                    shipPendingFrames()
+                    // Step C: wait for all in-flight upload coroutines before finishing.
+                    SegmentDispatcher.shared.awaitPendingUploads(10_000)
+                } finally {
+                    finishDrainIfNeeded()
+                }
             }
-        }
+        }.start()
     }
-    
+
     private fun appSuspending() {
         if (!beginDrain()) return
-        
+
         // Flush visual frames to disk for crash safety
         VisualCapture.shared?.flushToDisk()
         // Submit any buffered frames to the upload pipeline (even if below batch threshold)
         VisualCapture.shared?.flushBufferToNetwork()
-        
-        // Try to upload pending data
-        serialWorker.execute {
-            shipPendingEvents()
-            shipPendingFrames()
-            
-            Thread.sleep(2000)
-            finishDrainIfNeeded()
-        }
+
+        // FIX: same encode-executor race fix as drainPendingDataForShutdown above.
+        // Replaces the previous hardcoded 2-second sleep with a real upload completion wait.
+        Thread {
+            try {
+                VisualCapture.shared?.waitForEncodingToComplete()
+            } catch (_: Exception) { }
+
+            serialWorker.execute {
+                try {
+                    shipPendingEvents()
+                    shipPendingFrames()
+                    SegmentDispatcher.shared.awaitPendingUploads(10_000)
+                } finally {
+                    finishDrainIfNeeded()
+                }
+            }
+        }.start()
     }
 
     private fun beginDrain(completion: (() -> Unit)? = null): Boolean {

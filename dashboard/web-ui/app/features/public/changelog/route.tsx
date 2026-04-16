@@ -36,20 +36,90 @@ export default function ChangelogPage() {
                     {/* Versions List */}
                     <div className="space-y-24">
 
-                        {/* Versions 1.0.17 – 1.0.18 */}
+                        {/* Version 1.1.0 */}
                         <div className="relative">
                             <div className="absolute -left-4 top-0 bottom-0 w-1 bg-black hidden sm:block" />
                             <div className="flex flex-col md:flex-row gap-8 items-start">
                                 <div className="md:w-1/4">
                                     <div className="sticky top-24">
-                                        <div className="text-4xl font-black uppercase tracking-tighter mb-2">v1.0.17 – v1.0.19</div>
-                                        <div className="text-xs font-mono font-black uppercase tracking-widest text-blue-600 mb-4">Apr 13, 2026</div>
+                                        <div className="text-4xl font-black uppercase tracking-tighter mb-2">v1.1.0</div>
+                                        <div className="text-xs font-mono font-black uppercase tracking-widest text-blue-600 mb-4">Apr 15, 2026</div>
                                         <div className="inline-flex items-center gap-2 px-3 py-1 bg-green-100 text-green-700 text-[10px] font-black uppercase tracking-widest rounded shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] border border-black">
                                             Latest
                                         </div>
                                     </div>
                                 </div>
                                 <div className="md:w-3/4 space-y-8">
+                                    <div>
+                                        <h2 className="text-3xl font-black uppercase tracking-tighter mb-6 flex items-center gap-3">
+                                            <Rocket size={32} strokeWidth={3} />
+                                            Observe-Only Mode & Capture Reliability
+                                        </h2>
+                                        <div className="prose prose-lg prose-slate max-w-none">
+                                            <p className="font-bold text-gray-700">
+                                                Version 1.1.0 expands privacy controls and hardens the native capture/upload pipeline. You can now run telemetry-only sessions with visual recording disabled, while uploads, shutdown behavior, and redaction handling are more reliable across iOS and Android.
+                                            </p>
+                                            <ul className="list-none pl-0 space-y-4 mt-6">
+                                                <li className="flex gap-4">
+                                                    <div className="mt-1 flex-shrink-0 w-6 h-6 bg-black text-white flex items-center justify-center text-[10px] font-bold">01</div>
+                                                    <div>
+                                                        <strong className="uppercase tracking-tight text-sm">Observe-Only Sessions:</strong>
+                                                        <p className="text-gray-600 mt-1">Added <code className="text-sm">observeOnly: true</code> to run Rejourney in telemetry-only mode (errors, crashes, ANRs, network and events) with visual replay capture disabled.</p>
+                                                    </div>
+                                                </li>
+                                                <li className="flex gap-4">
+                                                    <div className="mt-1 flex-shrink-0 w-6 h-6 bg-black text-white flex items-center justify-center text-[10px] font-bold">02</div>
+                                                    <div>
+                                                        <strong className="uppercase tracking-tight text-sm">Native Config + Backend Flags:</strong>
+                                                        <p className="text-gray-600 mt-1">The SDK now forwards explicit native start options and upload intent headers for observe-only and no-geolocation flows (<code className="text-sm">x-rj-observe-only</code>, <code className="text-sm">x-rj-no-geo</code>).</p>
+                                                    </div>
+                                                </li>
+                                                <li className="flex gap-4">
+                                                    <div className="mt-1 flex-shrink-0 w-6 h-6 bg-black text-white flex items-center justify-center text-[10px] font-bold">03</div>
+                                                    <div>
+                                                        <strong className="uppercase tracking-tight text-sm">Short Session Upload Reliability:</strong>
+                                                        <p className="text-gray-600 mt-1">Frame bundles now support time-based flushing so short sessions are uploaded promptly instead of waiting for full batch thresholds.</p>
+                                                    </div>
+                                                </li>
+                                                <li className="flex gap-4">
+                                                    <div className="mt-1 flex-shrink-0 w-6 h-6 bg-black text-white flex items-center justify-center text-[10px] font-bold">04</div>
+                                                    <div>
+                                                        <strong className="uppercase tracking-tight text-sm">Shutdown Drain Hardening:</strong>
+                                                        <p className="text-gray-600 mt-1">iOS and Android now wait for pending frame encoding and in-flight uploads during shutdown to reduce termination-time data loss.</p>
+                                                    </div>
+                                                </li>
+                                                <li className="flex gap-4">
+                                                    <div className="mt-1 flex-shrink-0 w-6 h-6 bg-black text-white flex items-center justify-center text-[10px] font-bold">05</div>
+                                                    <div>
+                                                        <strong className="uppercase tracking-tight text-sm">Masking Accuracy Improvements:</strong>
+                                                        <p className="text-gray-600 mt-1">Mask detection and redaction traversal were improved to better handle deep navigation trees and animated wrapper views, preventing sensitive child content leakage in edge cases.</p>
+                                                    </div>
+                                                </li>
+                                                <li className="flex gap-4">
+                                                    <div className="mt-1 flex-shrink-0 w-6 h-6 bg-black text-white flex items-center justify-center text-[10px] font-bold">06</div>
+                                                    <div>
+                                                        <strong className="uppercase tracking-tight text-sm">Docs Update:</strong>
+                                                        <p className="text-gray-600 mt-1">Getting Started now includes a dedicated observe-only usage section and clearer consent/GDPR guidance structure.</p>
+                                                    </div>
+                                                </li>
+                                            </ul>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Versions 1.0.17 – 1.0.19 */}
+                        <div className="relative">
+                            <div className="absolute -left-4 top-0 bottom-0 w-1 bg-gray-200 hidden sm:block" />
+                            <div className="flex flex-col md:flex-row gap-8 items-start">
+                                <div className="md:w-1/4">
+                                    <div className="sticky top-24">
+                                        <div className="text-4xl font-black uppercase tracking-tighter mb-2 text-gray-400">v1.0.17 – v1.0.19</div>
+                                        <div className="text-xs font-mono font-black uppercase tracking-widest text-gray-400 mb-4">Apr 13, 2026</div>
+                                    </div>
+                                </div>
+                                <div className="md:w-3/4 space-y-8 opacity-80">
                                     <div>
                                         <h2 className="text-3xl font-black uppercase tracking-tighter mb-6 flex items-center gap-3">
                                             <Rocket size={32} strokeWidth={3} />

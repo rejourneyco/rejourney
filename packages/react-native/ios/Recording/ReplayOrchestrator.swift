@@ -468,6 +468,8 @@ public final class ReplayOrchestrator: NSObject {
         consoleCaptureEnabled = cfg["captureLogs"] as? Bool ?? true
         wifiRequired = cfg["wifiOnly"] as? Bool ?? false
         frameBundleSize = cfg["screenshotBatchSize"] as? Int ?? 3
+        SegmentDispatcher.shared.collectGeoLocation = cfg["collectGeoLocation"] as? Bool ?? true
+        SegmentDispatcher.shared.observeOnly = cfg["observeOnly"] as? Bool ?? false
     }
 
     private func _monitorNetwork(token: String) {

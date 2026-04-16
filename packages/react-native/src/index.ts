@@ -104,7 +104,7 @@ function getLogger() {
       setLogLevel: () => { },
       setDebugMode: () => { },
       logObservabilityStart: () => { },
-      logRecordingStart: () => { },
+      logRecordingStart: (_observeOnly?: boolean) => { },
       logRecordingRemoteDisabled: () => { },
       logInvalidProjectKey: () => { },
       logPackageMismatch: () => { },
@@ -135,7 +135,7 @@ function getLogger() {
       setLogLevel: () => { },
       setDebugMode: () => { },
       logObservabilityStart: () => { },
-      logRecordingStart: () => { },
+      logRecordingStart: (_observeOnly?: boolean) => { },
       logRecordingRemoteDisabled: () => { },
       logInvalidProjectKey: () => { },
       logPackageMismatch: () => { },
@@ -581,9 +581,13 @@ export const Rejourney: RejourneyAPI = {
       }
 
       // CASE 4: recordingEnabled=false in dashboard - telemetry only.
-      // Effective recording = chosen config AND not sampled out.
+      // Effective recording = chosen config AND not sampled out AND not observeOnly locally.
       const effectiveRemoteConfig = remoteStartState.effectiveRemoteConfig ?? DEFAULT_REMOTE_CONFIG;
-      const effectiveRecordingEnabled = effectiveRemoteConfig.recordingEnabled && !_sessionSampledOut;
+      const localObserveOnly = _storedConfig.observeOnly === true;
+      const effectiveRecordingEnabled = effectiveRemoteConfig.recordingEnabled && !_sessionSampledOut && !localObserveOnly;
+      if (localObserveOnly) {
+        getLogger().info('observeOnly: visual recording disabled by local SDK configuration — telemetry still active');
+      }
 
       // Always push an explicit config to native so a previously sampled-out or
       // recording-disabled session cannot poison the next session after a config outage.
@@ -1679,7 +1683,7 @@ export function startRejourney(): void {
     return;
   }
 
-  getLogger().logRecordingStart();
+  getLogger().logRecordingStart(_storedConfig?.observeOnly === true);
   getLogger().debug('Starting session...');
 
   (async () => {

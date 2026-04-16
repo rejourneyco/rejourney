@@ -17,6 +17,12 @@ export interface RejourneyConfig {
 
   /** Enable or disable recording (default: true) */
   enabled?: boolean;
+  /**
+   * When true, Rejourney captures all telemetry (errors, crashes, ANRs, network, events)
+   * but disables visual screen recording. Useful for users who have opted out of recordings
+   * while still allowing error monitoring. (default: false)
+   */
+  observeOnly?: boolean;
   /** Visual capture FPS (default: 1 = capture every 1000ms) */
   captureFPS?: number;
   /** Maximum session duration in milliseconds (default: 10 minutes) */

@@ -2,6 +2,7 @@ import { View, StyleSheet, Text, TouchableOpacity, ActivityIndicator } from 'rea
 import MapboxGL from '@rnmapbox/maps';
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { Mask } from 'rejourney';
 import useColorScheme from '@/hooks/useColorScheme';
 import { colors } from '@/theme';
 import config from '@/utils/config';
@@ -168,69 +169,71 @@ export default function MapboxMap() {
 
   return (
     <View style={styles.root}>
-      <MapboxGL.MapView
-        style={styles.map}
-        styleURL={mapStyle}
-        projection="globe"
-        compassEnabled
-        scaleBarEnabled={false}
-      >
-        <MapboxGL.Camera
-          ref={cameraRef}
-          defaultSettings={{
-            centerCoordinate: [SF_CENTER.longitude, SF_CENTER.latitude],
-            zoomLevel: 13,
-            pitch,
-          }}
-          pitch={pitch}
-          animationDuration={1000}
-        />
-
-        {mapStyle === DEFAULT_MAP_STYLE && (
-          <MapboxGL.StyleImport
-            id="basemap"
-            existing
-            config={{ lightPreset }}
+      <Mask style={styles.map}>
+        <MapboxGL.MapView
+          style={StyleSheet.absoluteFillObject}
+          styleURL={mapStyle}
+          projection="globe"
+          compassEnabled
+          scaleBarEnabled={false}
+        >
+          <MapboxGL.Camera
+            ref={cameraRef}
+            defaultSettings={{
+              centerCoordinate: [SF_CENTER.longitude, SF_CENTER.latitude],
+              zoomLevel: 13,
+              pitch,
+            }}
+            pitch={pitch}
+            animationDuration={1000}
           />
-        )}
 
-        <MapboxGL.UserLocation visible animated />
+          {mapStyle === DEFAULT_MAP_STYLE && (
+            <MapboxGL.StyleImport
+              id="basemap"
+              existing
+              config={{ lightPreset }}
+            />
+          )}
 
-        {SAMPLE_MARKERS.map((marker) => (
-          <MapboxGL.MarkerView
-            key={marker.id}
-            coordinate={[marker.longitude, marker.latitude]}
-            anchor={{ x: 0.5, y: 1 }}
-          >
-            <TouchableOpacity
-              style={styles.markerContainer}
-              onPress={() => {
-                setSelectedMarker(marker.id);
-                cameraRef.current?.setCamera({
-                  centerCoordinate: [marker.longitude, marker.latitude],
-                  zoomLevel: 15,
-                  pitch: 60,
-                  animationDuration: 1000,
-                  animationMode: 'flyTo',
-                });
-              }}
+          <MapboxGL.UserLocation visible animated />
+
+          {SAMPLE_MARKERS.map((marker) => (
+            <MapboxGL.MarkerView
+              key={marker.id}
+              coordinate={[marker.longitude, marker.latitude]}
+              anchor={{ x: 0.5, y: 1 }}
             >
-              <View
-                style={[
-                  styles.markerDot,
-                  selectedMarker === marker.id && {
-                    backgroundColor: '#3498DB',
-                    width: 30,
-                    height: 30,
-                    borderRadius: 15,
-                  },
-                ]}
-              />
-              <Text style={styles.markerLabel}>{marker.title}</Text>
-            </TouchableOpacity>
-          </MapboxGL.MarkerView>
-        ))}
-      </MapboxGL.MapView>
+              <TouchableOpacity
+                style={styles.markerContainer}
+                onPress={() => {
+                  setSelectedMarker(marker.id);
+                  cameraRef.current?.setCamera({
+                    centerCoordinate: [marker.longitude, marker.latitude],
+                    zoomLevel: 15,
+                    pitch: 60,
+                    animationDuration: 1000,
+                    animationMode: 'flyTo',
+                  });
+                }}
+              >
+                <View
+                  style={[
+                    styles.markerDot,
+                    selectedMarker === marker.id && {
+                      backgroundColor: '#3498DB',
+                      width: 30,
+                      height: 30,
+                      borderRadius: 15,
+                    },
+                  ]}
+                />
+                <Text style={styles.markerLabel}>{marker.title}</Text>
+              </TouchableOpacity>
+            </MapboxGL.MarkerView>
+          ))}
+        </MapboxGL.MapView>
+      </Mask>
 
       <View style={styles.infoBar}>
         <SafeAreaView edges={['top']}>

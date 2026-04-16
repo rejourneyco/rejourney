@@ -17,6 +17,14 @@ export interface NativeStartOptions {
   captureLogs?: boolean;
   /** When false, suppresses IP geolocation lookup for this session */
   collectGeoLocation?: boolean;
+  /**
+   * Native flag consumed by ReplayOrchestrator._applySettings().
+   * When false, visualCaptureEnabled stays false and VisualCapture never starts.
+   * Must be set explicitly — _applySettings defaults this to true if absent.
+   */
+  captureScreen?: boolean;
+  /** When true, telemetry is captured but visual recording is suppressed */
+  observeOnly?: boolean;
 }
 
 export interface StartGateResult {
@@ -89,6 +97,14 @@ export function buildNativeStartOptions(
 
   if (typeof config?.collectGeoLocation === 'boolean') {
     options.collectGeoLocation = config.collectGeoLocation;
+  }
+
+  if (config?.observeOnly === true) {
+    options.observeOnly = true;
+    // captureScreen=false is the native flag that _applySettings() reads to set
+    // visualCaptureEnabled. Without this, _applySettings defaults captureScreen to
+    // true and clobbers the visualCaptureEnabled=false written by setRemoteConfig.
+    options.captureScreen = false;
   }
 
   return options;

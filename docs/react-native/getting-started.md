@@ -229,12 +229,12 @@ import { Mask } from '@rejourneyco/react-native';
 
 Masked content appears as a solid rectangle in replays and is never captured at the source.
 
-## User Consent & GDPR
+### User Consent & GDPR
 
 > [!IMPORTANT]
 > **You are the Data Controller.** Rejourney acts as a Data Processor on your behalf. You are responsible for ensuring your end-users are informed about session recording and that you have a valid legal basis for processing their data (e.g. consent or legitimate interests).
 
-### What you must do
+#### What you must do
 
 1. **Disclose session recording in your app's privacy policy.** Include language such as:
 
@@ -259,7 +259,7 @@ Masked content appears as a solid rectangle in replays and is never captured at 
    Rejourney.clearUserIdentity();
    ```
 
-### Console log capture
+#### Console log capture
 
 Console log capture is enabled by default (`trackConsoleLogs: true`). Console logs can contain PII depending on your app's logging practices. Disable it if sensitive data may appear in logs:
 
@@ -267,10 +267,27 @@ Console log capture is enabled by default (`trackConsoleLogs: true`). Console lo
 Rejourney.init('pk_live_your_public_key', { trackConsoleLogs: false });
 ```
 
-### Geolocation
+#### Geolocation
 
 IP-derived geolocation (country, region, city) is collected by default. When `collectGeoLocation` is `false`, the SDK passes a flag to the native layer that suppresses the IP geolocation lookup on the backend — no location data is stored for that session. Disable it if you do not need location data or want to minimise data collection for EEA users:
 
 ```javascript
 Rejourney.init('pk_live_your_public_key', { collectGeoLocation: false });
 ```
+
+#### Observe-Only Mode (No Visual Recording)
+
+To capture errors, crashes, ANRs, and network activity **without** recording visual replays, set `observeOnly: true`:
+
+```javascript
+Rejourney.init('pk_live_your_public_key', { observeOnly: true });
+```
+
+When enabled, all telemetry is collected but no screenshots are taken — sessions WILL NOT appear in your Replays Page but there will be full analytics/error/network/crash data. No replay. This is useful when users have opted out of screen recording but you still want error visibility.
+
+> **Note:** This can be set conditionally per user, for example based on a stored preference or consent flag:
+>
+> ```javascript
+> const userOptedOutOfRecording = await getUserPreference('noRecording');
+> Rejourney.init('pk_live_your_public_key', { observeOnly: userOptedOutOfRecording });
+> ```

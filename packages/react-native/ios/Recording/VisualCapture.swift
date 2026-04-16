@@ -171,6 +171,13 @@ public final class VisualCapture: NSObject {
     @objc public func flushBufferToNetwork() {
         _flushBuffer()
     }
+
+    /// Blocks the calling thread until all pending encode operations finish.
+    /// Used by the shutdown drain path to ensure frame bundles are enqueued
+    /// in TelemetryPipeline._frameQueue before _shipPendingFrames runs.
+    @objc public func waitForEncodingToComplete() {
+        _encodeQueue.waitUntilAllOperationsAreFinished()
+    }
     
     @objc public func registerRedaction(_ view: UIView) {
         _redactionMask.add(view)
@@ -321,10 +328,23 @@ public final class VisualCapture: NSObject {
                 }
                 self._screenshots.append((data, captureTs))
                 self._enforceScreenshotCaps()
-                let shouldSend = self._screenshots.count >= self._uploadBatchSize
+                let count = self._screenshots.count
+                let shouldSend = count >= self._uploadBatchSize
+                // Time-based flush: if frames have been sitting for longer than one full
+                // batch interval, send regardless of count. This ensures sessions that end
+                // before reaching uploadBatchSize frames (very short sessions) still ship
+                // their frames promptly rather than waiting for shutdown.
+                let shouldFlushByTime: Bool
+                if !shouldSend, count > 0, let oldestTs = self._screenshots.first?.1 {
+                    let waitMs = captureTs > oldestTs ? captureTs - oldestTs : 0
+                    let thresholdMs = UInt64(Double(self._uploadBatchSize) * self.snapshotInterval * 1_000)
+                    shouldFlushByTime = waitMs >= thresholdMs
+                } else {
+                    shouldFlushByTime = false
+                }
                 self._stateLock.unlock()
-                
-                if shouldSend {
+
+                if shouldSend || shouldFlushByTime {
                     self._sendScreenshots()
                 }
             }
@@ -710,6 +730,31 @@ private final class RedactionMask {
         return r
     }
     
+    /// Fallback rect computation for views that have active CoreAnimation keys.
+    /// Used only for views explicitly marked for masking (accessibilityHint =
+    /// "rejourney_occlude") where we must produce a rect even during animations,
+    /// such as when a map page triggers layout animations on the Mask wrapper.
+    ///
+    /// Uses CALayer.presentation() to get the current rendered frame, which avoids
+    /// the UIView.convert() NaN issue that affects keyboard-window views. Regular
+    /// RCTViews never produce NaN transforms, so this path is safe for app-layer views.
+    private func _viewRectAnimationSafe(_ v: UIView) -> CGRect? {
+        guard let w = v.window, w.isKeyWindow else { return nil }
+        guard v.bounds.width > 0, v.bounds.height > 0 else { return nil }
+
+        // Use the presentation layer (current animated state) so the mask covers
+        // where the view is visually rendered right now, not its final model position.
+        let layer = v.layer.presentation() ?? v.layer
+        let frameInWindow = layer.convert(layer.bounds, to: w.layer)
+
+        guard frameInWindow.width > 0, frameInWindow.height > 0 else { return nil }
+        guard frameInWindow.origin.x.isFinite, frameInWindow.origin.y.isFinite,
+              frameInWindow.width.isFinite, frameInWindow.height.isFinite else { return nil }
+        guard !frameInWindow.origin.x.isNaN, !frameInWindow.origin.y.isNaN,
+              !frameInWindow.width.isNaN, !frameInWindow.height.isNaN else { return nil }
+        return frameInWindow
+    }
+
     private func _keyWindow() -> UIWindow? {
         return UIApplication.shared.connectedScenes
             .compactMap { $0 as? UIWindowScene }
@@ -718,8 +763,10 @@ private final class RedactionMask {
     }
     
     private func _scanForSensitiveViews(in view: UIView, rects: inout [CGRect], depth: Int = 0) {
-        // Limit recursion depth to avoid scanning deep hierarchies
-        guard depth < 20 else { return }
+        // Limit recursion depth to avoid scanning deep hierarchies.
+        // Expo Router + React Navigation stack/tab navigators create 25+ levels
+        // before reaching screen content, so 20 was too shallow to find Mask wrappers.
+        guard depth < 60 else { return }
         
         // Skip hidden, transparent, or zero-sized views entirely
         guard !view.isHidden && view.alpha > 0.01 else { return }
@@ -738,12 +785,25 @@ private final class RedactionMask {
             return
         }
         
-        // Check if this view should be masked
-        if _shouldMask(view), let rect = _viewRect(view) {
-            rects.append(rect)
-            return // Don't scan children - parent mask covers them
+        // Check if this view should be masked.
+        // IMPORTANT: always stop recursing into a masked view's children regardless
+        // of whether we can compute its rect — we never want to expose child content
+        // of a Mask wrapper (e.g. when the view has active animation keys during map
+        // loading or a screen transition).
+        if _shouldMask(view) {
+            // Primary: full validation path (skips views with active animation keys)
+            if let rect = _viewRect(view) {
+                rects.append(rect)
+            } else if let rect = _viewRectAnimationSafe(view) {
+                // Fallback for views currently animating (e.g. Mask wrapper on a map
+                // page where map load triggers CoreAnimation layout updates on parent
+                // views). Uses CALayer.presentation() for the current rendered frame
+                // instead of skipping the view entirely.
+                rects.append(rect)
+            }
+            return // Always stop — never recurse into children of a masked view
         }
-        
+
         // Recurse into subviews
         for subview in view.subviews {
             _scanForSensitiveViews(in: subview, rects: &rects, depth: depth + 1)
@@ -752,6 +812,12 @@ private final class RedactionMask {
     
     private func _shouldMask(_ view: UIView) -> Bool {
         if view.accessibilityHint == "rejourney_occlude" {
+            return true
+        }
+        // Fallback: nativeID maps to accessibilityIdentifier and is always set
+        // regardless of the accessible prop. Covers RN New Architecture / Bridgeless
+        // mode where accessibilityHint may not be propagated when accessible={false}.
+        if view.accessibilityIdentifier?.hasPrefix("rj_occlude") == true {
             return true
         }
         

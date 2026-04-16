@@ -150,12 +150,21 @@ function buildMetadataUpdates(existing: any, metadata: IngestSessionMetadata | u
     if (existing.isSampledIn !== true) {
         updates.isSampledIn = true;
     }
+    // Back-fill: if a later request arrives with the observe-only header and the session
+    // row was created before the flag was set (e.g. race or older SDK version that sent
+    // the header on a retry but not the first request), promote the flag. Never clear it
+    // once set — observeOnly is a one-way latch.
+    if (!existing.observeOnly && req?.headers?.['x-rj-observe-only'] === '1') {
+        updates.observeOnly = true;
+    }
 
     return updates;
 }
 
 async function maybeRunGeoLookup(sessionId: string, req?: any) {
     if (!req) return;
+    // SDK sends x-rj-no-geo: 1 when collectGeoLocation is false — honour the opt-out
+    if (req.headers?.['x-rj-no-geo'] === '1') return;
     const clientIp = getRequestIp(req);
     if (clientIp) {
         lookupGeoIp(sessionId, clientIp).catch(() => { });
@@ -312,6 +321,8 @@ export async function ensureIngestSession(
             retentionTier: videoRetention.tier,
             retentionDays: videoRetention.days,
             isSampledIn: true,
+            // Older SDK versions that predate this header default to false (normal recording).
+            observeOnly: req?.headers?.['x-rj-observe-only'] === '1',
         }).onConflictDoNothing().returning({ id: sessions.id });
 
         created = inserted.length > 0;

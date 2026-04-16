@@ -1,6 +1,7 @@
 import { View, StyleSheet, Platform } from 'react-native';
 import MapView, { Marker, Polyline } from 'react-native-maps';
 import { useEffect, useRef, useState } from 'react';
+import { Mask } from 'rejourney';
 import useColorScheme from '@/hooks/useColorScheme';
 import { colors } from '@/theme';
 
@@ -77,53 +78,55 @@ export default function Map() {
 
   return (
     <View style={styles.root}>
-      <MapView
-        style={styles.map}
-        initialRegion={{
-          latitude: 37.7882,
-          longitude: -122.4074,
-          latitudeDelta: 0.03,
-          longitudeDelta: 0.03,
-        }}
-        mapType={Platform.OS === 'ios' ? 'standard' : 'standard'}
-        showsUserLocation={true}
-        showsMyLocationButton={true}
-      >
-        {/* Route polyline */}
-        <Polyline
-          coordinates={ROUTE_COORDS}
-          strokeColor="#4A90D9"
-          strokeWidth={3}
-          lineDashPattern={[10, 5]}
-        />
-
-        {/* Animated arrow marker */}
-        <Marker
-          coordinate={arrowPos}
-          rotation={rotation}
-          anchor={{ x: 0.5, y: 0.5 }}
-          flat={true}
-          tracksViewChanges={true}
+      <Mask style={styles.map}>
+        <MapView
+          style={StyleSheet.absoluteFillObject}
+          initialRegion={{
+            latitude: 37.7882,
+            longitude: -122.4074,
+            latitudeDelta: 0.03,
+            longitudeDelta: 0.03,
+          }}
+          mapType={Platform.OS === 'ios' ? 'standard' : 'standard'}
+          showsUserLocation={true}
+          showsMyLocationButton={true}
         >
-          <View style={{
-            width: 30,
-            height: 30,
-            alignItems: 'center',
-            justifyContent: 'center',
-          }}>
+          {/* Route polyline */}
+          <Polyline
+            coordinates={ROUTE_COORDS}
+            strokeColor="#4A90D9"
+            strokeWidth={3}
+            lineDashPattern={[10, 5]}
+          />
+
+          {/* Animated arrow marker */}
+          <Marker
+            coordinate={arrowPos}
+            rotation={rotation}
+            anchor={{ x: 0.5, y: 0.5 }}
+            flat={true}
+            tracksViewChanges={true}
+          >
             <View style={{
-              width: 0,
-              height: 0,
-              borderLeftWidth: 8,
-              borderRightWidth: 8,
-              borderBottomWidth: 20,
-              borderLeftColor: 'transparent',
-              borderRightColor: 'transparent',
-              borderBottomColor: '#E74C3C',
-            }} />
-          </View>
-        </Marker>
-      </MapView>
+              width: 30,
+              height: 30,
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}>
+              <View style={{
+                width: 0,
+                height: 0,
+                borderLeftWidth: 8,
+                borderRightWidth: 8,
+                borderBottomWidth: 20,
+                borderLeftColor: 'transparent',
+                borderRightColor: 'transparent',
+                borderBottomColor: '#E74C3C',
+              }} />
+            </View>
+          </Marker>
+        </MapView>
+      </Mask>
     </View>
   );
 }

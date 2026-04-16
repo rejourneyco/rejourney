@@ -362,6 +362,15 @@ export const sessions = pgTable(
         // Server-side enforcement: SDK sampling decision (for rejecting visual replay uploads)
         isSampledIn: boolean('is_sampled_in').default(true).notNull(),
 
+        /**
+         * Set to true when the SDK session was started with observeOnly:true (or equivalent
+         * server-side recordingEnabled:false). No visual artifacts will ever be uploaded for
+         * this session — backup gate and retention worker treat it as "nothing to archive".
+         * Defaults to false for full backward compat with older SDK versions that do not
+         * send the x-rj-observe-only header.
+         */
+        observeOnly: boolean('observe_only').default(false).notNull(),
+
         // Session events and metadata
         events: jsonb('events').default([]).notNull(),
         metadata: jsonb('metadata').default({}).notNull(),

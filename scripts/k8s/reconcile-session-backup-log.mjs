@@ -3,7 +3,7 @@
 import process from 'node:process';
 import { DeleteObjectsCommand, GetObjectCommand, ListObjectsV2Command, S3Client } from '@aws-sdk/client-s3';
 import pg from 'pg';
-import { evaluateBackupQuality } from './backup-quality.mjs';
+import { evaluateBackupQuality, OBSERVE_ONLY_QUALITY_TIER } from './backup-quality.mjs';
 
 const config = {
   databaseUrl: process.env.DATABASE_URL || '',
@@ -120,6 +120,7 @@ async function fetchZeroArtifactCandidates() {
       backed_up_at::text AS backed_up_at
     FROM session_backup_log
     WHERE artifact_count = 0
+      AND r2_key_prefix != 'observe_only'
     ORDER BY backed_up_at ASC, session_id ASC
     ${buildLimitClause()};
     `,
@@ -172,6 +173,7 @@ async function fetchBackfillQualityCandidates() {
       backed_up_at::text AS backed_up_at
     FROM session_backup_log
     WHERE r2_key_prefix IS NOT NULL
+      AND r2_key_prefix != 'observe_only'
     ORDER BY backed_up_at ASC, session_id ASC
     ${buildLimitClause()};
     `,
@@ -590,6 +592,7 @@ async function runBackfillQualityMode() {
   const lowQuality = successes.filter((result) => result.qualityTier === 'low_quality').length;
   const usable = successes.filter((result) => result.qualityTier === 'usable').length;
   const broken = successes.filter((result) => result.qualityTier === 'broken').length;
+  const observeOnly = successes.filter((result) => result.qualityTier === OBSERVE_ONLY_QUALITY_TIER).length;
 
   log(
     `${apply ? 'Apply summary' : 'Dry-run summary'}: `
@@ -597,7 +600,8 @@ async function runBackfillQualityMode() {
       + `${highQuality} high_quality, `
       + `${usable} usable, `
       + `${lowQuality} low_quality, `
-      + `${broken} broken`,
+      + `${broken} broken, `
+      + `${observeOnly} observe_only`,
   );
 
   console.log(JSON.stringify({
@@ -608,8 +612,9 @@ async function runBackfillQualityMode() {
     usable,
     lowQuality,
     broken,
+    observeOnly,
     sampleNonHighQuality: successes
-      .filter((result) => !result.highQuality)
+      .filter((result) => !result.highQuality && result.qualityTier !== OBSERVE_ONLY_QUALITY_TIER)
       .slice(0, 20)
       .map((result) => ({
         sessionId: result.sessionId,

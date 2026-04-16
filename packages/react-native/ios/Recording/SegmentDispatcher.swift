@@ -26,6 +26,10 @@ final class SegmentDispatcher {
     var credential: String?
     var projectId: String?
     var isSampledIn: Bool = true  // SDK's sampling decision for server-side enforcement
+    /** When false, the backend is instructed to skip IP geolocation lookup for this session */
+    var collectGeoLocation: Bool = true
+    /** When true, signals the backend that no visual artifacts will ever arrive for this session */
+    var observeOnly: Bool = false
     
     private var batchSeqNumber = 0
     private var billingBlocked = false
@@ -60,6 +64,9 @@ final class SegmentDispatcher {
     private let retryLock = NSLock()
     private let maxRetryQueueSize = 20
     private var active = true
+
+    // Tracks in-flight upload chains so the shutdown drain can wait for real completion.
+    private let _uploadGroup = DispatchGroup()
     
     private let metricsLock = NSLock()
     private var uploadSuccessCount = 0
@@ -285,49 +292,66 @@ final class SegmentDispatcher {
     }
     
     private func executeSegmentUpload(_ upload: PendingUpload, completion: ((Bool) -> Void)?) {
+        // Track this upload chain so waitForPendingUploads() can block until completion.
+        _uploadGroup.enter()
+
         guard active else {
+            _uploadGroup.leave()
             completion?(false)
             return
         }
         if isUploadForClosedSession(upload.sessionId) {
             DiagnosticLog.trace("[SegmentDispatcher] Dropping stale \(upload.contentType) upload for closed session \(upload.sessionId.prefix(20))")
+            _uploadGroup.leave()
             completion?(false)
             return
         }
-        
+
         requestPresignedUrl(upload: upload) { [weak self] presignResponse in
             guard let self, self.active else {
+                self?._uploadGroup.leave()
                 completion?(false)
                 return
             }
-            
+
             guard let presign = presignResponse else {
                 self.registerFailure()
+                self._uploadGroup.leave()
                 self.scheduleRetryIfNeeded(upload, completion: completion)
                 return
             }
 
             if presign.skipUpload {
                 self.registerSuccess()
+                self._uploadGroup.leave()
                 completion?(true)
                 return
             }
-            
+
             self.uploadToS3(url: presign.presignedUrl, payload: upload.payload) { s3ok in
                 guard s3ok else {
                     self.registerFailure()
+                    self._uploadGroup.leave()
                     self.scheduleRetryIfNeeded(upload, completion: completion)
                     return
                 }
-                
+
                 self.confirmBatchComplete(batchId: presign.batchId, upload: upload) { confirmOk in
                     if confirmOk {
                         self.registerSuccess()
                     }
+                    self._uploadGroup.leave()
                     completion?(confirmOk)
                 }
             }
         }
+    }
+
+    /// Blocks the calling thread until all in-flight upload chains complete, or
+    /// until `timeout` seconds elapse. Called by TelemetryPipeline during shutdown
+    /// to ensure frames are delivered before the background task ends.
+    func waitForPendingUploads(timeout: TimeInterval = 25.0) {
+        _ = _uploadGroup.wait(timeout: .now() + timeout)
     }
     
     private func scheduleRetryIfNeeded(_ upload: PendingUpload, completion: ((Bool) -> Void)?) {
@@ -555,6 +579,12 @@ final class SegmentDispatcher {
         }
         if let sid = sessionId ?? currentReplayId {
             req.setValue(sid, forHTTPHeaderField: "x-session-id")
+        }
+        if !collectGeoLocation {
+            req.setValue("1", forHTTPHeaderField: "x-rj-no-geo")
+        }
+        if observeOnly {
+            req.setValue("1", forHTTPHeaderField: "x-rj-observe-only")
         }
     }
 

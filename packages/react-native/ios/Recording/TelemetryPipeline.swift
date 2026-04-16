@@ -189,35 +189,54 @@ public final class TelemetryPipeline: NSObject {
             VisualCapture.shared.flushBufferToNetwork()
         }
 
-        _serialWorker.async { [weak self] in
-            self?._shipPendingEvents()
-            self?._shipPendingFrames()
-            self?._finishDrainIfNeeded()
+        // FIX: flushBufferToNetwork() submits encode work to VisualCapture._encodeQueue,
+        // which then dispatches frame bundles to _serialWorker. Without waiting for the
+        // encode queue, _shipPendingFrames() below races and often runs before those bundles
+        // are in _frameQueue — causing them to be missed entirely.
+        //
+        // We wait on a background thread (not main, not _serialWorker) to avoid blocking
+        // either of those queues, then chain the ship + upload-wait onto _serialWorker.
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            // Step A: wait for encode queue — ensures _frameQueue is fully populated
+            VisualCapture.shared.waitForEncodingToComplete()
+
+            // Step B: ship events + frames on the serial worker
+            self?._serialWorker.async { [weak self] in
+                self?._shipPendingEvents()
+                self?._shipPendingFrames()
+
+                // Step C: wait for all in-flight uploads before ending the background task.
+                // Timeout is 25s — well within iOS's ~30s background budget.
+                SegmentDispatcher.shared.waitForPendingUploads(timeout: 25.0)
+                self?._finishDrainIfNeeded()
+            }
         }
     }
-    
+
     @objc private func _appSuspending() {
         guard _beginDrain() else { return }
-        
+
         // Request background time to complete uploads
         _backgroundTaskId = UIApplication.shared.beginBackgroundTask(withName: "RejourneyFlush") { [weak self] in
             self?._finishDrainIfNeeded()
         }
-        
+
         // Flush visual frames to disk for crash safety
         VisualCapture.shared.flushToDisk()
         // Submit any buffered frames to the upload pipeline (even if below batch threshold)
         VisualCapture.shared.flushBufferToNetwork()
-        
-        // Try to upload pending data with remaining background time
-        _serialWorker.async { [weak self] in
-            self?._shipPendingEvents()
-            self?._shipPendingFrames()
-            
-            // Allow time for network operations to complete
-            Thread.sleep(forTimeInterval: 2.0)
-            
-            self?._finishDrainIfNeeded()
+
+        // FIX: same encode-queue race fix as _drainPendingDataForShutdown above.
+        // Replaces the previous hardcoded 2-second sleep with a real upload completion wait.
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            VisualCapture.shared.waitForEncodingToComplete()
+
+            self?._serialWorker.async { [weak self] in
+                self?._shipPendingEvents()
+                self?._shipPendingFrames()
+                SegmentDispatcher.shared.waitForPendingUploads(timeout: 25.0)
+                self?._finishDrainIfNeeded()
+            }
         }
     }
     

@@ -74,7 +74,7 @@ class RejourneyModuleImpl(
 
     companion object {
         const val NAME = "Rejourney"
-        var sdkVersion = "1.0.19"
+        var sdkVersion = "1.1.0"
         
         private const val SESSION_TIMEOUT_MS = 60_000L // 60 seconds
         private const val SESSION_ROLLOVER_GRACE_MS = 2_000L
@@ -503,6 +503,8 @@ class RejourneyModuleImpl(
         if (options.hasKey("captureANR")) config["captureANR"] = options.getBoolean("captureANR")
         if (options.hasKey("wifiOnly")) config["wifiOnly"] = options.getBoolean("wifiOnly")
         if (options.hasKey("captureLogs")) config["captureLogs"] = options.getBoolean("captureLogs")
+        if (options.hasKey("collectGeoLocation")) config["collectGeoLocation"] = options.getBoolean("collectGeoLocation")
+        if (options.hasKey("observeOnly")) config["observeOnly"] = options.getBoolean("observeOnly")
         
         if (options.hasKey("fps")) {
             val fps = options.getInt("fps").coerceIn(1, 30)

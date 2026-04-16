@@ -411,9 +411,16 @@ class VisualCapture private constructor(private val context: Context) {
         stateLock.withLock {
             screenshots.add(Pair(data, captureTs))
             enforceScreenshotCaps()
-            val shouldSend = screenshots.size >= uploadBatchSize
-            
-            if (shouldSend) {
+            val count = screenshots.size
+            val shouldSend = count >= uploadBatchSize
+            // Time-based flush: if frames have been sitting for longer than one full
+            // batch interval, send regardless of count. This ensures sessions that end
+            // before reaching uploadBatchSize frames (very short sessions) still ship
+            // their frames promptly rather than waiting for shutdown.
+            val shouldFlushByTime = !shouldSend && count > 0 &&
+                (captureTs - screenshots[0].second) >= (uploadBatchSize * snapshotInterval * 1_000).toLong()
+
+            if (shouldSend || shouldFlushByTime) {
                 sendScreenshots()
             }
         }
@@ -510,6 +517,15 @@ class VisualCapture private constructor(private val context: Context) {
     
     private fun flushBuffer() {
         sendScreenshots()
+    }
+
+    /**
+     * Blocks the calling thread until all pending encode operations finish.
+     * Used by the shutdown drain path to ensure frame bundles are enqueued
+     * in TelemetryPipeline.frameQueue before shipPendingFrames runs.
+     */
+    fun waitForEncodingToComplete() {
+        encodeExecutor.submit {}.get()
     }
     
     fun uploadPendingFrames(sessionId: String, sessionEpochOverride: Long? = null, completion: ((Boolean) -> Unit)? = null) {
@@ -645,17 +661,20 @@ private class RedactionMask {
     }
 
     private fun scanForSensitiveViews(view: View, rects: MutableList<Rect>, depth: Int = 0) {
-        if (depth > 20) return
+        // Expo Router + React Navigation stack/tab navigators create 25+ levels before
+        // reaching screen content, so 30 was too shallow to find Mask wrappers.
+        if (depth > 60) return
         if (!view.isShown || view.alpha <= 0.01f || view.width <= 0 || view.height <= 0) return
-        
+
+        // IMPORTANT: always stop recursing into a masked view's children regardless
+        // of whether we can compute its rect — we never want to expose child content
+        // of a Mask wrapper (mirrors the iOS fix for map-page animation cases).
         if (shouldMask(view)) {
             val rect = getViewRect(view)
-            if (rect != null) {
-                rects.add(rect)
-                return
-            }
+            if (rect != null) rects.add(rect)
+            return // Always stop — never recurse into children of a masked view
         }
-        
+
         if (view is ViewGroup) {
             for (i in 0 until view.childCount) {
                 scanForSensitiveViews(view.getChildAt(i), rects, depth + 1)
@@ -664,11 +683,25 @@ private class RedactionMask {
     }
 
     private fun shouldMask(view: View): Boolean {
+        // contentDescription is set by React Native's accessibilityLabel prop.
+        // We check it first and also check for our explicit Mask signal below.
         if (view.contentDescription?.toString() == "rejourney_occlude") return true
-        
+
+        // React Native stores accessibilityHint as a view tag.
+        // Try the known RN resource ID first, then fall back to a string-keyed tag
+        // lookup for RN versions that use a different internal mechanism.
         try {
             val hint = view.getTag(com.facebook.react.R.id.accessibility_hint) as? String
             if (hint == "rejourney_occlude") return true
+        } catch (_: Exception) { }
+
+        // Extra fallback: iterate all known integer tag slots RN might use.
+        // view.getTag() with an unknown key returns null (never throws on API 21+),
+        // so this is safe. Covers RN versions that store the hint under a different id.
+        try {
+            // nativeID tag — set by Mask component as a secondary signal
+            val nativeId = view.getTag(com.facebook.react.R.id.view_tag_native_id) as? String
+            if (nativeId?.startsWith("rj_occlude") == true) return true
         } catch (_: Exception) { }
         
         if (view is EditText) return true

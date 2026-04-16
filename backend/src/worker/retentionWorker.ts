@@ -104,10 +104,14 @@ async function writeRetentionHeartbeat(summary: RetentionRunSummary): Promise<vo
     }
 }
 
+// Quality rule version must stay in sync with BACKUP_QUALITY_RULE_VERSION in backup-quality.mjs
+const OBSERVE_ONLY_QUALITY_RULE_VERSION = 1;
+
 type SessionPurgeMetadata = {
     session_id: string;
     backup_r2_key_prefix: string | null;
     empty_session: boolean;
+    observe_only: boolean;
 };
 
 async function loadSessionPurgeMetadata(sessionIds: string[]): Promise<Map<string, SessionPurgeMetadata>> {
@@ -121,7 +125,8 @@ async function loadSessionPurgeMetadata(sessionIds: string[]): Promise<Map<strin
         SELECT
             s.id AS session_id,
             bl.r2_key_prefix AS backup_r2_key_prefix,
-            (${emptySessionPredicate}) AS empty_session
+            (${emptySessionPredicate}) AS empty_session,
+            COALESCE(s.observe_only, false) AS observe_only
         FROM sessions s
         LEFT JOIN session_backup_log bl ON bl.session_id = s.id
         WHERE s.id = ANY($1::varchar[])
@@ -129,6 +134,79 @@ async function loadSessionPurgeMetadata(sessionIds: string[]): Promise<Map<strin
         [sessionIds],
     );
     return new Map(result.rows.map((row) => [row.session_id, row]));
+}
+
+/**
+ * Write a sentinel session_backup_log entry for observe-only sessions before
+ * they are purged. This ensures the audit trail is complete — the quality tier
+ * `observe_only` is deterministic and clearly distinguishes these sessions from
+ * genuinely broken backups that are missing screenshots.
+ *
+ * r2_key_prefix is set to the literal string 'observe_only' (not a real prefix)
+ * so the NOT NULL constraint is satisfied and queries can identify these entries.
+ */
+async function ensureObserveOnlyBackupLogEntry(sessionId: string): Promise<void> {
+    try {
+        await pool.query(
+            `
+            INSERT INTO session_backup_log (
+                session_id,
+                r2_key_prefix,
+                artifact_count,
+                planned_artifact_count,
+                total_bytes,
+                backed_up_at,
+                high_quality,
+                quality_tier,
+                quality_reason,
+                quality_checked_at,
+                quality_rule_version,
+                actual_r2_artifact_count,
+                actual_r2_object_count,
+                manifest_present
+            ) VALUES (
+                $1,
+                'observe_only',
+                0,
+                0,
+                0,
+                NOW(),
+                false,
+                'observe_only',
+                $2::jsonb,
+                NOW(),
+                $3,
+                0,
+                0,
+                false
+            )
+            ON CONFLICT (session_id) DO NOTHING
+            `,
+            [
+                sessionId,
+                JSON.stringify({
+                    reasons: ['observe_only'],
+                    artifactKinds: [],
+                    backupArtifactKinds: [],
+                    plannedArtifactCount: 0,
+                    artifactCount: 0,
+                    actualR2ArtifactCount: 0,
+                    actualR2ObjectCount: 0,
+                    manifestArtifactCount: 0,
+                    backupArtifactCount: 0,
+                    manifestPresent: false,
+                    coverageMs: 0,
+                    totalScreenshotFrames: 0,
+                    weirdScreenshotFormats: [],
+                }),
+                OBSERVE_ONLY_QUALITY_RULE_VERSION,
+            ],
+        );
+    } catch (err) {
+        // Non-fatal: log and continue. The backup gate still passes via s.observe_only = true,
+        // so the purge itself is safe even if this write fails.
+        logger.warn({ err, sessionId }, 'Failed to write observe_only sentinel backup log entry');
+    }
 }
 
 async function processExpiredSessions(runId: string, trigger: string): Promise<{
@@ -181,6 +259,20 @@ async function processExpiredSessions(runId: string, trigger: string): Promise<{
 
         for (const session of backedUp) {
             const purgeMetadata = metadataBySessionId.get(session.id);
+            const isObserveOnly = purgeMetadata?.observe_only ?? false;
+            const isEmptySession = purgeMetadata?.empty_session ?? false;
+
+            // Write the audit entry before purging so the backup log always has a record
+            // of why no visual artifacts exist. ON CONFLICT DO NOTHING is safe to re-run.
+            if (isObserveOnly) {
+                await ensureObserveOnlyBackupLogEntry(session.id);
+            }
+
+            // observe_only sessions: no R2 backup copy was ever written, and we want to
+            // KEEP the backup log entry (it's the audit trail). empty sessions: both the
+            // (non-existent) R2 copy and the log entry can be cleaned up.
+            const deleteBackupCopy = isEmptySession;
+            const deleteBackupLogEntry = isEmptySession;
 
             try {
                 let result = await purgeSessionArtifacts(session.id, {
@@ -189,8 +281,8 @@ async function processExpiredSessions(runId: string, trigger: string): Promise<{
                     now,
                     retentionTier: session.retentionTier,
                     retentionDays: session.retentionDays,
-                    deleteBackupCopy: purgeMetadata?.empty_session ?? false,
-                    deleteBackupLogEntry: purgeMetadata?.empty_session ?? false,
+                    deleteBackupCopy,
+                    deleteBackupLogEntry,
                     backupKeyPrefix: purgeMetadata?.backup_r2_key_prefix,
                 });
                 if (result.storageMissing) {
@@ -201,8 +293,8 @@ async function processExpiredSessions(runId: string, trigger: string): Promise<{
                         allowMissingStorage: true,
                         retentionTier: session.retentionTier,
                         retentionDays: session.retentionDays,
-                        deleteBackupCopy: purgeMetadata?.empty_session ?? false,
-                        deleteBackupLogEntry: purgeMetadata?.empty_session ?? false,
+                        deleteBackupCopy,
+                        deleteBackupLogEntry,
                         backupKeyPrefix: purgeMetadata?.backup_r2_key_prefix,
                     });
                 }
@@ -220,8 +312,8 @@ async function processExpiredSessions(runId: string, trigger: string): Promise<{
                             allowMissingStorage: true,
                             retentionTier: session.retentionTier,
                             retentionDays: session.retentionDays,
-                            deleteBackupCopy: purgeMetadata?.empty_session ?? false,
-                            deleteBackupLogEntry: purgeMetadata?.empty_session ?? false,
+                            deleteBackupCopy,
+                            deleteBackupLogEntry,
                             backupKeyPrefix: purgeMetadata?.backup_r2_key_prefix,
                         });
                         processedCount++;

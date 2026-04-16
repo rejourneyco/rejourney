@@ -26,6 +26,7 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.locks.ReentrantLock
 import kotlin.concurrent.withLock
 
@@ -51,6 +52,10 @@ class SegmentDispatcher private constructor() {
     var credential: String? = null
     var projectId: String? = null
     var isSampledIn: Boolean = true  // SDK's sampling decision for server-side enforcement
+    /** When false, the backend is instructed to skip IP geolocation lookup for this session */
+    var collectGeoLocation: Boolean = true
+    /** When true, signals the backend that no visual artifacts will ever arrive for this session */
+    var observeOnly: Boolean = false
     
     private var batchSeqNumber = 0
     private var billingBlocked = false
@@ -138,6 +143,10 @@ class SegmentDispatcher private constructor() {
     private val retryLock = ReentrantLock()
     private val maxRetryQueueSize = 20
     private var active = true
+
+    // Tracks coroutines with in-flight uploads so awaitPendingUploads() can block
+    // until all network calls complete before the shutdown drain finishes.
+    private val pendingUploadsCount = AtomicInteger(0)
     
     fun configure(replayId: String, apiToken: String?, credential: String?, projectId: String?, isSampledIn: Boolean = true) {
         currentReplayId = replayId
@@ -176,6 +185,19 @@ class SegmentDispatcher private constructor() {
         scope.launch {
             drainRetryQueue()
         }
+    }
+
+    /**
+     * Blocks the calling thread until all in-flight upload coroutines complete,
+     * or until [timeoutMs] milliseconds elapse. Called by TelemetryPipeline during
+     * shutdown to ensure frames are delivered before the process is killed.
+     */
+    fun awaitPendingUploads(timeoutMs: Long = 10_000): Boolean {
+        val deadline = System.currentTimeMillis() + timeoutMs
+        while (pendingUploadsCount.get() > 0 && System.currentTimeMillis() < deadline) {
+            Thread.sleep(100)
+        }
+        return pendingUploadsCount.get() == 0
     }
     
     fun transmitFrameBundle(
@@ -256,12 +278,17 @@ class SegmentDispatcher private constructor() {
             completion?.invoke(false)
             return
         }
-        
+
+        pendingUploadsCount.incrementAndGet()
         scope.launch {
-            executeEventBatchUpload(sid, payload, batchNumber, eventCount, completion)
+            try {
+                executeEventBatchUpload(sid, payload, batchNumber, eventCount, completion)
+            } finally {
+                pendingUploadsCount.decrementAndGet()
+            }
         }
     }
-    
+
     fun transmitEventBatchAlternate(
         replayId: String,
         eventPayload: ByteArray,
@@ -272,12 +299,17 @@ class SegmentDispatcher private constructor() {
             completion?.invoke(false)
             return
         }
-        
+
         batchSeqNumber++
         val seq = batchSeqNumber
-        
+
+        pendingUploadsCount.incrementAndGet()
         scope.launch {
-            executeEventBatchUpload(replayId, eventPayload, seq, eventCount, completion)
+            try {
+                executeEventBatchUpload(replayId, eventPayload, seq, eventCount, completion)
+            } finally {
+                pendingUploadsCount.decrementAndGet()
+            }
         }
     }
     
@@ -365,8 +397,13 @@ class SegmentDispatcher private constructor() {
             completion?.invoke(false)
             return
         }
+        pendingUploadsCount.incrementAndGet()
         scope.launch {
-            executeSegmentUpload(upload, completion)
+            try {
+                executeSegmentUpload(upload, completion)
+            } finally {
+                pendingUploadsCount.decrementAndGet()
+            }
         }
     }
     
@@ -441,8 +478,15 @@ class SegmentDispatcher private constructor() {
             retryQueue.clear()
             copy
         }
-        items.forEach { 
-            scope.launch { executeSegmentUpload(it, null) }
+        items.forEach {
+            pendingUploadsCount.incrementAndGet()
+            scope.launch {
+                try {
+                    executeSegmentUpload(it, null)
+                } finally {
+                    pendingUploadsCount.decrementAndGet()
+                }
+            }
         }
     }
     
@@ -629,11 +673,13 @@ class SegmentDispatcher private constructor() {
             .post(requestBody)
             .header("Content-Type", "application/json")
             .apply {
-                apiToken?.let { 
+                apiToken?.let {
                     header("x-rejourney-key", it)
                 } ?: DiagnosticLog.fault("[SegmentDispatcher] ⚠️ apiToken is NULL - auth will fail!")
                 credential?.let { header("x-upload-token", it) }
                 requestSessionId?.let { header("x-session-id", it) }
+                if (!collectGeoLocation) { header("x-rj-no-geo", "1") }
+                if (observeOnly) { header("x-rj-observe-only", "1") }
             }
             .build()
             

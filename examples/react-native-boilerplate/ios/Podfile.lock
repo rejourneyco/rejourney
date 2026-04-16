@@ -1871,7 +1871,7 @@ PODS:
     - React-utils (= 0.81.5)
     - ReactNativeDependencies
   - ReactNativeDependencies (0.81.5)
-  - rejourney (1.0.9):
+  - rejourney (1.0.19):
     - hermes-engine
     - RCTRequired
     - RCTTypeSafety
@@ -2591,7 +2591,7 @@ SPEC CHECKSUMS:
   ReactCodegen: 7d4593f7591f002d137fe40cef3f6c11f13c88cc
   ReactCommon: 08810150b1206cc44aecf5f6ae19af32f29151a8
   ReactNativeDependencies: 71ce9c28beb282aa720ea7b46980fff9669f428a
-  rejourney: e9f30312770e31d2e9823727833e0ec3069916fd
+  rejourney: 8bbfd61987fe4300f79ebc61a4b5b4fd3837f7bf
   RNCAsyncStorage: 3a4f5e2777dae1688b781a487923a08569e27fe4
   RNGestureHandler: 2914750df066d89bf9d8f48a10ad5f0051108ac3
   rnmapbox-maps: 650f04a562ac9e51a08ba86059ad49b009221498
