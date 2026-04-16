@@ -140,19 +140,16 @@ async function rebuildProjectUsageInTx(
 
     let staleRowsZeroed = 0;
     for (const row of staleRows) {
-        if (row.sessions > 0) {
-            await tx
-                .update(projectUsage)
-                .set({ sessions: 0, updatedAt: new Date() })
-                .where(eq(projectUsage.id, row.id));
-            staleRowsZeroed++;
-            logger.info({
-                projectId,
-                stalePeriod: row.period,
-                correctPeriod,
-                zeroedSessions: row.sessions,
-            }, 'Stripe sync: zeroed stale wrong-period project_usage row');
-        }
+        await tx
+            .delete(projectUsage)
+            .where(eq(projectUsage.id, row.id));
+        staleRowsZeroed++;
+        logger.info({
+            projectId,
+            stalePeriod: row.period,
+            correctPeriod,
+            deletedSessions: row.sessions,
+        }, 'Stripe sync: deleted stale wrong-period project_usage row');
     }
 
     // 2. Count ground-truth sessions for the correct period

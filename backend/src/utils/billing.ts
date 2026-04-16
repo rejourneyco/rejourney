@@ -164,15 +164,42 @@ export function getTeamBillingPeriod(anchor: Date | null): string {
 }
 
 /**
+ * Get the authoritative billing period string for a team.
+ *
+ * Prefers Stripe's period boundaries when `now` falls within them — this handles
+ * calendar-month subscriptions (31-day months) where fixed 30-day anchor math
+ * would roll the period one day early.  Falls back to anchor-based calculation
+ * for free teams or when stripe period data is missing.
+ */
+export function getEffectiveBillingPeriod(
+    anchor: Date | null,
+    stripeCurrentPeriodStart: Date | null,
+    stripeCurrentPeriodEnd: Date | null
+): string {
+    const now = new Date();
+    if (
+        stripeCurrentPeriodStart &&
+        stripeCurrentPeriodEnd &&
+        now >= stripeCurrentPeriodStart &&
+        now < stripeCurrentPeriodEnd
+    ) {
+        const d = stripeCurrentPeriodStart;
+        return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    }
+    return getTeamBillingPeriod(anchor);
+}
+
+/**
  * Bonus sessions apply only when bonus_sessions_billing_period matches the team's current period.
  * When the period rolls, the match fails: extra capacity does not carry into the next cycle (unused bonus is lost).
  */
 export function effectiveBonusSessions(
     bonusSessions: number,
     bonusSessionsBillingPeriod: string | null | undefined,
-    billingCycleAnchor: Date | null
+    billingCycleAnchor: Date | null,
+    currentPeriodOverride?: string
 ): number {
-    const current = getTeamBillingPeriod(billingCycleAnchor);
+    const current = currentPeriodOverride ?? getTeamBillingPeriod(billingCycleAnchor);
     if (bonusSessionsBillingPeriod == null || bonusSessionsBillingPeriod !== current) {
         return 0;
     }
