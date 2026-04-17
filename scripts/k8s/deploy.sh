@@ -69,7 +69,7 @@ init() {
     echo ""
     echo "   # Recommended: dedicated read-only DB creds for postgres-exporter"
     echo "   kubectl exec -it postgres-0 -n ${NAMESPACE} -- psql -U rejourney -d rejourney -c \\"
-    echo "     \"CREATE USER monitoring WITH PASSWORD '<MONITORING_PASSWORD>'; GRANT pg_monitor TO monitoring;\""
+    echo "     \"CREATE USER monitoring WITH PASSWORD '<MONITORING_PASSWORD>'; GRANT pg_monitor TO monitoring; GRANT USAGE ON SCHEMA public TO monitoring; GRANT SELECT ON TABLE public.storage_endpoints, public.recording_artifacts, public.ingest_jobs, public.session_backup_log, public.session_backup_queue, public.retention_deletion_log TO monitoring;\""
     echo "   kubectl create secret generic postgres-exporter-secret \\"
     echo "     --namespace ${NAMESPACE} \\"
     echo "     --from-literal=DATA_SOURCE_NAME=postgresql://monitoring:<MONITORING_PASSWORD>@postgres:5432/rejourney"
