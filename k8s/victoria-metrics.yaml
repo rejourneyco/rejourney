@@ -36,32 +36,50 @@ data:
     scrape_configs:
       # Node / VPS system metrics (CPU, RAM, disk, network)
       - job_name: node-exporter
+        relabel_configs:
+          - target_label: cluster
+            replacement: rejourney-prod
         static_configs:
           - targets: ['node-exporter.rejourney.svc.cluster.local:9100']
 
       # Kubernetes object state (pod status, deployment replicas, etc.)
       - job_name: kube-state-metrics
+        relabel_configs:
+          - target_label: cluster
+            replacement: rejourney-prod
         static_configs:
           - targets: ['kube-state-metrics.rejourney.svc.cluster.local:8080']
 
       # PostgreSQL metrics (connections, query stats, table sizes, bloat)
       - job_name: postgres-exporter
+        relabel_configs:
+          - target_label: cluster
+            replacement: rejourney-prod
         static_configs:
           - targets: ['postgres-exporter.rejourney.svc.cluster.local:9187']
 
       # Worker heartbeats pushed by application workers
       - job_name: pushgateway
         honor_labels: true
+        relabel_configs:
+          - target_label: cluster
+            replacement: rejourney-prod
         static_configs:
           - targets: ['pushgateway.rejourney.svc.cluster.local:9091']
 
       # Traefik request metrics (requests/s, latency, error rate per route)
       - job_name: traefik
+        relabel_configs:
+          - target_label: cluster
+            replacement: rejourney-prod
         static_configs:
           - targets: ['traefik-metrics.kube-system.svc.cluster.local:9100']
 
       # VictoriaMetrics self-metrics
       - job_name: victoria-metrics
+        relabel_configs:
+          - target_label: cluster
+            replacement: rejourney-prod
         static_configs:
           - targets: ['localhost:8428']
 

@@ -20,6 +20,13 @@ metadata:
 #   --from-literal=POSTGRES_PASSWORD=<SECURE_PASSWORD> \
 #   --from-literal=POSTGRES_DB=rejourney \
 #   --from-literal=DATABASE_URL=postgresql://rejourney:<SECURE_PASSWORD>@postgres:5432/rejourney
+# 
+# Optional but recommended: separate read-only exporter credentials:
+# kubectl exec -it postgres-0 -n rejourney -- psql -U rejourney -d rejourney -c \
+#   "CREATE USER monitoring WITH PASSWORD '<MONITORING_PASSWORD>'; GRANT pg_monitor TO monitoring;"
+# kubectl create secret generic postgres-exporter-secret \
+#   --namespace rejourney \
+#   --from-literal=DATA_SOURCE_NAME=postgresql://monitoring:<MONITORING_PASSWORD>@postgres:5432/rejourney
 #
 # 2. Redis secrets:
 # kubectl create secret generic redis-secret \

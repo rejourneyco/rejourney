@@ -2,6 +2,8 @@
 
 Public Ingress for **pgweb**, **Redis Commander**, and all monitoring tools is **removed from Git**. Customer Ingress (`rejourney.co`, `api.`, `ingest.`) is unchanged.
 
+Tailscale is only for **operator access** to the node and cluster. It protects your `ssh`, `kubectl`, and `kubectl port-forward` sessions to the VPS. It does **not** sit in front of normal in-cluster traffic such as `Grafana -> VictoriaMetrics` or `postgres-exporter -> postgres`.
+
 ## Cloudflare / DNS
 
 Remove or **grey-cloud** (DNS only) these if they still exist:
@@ -22,6 +24,19 @@ Remove or **grey-cloud** (DNS only) these if they still exist:
 | **Pushgateway** | `kubectl -n rejourney port-forward svc/pushgateway 9091:9091` | http://127.0.0.1:9091 | Inspect worker heartbeat metrics |
 | pgweb | `kubectl -n rejourney port-forward svc/pgweb 8081:8081` | http://127.0.0.1:8081 | PostgreSQL admin UI |
 | Redis Commander | `kubectl -n rejourney port-forward svc/redis-commander 8082:8081` | http://127.0.0.1:8082 | Redis admin UI |
+
+## Monitoring gotchas
+
+- **Grafana/Gatus red public health checks do not always mean the app is down.** Cloudflare managed challenge can return `403` to automated public HTTP probes even while the service is healthy.
+- Prefer **internal service URLs** for Gatus app-health checks:
+  - `http://api.rejourney.svc.cluster.local:3000/health/ready`
+  - `http://api.rejourney.svc.cluster.local:3000/health/live`
+  - `http://api.rejourney.svc.cluster.local:3000/health/ingest`
+  - `http://web.rejourney.svc.cluster.local`
+- Keep **TLS checks** on the public hostnames because those validate the public edge certs served through Cloudflare.
+- **Kubernetes dashboards imported from Grafana.com often assume a `cluster` label.** If the dashboard variables are empty or show `N/A`, verify VictoriaMetrics is attaching a static cluster label during scrape.
+- **PostgreSQL dashboards can show mostly `N/A` if `postgres-exporter` cannot connect.** One common failure mode on this cluster is exporter logs showing `pq: SSL is not enabled on the server`; in that case the exporter needs internal non-SSL mode (`PGSSLMODE=disable`) unless Postgres is explicitly configured for SSL.
+- **Best-practice hardening for postgres-exporter:** use a dedicated `postgres-exporter-secret` backed by a read-only `monitoring` DB user with `pg_monitor`, instead of reusing the main app `DATABASE_URL`.
 
 ## Grafana setup (first login)
 
@@ -74,7 +89,7 @@ kubectl delete pvc uptime-kuma-data -n rejourney --ignore-not-found
 
 ## GitHub Actions / `deploy-release.sh`
 
-CI auto-cleans the legacy NetData cluster resources and waits for all new monitoring deployments (victoria-metrics, grafana, gatus, pushgateway) as part of the normal deploy.
+CI auto-cleans the legacy NetData cluster resources and waits for all new monitoring deployments (victoria-metrics, grafana, gatus, pushgateway), `kube-state-metrics`, `postgres-exporter`, and `node-exporter` as part of the normal deploy.
 
 ## SSL / cert-manager
 
