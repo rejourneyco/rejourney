@@ -62,6 +62,23 @@ export interface S3PrefixDeletionResult {
     endpointResults: S3PrefixDeletionEndpointResult[];
 }
 
+export interface S3ObjectDeletionEndpointResult {
+    endpointId: string;
+    endpointUrl: string;
+    projectId: string | null;
+    shadow: boolean;
+    active: boolean;
+    bucket: string;
+    deletedObjectCount: number;
+    deletedBytes: number;
+}
+
+export interface S3ObjectDeletionResult {
+    deletedObjectCount: number;
+    deletedBytes: number;
+    endpointResults: S3ObjectDeletionEndpointResult[];
+}
+
 interface CachedEndpoint {
     endpoint: StorageEndpoint;
     expiresAt: number;
@@ -360,6 +377,17 @@ function getS3ClientForEndpoint(endpoint: StorageEndpoint): S3ClientEntry {
 
     s3ClientPool.set(endpoint.id, entry);
     return entry;
+}
+
+function ensureSafeObjectKey(key: string): string {
+    const normalizedKey = key.trim();
+    if (!normalizedKey) {
+        throw new Error('Refusing to delete an empty storage object key');
+    }
+    if (normalizedKey === '/' || normalizedKey === '.') {
+        throw new Error(`Unsafe storage object key: ${key}`);
+    }
+    return normalizedKey;
 }
 
 async function streamBodyToBuffer(body: AsyncIterable<Uint8Array>): Promise<Buffer> {
@@ -940,6 +968,84 @@ async function deletePrefixWithClient(
     };
 }
 
+async function deleteObjectsWithClient(
+    target: ExternalS3DeletionTarget,
+    objectKeys: Iterable<string>,
+): Promise<S3ObjectDeletionEndpointResult> {
+    const normalizedKeys = Array.from(new Set(Array.from(objectKeys, ensureSafeObjectKey)));
+    if (normalizedKeys.length === 0) {
+        return {
+            endpointId: target.endpointId,
+            endpointUrl: target.endpointUrl,
+            projectId: target.projectId,
+            shadow: target.shadow,
+            active: target.active,
+            bucket: target.bucket,
+            deletedObjectCount: 0,
+            deletedBytes: 0,
+        };
+    }
+
+    const existingKeys: string[] = [];
+    let deletedBytes = 0;
+
+    for (const key of normalizedKeys) {
+        try {
+            const response = await target.client.send(new HeadObjectCommand({
+                Bucket: target.bucket,
+                Key: key,
+            }));
+            existingKeys.push(key);
+            deletedBytes += Number(response.ContentLength ?? 0);
+        } catch (err: any) {
+            const httpStatus = err?.$metadata?.httpStatusCode;
+            const code = String(err?.Code ?? err?.code ?? '').toLowerCase();
+            const name = String(err?.name ?? '').toLowerCase();
+            if (
+                httpStatus === 404
+                || code === 'nosuchkey'
+                || code === 'notfound'
+                || name === 'nosuchkey'
+                || name === 'notfound'
+            ) {
+                continue;
+            }
+            throw err;
+        }
+    }
+
+    for (let i = 0; i < existingKeys.length; i += 1000) {
+        const batch = existingKeys.slice(i, i + 1000);
+        if (batch.length === 0) continue;
+
+        const deleteResponse = await target.client.send(new DeleteObjectsCommand({
+            Bucket: target.bucket,
+            Delete: {
+                Objects: batch.map((Key) => ({ Key })),
+                Quiet: true,
+            },
+        }));
+        const deleteErrors = deleteResponse.Errors ?? [];
+        if (deleteErrors.length > 0) {
+            const sample = deleteErrors[0];
+            throw new Error(
+                `Failed to delete ${deleteErrors.length} object(s) from ${target.bucket}; sample key=${sample?.Key ?? 'unknown'} code=${sample?.Code ?? 'unknown'}`,
+            );
+        }
+    }
+
+    return {
+        endpointId: target.endpointId,
+        endpointUrl: target.endpointUrl,
+        projectId: target.projectId,
+        shadow: target.shadow,
+        active: target.active,
+        bucket: target.bucket,
+        deletedObjectCount: existingKeys.length,
+        deletedBytes,
+    };
+}
+
 export async function deletePrefixFromStorageEndpoints(
     prefix: string,
     endpoints: Iterable<StorageEndpoint>
@@ -964,6 +1070,45 @@ export async function deletePrefixFromStorageEndpoints(
     };
 }
 
+export async function deleteObjectsFromStorageEndpoints(
+    objectKeys: Iterable<string>,
+    endpoints: Iterable<StorageEndpoint>,
+): Promise<S3ObjectDeletionResult> {
+    const normalizedKeys = Array.from(new Set(Array.from(objectKeys, ensureSafeObjectKey)));
+    if (normalizedKeys.length === 0) {
+        return {
+            deletedObjectCount: 0,
+            deletedBytes: 0,
+            endpointResults: [],
+        };
+    }
+
+    const dedupedEndpoints = new Map<string, StorageEndpoint>();
+    for (const endpoint of endpoints) {
+        dedupedEndpoints.set(endpoint.id, endpoint);
+    }
+
+    const endpointResults: S3ObjectDeletionEndpointResult[] = [];
+    for (const endpoint of dedupedEndpoints.values()) {
+        const { client, bucket } = getS3ClientForEndpoint(endpoint);
+        endpointResults.push(await deleteObjectsWithClient({
+            client,
+            bucket,
+            endpointId: endpoint.id,
+            endpointUrl: endpoint.endpointUrl,
+            projectId: endpoint.projectId,
+            shadow: endpoint.shadow,
+            active: endpoint.active,
+        }, normalizedKeys));
+    }
+
+    return {
+        deletedObjectCount: endpointResults.reduce((total, result) => total + result.deletedObjectCount, 0),
+        deletedBytes: endpointResults.reduce((total, result) => total + result.deletedBytes, 0),
+        endpointResults,
+    };
+}
+
 export async function deletePrefixFromProjectStorage(
     projectId: string,
     prefix: string,
@@ -971,6 +1116,15 @@ export async function deletePrefixFromProjectStorage(
 ): Promise<S3PrefixDeletionResult> {
     const endpoints = await resolveRetentionDeletionEndpoints(projectId, extraEndpointIds);
     return deletePrefixFromStorageEndpoints(prefix, endpoints);
+}
+
+export async function deleteObjectsFromProjectStorage(
+    projectId: string,
+    objectKeys: Iterable<string>,
+    extraEndpointIds: Iterable<string | null | undefined> = [],
+): Promise<S3ObjectDeletionResult> {
+    const endpoints = await resolveRetentionDeletionEndpoints(projectId, extraEndpointIds);
+    return deleteObjectsFromStorageEndpoints(objectKeys, endpoints);
 }
 
 export async function deletePrefixFromAllConfiguredStorageEndpoints(

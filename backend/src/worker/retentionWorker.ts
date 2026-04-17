@@ -11,7 +11,7 @@
  * Production mode: `--once` for cron-style single-cycle execution.
  */
 
-import { and, eq, isNotNull, isNull, lt } from 'drizzle-orm';
+import { and, eq, gt, isNotNull, isNull, lt, or } from 'drizzle-orm';
 import { db, pool, projects, retentionPolicies, sessions } from '../db/client.js';
 import { getRedis } from '../db/redis.js';
 import { logger } from '../logger.js';
@@ -104,14 +104,23 @@ async function writeRetentionHeartbeat(summary: RetentionRunSummary): Promise<vo
     }
 }
 
-// Quality rule version must stay in sync with BACKUP_QUALITY_RULE_VERSION in backup-quality.mjs
-const OBSERVE_ONLY_QUALITY_RULE_VERSION = 1;
-
 type SessionPurgeMetadata = {
     session_id: string;
     backup_r2_key_prefix: string | null;
     empty_session: boolean;
-    observe_only: boolean;
+};
+
+type ExpiredSessionCandidate = {
+    id: string;
+    retentionTier: number;
+    retentionDays: number;
+    startedAt: Date;
+};
+
+type ExpiredSessionCollectionResult = {
+    backedUpSessions: ExpiredSessionCandidate[];
+    skippedNotBackedUpCount: number;
+    reachedProcessingCap: boolean;
 };
 
 async function loadSessionPurgeMetadata(sessionIds: string[]): Promise<Map<string, SessionPurgeMetadata>> {
@@ -125,8 +134,7 @@ async function loadSessionPurgeMetadata(sessionIds: string[]): Promise<Map<strin
         SELECT
             s.id AS session_id,
             bl.r2_key_prefix AS backup_r2_key_prefix,
-            (${emptySessionPredicate}) AS empty_session,
-            COALESCE(s.observe_only, false) AS observe_only
+            (${emptySessionPredicate}) AS empty_session
         FROM sessions s
         LEFT JOIN session_backup_log bl ON bl.session_id = s.id
         WHERE s.id = ANY($1::varchar[])
@@ -136,91 +144,114 @@ async function loadSessionPurgeMetadata(sessionIds: string[]): Promise<Map<strin
     return new Map(result.rows.map((row) => [row.session_id, row]));
 }
 
-/**
- * Write a sentinel session_backup_log entry for observe-only sessions before
- * they are purged. This ensures the audit trail is complete — the quality tier
- * `observe_only` is deterministic and clearly distinguishes these sessions from
- * genuinely broken backups that are missing screenshots.
- *
- * r2_key_prefix is set to the literal string 'observe_only' (not a real prefix)
- * so the NOT NULL constraint is satisfied and queries can identify these entries.
- */
-async function ensureObserveOnlyBackupLogEntry(sessionId: string): Promise<void> {
-    try {
-        await pool.query(
-            `
-            INSERT INTO session_backup_log (
-                session_id,
-                r2_key_prefix,
-                artifact_count,
-                planned_artifact_count,
-                total_bytes,
-                backed_up_at,
-                high_quality,
-                quality_tier,
-                quality_reason,
-                quality_checked_at,
-                quality_rule_version,
-                actual_r2_artifact_count,
-                actual_r2_object_count,
-                manifest_present
-            ) VALUES (
-                $1,
-                'observe_only',
-                0,
-                0,
-                0,
-                NOW(),
-                false,
-                'observe_only',
-                $2::jsonb,
-                NOW(),
-                $3,
-                0,
-                0,
-                false
-            )
-            ON CONFLICT (session_id) DO NOTHING
-            `,
-            [
-                sessionId,
-                JSON.stringify({
-                    reasons: ['observe_only'],
-                    artifactKinds: [],
-                    backupArtifactKinds: [],
-                    plannedArtifactCount: 0,
-                    artifactCount: 0,
-                    actualR2ArtifactCount: 0,
-                    actualR2ObjectCount: 0,
-                    manifestArtifactCount: 0,
-                    backupArtifactCount: 0,
-                    manifestPresent: false,
-                    coverageMs: 0,
-                    totalScreenshotFrames: 0,
-                    weirdScreenshotFormats: [],
-                }),
-                OBSERVE_ONLY_QUALITY_RULE_VERSION,
-            ],
-        );
-    } catch (err) {
-        // Non-fatal: log and continue. The backup gate still passes via s.observe_only = true,
-        // so the purge itself is safe even if this write fails.
-        logger.warn({ err, sessionId }, 'Failed to write observe_only sentinel backup log entry');
+async function collectExpiredSessionsReadyForPurge(
+    tierConfig: { tier: number; days: number },
+    expiryDate: Date,
+    limit: number,
+): Promise<ExpiredSessionCollectionResult> {
+    const backedUpSessions: ExpiredSessionCandidate[] = [];
+    let skippedNotBackedUpCount = 0;
+    let cursor: { startedAt: Date; id: string } | null = null;
+
+    while (backedUpSessions.length < limit) {
+        let expiredSessions: ExpiredSessionCandidate[];
+
+        if (cursor) {
+            expiredSessions = await db
+                .select({
+                    id: sessions.id,
+                    retentionTier: sessions.retentionTier,
+                    retentionDays: sessions.retentionDays,
+                    startedAt: sessions.startedAt,
+                })
+                .from(sessions)
+                .innerJoin(projects, eq(sessions.projectId, projects.id))
+                .where(
+                    and(
+                        eq(sessions.retentionTier, tierConfig.tier),
+                        lt(sessions.startedAt, expiryDate),
+                        eq(sessions.recordingDeleted, false),
+                        or(
+                            eq(sessions.status, 'ready'),
+                            eq(sessions.status, 'completed'),
+                        ),
+                        isNull(projects.deletedAt),
+                        or(
+                            gt(sessions.startedAt, cursor.startedAt),
+                            and(eq(sessions.startedAt, cursor.startedAt), gt(sessions.id, cursor.id)),
+                        ),
+                    ),
+                )
+                .orderBy(sessions.startedAt, sessions.id)
+                .limit(limit);
+        } else {
+            expiredSessions = await db
+                .select({
+                    id: sessions.id,
+                    retentionTier: sessions.retentionTier,
+                    retentionDays: sessions.retentionDays,
+                    startedAt: sessions.startedAt,
+                })
+                .from(sessions)
+                .innerJoin(projects, eq(sessions.projectId, projects.id))
+                .where(
+                    and(
+                        eq(sessions.retentionTier, tierConfig.tier),
+                        lt(sessions.startedAt, expiryDate),
+                        eq(sessions.recordingDeleted, false),
+                        or(
+                            eq(sessions.status, 'ready'),
+                            eq(sessions.status, 'completed'),
+                        ),
+                        isNull(projects.deletedAt),
+                    ),
+                )
+                .orderBy(sessions.startedAt, sessions.id)
+                .limit(limit);
+        }
+
+        if (expiredSessions.length === 0) {
+            break;
+        }
+
+        const { backedUp, notBackedUp } = await partitionBackedUpSessions(expiredSessions);
+        skippedNotBackedUpCount += notBackedUp.length;
+        backedUpSessions.push(...backedUp.slice(0, limit - backedUpSessions.length));
+
+        const lastSession = expiredSessions[expiredSessions.length - 1];
+        cursor = {
+            startedAt: lastSession.startedAt,
+            id: lastSession.id,
+        };
+
+        if (expiredSessions.length < limit) {
+            break;
+        }
     }
+
+    return {
+        backedUpSessions,
+        skippedNotBackedUpCount,
+        reachedProcessingCap: backedUpSessions.length >= limit,
+    };
 }
 
 async function processExpiredSessions(runId: string, trigger: string): Promise<{
     processedCount: number;
+    attemptedCount: number;
     failedCount: number;
     skippedNotBackedUpCount: number;
     deletedObjectCount: number;
     deletedBytes: number;
+    reachedProcessingCap: boolean;
 }> {
     let processedCount = 0;
+    let attemptedCount = 0;
     let failedCount = 0;
     let skippedNotBackedUpCount = 0;
     let deletedObjectCount = 0;
     let deletedBytes = 0;
+    let reachedProcessingCap = false;
 
     const now = new Date();
     const policies = await db
@@ -233,44 +264,18 @@ async function processExpiredSessions(runId: string, trigger: string): Promise<{
     for (const tierConfig of policies) {
         const expiryDate = new Date(now.getTime() - tierConfig.days * 24 * 60 * 60 * 1000);
 
-        const expiredSessions = await db
-            .select({
-                id: sessions.id,
-                retentionTier: sessions.retentionTier,
-                retentionDays: sessions.retentionDays,
-            })
-            .from(sessions)
-            .innerJoin(projects, eq(sessions.projectId, projects.id))
-            .where(
-                and(
-                    eq(sessions.retentionTier, tierConfig.tier),
-                    lt(sessions.startedAt, expiryDate),
-                    eq(sessions.recordingDeleted, false),
-                    eq(sessions.status, 'ready'),
-                    isNull(projects.deletedAt),
-                ),
-            )
-            .limit(BATCH_SIZE);
+        const tierResult = await collectExpiredSessionsReadyForPurge(tierConfig, expiryDate, BATCH_SIZE);
+        const { backedUpSessions } = tierResult;
+        attemptedCount += backedUpSessions.length;
+        skippedNotBackedUpCount += tierResult.skippedNotBackedUpCount;
+        reachedProcessingCap ||= tierResult.reachedProcessingCap;
 
-        const { backedUp, notBackedUp } = await partitionBackedUpSessions(expiredSessions);
-        skippedNotBackedUpCount += notBackedUp.length;
+        const metadataBySessionId = await loadSessionPurgeMetadata(backedUpSessions.map((session) => session.id));
 
-        const metadataBySessionId = await loadSessionPurgeMetadata(backedUp.map((session) => session.id));
-
-        for (const session of backedUp) {
+        for (const session of backedUpSessions) {
             const purgeMetadata = metadataBySessionId.get(session.id);
-            const isObserveOnly = purgeMetadata?.observe_only ?? false;
             const isEmptySession = purgeMetadata?.empty_session ?? false;
 
-            // Write the audit entry before purging so the backup log always has a record
-            // of why no visual artifacts exist. ON CONFLICT DO NOTHING is safe to re-run.
-            if (isObserveOnly) {
-                await ensureObserveOnlyBackupLogEntry(session.id);
-            }
-
-            // observe_only sessions: no R2 backup copy was ever written, and we want to
-            // KEEP the backup log entry (it's the audit trail). empty sessions: both the
-            // (non-existent) R2 copy and the log entry can be cleaned up.
             const deleteBackupCopy = isEmptySession;
             const deleteBackupLogEntry = isEmptySession;
 
@@ -352,10 +357,12 @@ async function processExpiredSessions(runId: string, trigger: string): Promise<{
 
     return {
         processedCount,
+        attemptedCount,
         failedCount,
         skippedNotBackedUpCount,
         deletedObjectCount,
         deletedBytes,
+        reachedProcessingCap,
     };
 }
 
@@ -471,8 +478,8 @@ async function runRetentionCycle(options: {
                 repairResult.repaired > 0 ||
                 deletedProjectCount > 0;
             const maybeMoreWork =
-                expiredResult.processedCount >= BATCH_SIZE ||
-                repairResult.attempted >= BATCH_SIZE ||
+                expiredResult.reachedProcessingCap ||
+                repairResult.reachedProcessingCap ||
                 deletedProjectCount >= BATCH_SIZE;
 
             if (!options.drainBacklog || !madeProgress || !maybeMoreWork) {

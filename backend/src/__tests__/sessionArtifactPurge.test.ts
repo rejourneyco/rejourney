@@ -23,6 +23,7 @@ const mocks = vi.hoisted(() => ({
         scan: vi.fn(),
     },
     deletePrefixFromProjectStorage: vi.fn(),
+    deleteObjectsFromProjectStorage: vi.fn(),
     deletePrefixFromBackupR2: vi.fn(),
     beginRetentionDeletionLog: vi.fn(),
     finalizeRetentionDeletionLog: vi.fn(),
@@ -55,6 +56,7 @@ vi.mock('../db/redis.js', () => ({
 
 vi.mock('../db/s3.js', () => ({
     deletePrefixFromProjectStorage: mocks.deletePrefixFromProjectStorage,
+    deleteObjectsFromProjectStorage: mocks.deleteObjectsFromProjectStorage,
     deletePrefixFromBackupR2: mocks.deletePrefixFromBackupR2,
 }));
 
@@ -235,6 +237,11 @@ describe('sessionArtifactPurge', () => {
             deletedBytes: 123,
             endpointResults: [],
         });
+        mocks.deleteObjectsFromProjectStorage.mockResolvedValue({
+            deletedObjectCount: 0,
+            deletedBytes: 0,
+            endpointResults: [],
+        });
     });
 
     it('purges canonical storage and deletes narrow DB rows', async () => {
@@ -372,6 +379,76 @@ describe('sessionArtifactPurge', () => {
             expect.objectContaining({
                 status: 'completed',
                 storageMissing: true,
+            }),
+        );
+    });
+
+    it('deletes non-canonical artifact keys explicitly instead of failing forever', async () => {
+        const nonCanonicalArtifact = {
+            id: 'artifact_rogue',
+            kind: 'events',
+            s3ObjectKey: 'tenant/team_1/project/project_1/misplaced/session_1/events.json.gz',
+            endpointId: 'endpoint_9',
+            sizeBytes: 55,
+            declaredSizeBytes: null,
+        };
+
+        mocks.db.select
+            .mockReset()
+            .mockImplementationOnce(() => createSessionSelectResult({
+                sessionId: 'session_1',
+                projectId: 'project_1',
+                teamId: 'team_1',
+                retentionTier: 2,
+                retentionDays: 30,
+                recordingDeleted: false,
+                isReplayExpired: false,
+            }))
+            .mockImplementationOnce(() => createSimpleSelectResult([nonCanonicalArtifact]))
+            .mockImplementationOnce(() => createSimpleSelectResult([{ id: 'job_1' }]));
+
+        mocks.deletePrefixFromProjectStorage.mockResolvedValueOnce({
+            prefix: 'tenant/team_1/project/project_1/sessions/session_1/',
+            deletedObjectCount: 0,
+            deletedBytes: 0,
+            endpointResults: [],
+        });
+        mocks.deleteObjectsFromProjectStorage.mockResolvedValueOnce({
+            deletedObjectCount: 1,
+            deletedBytes: 55,
+            endpointResults: [
+                {
+                    endpointId: 'endpoint_9',
+                    endpointUrl: 'https://storage-9.local',
+                    projectId: 'project_1',
+                    shadow: false,
+                    active: true,
+                    bucket: 'rogue-bucket',
+                    deletedObjectCount: 1,
+                    deletedBytes: 55,
+                },
+            ],
+        });
+
+        const result = await purgeSessionArtifacts('session_1', {
+            runId: 'run_5',
+            trigger: 'retention_expiry',
+        });
+
+        expect(result.deletedObjectCount).toBe(1);
+        expect(result.deletedBytes).toBe(55);
+        expect(mocks.deleteObjectsFromProjectStorage).toHaveBeenCalledWith(
+            'project_1',
+            ['tenant/team_1/project/project_1/misplaced/session_1/events.json.gz'],
+            ['endpoint_9'],
+        );
+        expect(mocks.finalizeRetentionDeletionLog).toHaveBeenCalledWith(
+            'canonical_log',
+            expect.objectContaining({
+                status: 'completed',
+                details: expect.objectContaining({
+                    invalidArtifactDeletedObjectCount: 1,
+                }),
             }),
         );
     });

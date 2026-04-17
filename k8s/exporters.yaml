@@ -462,6 +462,15 @@ data:
     # ----------------------------------------------------------------
     # S3 / storage observability (feeds the "Rejourney S3" dashboard)
     # ----------------------------------------------------------------
+    #
+    # Performance notes:
+    #   recording_artifacts has 6M+ rows/week — we cap time windows at 2h/1h.
+    #   Monitoring migrations add the targeted indexes these queries use:
+    #     recording_artifacts_created_status_endpoint_idx
+    #     recording_artifacts_pending_stalled_idx
+    #     recording_artifacts_upload_completed_at_idx
+    #     recording_artifacts_failed_recent_idx
+    #     recording_artifacts_session_ready_endpoint_idx
 
     # Inventory of configured S3 endpoints — one row per (bucket, active,
     # shadow). Lets the dashboard show the full multi-bucket topology and
@@ -498,9 +507,25 @@ data:
     # presigned URL but never observed a successful S3 write + complete.
     rejourney_recording_artifacts_by_status:
       query: >
+        WITH artifact_rollup AS (
+          SELECT
+            ra.kind,
+            ra.endpoint_id,
+            ra.status,
+            CASE WHEN ra.upload_completed_at IS NULL THEN 'no' ELSE 'yes' END AS completed,
+            count(*)                            AS artifact_count,
+            COALESCE(SUM(COALESCE(ra.size_bytes, ra.declared_size_bytes, 0)), 0)::bigint AS size_bytes_total
+          FROM recording_artifacts ra
+          WHERE ra.created_at > NOW() - INTERVAL '2 hours'
+          GROUP BY
+            ra.kind,
+            ra.endpoint_id,
+            ra.status,
+            CASE WHEN ra.upload_completed_at IS NULL THEN 'no' ELSE 'yes' END
+        )
         SELECT
-          ra.kind,
-          COALESCE(ra.endpoint_id, 'unknown') AS endpoint_id,
+          ar.kind,
+          COALESCE(ar.endpoint_id, 'unknown') AS endpoint_id,
           COALESCE(se.bucket, 'unknown')      AS bucket,
           COALESCE(se.region, 'unknown')      AS region,
           CASE
@@ -518,23 +543,12 @@ data:
             WHEN se.shadow IS FALSE THEN 'false'
             ELSE 'unknown'
           END                                 AS shadow,
-          ra.status,
-          CASE WHEN ra.upload_completed_at IS NULL THEN 'no' ELSE 'yes' END AS completed,
-          count(*)                            AS artifact_count,
-          COALESCE(SUM(COALESCE(ra.size_bytes, ra.declared_size_bytes, 0)), 0)::bigint AS size_bytes_total
-        FROM recording_artifacts ra
-        LEFT JOIN storage_endpoints se ON se.id::text = ra.endpoint_id
-        WHERE ra.created_at > NOW() - INTERVAL '7 days'
-        GROUP BY
-          ra.kind,
-          endpoint_id,
-          bucket,
-          region,
-          scope,
-          active,
-          shadow,
-          ra.status,
-          completed
+          ar.status,
+          ar.completed,
+          ar.artifact_count,
+          ar.size_bytes_total
+        FROM artifact_rollup ar
+        LEFT JOIN storage_endpoints se ON se.id::text = ar.endpoint_id
       metrics:
         - kind:
             usage: "LABEL"
@@ -568,9 +582,24 @@ data:
     # near zero; screenshots stuck here = uploads disappearing.
     rejourney_artifacts_stalled:
       query: >
+        WITH stalled AS (
+          SELECT
+            ra.kind,
+            ra.endpoint_id,
+            count(*)                            AS stalled_count,
+            COALESCE(
+              EXTRACT(EPOCH FROM (NOW() - MIN(ra.created_at)))::bigint,
+              0
+            )                                   AS oldest_age_seconds
+          FROM recording_artifacts ra
+          WHERE ra.status = 'pending'
+            AND ra.upload_completed_at IS NULL
+            AND ra.created_at < NOW() - INTERVAL '15 minutes'
+          GROUP BY ra.kind, ra.endpoint_id
+        )
         SELECT
-          ra.kind,
-          COALESCE(ra.endpoint_id, 'unknown') AS endpoint_id,
+          stalled.kind,
+          COALESCE(stalled.endpoint_id, 'unknown') AS endpoint_id,
           COALESCE(se.bucket, 'unknown')      AS bucket,
           COALESCE(se.region, 'unknown')      AS region,
           CASE
@@ -578,17 +607,10 @@ data:
             WHEN se.project_id IS NULL THEN 'global'
             ELSE 'project'
           END                                 AS scope,
-          count(*)                            AS stalled_count,
-          COALESCE(
-            EXTRACT(EPOCH FROM (NOW() - MIN(ra.created_at)))::bigint,
-            0
-          )                                   AS oldest_age_seconds
-        FROM recording_artifacts ra
-        LEFT JOIN storage_endpoints se ON se.id::text = ra.endpoint_id
-        WHERE ra.status = 'pending'
-          AND ra.upload_completed_at IS NULL
-          AND ra.created_at < NOW() - INTERVAL '15 minutes'
-        GROUP BY ra.kind, endpoint_id, bucket, region, scope
+          stalled.stalled_count,
+          stalled.oldest_age_seconds
+        FROM stalled
+        LEFT JOIN storage_endpoints se ON se.id::text = stalled.endpoint_id
       metrics:
         - kind:
             usage: "LABEL"
@@ -691,34 +713,20 @@ data:
     rejourney_ingest_jobs_by_status:
       query: >
         SELECT
-          COALESCE(ij.kind, ra.kind, 'unknown') AS kind,
+          COALESCE(ij.kind, 'unknown') AS kind,
           ij.status,
-          COALESCE(se.bucket, 'unknown')        AS bucket,
-          COALESCE(se.region, 'unknown')        AS region,
-          CASE
-            WHEN se.id IS NULL THEN 'unknown'
-            WHEN se.project_id IS NULL THEN 'global'
-            ELSE 'project'
-          END                                   AS scope,
-          count(*)                              AS job_count
+          count(*)                     AS job_count
         FROM ingest_jobs ij
-        LEFT JOIN recording_artifacts ra ON ra.id = ij.artifact_id
-        LEFT JOIN storage_endpoints se ON se.id::text = ra.endpoint_id
-        GROUP BY COALESCE(ij.kind, ra.kind, 'unknown'), ij.status, bucket, region, scope
+        WHERE ij.created_at > NOW() - INTERVAL '24 hours'
+        GROUP BY 1, 2
       metrics:
         - kind:
             usage: "LABEL"
         - status:
             usage: "LABEL"
-        - bucket:
-            usage: "LABEL"
-        - region:
-            usage: "LABEL"
-        - scope:
-            usage: "LABEL"
         - job_count:
             usage: "GAUGE"
-            description: "ingest_jobs rows grouped by kind and status"
+            description: "ingest_jobs rows (24h window) grouped by kind and status"
 
     # Session backup worker (in-cluster retentionWorker backs sessions up
     # before deletion). These expose backup throughput, total footprint
@@ -805,32 +813,44 @@ data:
     # backup bucket.
     rejourney_session_backup_source_buckets_recent:
       query: >
+        WITH recent_backups AS (
+          SELECT session_id
+          FROM session_backup_log
+          WHERE backed_up_at > NOW() - INTERVAL '24 hours'
+        ),
+        artifact_rollup AS (
+          SELECT
+            ra.session_id,
+            ra.endpoint_id,
+            COUNT(*) AS ready_artifact_count_24h,
+            COALESCE(
+              SUM(COALESCE(ra.size_bytes, ra.declared_size_bytes, 0)),
+              0
+            )::bigint AS source_bytes_24h
+          FROM recording_artifacts ra
+          INNER JOIN recent_backups rb ON rb.session_id = ra.session_id
+          WHERE ra.status = 'ready'
+          GROUP BY ra.session_id, ra.endpoint_id
+        )
         SELECT
           COALESCE(
             se.bucket,
             CASE
-              WHEN ra.endpoint_id IS NULL THEN 'default-configured'
+              WHEN ar.endpoint_id IS NULL THEN 'default-configured'
               ELSE 'unknown'
             END
           )                                                       AS source_bucket,
           COALESCE(se.region, 'unknown')                          AS source_region,
           CASE
-            WHEN ra.endpoint_id IS NULL THEN 'legacy_or_default'
+            WHEN ar.endpoint_id IS NULL THEN 'legacy_or_default'
             WHEN se.project_id IS NULL THEN 'global'
             ELSE 'project'
           END                                                     AS source_scope,
-          COUNT(DISTINCT bl.session_id)                           AS sessions_backed_up_24h,
-          COUNT(*)                                                AS ready_artifact_count_24h,
-          COALESCE(
-            SUM(COALESCE(ra.size_bytes, ra.declared_size_bytes, 0)),
-            0
-          )::bigint                                               AS source_bytes_24h
-        FROM session_backup_log bl
-        INNER JOIN recording_artifacts ra
-          ON ra.session_id = bl.session_id
-         AND ra.status = 'ready'
-        LEFT JOIN storage_endpoints se ON se.id::text = ra.endpoint_id
-        WHERE bl.backed_up_at > NOW() - INTERVAL '24 hours'
+          COUNT(DISTINCT ar.session_id)                           AS sessions_backed_up_24h,
+          COALESCE(SUM(ar.ready_artifact_count_24h), 0)::bigint  AS ready_artifact_count_24h,
+          COALESCE(SUM(ar.source_bytes_24h), 0)::bigint          AS source_bytes_24h
+        FROM artifact_rollup ar
+        LEFT JOIN storage_endpoints se ON se.id::text = ar.endpoint_id
         GROUP BY source_bucket, source_region, source_scope
       metrics:
         - source_bucket:
@@ -1072,6 +1092,114 @@ data:
         - deleted_bytes:
             usage: "GAUGE"
             description: "Bytes deleted from this live bucket/endpoint in the last 24h"
+
+    # ----------------------------------------------------------------
+    # Upload failure diagnostics (feeds panels 212 on the S3 dashboard)
+    # ----------------------------------------------------------------
+    # Counts explicitly abandoned/failed artifacts in the last 2h.
+    # Cross-reference with Traefik 503 (S3 write failure) vs 499 (client
+    # aborted) to separate S3-provider failures from client-side issues.
+    # Uses recording_artifacts_failed_recent_idx.
+    rejourney_artifacts_failed_recent:
+      query: >
+        WITH artifact_rollup AS (
+          SELECT
+            ra.kind,
+            ra.status,
+            ra.endpoint_id,
+            count(*)                        AS artifact_count,
+            COALESCE(SUM(COALESCE(ra.declared_size_bytes, 0)), 0)::bigint AS declared_bytes
+          FROM recording_artifacts ra
+          WHERE ra.status IN ('abandoned', 'failed')
+            AND ra.created_at > NOW() - INTERVAL '2 hours'
+          GROUP BY ra.kind, ra.status, ra.endpoint_id
+        )
+        SELECT
+          ar.kind,
+          ar.status,
+          COALESCE(se.bucket, 'unknown')  AS bucket,
+          COALESCE(se.region, 'unknown')  AS region,
+          ar.artifact_count,
+          ar.declared_bytes
+        FROM artifact_rollup ar
+        LEFT JOIN storage_endpoints se ON se.id::text = ar.endpoint_id
+      metrics:
+        - kind:
+            usage: "LABEL"
+        - status:
+            usage: "LABEL"
+            description: "'abandoned'=S3 write failed or client aborted; 'failed'=rare re-interrupt on already-uploaded artifact"
+        - bucket:
+            usage: "LABEL"
+        - region:
+            usage: "LABEL"
+        - artifact_count:
+            usage: "GAUGE"
+            description: "Artifacts that failed or were abandoned (2h window)"
+        - declared_bytes:
+            usage: "GAUGE"
+            description: "Total declared bytes of failed/abandoned artifacts in 2h window"
+
+    # Upload completion latency (feeds panel 213 on the S3 dashboard).
+    # Measures time from presign-issued to S3-write-confirmed for artifacts
+    # that completed in the last 1h. High P95/P99 for screenshots vs events
+    # indicates S3 is slow for that content type.
+    # Uses recording_artifacts_upload_completed_at_idx.
+    rejourney_artifacts_upload_latency_recent:
+      query: >
+        WITH completed AS (
+          SELECT
+            ra.kind,
+            ra.endpoint_id,
+            count(*)                        AS completed_count,
+            ROUND(PERCENTILE_CONT(0.50) WITHIN GROUP (
+              ORDER BY EXTRACT(EPOCH FROM (ra.upload_completed_at - ra.created_at))
+            )::numeric, 3) AS p50_seconds,
+            ROUND(PERCENTILE_CONT(0.95) WITHIN GROUP (
+              ORDER BY EXTRACT(EPOCH FROM (ra.upload_completed_at - ra.created_at))
+            )::numeric, 3) AS p95_seconds,
+            ROUND(PERCENTILE_CONT(0.99) WITHIN GROUP (
+              ORDER BY EXTRACT(EPOCH FROM (ra.upload_completed_at - ra.created_at))
+            )::numeric, 3) AS p99_seconds,
+            ROUND(MAX(EXTRACT(EPOCH FROM (ra.upload_completed_at - ra.created_at)))::numeric, 3) AS max_seconds
+          FROM recording_artifacts ra
+          WHERE ra.upload_completed_at IS NOT NULL
+            AND ra.upload_completed_at > NOW() - INTERVAL '1 hour'
+          GROUP BY ra.kind, ra.endpoint_id
+        )
+        SELECT
+          completed.kind,
+          COALESCE(se.bucket, 'unknown')  AS bucket,
+          COALESCE(se.region, 'unknown')  AS region,
+          completed.completed_count,
+          completed.p50_seconds,
+          completed.p95_seconds,
+          completed.p99_seconds,
+          completed.max_seconds
+        FROM completed
+        LEFT JOIN storage_endpoints se ON se.id::text = completed.endpoint_id
+      metrics:
+        - kind:
+            usage: "LABEL"
+        - bucket:
+            usage: "LABEL"
+        - region:
+            usage: "LABEL"
+        - completed_count:
+            usage: "GAUGE"
+            description: "Artifacts that completed upload in the last 1h"
+        - p50_seconds:
+            usage: "GAUGE"
+            description: "Median time from presign issued to S3 write confirmed (seconds)"
+        - p95_seconds:
+            usage: "GAUGE"
+            description: "P95 presign-to-S3-confirmed latency (seconds)"
+        - p99_seconds:
+            usage: "GAUGE"
+            description: "P99 presign-to-S3-confirmed latency (seconds)"
+        - max_seconds:
+            usage: "GAUGE"
+            description: "Worst-case presign-to-S3-confirmed latency (seconds)"
 
 ---
 apiVersion: apps/v1

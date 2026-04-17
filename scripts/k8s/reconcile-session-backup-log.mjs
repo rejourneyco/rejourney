@@ -120,7 +120,6 @@ async function fetchZeroArtifactCandidates() {
       backed_up_at::text AS backed_up_at
     FROM session_backup_log
     WHERE artifact_count = 0
-      AND r2_key_prefix != 'observe_only'
     ORDER BY backed_up_at ASC, session_id ASC
     ${buildLimitClause()};
     `,
@@ -173,7 +172,6 @@ async function fetchBackfillQualityCandidates() {
       backed_up_at::text AS backed_up_at
     FROM session_backup_log
     WHERE r2_key_prefix IS NOT NULL
-      AND r2_key_prefix != 'observe_only'
     ORDER BY backed_up_at ASC, session_id ASC
     ${buildLimitClause()};
     `,

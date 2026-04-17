@@ -364,8 +364,9 @@ export const sessions = pgTable(
 
         /**
          * Set to true when the SDK session was started with observeOnly:true (or equivalent
-         * server-side recordingEnabled:false). No visual artifacts will ever be uploaded for
-         * this session — backup gate and retention worker treat it as "nothing to archive".
+         * server-side recordingEnabled:false). No screenshot artifacts should be uploaded for
+         * this session, but non-visual artifacts still back up and retain under the normal
+         * backup ledger rules.
          * Defaults to false for full backward compat with older SDK versions that do not
          * send the x-rj-observe-only header.
          */
@@ -479,6 +480,20 @@ export const recordingArtifacts = pgTable(
     (table) => [
         index('recording_artifacts_session_id_idx').on(table.sessionId),
         index('recording_artifacts_kind_idx').on(table.sessionId, table.kind),
+        index('recording_artifacts_created_status_endpoint_idx')
+            .on(table.createdAt, table.status, table.kind, table.endpointId),
+        index('recording_artifacts_upload_completed_at_idx')
+            .on(table.uploadCompletedAt, table.kind, table.endpointId, table.createdAt)
+            .where(sql`${table.uploadCompletedAt} IS NOT NULL`),
+        index('recording_artifacts_pending_stalled_idx')
+            .on(table.kind, table.createdAt, table.endpointId)
+            .where(sql`${table.status} = 'pending' AND ${table.uploadCompletedAt} IS NULL`),
+        index('recording_artifacts_session_ready_endpoint_idx')
+            .on(table.sessionId, table.endpointId)
+            .where(sql`${table.status} = 'ready'`),
+        index('recording_artifacts_failed_recent_idx')
+            .on(table.status, table.createdAt, table.kind, table.endpointId)
+            .where(sql`${table.status} IN ('abandoned', 'failed')`),
         uniqueIndex('recording_artifacts_client_upload_id_unique').on(table.clientUploadId),
     ]
 );
@@ -531,6 +546,9 @@ export const ingestJobs = pgTable(
         index('ingest_jobs_status_next_run_idx').on(table.status, table.nextRunAt),
         index('ingest_jobs_project_id_idx').on(table.projectId),
         index('ingest_jobs_session_idx').on(table.sessionId),
+        index('ingest_jobs_monitoring_idx')
+            .on(table.status, table.kind, table.nextRunAt, table.createdAt)
+            .where(sql`${table.status} IN ('pending', 'processing', 'dlq', 'failed')`),
         /** Speeds EXISTS lookups from session list rows (pending/processing jobs only) */
         index('ingest_jobs_session_pending_idx')
             .on(table.sessionId)

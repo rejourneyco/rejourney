@@ -8,7 +8,7 @@ metadata:
 data:
   session-backup.mjs: |
     #!/usr/bin/env node
-
+    
     /**
      * Session Backup Script
      *
@@ -28,10 +28,10 @@ data:
      *    `tenant/{teamId}/project/{projectId}/sessions/{sessionId}/` key
      *    format are backed up. Legacy `sessions/` prefix data is skipped.
      *
-     * 3. **Includes retention-deleted sessions** — Sessions whose screenshots
-     *    were already deleted by the retention worker are still backed up;
-     *    their events and hierarchy remain in S3 and get archived. Missing
-     *    screenshots are recorded as source_missing in the manifest.
+     * 3. **Artifact-shape gated** — A session is only backupable when its ready
+     *    artifacts match the expected profile: standard sessions need events +
+     *    hierarchy + screenshots, while observe-only sessions need events +
+     *    hierarchy and must not have screenshots.
      *
      * 4. **R2 structure keeps the same key layout:**
      *
@@ -48,7 +48,7 @@ data:
      *    size is written back to recording_artifacts.size_bytes for any
      *    historical rows where the SDK recorded the pre-compression size.
      */
-
+    
     import { spawn } from 'node:child_process';
     import crypto from 'node:crypto';
     import { createReadStream, createWriteStream } from 'node:fs';
@@ -67,30 +67,30 @@ data:
     } from '@aws-sdk/client-s3';
     import pg from 'pg';
     import { evaluateBackupQuality } from './backup-quality.mjs';
-
+    
     // =============================================================================
     // Configuration
     // =============================================================================
-
+    
     function parseOption(name) {
       const match = process.argv.slice(2).find((arg) => arg.startsWith(`${name}=`));
       return match ? match.slice(name.length + 1) : null;
     }
-
+    
     const mode = parseOption('--mode') || 'drain-queue';
     const seedLimitArg = parseOption('--limit');
     const seedLimit = seedLimitArg ? Number(seedLimitArg) : null;
-
+    
     if (!['drain-queue', 'seed-queue'].includes(mode)) {
       console.error(`Unsupported --mode: ${mode}`);
       process.exit(1);
     }
-
+    
     if (seedLimitArg && (!Number.isFinite(seedLimit) || seedLimit <= 0)) {
       console.error(`Invalid --limit value: ${seedLimitArg}`);
       process.exit(1);
     }
-
+    
     const config = {
       databaseUrl: process.env.DATABASE_URL || '',
       sourceEndpoint: process.env.S3_ENDPOINT || '',
@@ -107,6 +107,8 @@ data:
       maxParallel: Number(process.env.SESSION_BACKUP_MAX_PARALLEL || 4),
       artifactParallel: Number(process.env.SESSION_BACKUP_ARTIFACT_PARALLEL || 4),
       maxRetries: Number(process.env.SESSION_BACKUP_MAX_RETRIES || 3),
+      requestTimeoutMs: Number(process.env.SESSION_BACKUP_REQUEST_TIMEOUT_MS || 300000),
+      slowdownRetryBaseMs: Number(process.env.SESSION_BACKUP_SLOWDOWN_RETRY_BASE_MS || 5000),
       lockStaleMinutes: Number(process.env.SESSION_BACKUP_LOCK_STALE_MINUTES || 30),
       lockHeartbeatMs: Number(process.env.SESSION_BACKUP_LOCK_HEARTBEAT_MS || 60000),
       queueClaimStaleMinutes: Number(process.env.SESSION_BACKUP_QUEUE_CLAIM_STALE_MINUTES || 120),
@@ -117,7 +119,7 @@ data:
       archiveFriendlyScreenshots: process.env.SESSION_BACKUP_ARCHIVE_FRIENDLY_SCREENSHOTS !== '0',
       reprocessBackedUp: ['1', 'true', 'yes'].includes(String(process.env.SESSION_BACKUP_REPROCESS_BACKED_UP || '').toLowerCase()),
     };
-
+    
     const requiredVars = [
       ['DATABASE_URL', config.databaseUrl],
       ['S3_ENDPOINT', config.sourceEndpoint],
@@ -135,39 +137,40 @@ data:
         process.exit(1);
       }
     }
-
+    
     const RUN_LOCK_NAME = 'global';
     const ARTIFACT_CONTENT_TYPE = 'application/gzip';
     const MANIFEST_CONTENT_TYPE = 'application/json';
-
+    
     // =============================================================================
     // Persistent S3 Clients (connection pooling, zero spawn overhead)
     // =============================================================================
-
+    
     function makeS3Client(endpoint, accessKeyId, secretAccessKey) {
       return new S3Client({
         endpoint,
         region: 'auto',
         credentials: { accessKeyId, secretAccessKey },
         forcePathStyle: true,
+        maxAttempts: 1,
       });
     }
-
+    
     const defaultSourceClient = makeS3Client(config.sourceEndpoint, config.sourceAccessKeyId, config.sourceSecretAccessKey);
     const r2Client = makeS3Client(config.r2Endpoint, config.r2AccessKeyId, config.r2SecretAccessKey);
-
+    
     const endpointClientCache = new Map();
-
+    
     function getSourceClientForArtifact(artifact) {
       if (!artifact.endpointId) return { client: defaultSourceClient, bucket: config.sourceBucket };
-
+    
       const cached = endpointClientCache.get(artifact.endpointId);
       if (cached) return cached;
-
+    
       if (!artifact.accessKeyId || !artifact.keyRef) {
         throw new Error(`missing credentials for endpoint ${artifact.endpointId}`);
       }
-
+    
       const secretKey = decryptKeyRef(artifact.keyRef);
       const entry = {
         client: makeS3Client(artifact.endpointUrl, artifact.accessKeyId, secretKey),
@@ -176,22 +179,22 @@ data:
       endpointClientCache.set(artifact.endpointId, entry);
       return entry;
     }
-
+    
     // =============================================================================
     // Postgres Pool (replaces psql subprocess calls)
     // =============================================================================
-
+    
     const pool = new pg.Pool({ connectionString: config.databaseUrl, max: 5 });
-
+    
     async function sql(query, params) {
       const result = await pool.query(query, params);
       return result;
     }
-
+    
     // =============================================================================
     // Crypto / Helpers
     // =============================================================================
-
+    
     function decryptKeyRef(value) {
       if (!value) return '';
       const parts = String(value).split(':');
@@ -209,19 +212,42 @@ data:
       const plain = Buffer.concat([decipher.update(encrypted), decipher.final()]);
       return plain.toString('utf8');
     }
-
+    
     function log(message) {
       console.log(`[${new Date().toUTCString().replace('GMT', 'UTC')}] ${message}`);
     }
-
+    
     function warn(message) {
       console.warn(`  WARN ${message}`);
     }
-
+    
+    function isRateLimitError(error) {
+      const msg = String(error?.message || '').toLowerCase();
+      const name = String(error?.name || '').toLowerCase();
+      const code = String(error?.Code || error?.code || '').toLowerCase();
+      const httpStatus = error?.$metadata?.httpStatusCode;
+      return (
+        httpStatus === 429 ||
+        httpStatus === 503 ||
+        msg.includes('reduce your concurrent request rate') ||
+        msg.includes('slow down') ||
+        msg.includes('throttl') ||
+        code.includes('slowdown') ||
+        code.includes('throttl') ||
+        name.includes('slowdown') ||
+        name.includes('throttl')
+      );
+    }
+    
+    function computeRetryDelayMs(error, attempt) {
+      const baseDelayMs = isRateLimitError(error) ? config.slowdownRetryBaseMs : 1000;
+      return Math.min(60000, baseDelayMs * Math.pow(2, attempt - 1));
+    }
+    
     function isGzipBuffer(buffer) {
       return buffer.length >= 2 && buffer[0] === 0x1f && buffer[1] === 0x8b;
     }
-
+    
     function isBinaryFrameBundle(buffer) {
       if (buffer.length < 16) return false;
       const possibleSize = buffer.readUInt32BE(8);
@@ -233,63 +259,63 @@ data:
         possibleSize < buffer.length
       );
     }
-
+    
     function parseTarEntries(buffer) {
       const files = [];
       let offset = 0;
-
+    
       while (offset < buffer.length - 512) {
         const header = buffer.subarray(offset, offset + 512);
         if (header.every((byte) => byte === 0)) break;
-
+    
         const nameEnd = header.indexOf(0);
         const name = header.subarray(0, nameEnd > 0 ? Math.min(nameEnd, 100) : 100).toString('utf8').trim();
         const sizeStr = header.subarray(124, 136).toString('utf8').trim();
         const size = parseInt(sizeStr, 8) || 0;
         const typeFlag = header[156];
         const isRegularFile = typeFlag === 0 || typeFlag === 48;
-
+    
         offset += 512;
-
+    
         if (isRegularFile && size > 0) {
           files.push({
             name,
             data: Buffer.from(buffer.subarray(offset, offset + size)),
           });
         }
-
+    
         offset += Math.ceil(size / 512) * 512;
       }
-
+    
       return files;
     }
-
+    
     function parseBinaryFrames(buffer, sessionStartTime) {
       const frames = [];
       let offset = 0;
-
+    
       while (offset + 12 <= buffer.length) {
         const tsHigh = buffer.readUInt32BE(offset);
         const tsLow = buffer.readUInt32BE(offset + 4);
         const tsOffset = tsHigh * 0x100000000 + tsLow;
         const jpegSize = buffer.readUInt32BE(offset + 8);
-
+    
         offset += 12;
-
+    
         if (jpegSize <= 0 || offset + jpegSize > buffer.length) break;
         if (buffer[offset] !== 0xff || buffer[offset + 1] !== 0xd8) break;
-
+    
         frames.push({
           timestamp: sessionStartTime + tsOffset,
           data: Buffer.from(buffer.subarray(offset, offset + jpegSize)),
         });
-
+    
         offset += jpegSize;
       }
-
+    
       return frames;
     }
-
+    
     async function withRetry(fn, label, options = {}) {
       const shouldRetry = options.shouldRetry || (() => true);
       for (let attempt = 1; attempt <= config.maxRetries; attempt++) {
@@ -297,17 +323,17 @@ data:
           return await fn();
         } catch (err) {
           if (attempt === config.maxRetries || !shouldRetry(err)) throw err;
-          const delayMs = 1000 * Math.pow(2, attempt - 1);
+          const delayMs = computeRetryDelayMs(err, attempt);
           warn(`${label}: attempt ${attempt}/${config.maxRetries} failed (${err.message}), retrying in ${delayMs}ms`);
           await new Promise((r) => setTimeout(r, delayMs));
         }
       }
     }
-
+    
     // =============================================================================
     // Shell helper (only used for `tar` now)
     // =============================================================================
-
+    
     function runCommand(command, args, options = {}) {
       return new Promise((resolve, reject) => {
         const child = spawn(command, args, {
@@ -315,10 +341,10 @@ data:
           cwd: options.cwd,
           stdio: ['ignore', 'pipe', 'pipe'],
         });
-
+    
         const stdout = [];
         const stderr = [];
-
+    
         child.stdout.on('data', (chunk) => stdout.push(chunk));
         child.stderr.on('data', (chunk) => stderr.push(chunk));
         child.on('error', reject);
@@ -332,18 +358,18 @@ data:
             resolve(result);
             return;
           }
-
+    
           const err = new Error(`${command} ${args.join(' ')} failed with code ${result.code}: ${result.stderr || result.stdout}`.trim());
           err.result = result;
           reject(err);
         });
       });
     }
-
+    
     // =============================================================================
     // Database Setup & Locking
     // =============================================================================
-
+    
     async function tableExists(tableName) {
       const result = await sql(`
         SELECT EXISTS (
@@ -355,7 +381,7 @@ data:
       `, [tableName]);
       return Boolean(result.rows[0]?.exists);
     }
-
+    
     async function columnExists(tableName, columnName) {
       const result = await sql(`
         SELECT EXISTS (
@@ -368,7 +394,7 @@ data:
       `, [tableName, columnName]);
       return Boolean(result.rows[0]?.exists);
     }
-
+    
     async function indexExists(indexName) {
       const result = await sql(`
         SELECT EXISTS (
@@ -382,7 +408,7 @@ data:
       `, [indexName]);
       return Boolean(result.rows[0]?.exists);
     }
-
+    
     async function ensureBackupSchema() {
       if (!(await tableExists('session_backup_log'))) {
         await sql(`
@@ -396,7 +422,7 @@ data:
           );
         `);
       }
-
+    
       const sessionBackupLogColumns = [
         ['planned_artifact_count', 'ALTER TABLE session_backup_log ADD COLUMN planned_artifact_count INT NOT NULL DEFAULT 0;'],
         ['high_quality', 'ALTER TABLE session_backup_log ADD COLUMN high_quality BOOLEAN;'],
@@ -413,11 +439,11 @@ data:
           await sql(ddl);
         }
       }
-
+    
       if (!(await indexExists('session_backup_log_backed_up_at_idx'))) {
         await sql('CREATE INDEX session_backup_log_backed_up_at_idx ON session_backup_log(backed_up_at);');
       }
-
+    
       if (!(await tableExists('session_backup_queue'))) {
         await sql(`
           CREATE TABLE session_backup_queue (
@@ -435,14 +461,14 @@ data:
           );
         `);
       }
-
+    
       if (!(await indexExists('session_backup_queue_claim_idx'))) {
         await sql('CREATE INDEX session_backup_queue_claim_idx ON session_backup_queue(status, next_retry_at, created_at, session_id);');
       }
       if (!(await indexExists('session_backup_queue_stale_idx'))) {
         await sql('CREATE INDEX session_backup_queue_stale_idx ON session_backup_queue(status, claimed_at);');
       }
-
+    
       if (!(await tableExists('session_backup_run_lock'))) {
         await sql(`
           CREATE TABLE session_backup_run_lock (
@@ -454,11 +480,11 @@ data:
         `);
       }
     }
-
+    
     function buildRunOwnerId() {
       return `session-backup:${os.hostname()}:${process.pid}:${Date.now()}`;
     }
-
+    
     async function tryAcquireRunLock(ownerId) {
       const result = await sql(`
         WITH lock_row AS (
@@ -474,10 +500,10 @@ data:
         )
         SELECT owner_id FROM lock_row;
       `, [RUN_LOCK_NAME, ownerId, config.lockStaleMinutes]);
-
+    
       return result.rows[0]?.owner_id === ownerId;
     }
-
+    
     async function refreshRunLock(ownerId) {
       const result = await sql(`
         UPDATE session_backup_run_lock
@@ -486,12 +512,12 @@ data:
           AND owner_id = $2
         RETURNING owner_id;
       `, [RUN_LOCK_NAME, ownerId]);
-
+    
       if (result.rows[0]?.owner_id !== ownerId) {
         throw new Error('session backup run lock lost');
       }
     }
-
+    
     async function releaseRunLock(ownerId) {
       await sql(`
         DELETE FROM session_backup_run_lock
@@ -499,27 +525,51 @@ data:
           AND owner_id = $2;
       `, [RUN_LOCK_NAME, ownerId]);
     }
-
+    
     // =============================================================================
     // Session Queries
     // =============================================================================
-
+    
     function buildReadyArtifactStatsJoin(sessionAlias = 's', statsAlias = 'artifact_stats') {
       return `
             JOIN LATERAL (
-              SELECT COUNT(*)::int AS ready_artifact_count
+              SELECT
+                COUNT(*)::int AS ready_artifact_count,
+                COUNT(*) FILTER (WHERE ra.kind = 'events')::int AS ready_events_count,
+                COUNT(*) FILTER (WHERE ra.kind = 'hierarchy')::int AS ready_hierarchy_count,
+                COUNT(*) FILTER (WHERE ra.kind = 'screenshots')::int AS ready_screenshots_count
               FROM recording_artifacts ra
               WHERE ra.session_id = ${sessionAlias}.id
                 AND ra.status = 'ready'
             ) ${statsAlias} ON true
       `.trim();
     }
-
+    
+    function buildBackupEligibilityPredicate(sessionAlias = 's', statsAlias = 'artifact_stats') {
+      return `
+            ${statsAlias}.ready_artifact_count > 0
+            AND (
+              (
+                COALESCE(${sessionAlias}.observe_only, false) = true
+                AND ${statsAlias}.ready_events_count > 0
+                AND ${statsAlias}.ready_hierarchy_count > 0
+                AND ${statsAlias}.ready_screenshots_count = 0
+              )
+              OR (
+                COALESCE(${sessionAlias}.observe_only, false) = false
+                AND ${statsAlias}.ready_events_count > 0
+                AND ${statsAlias}.ready_hierarchy_count > 0
+                AND ${statsAlias}.ready_screenshots_count > 0
+              )
+            )
+      `.trim();
+    }
+    
     function buildNotFullyBackedUpPredicate(logAlias = 'bl', readyArtifactCountExpr = 'artifact_stats.ready_artifact_count') {
       if (config.reprocessBackedUp) {
         return 'TRUE';
       }
-
+    
       return `
             (
               ${logAlias}.session_id IS NULL
@@ -528,26 +578,57 @@ data:
             )
       `.trim();
     }
-
+    
+    function buildRetentionExpiryExpr(sessionAlias = 's') {
+      return `
+            (
+              ${sessionAlias}.started_at
+              + (GREATEST(COALESCE(${sessionAlias}.retention_days, 0), 0) * INTERVAL '1 day')
+            )
+      `.trim();
+    }
+    
+    function buildRetentionPriorityOrderBy({ sessionAlias = 's', queueAlias = null, sessionIdExpr = `${sessionAlias}.id` } = {}) {
+      const expiryExpr = buildRetentionExpiryExpr(sessionAlias);
+      const clauses = [
+        `
+          CASE
+            WHEN ${expiryExpr} <= NOW() THEN 0
+            WHEN ${expiryExpr} <= NOW() + INTERVAL '1 day' THEN 1
+            ELSE 2
+          END
+        `.trim(),
+        `${expiryExpr} ASC`,
+        `${sessionAlias}.started_at ASC`,
+      ];
+    
+      if (queueAlias) {
+        clauses.push(`${queueAlias}.next_retry_at ASC`, `${queueAlias}.created_at ASC`);
+      }
+    
+      clauses.push(`${sessionIdExpr} ASC`);
+      return clauses.join(', ');
+    }
+    
     async function cleanupCompletedQueueRows() {
       if (config.reprocessBackedUp) {
         return 0;
       }
-
+    
       const result = await sql(`
         DELETE FROM session_backup_queue q
         USING sessions s
         JOIN session_backup_log bl ON bl.session_id = s.id
         ${buildReadyArtifactStatsJoin('s')}
         WHERE q.session_id = s.id
-          AND artifact_stats.ready_artifact_count > 0
+          AND ${buildBackupEligibilityPredicate('s')}
           AND bl.artifact_count >= artifact_stats.ready_artifact_count
           AND bl.planned_artifact_count >= artifact_stats.ready_artifact_count;
       `);
       return result.rowCount || 0;
     }
-
-    async function cleanupZeroReadyArtifactQueueRows() {
+    
+    async function cleanupIneligibleQueueRows() {
       const result = await sql(`
         DELETE FROM session_backup_queue q
         USING sessions s
@@ -557,11 +638,11 @@ data:
           AND q.status = 'pending'
           AND s.status IN ('ready', 'completed')
           AND p.deleted_at IS NULL
-          AND artifact_stats.ready_artifact_count = 0;
+          AND NOT (${buildBackupEligibilityPredicate('s')});
       `);
       return result.rowCount || 0;
     }
-
+    
     async function cleanupOrphanedQueueRows() {
       const result = await sql(`
         DELETE FROM session_backup_queue q
@@ -575,7 +656,7 @@ data:
       `);
       return result.rowCount || 0;
     }
-
+    
     async function recoverStaleQueueClaims() {
       const result = await sql(`
         UPDATE session_backup_queue
@@ -591,7 +672,7 @@ data:
       `, [config.queueClaimStaleMinutes]);
       return result.rowCount || 0;
     }
-
+    
     async function releaseOwnedQueueClaims(ownerId) {
       const result = await sql(`
         UPDATE session_backup_queue
@@ -607,7 +688,7 @@ data:
       `, [ownerId]);
       return result.rowCount || 0;
     }
-
+    
     async function normalizePendingQueueRetryTimes() {
       const result = await sql(`
         UPDATE session_backup_queue
@@ -619,7 +700,7 @@ data:
       `);
       return result.rowCount || 0;
     }
-
+    
     async function claimQueueBatch(limit, ownerId) {
       const result = await sql(`
         WITH claimable AS (
@@ -633,9 +714,9 @@ data:
             AND q.next_retry_at <= NOW()
             AND s.status IN ('ready', 'completed')
             AND p.deleted_at IS NULL
-            AND artifact_stats.ready_artifact_count > 0
+            AND ${buildBackupEligibilityPredicate('s')}
             AND ${buildNotFullyBackedUpPredicate('bl', 'artifact_stats.ready_artifact_count')}
-          ORDER BY q.next_retry_at ASC, q.created_at ASC, q.session_id ASC
+          ORDER BY ${buildRetentionPriorityOrderBy({ sessionAlias: 's', queueAlias: 'q', sessionIdExpr: 'q.session_id' })}
           LIMIT $1
           FOR UPDATE OF q SKIP LOCKED
         )
@@ -658,7 +739,7 @@ data:
           FLOOR(EXTRACT(EPOCH FROM s.started_at) * 1000)::bigint::text AS session_start_ms,
           q.attempts::int AS attempt_number;
       `, [limit, ownerId]);
-
+    
       return result.rows.map((row) => ({
         id: row.session_id,
         projectId: row.project_id,
@@ -667,14 +748,14 @@ data:
         attemptNumber: Number(row.attempt_number || 1),
       }));
     }
-
+    
     async function completeQueueEntry(sessionId) {
       await sql(`
         DELETE FROM session_backup_queue
         WHERE session_id = $1;
       `, [sessionId]);
     }
-
+    
     function computeQueueRetryDelaySeconds(attemptNumber) {
       const exponent = Math.max(0, Math.min(10, attemptNumber - 1));
       return Math.min(
@@ -682,7 +763,7 @@ data:
         Math.max(config.queueRetryBaseSeconds, config.queueRetryBaseSeconds * (2 ** exponent)),
       );
     }
-
+    
     async function requeueFailedQueueEntry(sessionId, ownerId, errorMessage, attemptNumber) {
       const delaySeconds = computeQueueRetryDelaySeconds(attemptNumber);
       await sql(`
@@ -699,11 +780,11 @@ data:
       `, [sessionId, delaySeconds, errorMessage, ownerId]);
       return delaySeconds;
     }
-
+    
     async function fetchSeedCandidates(limit, cursorStartedAt = null, cursorSessionId = null) {
       const params = [limit];
       let cursorClause = '';
-
+    
       if (cursorStartedAt && cursorSessionId) {
         params.push(cursorStartedAt, cursorSessionId);
         cursorClause = `
@@ -712,7 +793,7 @@ data:
             OR (s.started_at = $2::timestamptz AND s.id > $3)
           )`;
       }
-
+    
       const result = await sql(`
         SELECT
           s.id,
@@ -723,7 +804,7 @@ data:
         LEFT JOIN session_backup_log bl ON bl.session_id = s.id
         WHERE s.status IN ('ready', 'completed')
           AND p.deleted_at IS NULL
-          AND artifact_stats.ready_artifact_count > 0
+          AND ${buildBackupEligibilityPredicate('s')}
           AND ${buildNotFullyBackedUpPredicate('bl', 'artifact_stats.ready_artifact_count')}
           AND NOT EXISTS (
             SELECT 1
@@ -731,21 +812,21 @@ data:
             WHERE q.session_id = s.id
           )
     ${cursorClause}
-        ORDER BY s.started_at ASC, s.id ASC
+        ORDER BY ${buildRetentionPriorityOrderBy({ sessionAlias: 's', sessionIdExpr: 's.id' })}
         LIMIT $1;
       `, params);
-
+    
       return result.rows.map((row) => ({
         id: row.id,
         startedAt: row.started_at,
       }));
     }
-
+    
     async function enqueueSeedCandidates(sessionIds) {
       if (sessionIds.length === 0) {
         return 0;
       }
-
+    
       const result = await sql(`
         INSERT INTO session_backup_queue (
           session_id,
@@ -766,51 +847,51 @@ data:
         ON CONFLICT (session_id) DO NOTHING
         RETURNING session_id;
       `, [sessionIds]);
-
+    
       return result.rows.length;
     }
-
+    
     async function runSeedQueueMode() {
       log(`Starting session backup queue seeding (pageSize=${config.seedBatchSize}${seedLimit ? `, limit=${seedLimit}` : ''})`);
-
+    
       let scanned = 0;
       let enqueued = 0;
       let cursorStartedAt = null;
       let cursorSessionId = null;
-
+    
       while (true) {
         const pageSize = seedLimit == null
           ? config.seedBatchSize
           : Math.min(config.seedBatchSize, Math.max(seedLimit - scanned, 0));
-
+    
         if (pageSize <= 0) {
           break;
         }
-
+    
         const candidates = await fetchSeedCandidates(pageSize, cursorStartedAt, cursorSessionId);
         if (candidates.length === 0) {
           break;
         }
-
+    
         scanned += candidates.length;
         enqueued += await enqueueSeedCandidates(candidates.map((candidate) => candidate.id));
-
+    
         const lastCandidate = candidates[candidates.length - 1];
         cursorStartedAt = lastCandidate.startedAt;
         cursorSessionId = lastCandidate.id;
-
+    
         if (scanned % 1000 === 0 || candidates.length < pageSize) {
           log(`Seed progress: scanned=${scanned}, enqueued=${enqueued}`);
         }
       }
-
+    
       log(`Session backup queue seed complete: scanned=${scanned}, enqueued=${enqueued}`);
     }
-
+    
     // =============================================================================
     // Manifest & Artifacts
     // =============================================================================
-
+    
     async function buildManifest(sessionId) {
       const result = await sql(`
         SELECT json_build_object(
@@ -833,6 +914,7 @@ data:
             'retentionTier', s.retention_tier,
             'retentionDays', s.retention_days,
             'isSampledIn', s.is_sampled_in,
+            'observeOnly', COALESCE(s.observe_only, false),
             'hasSuccessfulRecording', COALESCE(s.replay_available, false),
             'replaySegmentCount', s.replay_segment_count,
             'replayStorageBytes', s.replay_storage_bytes,
@@ -895,15 +977,15 @@ data:
         FROM sessions s
         WHERE s.id = $1;
       `, [sessionId]);
-
+    
       const raw = result.rows[0]?.manifest;
       if (!raw) {
         throw new Error(`missing session manifest for ${sessionId}`);
       }
-
+    
       return JSON.parse(raw);
     }
-
+    
     async function fetchArtifacts(sessionId) {
       const result = await sql(`
         SELECT
@@ -934,7 +1016,7 @@ data:
           ra.created_at ASC,
           ra.s3_object_key ASC;
       `, [sessionId]);
-
+    
       return result.rows.map((row) => ({
         kind: row.kind,
         s3ObjectKey: row.s3_object_key,
@@ -951,7 +1033,7 @@ data:
         endpointResolved: row.endpoint_resolved,
       }));
     }
-
+    
     async function insertBackupLog(sessionId, prefix, artifactCount, totalBytes, plannedArtifactCount, quality) {
       await sql(`
         INSERT INTO session_backup_log (
@@ -1000,7 +1082,7 @@ data:
         quality.manifestPresent,
       ]);
     }
-
+    
     async function correctArtifactSize(s3ObjectKey, realBytes) {
       await sql(`
         UPDATE recording_artifacts
@@ -1009,27 +1091,27 @@ data:
           AND (size_bytes IS NULL OR size_bytes != $1);
       `, [realBytes, s3ObjectKey]).catch(() => {});
     }
-
+    
     async function maybeRepairSessionMetadata(sessionId, manifest, artifacts) {
       const s = manifest.session || {};
       const repairs = [];
-
+    
       if (s.durationSeconds == null || s.durationSeconds === 0) {
         const startedAt = s.startedAt ? new Date(s.startedAt) : null;
         const explicitEndedAt = s.explicitEndedAt ? new Date(s.explicitEndedAt) : null;
         const endedAt = s.endedAt ? new Date(s.endedAt) : null;
-
+    
         let bestEndMs = explicitEndedAt ? explicitEndedAt.getTime()
                       : endedAt ? endedAt.getTime() : 0;
         for (const a of artifacts) {
           if (a.endTime && Number(a.endTime) > bestEndMs) bestEndMs = Number(a.endTime);
         }
-
+    
         if (startedAt && bestEndMs > startedAt.getTime()) {
           const wallClockSeconds = Math.round((bestEndMs - startedAt.getTime()) / 1000);
           const backgroundSeconds = Math.max(0, Number(s.backgroundTimeSeconds || 0));
           const duration = Math.max(1, wallClockSeconds - backgroundSeconds);
-
+    
           await sql(`
             UPDATE sessions
             SET duration_seconds = $1,
@@ -1041,7 +1123,7 @@ data:
           repairs.push(`duration=${duration}s`);
         }
       }
-
+    
       if (!s.endedAt && s.startedAt) {
         let bestEndMs = 0;
         for (const a of artifacts) {
@@ -1056,7 +1138,7 @@ data:
           repairs.push('ended_at');
         }
       }
-
+    
       const realScreenshotCount = artifacts.filter((a) => a.kind === 'screenshots').length;
       const storedCount = Number(s.replaySegmentCount || 0);
       if (realScreenshotCount !== storedCount) {
@@ -1067,7 +1149,7 @@ data:
         `, [realScreenshotCount, sessionId]).catch(() => {});
         repairs.push(`segments=${storedCount}->${realScreenshotCount}`);
       }
-
+    
       const realStorageBytes = artifacts
         .filter((a) => a.kind === 'screenshots')
         .reduce((sum, a) => sum + (Number(a.sizeBytes) || 0), 0);
@@ -1080,7 +1162,7 @@ data:
         `, [realStorageBytes, sessionId]).catch(() => {});
         repairs.push(`storage_bytes=${storedBytes}->${realStorageBytes}`);
       }
-
+    
       if (s.status === 'ready' && !s.finalizedAt) {
         await sql(`
           UPDATE sessions
@@ -1089,78 +1171,121 @@ data:
         `, [sessionId]).catch(() => {});
         repairs.push('finalized_at');
       }
-
+    
       if (repairs.length > 0) {
         log(`  repaired ${sessionId}: ${repairs.join(', ')}`);
       }
     }
-
+    
     // =============================================================================
     // S3 / R2 Operations (native SDK — no subprocess overhead)
     // =============================================================================
-
+    
+    async function withTimedOperation(label, promiseFactory, onTimeout) {
+      const timeoutMs = config.requestTimeoutMs;
+      if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
+        return promiseFactory();
+      }
+    
+      let timer;
+      const timeoutError = new Error(`${label} timed out after ${timeoutMs}ms`);
+      const timeoutPromise = new Promise((_, reject) => {
+        timer = setTimeout(() => {
+          try {
+            onTimeout?.(timeoutError);
+          } catch {
+            // Best-effort timeout cleanup.
+          }
+          reject(timeoutError);
+        }, timeoutMs);
+        timer.unref?.();
+      });
+    
+      try {
+        return await Promise.race([promiseFactory(), timeoutPromise]);
+      } finally {
+        clearTimeout(timer);
+      }
+    }
+    
+    async function sendStorageCommand(client, command, label) {
+      const controller = new AbortController();
+      return withTimedOperation(
+        label,
+        () => client.send(command, { abortSignal: controller.signal }),
+        (timeoutError) => controller.abort(timeoutError),
+      );
+    }
+    
     async function downloadSourceArtifact(sourceKey, outputPath, artifact) {
       const { client, bucket } = getSourceClientForArtifact(artifact);
-      const resp = await client.send(new GetObjectCommand({
+      const resp = await sendStorageCommand(client, new GetObjectCommand({
         Bucket: bucket,
         Key: sourceKey,
-      }));
+      }), `download ${sourceKey}`);
       const ws = createWriteStream(outputPath);
-      await pipeline(resp.Body, ws);
+      await withTimedOperation(
+        `stream ${sourceKey}`,
+        () => pipeline(resp.Body, ws),
+        (timeoutError) => {
+          resp.Body?.destroy?.(timeoutError);
+          ws.destroy(timeoutError);
+        },
+      );
     }
-
+    
     async function uploadToSource(localPath, destinationKey, contentType, artifact) {
       const { client, bucket } = getSourceClientForArtifact(artifact);
       const body = createReadStream(localPath);
-      await client.send(new PutObjectCommand({
+      await sendStorageCommand(client, new PutObjectCommand({
         Bucket: bucket,
         Key: destinationKey,
         Body: body,
         ContentType: contentType,
-      }));
+      }), `upload source ${destinationKey}`);
     }
-
+    
     async function uploadToR2(localPath, destinationKey, contentType) {
       const body = createReadStream(localPath);
-      await r2Client.send(new PutObjectCommand({
+      await sendStorageCommand(r2Client, new PutObjectCommand({
         Bucket: config.r2Bucket,
         Key: destinationKey,
         Body: body,
         ContentType: contentType,
-      }));
+      }), `upload r2 ${destinationKey}`);
     }
-
+    
     async function headR2Object(key) {
-      return r2Client.send(new HeadObjectCommand({
+      return sendStorageCommand(r2Client, new HeadObjectCommand({
         Bucket: config.r2Bucket,
         Key: key,
-      }));
+      }), `head r2 ${key}`);
     }
-
+    
     async function headSourceObject(key, artifact) {
       const { client, bucket } = getSourceClientForArtifact(artifact);
-      return client.send(new HeadObjectCommand({
+      return sendStorageCommand(client, new HeadObjectCommand({
         Bucket: bucket,
         Key: key,
-      }));
+      }), `head source ${key}`);
     }
-
+    
     async function removeR2Prefix(prefix) {
       try {
         let continuationToken;
         do {
-          const listResp = await r2Client.send(new ListObjectsV2Command({
+          const listResp = await sendStorageCommand(r2Client, new ListObjectsV2Command({
             Bucket: config.r2Bucket,
             Prefix: prefix,
             ContinuationToken: continuationToken,
-          }));
-
+          }), `list r2 ${prefix}`);
+    
           const objects = (listResp.Contents || []).map((obj) => ({ Key: obj.Key }));
           if (objects.length > 0) {
-            await r2Client.send(new DeleteObjectsCommand({
+            await sendStorageCommand(r2Client, new DeleteObjectsCommand({
               Bucket: config.r2Bucket,
               Delete: { Objects: objects },
-            }));
+            }), `delete r2 ${prefix}`);
           }
           continuationToken = listResp.IsTruncated ? listResp.NextContinuationToken : undefined;
         } while (continuationToken);
@@ -1168,7 +1293,7 @@ data:
         // Best-effort rollback
       }
     }
-
+    
     async function scanR2Prefix(prefix) {
       const manifestKey = `${prefix}/manifest.json`;
       let continuationToken;
@@ -1176,14 +1301,14 @@ data:
       let artifactObjectCount = 0;
       let manifestCount = 0;
       let totalBytes = 0;
-
+    
       do {
-        const listResp = await r2Client.send(new ListObjectsV2Command({
+        const listResp = await sendStorageCommand(r2Client, new ListObjectsV2Command({
           Bucket: config.r2Bucket,
           Prefix: prefix,
           ContinuationToken: continuationToken,
-        }));
-
+        }), `scan r2 ${prefix}`);
+    
         for (const object of listResp.Contents || []) {
           const key = object.Key || '';
           totalObjectCount += 1;
@@ -1194,10 +1319,10 @@ data:
             artifactObjectCount += 1;
           }
         }
-
+    
         continuationToken = listResp.IsTruncated ? listResp.NextContinuationToken : undefined;
       } while (continuationToken);
-
+    
       return {
         totalObjectCount,
         artifactObjectCount,
@@ -1205,7 +1330,7 @@ data:
         totalBytes,
       };
     }
-
+    
     function isSourceNotFound(error) {
       const msg = (error.message || '').toLowerCase();
       const name = (error.name || '').toLowerCase();
@@ -1224,7 +1349,7 @@ data:
         code === 'notfound'
       );
     }
-
+    
     async function verifyDownload(filePath, label) {
       const { size } = await stat(filePath);
       if (size === 0) {
@@ -1232,7 +1357,7 @@ data:
       }
       return size;
     }
-
+    
     async function verifyUpload(r2Key, expectedBytes, label) {
       const head = await headR2Object(r2Key);
       const remoteSize = head.ContentLength;
@@ -1240,7 +1365,7 @@ data:
         throw new Error(`${label}: size mismatch after upload (expected ${expectedBytes}, R2 has ${remoteSize})`);
       }
     }
-
+    
     async function verifySourceUpload(sourceKey, expectedBytes, label, artifact) {
       const head = await headSourceObject(sourceKey, artifact);
       const remoteSize = head.ContentLength;
@@ -1248,14 +1373,14 @@ data:
         throw new Error(`${label}: source size mismatch after repair (expected ${expectedBytes}, source has ${remoteSize})`);
       }
     }
-
+    
     // =============================================================================
     // Artifact Transformations (identical logic to before)
     // =============================================================================
-
+    
     async function maybeRepairLegacyHierarchyArtifact(tempPath, artifact, artifactLabel) {
       const currentBuffer = await readFile(tempPath);
-
+    
       if (
         !config.repairLegacyHierarchy ||
         artifact.kind !== 'hierarchy' ||
@@ -1263,63 +1388,63 @@ data:
       ) {
         return { status: 'unchanged', sizeBytes: currentBuffer.length };
       }
-
+    
       if (isGzipBuffer(currentBuffer)) {
         return { status: 'already_gzipped', sizeBytes: currentBuffer.length };
       }
-
+    
       try {
         JSON.parse(currentBuffer.toString('utf8'));
       } catch {
         warn(`${artifactLabel}: hierarchy object ends with .json.gz but raw bytes are not valid JSON; backing up unchanged`);
         return { status: 'skipped_invalid_payload', sizeBytes: currentBuffer.length };
       }
-
+    
       const repairedBuffer = gzipSync(currentBuffer, { level: 9 });
       await writeFile(tempPath, repairedBuffer);
-
+    
       await withRetry(async () => {
         await uploadToSource(tempPath, artifact.s3ObjectKey, ARTIFACT_CONTENT_TYPE, artifact);
         await verifySourceUpload(artifact.s3ObjectKey, repairedBuffer.length, artifactLabel, artifact);
       }, `repair ${artifactLabel}`);
-
+    
       log(`Normalized legacy hierarchy artifact in source S3: ${artifactLabel}`);
       return { status: 'recompressed_raw_json', sizeBytes: repairedBuffer.length };
     }
-
+    
     async function createTarGzFromFrames(tempPath, frames, artifactLabel) {
       const framesDir = await mkdtemp(path.join(os.tmpdir(), 'session-backup-frames-'));
-
+    
       try {
         const filenames = [];
-
+    
         for (let index = 0; index < frames.length; index += 1) {
           const frame = frames[index];
           const filename = `frame_${String(index).padStart(4, '0')}_${frame.timestamp}.jpg`;
           await writeFile(path.join(framesDir, filename), frame.data);
           filenames.push(filename);
         }
-
+    
         if (filenames.length === 0) {
           throw new Error(`${artifactLabel}: screenshot bundle contained no extractable frames`);
         }
-
+    
         await runCommand('tar', ['-czf', tempPath, '-C', framesDir, ...filenames]);
-
+    
         const { size } = await stat(tempPath);
         if (size === 0) {
           throw new Error(`${artifactLabel}: repacked tar.gz is empty`);
         }
-
+    
         return size;
       } finally {
         await rm(framesDir, { recursive: true, force: true });
       }
     }
-
+    
     async function maybeTransformScreenshotForBackup(tempPath, artifact, artifactLabel, sessionStartTime) {
       const currentBuffer = await readFile(tempPath);
-
+    
       if (!config.archiveFriendlyScreenshots || artifact.kind !== 'screenshots') {
         return {
           backupFormat: 'mirrored_source',
@@ -1327,10 +1452,10 @@ data:
           frameCount: artifact.frameCount || 0,
         };
       }
-
+    
       const rawBuffer = isGzipBuffer(currentBuffer) ? gunzipSync(currentBuffer) : currentBuffer;
       const tarEntries = parseTarEntries(rawBuffer).filter((entry) => /\.jpe?g$/i.test(entry.name));
-
+    
       if (tarEntries.length > 0) {
         if (isGzipBuffer(currentBuffer)) {
           return {
@@ -1339,7 +1464,7 @@ data:
             frameCount: tarEntries.length,
           };
         }
-
+    
         const repackedTarGz = gzipSync(rawBuffer, { level: 9 });
         await writeFile(tempPath, repackedTarGz);
         return {
@@ -1348,7 +1473,7 @@ data:
           frameCount: tarEntries.length,
         };
       }
-
+    
       if (!isBinaryFrameBundle(rawBuffer)) {
         warn(`${artifactLabel}: screenshot payload is not a recognized tar or binary frame bundle; backing up unchanged`);
         return {
@@ -1357,7 +1482,7 @@ data:
           frameCount: artifact.frameCount || 0,
         };
       }
-
+    
       const frames = parseBinaryFrames(rawBuffer, sessionStartTime);
       if (frames.length === 0) {
         warn(`${artifactLabel}: screenshot bundle looked binary but no frames could be extracted; backing up unchanged`);
@@ -1367,7 +1492,7 @@ data:
           frameCount: artifact.frameCount || 0,
         };
       }
-
+    
       const repackedSize = await createTarGzFromFrames(tempPath, frames, artifactLabel);
       return {
         backupFormat: 'tar_gzip_repacked_from_binary_bundle',
@@ -1375,26 +1500,26 @@ data:
         frameCount: frames.length,
       };
     }
-
+    
     // =============================================================================
     // Single Artifact Processing
     // =============================================================================
-
+    
     async function processArtifact(artifact, index, tempDir, session) {
       const tempPath = path.join(tempDir, `artifact-${index}`);
       const backupKey = `backups/${artifact.s3ObjectKey}`;
       const artifactLabel = `${session.id}/${artifact.kind}[${index}]`;
-
+    
       if (!artifact.endpointResolved) {
         throw new Error(`artifact ${artifactLabel} references unknown endpoint_id ${artifact.endpointId}`);
       }
-
+    
       let sourceSize;
       let backupSize;
       let repairStatus = 'unchanged';
       let backupFormat = 'mirrored_source';
       let backupFrameCount = artifact.frameCount;
-
+    
       await withRetry(
         async () => {
           await downloadSourceArtifact(artifact.s3ObjectKey, tempPath, artifact);
@@ -1403,15 +1528,15 @@ data:
         `download ${artifactLabel}`,
         { shouldRetry: (error) => !isSourceNotFound(error) },
       );
-
+    
       const repairResult = await maybeRepairLegacyHierarchyArtifact(tempPath, artifact, artifactLabel);
       sourceSize = repairResult.sizeBytes;
       repairStatus = repairResult.status;
-
+    
       if (artifact.sizeBytes !== sourceSize) {
         await correctArtifactSize(artifact.s3ObjectKey, sourceSize);
       }
-
+    
       const backupTransform = await maybeTransformScreenshotForBackup(
         tempPath,
         artifact,
@@ -1421,14 +1546,14 @@ data:
       backupSize = backupTransform.sizeBytes;
       backupFormat = backupTransform.backupFormat;
       backupFrameCount = backupTransform.frameCount;
-
+    
       await withRetry(async () => {
         await uploadToR2(tempPath, backupKey, ARTIFACT_CONTENT_TYPE);
         await verifyUpload(backupKey, backupSize, artifactLabel);
       }, `upload ${artifactLabel}`);
-
+    
       await unlink(tempPath).catch(() => {});
-
+    
       return {
         kind: artifact.kind,
         sourceKey: artifact.s3ObjectKey,
@@ -1441,31 +1566,64 @@ data:
         status: 'copied',
       };
     }
-
+    
     // =============================================================================
     // Session Processing — canonical backup with archive-friendly screenshots
     // =============================================================================
-
+    
     function buildBackupPrefix(session) {
       return `backups/tenant/${session.teamId}/project/${session.projectId}/sessions/${session.id}`;
     }
-
+    
+    function validateBackupArtifactShape(sessionId, manifest, artifacts) {
+      const observeOnly = manifest?.session?.observeOnly === true;
+      const counts = {
+        total: artifacts.length,
+        events: artifacts.filter((artifact) => artifact.kind === 'events').length,
+        hierarchy: artifacts.filter((artifact) => artifact.kind === 'hierarchy').length,
+        screenshots: artifacts.filter((artifact) => artifact.kind === 'screenshots').length,
+      };
+    
+      if (counts.total <= 0) {
+        throw new Error(`session ${sessionId} has no ready artifacts to back up`);
+      }
+    
+      if (counts.events <= 0 || counts.hierarchy <= 0) {
+        throw new Error(
+          `session ${sessionId} has mismatched ready artifacts (events=${counts.events}, hierarchy=${counts.hierarchy}, screenshots=${counts.screenshots}, observeOnly=${observeOnly})`,
+        );
+      }
+    
+      if (observeOnly) {
+        if (counts.screenshots > 0) {
+          throw new Error(
+            `session ${sessionId} is observe_only but has ${counts.screenshots} ready screenshot artifact(s)`,
+          );
+        }
+        return;
+      }
+    
+      if (counts.screenshots <= 0) {
+        throw new Error(
+          `session ${sessionId} requires ready screenshots before backup (events=${counts.events}, hierarchy=${counts.hierarchy}, screenshots=${counts.screenshots})`,
+        );
+      }
+    }
+    
     async function processSession(session) {
       const prefix = buildBackupPrefix(session);
       const tempDir = await mkdtemp(path.join(os.tmpdir(), 'session-backup-'));
-
+    
       try {
         const artifacts = await fetchArtifacts(session.id);
-        if (artifacts.length === 0) {
-          throw new Error(`session ${session.id} has no ready artifacts to back up`);
-        }
         const manifest = await buildManifest(session.id);
+        validateBackupArtifactShape(session.id, manifest, artifacts);
         let totalBytes = 0;
         let missingOnSource = 0;
-
+    
         const backupArtifacts = [];
         const artifactWorkers = Math.min(config.artifactParallel, artifacts.length || 1);
-
+    
         const artifactResults = await runPool(artifacts, artifactWorkers, async (artifact, i) => {
           try {
             const result = await processArtifact(artifact, i, tempDir, session);
@@ -1492,7 +1650,7 @@ data:
             return { ok: false, error, artifact, index: i };
           }
         });
-
+    
         for (const ar of artifactResults) {
           if (!ar.ok) {
             const label = `${session.id}/${ar.artifact.kind}[${ar.index}]`;
@@ -1505,9 +1663,9 @@ data:
             totalBytes += ar.result.sizeBytes;
           }
         }
-
+    
         const copiedCount = backupArtifacts.filter((a) => a.status === 'copied').length;
-
+    
         if (missingOnSource > 0) {
           throw new Error(
             `session ${session.id} has ${missingOnSource} artifact(s) missing on source storage; refusing to mark backup complete`,
@@ -1516,13 +1674,13 @@ data:
         if (copiedCount !== artifacts.length) {
           throw new Error(`session ${session.id} copied ${copiedCount}/${artifacts.length} artifacts; refusing to mark backup complete`);
         }
-
+    
         await maybeRepairSessionMetadata(session.id, manifest, artifacts);
-
+    
         const finalManifest = await buildManifest(session.id);
         finalManifest.exportedAt = new Date().toISOString();
         finalManifest.backupArtifacts = backupArtifacts;
-
+    
         const manifestPath = path.join(tempDir, 'manifest.json');
         await writeFile(manifestPath, `${JSON.stringify(finalManifest, null, 2)}\n`, 'utf8');
         await uploadToR2(manifestPath, `${prefix}/manifest.json`, MANIFEST_CONTENT_TYPE);
@@ -1535,7 +1693,7 @@ data:
             `session ${session.id} R2 artifact parity mismatch (planned=${artifacts.length}, copied=${copiedCount}, r2=${prefixScan.artifactObjectCount})`,
           );
         }
-
+    
         const quality = evaluateBackupQuality({
           manifest: finalManifest,
           plannedArtifactCount: artifacts.length,
@@ -1545,7 +1703,7 @@ data:
           manifestPresent: prefixScan.manifestCount === 1,
         });
         await insertBackupLog(session.id, prefix, copiedCount, totalBytes, artifacts.length, quality);
-
+    
         return {
           ok: true,
           sessionId: session.id,
@@ -1567,16 +1725,16 @@ data:
         await rm(tempDir, { recursive: true, force: true });
       }
     }
-
+    
     // =============================================================================
     // Parallel Worker Pool
     // =============================================================================
-
+    
     async function runPool(items, workerCount, worker) {
       const results = new Array(items.length);
       let cursor = 0;
       const actualWorkers = Math.max(1, Math.min(workerCount, items.length || 1));
-
+    
       async function next() {
         while (true) {
           const index = cursor;
@@ -1587,18 +1745,21 @@ data:
           results[index] = await worker(items[index], index);
         }
       }
-
+    
       await Promise.all(Array.from({ length: actualWorkers }, () => next()));
       return results;
     }
-
+    
     // =============================================================================
     // Main
     // =============================================================================
-
+    
     async function main() {
       log(`Starting session backup (${mode}) (legacy hierarchy gzip repair + archive-friendly screenshot repack)`);
-      log(`Config: maxParallel=${config.maxParallel}, artifactParallel=${config.artifactParallel}, batchSize=${config.batchSize}`);
+      log(
+        `Config: maxParallel=${config.maxParallel}, artifactParallel=${config.artifactParallel}, `
+        + `batchSize=${config.batchSize}, requestTimeoutMs=${config.requestTimeoutMs}`,
+      );
       if (config.reprocessBackedUp) {
         warn('SESSION_BACKUP_REPROCESS_BACKED_UP is enabled; this run will revisit sessions that were already backed up');
       }
@@ -1617,7 +1778,7 @@ data:
         log('Another session backup run is already active; skipping this run');
         return;
       }
-
+    
       let cleanedUp = false;
       const heartbeat = setInterval(() => {
         refreshRunLock(ownerId).catch((error) => {
@@ -1625,7 +1786,7 @@ data:
         });
       }, config.lockHeartbeatMs);
       heartbeat.unref();
-
+    
       const cleanup = async () => {
         if (cleanedUp) return;
         cleanedUp = true;
@@ -1636,48 +1797,48 @@ data:
         await releaseRunLock(ownerId);
         await pool.end().catch(() => {});
       };
-
+    
       const handleSignal = (signal) => {
         warn(`Received ${signal}; releasing run lock before exit`);
         cleanup()
           .catch((error) => warn(`Failed to release run lock during ${signal}: ${error.message}`))
           .finally(() => process.exit(signal === 'SIGINT' ? 130 : 143));
       };
-
+    
       process.once('SIGTERM', () => handleSignal('SIGTERM'));
       process.once('SIGINT', () => handleSignal('SIGINT'));
-
+    
       try {
         const normalizedPendingRetryTimes = await normalizePendingQueueRetryTimes();
         if (normalizedPendingRetryTimes > 0) {
           log(`Normalized next_retry_at for ${normalizedPendingRetryTimes} queued session(s)`);
         }
-
+    
         const cleanedCompleted = await cleanupCompletedQueueRows();
         if (cleanedCompleted > 0) {
           log(`Removed ${cleanedCompleted} completed session(s) from the backup queue`);
         }
-
-        const cleanedZeroReady = await cleanupZeroReadyArtifactQueueRows();
-        if (cleanedZeroReady > 0) {
-          log(`Removed ${cleanedZeroReady} queued session(s) that no longer have ready artifacts`);
+    
+        const cleanedIneligible = await cleanupIneligibleQueueRows();
+        if (cleanedIneligible > 0) {
+          log(`Removed ${cleanedIneligible} queued session(s) that are no longer backup-eligible`);
         }
-
+    
         const cleanedOrphans = await cleanupOrphanedQueueRows();
         if (cleanedOrphans > 0) {
           log(`Removed ${cleanedOrphans} orphaned session(s) from the backup queue`);
         }
-
+    
         const recoveredClaims = await recoverStaleQueueClaims();
         if (recoveredClaims > 0) {
           log(`Recovered ${recoveredClaims} stale queued backup claim(s)`);
         }
-
+    
         let backedUp = 0;
         let errors = 0;
         let totalBytes = 0;
         let claimedBatches = 0;
-
+    
         while (true) {
           const batch = await claimQueueBatch(config.batchSize, ownerId);
           if (!batch.length) {
@@ -1686,7 +1847,7 @@ data:
             }
             break;
           }
-
+    
           claimedBatches += 1;
           log(`Claimed ${batch.length} queued session(s) for backup`);
           const results = await runPool(batch, config.maxParallel, processSession);
@@ -1710,17 +1871,17 @@ data:
               warn(`${result.sessionId}: ${result.reason} (retry in ${delaySeconds}s, attempt ${result.attemptNumber || 1})`);
             }
           }
-
+    
           await refreshRunLock(ownerId);
           log(`Progress: ${backedUp} backed up, ${errors} retried this run`);
         }
-
+    
         log(`Session backup complete: ${backedUp} sessions backed up, ${errors} retried this run, ~${Math.round(totalBytes / 1024 / 1024)} MB total`);
       } finally {
         await cleanup();
       }
     }
-
+    
     main().catch((error) => {
       console.error(error.stack || error.message || String(error));
       pool.end().catch(() => {});
@@ -1728,19 +1889,17 @@ data:
     });
   backup-quality.mjs: |
     #!/usr/bin/env node
-
+    
     export const BACKUP_QUALITY_RULE_VERSION = 1;
     export const HIGH_QUALITY_MIN_VISUAL_DURATION_MS = 3_000;
     export const HIGH_QUALITY_MIN_SCREENSHOT_FRAMES = 3;
-
+    
     /**
-     * Quality tier for sessions that were intentionally started with observeOnly:true.
-     * No visual artifacts will ever exist for these sessions — the absence of screenshots
-     * is by design, not a backup failure. Distinct from 'broken' so dashboards and alerts
-     * can filter them out without treating them as bad data.
+     * Quality tier for observe-only sessions that were backed up successfully using
+     * their expected non-visual artifact set.
      */
     export const OBSERVE_ONLY_QUALITY_TIER = 'observe_only';
-
+    
     const REQUIRED_ARTIFACT_KINDS = ['events', 'hierarchy', 'screenshots'];
     const SOFT_REASONS = new Set([
       'too_short',
@@ -1751,11 +1910,11 @@ data:
       'invalid_session_duration',
       'invalid_time_range',
     ]);
-
+    
     function isPlainObject(value) {
       return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
     }
-
+    
     function normalizeInteger(value) {
       const parsed = Number(value);
       if (!Number.isFinite(parsed)) {
@@ -1763,12 +1922,12 @@ data:
       }
       return Math.max(0, Math.trunc(parsed));
     }
-
+    
     function collectKinds(records) {
       if (!Array.isArray(records)) {
         return [];
       }
-
+    
       const kinds = new Set();
       for (const record of records) {
         if (!isPlainObject(record) || typeof record.kind !== 'string') {
@@ -1781,21 +1940,21 @@ data:
       }
       return Array.from(kinds).sort();
     }
-
+    
     function computeScreenshotCoverageMs(artifacts) {
       if (!Array.isArray(artifacts)) {
         return { coverageMs: 0, invalidTimeRange: true };
       }
-
+    
       let minStart = Number.POSITIVE_INFINITY;
       let maxEnd = Number.NEGATIVE_INFINITY;
       let invalidTimeRange = false;
-
+    
       for (const artifact of artifacts) {
         if (!isPlainObject(artifact) || artifact.kind !== 'screenshots') {
           continue;
         }
-
+    
         const startTime = Number(artifact.startTime ?? 0);
         const endTime = Number(artifact.endTime ?? 0);
         if (!Number.isFinite(startTime) || !Number.isFinite(endTime) || startTime < 0 || endTime < 0 || endTime < startTime) {
@@ -1805,33 +1964,33 @@ data:
         minStart = Math.min(minStart, startTime);
         maxEnd = Math.max(maxEnd, endTime);
       }
-
+    
       if (!Number.isFinite(minStart) || !Number.isFinite(maxEnd)) {
         return { coverageMs: 0, invalidTimeRange };
       }
-
+    
       return {
         coverageMs: Math.max(0, maxEnd - minStart),
         invalidTimeRange,
       };
     }
-
+    
     function classifyTier(reasons) {
       if (reasons.length === 0) {
         return 'high_quality';
       }
-
+    
       if (reasons.every((reason) => SOFT_REASONS.has(reason))) {
         return 'usable';
       }
-
+    
       if (reasons.some((reason) => LOW_QUALITY_REASONS.has(reason))) {
         return 'low_quality';
       }
-
+    
       return 'broken';
     }
-
+    
     export function evaluateBackupQuality({
       manifest,
       plannedArtifactCount,
@@ -1839,42 +1998,15 @@ data:
       actualR2ArtifactCount,
       actualR2ObjectCount,
       manifestPresent,
-      observeOnly = false,
     }) {
-      // Short-circuit: observe-only sessions intentionally have no visual artifacts.
-      // Return a deterministic quality result so the backup log clearly records WHY
-      // there are no screenshots — not a data-loss event, not a broken backup.
-      if (observeOnly) {
-        return {
-          highQuality: false,
-          qualityTier: OBSERVE_ONLY_QUALITY_TIER,
-          qualityRuleVersion: BACKUP_QUALITY_RULE_VERSION,
-          manifestPresent: false,
-          actualR2ArtifactCount: 0,
-          actualR2ObjectCount: 0,
-          qualityReason: {
-            reasons: ['observe_only'],
-            artifactKinds: [],
-            backupArtifactKinds: [],
-            plannedArtifactCount: 0,
-            artifactCount: 0,
-            actualR2ArtifactCount: 0,
-            actualR2ObjectCount: 0,
-            manifestArtifactCount: 0,
-            backupArtifactCount: 0,
-            manifestPresent: false,
-            coverageMs: 0,
-            totalScreenshotFrames: 0,
-            weirdScreenshotFormats: [],
-          },
-        };
-      }
       const reasons = new Set();
       const session = isPlainObject(manifest?.session) ? manifest.session : null;
+      const sessionObserveOnly = session?.observeOnly === true;
       const artifacts = Array.isArray(manifest?.artifacts) ? manifest.artifacts.filter(isPlainObject) : [];
       const backupArtifacts = Array.isArray(manifest?.backupArtifacts) ? manifest.backupArtifacts.filter(isPlainObject) : [];
       const artifactKinds = collectKinds(artifacts);
       const backupArtifactKinds = collectKinds(backupArtifacts);
+      const expectedArtifactKinds = sessionObserveOnly ? ['events', 'hierarchy'] : REQUIRED_ARTIFACT_KINDS;
       const plannedCount = normalizeInteger(plannedArtifactCount);
       const copiedCount = normalizeInteger(artifactCount);
       const r2ArtifactCount = normalizeInteger(actualR2ArtifactCount);
@@ -1891,7 +2023,7 @@ data:
       const sessionDurationSeconds = session == null || session.durationSeconds == null
         ? null
         : Number(session.durationSeconds);
-
+    
       if (!manifestPresent) {
         reasons.add('missing_manifest');
       }
@@ -1904,13 +2036,16 @@ data:
       if (!session) {
         reasons.add('missing_session');
       }
-
-      for (const kind of REQUIRED_ARTIFACT_KINDS) {
+    
+      for (const kind of expectedArtifactKinds) {
         if (!artifactKinds.includes(kind)) {
           reasons.add(`missing_${kind}`);
         }
       }
-
+      if (sessionObserveOnly && (artifactKinds.includes('screenshots') || backupArtifactKinds.includes('screenshots'))) {
+        reasons.add('unexpected_screenshots_for_observe_only');
+      }
+    
       if (plannedCount <= 0 || copiedCount <= 0 || r2ArtifactCount <= 0) {
         reasons.add('count_mismatch');
       }
@@ -1929,14 +2064,14 @@ data:
       if (r2ObjectCount < r2ArtifactCount || (manifestPresent && r2ObjectCount < r2ArtifactCount + 1)) {
         reasons.add('broken_backup_prefix');
       }
-
+    
       if (backupArtifacts.some((artifact) => artifact.status !== 'copied')) {
         reasons.add('source_missing');
       }
       if (hierarchyBackupArtifacts.some((artifact) => artifact.repairStatus === 'skipped_invalid_payload')) {
         reasons.add('invalid_hierarchy_payload');
       }
-
+    
       const weirdScreenshotFormats = screenshotBackupArtifacts
         .map((artifact) => artifact.backupFormat)
         .filter((format) => typeof format === 'string')
@@ -1948,7 +2083,7 @@ data:
       if (weirdScreenshotFormats.length > 0) {
         reasons.add('unknown_screenshot_format');
       }
-
+    
       if (invalidTimeRange) {
         reasons.add('invalid_time_range');
       }
@@ -1961,12 +2096,14 @@ data:
       if (sessionDurationSeconds != null && (!Number.isFinite(sessionDurationSeconds) || sessionDurationSeconds < 0)) {
         reasons.add('invalid_session_duration');
       }
-
+    
       const orderedReasons = Array.from(reasons).sort();
-      const qualityTier = classifyTier(orderedReasons);
-
+      const qualityTier = sessionObserveOnly && orderedReasons.length === 0
+        ? OBSERVE_ONLY_QUALITY_TIER
+        : classifyTier(orderedReasons);
+    
       return {
-        highQuality: orderedReasons.length === 0,
+        highQuality: !sessionObserveOnly && orderedReasons.length === 0,
         qualityTier,
         qualityRuleVersion: BACKUP_QUALITY_RULE_VERSION,
         manifestPresent: Boolean(manifestPresent),
@@ -1986,6 +2123,8 @@ data:
           coverageMs,
           totalScreenshotFrames,
           weirdScreenshotFormats,
+          expectedArtifactKinds,
+          observeOnly: sessionObserveOnly,
         },
       };
     }
@@ -2091,9 +2230,13 @@ spec:
                 - name: SESSION_BACKUP_BATCH_FETCH_SIZE
                   value: "300"
                 - name: SESSION_BACKUP_MAX_PARALLEL
-                  value: "6"
+                  value: "3"
                 - name: SESSION_BACKUP_ARTIFACT_PARALLEL
-                  value: "6"
+                  value: "2"
+                - name: SESSION_BACKUP_REQUEST_TIMEOUT_MS
+                  value: "300000"
+                - name: SESSION_BACKUP_SLOWDOWN_RETRY_BASE_MS
+                  value: "5000"
                 - name: SESSION_BACKUP_REPAIR_LEGACY_HIERARCHY_GZIP
                   value: "1"
                 - name: SESSION_BACKUP_ARCHIVE_FRIENDLY_SCREENSHOTS

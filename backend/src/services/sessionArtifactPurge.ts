@@ -1,4 +1,4 @@
-import { eq, or, sql } from 'drizzle-orm';
+import { and, eq, gt, or, sql } from 'drizzle-orm';
 import {
     db,
     ingestJobs,
@@ -8,7 +8,11 @@ import {
     sessions,
 } from '../db/client.js';
 import { getRedis } from '../db/redis.js';
-import { deletePrefixFromBackupR2, deletePrefixFromProjectStorage } from '../db/s3.js';
+import {
+    deleteObjectsFromProjectStorage,
+    deletePrefixFromBackupR2,
+    deletePrefixFromProjectStorage,
+} from '../db/s3.js';
 import { logger } from '../logger.js';
 import {
     beginRetentionDeletionLog,
@@ -84,7 +88,19 @@ export interface ExpiredSessionArtifactRepairResult {
     skippedNotBackedUp: number;
     deletedObjectCount: number;
     deletedBytes: number;
+    reachedProcessingCap: boolean;
 }
+
+type ExpiredSessionRepairCandidate = {
+    sessionId: string;
+    retentionTier: number;
+    retentionDays: number;
+    startedAt: Date;
+};
+
+type PartitionableExpiredSessionRepairCandidate = ExpiredSessionRepairCandidate & {
+    id: string;
+};
 
 export function buildCanonicalSessionStoragePrefix(
     teamId: string,
@@ -100,6 +116,101 @@ export function buildCanonicalSessionBackupPrefix(
     sessionId: string,
 ): string {
     return `backups/tenant/${teamId}/project/${projectId}/sessions/${sessionId}`;
+}
+
+async function collectExpiredRepairCandidates(limit: number): Promise<{
+    backedUpSessions: ExpiredSessionRepairCandidate[];
+    skippedNotBackedUp: number;
+    reachedProcessingCap: boolean;
+}> {
+    const backedUpSessions: ExpiredSessionRepairCandidate[] = [];
+    let skippedNotBackedUp = 0;
+    let cursor: { startedAt: Date; sessionId: string } | null = null;
+
+    while (backedUpSessions.length < limit) {
+        let expiredSessions: ExpiredSessionRepairCandidate[];
+
+        if (cursor) {
+            expiredSessions = await db
+                .selectDistinct({
+                    sessionId: sessions.id,
+                    retentionTier: sessions.retentionTier,
+                    retentionDays: sessions.retentionDays,
+                    startedAt: sessions.startedAt,
+                })
+                .from(sessions)
+                .innerJoin(recordingArtifacts, eq(recordingArtifacts.sessionId, sessions.id))
+                .where(
+                    and(
+                        or(
+                            eq(sessions.recordingDeleted, true),
+                            eq(sessions.isReplayExpired, true),
+                        ),
+                        or(
+                            gt(sessions.startedAt, cursor.startedAt),
+                            and(eq(sessions.startedAt, cursor.startedAt), gt(sessions.id, cursor.sessionId)),
+                        ),
+                    ),
+                )
+                .orderBy(sessions.startedAt, sessions.id)
+                .limit(limit);
+        } else {
+            expiredSessions = await db
+                .selectDistinct({
+                    sessionId: sessions.id,
+                    retentionTier: sessions.retentionTier,
+                    retentionDays: sessions.retentionDays,
+                    startedAt: sessions.startedAt,
+                })
+                .from(sessions)
+                .innerJoin(recordingArtifacts, eq(recordingArtifacts.sessionId, sessions.id))
+                .where(
+                    or(
+                        eq(sessions.recordingDeleted, true),
+                        eq(sessions.isReplayExpired, true),
+                    ),
+                )
+                .orderBy(sessions.startedAt, sessions.id)
+                .limit(limit);
+        }
+
+        if (expiredSessions.length === 0) {
+            break;
+        }
+
+        const partitionableSessions: PartitionableExpiredSessionRepairCandidate[] = expiredSessions.map((session) => ({
+            id: session.sessionId,
+            ...session,
+        }));
+
+        const { backedUp, notBackedUp } = await partitionBackedUpSessions(
+            partitionableSessions,
+        );
+
+        skippedNotBackedUp += notBackedUp.length;
+        backedUpSessions.push(...backedUp.slice(0, limit - backedUpSessions.length).map((session) => ({
+            sessionId: session.sessionId,
+            retentionTier: session.retentionTier,
+            retentionDays: session.retentionDays,
+            startedAt: session.startedAt,
+        })));
+
+        const lastSession = expiredSessions[expiredSessions.length - 1];
+        cursor = {
+            startedAt: lastSession.startedAt,
+            sessionId: lastSession.sessionId,
+        };
+
+        if (expiredSessions.length < limit) {
+            break;
+        }
+    }
+
+    return {
+        backedUpSessions,
+        skippedNotBackedUp,
+        reachedProcessingCap: backedUpSessions.length >= limit,
+    };
 }
 
 async function invalidatePurgedSessionCaches(sessionId: string): Promise<number> {
@@ -247,22 +358,8 @@ export async function purgeSessionArtifacts(
             artifactId: artifact.id,
             kind: artifact.kind,
             s3ObjectKey: artifact.s3ObjectKey,
+            endpointId: artifact.endpointId,
         }));
-
-    if (invalidArtifacts.length > 0) {
-        await finalizeRetentionDeletionLog(logId, {
-            status: 'failed',
-            errorText: 'Found recording_artifacts outside the canonical session prefix',
-            details: {
-                retentionTier: options.retentionTier ?? context.retentionTier,
-                retentionDays: options.retentionDays ?? context.retentionDays,
-                invalidArtifacts,
-            },
-            finishedAt: now,
-        });
-        finalizedLog = true;
-        throw new Error(`Session ${sessionId} has recording_artifacts outside the canonical prefix`);
-    }
 
     try {
         const deletionResult = await deletePrefixFromProjectStorage(
@@ -270,6 +367,17 @@ export async function purgeSessionArtifacts(
             canonicalPrefix,
             context.artifacts.map((artifact) => artifact.endpointId),
         );
+        const invalidArtifactDeletion = invalidArtifacts.length > 0
+            ? await deleteObjectsFromProjectStorage(
+                context.projectId,
+                invalidArtifacts.map((artifact) => artifact.s3ObjectKey),
+                invalidArtifacts.map((artifact) => artifact.endpointId),
+            )
+            : {
+                deletedObjectCount: 0,
+                deletedBytes: 0,
+                endpointResults: [],
+            };
         let deletedBackupObjectCount = 0;
         let deletedBackupBytes = 0;
         if (options.deleteBackupCopy) {
@@ -277,19 +385,25 @@ export async function purgeSessionArtifacts(
             deletedBackupObjectCount = backupDeletion.deletedObjectCount;
             deletedBackupBytes = backupDeletion.deletedBytes;
         }
-        const storageMissing = context.artifacts.length > 0 && deletionResult.deletedObjectCount === 0;
+        const deletedStorageObjectCount = deletionResult.deletedObjectCount + invalidArtifactDeletion.deletedObjectCount;
+        const deletedStorageBytes = deletionResult.deletedBytes + invalidArtifactDeletion.deletedBytes;
+        const storageMissing = context.artifacts.length > 0 && deletedStorageObjectCount === 0;
 
         if (storageMissing && !allowMissingStorage) {
             await finalizeRetentionDeletionLog(logId, {
                 status: 'failed',
-                deletedObjectCount: deletionResult.deletedObjectCount,
-                deletedBytes: deletionResult.deletedBytes,
+                deletedObjectCount: deletedStorageObjectCount,
+                deletedBytes: deletedStorageBytes,
                 storageMissing: true,
                 errorText: 'Canonical storage scan found no objects for a session that still has recording_artifacts',
                 details: {
                     retentionTier: options.retentionTier ?? context.retentionTier,
                     retentionDays: options.retentionDays ?? context.retentionDays,
-                    endpointResults: buildEndpointBreakdown(deletionResult.endpointResults),
+                    invalidArtifacts,
+                    endpointResults: buildEndpointBreakdown([
+                        ...deletionResult.endpointResults,
+                        ...invalidArtifactDeletion.endpointResults,
+                    ]),
                 },
             });
             finalizedLog = true;
@@ -345,14 +459,20 @@ export async function purgeSessionArtifacts(
             status: 'completed',
             deletedArtifactRowCount: deletedArtifactCount,
             deletedIngestJobCount: deletedJobCount,
-            deletedObjectCount: deletionResult.deletedObjectCount,
-            deletedBytes: deletionResult.deletedBytes,
+            deletedObjectCount: deletedStorageObjectCount,
+            deletedBytes: deletedStorageBytes,
             storageMissing,
             cacheKeyCount,
             details: {
                 retentionTier: options.retentionTier ?? context.retentionTier,
                 retentionDays: options.retentionDays ?? context.retentionDays,
-                endpointResults: buildEndpointBreakdown(deletionResult.endpointResults),
+                invalidArtifacts,
+                invalidArtifactDeletedObjectCount: invalidArtifactDeletion.deletedObjectCount,
+                invalidArtifactDeletedBytes: invalidArtifactDeletion.deletedBytes,
+                endpointResults: buildEndpointBreakdown([
+                    ...deletionResult.endpointResults,
+                    ...invalidArtifactDeletion.endpointResults,
+                ]),
                 backupDeletedObjectCount: deletedBackupObjectCount,
                 backupDeletedBytes: deletedBackupBytes,
                 backupKeyPrefix: options.deleteBackupCopy ? backupKeyPrefix : null,
@@ -367,11 +487,12 @@ export async function purgeSessionArtifacts(
             trigger: options.trigger,
             deletedArtifactCount,
             deletedJobCount,
-            deletedObjectCount: deletionResult.deletedObjectCount,
-            deletedBytes: deletionResult.deletedBytes,
+            deletedObjectCount: deletedStorageObjectCount,
+            deletedBytes: deletedStorageBytes,
             deletedBackupObjectCount,
             deletedBackupBytes,
             storageMissing,
+            invalidArtifactCount: invalidArtifacts.length,
         }, 'Purged canonical session artifacts and storage');
 
         return {
@@ -380,8 +501,8 @@ export async function purgeSessionArtifacts(
             teamId: context.teamId,
             deletedArtifactCount,
             deletedJobCount,
-            deletedObjectCount: deletionResult.deletedObjectCount,
-            deletedBytes: deletionResult.deletedBytes,
+            deletedObjectCount: deletedStorageObjectCount,
+            deletedBytes: deletedStorageBytes,
             plannedArtifactCount: context.artifacts.length,
             plannedArtifactBytes,
             plannedJobCount: context.jobs.length,
@@ -411,28 +532,11 @@ export async function repairExpiredSessionArtifactsBatch(
     limit = 100,
     trigger = 'retention_repair',
 ): Promise<ExpiredSessionArtifactRepairResult> {
-    const expiredSessions = await db
-        .selectDistinct({
-            sessionId: sessions.id,
-            retentionTier: sessions.retentionTier,
-            retentionDays: sessions.retentionDays,
-        })
-        .from(sessions)
-        .innerJoin(recordingArtifacts, eq(recordingArtifacts.sessionId, sessions.id))
-        .where(
-            or(
-                eq(sessions.recordingDeleted, true),
-                eq(sessions.isReplayExpired, true),
-            ),
-        )
-        .limit(limit);
-
-    const { backedUp, notBackedUp } = await partitionBackedUpSessions(
-        expiredSessions.map((session) => ({
-            id: session.sessionId,
-            ...session,
-        })),
-    );
+    const {
+        backedUpSessions,
+        skippedNotBackedUp,
+        reachedProcessingCap,
+    } = await collectExpiredRepairCandidates(limit);
 
     let repaired = 0;
     let failed = 0;
@@ -440,7 +544,7 @@ export async function repairExpiredSessionArtifactsBatch(
     let deletedBytes = 0;
     const now = new Date();
 
-    for (const session of backedUp) {
+    for (const session of backedUpSessions) {
         try {
             const result = await purgeSessionArtifacts(session.sessionId, {
                 runId,
@@ -459,25 +563,26 @@ export async function repairExpiredSessionArtifactsBatch(
         }
     }
 
-    if (repaired > 0 || failed > 0 || notBackedUp.length > 0) {
+    if (repaired > 0 || failed > 0 || skippedNotBackedUp > 0) {
         logger.info({
             trigger,
-            attempted: expiredSessions.length,
+            attempted: backedUpSessions.length,
             repaired,
             failed,
-            skippedNotBackedUp: notBackedUp.length,
+            skippedNotBackedUp,
             deletedObjectCount,
             deletedBytes,
         }, 'Processed expired sessions with leftover artifacts');
     }
 
     return {
-        attempted: expiredSessions.length,
+        attempted: backedUpSessions.length,
         repaired,
         failed,
-        skippedNotBackedUp: notBackedUp.length,
+        skippedNotBackedUp,
         deletedObjectCount,
         deletedBytes,
+        reachedProcessingCap,
     };
 }
 

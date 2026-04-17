@@ -85,6 +85,54 @@ describe('backup-quality evaluator', () => {
         expect(result.qualityReason.reasons).toContain('r2_artifact_count_mismatch');
     });
 
+    it('classifies matching observe-only backups with a dedicated quality tier', () => {
+        const result = evaluateBackupQuality({
+            manifest: buildManifest({
+                session: {
+                    observeOnly: true,
+                },
+                artifacts: [
+                    { kind: 'events', startTime: 0, endTime: 4_000 },
+                    { kind: 'hierarchy', startTime: 0, endTime: 4_000 },
+                ],
+                backupArtifacts: [
+                    { kind: 'events', status: 'copied', repairStatus: 'unchanged', backupFormat: 'mirrored_source', frameCount: 0 },
+                    { kind: 'hierarchy', status: 'copied', repairStatus: 'unchanged', backupFormat: 'mirrored_source', frameCount: 0 },
+                ],
+            }),
+            plannedArtifactCount: 2,
+            artifactCount: 2,
+            actualR2ArtifactCount: 2,
+            actualR2ObjectCount: 3,
+            manifestPresent: true,
+        });
+
+        expect(result.highQuality).toBe(false);
+        expect(result.qualityTier).toBe('observe_only');
+        expect(result.qualityReason.reasons).toEqual([]);
+        expect(result.qualityReason.observeOnly).toBe(true);
+        expect(result.qualityReason.expectedArtifactKinds).toEqual(['events', 'hierarchy']);
+    });
+
+    it('marks observe-only backups with screenshots as broken', () => {
+        const result = evaluateBackupQuality({
+            manifest: buildManifest({
+                session: {
+                    observeOnly: true,
+                },
+            }),
+            plannedArtifactCount: 3,
+            artifactCount: 3,
+            actualR2ArtifactCount: 3,
+            actualR2ObjectCount: 4,
+            manifestPresent: true,
+        });
+
+        expect(result.highQuality).toBe(false);
+        expect(result.qualityTier).toBe('broken');
+        expect(result.qualityReason.reasons).toContain('unexpected_screenshots_for_observe_only');
+    });
+
     it('marks malformed hierarchy payloads as broken', () => {
         const result = evaluateBackupQuality({
             manifest: buildManifest({

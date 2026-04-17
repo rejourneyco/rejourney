@@ -5,10 +5,8 @@ export const HIGH_QUALITY_MIN_VISUAL_DURATION_MS = 3_000;
 export const HIGH_QUALITY_MIN_SCREENSHOT_FRAMES = 3;
 
 /**
- * Quality tier for sessions that were intentionally started with observeOnly:true.
- * No visual artifacts will ever exist for these sessions — the absence of screenshots
- * is by design, not a backup failure. Distinct from 'broken' so dashboards and alerts
- * can filter them out without treating them as bad data.
+ * Quality tier for observe-only sessions that were backed up successfully using
+ * their expected non-visual artifact set.
  */
 export const OBSERVE_ONLY_QUALITY_TIER = 'observe_only';
 
@@ -110,42 +108,15 @@ export function evaluateBackupQuality({
   actualR2ArtifactCount,
   actualR2ObjectCount,
   manifestPresent,
-  observeOnly = false,
 }) {
-  // Short-circuit: observe-only sessions intentionally have no visual artifacts.
-  // Return a deterministic quality result so the backup log clearly records WHY
-  // there are no screenshots — not a data-loss event, not a broken backup.
-  if (observeOnly) {
-    return {
-      highQuality: false,
-      qualityTier: OBSERVE_ONLY_QUALITY_TIER,
-      qualityRuleVersion: BACKUP_QUALITY_RULE_VERSION,
-      manifestPresent: false,
-      actualR2ArtifactCount: 0,
-      actualR2ObjectCount: 0,
-      qualityReason: {
-        reasons: ['observe_only'],
-        artifactKinds: [],
-        backupArtifactKinds: [],
-        plannedArtifactCount: 0,
-        artifactCount: 0,
-        actualR2ArtifactCount: 0,
-        actualR2ObjectCount: 0,
-        manifestArtifactCount: 0,
-        backupArtifactCount: 0,
-        manifestPresent: false,
-        coverageMs: 0,
-        totalScreenshotFrames: 0,
-        weirdScreenshotFormats: [],
-      },
-    };
-  }
   const reasons = new Set();
   const session = isPlainObject(manifest?.session) ? manifest.session : null;
+  const sessionObserveOnly = session?.observeOnly === true;
   const artifacts = Array.isArray(manifest?.artifacts) ? manifest.artifacts.filter(isPlainObject) : [];
   const backupArtifacts = Array.isArray(manifest?.backupArtifacts) ? manifest.backupArtifacts.filter(isPlainObject) : [];
   const artifactKinds = collectKinds(artifacts);
   const backupArtifactKinds = collectKinds(backupArtifacts);
+  const expectedArtifactKinds = sessionObserveOnly ? ['events', 'hierarchy'] : REQUIRED_ARTIFACT_KINDS;
   const plannedCount = normalizeInteger(plannedArtifactCount);
   const copiedCount = normalizeInteger(artifactCount);
   const r2ArtifactCount = normalizeInteger(actualR2ArtifactCount);
@@ -176,10 +147,13 @@ export function evaluateBackupQuality({
     reasons.add('missing_session');
   }
 
-  for (const kind of REQUIRED_ARTIFACT_KINDS) {
+  for (const kind of expectedArtifactKinds) {
     if (!artifactKinds.includes(kind)) {
       reasons.add(`missing_${kind}`);
     }
+  }
+  if (sessionObserveOnly && (artifactKinds.includes('screenshots') || backupArtifactKinds.includes('screenshots'))) {
+    reasons.add('unexpected_screenshots_for_observe_only');
   }
 
   if (plannedCount <= 0 || copiedCount <= 0 || r2ArtifactCount <= 0) {
@@ -234,10 +208,12 @@ export function evaluateBackupQuality({
   }
 
   const orderedReasons = Array.from(reasons).sort();
-  const qualityTier = classifyTier(orderedReasons);
+  const qualityTier = sessionObserveOnly && orderedReasons.length === 0
+    ? OBSERVE_ONLY_QUALITY_TIER
+    : classifyTier(orderedReasons);
 
   return {
-    highQuality: orderedReasons.length === 0,
+    highQuality: !sessionObserveOnly && orderedReasons.length === 0,
     qualityTier,
     qualityRuleVersion: BACKUP_QUALITY_RULE_VERSION,
     manifestPresent: Boolean(manifestPresent),
@@ -257,6 +233,8 @@ export function evaluateBackupQuality({
       coverageMs,
       totalScreenshotFrames,
       weirdScreenshotFormats,
+      expectedArtifactKinds,
+      observeOnly: sessionObserveOnly,
     },
   };
 }

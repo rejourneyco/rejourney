@@ -19,10 +19,10 @@
  *    `tenant/{teamId}/project/{projectId}/sessions/{sessionId}/` key
  *    format are backed up. Legacy `sessions/` prefix data is skipped.
  *
- * 3. **Includes retention-deleted sessions** — Sessions whose screenshots
- *    were already deleted by the retention worker are still backed up;
- *    their events and hierarchy remain in S3 and get archived. Missing
- *    screenshots are recorded as source_missing in the manifest.
+ * 3. **Artifact-shape gated** — A session is only backupable when its ready
+ *    artifacts match the expected profile: standard sessions need events +
+ *    hierarchy + screenshots, while observe-only sessions need events +
+ *    hierarchy and must not have screenshots.
  *
  * 4. **R2 structure keeps the same key layout:**
  *
@@ -98,6 +98,8 @@ const config = {
   maxParallel: Number(process.env.SESSION_BACKUP_MAX_PARALLEL || 4),
   artifactParallel: Number(process.env.SESSION_BACKUP_ARTIFACT_PARALLEL || 4),
   maxRetries: Number(process.env.SESSION_BACKUP_MAX_RETRIES || 3),
+  requestTimeoutMs: Number(process.env.SESSION_BACKUP_REQUEST_TIMEOUT_MS || 300000),
+  slowdownRetryBaseMs: Number(process.env.SESSION_BACKUP_SLOWDOWN_RETRY_BASE_MS || 5000),
   lockStaleMinutes: Number(process.env.SESSION_BACKUP_LOCK_STALE_MINUTES || 30),
   lockHeartbeatMs: Number(process.env.SESSION_BACKUP_LOCK_HEARTBEAT_MS || 60000),
   queueClaimStaleMinutes: Number(process.env.SESSION_BACKUP_QUEUE_CLAIM_STALE_MINUTES || 120),
@@ -141,6 +143,7 @@ function makeS3Client(endpoint, accessKeyId, secretAccessKey) {
     region: 'auto',
     credentials: { accessKeyId, secretAccessKey },
     forcePathStyle: true,
+    maxAttempts: 1,
   });
 }
 
@@ -207,6 +210,29 @@ function log(message) {
 
 function warn(message) {
   console.warn(`  WARN ${message}`);
+}
+
+function isRateLimitError(error) {
+  const msg = String(error?.message || '').toLowerCase();
+  const name = String(error?.name || '').toLowerCase();
+  const code = String(error?.Code || error?.code || '').toLowerCase();
+  const httpStatus = error?.$metadata?.httpStatusCode;
+  return (
+    httpStatus === 429 ||
+    httpStatus === 503 ||
+    msg.includes('reduce your concurrent request rate') ||
+    msg.includes('slow down') ||
+    msg.includes('throttl') ||
+    code.includes('slowdown') ||
+    code.includes('throttl') ||
+    name.includes('slowdown') ||
+    name.includes('throttl')
+  );
+}
+
+function computeRetryDelayMs(error, attempt) {
+  const baseDelayMs = isRateLimitError(error) ? config.slowdownRetryBaseMs : 1000;
+  return Math.min(60000, baseDelayMs * Math.pow(2, attempt - 1));
 }
 
 function isGzipBuffer(buffer) {
@@ -288,7 +314,7 @@ async function withRetry(fn, label, options = {}) {
       return await fn();
     } catch (err) {
       if (attempt === config.maxRetries || !shouldRetry(err)) throw err;
-      const delayMs = 1000 * Math.pow(2, attempt - 1);
+      const delayMs = computeRetryDelayMs(err, attempt);
       warn(`${label}: attempt ${attempt}/${config.maxRetries} failed (${err.message}), retrying in ${delayMs}ms`);
       await new Promise((r) => setTimeout(r, delayMs));
     }
@@ -498,11 +524,35 @@ async function releaseRunLock(ownerId) {
 function buildReadyArtifactStatsJoin(sessionAlias = 's', statsAlias = 'artifact_stats') {
   return `
         JOIN LATERAL (
-          SELECT COUNT(*)::int AS ready_artifact_count
+          SELECT
+            COUNT(*)::int AS ready_artifact_count,
+            COUNT(*) FILTER (WHERE ra.kind = 'events')::int AS ready_events_count,
+            COUNT(*) FILTER (WHERE ra.kind = 'hierarchy')::int AS ready_hierarchy_count,
+            COUNT(*) FILTER (WHERE ra.kind = 'screenshots')::int AS ready_screenshots_count
           FROM recording_artifacts ra
           WHERE ra.session_id = ${sessionAlias}.id
             AND ra.status = 'ready'
         ) ${statsAlias} ON true
+  `.trim();
+}
+
+function buildBackupEligibilityPredicate(sessionAlias = 's', statsAlias = 'artifact_stats') {
+  return `
+        ${statsAlias}.ready_artifact_count > 0
+        AND (
+          (
+            COALESCE(${sessionAlias}.observe_only, false) = true
+            AND ${statsAlias}.ready_events_count > 0
+            AND ${statsAlias}.ready_hierarchy_count > 0
+            AND ${statsAlias}.ready_screenshots_count = 0
+          )
+          OR (
+            COALESCE(${sessionAlias}.observe_only, false) = false
+            AND ${statsAlias}.ready_events_count > 0
+            AND ${statsAlias}.ready_hierarchy_count > 0
+            AND ${statsAlias}.ready_screenshots_count > 0
+          )
+        )
   `.trim();
 }
 
@@ -520,6 +570,37 @@ function buildNotFullyBackedUpPredicate(logAlias = 'bl', readyArtifactCountExpr 
   `.trim();
 }
 
+function buildRetentionExpiryExpr(sessionAlias = 's') {
+  return `
+        (
+          ${sessionAlias}.started_at
+          + (GREATEST(COALESCE(${sessionAlias}.retention_days, 0), 0) * INTERVAL '1 day')
+        )
+  `.trim();
+}
+
+function buildRetentionPriorityOrderBy({ sessionAlias = 's', queueAlias = null, sessionIdExpr = `${sessionAlias}.id` } = {}) {
+  const expiryExpr = buildRetentionExpiryExpr(sessionAlias);
+  const clauses = [
+    `
+      CASE
+        WHEN ${expiryExpr} <= NOW() THEN 0
+        WHEN ${expiryExpr} <= NOW() + INTERVAL '1 day' THEN 1
+        ELSE 2
+      END
+    `.trim(),
+    `${expiryExpr} ASC`,
+    `${sessionAlias}.started_at ASC`,
+  ];
+
+  if (queueAlias) {
+    clauses.push(`${queueAlias}.next_retry_at ASC`, `${queueAlias}.created_at ASC`);
+  }
+
+  clauses.push(`${sessionIdExpr} ASC`);
+  return clauses.join(', ');
+}
+
 async function cleanupCompletedQueueRows() {
   if (config.reprocessBackedUp) {
     return 0;
@@ -531,14 +612,14 @@ async function cleanupCompletedQueueRows() {
     JOIN session_backup_log bl ON bl.session_id = s.id
     ${buildReadyArtifactStatsJoin('s')}
     WHERE q.session_id = s.id
-      AND artifact_stats.ready_artifact_count > 0
+      AND ${buildBackupEligibilityPredicate('s')}
       AND bl.artifact_count >= artifact_stats.ready_artifact_count
       AND bl.planned_artifact_count >= artifact_stats.ready_artifact_count;
   `);
   return result.rowCount || 0;
 }
 
-async function cleanupZeroReadyArtifactQueueRows() {
+async function cleanupIneligibleQueueRows() {
   const result = await sql(`
     DELETE FROM session_backup_queue q
     USING sessions s
@@ -548,7 +629,7 @@ async function cleanupZeroReadyArtifactQueueRows() {
       AND q.status = 'pending'
       AND s.status IN ('ready', 'completed')
       AND p.deleted_at IS NULL
-      AND artifact_stats.ready_artifact_count = 0;
+      AND NOT (${buildBackupEligibilityPredicate('s')});
   `);
   return result.rowCount || 0;
 }
@@ -624,9 +705,9 @@ async function claimQueueBatch(limit, ownerId) {
         AND q.next_retry_at <= NOW()
         AND s.status IN ('ready', 'completed')
         AND p.deleted_at IS NULL
-        AND artifact_stats.ready_artifact_count > 0
+        AND ${buildBackupEligibilityPredicate('s')}
         AND ${buildNotFullyBackedUpPredicate('bl', 'artifact_stats.ready_artifact_count')}
-      ORDER BY q.next_retry_at ASC, q.created_at ASC, q.session_id ASC
+      ORDER BY ${buildRetentionPriorityOrderBy({ sessionAlias: 's', queueAlias: 'q', sessionIdExpr: 'q.session_id' })}
       LIMIT $1
       FOR UPDATE OF q SKIP LOCKED
     )
@@ -714,7 +795,7 @@ async function fetchSeedCandidates(limit, cursorStartedAt = null, cursorSessionI
     LEFT JOIN session_backup_log bl ON bl.session_id = s.id
     WHERE s.status IN ('ready', 'completed')
       AND p.deleted_at IS NULL
-      AND artifact_stats.ready_artifact_count > 0
+      AND ${buildBackupEligibilityPredicate('s')}
       AND ${buildNotFullyBackedUpPredicate('bl', 'artifact_stats.ready_artifact_count')}
       AND NOT EXISTS (
         SELECT 1
@@ -722,7 +803,7 @@ async function fetchSeedCandidates(limit, cursorStartedAt = null, cursorSessionI
         WHERE q.session_id = s.id
       )
 ${cursorClause}
-    ORDER BY s.started_at ASC, s.id ASC
+    ORDER BY ${buildRetentionPriorityOrderBy({ sessionAlias: 's', sessionIdExpr: 's.id' })}
     LIMIT $1;
   `, params);
 
@@ -824,6 +905,7 @@ async function buildManifest(sessionId) {
         'retentionTier', s.retention_tier,
         'retentionDays', s.retention_days,
         'isSampledIn', s.is_sampled_in,
+        'observeOnly', COALESCE(s.observe_only, false),
         'hasSuccessfulRecording', COALESCE(s.replay_available, false),
         'replaySegmentCount', s.replay_segment_count,
         'replayStorageBytes', s.replay_storage_bytes,
@@ -1090,68 +1172,111 @@ async function maybeRepairSessionMetadata(sessionId, manifest, artifacts) {
 // S3 / R2 Operations (native SDK — no subprocess overhead)
 // =============================================================================
 
+async function withTimedOperation(label, promiseFactory, onTimeout) {
+  const timeoutMs = config.requestTimeoutMs;
+  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
+    return promiseFactory();
+  }
+
+  let timer;
+  const timeoutError = new Error(`${label} timed out after ${timeoutMs}ms`);
+  const timeoutPromise = new Promise((_, reject) => {
+    timer = setTimeout(() => {
+      try {
+        onTimeout?.(timeoutError);
+      } catch {
+        // Best-effort timeout cleanup.
+      }
+      reject(timeoutError);
+    }, timeoutMs);
+    timer.unref?.();
+  });
+
+  try {
+    return await Promise.race([promiseFactory(), timeoutPromise]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function sendStorageCommand(client, command, label) {
+  const controller = new AbortController();
+  return withTimedOperation(
+    label,
+    () => client.send(command, { abortSignal: controller.signal }),
+    (timeoutError) => controller.abort(timeoutError),
+  );
+}
+
 async function downloadSourceArtifact(sourceKey, outputPath, artifact) {
   const { client, bucket } = getSourceClientForArtifact(artifact);
-  const resp = await client.send(new GetObjectCommand({
+  const resp = await sendStorageCommand(client, new GetObjectCommand({
     Bucket: bucket,
     Key: sourceKey,
-  }));
+  }), `download ${sourceKey}`);
   const ws = createWriteStream(outputPath);
-  await pipeline(resp.Body, ws);
+  await withTimedOperation(
+    `stream ${sourceKey}`,
+    () => pipeline(resp.Body, ws),
+    (timeoutError) => {
+      resp.Body?.destroy?.(timeoutError);
+      ws.destroy(timeoutError);
+    },
+  );
 }
 
 async function uploadToSource(localPath, destinationKey, contentType, artifact) {
   const { client, bucket } = getSourceClientForArtifact(artifact);
   const body = createReadStream(localPath);
-  await client.send(new PutObjectCommand({
+  await sendStorageCommand(client, new PutObjectCommand({
     Bucket: bucket,
     Key: destinationKey,
     Body: body,
     ContentType: contentType,
-  }));
+  }), `upload source ${destinationKey}`);
 }
 
 async function uploadToR2(localPath, destinationKey, contentType) {
   const body = createReadStream(localPath);
-  await r2Client.send(new PutObjectCommand({
+  await sendStorageCommand(r2Client, new PutObjectCommand({
     Bucket: config.r2Bucket,
     Key: destinationKey,
     Body: body,
     ContentType: contentType,
-  }));
+  }), `upload r2 ${destinationKey}`);
 }
 
 async function headR2Object(key) {
-  return r2Client.send(new HeadObjectCommand({
+  return sendStorageCommand(r2Client, new HeadObjectCommand({
     Bucket: config.r2Bucket,
     Key: key,
-  }));
+  }), `head r2 ${key}`);
 }
 
 async function headSourceObject(key, artifact) {
   const { client, bucket } = getSourceClientForArtifact(artifact);
-  return client.send(new HeadObjectCommand({
+  return sendStorageCommand(client, new HeadObjectCommand({
     Bucket: bucket,
     Key: key,
-  }));
+  }), `head source ${key}`);
 }
 
 async function removeR2Prefix(prefix) {
   try {
     let continuationToken;
     do {
-      const listResp = await r2Client.send(new ListObjectsV2Command({
+      const listResp = await sendStorageCommand(r2Client, new ListObjectsV2Command({
         Bucket: config.r2Bucket,
         Prefix: prefix,
         ContinuationToken: continuationToken,
-      }));
+      }), `list r2 ${prefix}`);
 
       const objects = (listResp.Contents || []).map((obj) => ({ Key: obj.Key }));
       if (objects.length > 0) {
-        await r2Client.send(new DeleteObjectsCommand({
+        await sendStorageCommand(r2Client, new DeleteObjectsCommand({
           Bucket: config.r2Bucket,
           Delete: { Objects: objects },
-        }));
+        }), `delete r2 ${prefix}`);
       }
       continuationToken = listResp.IsTruncated ? listResp.NextContinuationToken : undefined;
     } while (continuationToken);
@@ -1169,11 +1294,11 @@ async function scanR2Prefix(prefix) {
   let totalBytes = 0;
 
   do {
-    const listResp = await r2Client.send(new ListObjectsV2Command({
+    const listResp = await sendStorageCommand(r2Client, new ListObjectsV2Command({
       Bucket: config.r2Bucket,
       Prefix: prefix,
       ContinuationToken: continuationToken,
-    }));
+    }), `scan r2 ${prefix}`);
 
     for (const object of listResp.Contents || []) {
       const key = object.Key || '';
@@ -1441,16 +1566,49 @@ function buildBackupPrefix(session) {
   return `backups/tenant/${session.teamId}/project/${session.projectId}/sessions/${session.id}`;
 }
 
+function validateBackupArtifactShape(sessionId, manifest, artifacts) {
+  const observeOnly = manifest?.session?.observeOnly === true;
+  const counts = {
+    total: artifacts.length,
+    events: artifacts.filter((artifact) => artifact.kind === 'events').length,
+    hierarchy: artifacts.filter((artifact) => artifact.kind === 'hierarchy').length,
+    screenshots: artifacts.filter((artifact) => artifact.kind === 'screenshots').length,
+  };
+
+  if (counts.total <= 0) {
+    throw new Error(`session ${sessionId} has no ready artifacts to back up`);
+  }
+
+  if (counts.events <= 0 || counts.hierarchy <= 0) {
+    throw new Error(
+      `session ${sessionId} has mismatched ready artifacts (events=${counts.events}, hierarchy=${counts.hierarchy}, screenshots=${counts.screenshots}, observeOnly=${observeOnly})`,
+    );
+  }
+
+  if (observeOnly) {
+    if (counts.screenshots > 0) {
+      throw new Error(
+        `session ${sessionId} is observe_only but has ${counts.screenshots} ready screenshot artifact(s)`,
+      );
+    }
+    return;
+  }
+
+  if (counts.screenshots <= 0) {
+    throw new Error(
+      `session ${sessionId} requires ready screenshots before backup (events=${counts.events}, hierarchy=${counts.hierarchy}, screenshots=${counts.screenshots})`,
+    );
+  }
+}
+
 async function processSession(session) {
   const prefix = buildBackupPrefix(session);
   const tempDir = await mkdtemp(path.join(os.tmpdir(), 'session-backup-'));
 
   try {
     const artifacts = await fetchArtifacts(session.id);
-    if (artifacts.length === 0) {
-      throw new Error(`session ${session.id} has no ready artifacts to back up`);
-    }
     const manifest = await buildManifest(session.id);
+    validateBackupArtifactShape(session.id, manifest, artifacts);
     let totalBytes = 0;
     let missingOnSource = 0;
 
@@ -1589,7 +1747,10 @@ async function runPool(items, workerCount, worker) {
 
 async function main() {
   log(`Starting session backup (${mode}) (legacy hierarchy gzip repair + archive-friendly screenshot repack)`);
-  log(`Config: maxParallel=${config.maxParallel}, artifactParallel=${config.artifactParallel}, batchSize=${config.batchSize}`);
+  log(
+    `Config: maxParallel=${config.maxParallel}, artifactParallel=${config.artifactParallel}, `
+    + `batchSize=${config.batchSize}, requestTimeoutMs=${config.requestTimeoutMs}`,
+  );
   if (config.reprocessBackedUp) {
     warn('SESSION_BACKUP_REPROCESS_BACKED_UP is enabled; this run will revisit sessions that were already backed up');
   }
@@ -1649,9 +1810,9 @@ async function main() {
       log(`Removed ${cleanedCompleted} completed session(s) from the backup queue`);
     }
 
-    const cleanedZeroReady = await cleanupZeroReadyArtifactQueueRows();
-    if (cleanedZeroReady > 0) {
-      log(`Removed ${cleanedZeroReady} queued session(s) that no longer have ready artifacts`);
+    const cleanedIneligible = await cleanupIneligibleQueueRows();
+    if (cleanedIneligible > 0) {
+      log(`Removed ${cleanedIneligible} queued session(s) that are no longer backup-eligible`);
     }
 
     const cleanedOrphans = await cleanupOrphanedQueueRows();

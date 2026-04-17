@@ -33,8 +33,19 @@
 #   - kube-state-metrics for the postgres-backup CronJob:
 #       kube_cronjob_next_schedule_time, kube_job_status_succeeded,
 #       kube_job_status_failed, kube_job_status_completion_time
-#   - Traefik for the ingest-upload edge PUT rate / errors:
-#       traefik_service_requests_total
+#   - Traefik for the ingest-upload edge PUT rate / errors / latency:
+#       traefik_service_requests_total  (panel 207: all codes; panel 210: error breakdown)
+#       traefik_service_request_duration_seconds_bucket  (panel 211: P50/P95/P99 latency)
+#   - postgres-exporter (upload diagnostics added 2026-04):
+#       rejourney_artifacts_failed_recent_*   (panel 212: abandoned/failed 2h)
+#       rejourney_artifacts_upload_latency_recent_*  (panel 213: DB-side P50/P95/P99)
+#
+# Upload-authenticity panels (Row 1, panels 209-213):
+#   Panel 209 — success rate % per kind (are screenshots at 95%+ or near 0%?)
+#   Panel 210 — PUT error breakdown: 503=S3 failure, 499=client abort, 504=timeout
+#   Panel 211 — Traefik PUT latency P50/P95/P99 (≈ S3 write speed)
+#   Panel 212 — explicitly failed/abandoned artifacts in last 2h
+#   Panel 213 — DB-side upload completion time percentiles per kind
 #
 # Loaded into Grafana via the provisioning path mounted in k8s/grafana.yaml.
 
@@ -371,9 +382,186 @@ data:
         },
 
         {
+          "type": "stat",
+          "title": "Upload success rate % / last hour",
+          "description": "Completed uploads ÷ created (issued) per kind in the last hour. Green ≥ 95%, yellow ≥ 80%, red < 80%. A low screenshot rate is the primary stall signal.",
+          "datasource": { "type": "prometheus", "uid": "victoriametrics" },
+          "gridPos": { "h": 4, "w": 24, "x": 0, "y": 45 },
+          "id": 209,
+          "targets": [
+            {
+              "expr": "100 * clamp_min(sum by (kind) (rejourney_artifacts_completed_recent_completed_count) / clamp_min(sum by (kind) (rejourney_artifacts_created_recent_created_count), 1), 0)",
+              "legendFormat": "{{kind}}",
+              "refId": "A"
+            }
+          ],
+          "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "orientation": "auto", "colorMode": "background", "graphMode": "none", "justifyMode": "center" },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percent",
+              "decimals": 1,
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  { "color": "red",    "value": null },
+                  { "color": "yellow", "value": 80 },
+                  { "color": "green",  "value": 95 }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "type": "timeseries",
+          "title": "Relay PUT errors by type — S3 fail vs client abort vs timeout",
+          "description": "503 = backend got an S3 API error (S3 provider is the problem). 499 = client closed connection before write finished (client-side issue). 504 = Traefik gateway timeout. 403 = bad/expired relay token. If all zero but stalled count is growing, clients are not attempting PUTs at all.",
+          "datasource": { "type": "prometheus", "uid": "victoriametrics" },
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 49 },
+          "id": 210,
+          "targets": [
+            {
+              "expr": "rate(traefik_service_requests_total{service=\"rejourney-ingest-upload-3001@kubernetes\",method=\"PUT\",code=\"503\"}[$__rate_interval])",
+              "legendFormat": "503 S3 write failure",
+              "refId": "A"
+            },
+            {
+              "expr": "rate(traefik_service_requests_total{service=\"rejourney-ingest-upload-3001@kubernetes\",method=\"PUT\",code=\"499\"}[$__rate_interval])",
+              "legendFormat": "499 client aborted",
+              "refId": "B"
+            },
+            {
+              "expr": "rate(traefik_service_requests_total{service=\"rejourney-ingest-upload-3001@kubernetes\",method=\"PUT\",code=\"504\"}[$__rate_interval])",
+              "legendFormat": "504 gateway timeout",
+              "refId": "C"
+            },
+            {
+              "expr": "rate(traefik_service_requests_total{service=\"rejourney-ingest-upload-3001@kubernetes\",method=\"PUT\",code=\"403\"}[$__rate_interval])",
+              "legendFormat": "403 auth/token error",
+              "refId": "D"
+            },
+            {
+              "expr": "rate(traefik_service_requests_total{service=\"rejourney-ingest-upload-3001@kubernetes\",method=\"PUT\",code=~\"50[02]\"}[$__rate_interval])",
+              "legendFormat": "500/502 other 5xx",
+              "refId": "E"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": { "unit": "reqps", "custom": { "fillOpacity": 10 } },
+            "overrides": [
+              { "matcher": { "id": "byName", "options": "503 S3 write failure" }, "properties": [{ "id": "color", "value": { "fixedColor": "red", "mode": "fixed" } }] },
+              { "matcher": { "id": "byName", "options": "499 client aborted" },   "properties": [{ "id": "color", "value": { "fixedColor": "orange", "mode": "fixed" } }] },
+              { "matcher": { "id": "byName", "options": "504 gateway timeout" },  "properties": [{ "id": "color", "value": { "fixedColor": "yellow", "mode": "fixed" } }] },
+              { "matcher": { "id": "byName", "options": "403 auth/token error" }, "properties": [{ "id": "color", "value": { "fixedColor": "purple", "mode": "fixed" } }] }
+            ]
+          }
+        },
+        {
+          "type": "timeseries",
+          "title": "Upload relay latency P50 / P95 / P99 (Traefik)",
+          "description": "PUT duration at Traefik ≈ S3 write latency (relay streams directly to S3). P99 rising while P50 stable = occasional S3 timeouts. All quantiles rising = S3 generally degraded. Includes all PUT response codes.",
+          "datasource": { "type": "prometheus", "uid": "victoriametrics" },
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 49 },
+          "id": 211,
+          "targets": [
+            {
+              "expr": "histogram_quantile(0.50, sum by (le) (rate(traefik_service_request_duration_seconds_bucket{service=\"rejourney-ingest-upload-3001@kubernetes\",method=\"PUT\"}[$__rate_interval])))",
+              "legendFormat": "p50",
+              "refId": "A"
+            },
+            {
+              "expr": "histogram_quantile(0.95, sum by (le) (rate(traefik_service_request_duration_seconds_bucket{service=\"rejourney-ingest-upload-3001@kubernetes\",method=\"PUT\"}[$__rate_interval])))",
+              "legendFormat": "p95",
+              "refId": "B"
+            },
+            {
+              "expr": "histogram_quantile(0.99, sum by (le) (rate(traefik_service_request_duration_seconds_bucket{service=\"rejourney-ingest-upload-3001@kubernetes\",method=\"PUT\"}[$__rate_interval])))",
+              "legendFormat": "p99",
+              "refId": "C"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": { "unit": "s", "custom": { "fillOpacity": 5 } },
+            "overrides": [
+              { "matcher": { "id": "byName", "options": "p99" }, "properties": [{ "id": "color", "value": { "fixedColor": "red",    "mode": "fixed" } }] },
+              { "matcher": { "id": "byName", "options": "p95" }, "properties": [{ "id": "color", "value": { "fixedColor": "orange", "mode": "fixed" } }] },
+              { "matcher": { "id": "byName", "options": "p50" }, "properties": [{ "id": "color", "value": { "fixedColor": "green",  "mode": "fixed" } }] }
+            ]
+          }
+        },
+        {
+          "type": "timeseries",
+          "title": "Explicitly failed / abandoned artifacts (2h)",
+          "description": "abandoned = PUT was attempted but S3 write failed (503) OR client disconnected (499). failed = rare edge case (upload completed but then got re-interrupted). Cross-reference with the PUT error panel: if 503s spike and abandoned count spikes together, the S3 provider is returning errors.",
+          "datasource": { "type": "prometheus", "uid": "victoriametrics" },
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 57 },
+          "id": 212,
+          "targets": [
+            {
+              "expr": "sum by (kind, status) (rejourney_artifacts_failed_recent_artifact_count)",
+              "legendFormat": "{{kind}} / {{status}}",
+              "refId": "A"
+            }
+          ],
+          "fieldConfig": { "defaults": { "unit": "short", "custom": { "fillOpacity": 10 } } }
+        },
+        {
+          "type": "table",
+          "title": "Upload completion latency by kind — DB-side (1h)",
+          "description": "Time from presign-issued to S3-write-confirmed for artifacts that completed in the last hour. High P95/P99 for screenshots vs events indicates S3 is slow for that content type or that screenshots are larger. Cross-validate with Traefik latency panel.",
+          "datasource": { "type": "prometheus", "uid": "victoriametrics" },
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 57 },
+          "id": 213,
+          "targets": [
+            {
+              "expr": "max by (kind) (rejourney_artifacts_upload_latency_recent_p50_seconds)",
+              "format": "table",
+              "instant": true,
+              "legendFormat": "p50",
+              "refId": "A"
+            },
+            {
+              "expr": "max by (kind) (rejourney_artifacts_upload_latency_recent_p95_seconds)",
+              "format": "table",
+              "instant": true,
+              "legendFormat": "p95",
+              "refId": "B"
+            },
+            {
+              "expr": "max by (kind) (rejourney_artifacts_upload_latency_recent_p99_seconds)",
+              "format": "table",
+              "instant": true,
+              "legendFormat": "p99",
+              "refId": "C"
+            },
+            {
+              "expr": "max by (kind) (rejourney_artifacts_upload_latency_recent_max_seconds)",
+              "format": "table",
+              "instant": true,
+              "legendFormat": "max",
+              "refId": "D"
+            }
+          ],
+          "transformations": [
+            { "id": "merge", "options": {} },
+            { "id": "organize", "options": {
+                "excludeByName": { "Time": true, "__name__": true, "job": true, "instance": true, "cluster": true },
+                "renameByName": {
+                  "kind":    "Kind",
+                  "Value #A": "P50 (s)",
+                  "Value #B": "P95 (s)",
+                  "Value #C": "P99 (s)",
+                  "Value #D": "Max (s)"
+                }
+              }
+            }
+          ],
+          "fieldConfig": { "defaults": { "unit": "s", "decimals": 3 } }
+        },
+
+        {
           "type": "row",
           "title": "2 · Retention worker (S3 purge)",
-          "gridPos": { "h": 1, "w": 24, "x": 0, "y": 45 },
+          "gridPos": { "h": 1, "w": 24, "x": 0, "y": 65 },
           "collapsed": false,
           "id": 300
         },
@@ -382,7 +570,7 @@ data:
           "title": "retentionWorker up",
           "description": "From pushgateway: worker_up{job=\"retentionWorker\"}. Retention worker runs every 6h; 0 means the last push reported down.",
           "datasource": { "type": "prometheus", "uid": "victoriametrics" },
-          "gridPos": { "h": 4, "w": 6, "x": 0, "y": 46 },
+          "gridPos": { "h": 4, "w": 6, "x": 0, "y": 66 },
           "id": 301,
           "targets": [
             { "expr": "max(worker_up{job=\"retentionWorker\"})", "refId": "A" }
@@ -403,7 +591,7 @@ data:
           "title": "Seconds since last retention heartbeat",
           "description": "time() - worker_last_heartbeat_unix{job=\"retentionWorker\"}. Alert if >7h (allow 1h slack over the 6h run interval).",
           "datasource": { "type": "prometheus", "uid": "victoriametrics" },
-          "gridPos": { "h": 4, "w": 6, "x": 6, "y": 46 },
+          "gridPos": { "h": 4, "w": 6, "x": 6, "y": 66 },
           "id": 302,
           "targets": [
             { "expr": "time() - max(worker_last_heartbeat_unix{job=\"retentionWorker\"})", "refId": "A" }
@@ -428,7 +616,7 @@ data:
           "title": "Failed purge entries / 24h",
           "description": "Failed rows in retention_deletion_log over the last 24 hours. This is the first place to look if the worker is up but S3 cleanup is not succeeding.",
           "datasource": { "type": "prometheus", "uid": "victoriametrics" },
-          "gridPos": { "h": 4, "w": 6, "x": 12, "y": 46 },
+          "gridPos": { "h": 4, "w": 6, "x": 12, "y": 66 },
           "id": 303,
           "targets": [
             { "expr": "max(rejourney_retention_recent_summary_failed_purge_entries_24h)", "refId": "A" }
@@ -452,7 +640,7 @@ data:
           "title": "Storage-missing purge entries / 24h",
           "description": "Canonical S3 prefix missing while DB rows still existed. Repairs can recover this, but sustained counts mean something upstream is deleting or skipping storage unexpectedly.",
           "datasource": { "type": "prometheus", "uid": "victoriametrics" },
-          "gridPos": { "h": 4, "w": 6, "x": 18, "y": 46 },
+          "gridPos": { "h": 4, "w": 6, "x": 18, "y": 66 },
           "id": 304,
           "targets": [
             { "expr": "max(rejourney_retention_recent_summary_storage_missing_entries_24h)", "refId": "A" }
@@ -477,7 +665,7 @@ data:
           "title": "Deleted live S3 objects / 24h",
           "description": "Completed retention deletions over the last 24 hours.",
           "datasource": { "type": "prometheus", "uid": "victoriametrics" },
-          "gridPos": { "h": 4, "w": 8, "x": 0, "y": 50 },
+          "gridPos": { "h": 4, "w": 8, "x": 0, "y": 70 },
           "id": 305,
           "targets": [
             { "expr": "max(rejourney_retention_recent_summary_deleted_objects_24h)", "refId": "A" }
@@ -489,7 +677,7 @@ data:
           "type": "stat",
           "title": "Deleted live S3 bytes / 24h",
           "datasource": { "type": "prometheus", "uid": "victoriametrics" },
-          "gridPos": { "h": 4, "w": 8, "x": 8, "y": 50 },
+          "gridPos": { "h": 4, "w": 8, "x": 8, "y": 70 },
           "id": 306,
           "targets": [
             { "expr": "max(rejourney_retention_recent_summary_deleted_bytes_24h)", "refId": "A" }
@@ -502,7 +690,7 @@ data:
           "title": "Age since last completed purge",
           "description": "Time since the most recent successful retention_deletion_log completion. If this goes red while the worker is up, the purge path is stuck.",
           "datasource": { "type": "prometheus", "uid": "victoriametrics" },
-          "gridPos": { "h": 4, "w": 8, "x": 16, "y": 50 },
+          "gridPos": { "h": 4, "w": 8, "x": 16, "y": 70 },
           "id": 307,
           "targets": [
             { "expr": "max(rejourney_retention_recent_summary_seconds_since_last_completed_purge)", "refId": "A" }
@@ -527,7 +715,7 @@ data:
           "title": "Retention purge activity (24h)",
           "description": "Audit-table breakdown of completed vs failed purges, including storage_missing repair cases.",
           "datasource": { "type": "prometheus", "uid": "victoriametrics" },
-          "gridPos": { "h": 8, "w": 24, "x": 0, "y": 54 },
+          "gridPos": { "h": 8, "w": 24, "x": 0, "y": 74 },
           "id": 308,
           "targets": [
             {
@@ -569,7 +757,7 @@ data:
           "title": "Retention deletes by live bucket / endpoint (24h)",
           "description": "Proof that retention is touching the correct main buckets when projects span multiple storage endpoints.",
           "datasource": { "type": "prometheus", "uid": "victoriametrics" },
-          "gridPos": { "h": 8, "w": 24, "x": 0, "y": 62 },
+          "gridPos": { "h": 8, "w": 24, "x": 0, "y": 82 },
           "id": 309,
           "targets": [
             {
@@ -613,7 +801,7 @@ data:
         {
           "type": "row",
           "title": "3 · Backup worker + R2",
-          "gridPos": { "h": 1, "w": 24, "x": 0, "y": 70 },
+          "gridPos": { "h": 1, "w": 24, "x": 0, "y": 90 },
           "collapsed": false,
           "id": 400
         },
@@ -622,7 +810,7 @@ data:
           "title": "Postgres backup CronJob — last succeeded (age)",
           "description": "kube_job_status_completion_time for successful postgres-backup Jobs. Should be < 25h given the 3 AM UTC daily schedule.",
           "datasource": { "type": "prometheus", "uid": "victoriametrics" },
-          "gridPos": { "h": 4, "w": 8, "x": 0, "y": 71 },
+          "gridPos": { "h": 4, "w": 8, "x": 0, "y": 91 },
           "id": 401,
           "targets": [
             {
@@ -649,7 +837,7 @@ data:
           "type": "stat",
           "title": "Postgres backup — failed Jobs",
           "datasource": { "type": "prometheus", "uid": "victoriametrics" },
-          "gridPos": { "h": 4, "w": 8, "x": 8, "y": 71 },
+          "gridPos": { "h": 4, "w": 8, "x": 8, "y": 91 },
           "id": 402,
           "targets": [
             { "expr": "sum(kube_job_status_failed{job_name=~\"postgres-backup-.*\"})", "refId": "A" }
@@ -673,7 +861,7 @@ data:
           "title": "Postgres backup CronJob next run",
           "description": "kube_cronjob_next_schedule_time — sanity check that the schedule is live.",
           "datasource": { "type": "prometheus", "uid": "victoriametrics" },
-          "gridPos": { "h": 4, "w": 8, "x": 16, "y": 71 },
+          "gridPos": { "h": 4, "w": 8, "x": 16, "y": 91 },
           "id": 403,
           "targets": [
             { "expr": "max(kube_cronjob_next_schedule_time{cronjob=\"postgres-backup\"}) - time()", "refId": "A" }
@@ -686,7 +874,7 @@ data:
           "title": "Seconds since last session backup to R2",
           "description": "Age of the most recent successful session-artifact backup into the single R2 backup bucket.",
           "datasource": { "type": "prometheus", "uid": "victoriametrics" },
-          "gridPos": { "h": 4, "w": 6, "x": 0, "y": 75 },
+          "gridPos": { "h": 4, "w": 6, "x": 0, "y": 95 },
           "id": 404,
           "targets": [
             { "expr": "max(rejourney_session_backup_recent_seconds_since_last_backup)", "refId": "A" }
@@ -710,7 +898,7 @@ data:
           "type": "stat",
           "title": "Sessions backed up to R2 / last hour",
           "datasource": { "type": "prometheus", "uid": "victoriametrics" },
-          "gridPos": { "h": 4, "w": 6, "x": 6, "y": 75 },
+          "gridPos": { "h": 4, "w": 6, "x": 6, "y": 95 },
           "id": 405,
           "targets": [
             { "expr": "max(rejourney_session_backup_recent_sessions_backed_up_1h)", "refId": "A" }
@@ -722,7 +910,7 @@ data:
           "type": "stat",
           "title": "Bytes backed up to R2 / last hour",
           "datasource": { "type": "prometheus", "uid": "victoriametrics" },
-          "gridPos": { "h": 4, "w": 6, "x": 12, "y": 75 },
+          "gridPos": { "h": 4, "w": 6, "x": 12, "y": 95 },
           "id": 406,
           "targets": [
             { "expr": "max(rejourney_session_backup_recent_bytes_backed_up_1h)", "refId": "A" }
@@ -735,7 +923,7 @@ data:
           "title": "Low-quality session backups / 7d",
           "description": "Backups that did not satisfy the high_quality rule in the last 7 days.",
           "datasource": { "type": "prometheus", "uid": "victoriametrics" },
-          "gridPos": { "h": 4, "w": 6, "x": 18, "y": 75 },
+          "gridPos": { "h": 4, "w": 6, "x": 18, "y": 95 },
           "id": 410,
           "targets": [
             { "expr": "max(rejourney_session_backup_integrity_recent_low_quality_count_7d)", "refId": "A" }
@@ -760,7 +948,7 @@ data:
           "title": "R2 parity mismatches / 7d",
           "description": "actual_r2_artifact_count did not match the copied artifact count.",
           "datasource": { "type": "prometheus", "uid": "victoriametrics" },
-          "gridPos": { "h": 4, "w": 8, "x": 0, "y": 79 },
+          "gridPos": { "h": 4, "w": 8, "x": 0, "y": 99 },
           "id": 411,
           "targets": [
             { "expr": "max(rejourney_session_backup_integrity_recent_r2_parity_mismatch_count_7d)", "refId": "A" }
@@ -783,7 +971,7 @@ data:
           "type": "stat",
           "title": "Manifest missing / 7d",
           "datasource": { "type": "prometheus", "uid": "victoriametrics" },
-          "gridPos": { "h": 4, "w": 8, "x": 8, "y": 79 },
+          "gridPos": { "h": 4, "w": 8, "x": 8, "y": 99 },
           "id": 412,
           "targets": [
             { "expr": "max(rejourney_session_backup_integrity_recent_manifest_missing_count_7d)", "refId": "A" }
@@ -806,7 +994,7 @@ data:
           "type": "stat",
           "title": "Copied vs planned mismatches / 7d",
           "datasource": { "type": "prometheus", "uid": "victoriametrics" },
-          "gridPos": { "h": 4, "w": 8, "x": 16, "y": 79 },
+          "gridPos": { "h": 4, "w": 8, "x": 16, "y": 99 },
           "id": 413,
           "targets": [
             { "expr": "max(rejourney_session_backup_integrity_recent_copied_plan_mismatch_count_7d)", "refId": "A" }
@@ -830,7 +1018,7 @@ data:
           "title": "Session backup queue (by status)",
           "description": "session_backup_queue rows. Sustained 'processing' + rising 'pending' = the backup worker is not draining fast enough.",
           "datasource": { "type": "prometheus", "uid": "victoriametrics" },
-          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 83 },
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 103 },
           "id": 407,
           "targets": [
             {
@@ -845,7 +1033,7 @@ data:
           "type": "timeseries",
           "title": "Oldest row in backup queue (age, seconds)",
           "datasource": { "type": "prometheus", "uid": "victoriametrics" },
-          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 83 },
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 103 },
           "id": 408,
           "targets": [
             {
@@ -861,7 +1049,7 @@ data:
           "title": "Recent backup source buckets (24h)",
           "description": "Recent successful backups grouped by the live main buckets they read from before writing into the single R2 backup bucket.",
           "datasource": { "type": "prometheus", "uid": "victoriametrics" },
-          "gridPos": { "h": 8, "w": 24, "x": 0, "y": 91 },
+          "gridPos": { "h": 8, "w": 24, "x": 0, "y": 111 },
           "id": 415,
           "targets": [
             {
@@ -903,7 +1091,7 @@ data:
           "title": "Cumulative session backups by quality tier",
           "description": "Lifetime totals. If a new quality_tier starts appearing, it will surface here automatically.",
           "datasource": { "type": "prometheus", "uid": "victoriametrics" },
-          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 99 },
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 119 },
           "id": 409,
           "targets": [
             {
@@ -936,7 +1124,7 @@ data:
           "title": "Recent backup integrity matrix (7d)",
           "description": "Bucketed view of backup quality, manifest presence, and R2 parity. Any non-green row here deserves a look before trusting retention decisions.",
           "datasource": { "type": "prometheus", "uid": "victoriametrics" },
-          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 99 },
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 119 },
           "id": 414,
           "targets": [
             {

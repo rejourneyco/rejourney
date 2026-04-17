@@ -1,6 +1,6 @@
 # Session Backup + Retention Internals
 
-Last updated: 2026-04-10
+Last updated: 2026-04-17
 
 This is the internal/operator doc for how session backup and retention work in the backend and Kubernetes workers.
 
@@ -17,10 +17,10 @@ This is not the user-facing product story. It is the worker/runtime story.
 ## Shortest Correct Mental Model
 
 - Backups copy ready recording artifacts from primary storage into Cloudflare R2.
-- A session is not backupable just because it exists. It must be finalized and have at least one `ready` artifact.
+- A session is not backupable just because it exists. It must be finalized and its ready artifacts must match the expected profile.
 - The backup queue is fed both by session finalization and by a periodic queue seeder, then drained by the backup CronJob.
 - `session_backup_log` is the ledger that says "this session backup completed successfully for N planned/copied artifacts".
-- Retention is fail-safe. It does not purge normal sessions unless backup safety checks pass first.
+- Retention is fail-safe. It does not purge normal sessions, including `observe_only` sessions, unless backup safety checks pass first.
 - Normal retention does not delete the `sessions` row. It deletes recording payloads and marks the row as replay-expired / recording-deleted.
 - Full `sessions` row deletion only happens in project/team hard-delete flows.
 
@@ -84,8 +84,10 @@ There are two ways a session gets into backup flow:
 - `s.status IN ('ready', 'completed')`
 - `s.ended_at IS NOT NULL`
 - project is not deleted
-- session is not a "provably empty" session
 - session has at least one `recording_artifacts` row with `status = 'ready'`
+- session's ready artifacts match one of the supported backup profiles:
+  - normal session: ready `events` + `hierarchy` + `screenshots`
+  - `observe_only` session: ready `events` + `hierarchy`, and zero ready `screenshots`
 - no existing `session_backup_log` row already covers the current ready-artifact count
 
 That last condition now means:
@@ -101,8 +103,8 @@ Bulk queue seeding in [`session-backup.mjs`](/Users/mora/Desktop/Dev-mac/rejourn
 
 - `s.status IN ('ready', 'completed')`
 - project is not deleted
-- session is not "provably empty"
 - session has at least one `ready` artifact
+- session's ready artifacts match the same profile rule used by backend enqueue
 - session is not already fully backed up for the current ready-artifact count
 - queue row does not already exist
 
@@ -126,6 +128,7 @@ A session is considered empty only if all of these are true:
 This means:
 
 - "no screenshots" is not enough to be empty
+- `observe_only` is not enough to be empty
 - "no ready artifacts" is not enough to be empty
 - a session with meaningful metrics but zero ready artifacts is not empty, but it is also not backupable anymore
 
@@ -137,7 +140,7 @@ Session finalized
   -> session_backup_queue(status='pending')
 
 Periodic seed run
-  -> fetchSeedCandidates(oldest first, eligible only)
+  -> fetchSeedCandidates(retention-aware priority, eligible only)
   -> session_backup_queue(status='pending')
 
 session-backup CronJob
@@ -164,7 +167,7 @@ The backup drainer in [`session-backup.mjs`](/Users/mora/Desktop/Dev-mac/rejourn
 
 - acquires a global Postgres run lock in `session_backup_run_lock`
 - cleans up completed queue rows
-- removes stale queue rows for sessions that currently have zero ready artifacts
+- removes stale queue rows for sessions that are no longer backup-eligible
 - removes orphaned queue rows
 - recovers stale claims
 - claims a batch with `FOR UPDATE SKIP LOCKED`
@@ -208,6 +211,9 @@ Important implication:
 
 - backup is driven by ready artifacts, not all artifact rows
 - pending / uploaded / failed / abandoned rows are not copied into R2
+- the worker validates artifact shape before copy:
+  - normal sessions require ready `events` + `hierarchy` + `screenshots`
+  - `observe_only` sessions require ready `events` + `hierarchy` and must not have ready screenshots
 
 ### Manifest + artifact format
 
@@ -264,6 +270,15 @@ Current meaning:
 
 These counts are backup-worker counts, not "all artifact rows ever seen by the session."
 
+### Quality scoring
+
+Every successful backup writes quality metadata.
+
+- standard sessions are scored against the full replay profile
+- `observe_only` sessions are still scored from the real manifest and copied artifact set
+- successful `observe_only` backups use quality tier `observe_only`
+- `observe_only` is no longer a synthetic zero-artifact shortcut
+
 ## [B5] Retention Eligibility + Purge Rules
 
 Retention runs in [`retentionWorker.ts`](/Users/mora/Desktop/Dev-mac/rejourney/backend/src/worker/retentionWorker.ts).
@@ -294,6 +309,11 @@ Important nuance:
 - retention compares `session_backup_log` counts against total `recording_artifacts` rows
 
 That means if a session still has extra non-ready artifact rows, retention may conservatively skip it even if the ready artifacts were already backed up.
+
+Important consequence:
+
+- `observe_only` sessions do not bypass this gate anymore
+- they must have a real `session_backup_log` row from the backup worker before retention can purge them
 
 ### Repair path
 
@@ -397,7 +417,16 @@ Retention safety:
 
 This is intentionally conservative, but it means some sessions can remain ineligible for retention longer than expected.
 
-### 3. Backup is fail-safe, not best-effort complete
+### 3. `observe_only` is a real backup profile, not a retention bypass
+
+`observe_only` means "no screenshots by design", not "nothing to archive".
+
+- backup still runs
+- backup still writes a real manifest
+- backup still writes `session_backup_log`
+- retention still waits for that ledger row
+
+### 4. Backup is fail-safe, not best-effort complete
 
 If source objects are missing or the prefix parity check fails:
 
@@ -405,14 +434,14 @@ If source objects are missing or the prefix parity check fails:
 - the queue row is retried
 - the session is not considered backed up
 
-### 4. Retention is fail-safe too
+### 5. Retention is fail-safe too
 
 If `session_backup_log` is missing, or counts do not satisfy the safety gate:
 
 - retention skips the session
 - the session is not purged
 
-### 5. Useful places to inspect
+### 6. Useful places to inspect
 
 - queue state:
   - `session_backup_queue`

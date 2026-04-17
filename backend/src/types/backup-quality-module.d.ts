@@ -14,8 +14,8 @@ declare module '../../../scripts/k8s/backup-quality.mjs' {
 
     export const BACKUP_QUALITY_RULE_VERSION: number;
     /**
-     * Quality tier used for sessions intentionally started with observeOnly:true.
-     * These are not broken — they just have no visual artifacts by design.
+     * Quality tier used for successfully backed up observe-only sessions whose
+     * artifact set matches the non-visual profile.
      */
     export const OBSERVE_ONLY_QUALITY_TIER: string;
 
@@ -26,7 +26,5 @@ declare module '../../../scripts/k8s/backup-quality.mjs' {
         actualR2ArtifactCount: number;
         actualR2ObjectCount: number;
         manifestPresent: boolean;
-        /** When true, short-circuits all checks and returns observe_only quality tier */
-        observeOnly?: boolean;
     }): BackupQualityResult;
 }

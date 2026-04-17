@@ -68,7 +68,12 @@ data:
           - targets: ['kube-state-metrics.rejourney.svc.cluster.local:8080']
 
       # PostgreSQL metrics (connections, query stats, table sizes, bloat)
+      # scrape_timeout raised to 30s because our custom S3-observability queries
+      # scan the recording_artifacts table (6M+ rows/week). Even with indexes,
+      # the full batch can take ~15s. The global 10s timeout caused all custom
+      # query metrics to be silently dropped.
       - job_name: postgres-exporter
+        scrape_timeout: 30s
         relabel_configs:
           - target_label: cluster
             replacement: rejourney-prod

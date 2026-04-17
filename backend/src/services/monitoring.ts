@@ -54,6 +54,14 @@ interface WorkerHealthMetrics {
     metrics?: Record<string, number | string>;
 }
 
+type QueueHealthJobRow = {
+    status: string;
+    kind: string | null;
+    is_due: boolean;
+    job_count: number | string;
+    oldest_created: Date | string | null;
+};
+
 function getPushgatewayUrl(): string | null {
     return process.env.PUSHGATEWAY_URL ?? null;
 }
@@ -129,65 +137,108 @@ export async function pingWorker(
     }
 }
 
+// Cache key and TTL for checkQueueHealth results.
+// Three artifact workers call this every ~60s each; caching means the
+// expensive DB query runs at most once per 30s regardless of caller count.
+const QUEUE_HEALTH_CACHE_KEY = 'monitoring:queue_health';
+const QUEUE_HEALTH_TTL_S = 30;
+
 /**
- * Check queue health by counting jobs in different states
+ * Check queue health by counting jobs in different states.
+ *
+ * Performance notes:
+ *   - The main ingest_jobs query only touches non-done rows
+ *     (~68K rows via ingest_jobs_monitoring_idx), avoiding the previous
+ *     full 8.4M-row seq scan that cost ~4.6s per call.
+ *   - Results are cached in Redis for 30s so concurrent worker heartbeats
+ *     (3 workers × every 60s) share a single DB hit.
+ *   - The two recording_artifacts subqueries use recording_artifacts_pending_stalled_idx
+ *     (kind, created_at WHERE status='pending' AND upload_completed_at IS NULL).
  */
 export async function checkQueueHealth(): Promise<QueueHealth> {
     try {
+        const { getRedis } = await import('../db/redis.js');
+        const redis = getRedis();
+
+        // Return cached result if fresh enough
+        const cached = await redis.get(QUEUE_HEALTH_CACHE_KEY);
+        if (cached) {
+            return JSON.parse(cached) as QueueHealth;
+        }
+
         const staleReplayArtifactCutoffSeconds = Math.floor(ABANDONED_ARTIFACT_TTL_MS / 1000);
         const replayGraceSeconds = Math.floor(REPLAY_PENDING_ARTIFACT_GRACE_MS / 1000);
-        const result = await db.execute(sql`
+
+        // Query only non-terminal rows — uses ingest_jobs_monitoring_idx.
+        // Returns ≤ ~30 rows grouped by (status, kind, is_due) instead of scanning 8.4M rows.
+        const jobsResult = await db.execute(sql`
             SELECT
-                COUNT(*) FILTER (WHERE status = 'pending' AND (next_run_at IS NULL OR next_run_at <= NOW())) as pending_jobs,
-                COUNT(*) FILTER (WHERE status = 'processing') as processing_jobs,
-                COUNT(*) FILTER (WHERE status = 'dlq') as dlq_jobs,
-                COUNT(*) FILTER (WHERE status = 'failed') as failed_jobs,
-                EXTRACT(EPOCH FROM (NOW() - MIN(created_at) FILTER (WHERE status = 'pending' AND (next_run_at IS NULL OR next_run_at <= NOW())))) as oldest_pending_age,
-                COUNT(*) FILTER (WHERE status = 'pending' AND kind = 'screenshots' AND (next_run_at IS NULL OR next_run_at <= NOW())) as replay_screenshots_pending,
-                COUNT(*) FILTER (WHERE status = 'pending' AND kind = 'hierarchy' AND (next_run_at IS NULL OR next_run_at <= NOW())) as replay_hierarchy_pending,
-                EXTRACT(EPOCH FROM (NOW() - MIN(created_at) FILTER (WHERE status = 'pending' AND kind IN ('screenshots', 'hierarchy') AND (next_run_at IS NULL OR next_run_at <= NOW())))) as oldest_replay_pending_age,
-                (
-                    SELECT COUNT(*)
-                    FROM recording_artifacts ra
-                    WHERE ra.status = 'pending'
-                      AND ra.upload_completed_at IS NULL
-                      AND ra.kind IN ('screenshots', 'hierarchy')
-                      AND ra.created_at <= NOW() - (${staleReplayArtifactCutoffSeconds} * interval '1 second')
-                ) as stale_pending_replay_artifacts,
-                (
-                    SELECT EXTRACT(EPOCH FROM (
-                        NOW() - MIN(ra.created_at)
-                    ))
-                    FROM recording_artifacts ra
-                    WHERE ra.status = 'pending'
-                      AND ra.upload_completed_at IS NULL
-                      AND ra.kind IN ('screenshots', 'hierarchy')
-                      AND ra.created_at <= NOW() - (${staleReplayArtifactCutoffSeconds} * interval '1 second')
-                ) as oldest_stale_pending_replay_artifact_age
+                status,
+                kind,
+                (next_run_at IS NULL OR next_run_at <= NOW()) AS is_due,
+                COUNT(*)::int                                  AS job_count,
+                MIN(created_at)                                AS oldest_created
             FROM ingest_jobs
+            WHERE status IN ('pending', 'processing', 'dlq', 'failed')
+            GROUP BY status, kind, is_due
         `);
 
-        const row = (result as any).rows?.[0];
+        const rawJobRows = ((((jobsResult as unknown) as { rows?: QueueHealthJobRow[] }).rows) ?? []);
+        const jobRows: QueueHealthJobRow[] = rawJobRows.map((row) => ({
+            ...row,
+            is_due: Boolean(row.is_due),
+        }));
 
-        const pendingJobs = Number(row?.pending_jobs ?? 0);
-        const processingJobs = Number(row?.processing_jobs ?? 0);
-        const dlqJobs = Number(row?.dlq_jobs ?? 0);
-        const failedJobs = Number(row?.failed_jobs ?? 0);
-        const oldestPendingAge = row?.oldest_pending_age ? Number(row.oldest_pending_age) : null;
-        const oldestReplayPendingAge = row?.oldest_replay_pending_age ? Number(row.oldest_replay_pending_age) : null;
-        const stalePendingReplayArtifacts = Number(row?.stale_pending_replay_artifacts ?? 0);
-        const oldestStalePendingReplayArtifactAge = row?.oldest_stale_pending_replay_artifact_age
-            ? Number(row.oldest_stale_pending_replay_artifact_age)
-            : null;
-        const replayPendingByKind = {
-            screenshots: Number(row?.replay_screenshots_pending ?? 0),
-            hierarchy: Number(row?.replay_hierarchy_pending ?? 0),
+        const sumCount = (rows: QueueHealthJobRow[]): number =>
+            rows.reduce((acc: number, row: QueueHealthJobRow) => acc + Number(row.job_count), 0);
+
+        const oldestAgeSeconds = (rows: QueueHealthJobRow[]): number | null => {
+            const dates = rows
+                .map((row: QueueHealthJobRow) => row.oldest_created)
+                .map((value: Date | string | null) => value == null ? null : new Date(value))
+                .filter((value: Date | null): value is Date => value != null && !Number.isNaN(value.getTime()));
+            if (dates.length === 0) return null;
+            const oldest = new Date(Math.min(...dates.map((date: Date) => date.getTime())));
+            return (Date.now() - oldest.getTime()) / 1000;
         };
+
+        const pendingDue = jobRows.filter((row: QueueHealthJobRow) => row.status === 'pending' && row.is_due);
+        const replayPendingDue = pendingDue.filter(
+            (row: QueueHealthJobRow) => row.kind === 'screenshots' || row.kind === 'hierarchy',
+        );
+
+        const pendingJobs     = sumCount(pendingDue);
+        const processingJobs  = sumCount(jobRows.filter(r => r.status === 'processing'));
+        const dlqJobs         = sumCount(jobRows.filter(r => r.status === 'dlq'));
+        const failedJobs      = sumCount(jobRows.filter(r => r.status === 'failed'));
+        const oldestPendingAge = oldestAgeSeconds(pendingDue);
+        const oldestReplayPendingAge = oldestAgeSeconds(replayPendingDue);
+        const replayPendingByKind = {
+            screenshots: sumCount(pendingDue.filter((row: QueueHealthJobRow) => row.kind === 'screenshots')),
+            hierarchy: sumCount(pendingDue.filter((row: QueueHealthJobRow) => row.kind === 'hierarchy')),
+        };
+
+        // Stale replay artifacts: uses recording_artifacts_pending_stalled_idx
+        const staleResult = await db.execute(sql`
+            SELECT
+                COUNT(*)::int                                          AS stale_count,
+                EXTRACT(EPOCH FROM (NOW() - MIN(created_at)))::float  AS oldest_age_seconds
+            FROM recording_artifacts
+            WHERE status = 'pending'
+              AND upload_completed_at IS NULL
+              AND kind IN ('screenshots', 'hierarchy')
+              AND created_at <= NOW() - (${staleReplayArtifactCutoffSeconds} * interval '1 second')
+        `);
+
+        const staleRow = (staleResult as any).rows?.[0];
+        const stalePendingReplayArtifacts = Number(staleRow?.stale_count ?? 0);
+        const oldestStalePendingReplayArtifactAge = staleRow?.oldest_age_seconds
+            ? Number(staleRow.oldest_age_seconds)
+            : null;
 
         // Determine status based on thresholds
         let status: 'healthy' | 'degraded' | 'critical' = 'healthy';
 
-        // Critical if DLQ has jobs or oldest pending job is > 1 hour old
         if (
             dlqJobs > 0
             || (oldestPendingAge && oldestPendingAge > 3600)
@@ -195,9 +246,7 @@ export async function checkQueueHealth(): Promise<QueueHealth> {
             || (oldestStalePendingReplayArtifactAge && oldestStalePendingReplayArtifactAge > replayGraceSeconds)
         ) {
             status = 'critical';
-        }
-        // Degraded if too many pending jobs or oldest is > 10 min old
-        else if (
+        } else if (
             pendingJobs > 100
             || (oldestPendingAge && oldestPendingAge > 600)
             || replayPendingByKind.screenshots > 100
@@ -208,7 +257,7 @@ export async function checkQueueHealth(): Promise<QueueHealth> {
             status = 'degraded';
         }
 
-        return {
+        const health: QueueHealth = {
             pendingJobs,
             processingJobs,
             dlqJobs,
@@ -220,6 +269,11 @@ export async function checkQueueHealth(): Promise<QueueHealth> {
             replayPendingByKind,
             status,
         };
+
+        // Cache for 30s — safe for health checks and worker heartbeats
+        await redis.set(QUEUE_HEALTH_CACHE_KEY, JSON.stringify(health), 'EX', QUEUE_HEALTH_TTL_S);
+
+        return health;
     } catch (error) {
         logger.error({ error }, 'Failed to check queue health');
         return {
