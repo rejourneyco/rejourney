@@ -122,7 +122,7 @@ data:
           "gridPos": { "h": 4, "w": 4, "x": 8, "y": 1 },
           "id": 103,
           "targets": [
-            { "expr": "sum(rejourney_storage_endpoints_endpoint_count{shadow=\"true\"})", "refId": "A" }
+            { "expr": "sum(rejourney_storage_endpoints_endpoint_count{shadow=\"true\"}) or vector(0)", "refId": "A" }
           ],
           "fieldConfig": { "defaults": { "unit": "short" } },
           "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "graphMode": "none" }
@@ -135,7 +135,7 @@ data:
           "gridPos": { "h": 4, "w": 4, "x": 12, "y": 1 },
           "id": 104,
           "targets": [
-            { "expr": "sum(rejourney_storage_endpoints_endpoint_count{active=\"false\"})", "refId": "A" }
+            { "expr": "sum(rejourney_storage_endpoints_endpoint_count{active=\"false\"}) or vector(0)", "refId": "A" }
           ],
           "fieldConfig": {
             "defaults": {
@@ -232,7 +232,7 @@ data:
           "id": 203,
           "targets": [
             {
-              "expr": "clamp_min(sum(rejourney_artifacts_created_recent_created_count{kind=\"screenshots\"}) - sum(rejourney_artifacts_completed_recent_completed_count{kind=\"screenshots\"}), 0)",
+              "expr": "clamp_min((sum(rejourney_artifacts_created_recent_created_count{kind=\"screenshots\"}) or vector(0)) - (sum(rejourney_artifacts_completed_recent_completed_count{kind=\"screenshots\"}) or vector(0)), 0)",
               "refId": "A"
             }
           ],
@@ -260,7 +260,7 @@ data:
           "id": 204,
           "targets": [
             {
-              "expr": "sum by (kind) (rejourney_artifacts_stalled_stalled_count{kind=~\"screenshots|hierarchy\"})",
+              "expr": "sum by (kind) (rejourney_artifacts_stalled_stalled_count{kind=~\"screenshots|hierarchy\"}) or vector(0)",
               "legendFormat": "{{kind}}",
               "refId": "A"
             }
