@@ -186,6 +186,7 @@ function buildEndpointBreakdown(details: {
     projectId: string | null;
     shadow: boolean;
     active: boolean;
+    bucket: string;
     deletedObjectCount: number;
     deletedBytes: number;
 }[]): Record<string, unknown>[] {
@@ -195,6 +196,7 @@ function buildEndpointBreakdown(details: {
         projectId: result.projectId,
         shadow: result.shadow,
         active: result.active,
+        bucket: result.bucket,
         deletedObjectCount: result.deletedObjectCount,
         deletedBytes: result.deletedBytes,
     }));

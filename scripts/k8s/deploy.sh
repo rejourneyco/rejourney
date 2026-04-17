@@ -142,8 +142,14 @@ deploy() {
     log "Deploying Workers..."
     kubectl apply -f "${K8S_DIR}/workers.yaml"
     
-    log "Deploying Monitoring (Uptime Kuma)..."
+    log "Deploying Monitoring stack..."
     kubectl apply -f "${K8S_DIR}/monitoring.yaml"
+    kubectl apply -f "${K8S_DIR}/exporters.yaml"
+    kubectl apply -f "${K8S_DIR}/victoria-metrics.yaml"
+    kubectl apply -f "${K8S_DIR}/pushgateway.yaml"
+    kubectl apply -f "${K8S_DIR}/grafana-s3-dashboard.yaml"
+    kubectl apply -f "${K8S_DIR}/grafana.yaml"
+    kubectl apply -f "${K8S_DIR}/gatus.yaml"
     
     log "Deploying Admin Tools..."
     kubectl apply -f "${K8S_DIR}/admin-tools.yaml"

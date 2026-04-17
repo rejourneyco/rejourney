@@ -122,6 +122,14 @@ spec:
               mountPath: /var/lib/grafana
             - name: datasources
               mountPath: /etc/grafana/provisioning/datasources
+            # Dashboard provisioning: providers.yaml tells Grafana where to
+            # look on disk, and each mounted ConfigMap below drops JSON files
+            # at that path. Grafana auto-imports them on startup + reloads
+            # every updateIntervalSeconds.
+            - name: dashboard-providers
+              mountPath: /etc/grafana/provisioning/dashboards
+            - name: dashboard-s3
+              mountPath: /var/lib/grafana/dashboards/rejourney
           resources:
             requests:
               cpu: 100m
@@ -148,6 +156,12 @@ spec:
         - name: datasources
           configMap:
             name: grafana-datasources
+        - name: dashboard-providers
+          configMap:
+            name: grafana-dashboard-providers
+        - name: dashboard-s3
+          configMap:
+            name: grafana-dashboard-s3
 
 ---
 apiVersion: v1

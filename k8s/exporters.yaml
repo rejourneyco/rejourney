@@ -456,6 +456,620 @@ data:
             usage: "GAUGE"
             description: "Number of connections by state"
 
+    # ----------------------------------------------------------------
+    # S3 / storage observability (feeds the "Rejourney S3" dashboard)
+    # ----------------------------------------------------------------
+
+    # Inventory of configured S3 endpoints — one row per (bucket, active,
+    # shadow). Lets the dashboard show the full multi-bucket topology and
+    # immediately reflects added/removed endpoints without any code change.
+    rejourney_storage_endpoints:
+      query: >
+        SELECT
+          bucket,
+          COALESCE(region, 'unknown')    AS region,
+          active::text                   AS active,
+          shadow::text                   AS shadow,
+          CASE WHEN project_id IS NULL THEN 'global' ELSE 'project' END AS scope,
+          count(*)                       AS endpoint_count
+        FROM storage_endpoints
+        GROUP BY bucket, region, active, shadow, scope
+      metrics:
+        - bucket:
+            usage: "LABEL"
+        - region:
+            usage: "LABEL"
+        - active:
+            usage: "LABEL"
+        - shadow:
+            usage: "LABEL"
+        - scope:
+            usage: "LABEL"
+        - endpoint_count:
+            usage: "GAUGE"
+            description: "Number of storage_endpoints rows (per bucket/region/role)"
+
+    # Per-kind, per-endpoint artifact status. The key signal for the
+    # screenshot-upload drop investigation: rows where status='pending'
+    # and upload_completed_at IS NULL are requests that were issued a
+    # presigned URL but never observed a successful S3 write + complete.
+    rejourney_recording_artifacts_by_status:
+      query: >
+        SELECT
+          ra.kind,
+          COALESCE(ra.endpoint_id, 'unknown') AS endpoint_id,
+          COALESCE(se.bucket, 'unknown')      AS bucket,
+          COALESCE(se.region, 'unknown')      AS region,
+          CASE
+            WHEN se.id IS NULL THEN 'unknown'
+            WHEN se.project_id IS NULL THEN 'global'
+            ELSE 'project'
+          END                                 AS scope,
+          CASE
+            WHEN se.active IS TRUE THEN 'true'
+            WHEN se.active IS FALSE THEN 'false'
+            ELSE 'unknown'
+          END                                 AS active,
+          CASE
+            WHEN se.shadow IS TRUE THEN 'true'
+            WHEN se.shadow IS FALSE THEN 'false'
+            ELSE 'unknown'
+          END                                 AS shadow,
+          ra.status,
+          CASE WHEN ra.upload_completed_at IS NULL THEN 'no' ELSE 'yes' END AS completed,
+          count(*)                            AS artifact_count,
+          COALESCE(SUM(COALESCE(ra.size_bytes, ra.declared_size_bytes, 0)), 0)::bigint AS size_bytes_total
+        FROM recording_artifacts ra
+        LEFT JOIN storage_endpoints se ON se.id = ra.endpoint_id
+        WHERE ra.created_at > NOW() - INTERVAL '7 days'
+        GROUP BY
+          ra.kind,
+          endpoint_id,
+          bucket,
+          region,
+          scope,
+          active,
+          shadow,
+          ra.status,
+          completed
+      metrics:
+        - kind:
+            usage: "LABEL"
+        - endpoint_id:
+            usage: "LABEL"
+        - bucket:
+            usage: "LABEL"
+        - region:
+            usage: "LABEL"
+        - scope:
+            usage: "LABEL"
+        - active:
+            usage: "LABEL"
+        - shadow:
+            usage: "LABEL"
+        - status:
+            usage: "LABEL"
+        - completed:
+            usage: "LABEL"
+        - artifact_count:
+            usage: "GAUGE"
+            description: "Recording artifacts (7d window) by kind/endpoint/status/completed"
+        - size_bytes_total:
+            usage: "GAUGE"
+            description: "Sum of size_bytes for the same grouping"
+
+    # Stalled pending artifacts — the primary diagnostic metric for the
+    # "session replay screenshots not reaching S3" bug. An artifact is
+    # stalled if it has been pending + upload_completed_at IS NULL for
+    # longer than the grace window (15 min). Events/hierarchy should be
+    # near zero; screenshots stuck here = uploads disappearing.
+    rejourney_artifacts_stalled:
+      query: >
+        SELECT
+          ra.kind,
+          COALESCE(ra.endpoint_id, 'unknown') AS endpoint_id,
+          COALESCE(se.bucket, 'unknown')      AS bucket,
+          COALESCE(se.region, 'unknown')      AS region,
+          CASE
+            WHEN se.id IS NULL THEN 'unknown'
+            WHEN se.project_id IS NULL THEN 'global'
+            ELSE 'project'
+          END                                 AS scope,
+          count(*)                            AS stalled_count,
+          COALESCE(
+            EXTRACT(EPOCH FROM (NOW() - MIN(ra.created_at)))::bigint,
+            0
+          )                                   AS oldest_age_seconds
+        FROM recording_artifacts ra
+        LEFT JOIN storage_endpoints se ON se.id = ra.endpoint_id
+        WHERE ra.status = 'pending'
+          AND ra.upload_completed_at IS NULL
+          AND ra.created_at < NOW() - INTERVAL '15 minutes'
+        GROUP BY ra.kind, endpoint_id, bucket, region, scope
+      metrics:
+        - kind:
+            usage: "LABEL"
+        - endpoint_id:
+            usage: "LABEL"
+        - bucket:
+            usage: "LABEL"
+        - region:
+            usage: "LABEL"
+        - scope:
+            usage: "LABEL"
+        - stalled_count:
+            usage: "GAUGE"
+            description: "Pending artifacts older than 15m with no upload completion"
+        - oldest_age_seconds:
+            usage: "GAUGE"
+            description: "Age of the oldest stalled pending artifact (seconds)"
+
+    # Presign/preparation volume entering the upload relay. Compare this
+    # to rejourney_artifacts_completed_recent_* to spot "issued URLs but
+    # the bytes never made it to S3" gaps, especially for screenshots.
+    rejourney_artifacts_created_recent:
+      query: >
+        SELECT
+          ra.kind,
+          COALESCE(ra.endpoint_id, 'unknown') AS endpoint_id,
+          COALESCE(se.bucket, 'unknown')      AS bucket,
+          COALESCE(se.region, 'unknown')      AS region,
+          CASE
+            WHEN se.id IS NULL THEN 'unknown'
+            WHEN se.project_id IS NULL THEN 'global'
+            ELSE 'project'
+          END                                 AS scope,
+          count(*)                            AS created_count,
+          COALESCE(SUM(COALESCE(ra.declared_size_bytes, ra.size_bytes, 0)), 0)::bigint AS created_bytes
+        FROM recording_artifacts ra
+        LEFT JOIN storage_endpoints se ON se.id = ra.endpoint_id
+        WHERE ra.created_at > NOW() - INTERVAL '1 hour'
+        GROUP BY ra.kind, endpoint_id, bucket, region, scope
+      metrics:
+        - kind:
+            usage: "LABEL"
+        - endpoint_id:
+            usage: "LABEL"
+        - bucket:
+            usage: "LABEL"
+        - region:
+            usage: "LABEL"
+        - scope:
+            usage: "LABEL"
+        - created_count:
+            usage: "GAUGE"
+            description: "Artifacts prepared for upload in the last hour"
+        - created_bytes:
+            usage: "GAUGE"
+            description: "Declared bytes prepared for upload in the last hour"
+
+    # Rolling hourly artifact throughput to S3 — 'completed' = S3 write
+    # confirmed by the ingest complete handler. Split by kind so the
+    # dashboard can A/B compare screenshots vs events vs hierarchy.
+    rejourney_artifacts_completed_recent:
+      query: >
+        SELECT
+          ra.kind,
+          COALESCE(ra.endpoint_id, 'unknown') AS endpoint_id,
+          COALESCE(se.bucket, 'unknown')      AS bucket,
+          COALESCE(se.region, 'unknown')      AS region,
+          CASE
+            WHEN se.id IS NULL THEN 'unknown'
+            WHEN se.project_id IS NULL THEN 'global'
+            ELSE 'project'
+          END                                 AS scope,
+          count(*)                            AS completed_count,
+          COALESCE(SUM(COALESCE(ra.size_bytes, ra.declared_size_bytes, 0)), 0)::bigint AS completed_bytes
+        FROM recording_artifacts ra
+        LEFT JOIN storage_endpoints se ON se.id = ra.endpoint_id
+        WHERE ra.upload_completed_at IS NOT NULL
+          AND ra.upload_completed_at > NOW() - INTERVAL '1 hour'
+        GROUP BY ra.kind, endpoint_id, bucket, region, scope
+      metrics:
+        - kind:
+            usage: "LABEL"
+        - endpoint_id:
+            usage: "LABEL"
+        - bucket:
+            usage: "LABEL"
+        - region:
+            usage: "LABEL"
+        - scope:
+            usage: "LABEL"
+        - completed_count:
+            usage: "GAUGE"
+            description: "Artifacts completed to S3 in the last hour"
+        - completed_bytes:
+            usage: "GAUGE"
+            description: "Bytes completed to S3 in the last hour"
+
+    # Ingest-job queue depth split by kind + status. The replay path
+    # (screenshots + hierarchy) has its own per-kind pending counter.
+    rejourney_ingest_jobs_by_status:
+      query: >
+        SELECT
+          COALESCE(ij.kind, ra.kind, 'unknown') AS kind,
+          ij.status,
+          COALESCE(se.bucket, 'unknown')        AS bucket,
+          COALESCE(se.region, 'unknown')        AS region,
+          CASE
+            WHEN se.id IS NULL THEN 'unknown'
+            WHEN se.project_id IS NULL THEN 'global'
+            ELSE 'project'
+          END                                   AS scope,
+          count(*)                              AS job_count
+        FROM ingest_jobs ij
+        LEFT JOIN recording_artifacts ra ON ra.id = ij.artifact_id
+        LEFT JOIN storage_endpoints se ON se.id = ra.endpoint_id
+        GROUP BY kind, ij.status, bucket, region, scope
+      metrics:
+        - kind:
+            usage: "LABEL"
+        - status:
+            usage: "LABEL"
+        - bucket:
+            usage: "LABEL"
+        - region:
+            usage: "LABEL"
+        - scope:
+            usage: "LABEL"
+        - job_count:
+            usage: "GAUGE"
+            description: "ingest_jobs rows grouped by kind and status"
+
+    # Session backup worker (in-cluster retentionWorker backs sessions up
+    # before deletion). These expose backup throughput, total footprint
+    # backed up, and a freshness signal for alerting.
+    rejourney_session_backup_totals:
+      query: >
+        SELECT
+          COALESCE(quality_tier, 'unknown') AS quality_tier,
+          count(*)                          AS sessions_backed_up,
+          COALESCE(SUM(total_bytes), 0)::bigint AS bytes_backed_up
+        FROM session_backup_log
+        GROUP BY quality_tier
+      metrics:
+        - quality_tier:
+            usage: "LABEL"
+        - sessions_backed_up:
+            usage: "GAUGE"
+            description: "Sessions ever backed up (cumulative, per quality tier)"
+        - bytes_backed_up:
+            usage: "GAUGE"
+            description: "Bytes ever backed up (cumulative, per quality tier)"
+
+    rejourney_session_backup_recent:
+      query: >
+        SELECT
+          COUNT(*) FILTER (
+            WHERE backed_up_at > NOW() - INTERVAL '1 hour'
+          )                                    AS sessions_backed_up_1h,
+          COALESCE(
+            SUM(total_bytes) FILTER (
+              WHERE backed_up_at > NOW() - INTERVAL '1 hour'
+            ),
+            0
+          )::bigint                            AS bytes_backed_up_1h,
+          COALESCE(
+            CASE
+              WHEN MAX(backed_up_at) IS NULL THEN 2147483647
+              ELSE EXTRACT(EPOCH FROM (NOW() - MAX(backed_up_at)))::bigint
+            END,
+            2147483647
+          )                                    AS seconds_since_last_backup
+        FROM session_backup_log
+      metrics:
+        - sessions_backed_up_1h:
+            usage: "GAUGE"
+            description: "Sessions backed up in the last hour"
+        - bytes_backed_up_1h:
+            usage: "GAUGE"
+            description: "Bytes backed up in the last hour"
+        - seconds_since_last_backup:
+            usage: "GAUGE"
+            description: "Seconds since the most recent successful backup (large sentinel when no backup exists yet)"
+
+    rejourney_session_backup_queue:
+      query: >
+        SELECT
+          status,
+          count(*)                                                AS queued,
+          COALESCE(MAX(attempts), 0)                              AS max_attempts,
+          COALESCE(
+            EXTRACT(EPOCH FROM (
+              NOW() - MIN(COALESCE(next_retry_at, claimed_at, created_at))
+            ))::bigint,
+            0
+          )                                                       AS oldest_age_seconds
+        FROM session_backup_queue
+        GROUP BY status
+      metrics:
+        - status:
+            usage: "LABEL"
+        - queued:
+            usage: "GAUGE"
+            description: "Sessions currently in the backup queue (by status)"
+        - max_attempts:
+            usage: "GAUGE"
+            description: "Highest retry count of any queued row (catches stuck backups)"
+        - oldest_age_seconds:
+            usage: "GAUGE"
+            description: "Age of the oldest queued row, in seconds"
+
+    # Which live source buckets recent successful backups actually read
+    # from. This is the clearest signal that the backup job is handling
+    # multiple main buckets correctly while still writing into one R2
+    # backup bucket.
+    rejourney_session_backup_source_buckets_recent:
+      query: >
+        SELECT
+          COALESCE(
+            se.bucket,
+            CASE
+              WHEN ra.endpoint_id IS NULL THEN 'default-configured'
+              ELSE 'unknown'
+            END
+          )                                                       AS source_bucket,
+          COALESCE(se.region, 'unknown')                          AS source_region,
+          CASE
+            WHEN ra.endpoint_id IS NULL THEN 'legacy_or_default'
+            WHEN se.project_id IS NULL THEN 'global'
+            ELSE 'project'
+          END                                                     AS source_scope,
+          COUNT(DISTINCT bl.session_id)                           AS sessions_backed_up_24h,
+          COUNT(*)                                                AS ready_artifact_count_24h,
+          COALESCE(
+            SUM(COALESCE(ra.size_bytes, ra.declared_size_bytes, 0)),
+            0
+          )::bigint                                               AS source_bytes_24h
+        FROM session_backup_log bl
+        INNER JOIN recording_artifacts ra
+          ON ra.session_id = bl.session_id
+         AND ra.status = 'ready'
+        LEFT JOIN storage_endpoints se ON se.id = ra.endpoint_id
+        WHERE bl.backed_up_at > NOW() - INTERVAL '24 hours'
+        GROUP BY source_bucket, source_region, source_scope
+      metrics:
+        - source_bucket:
+            usage: "LABEL"
+        - source_region:
+            usage: "LABEL"
+        - source_scope:
+            usage: "LABEL"
+        - sessions_backed_up_24h:
+            usage: "GAUGE"
+            description: "Distinct sessions backed up in the last 24h that sourced artifacts from this live bucket"
+        - ready_artifact_count_24h:
+            usage: "GAUGE"
+            description: "Ready artifacts copied in the last 24h from this live bucket"
+        - source_bytes_24h:
+            usage: "GAUGE"
+            description: "Live-source bytes copied in the last 24h from this bucket into R2"
+
+    # Backup integrity signals for the R2 copy. These catch cases where
+    # the backup queue is draining but the copied artifact count, manifest
+    # presence, or R2 parity still look wrong.
+    rejourney_session_backup_integrity_recent:
+      query: >
+        SELECT
+          COUNT(*) FILTER (
+            WHERE backed_up_at > NOW() - INTERVAL '7 days'
+              AND COALESCE(high_quality, false) IS NOT TRUE
+          )                                                       AS low_quality_count_7d,
+          COUNT(*) FILTER (
+            WHERE backed_up_at > NOW() - INTERVAL '7 days'
+              AND manifest_present IS DISTINCT FROM TRUE
+          )                                                       AS manifest_missing_count_7d,
+          COUNT(*) FILTER (
+            WHERE backed_up_at > NOW() - INTERVAL '7 days'
+              AND planned_artifact_count <> artifact_count
+          )                                                       AS copied_plan_mismatch_count_7d,
+          COUNT(*) FILTER (
+            WHERE backed_up_at > NOW() - INTERVAL '7 days'
+              AND COALESCE(actual_r2_artifact_count, -1) <> artifact_count
+          )                                                       AS r2_parity_mismatch_count_7d
+        FROM session_backup_log
+      metrics:
+        - low_quality_count_7d:
+            usage: "GAUGE"
+            description: "Backups in the last 7d that were not high_quality"
+        - manifest_missing_count_7d:
+            usage: "GAUGE"
+            description: "Backups in the last 7d with manifest_present != true"
+        - copied_plan_mismatch_count_7d:
+            usage: "GAUGE"
+            description: "Backups in the last 7d where copied artifact count != planned"
+        - r2_parity_mismatch_count_7d:
+            usage: "GAUGE"
+            description: "Backups in the last 7d where actual_r2_artifact_count != copied artifact count"
+
+    rejourney_session_backup_integrity_breakdown:
+      query: >
+        SELECT
+          COALESCE(quality_tier, 'unknown') AS quality_tier,
+          CASE
+            WHEN high_quality IS TRUE THEN 'yes'
+            WHEN high_quality IS FALSE THEN 'no'
+            ELSE 'unknown'
+          END                               AS high_quality,
+          CASE
+            WHEN manifest_present IS TRUE THEN 'yes'
+            WHEN manifest_present IS FALSE THEN 'no'
+            ELSE 'unknown'
+          END                               AS manifest_present,
+          CASE
+            WHEN planned_artifact_count = artifact_count THEN 'yes'
+            ELSE 'no'
+          END                               AS copied_matches_plan,
+          CASE
+            WHEN COALESCE(actual_r2_artifact_count, -1) = artifact_count THEN 'yes'
+            ELSE 'no'
+          END                               AS r2_matches_copied,
+          count(*)                          AS session_count,
+          COALESCE(SUM(total_bytes), 0)::bigint AS total_bytes
+        FROM session_backup_log
+        WHERE backed_up_at > NOW() - INTERVAL '7 days'
+        GROUP BY
+          quality_tier,
+          high_quality,
+          manifest_present,
+          copied_matches_plan,
+          r2_matches_copied
+      metrics:
+        - quality_tier:
+            usage: "LABEL"
+        - high_quality:
+            usage: "LABEL"
+        - manifest_present:
+            usage: "LABEL"
+        - copied_matches_plan:
+            usage: "LABEL"
+        - r2_matches_copied:
+            usage: "LABEL"
+        - session_count:
+            usage: "GAUGE"
+            description: "Backups in the last 7d grouped by quality and parity flags"
+        - total_bytes:
+            usage: "GAUGE"
+            description: "Bytes represented by the same 7d backup integrity grouping"
+
+    # Retention activity from the audit table. This shows whether the
+    # S3 purge path is deleting real objects, hitting storage-missing
+    # repair cases, or failing outright.
+    rejourney_retention_recent_summary:
+      query: >
+        SELECT
+          COUNT(*) FILTER (
+            WHERE started_at > NOW() - INTERVAL '24 hours'
+              AND status = 'failed'
+          )                                                       AS failed_purge_entries_24h,
+          COUNT(*) FILTER (
+            WHERE started_at > NOW() - INTERVAL '24 hours'
+              AND storage_missing
+          )                                                       AS storage_missing_entries_24h,
+          COALESCE(
+            SUM(deleted_object_count) FILTER (
+              WHERE started_at > NOW() - INTERVAL '24 hours'
+                AND status = 'completed'
+            ),
+            0
+          )::bigint                                               AS deleted_objects_24h,
+          COALESCE(
+            SUM(deleted_bytes) FILTER (
+              WHERE started_at > NOW() - INTERVAL '24 hours'
+                AND status = 'completed'
+            ),
+            0
+          )::bigint                                               AS deleted_bytes_24h,
+          COALESCE(
+            CASE
+              WHEN MAX(finished_at) FILTER (WHERE status = 'completed') IS NULL THEN 2147483647
+              ELSE EXTRACT(EPOCH FROM (
+                NOW() - MAX(finished_at) FILTER (WHERE status = 'completed')
+              ))::bigint
+            END,
+            2147483647
+          )                                                       AS seconds_since_last_completed_purge
+        FROM retention_deletion_log
+      metrics:
+        - failed_purge_entries_24h:
+            usage: "GAUGE"
+            description: "Failed retention_deletion_log entries in the last 24h"
+        - storage_missing_entries_24h:
+            usage: "GAUGE"
+            description: "Retention entries in the last 24h where canonical storage was already missing"
+        - deleted_objects_24h:
+            usage: "GAUGE"
+            description: "Objects deleted by completed retention entries in the last 24h"
+        - deleted_bytes_24h:
+            usage: "GAUGE"
+            description: "Bytes deleted by completed retention entries in the last 24h"
+        - seconds_since_last_completed_purge:
+            usage: "GAUGE"
+            description: "Seconds since the most recent completed retention purge entry"
+
+    rejourney_retention_activity_recent:
+      query: >
+        SELECT
+          status,
+          scope,
+          CASE WHEN storage_missing THEN 'yes' ELSE 'no' END AS storage_missing,
+          count(*)                                           AS entry_count,
+          COALESCE(SUM(deleted_object_count), 0)::bigint     AS deleted_objects,
+          COALESCE(SUM(deleted_bytes), 0)::bigint            AS deleted_bytes
+        FROM retention_deletion_log
+        WHERE started_at > NOW() - INTERVAL '24 hours'
+        GROUP BY status, scope, storage_missing
+      metrics:
+        - status:
+            usage: "LABEL"
+        - scope:
+            usage: "LABEL"
+        - storage_missing:
+            usage: "LABEL"
+        - entry_count:
+            usage: "GAUGE"
+            description: "Retention audit entries in the last 24h by status/scope/storage_missing"
+        - deleted_objects:
+            usage: "GAUGE"
+            description: "Objects deleted by the same retention grouping in the last 24h"
+        - deleted_bytes:
+            usage: "GAUGE"
+            description: "Bytes deleted by the same retention grouping in the last 24h"
+
+    rejourney_retention_endpoint_activity_recent:
+      query: >
+        SELECT
+          COALESCE(endpoint_result ->> 'bucket', 'unknown')       AS bucket,
+          COALESCE(endpoint_result ->> 'endpointId', 'unknown')   AS endpoint_id,
+          COALESCE(endpoint_result ->> 'endpointUrl', 'unknown')  AS endpoint_url,
+          CASE
+            WHEN endpoint_result ->> 'shadow' = 'true' THEN 'true'
+            ELSE 'false'
+          END                                                     AS shadow,
+          CASE
+            WHEN endpoint_result ->> 'active' = 'true' THEN 'true'
+            ELSE 'false'
+          END                                                     AS active,
+          rdl.status,
+          COUNT(*)                                                AS entry_count,
+          COALESCE(
+            SUM(COALESCE((endpoint_result ->> 'deletedObjectCount')::bigint, 0)),
+            0
+          )::bigint                                               AS deleted_objects,
+          COALESCE(
+            SUM(COALESCE((endpoint_result ->> 'deletedBytes')::bigint, 0)),
+            0
+          )::bigint                                               AS deleted_bytes
+        FROM retention_deletion_log rdl
+        CROSS JOIN LATERAL jsonb_array_elements(
+          COALESCE(rdl.details -> 'endpointResults', '[]'::jsonb)
+        ) AS endpoint_result
+        WHERE rdl.started_at > NOW() - INTERVAL '24 hours'
+        GROUP BY bucket, endpoint_id, endpoint_url, shadow, active, rdl.status
+      metrics:
+        - bucket:
+            usage: "LABEL"
+        - endpoint_id:
+            usage: "LABEL"
+        - endpoint_url:
+            usage: "LABEL"
+        - shadow:
+            usage: "LABEL"
+        - active:
+            usage: "LABEL"
+        - status:
+            usage: "LABEL"
+        - entry_count:
+            usage: "GAUGE"
+            description: "Retention endpoint activity rows in the last 24h"
+        - deleted_objects:
+            usage: "GAUGE"
+            description: "Objects deleted from this live bucket/endpoint in the last 24h"
+        - deleted_bytes:
+            usage: "GAUGE"
+            description: "Bytes deleted from this live bucket/endpoint in the last 24h"
+
 ---
 apiVersion: apps/v1
 kind: Deployment

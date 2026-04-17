@@ -8,6 +8,7 @@ import subprocess
 import sys
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from contextlib import contextmanager
 
@@ -479,6 +480,85 @@ def patch_postgres_dashboard(dashboard: dict) -> bool:
     return changed
 
 
+def patch_node_dashboard(dashboard: dict) -> bool:
+    changed = False
+
+    for var in dashboard.get("templating", {}).get("list", []):
+        if var.get("name") in {"DS_PROMETHEUS", "datasource"}:
+            set_datasource_variable(var)
+            changed = True
+
+    existing_titles = {p.get("title") for p in walk_panels(dashboard.get("panels", []))}
+    if "Root Disk Used %" in existing_titles:
+        return changed
+
+    existing = walk_panels(dashboard.get("panels", []))
+    max_y = max(
+        (p.get("gridPos", {}).get("y", 0) + p.get("gridPos", {}).get("h", 0) for p in dashboard.get("panels", [])),
+        default=0,
+    )
+    next_id = max((p.get("id", 0) for p in existing), default=100) + 1
+
+    root_disk_used_pct_expr = (
+        'max(100 * (1 - ('
+        'node_filesystem_avail_bytes{mountpoint="/",fstype!="",device!~"rootfs"}'
+        " / "
+        'node_filesystem_size_bytes{mountpoint="/",fstype!="",device!~"rootfs"}'
+        ")))"
+    )
+
+    dashboard["panels"].append({
+        "id": next_id,
+        "type": "row",
+        "title": "Disk Capacity",
+        "collapsed": False,
+        "gridPos": {"x": 0, "y": max_y, "w": 24, "h": 1},
+        "panels": [],
+    })
+    dashboard["panels"].append(
+        build_stat_panel(
+            next_id + 1,
+            "Root Disk Used %",
+            root_disk_used_pct_expr,
+            "percent",
+            0,
+            max_y + 1,
+            6,
+            4,
+        )
+    )
+    changed = True
+
+    return changed
+
+
+def patch_dashboards_by_search(query: str, patch_fn, password: str, title_contains: str | None = None) -> None:
+    search = api_request(
+        "GET",
+        f"/api/search?type=dash-db&query={urllib.parse.quote(query)}",
+        password,
+    )
+    if not search:
+        log(f'No dashboards found for search "{query}", skipping')
+        return
+
+    matches = []
+    for item in search:
+        title = item.get("title", "")
+        if title_contains and title_contains not in title:
+            continue
+        uid = item.get("uid")
+        if uid:
+            matches.append(uid)
+
+    if not matches:
+        log(f'No dashboards matched "{query}" after filtering, skipping')
+        return
+
+    for uid in matches:
+        patch_dashboard(uid, patch_fn, password)
+
+
 def patch_dashboard(uid: str, patch_fn, password: str) -> None:
     payload = api_request("GET", f"/api/dashboards/uid/{uid}", password)
     if not payload:
@@ -519,6 +599,7 @@ def main() -> int:
         patch_dashboard("garysdevil-kube-state-metrics-v2", patch_kube_dashboard, password)
         patch_dashboard("n5bu_kv45", patch_traefik_dashboard, password)
         patch_dashboard("000000039", patch_postgres_dashboard, password)
+        patch_dashboards_by_search("Node Exporter Full", patch_node_dashboard, password, title_contains="Node Exporter Full")
 
     return 0
 
