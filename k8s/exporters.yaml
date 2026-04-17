@@ -704,7 +704,7 @@ data:
         FROM ingest_jobs ij
         LEFT JOIN recording_artifacts ra ON ra.id = ij.artifact_id
         LEFT JOIN storage_endpoints se ON se.id::text = ra.endpoint_id
-        GROUP BY kind, ij.status, bucket, region, scope
+        GROUP BY COALESCE(ij.kind, ra.kind, 'unknown'), ij.status, bucket, region, scope
       metrics:
         - kind:
             usage: "LABEL"
