@@ -35,6 +35,8 @@ Remove or **grey-cloud** (DNS only) these if they still exist:
   - `http://web.rejourney.svc.cluster.local`
 - Keep **TLS checks** on the public hostnames because those validate the public edge certs served through Cloudflare.
 - **Kubernetes dashboards imported from Grafana.com often assume a `cluster` label.** If the dashboard variables are empty or show `N/A`, verify VictoriaMetrics is attaching a static cluster label during scrape.
+- **Imported Grafana dashboards also often assume a datasource literally named `Prometheus`.** The cluster now provisions a compatibility datasource alias that points at VictoriaMetrics so those imports keep working.
+- **Real pod/container CPU and RAM usage comes from cAdvisor, not kube-state-metrics or postgres-exporter.** If a dashboard shows object state but no live resource usage, verify the `cadvisor` DaemonSet is healthy and VictoriaMetrics is scraping it.
 - **PostgreSQL dashboards can show mostly `N/A` if `postgres-exporter` cannot connect.** One common failure mode on this cluster is exporter logs showing `pq: SSL is not enabled on the server`; in that case the exporter needs internal non-SSL mode (`PGSSLMODE=disable`) unless Postgres is explicitly configured for SSL.
 - **Best-practice hardening for postgres-exporter:** use a dedicated `postgres-exporter-secret` backed by a read-only `monitoring` DB user with `pg_monitor`, instead of reusing the main app `DATABASE_URL`.
 

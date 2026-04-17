@@ -42,6 +42,14 @@ data:
         static_configs:
           - targets: ['node-exporter.rejourney.svc.cluster.local:9100']
 
+      # Per-container resource usage for Kubernetes workloads
+      - job_name: cadvisor
+        relabel_configs:
+          - target_label: cluster
+            replacement: rejourney-prod
+        static_configs:
+          - targets: ['cadvisor.rejourney.svc.cluster.local:8080']
+
       # Kubernetes object state (pod status, deployment replicas, etc.)
       - job_name: kube-state-metrics
         relabel_configs:

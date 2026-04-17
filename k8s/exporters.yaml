@@ -3,8 +3,9 @@
 #
 # Contains:
 #   1. node-exporter  — VPS system metrics (CPU, RAM, disk, network)
-#   2. kube-state-metrics — K8s object state (pods, deployments, CronJobs)
-#   3. postgres-exporter  — PostgreSQL metrics (connections, queries, table sizes)
+#   2. cadvisor       — Per-container CPU, RAM, filesystem, network usage
+#   3. kube-state-metrics — K8s object state (pods, deployments, CronJobs)
+#   4. postgres-exporter  — PostgreSQL metrics (connections, queries, table sizes)
 #
 # NOTE: ClusterRole/ClusterRoleBinding resources here are cluster-scoped and
 # intentionally omit the app.kubernetes.io/part-of=rejourney label so the
@@ -108,7 +109,118 @@ spec:
     app: node-exporter
 
 # ============================================================
-# 2. KUBE-STATE-METRICS
+# 2. CADVISOR
+# ============================================================
+#
+# Supplies the real container CPU / memory / filesystem usage series that many
+# Grafana Kubernetes dashboards expect (for example container_cpu_usage_seconds_total
+# and container_memory_working_set_bytes).
+#
+# The current production cluster is single-node, so a ClusterIP service in front
+# of the DaemonSet is sufficient for scraping. If the cluster grows beyond one
+# node, switch VictoriaMetrics to pod-based service discovery for this job.
+
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: cadvisor
+  namespace: rejourney
+  labels:
+    app: cadvisor
+    app.kubernetes.io/part-of: rejourney
+spec:
+  selector:
+    matchLabels:
+      app: cadvisor
+  template:
+    metadata:
+      labels:
+        app: cadvisor
+    spec:
+      containers:
+        - name: cadvisor
+          image: ghcr.io/google/cadvisor:v0.54.1
+          ports:
+            - containerPort: 8080
+              name: metrics
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi
+          securityContext:
+            privileged: true
+          volumeMounts:
+            - name: rootfs
+              mountPath: /rootfs
+              readOnly: true
+            - name: var-run
+              mountPath: /var/run
+              readOnly: true
+            - name: sys
+              mountPath: /sys
+              readOnly: true
+            - name: kubelet
+              mountPath: /var/lib/kubelet
+              readOnly: true
+            - name: containerd
+              mountPath: /var/lib/containerd
+              readOnly: true
+            - name: disk
+              mountPath: /dev/disk
+              readOnly: true
+            - name: kmsg
+              mountPath: /dev/kmsg
+              readOnly: true
+      tolerations:
+        - operator: Exists
+          effect: NoSchedule
+      volumes:
+        - name: rootfs
+          hostPath:
+            path: /
+        - name: var-run
+          hostPath:
+            path: /var/run
+        - name: sys
+          hostPath:
+            path: /sys
+        - name: kubelet
+          hostPath:
+            path: /var/lib/kubelet
+        - name: containerd
+          hostPath:
+            path: /var/lib/containerd
+        - name: disk
+          hostPath:
+            path: /dev/disk
+        - name: kmsg
+          hostPath:
+            path: /dev/kmsg
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: cadvisor
+  namespace: rejourney
+  labels:
+    app: cadvisor
+    app.kubernetes.io/part-of: rejourney
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8080
+      targetPort: metrics
+      name: metrics
+  selector:
+    app: cadvisor
+
+# ============================================================
+# 3. KUBE-STATE-METRICS
 # ============================================================
 
 ---
@@ -255,7 +367,7 @@ spec:
     app: kube-state-metrics
 
 # ============================================================
-# 3. POSTGRES EXPORTER
+# 4. POSTGRES EXPORTER
 # ============================================================
 # Connects read-only to PostgreSQL and exposes metrics for Grafana.
 #

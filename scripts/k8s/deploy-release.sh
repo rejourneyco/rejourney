@@ -272,6 +272,7 @@ main() {
   wait_for_deployment grafana
   wait_for_deployment gatus
   wait_for_deployment pushgateway
+  wait_for_daemonset cadvisor
   wait_for_daemonset node-exporter
 
   cleanup_finished_pods
