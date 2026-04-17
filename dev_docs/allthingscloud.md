@@ -2,7 +2,9 @@
 
 **Public path (unchanged):** Internet → **Cloudflare** (DNS / TLS / WAF) → **Traefik** on k3s → `rejourney.co`, `api.rejourney.co`, `ingest.rejourney.co`.
 
-**Admin path:** Operators join the **Tailscale tailnet** (Mac + VPS). They use **SSH** and **`kubectl`** over **100.x** addresses. **Admin UIs** (pgweb, Redis Commander, Netdata, Traefik dashboard, Uptime Kuma) have **no public Ingress**; open them with **`kubectl port-forward`** to `127.0.0.1` on the laptop. The **internal dashboard** repo (`rejourney-internal`) talks to Postgres/S3 the same way: tunnels + local Node.
+**Admin path:** Operators join the **Tailscale tailnet** (Mac + VPS). They use **SSH** and **`kubectl`** over **100.x** addresses. **Admin UIs** (pgweb, Redis Commander, Grafana, Gatus, VictoriaMetrics, Pushgateway, Traefik dashboard) have **no public Ingress**; open them with **`kubectl port-forward`** to `127.0.0.1` on the laptop. The **internal dashboard** repo (`rejourney-internal`) talks to Postgres/S3 the same way: tunnels + local Node.
+
+**Important boundary:** Tailscale is the secure operator/admin doorway into the node and cluster. It is **not** in the normal in-cluster service path. Internal service-to-service traffic such as `Grafana -> VictoriaMetrics`, `VictoriaMetrics -> kube-state-metrics`, or `postgres-exporter -> postgres` stays on Kubernetes service networking. Cloudflare only fronts the public customer hostnames.
 
 ```mermaid
 flowchart TB
@@ -64,11 +66,13 @@ K3s Details:
 │  ┌───────────▼────────────┐          ┌───────────────────────────▼────────┐  │
 │  │      Monitoring        │          │           Storage Layer            │  │
 │  │ ┌──────────────────┐   │          │  ┌──────────┐        ┌──────────┐  │  │
-│  │ │ Netdata (admin   │   │          │  │ Postgres │        │  Redis   │  │  │
-│  │ │  port-forward)   │   │          │  │          │        │          │  │  │
-│  │ └──────────────────┘   │          │  │ (PVC 20G)│        │ (In-Mem) │  │  │
-│  └────────────────────────┘          │  └──────────┘        └──────────┘  │  │
-│                                      └────────────────────────────────────┘  │
+│  │ │ Grafana / Gatus /│   │          │  │ Postgres │        │  Redis   │  │  │
+│  │ │ VictoriaMetrics  │   │          │  │          │        │          │  │  │
+│  │ │ (admin port-fwd) │   │          │  │ (PVC 20G)│        │ (In-Mem) │  │  │
+│  │ └──────────────────┘   │          │  └──────────┘        └──────────┘  │  │
+│  │ exporters + pushgw +   │          │                                    │  │
+│  │ Traefik metrics (svc)  │          │                                    │  │
+│  └────────────────────────┘          └────────────────────────────────────┘  │
 │                                                                              │
 │  ┌────────────────────────────────────────────────────────────────────────┐  │
 │  │                     Background workers (Deployments)                   │  │
@@ -132,6 +136,14 @@ Ingest pathway (workers + data plane):
 External Beyond:
 
 Admins: **Tailscale** (100.x) → SSH / `kubectl` / `port-forward` (not through Cloudflare).
+
+Monitoring runtime path:
+
+- **Grafana** reads from **VictoriaMetrics** over internal Kubernetes DNS.
+- **VictoriaMetrics** scrapes `node-exporter`, `kube-state-metrics`, `postgres-exporter`, `pushgateway`, and Traefik metrics over internal Kubernetes DNS.
+- **Gatus** should prefer internal service URLs for app-health checks because public HTTP checks can be blocked by Cloudflare managed challenge/bot protection even while the app is healthy.
+- **TLS checks** still intentionally use the public hostnames because they validate the public certificate chain at the edge.
+- `postgres-exporter -> postgres` is an in-cluster connection. If Postgres is not serving SSL internally, the exporter must use `sslmode=disable` or equivalent.
 
                         ┌────────────────────────┐
                         │       Cloudflare       │

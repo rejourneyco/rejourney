@@ -43,51 +43,50 @@ data:
 
     endpoints:
       - name: API Health
-        url: https://api.rejourney.co/health/ready
+        url: http://api.rejourney.svc.cluster.local:3000/health/ready
         interval: 2m
         conditions:
           - "[STATUS] == 200"
           - "[RESPONSE_TIME] < 500"
 
       - name: API Liveness
-        url: https://api.rejourney.co/health/live
+        url: http://api.rejourney.svc.cluster.local:3000/health/live
         interval: 2m
         conditions:
           - "[STATUS] == 200"
 
       - name: Ingest Health
-        url: https://ingest.rejourney.co/health/ingest
+        url: http://api.rejourney.svc.cluster.local:3000/health/ingest
         interval: 2m
         conditions:
           - "[STATUS] == 200"
           - "[RESPONSE_TIME] < 1000"
 
       - name: Dashboard
-        url: https://rejourney.co
+        url: http://web.rejourney.svc.cluster.local
         interval: 2m
         conditions:
           - "[STATUS] == 200"
 
-      # TLS cert expiry checks (fires when < 14 days remain)
+      # TLS cert expiry checks (fires when < 14 days remain). These go through
+      # Cloudflare, so avoid strict HTTP status matching because bot challenges
+      # can legitimately return 403 while the certificate is still healthy.
       - name: API TLS
         url: https://api.rejourney.co
         interval: 1h
         conditions:
-          - "[STATUS] == 200"
           - "[CERTIFICATE_EXPIRATION] > 336h"
 
       - name: Ingest TLS
         url: https://ingest.rejourney.co
         interval: 1h
         conditions:
-          - "[STATUS] == 200"
           - "[CERTIFICATE_EXPIRATION] > 336h"
 
       - name: Dashboard TLS
         url: https://rejourney.co
         interval: 1h
         conditions:
-          - "[STATUS] == 200"
           - "[CERTIFICATE_EXPIRATION] > 336h"
 
       # Internal TCP connectivity checks

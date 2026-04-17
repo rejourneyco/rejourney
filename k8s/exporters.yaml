@@ -259,11 +259,14 @@ spec:
 # ============================================================
 # Connects read-only to PostgreSQL and exposes metrics for Grafana.
 #
-# IMPORTANT: Uses the existing postgres-secret DATABASE_URL.
-# For tighter security, create a dedicated read-only monitoring user:
+# IMPORTANT: Uses a dedicated postgres-exporter-secret DATA_SOURCE_NAME.
+# Recommended:
 #   kubectl exec -it postgres-0 -n rejourney -- psql -U rejourney -d rejourney -c \
 #     "CREATE USER monitoring WITH PASSWORD '<pw>'; GRANT pg_monitor TO monitoring;"
 # Then create a separate postgres-exporter-secret with that connection string.
+# Until dedicated monitoring credentials are provided, scripts/k8s/k8s-sync-secrets.sh
+# can temporarily mirror the app credentials into postgres-exporter-secret so deploys
+# remain backward-compatible.
 #
 # OPTIONAL (enables dashboard 9628 query stats):
 #   kubectl exec -it postgres-0 -n rejourney -- psql -U rejourney -d rejourney -c \
@@ -361,8 +364,10 @@ spec:
             - name: DATA_SOURCE_NAME
               valueFrom:
                 secretKeyRef:
-                  name: postgres-secret
-                  key: DATABASE_URL
+                  name: postgres-exporter-secret
+                  key: DATA_SOURCE_NAME
+            - name: PGSSLMODE
+              value: "disable"
             - name: PG_EXPORTER_EXTEND_QUERY_PATH
               value: "/etc/postgres-exporter/queries.yaml"
             - name: PG_EXPORTER_AUTO_DISCOVER_DATABASES
