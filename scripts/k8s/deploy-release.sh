@@ -32,6 +32,21 @@ dump_db_setup_diagnostics() {
   kubectl logs job/db-setup -n "${NAMESPACE}" -c setup --tail=100 || true
 }
 
+dump_workload_diagnostics() {
+  local kind="$1"
+  local name="$2"
+
+  kubectl describe "${kind}" "${name}" -n "${NAMESPACE}" || true
+  kubectl get pods -n "${NAMESPACE}" -l "app=${name}" -o wide || true
+  kubectl describe pods -n "${NAMESPACE}" -l "app=${name}" || true
+
+  if [ "${kind}" = "deployment" ]; then
+    kubectl logs deployment/"${name}" -n "${NAMESPACE}" --tail=100 || true
+  else
+    kubectl logs -n "${NAMESPACE}" -l "app=${name}" --tail=100 --all-containers=true || true
+  fi
+}
+
 require_bin() {
   command -v "$1" >/dev/null 2>&1 || {
     echo "[deploy-release] ERROR: $1 is required" >&2
@@ -163,7 +178,10 @@ wait_for_deployment() {
   fi
 
   log "Waiting for rollout: ${name}"
-  kubectl rollout status deployment/"${name}" -n "${NAMESPACE}" --timeout=300s
+  if ! kubectl rollout status deployment/"${name}" -n "${NAMESPACE}" --timeout=300s; then
+    dump_workload_diagnostics deployment "${name}"
+    exit 1
+  fi
 }
 
 wait_for_daemonset() {
@@ -175,7 +193,10 @@ wait_for_daemonset() {
   fi
 
   log "Waiting for rollout: ${name}"
-  kubectl rollout status daemonset/"${name}" -n "${NAMESPACE}" --timeout=300s
+  if ! kubectl rollout status daemonset/"${name}" -n "${NAMESPACE}" --timeout=300s; then
+    dump_workload_diagnostics daemonset "${name}"
+    exit 1
+  fi
 }
 
 cleanup_finished_pods() {
