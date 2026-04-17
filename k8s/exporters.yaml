@@ -142,6 +142,15 @@ spec:
       containers:
         - name: cadvisor
           image: gcr.io/cadvisor/cadvisor:v0.52.1
+          args:
+            # k3s uses its embedded containerd socket under /run/k3s rather than
+            # the upstream default /run/containerd/containerd.sock.
+            - --containerd=/run/k3s/containerd/containerd.sock
+            # Keep only the Kubernetes identity labels Grafana needs for
+            # per-pod/container dashboards. The full cAdvisor label set is large
+            # enough that VictoriaMetrics ends up retaining only the cgroup id.
+            - --store_container_labels=false
+            - --whitelisted_container_labels=io.kubernetes.pod.name,io.kubernetes.pod.namespace,io.kubernetes.container.name,io.kubernetes.pod.uid
           ports:
             - containerPort: 8080
               name: metrics

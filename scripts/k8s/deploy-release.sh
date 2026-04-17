@@ -207,6 +207,7 @@ cleanup_finished_pods() {
 main() {
   require_bin kubectl
   require_bin perl
+  require_bin python3
 
   section "Rendering Release"
   log "Repository: ${REPOSITORY}"
@@ -274,6 +275,9 @@ main() {
   wait_for_deployment pushgateway
   wait_for_daemonset cadvisor
   wait_for_daemonset node-exporter
+
+  section "Patching Imported Grafana Dashboards"
+  python3 "${ROOT_DIR}/scripts/k8s/patch-imported-grafana-dashboards.py" "${NAMESPACE}"
 
   cleanup_finished_pods
   log "Release applied successfully for image tag ${IMAGE_TAG}"

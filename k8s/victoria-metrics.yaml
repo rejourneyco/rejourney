@@ -47,6 +47,15 @@ data:
         relabel_configs:
           - target_label: cluster
             replacement: rejourney-prod
+        metric_relabel_configs:
+          - source_labels: [container_label_io_kubernetes_pod_name]
+            target_label: pod
+          - source_labels: [container_label_io_kubernetes_pod_namespace]
+            target_label: namespace
+          - source_labels: [container_label_io_kubernetes_container_name]
+            target_label: container
+          - source_labels: [container_label_io_kubernetes_pod_uid]
+            target_label: pod_uid
         static_configs:
           - targets: ['cadvisor.rejourney.svc.cluster.local:8080']
 
