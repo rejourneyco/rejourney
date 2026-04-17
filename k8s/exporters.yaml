@@ -481,7 +481,7 @@ spec:
         fsGroup: 1000
       containers:
         - name: postgres-exporter
-          image: prometheuscommunity/postgres-exporter:v0.15.0
+          image: prometheuscommunity/postgres-exporter:v0.16.0
           env:
             - name: DATA_SOURCE_NAME
               valueFrom:

@@ -167,6 +167,50 @@ def replace_strings(value, replacements: dict[str, str]):
     return value
 
 
+def build_stat_panel(pid: int, title: str, expr: str, unit: str, x: int, y: int, w: int = 6, h: int = 4) -> dict:
+    return {
+        "id": pid,
+        "type": "stat",
+        "title": title,
+        "datasource": {"type": "prometheus", "uid": "prometheus-compat"},
+        "targets": [{"expr": expr, "legendFormat": "", "refId": "A"}],
+        "fieldConfig": {
+            "defaults": {
+                "unit": unit,
+                "thresholds": {
+                    "mode": "absolute",
+                    "steps": [
+                        {"color": "green", "value": None},
+                        {"color": "orange", "value": 75},
+                        {"color": "red", "value": 90},
+                    ],
+                },
+                "mappings": [],
+            }
+        },
+        "options": {
+            "reduceOptions": {"calcs": ["lastNotNull"]},
+            "orientation": "auto",
+            "textMode": "auto",
+            "colorMode": "background",
+        },
+        "gridPos": {"x": x, "y": y, "w": w, "h": h},
+    }
+
+
+def build_timeseries_panel(pid: int, title: str, targets: list, unit: str, x: int, y: int, w: int = 12, h: int = 8) -> dict:
+    return {
+        "id": pid,
+        "type": "timeseries",
+        "title": title,
+        "datasource": {"type": "prometheus", "uid": "prometheus-compat"},
+        "targets": targets,
+        "fieldConfig": {"defaults": {"unit": unit}},
+        "options": {"tooltip": {"mode": "multi"}},
+        "gridPos": {"x": x, "y": y, "w": w, "h": h},
+    }
+
+
 def set_panel_unit(panel: dict, unit: str) -> None:
     panel.setdefault("fieldConfig", {}).setdefault("defaults", {})["unit"] = unit
 
@@ -210,6 +254,11 @@ def patch_kube_dashboard(dashboard: dict) -> bool:
 
 def patch_traefik_dashboard(dashboard: dict) -> bool:
     changed = False
+    patched = replace_strings(dashboard, {"P4169E866C3094E38": "prometheus-compat"})
+    if patched != dashboard:
+        dashboard.clear()
+        dashboard.update(patched)
+        changed = True
     for var in dashboard.get("templating", {}).get("list", []):
         name = var.get("name")
         if name in {"DS_PROMETHEUS", "datasource"}:
@@ -223,6 +272,11 @@ def patch_traefik_dashboard(dashboard: dict) -> bool:
 
 def patch_postgres_dashboard(dashboard: dict) -> bool:
     changed = False
+    patched = replace_strings(dashboard, {"P4169E866C3094E38": "prometheus-compat"})
+    if patched != dashboard:
+        dashboard.clear()
+        dashboard.update(patched)
+        changed = True
 
     for var in dashboard.get("templating", {}).get("list", []):
         name = var.get("name")
@@ -316,6 +370,111 @@ def patch_postgres_dashboard(dashboard: dict) -> bool:
                 "Updated rows",
             )
             changed = True
+
+    # --- Enhanced metrics rows (appended, idempotent via title check) ---
+    existing_titles = {p.get("title") for p in walk_panels(dashboard.get("panels", []))}
+    if "Container Resource Usage" not in existing_titles:
+        existing = walk_panels(dashboard.get("panels", []))
+        max_y = max(
+            (p.get("gridPos", {}).get("y", 0) + p.get("gridPos", {}).get("h", 0) for p in dashboard.get("panels", [])),
+            default=0,
+        )
+        next_id = max((p.get("id", 0) for p in existing), default=100) + 1
+
+        # Row: Container Resource Usage
+        dashboard["panels"].append({
+            "id": next_id, "type": "row", "title": "Container Resource Usage",
+            "collapsed": False, "gridPos": {"x": 0, "y": max_y, "w": 24, "h": 1}, "panels": [],
+        })
+        y = max_y + 1
+
+        _PG = 'cluster="rejourney-prod",namespace="rejourney",pod="postgres-0",container="postgres"'
+        pg_cpu_expr = (
+            f'sum(rate(container_cpu_usage_seconds_total{{{_PG},cpu="total"}}[$__rate_interval]))'
+            f' / sum(container_spec_cpu_quota{{{_PG}}} / container_spec_cpu_period{{{_PG}}}) * 100'
+        )
+        pg_mem_pct_expr = (
+            f'sum(container_memory_working_set_bytes{{{_PG}}})'
+            f' / sum(container_spec_memory_limit_bytes{{{_PG}}}) * 100'
+        )
+        pg_cpu_limit_expr = (
+            f'sum(container_spec_cpu_quota{{{_PG}}})'
+            f' / sum(container_spec_cpu_period{{{_PG}}})'
+        )
+        pg_mem_limit_expr = f'sum(container_spec_memory_limit_bytes{{{_PG}}})'
+
+        for i, (title, expr, unit, x) in enumerate([
+            ("CPU Usage % of Limit",    pg_cpu_expr,       "percent", 0),
+            ("Memory Usage % of Limit", pg_mem_pct_expr,   "percent", 6),
+            ("CPU Limit (cores)",       pg_cpu_limit_expr, "short",   12),
+            ("Memory Limit",            pg_mem_limit_expr, "bytes",   18),
+        ]):
+            dashboard["panels"].append(build_stat_panel(next_id + 1 + i, title, expr, unit, x, y))
+        next_id += 5
+
+        # Row: Database Health
+        y += 4
+        dashboard["panels"].append({
+            "id": next_id, "type": "row", "title": "Database Health",
+            "collapsed": False, "gridPos": {"x": 0, "y": y, "w": 24, "h": 1}, "panels": [],
+        })
+        y += 1
+
+        conn_pct_expr = (
+            'sum(pg_stat_activity_count{instance=~"$instance"})'
+            ' / pg_settings_max_connections{instance=~"$instance"} * 100'
+        )
+        cache_hit_expr = (
+            'sum(pg_stat_database_blks_hit{instance=~"$instance",datname=~"$datname"})'
+            ' / (sum(pg_stat_database_blks_hit{instance=~"$instance",datname=~"$datname"})'
+            '  + sum(pg_stat_database_blks_read{instance=~"$instance",datname=~"$datname"})) * 100'
+        )
+
+        for i, (title, expr, unit, x) in enumerate([
+            ("Connection Utilization %", conn_pct_expr,                                                            "percent", 0),
+            ("Cache Hit Rate %",         cache_hit_expr,                                                           "percent", 6),
+            ("Active Connections",       'sum(pg_stat_activity_count{instance=~"$instance",state="active"})',      "short",   12),
+            ("Idle Connections",         'sum(pg_stat_activity_count{instance=~"$instance",state="idle"})',        "short",   18),
+        ]):
+            dashboard["panels"].append(build_stat_panel(next_id + 1 + i, title, expr, unit, x, y))
+        next_id += 5
+
+        # Row: Query Throughput & Errors
+        y += 4
+        dashboard["panels"].append({
+            "id": next_id, "type": "row", "title": "Query Throughput & Errors",
+            "collapsed": False, "gridPos": {"x": 0, "y": y, "w": 24, "h": 1}, "panels": [],
+        })
+        y += 1
+
+        tps_targets = [
+            {"expr": 'sum(rate(pg_stat_database_xact_commit{instance=~"$instance",datname=~"$datname"}[$__rate_interval]))',   "legendFormat": "Commits/s",   "refId": "A"},
+            {"expr": 'sum(rate(pg_stat_database_xact_rollback{instance=~"$instance",datname=~"$datname"}[$__rate_interval]))', "legendFormat": "Rollbacks/s", "refId": "B"},
+        ]
+        rows_targets = [
+            {"expr": 'sum(rate(pg_stat_database_tup_inserted{instance=~"$instance",datname=~"$datname"}[$__rate_interval]))', "legendFormat": "Inserts/s",  "refId": "A"},
+            {"expr": 'sum(rate(pg_stat_database_tup_updated{instance=~"$instance",datname=~"$datname"}[$__rate_interval]))',  "legendFormat": "Updates/s",  "refId": "B"},
+            {"expr": 'sum(rate(pg_stat_database_tup_deleted{instance=~"$instance",datname=~"$datname"}[$__rate_interval]))',  "legendFormat": "Deletes/s",  "refId": "C"},
+            {"expr": 'sum(rate(pg_stat_database_tup_fetched{instance=~"$instance",datname=~"$datname"}[$__rate_interval]))',  "legendFormat": "Fetches/s",  "refId": "D"},
+        ]
+        errors_targets = [
+            {"expr": 'sum(rate(pg_stat_database_deadlocks{instance=~"$instance",datname=~"$datname"}[$__rate_interval]))', "legendFormat": "Deadlocks/s",  "refId": "A"},
+            {"expr": 'sum(rate(pg_stat_database_temp_files{instance=~"$instance",datname=~"$datname"}[$__rate_interval]))', "legendFormat": "Temp files/s", "refId": "B"},
+            {"expr": 'sum(rate(pg_stat_database_conflicts{instance=~"$instance",datname=~"$datname"}[$__rate_interval]))',  "legendFormat": "Conflicts/s",  "refId": "C"},
+        ]
+        wal_targets = [
+            {"expr": 'pg_wal_size_bytes{instance=~"$instance"}', "legendFormat": "WAL size", "refId": "A"},
+        ]
+
+        for i, (title, targets, unit, x, row_y) in enumerate([
+            ("Transactions Per Second",   tps_targets,    "short", 0,  y),
+            ("Row Operations Per Second", rows_targets,   "short", 12, y),
+            ("Errors & Conflicts",        errors_targets, "short", 0,  y + 8),
+            ("WAL Size",                  wal_targets,    "bytes", 12, y + 8),
+        ]):
+            dashboard["panels"].append(build_timeseries_panel(next_id + 1 + i, title, targets, unit, x, row_y))
+
+        changed = True
 
     return changed
 
