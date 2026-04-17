@@ -140,7 +140,7 @@ spec:
     spec:
       containers:
         - name: cadvisor
-          image: ghcr.io/google/cadvisor:v0.54.1
+          image: gcr.io/cadvisor/cadvisor:v0.52.1
           ports:
             - containerPort: 8080
               name: metrics
