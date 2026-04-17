@@ -76,6 +76,13 @@ ensure_cert_manager() {
   kubectl wait --for=condition=Available deployment/cert-manager-webhook -n cert-manager --timeout=300s
 }
 
+apply_unlabeled_support_manifests() {
+  # The main apply step targets app.kubernetes.io/part-of=rejourney, so it skips
+  # intentionally unlabeled RBAC / ServiceAccount objects and kube-system helper services.
+  kubectl apply -f "${RENDER_DIR}/exporters.yaml"
+  kubectl apply -f "${RENDER_DIR}/ingress.yaml"
+}
+
 wait_for_postgres() {
   section "Waiting For PostgreSQL"
   if ! kubectl wait --for=condition=ready pod -l app=postgres -n "${NAMESPACE}" --timeout=180s; then
@@ -159,6 +166,18 @@ wait_for_deployment() {
   kubectl rollout status deployment/"${name}" -n "${NAMESPACE}" --timeout=300s
 }
 
+wait_for_daemonset() {
+  local name="$1"
+
+  if ! kubectl get daemonset "${name}" -n "${NAMESPACE}" -o name >/dev/null 2>&1; then
+    log "Skipping rollout wait for ${name} (no DaemonSet resource)"
+    return
+  fi
+
+  log "Waiting for rollout: ${name}"
+  kubectl rollout status daemonset/"${name}" -n "${NAMESPACE}" --timeout=300s
+}
+
 cleanup_finished_pods() {
   kubectl delete pods -n "${NAMESPACE}" --field-selector=status.phase==Succeeded --ignore-not-found >/dev/null 2>&1 || true
   kubectl delete pods -n "${NAMESPACE}" --field-selector=status.phase==Failed --ignore-not-found >/dev/null 2>&1 || true
@@ -178,6 +197,7 @@ main() {
   kubectl apply -f "${K8S_DIR}/traefik-config.yaml"
   ensure_cert_manager
   ensure_grafana_secret
+  apply_unlabeled_support_manifests
 
   bash "${ROOT_DIR}/scripts/k8s/check-archive-sync.sh"
 
@@ -225,10 +245,13 @@ main() {
   wait_for_deployment session-lifecycle-worker
   wait_for_deployment retention-worker
   wait_for_deployment alert-worker
+  wait_for_deployment postgres-exporter
+  wait_for_deployment kube-state-metrics
   wait_for_deployment victoria-metrics
   wait_for_deployment grafana
   wait_for_deployment gatus
   wait_for_deployment pushgateway
+  wait_for_daemonset node-exporter
 
   cleanup_finished_pods
   log "Release applied successfully for image tag ${IMAGE_TAG}"
