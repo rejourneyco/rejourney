@@ -1812,7 +1812,16 @@ async function processSession(session) {
     const manifestPath = path.join(tempDir, 'manifest.json');
     await writeFile(manifestPath, `${JSON.stringify(finalManifest, null, 2)}\n`, 'utf8');
     await uploadToR2(manifestPath, `${prefix}/manifest.json`, MANIFEST_CONTENT_TYPE);
-    const prefixScan = await scanR2Prefix(prefix);
+    // R2 LIST operations can lag behind individual object writes due to eventual consistency.
+    // Retry the prefix scan up to 4 times (max 7s wait) when the list count is lower than
+    // expected — each successful HEAD in verifyUpload already confirmed the object exists.
+    let prefixScan = await scanR2Prefix(prefix);
+    const r2ScanDelaysMs = [500, 1000, 2000, 4000];
+    for (const delayMs of r2ScanDelaysMs) {
+      if (prefixScan.manifestCount === 1 && prefixScan.artifactObjectCount >= copiedCount) break;
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+      prefixScan = await scanR2Prefix(prefix);
+    }
     if (prefixScan.manifestCount !== 1) {
       throw new Error(`session ${session.id} expected exactly one manifest.json in R2, found ${prefixScan.manifestCount}`);
     }

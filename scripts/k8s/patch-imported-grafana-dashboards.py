@@ -246,9 +246,206 @@ def patch_kube_dashboard(dashboard: dict) -> bool:
         elif name == "cluster":
             set_variable_current(var, "rejourney-prod", "rejourney-prod")
             changed = True
-        elif name in {"node", "namespace"}:
+        elif name in {"node", "namespace", "pod"}:
             make_all_variable(var)
             changed = True
+
+    existing_titles = {p.get("title") for p in walk_panels(dashboard.get("panels", []))}
+    if "Pod Resource Usage vs Limits" in existing_titles:
+        return changed
+
+    existing = walk_panels(dashboard.get("panels", []))
+    max_y = max(
+        (p.get("gridPos", {}).get("y", 0) + p.get("gridPos", {}).get("h", 0) for p in dashboard.get("panels", [])),
+        default=0,
+    )
+    next_id = max((p.get("id", 0) for p in existing), default=100) + 1
+
+    base_filter = 'cluster=~"$cluster", namespace=~"$namespace", container!="", container!="POD", image!=""'
+    kube_filter = 'cluster=~"$cluster", namespace=~"$namespace"'
+    pod_running_expr = f'count(max by (pod) (kube_pod_status_phase{{{kube_filter}, phase="Running"}} == 1))'
+    pod_pending_expr = f'count(max by (pod) (kube_pod_status_phase{{{kube_filter}, phase="Pending"}} == 1))'
+    pod_failed_expr = f'count(max by (pod) (kube_pod_status_phase{{{kube_filter}, phase=~"Failed|Unknown"}} == 1))'
+    pod_not_ready_expr = f'sum(max by (pod) (1 - kube_pod_status_ready{{{kube_filter}, condition="true"}}))'
+    waiting_containers_expr = (
+        f'sum(kube_pod_container_status_waiting_reason{{{kube_filter}, '
+        'reason=~"CrashLoopBackOff|ImagePullBackOff|ErrImagePull|CreateContainerConfigError|RunContainerError|ContainerCreating"}})'
+    )
+
+    cpu_pct_targets = [
+        {
+            "expr": (
+                f'100 * sum by (pod) (rate(container_cpu_usage_seconds_total{{{base_filter}}}[$__rate_interval]))'
+                f' / clamp_min(sum by (pod) (container_spec_cpu_quota{{{base_filter}}} / container_spec_cpu_period{{{base_filter}}}), 0.001)'
+            ),
+            "legendFormat": "{{pod}}",
+            "refId": "A",
+        }
+    ]
+    mem_pct_targets = [
+        {
+            "expr": (
+                f'100 * sum by (pod) (container_memory_working_set_bytes{{{base_filter}}})'
+                f' / clamp_min(sum by (pod) (container_spec_memory_limit_bytes{{{base_filter}}}), 1)'
+            ),
+            "legendFormat": "{{pod}}",
+            "refId": "A",
+        }
+    ]
+    cpu_cores_targets = [
+        {
+            "expr": f'sum by (pod) (rate(container_cpu_usage_seconds_total{{{base_filter}}}[$__rate_interval]))',
+            "legendFormat": "{{pod}}",
+            "refId": "A",
+        }
+    ]
+    mem_bytes_targets = [
+        {
+            "expr": f'sum by (pod) (container_memory_working_set_bytes{{{base_filter}}})',
+            "legendFormat": "{{pod}}",
+            "refId": "A",
+        }
+    ]
+    throttled_pct_targets = [
+        {
+            "expr": (
+                f'100 * sum by (pod) (rate(container_cpu_cfs_throttled_periods_total{{{base_filter}}}[$__rate_interval]))'
+                f' / clamp_min(sum by (pod) (rate(container_cpu_cfs_periods_total{{{base_filter}}}[$__rate_interval])), 0.001)'
+            ),
+            "legendFormat": "{{pod}}",
+            "refId": "A",
+        }
+    ]
+    restart_targets = [
+        {
+            "expr": f'sum by (pod) (increase(kube_pod_container_status_restarts_total{{{kube_filter}}}[$__rate_interval]))',
+            "legendFormat": "{{pod}}",
+            "refId": "A",
+        }
+    ]
+    restart_1h_targets = [
+        {
+            "expr": f'sum by (pod) (increase(kube_pod_container_status_restarts_total{{{kube_filter}}}[1h]))',
+            "legendFormat": "{{pod}}",
+            "refId": "A",
+        }
+    ]
+    ready_targets = [
+        {
+            "expr": f'max by (pod) (kube_pod_status_ready{{{kube_filter}, condition=\"true\"}}) * 100',
+            "legendFormat": "{{pod}}",
+            "refId": "A",
+        }
+    ]
+    running_pods_targets = [
+        {
+            "expr": f'count(max by (pod) (kube_pod_status_phase{{{kube_filter}, phase="Running"}} == 1))',
+            "legendFormat": "Running",
+            "refId": "A",
+        },
+        {
+            "expr": f'count(max by (pod) (kube_pod_status_phase{{{kube_filter}, phase="Pending"}} == 1))',
+            "legendFormat": "Pending",
+            "refId": "B",
+        },
+        {
+            "expr": f'count(max by (pod) (kube_pod_status_phase{{{kube_filter}, phase=~"Failed|Unknown"}} == 1))',
+            "legendFormat": "Failed/Unknown",
+            "refId": "C",
+        },
+    ]
+    waiting_reason_targets = [
+        {
+            "expr": (
+                f'sum by (reason) (kube_pod_container_status_waiting_reason{{{kube_filter}, '
+                'reason=~"CrashLoopBackOff|ImagePullBackOff|ErrImagePull|CreateContainerConfigError|RunContainerError|ContainerCreating"}})'
+            ),
+            "legendFormat": "{{reason}}",
+            "refId": "A",
+        }
+    ]
+    not_ready_targets = [
+        {
+            "expr": f'sum(max by (pod) (1 - kube_pod_status_ready{{{kube_filter}, condition="true"}}))',
+            "legendFormat": "Not Ready",
+            "refId": "A",
+        }
+    ]
+
+    dashboard["panels"].append({
+        "id": next_id,
+        "type": "row",
+        "title": "Kubernetes Workload Health",
+        "collapsed": False,
+        "gridPos": {"x": 0, "y": max_y, "w": 24, "h": 1},
+        "panels": [],
+    })
+    summary_y = max_y + 1
+    next_id += 1
+
+    for i, (title, expr, unit, x) in enumerate([
+        ("Running Pods", pod_running_expr, "short", 0),
+        ("Pending Pods", pod_pending_expr, "short", 6),
+        ("Failed or Unknown Pods", pod_failed_expr, "short", 12),
+        ("Not Ready Pods", pod_not_ready_expr, "short", 18),
+        ("Containers Waiting", waiting_containers_expr, "short", 0),
+    ]):
+        panel_width = 6 if i < 4 else 24
+        panel_x = x if i < 4 else 0
+        panel_y = summary_y if i < 4 else summary_y + 4
+        dashboard["panels"].append(
+            build_stat_panel(next_id + i, title, expr, unit, panel_x, panel_y, panel_width, 4)
+        )
+
+    next_id += 5
+    row_y = summary_y + 8
+
+    dashboard["panels"].append({
+        "id": next_id,
+        "type": "row",
+        "title": "Pod Resource Usage vs Limits",
+        "collapsed": False,
+        "gridPos": {"x": 0, "y": row_y, "w": 24, "h": 1},
+        "panels": [],
+    })
+    row_y += 1
+    next_id += 1
+
+    for i, (title, targets, unit, x, y) in enumerate([
+        ("CPU % of Limit by Pod", cpu_pct_targets, "percent", 0, row_y),
+        ("Memory % of Limit by Pod", mem_pct_targets, "percent", 12, row_y),
+        ("CPU Cores by Pod", cpu_cores_targets, "cores", 0, row_y + 8),
+        ("Memory Working Set by Pod", mem_bytes_targets, "bytes", 12, row_y + 8),
+        ("Restart Rate by Pod", restart_targets, "short", 0, row_y + 16),
+        ("Pod Ready %", ready_targets, "percent", 12, row_y + 16),
+    ]):
+        dashboard["panels"].append(build_timeseries_panel(next_id + i, title, targets, unit, x, y))
+
+    next_id += 6
+    pressure_y = row_y + 24
+    dashboard["panels"].append({
+        "id": next_id,
+        "type": "row",
+        "title": "Pod Pressure and Churn",
+        "collapsed": False,
+        "gridPos": {"x": 0, "y": pressure_y, "w": 24, "h": 1},
+        "panels": [],
+    })
+    pressure_y += 1
+    next_id += 1
+
+    for i, (title, targets, unit, x, y) in enumerate([
+        ("CPU Throttling % by Pod", throttled_pct_targets, "percent", 0, pressure_y),
+        ("Restarts in Last Hour by Pod", restart_1h_targets, "short", 12, pressure_y),
+        ("Pod Phase Counts", running_pods_targets, "short", 0, pressure_y + 8),
+        ("Waiting Reasons", waiting_reason_targets, "short", 12, pressure_y + 8),
+        ("Pods Not Ready Over Time", not_ready_targets, "short", 0, pressure_y + 16),
+    ]):
+        width = 12 if i < 4 else 24
+        x_pos = x if i < 4 else 0
+        dashboard["panels"].append(build_timeseries_panel(next_id + i, title, targets, unit, x_pos, y, width))
+
+    changed = True
 
     return changed
 
