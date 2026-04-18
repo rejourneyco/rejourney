@@ -6,6 +6,12 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 COMPOSE_FILE="$ROOT_DIR/docker-compose.selfhosted.yml"
 ENV_FILE="$ROOT_DIR/.env.selfhosted"
+COMPOSE_PROJECT_NAME="rejourney"
+SELF_HOSTED_CMD="./scripts/selfhosted/$(basename "$0")"
+POSTGRES_VOLUME="${COMPOSE_PROJECT_NAME}_pgdata"
+REDIS_VOLUME="${COMPOSE_PROJECT_NAME}_redisdata"
+MINIO_VOLUME="${COMPOSE_PROJECT_NAME}_miniodata"
+TRAEFIK_CERTS_VOLUME="${COMPOSE_PROJECT_NAME}_traefik-certs"
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -68,9 +74,53 @@ maybe_set_docker_platform() {
   esac
 }
 
+volume_exists() {
+  docker volume inspect "$1" >/dev/null 2>&1
+}
+
+list_existing_data_volumes() {
+  local -a existing=()
+
+  if volume_exists "$POSTGRES_VOLUME"; then
+    existing+=("$POSTGRES_VOLUME")
+  fi
+  if volume_exists "$REDIS_VOLUME"; then
+    existing+=("$REDIS_VOLUME")
+  fi
+  if volume_exists "$MINIO_VOLUME"; then
+    existing+=("$MINIO_VOLUME")
+  fi
+
+  if [ "${#existing[@]}" -gt 0 ]; then
+    printf '%s\n' "${existing[@]}"
+  fi
+}
+
+preflight_install_state() {
+  if [ -f "$ENV_FILE" ]; then
+    return
+  fi
+
+  mapfile -t existing_volumes < <(list_existing_data_volumes)
+  if [ "${#existing_volumes[@]}" -eq 0 ]; then
+    return
+  fi
+
+  print_warning "Detected existing Docker data volumes from a previous self-hosted install:"
+  for volume in "${existing_volumes[@]}"; do
+    echo "  - $volume"
+  done
+  echo ""
+  print_error "Refusing fresh install without $ENV_FILE because new credentials would not match persisted data."
+  echo "Recovery options:"
+  echo "  1) Restore the original .env.selfhosted and run $SELF_HOSTED_CMD update"
+  echo "  2) Or wipe volumes and install fresh: $SELF_HOSTED_CMD reset && $SELF_HOSTED_CMD install"
+  exit 1
+}
+
 load_env() {
   if [ ! -f "$ENV_FILE" ]; then
-    print_error "Missing $ENV_FILE. Run ./scripts/selfhosted/deploy.sh install first."
+    print_error "Missing $ENV_FILE. Run $SELF_HOSTED_CMD install first."
     exit 1
   fi
 
@@ -100,6 +150,19 @@ setup_environment() {
     if [[ ! "$confirm" =~ ^[Yy]$ ]]; then
       print_info "Keeping existing configuration"
       return
+    fi
+
+    mapfile -t existing_volumes < <(list_existing_data_volumes)
+    if [ "${#existing_volumes[@]}" -gt 0 ]; then
+      print_warning "Existing data volumes detected. Regenerating secrets can make persisted services fail to authenticate."
+      for volume in "${existing_volumes[@]}"; do
+        echo "  - $volume"
+      done
+      read -r -p "Type OVERWRITE to continue regenerating secrets: " overwrite_confirm
+      if [ "$overwrite_confirm" != "OVERWRITE" ]; then
+        print_info "Keeping existing configuration"
+        return
+      fi
     fi
   fi
 
@@ -251,6 +314,46 @@ start_infrastructure() {
   fi
 }
 
+verify_database_credentials() {
+  print_info "Validating database credentials before bootstrap"
+
+  local attempt=1
+  local max_attempts=20
+  local output=""
+  local -a probe_cmd=(
+    node
+    -e
+    'const pg=require("pg");(async()=>{const client=new pg.Client({connectionString:process.env.DATABASE_URL});try{await client.connect();await client.query("select 1");await client.end();}catch(err){console.error(err&&err.message?err.message:String(err));process.exit(1);}})();'
+  )
+
+  while [ "$attempt" -le "$max_attempts" ]; do
+    if output="$(compose_cmd run --rm --no-deps bootstrap "${probe_cmd[@]}" 2>&1)"; then
+      print_success "Database credentials validated"
+      return
+    fi
+
+    if [[ "$output" == *"password authentication failed"* ]]; then
+      print_error "Database authentication failed before bootstrap."
+      echo "Likely cause: existing Postgres data volume with credentials that do not match $ENV_FILE."
+      echo "Recovery options:"
+      echo "  1) Restore the original .env.selfhosted and run $SELF_HOSTED_CMD update"
+      echo "  2) Or wipe volumes and install fresh: $SELF_HOSTED_CMD reset && $SELF_HOSTED_CMD install"
+      exit 1
+    fi
+
+    if [ "$attempt" -lt "$max_attempts" ]; then
+      print_info "Database not ready yet (attempt ${attempt}/${max_attempts}); retrying in 2s"
+      sleep 2
+    else
+      print_error "Could not validate database connectivity before bootstrap"
+      echo "$output"
+      exit 1
+    fi
+
+    attempt=$((attempt + 1))
+  done
+}
+
 run_bootstrap() {
   print_info "Running schema, seed, and storage endpoint bootstrap"
   compose_cmd rm -sf bootstrap >/dev/null 2>&1 || true
@@ -266,6 +369,7 @@ deploy_stack() {
   pull_images
   build_bootstrap_image
   start_infrastructure
+  verify_database_credentials
   run_bootstrap
   start_application_services
   print_success "Deployment complete"
@@ -299,6 +403,41 @@ stop_services() {
   print_success "Services stopped"
 }
 
+reset_services() {
+  print_warning "This will permanently remove self-hosted Docker volumes and all stored data."
+  echo "Volumes to remove:"
+  echo "  - $POSTGRES_VOLUME"
+  echo "  - $REDIS_VOLUME"
+  echo "  - $MINIO_VOLUME"
+  echo "  - $TRAEFIK_CERTS_VOLUME"
+  read -r -p "Type RESET to continue: " confirm
+
+  if [ "$confirm" != "RESET" ]; then
+    print_info "Reset cancelled"
+    return
+  fi
+
+  print_info "Stopping stack and removing Compose resources"
+  if [ -f "$ENV_FILE" ]; then
+    "${COMPOSE_BIN[@]}" -f "$COMPOSE_FILE" --env-file "$ENV_FILE" --profile minio down --remove-orphans --volumes || true
+  else
+    "${COMPOSE_BIN[@]}" -f "$COMPOSE_FILE" --profile minio down --remove-orphans --volumes || true
+  fi
+
+  # When .env is missing, compose may leave profile-scoped containers behind; clean them explicitly.
+  docker rm -f \
+    "${COMPOSE_PROJECT_NAME}-minio-1" \
+    "${COMPOSE_PROJECT_NAME}-minio-setup-1" \
+    >/dev/null 2>&1 || true
+
+  for volume in "$POSTGRES_VOLUME" "$REDIS_VOLUME" "$MINIO_VOLUME" "$TRAEFIK_CERTS_VOLUME"; do
+    docker volume rm "$volume" >/dev/null 2>&1 || true
+  done
+
+  print_success "Self-hosted containers and volumes removed"
+  print_info "Run $SELF_HOSTED_CMD install to create a fresh deployment"
+}
+
 update_services() {
   print_info "Updating self-hosted stack"
   deploy_stack
@@ -311,6 +450,7 @@ main() {
 
   case "${1:-install}" in
     install)
+      preflight_install_state
       setup_environment
       load_env
       deploy_stack
@@ -331,9 +471,12 @@ main() {
       load_env
       stop_services
       ;;
+    reset)
+      reset_services
+      ;;
     *)
       print_error "Unknown command: ${1:-}"
-      echo "Usage: ./scripts/selfhosted/deploy.sh [install|update|status|logs|stop]"
+      echo "Usage: $SELF_HOSTED_CMD [install|update|status|logs|stop|reset]"
       exit 1
       ;;
   esac

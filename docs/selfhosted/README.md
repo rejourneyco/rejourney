@@ -73,8 +73,10 @@ The script will:
 4. Create **`.env.selfhosted`** in the repo root with generated passwords and secrets. **Restrict permissions** are applied (`chmod 600`).  
 5. **Pull** published container images (API, web, workers, databases, Traefik, etc.).  
 6. **Build** the **bootstrap / migration** image **from your clone** (it contains the database setup scripts; it is not downloaded from the container registry).  
-7. Start databases, Redis, Traefik, and (if chosen) MinIO, then run a one-shot **bootstrap** container: database schema, optional first-time seed, and storage configuration in the database.  
-8. Start the API, upload relay, dashboard, and workers.
+7. Start databases, Redis, Traefik, and (if chosen) MinIO.
+8. Validate database connectivity using the configured `DATABASE_URL` before bootstrap runs.
+9. Run a one-shot **bootstrap** container: database schema, optional first-time seed, and storage configuration in the database.
+10. Start the API, upload relay, dashboard, and workers.
 
 First install can take several minutes (image pulls and bootstrap).
 
@@ -128,10 +130,15 @@ All of these run from the repo root.
 | Logs for one service | `./scripts/selfhosted/deploy.sh logs api` (replace `api` with `web`, `ingest-upload`, `ingest-worker`, etc.) |
 | **Upgrade** images and rerun bootstrap | `./scripts/selfhosted/deploy.sh update` |
 | Stop everything **without** deleting data | `./scripts/selfhosted/deploy.sh stop` |
+| **Reset** containers and volumes (destructive) | `./scripts/selfhosted/deploy.sh reset` |
 
 **`update`** pulls newer images (where applicable), rebuilds the bootstrap image from your current clone, restarts the stack, and runs bootstrap again so the database schema and storage settings stay aligned with your `.env.selfhosted`. It does **not** wipe Postgres or object storage volumes.
 
+Before bootstrap, both `install` and `update` validate database connectivity with the configured credentials. If credentials do not match persisted Postgres data, deployment stops early with recovery guidance instead of failing later in bootstrap.
+
 **`stop`** stops containers only; Docker **volumes** (Postgres data, MinIO data, etc.) remain until you remove them explicitly.
+
+**`reset`** removes the self-hosted containers and Docker volumes (`pgdata`, `redisdata`, `miniodata`, `traefik-certs`) after a confirmation prompt. It also tears down MinIO profile containers even when `.env.selfhosted` is missing, so stale MinIO data does not block the next install. Use this only when you want a fully fresh install.
 
 ---
 
