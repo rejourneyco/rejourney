@@ -869,9 +869,15 @@ async function fetchSeedCandidates(limit, cursorStartedAt = null, cursorSessionI
         WHERE q.session_id = s.id
       )
 ${cursorClause}
-    ORDER BY ${buildRetentionPriorityOrderBy({ sessionAlias: 's', sessionIdExpr: 's.id' })}
+    ORDER BY s.started_at ASC, s.id ASC
     LIMIT $1;
   `, params);
+  // NOTE: ORDER BY uses (started_at, id) rather than the full retention-priority CASE expression.
+  // The seeder only handles historical sessions — all already expired (retention priority bucket 0).
+  // New sessions are enqueued in real-time via enqueueSessionBackupCandidate() on finalization,
+  // so the expiry-bucket ordering is never needed here. The simple (started_at, id) ORDER BY lets
+  // Postgres use sessions_seed_started_at_idx to satisfy LIMIT 50 with an index scan, touching
+  // ~50 rows instead of sequentially scanning 1M+ sessions and reading 850 MB from disk each run.
 
   return result.rows.map((row) => ({
     id: row.id,

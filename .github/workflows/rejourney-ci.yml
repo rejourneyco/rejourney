@@ -285,7 +285,27 @@ jobs:
              echo "  → Cleaning old job pods..."
              kubectl get pods -n rejourney -o name | grep -E 'postgres-backup-|db-setup' | head -n -3 | xargs -r kubectl delete -n rejourney --ignore-not-found || true
 
-             # 4. Clean containerd garbage (exited containers)
+             # 4. Restart session-backup-seed: kill any running pods/jobs so they pick up
+             #    the updated ConfigMap (session-backup-script) immediately instead of waiting
+             #    for the next cron tick. The CronJob will reschedule automatically.
+             echo "  → Restarting session-backup-seed pods to pick up new script..."
+             kubectl get jobs -n rejourney --no-headers -o custom-columns=":metadata.name" \
+               | grep "^session-backup-seed-" \
+               | xargs -r kubectl delete job -n rejourney --ignore-not-found || true
+             kubectl delete pods -n rejourney -l job-name \
+               --field-selector=status.phase==Running \
+               --selector='app in (session-backup-seed)' --ignore-not-found 2>/dev/null || true
+             # Also kill any stuck long-running session-backup (drain-queue) jobs older than 23h
+             # that pre-date the current deploy and are running with the old script.
+             echo "  → Clearing stale session-backup drain jobs..."
+             kubectl get jobs -n rejourney --no-headers \
+               -o custom-columns=":metadata.name,:metadata.creationTimestamp" \
+               | grep "^session-backup-[0-9]" \
+               | awk -v cutoff="$(date -u -d '23 hours ago' +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -v-23H +%Y-%m-%dT%H:%M:%SZ)" \
+                   '$2 < cutoff {print $1}' \
+               | xargs -r kubectl delete job -n rejourney --ignore-not-found || true
+
+             # 5. Clean containerd garbage (exited containers)
              echo "  → Cleaning exited containers..."
              if command -v crictl &> /dev/null; then
                crictl rm $(crictl ps -a -q --state exited) 2>/dev/null || true
