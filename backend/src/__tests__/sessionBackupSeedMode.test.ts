@@ -62,13 +62,13 @@ describe('session backup seed mode', () => {
         const seedBlock = manifest.slice(seedBlockStart, seedBlockEnd === -1 ? manifest.length : seedBlockEnd);
 
         expect(manifest).toContain('name: session-backup');
-        expect(manifest).toContain('schedule: "0 * * * *"');
+        expect(manifest).toContain('schedule: "*/10 * * * *"');
         expect(manifest).toContain('name: SESSION_BACKUP_MAX_PARALLEL');
-        expect(manifest).toContain('value: "3"');
+        expect(manifest).toContain('value: "8"');
         expect(manifest).toContain('name: SESSION_BACKUP_ARTIFACT_PARALLEL');
-        expect(manifest).toContain('value: "2"');
+        expect(manifest).toContain('value: "4"');
         expect(manifest).toContain('name: SESSION_BACKUP_REQUEST_TIMEOUT_MS');
-        expect(manifest).toContain('value: "300000"');
+        expect(manifest).toContain('value: "60000"');
         expect(manifest).toContain('name: session-backup-seed');
         expect(manifest).toContain('schedule: "*/5 * * * *"');
         expect(manifest).toContain('exec node session-backup.mjs --mode=seed-queue --limit=2000');
