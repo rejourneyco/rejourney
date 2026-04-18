@@ -56,6 +56,7 @@ import {
   ListObjectsV2Command,
   DeleteObjectsCommand,
 } from '@aws-sdk/client-s3';
+import { NodeHttpHandler } from '@smithy/node-http-handler';
 import pg from 'pg';
 import { evaluateBackupQuality } from './backup-quality.mjs';
 
@@ -145,6 +146,16 @@ function makeS3Client(endpoint, accessKeyId, secretAccessKey) {
     credentials: { accessKeyId, secretAccessKey },
     forcePathStyle: true,
     maxAttempts: 1,
+    // Socket-level timeout: destroy the TCP socket if it goes idle for >2 min.
+    // This handles CLOSE_WAIT sockets where the remote (R2/S3) closed its side
+    // mid-transfer — without this, Linux keeps the socket alive for up to 2 hours
+    // (TCP keepalive default), causing the upload/download to hang indefinitely.
+    // AbortController alone is insufficient because abort() can't forcibly destroy
+    // an OS-level socket stuck in CLOSE_WAIT.
+    requestHandler: new NodeHttpHandler({
+      socketTimeout: 120000,    // 120s idle → destroy socket
+      connectionTimeout: 10000, // 10s to establish TCP connection
+    }),
   });
 }
 
