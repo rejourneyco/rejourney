@@ -344,7 +344,7 @@ metadata:
   labels:
     app.kubernetes.io/part-of: rejourney
 spec:
-  schedule: "*/15 * * * *"
+  schedule: "*/5 * * * *"
   suspend: false
   concurrencyPolicy: Forbid
   successfulJobsHistoryLimit: 3

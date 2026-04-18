@@ -31,7 +31,7 @@ import {
 } from '../services/retentionRunLock.js';
 
 const RUN_INTERVAL_MS = 6 * 60 * 60 * 1000;
-const BATCH_SIZE = 100;
+const BATCH_SIZE = 300;
 const LOCK_HEARTBEAT_INTERVAL_MS = 30 * 1000;
 
 let isRunning = true;

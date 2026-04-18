@@ -176,7 +176,7 @@ function getSourceClientForArtifact(artifact) {
 // Postgres Pool (replaces psql subprocess calls)
 // =============================================================================
 
-const pool = new pg.Pool({ connectionString: config.databaseUrl, max: 5 });
+const pool = new pg.Pool({ connectionString: config.databaseUrl, max: 16 });
 
 async function sql(query, params) {
   const result = await pool.query(query, params);
@@ -649,6 +649,26 @@ async function cleanupOrphanedQueueRows() {
   return result.rowCount || 0;
 }
 
+async function cleanupTerminalSourceMissingRows() {
+  const result = await sql(`
+    DELETE FROM session_backup_queue
+    WHERE status = 'source_missing'
+      AND updated_at < NOW() - INTERVAL '48 hours';
+  `);
+  return result.rowCount || 0;
+}
+
+async function cleanupNonClaimableSessionRows() {
+  const result = await sql(`
+    DELETE FROM session_backup_queue q
+    USING sessions s
+    WHERE q.session_id = s.id
+      AND q.status = 'pending'
+      AND s.status NOT IN ('ready', 'completed');
+  `);
+  return result.rowCount || 0;
+}
+
 async function recoverStaleQueueClaims() {
   const result = await sql(`
     UPDATE session_backup_queue
@@ -694,10 +714,21 @@ async function normalizePendingQueueRetryTimes() {
 }
 
 async function claimQueueBatch(limit, ownerId) {
+  // Pre-filter to a small candidate pool using the index scan, then apply the
+  // expensive LATERAL artifact-stats join only to those rows. Without this, the
+  // LATERAL runs for every row in the full 164k-row pending set on every batch claim.
   const result = await sql(`
     WITH claimable AS (
       SELECT q.session_id
-      FROM session_backup_queue q
+      FROM (
+        SELECT session_id
+        FROM session_backup_queue
+        WHERE status = 'pending'
+          AND next_retry_at <= NOW()
+        ORDER BY next_retry_at ASC, created_at ASC, session_id ASC
+        LIMIT $3
+      ) pre
+      JOIN session_backup_queue q ON q.session_id = pre.session_id
       JOIN sessions s ON s.id = q.session_id
       JOIN projects p ON p.id = s.project_id
       ${buildReadyArtifactStatsJoin('s')}
@@ -730,7 +761,7 @@ async function claimQueueBatch(limit, ownerId) {
       p.team_id,
       FLOOR(EXTRACT(EPOCH FROM s.started_at) * 1000)::bigint::text AS session_start_ms,
       q.attempts::int AS attempt_number;
-  `, [limit, ownerId]);
+  `, [limit, ownerId, config.batchFetchSize]);
 
   return result.rows.map((row) => ({
     id: row.session_id,
@@ -1192,6 +1223,8 @@ async function maybeRepairSessionMetadata(sessionId, manifest, artifacts) {
   if (repairs.length > 0) {
     log(`  repaired ${sessionId}: ${repairs.join(', ')}`);
   }
+
+  return repairs;
 }
 
 // =============================================================================
@@ -1367,6 +1400,41 @@ function isSourceNotFound(error) {
   );
 }
 
+// Streams an artifact directly from source S3 to R2 without touching disk.
+// Only safe for artifact kinds that need no content transformation (events).
+// Each retry issues a fresh GetObject so the stream is never reused across attempts.
+async function streamSourceToR2(artifact, backupKey, artifactLabel) {
+  const { client, bucket } = getSourceClientForArtifact(artifact);
+  let sourceSize;
+
+  await withRetry(async () => {
+    const resp = await sendStorageCommand(
+      client,
+      new GetObjectCommand({ Bucket: bucket, Key: artifact.s3ObjectKey }),
+      `stream-get ${artifact.s3ObjectKey}`,
+    );
+
+    sourceSize = Number(resp.ContentLength || 0);
+    if (!sourceSize) {
+      throw new Error(`${artifactLabel}: source ContentLength is zero or missing`);
+    }
+
+    await sendStorageCommand(
+      r2Client,
+      new PutObjectCommand({
+        Bucket: config.r2Bucket,
+        Key: backupKey,
+        Body: resp.Body,
+        ContentType: ARTIFACT_CONTENT_TYPE,
+        ContentLength: sourceSize,
+      }),
+      `stream-put ${backupKey}`,
+    );
+  }, `stream ${artifactLabel}`, { shouldRetry: (error) => !isSourceNotFound(error) });
+
+  return sourceSize;
+}
+
 async function verifyDownload(filePath, label) {
   const { size } = await stat(filePath);
   if (size === 0) {
@@ -1523,13 +1591,38 @@ async function maybeTransformScreenshotForBackup(tempPath, artifact, artifactLab
 // =============================================================================
 
 async function processArtifact(artifact, index, tempDir, session) {
-  const tempPath = path.join(tempDir, `artifact-${index}`);
   const backupKey = `backups/${artifact.s3ObjectKey}`;
   const artifactLabel = `${session.id}/${artifact.kind}[${index}]`;
 
   if (!artifact.endpointResolved) {
     throw new Error(`artifact ${artifactLabel} references unknown endpoint_id ${artifact.endpointId}`);
   }
+
+  // Fast path: events are always passthrough — stream directly from source S3 to R2.
+  // No disk write, no disk read, no temp file. Each S3 error (including 404) propagates
+  // to the caller, which handles source_missing the same way as the disk path.
+  if (artifact.kind === 'events') {
+    const sourceSize = await streamSourceToR2(artifact, backupKey, artifactLabel);
+    await verifyUpload(backupKey, sourceSize, artifactLabel);
+    if (artifact.sizeBytes !== sourceSize) {
+      await correctArtifactSize(artifact.s3ObjectKey, sourceSize);
+    }
+    return {
+      kind: artifact.kind,
+      sourceKey: artifact.s3ObjectKey,
+      backupKey,
+      repairStatus: 'unchanged',
+      backupFormat: 'mirrored_source',
+      sourceSizeBytes: sourceSize,
+      sizeBytes: sourceSize,
+      frameCount: artifact.frameCount,
+      status: 'copied',
+    };
+  }
+
+  // Slow path: hierarchy (may need legacy gzip repair) and screenshots (need tar repack)
+  // both require reading or writing content, so we use a temp file on disk.
+  const tempPath = path.join(tempDir, `artifact-${index}`);
 
   let sourceSize;
   let backupSize;
@@ -1689,10 +1782,15 @@ async function processSession(session) {
     const copiedCount = backupArtifacts.filter((a) => a.status === 'copied').length;
 
     if (missingOnSource > 0) {
-      const terminalMarker = (
-        missingWithoutUploadCompleted === missingOnSource
-        && (session.attemptNumber || 1) >= config.sourceMissingTerminalAttempt
-      ) ? ' [terminal-source-missing]' : '';
+      // Mark terminal when every missing artifact never had upload_completed, OR
+      // as a fallback after 2× the terminal attempt threshold to handle the edge
+      // case where S3 lost an object that the SDK reported as uploaded.
+      const isTerminal = (
+        (missingWithoutUploadCompleted === missingOnSource
+          && (session.attemptNumber || 1) >= config.sourceMissingTerminalAttempt)
+        || (session.attemptNumber || 1) >= config.sourceMissingTerminalAttempt * 2
+      );
+      const terminalMarker = isTerminal ? ' [terminal-source-missing]' : '';
       throw new Error(
         `session ${session.id} has ${missingOnSource} artifact(s) missing on source storage; refusing to mark backup complete${terminalMarker}`,
       );
@@ -1701,9 +1799,13 @@ async function processSession(session) {
       throw new Error(`session ${session.id} copied ${copiedCount}/${artifacts.length} artifacts; refusing to mark backup complete`);
     }
 
-    await maybeRepairSessionMetadata(session.id, manifest, artifacts);
+    const repairs = await maybeRepairSessionMetadata(session.id, manifest, artifacts);
 
-    const finalManifest = await buildManifest(session.id);
+    // Only re-fetch the manifest from the DB if a repair actually changed session fields.
+    // For the common case (no repairs), reuse the already-fetched manifest to save a round-trip.
+    const finalManifest = repairs.length > 0
+      ? await buildManifest(session.id)
+      : { ...manifest };
     finalManifest.exportedAt = new Date().toISOString();
     finalManifest.backupArtifacts = backupArtifacts;
 
@@ -1853,6 +1955,16 @@ async function main() {
     const cleanedOrphans = await cleanupOrphanedQueueRows();
     if (cleanedOrphans > 0) {
       log(`Removed ${cleanedOrphans} orphaned session(s) from the backup queue`);
+    }
+
+    const cleanedSourceMissing = await cleanupTerminalSourceMissingRows();
+    if (cleanedSourceMissing > 0) {
+      log(`Removed ${cleanedSourceMissing} permanently unrecoverable source_missing session(s) from the backup queue`);
+    }
+
+    const cleanedNonClaimable = await cleanupNonClaimableSessionRows();
+    if (cleanedNonClaimable > 0) {
+      log(`Removed ${cleanedNonClaimable} queued session(s) whose session status is no longer claimable`);
     }
 
     const recoveredClaims = await recoverStaleQueueClaims();
