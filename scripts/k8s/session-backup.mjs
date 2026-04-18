@@ -105,6 +105,7 @@ const config = {
   queueClaimStaleMinutes: Number(process.env.SESSION_BACKUP_QUEUE_CLAIM_STALE_MINUTES || 120),
   queueRetryBaseSeconds: Number(process.env.SESSION_BACKUP_QUEUE_RETRY_BASE_SECONDS || 60),
   queueRetryMaxSeconds: Number(process.env.SESSION_BACKUP_QUEUE_RETRY_MAX_SECONDS || 3600),
+  sourceMissingTerminalAttempt: Number(process.env.SESSION_BACKUP_SOURCE_MISSING_TERMINAL_ATTEMPT || 5),
   seedBatchSize: Number(process.env.SESSION_BACKUP_SEED_BATCH_SIZE || 500),
   repairLegacyHierarchy: process.env.SESSION_BACKUP_REPAIR_LEGACY_HIERARCHY_GZIP !== '0',
   archiveFriendlyScreenshots: process.env.SESSION_BACKUP_ARCHIVE_FRIENDLY_SCREENSHOTS !== '0',
@@ -626,7 +627,7 @@ async function cleanupIneligibleQueueRows() {
     JOIN projects p ON p.id = s.project_id
     ${buildReadyArtifactStatsJoin('s')}
     WHERE q.session_id = s.id
-      AND q.status = 'pending'
+      AND q.status IN ('pending', 'source_missing')
       AND s.status IN ('ready', 'completed')
       AND p.deleted_at IS NULL
       AND NOT (${buildBackupEligibilityPredicate('s')});
@@ -747,6 +748,14 @@ async function completeQueueEntry(sessionId) {
   `, [sessionId]);
 }
 
+function isTerminalSourceMissingReason(errorMessage) {
+  return String(errorMessage || '').includes('[terminal-source-missing]');
+}
+
+function stripTerminalSourceMissingMarker(errorMessage) {
+  return String(errorMessage || '').replace(/\s*\[terminal-source-missing\]\s*$/, '');
+}
+
 function computeQueueRetryDelaySeconds(attemptNumber) {
   const exponent = Math.max(0, Math.min(10, attemptNumber - 1));
   return Math.min(
@@ -770,6 +779,21 @@ async function requeueFailedQueueEntry(sessionId, ownerId, errorMessage, attempt
       AND claimed_by = $4;
   `, [sessionId, delaySeconds, errorMessage, ownerId]);
   return delaySeconds;
+}
+
+async function markQueueEntrySourceMissing(sessionId, ownerId, errorMessage) {
+  await sql(`
+    UPDATE session_backup_queue
+    SET
+      status = 'source_missing',
+      claimed_by = NULL,
+      claimed_at = NULL,
+      next_retry_at = NULL,
+      updated_at = NOW(),
+      last_error = LEFT($2, 2000)
+    WHERE session_id = $1
+      AND claimed_by = $3;
+  `, [sessionId, errorMessage, ownerId]);
 }
 
 async function fetchSeedCandidates(limit, cursorStartedAt = null, cursorSessionId = null) {
@@ -987,6 +1011,7 @@ async function fetchArtifacts(sessionId) {
       COALESCE(end_time, 0)::bigint AS end_time,
       COALESCE(frame_count, 0)::int AS frame_count,
       ra.created_at::text AS created_at,
+      (ra.upload_completed_at IS NOT NULL) AS upload_completed,
       ra.endpoint_id,
       COALESCE(se.endpoint_url, '') AS endpoint_url,
       COALESCE(se.bucket, '') AS endpoint_bucket,
@@ -1016,6 +1041,7 @@ async function fetchArtifacts(sessionId) {
     endTime: Number(row.end_time || 0),
     frameCount: Number(row.frame_count || 0),
     createdAt: row.created_at || '',
+    uploadCompleted: row.upload_completed === true,
     endpointId: row.endpoint_id || null,
     endpointUrl: row.endpoint_url || config.sourceEndpoint,
     bucket: row.endpoint_bucket || config.sourceBucket,
@@ -1611,6 +1637,7 @@ async function processSession(session) {
     validateBackupArtifactShape(session.id, manifest, artifacts);
     let totalBytes = 0;
     let missingOnSource = 0;
+    let missingWithoutUploadCompleted = 0;
 
     const backupArtifacts = [];
     const artifactWorkers = Math.min(config.artifactParallel, artifacts.length || 1);
@@ -1633,6 +1660,7 @@ async function processSession(session) {
               sourceSizeBytes: artifact.sizeBytes,
               sizeBytes: artifact.sizeBytes,
               frameCount: artifact.frameCount,
+              uploadCompleted: artifact.uploadCompleted,
               status: 'source_missing',
             },
             sourceMissing: true,
@@ -1650,6 +1678,9 @@ async function processSession(session) {
       backupArtifacts.push(ar.result);
       if (ar.sourceMissing) {
         missingOnSource += 1;
+        if (!ar.result.uploadCompleted) {
+          missingWithoutUploadCompleted += 1;
+        }
       } else if (ar.result.status === 'copied') {
         totalBytes += ar.result.sizeBytes;
       }
@@ -1658,8 +1689,12 @@ async function processSession(session) {
     const copiedCount = backupArtifacts.filter((a) => a.status === 'copied').length;
 
     if (missingOnSource > 0) {
+      const terminalMarker = (
+        missingWithoutUploadCompleted === missingOnSource
+        && (session.attemptNumber || 1) >= config.sourceMissingTerminalAttempt
+      ) ? ' [terminal-source-missing]' : '';
       throw new Error(
-        `session ${session.id} has ${missingOnSource} artifact(s) missing on source storage; refusing to mark backup complete`,
+        `session ${session.id} has ${missingOnSource} artifact(s) missing on source storage; refusing to mark backup complete${terminalMarker}`,
       );
     }
     if (copiedCount !== artifacts.length) {
@@ -1827,6 +1862,7 @@ async function main() {
 
     let backedUp = 0;
     let errors = 0;
+    let blockedSourceMissing = 0;
     let totalBytes = 0;
     let claimedBatches = 0;
 
@@ -1852,6 +1888,14 @@ async function main() {
           const missingNote = result.missingOnSource > 0 ? `, ${result.missingOnSource} missing on source` : '';
           console.log(`  OK ${result.sessionId}: ${result.artifactCount} artifacts, ~${Math.round(result.totalBytes / 1024)} KB${missingNote}`);
         } else {
+          if (isTerminalSourceMissingReason(result.reason)) {
+            const cleanReason = stripTerminalSourceMissingMarker(result.reason);
+            await markQueueEntrySourceMissing(result.sessionId, ownerId, cleanReason);
+            blockedSourceMissing += 1;
+            warn(`${result.sessionId}: ${cleanReason} (marked source_missing after attempt ${result.attemptNumber || 1})`);
+            continue;
+          }
+
           errors += 1;
           const delaySeconds = await requeueFailedQueueEntry(
             result.sessionId,
@@ -1864,10 +1908,14 @@ async function main() {
       }
 
       await refreshRunLock(ownerId);
-      log(`Progress: ${backedUp} backed up, ${errors} retried this run`);
+      log(`Progress: ${backedUp} backed up, ${errors} retried, ${blockedSourceMissing} blocked_source_missing this run`);
     }
 
-    log(`Session backup complete: ${backedUp} sessions backed up, ${errors} retried this run, ~${Math.round(totalBytes / 1024 / 1024)} MB total`);
+    log(
+      `Session backup complete: ${backedUp} sessions backed up, `
+      + `${errors} retried, ${blockedSourceMissing} blocked_source_missing this run, `
+      + `~${Math.round(totalBytes / 1024 / 1024)} MB total`,
+    );
   } finally {
     await cleanup();
   }

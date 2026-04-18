@@ -57,6 +57,9 @@ describe('session backup seed mode', () => {
 
     it('deploys a dedicated session-backup-seed cronjob that runs seed-queue every 5 minutes', () => {
         const manifest = readWorkspaceFile('../../../k8s/archive.yaml');
+        const seedBlockStart = manifest.indexOf('name: session-backup-seed');
+        const seedBlockEnd = manifest.indexOf('\n---', seedBlockStart);
+        const seedBlock = manifest.slice(seedBlockStart, seedBlockEnd === -1 ? manifest.length : seedBlockEnd);
 
         expect(manifest).toContain('name: session-backup');
         expect(manifest).toContain('schedule: "0 * * * *"');
@@ -71,6 +74,7 @@ describe('session backup seed mode', () => {
         expect(manifest).toContain('exec node session-backup.mjs --mode=seed-queue --limit=2000');
         expect(manifest).toContain('name: SESSION_BACKUP_SEED_BATCH_SIZE');
         expect(manifest).toContain('value: "2000"');
+        expect(seedBlock).toContain('suspend: false');
     });
 
     it('uses explicit request timeouts and disables SDK stream retries for storage calls', () => {
@@ -78,9 +82,19 @@ describe('session backup seed mode', () => {
 
         expect(script).toContain('requestTimeoutMs: Number(process.env.SESSION_BACKUP_REQUEST_TIMEOUT_MS || 300000)');
         expect(script).toContain('slowdownRetryBaseMs: Number(process.env.SESSION_BACKUP_SLOWDOWN_RETRY_BASE_MS || 5000)');
+        expect(script).toContain('sourceMissingTerminalAttempt: Number(process.env.SESSION_BACKUP_SOURCE_MISSING_TERMINAL_ATTEMPT || 5)');
         expect(script).toContain('maxAttempts: 1');
         expect(script).toContain("msg.includes('reduce your concurrent request rate')");
         expect(script).toContain('controller.abort(timeoutError)');
+    });
+
+    it('parks repeated stale source-missing sessions instead of retrying them forever', () => {
+        const script = readWorkspaceFile('../../../scripts/k8s/session-backup.mjs');
+
+        expect(script).toContain("status = 'source_missing'");
+        expect(script).toContain('missingWithoutUploadCompleted === missingOnSource');
+        expect(script).toContain('[terminal-source-missing]');
+        expect(script).toContain('marked source_missing after attempt');
     });
 
     it('defines retention-aware priority bands for expired and near-expiry sessions', () => {

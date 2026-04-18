@@ -154,7 +154,7 @@ session-backup CronJob
 
 `session_backup_queue` tracks:
 
-- `status`: `pending` or `processing`
+- `status`: `pending`, `processing`, or terminal `source_missing`
 - `attempts`
 - `next_retry_at`
 - `claimed_by`
@@ -195,6 +195,27 @@ The queue row is moved back to `pending` with:
 - `last_error` populated
 
 Backoff is exponential and capped by env-driven settings in [`session-backup.mjs`](/Users/mora/Desktop/Dev-mac/rejourney/scripts/k8s/session-backup.mjs).
+
+### Terminal `source_missing` parking
+
+There is now one intentionally terminal queue state: `source_missing`.
+
+This is only used for a narrow historical failure pattern where:
+
+- the worker still sees source objects missing after repeated retries
+- the session has already hit `SESSION_BACKUP_SOURCE_MISSING_TERMINAL_ATTEMPT` attempts
+- all missing artifacts also have `upload_completed_at IS NULL`
+
+That combination is treated as "very likely stale metadata / impossible historical source recovery," not as a healthy backup candidate.
+
+Important consequences:
+
+- the session is **not** marked backed up
+- no `session_backup_log` row is written
+- retention still will not purge it as a backed-up session
+- the row stops re-entering normal `pending` claim order, which prevents old impossible sessions from starving real backupable work
+
+If source storage is later repaired for one of these sessions, operators must move the queue row back to `pending` or delete/re-enqueue it.
 
 ## [B4] Backup Execution + Success Criteria
 
@@ -244,7 +265,7 @@ If any of those checks fail:
 
 - the R2 prefix is removed
 - no completed backup-log row should remain from that attempt
-- the queue entry is retried later
+- the queue entry is retried later unless it matches the narrow terminal `source_missing` rule above
 
 ### What goes into `session_backup_log`
 
@@ -431,8 +452,10 @@ This is intentionally conservative, but it means some sessions can remain inelig
 If source objects are missing or the prefix parity check fails:
 
 - the run rolls back the R2 prefix
-- the queue row is retried
+- the queue row is retried, unless it is repeatedly hitting the historical stale `source_missing` pattern
 - the session is not considered backed up
+
+Parking a row as `source_missing` is not a success path. It is only an anti-starvation queue-control path.
 
 ### 5. Retention is fail-safe too
 
@@ -445,6 +468,7 @@ If `session_backup_log` is missing, or counts do not satisfy the safety gate:
 
 - queue state:
   - `session_backup_queue`
+  - note: `status = 'source_missing'` means "blocked on historical missing source objects", not "backed up"
 - completed backups:
   - `session_backup_log`
 - purge attempts:

@@ -181,6 +181,7 @@ Session Backup Deployment Notes:
 - The source-of-truth script for that job is [session-backup.mjs](../scripts/k8s/session-backup.mjs), and GitHub Actions now runs [check-archive-sync.sh](../scripts/k8s/check-archive-sync.sh) before `kubectl apply`.
 - A deploy from `main` now updates the backup job logic, including legacy hierarchy gzip repair and archive-friendly screenshot repacking for R2.
 - The live CronJob can be suspended during reset, but the committed manifest controls whether it resumes after the next deploy.
+- The committed `session-backup-seed` manifest should stay `suspend: false`; if prod is manually unsuspended but Git still says `true`, the next deploy will silently turn it off again.
 - Detailed queue / backup / retention rules live in [Session Backup + Retention Internals](./session-backup-retention-internals.md).
 
 Current Production Runtime Notes:
@@ -211,6 +212,7 @@ Retention + Backup Coordination:
   - if `session_backup_log` does not exist yet, retention skips session purges
   - if a session has not been backed up yet, retention skips that session
 - Backup is the source that creates and populates `session_backup_log`, so backup must run successfully before retention can start draining expired sessions.
+- Some historical queue rows may now be parked as `status = 'source_missing'` instead of retrying forever. That is an operator safeguard for stale source-storage gaps, not a success path; those sessions still do not count as backed up, and retention still skips them.
 - Retention deletes only the session artifact payloads and cache state:
   - canonical S3 objects under `tenant/{teamId}/project/{projectId}/sessions/{sessionId}/...`
   - legacy disconnected objects under bare `sessions/...`
