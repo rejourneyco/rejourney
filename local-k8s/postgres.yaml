@@ -46,11 +46,11 @@ spec:
           image: postgres:18-alpine
           args:
             - -c
-            - shared_buffers=128MB
+            - shared_buffers=512MB
             - -c
-            - effective_cache_size=256MB
+            - effective_cache_size=1GB
             - -c
-            - work_mem=2MB
+            - work_mem=8MB
             - -c
             - maintenance_work_mem=32MB
           ports:

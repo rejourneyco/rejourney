@@ -40,7 +40,7 @@ spec:
               valueFrom:
                 secretKeyRef:
                   name: postgres-secret
-                  key: DATABASE_URL
+                  key: PGBOUNCER_URL
             - name: REDIS_URL
               valueFrom:
                 secretKeyRef:
@@ -182,7 +182,7 @@ spec:
               valueFrom:
                 secretKeyRef:
                   name: postgres-secret
-                  key: DATABASE_URL
+                  key: PGBOUNCER_URL
             - name: REDIS_URL
               valueFrom:
                 secretKeyRef:
@@ -318,7 +318,7 @@ spec:
               valueFrom:
                 secretKeyRef:
                   name: postgres-secret
-                  key: DATABASE_URL
+                  key: PGBOUNCER_URL
             - name: JWT_SECRET
               valueFrom:
                 secretKeyRef:
@@ -376,7 +376,7 @@ spec:
               valueFrom:
                 secretKeyRef:
                   name: postgres-secret
-                  key: DATABASE_URL
+                  key: PGBOUNCER_URL
             - name: REDIS_URL
               valueFrom:
                 secretKeyRef:
@@ -464,7 +464,7 @@ spec:
               valueFrom:
                 secretKeyRef:
                   name: postgres-secret
-                  key: DATABASE_URL
+                  key: PGBOUNCER_URL
             - name: REDIS_URL
               valueFrom:
                 secretKeyRef:

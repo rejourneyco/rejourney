@@ -48,13 +48,17 @@ spec:
           image: postgres:18-alpine
           args:
             - -c
-            - shared_buffers=256MB
+            - shared_buffers=1536MB
             - -c
-            - effective_cache_size=1GB
+            - effective_cache_size=4GB
             - -c
-            - work_mem=4MB
+            - work_mem=16MB
             - -c
             - maintenance_work_mem=128MB
+            - -c
+            # DEPLOY ORDER: apply pgbouncer.yaml and switch services to PGBOUNCER_URL *before*
+            # restarting Postgres with this limit, otherwise direct-pool services will exhaust slots.
+            - max_connections=60
           ports:
             - containerPort: 5432
           env:

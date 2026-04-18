@@ -174,6 +174,8 @@ infra() {
     kubectl delete job minio-setup -n "$NAMESPACE" --ignore-not-found >/dev/null 2>&1 || true
     apply_file "$LOCAL_K8S_DIR/minio.yaml"
     wait_infra
+    apply_file "$LOCAL_K8S_DIR/pgbouncer.yaml"
+    kubectl rollout status deployment/pgbouncer -n "$NAMESPACE" --timeout=60s
     log "Local infra is ready."
 }
 

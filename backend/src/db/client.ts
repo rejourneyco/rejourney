@@ -14,8 +14,8 @@ const { Pool } = pg;
 const pool = new Pool({
     connectionString: config.DATABASE_URL,
     max: 20, // Maximum number of connections in the pool
-    idleTimeoutMillis: 30000, // Close idle connections after 30 seconds
-    connectionTimeoutMillis: 2000, // Return an error if connection takes longer than 2 seconds
+    idleTimeoutMillis: 10000, // Close idle connections after 10 seconds
+    connectionTimeoutMillis: 5000, // Return an error if connection takes longer than 5 seconds
 });
 
 // Log pool errors

@@ -1,0 +1,94 @@
+# PgBouncer — connection pooler in transaction mode.
+# Sits between all application services and Postgres.
+# Services connect to pgbouncer:5432 via PGBOUNCER_URL secret key.
+# postgres-backup (pg_dump) bypasses PgBouncer and uses DATABASE_URL directly.
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pgbouncer
+  namespace: rejourney
+  labels:
+    app: pgbouncer
+    app.kubernetes.io/part-of: rejourney
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: pgbouncer
+  template:
+    metadata:
+      labels:
+        app: pgbouncer
+    spec:
+      containers:
+        - name: pgbouncer
+          image: edoburu/pgbouncer:latest
+          ports:
+            - containerPort: 5432
+          env:
+            - name: DB_HOST
+              value: postgres
+            - name: DB_PORT
+              value: "5432"
+            - name: DB_NAME
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: POSTGRES_DB
+            - name: DB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: POSTGRES_USER
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: POSTGRES_PASSWORD
+            - name: POOL_MODE
+              value: transaction
+            - name: DEFAULT_POOL_SIZE
+              value: "15"
+            - name: MAX_CLIENT_CONN
+              value: "300"
+            - name: SERVER_IDLE_TIMEOUT
+              value: "60"
+            - name: AUTH_TYPE
+              value: scram-sha-256
+            - name: IGNORE_STARTUP_PARAMETERS
+              value: extra_float_digits
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+          readinessProbe:
+            tcpSocket:
+              port: 5432
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: 5432
+            initialDelaySeconds: 15
+            periodSeconds: 20
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: pgbouncer
+  namespace: rejourney
+  labels:
+    app: pgbouncer
+    app.kubernetes.io/part-of: rejourney
+spec:
+  selector:
+    app: pgbouncer
+  ports:
+    - port: 5432
+      targetPort: 5432

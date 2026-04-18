@@ -19,7 +19,12 @@ metadata:
 #   --from-literal=POSTGRES_USER=rejourney \
 #   --from-literal=POSTGRES_PASSWORD=<SECURE_PASSWORD> \
 #   --from-literal=POSTGRES_DB=rejourney \
-#   --from-literal=DATABASE_URL=postgresql://rejourney:<SECURE_PASSWORD>@postgres:5432/rejourney
+#   --from-literal=DATABASE_URL=postgresql://rejourney:<SECURE_PASSWORD>@postgres:5432/rejourney \
+#   --from-literal=PGBOUNCER_URL=postgresql://rejourney:<SECURE_PASSWORD>@pgbouncer:5432/rejourney
+#
+# NOTE: DATABASE_URL points directly at Postgres (used only by pg_dump backup job).
+#       PGBOUNCER_URL points at PgBouncer (used by all application services).
+#       Both use the same credentials — only the hostname differs.
 # 
 # Optional but recommended: separate read-only exporter credentials:
 # kubectl exec -it postgres-0 -n rejourney -- psql -U rejourney -d rejourney -c \

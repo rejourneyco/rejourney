@@ -98,6 +98,27 @@ apply_unlabeled_support_manifests() {
   kubectl apply -f "${RENDER_DIR}/ingress.yaml"
 }
 
+ensure_pgbouncer_url_secret() {
+  # One-time migration: add PGBOUNCER_URL to postgres-secret if it doesn't exist yet.
+  # Derived from DATABASE_URL by swapping @postgres: for @pgbouncer: — no manual steps needed.
+  local existing
+  existing="$(kubectl get secret postgres-secret -n "${NAMESPACE}" -o jsonpath='{.data.PGBOUNCER_URL}' 2>/dev/null || true)"
+  if [ -n "${existing}" ]; then
+    log "PGBOUNCER_URL already present in postgres-secret, skipping"
+    return
+  fi
+
+  log "Adding PGBOUNCER_URL to postgres-secret (one-time migration)..."
+  local db_url
+  db_url="$(kubectl get secret postgres-secret -n "${NAMESPACE}" -o jsonpath='{.data.DATABASE_URL}' | base64 -d)"
+  local pgbouncer_url
+  pgbouncer_url="${db_url/@postgres:/@pgbouncer:}"
+  kubectl patch secret postgres-secret -n "${NAMESPACE}" \
+    --type=json \
+    -p="[{\"op\":\"add\",\"path\":\"/data/PGBOUNCER_URL\",\"value\":\"$(echo -n "${pgbouncer_url}" | base64 | tr -d '\n')\"}]"
+  log "PGBOUNCER_URL added: ${pgbouncer_url}"
+}
+
 wait_for_postgres() {
   section "Waiting For PostgreSQL"
   if ! kubectl wait --for=condition=ready pod -l app=postgres -n "${NAMESPACE}" --timeout=180s; then
@@ -219,6 +240,7 @@ main() {
   kubectl apply -f "${K8S_DIR}/traefik-config.yaml"
   ensure_cert_manager
   ensure_grafana_secret
+  ensure_pgbouncer_url_secret
   apply_unlabeled_support_manifests
 
   bash "${ROOT_DIR}/scripts/k8s/check-archive-sync.sh"
@@ -255,6 +277,7 @@ main() {
   kubectl delete serviceaccount netdata -n "${NAMESPACE}" --ignore-not-found
 
   wait_for_postgres
+  wait_for_deployment pgbouncer
   wait_for_job
   print_migration_status "after"
 

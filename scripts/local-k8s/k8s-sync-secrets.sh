@@ -61,7 +61,8 @@ create_or_update_secret postgres-secret \
     --from-literal=POSTGRES_USER="$POSTGRES_USER" \
     --from-literal=POSTGRES_PASSWORD="$POSTGRES_PASSWORD" \
     --from-literal=POSTGRES_DB="$POSTGRES_DB" \
-    --from-literal=DATABASE_URL="postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}"
+    --from-literal=DATABASE_URL="postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}" \
+    --from-literal=PGBOUNCER_URL="postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@pgbouncer:5432/${POSTGRES_DB}"
 
 create_or_update_secret redis-secret \
     --from-literal=REDIS_URL="redis://redis:6379/0"
