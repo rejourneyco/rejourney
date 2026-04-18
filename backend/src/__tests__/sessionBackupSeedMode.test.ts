@@ -25,7 +25,7 @@ function extractFunctionBlock(source: string, functionName: string): string {
 }
 
 describe('session backup seed mode', () => {
-    it('uses retention-aware priority ordering in fetchSeedCandidates', () => {
+    it('uses simple index-friendly ordering in fetchSeedCandidates (started_at ASC, id ASC)', () => {
         const script = readWorkspaceFile('../../../scripts/k8s/session-backup.mjs');
         const block = extractFunctionBlock(script, 'fetchSeedCandidates');
 
@@ -37,7 +37,10 @@ describe('session backup seed mode', () => {
         expect(block).toContain('WHERE q.session_id = s.id');
         expect(block).toContain("s.started_at > $2::timestamptz");
         expect(block).toContain("s.started_at = $2::timestamptz AND s.id > $3");
-        expect(block).toContain("${buildRetentionPriorityOrderBy({ sessionAlias: 's', sessionIdExpr: 's.id' })}");
+        // Seeder uses (started_at ASC, id ASC) — not retention-priority CASE — so Postgres can use
+        // sessions_seed_started_at_idx instead of sequentially scanning 1M+ rows per run.
+        expect(block).toContain('ORDER BY s.started_at ASC, s.id ASC');
+        expect(block).not.toContain("${buildRetentionPriorityOrderBy({ sessionAlias: 's', sessionIdExpr: 's.id' })}");
         expect(block).not.toContain('FROM ingest_jobs ij');
         expect(block).not.toContain('FROM session_metrics sm');
     });
