@@ -1,110 +1,16 @@
-# Redis Deployment for Rejourney
-# Single instance with persistence
-
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: redis
-  namespace: rejourney
-  labels:
-    app: redis
-    app.kubernetes.io/part-of: rejourney
-spec:
-  type: ClusterIP
-  ports:
-    - port: 6379
-      targetPort: 6379
-  selector:
-    app: redis
-
----
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: redis
-  namespace: rejourney
-  labels:
-    app.kubernetes.io/part-of: rejourney
-spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app: redis
-  template:
-    metadata:
-      labels:
-        app: redis
-    spec:
-      nodeSelector:
-        rejourney.co/storage-node: "true"
-      securityContext:
-        runAsUser: 999
-        runAsGroup: 999
-        fsGroup: 999
-      containers:
-        - name: redis
-          image: redis:8.4-alpine
-          command:
-            - redis-server
-            - --save
-            - "900"
-            - "1"
-            - --loglevel
-            - notice
-            - --dir
-            - /data
-            # Stay below cgroup memory limit so the kernel does not OOMKill the pod
-            - --maxmemory
-            - "900mb"
-            - --maxmemory-policy
-            - allkeys-lru
-          ports:
-            - containerPort: 6379
-          resources:
-            requests:
-              cpu: 200m
-              memory: 384Mi
-            limits:
-              cpu: "1"
-              memory: 1280Mi
-          volumeMounts:
-            - name: redis-data
-              mountPath: /data
-          livenessProbe:
-            exec:
-              command:
-                - redis-cli
-                - ping
-            initialDelaySeconds: 10
-            periodSeconds: 10
-            timeoutSeconds: 3
-            failureThreshold: 3
-          readinessProbe:
-            exec:
-              command:
-                - redis-cli
-                - ping
-            initialDelaySeconds: 5
-            periodSeconds: 5
-            timeoutSeconds: 3
-            failureThreshold: 3
-      volumes:
-        - name: redis-data
-          persistentVolumeClaim:
-            claimName: redis-pvc
-
----
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: redis-pvc
-  namespace: rejourney
-  labels:
-    app.kubernetes.io/part-of: rejourney
-spec:
-  accessModes:
-    - ReadWriteOnce
-  resources:
-    requests:
-      storage: 1Gi
+# Redis — managed by Bitnami Helm chart (Phase 1-C)
+#
+# The standalone Redis Deployment, Service, and PVC that used to live here
+# were replaced by the Bitnami Redis chart with Sentinel mode during Phase 1-C.
+#
+# Helm release: redis  (namespace: rejourney)
+# Chart:        bitnami/redis  v25+
+# Install:      helm upgrade --install redis bitnami/redis -n rejourney -f k8s/redis-values.yaml
+#
+# Key resources created by the chart (do NOT manage these with kubectl apply):
+#   StatefulSet:  redis-node          (master + sentinel in each pod)
+#   Service:      redis               (port 6379 → master, port 26379 → sentinel)
+#   Service:      redis-headless      (direct pod DNS: redis-node-0.redis-headless...)
+#
+# Apps connect via REDIS_SENTINEL_HOST=redis.rejourney.svc.cluster.local
+# Legacy REDIS_URL is kept for reference but ignored when Sentinel mode is active.
