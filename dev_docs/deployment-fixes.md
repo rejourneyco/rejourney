@@ -424,23 +424,24 @@ helm repo update
 
 ### Step B-4: Add Redis password to `redis-secret`
 
-The current `redis-secret` has `REDIS_URL=redis://redis:6379/0` with no password. Add `REDIS_PASSWORD` and update `REDIS_URL` with auth. The currently running Redis has no auth, so apps are unaffected until the maintenance window.
+The current `redis-secret` has `REDIS_URL=redis://redis:6379/0` with no password. Add `REDIS_PASSWORD` only — **do NOT change `REDIS_URL` here**. Changing it to `redis-master` now would immediately crash all pods because `redis-master` won't exist until Bitnami is installed in Phase 1-C. `REDIS_URL` stays pointing at the old `redis` service until Step C-4.
 
 ```bash
 REDIS_PASS=$(openssl rand -hex 24)
-echo "Save this: $REDIS_PASS"
+echo "Save this password somewhere safe: $REDIS_PASS"
 
 kubectl patch secret redis-secret -n rejourney --type=json -p="[
-  {\"op\":\"add\",\"path\":\"/data/REDIS_PASSWORD\",\"value\":\"$(echo -n "${REDIS_PASS}" | base64 | tr -d '\n')\"},
-  {\"op\":\"replace\",\"path\":\"/data/REDIS_URL\",\"value\":\"$(echo -n "redis://:${REDIS_PASS}@redis-master.rejourney.svc.cluster.local:6379/0" | base64 | tr -d '\n')\"}
+  {\"op\":\"add\",\"path\":\"/data/REDIS_PASSWORD\",\"value\":\"$(echo -n "${REDIS_PASS}" | base64 | tr -d '\n')\"}
 ]"
 
-# Verify
+# Verify — REDIS_URL must still read redis://redis:6379/0, not redis-master
 kubectl get secret redis-secret -n rejourney \
   -o jsonpath='{.data.REDIS_PASSWORD}' | base64 -d && echo
+kubectl get secret redis-secret -n rejourney \
+  -o jsonpath='{.data.REDIS_URL}' | base64 -d && echo
 ```
 
-Note: `REDIS_URL` now points to `redis-master` (Bitnami's master service). This URL won't resolve until Bitnami is installed, but it's the URL that apps will use as fallback after the window.
+⚠️ **`REDIS_URL` never needs to be changed to `redis-master`.** Once Step C-7 deploys, apps switch to Sentinel mode (`REDIS_SENTINEL_HOST` is set) and never touch `REDIS_URL` again. Apps currently use `REDIS_SENTINEL_HOST=""` so they fall back to `REDIS_URL` — if `REDIS_URL` pointed at a non-existent service like `redis-master`, every pod would crash immediately.
 
 ### Step B-5: Prepare the Traefik LB annotation changes in `k8s/traefik-config.yaml`
 
