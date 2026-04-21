@@ -314,6 +314,24 @@ main() {
     --prune-allowlist=batch/v1/Job \
     --prune-allowlist=policy/v1/PodDisruptionBudget
 
+  # ── Helm-managed resources guard ─────────────────────────────────────────
+  # The kubectl apply --prune above can delete resources that were previously
+  # applied with app.kubernetes.io/part-of=rejourney but are now managed by
+  # Helm (e.g. the Bitnami redis Service).  Restore them and strip the label
+  # so future prune passes never touch them again.
+  section "Ensuring Helm-managed Redis Service"
+  if ! kubectl get svc redis -n "${NAMESPACE}" >/dev/null 2>&1; then
+    log "redis Service was pruned — restoring via helm upgrade (--reuse-values)..."
+    KUBECONFIG=/etc/rancher/k3s/k3s.yaml helm upgrade redis bitnami/redis \
+      -n "${NAMESPACE}" --reuse-values --wait --timeout=120s
+    log "redis Service restored."
+  else
+    log "redis Service present — no restore needed."
+  fi
+  # Strip the rejourney part-of label so --prune never targets this Helm-managed Service
+  kubectl label svc redis -n "${NAMESPACE}" "app.kubernetes.io/part-of-" 2>/dev/null || true
+  log "Removed app.kubernetes.io/part-of label from redis Service (if present)."
+
   # Traefik dashboard Ingress lived in kube-system without part-of=rejourney, so --prune never removed it.
   log "Removing legacy Traefik dashboard Ingress if present..."
   kubectl delete ingress traefik-dashboard-ingress -n kube-system --ignore-not-found
