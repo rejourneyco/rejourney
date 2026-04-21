@@ -97,7 +97,7 @@ data:
           - "[CONNECTED] == true"
 
       - name: Redis
-        url: tcp://redis.rejourney.svc.cluster.local:6379
+        url: tcp://redis-node-0.redis-headless.rejourney.svc.cluster.local:6379
         interval: 30s
         conditions:
           - "[CONNECTED] == true"

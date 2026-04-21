@@ -76,7 +76,7 @@ spec:
                   name: redis-secret
                   key: REDIS_URL
             - name: REDIS_SENTINEL_HOST
-              value: ""   # set to "redis.rejourney.svc.cluster.local" during Phase 1-C maintenance window
+              value: "redis.rejourney.svc.cluster.local"
             - name: REDIS_PASSWORD
               valueFrom:
                 secretKeyRef:
@@ -355,7 +355,7 @@ spec:
                   name: redis-secret
                   key: REDIS_URL
             - name: REDIS_SENTINEL_HOST
-              value: ""   # set to "redis.rejourney.svc.cluster.local" during Phase 1-C maintenance window
+              value: "redis.rejourney.svc.cluster.local"
             - name: REDIS_PASSWORD
               valueFrom:
                 secretKeyRef:
