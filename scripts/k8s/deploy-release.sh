@@ -121,8 +121,12 @@ ensure_pgbouncer_url_secret() {
 
 wait_for_postgres() {
   section "Waiting For PostgreSQL"
-  if ! kubectl wait --for=condition=ready pod -l app=postgres -n "${NAMESPACE}" --timeout=180s; then
-    kubectl describe pod -l app=postgres -n "${NAMESPACE}" || true
+  local label="app=postgres"
+  if kubectl get cluster postgres -n "${NAMESPACE}" >/dev/null 2>&1; then
+    label="cnpg.io/cluster=postgres,cnpg.io/instanceRole=primary"
+  fi
+  if ! kubectl wait --for=condition=ready pod -l "${label}" -n "${NAMESPACE}" --timeout=180s; then
+    kubectl describe pod -l "${label}" -n "${NAMESPACE}" || true
     echo "[deploy-release] PostgreSQL did not become ready" >&2
     exit 1
   fi
@@ -169,10 +173,24 @@ print_migration_status() {
   find "${K8S_DIR}/../backend/drizzle" -mindepth 1 -maxdepth 1 -type d -exec basename {} \; | sort | tail -n 10
 
   log "Applied drizzle migrations in cluster:"
-  kubectl exec -n "${NAMESPACE}" postgres-0 -- \
-    psql -U rejourney -d rejourney -At -F $'\t' \
-      -c "select id, hash, created_at from drizzle.__drizzle_migrations order by created_at desc limit 10;" \
-    || log "Could not query drizzle.__drizzle_migrations yet"
+  local pg_pod
+  if kubectl get cluster postgres -n "${NAMESPACE}" >/dev/null 2>&1; then
+    # CNPG: primary pod carries instanceRole=primary label
+    pg_pod=$(kubectl get pod -n "${NAMESPACE}" \
+      -l "cnpg.io/cluster=postgres,cnpg.io/instanceRole=primary" \
+      -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
+  else
+    pg_pod="postgres-0"
+  fi
+
+  if [ -n "${pg_pod}" ]; then
+    kubectl exec -n "${NAMESPACE}" "${pg_pod}" -- \
+      psql -U rejourney -d rejourney -At -F $'\t' \
+        -c "select id, hash, created_at from drizzle.__drizzle_migrations order by created_at desc limit 10;" \
+      || log "Could not query drizzle.__drizzle_migrations yet"
+  else
+    log "No postgres pod found yet"
+  fi
 }
 
 wait_for_deployment() {
@@ -293,7 +311,8 @@ main() {
     --prune-allowlist=networking.k8s.io/v1/Ingress \
     --prune-allowlist=traefik.io/v1alpha1/Middleware \
     --prune-allowlist=batch/v1/CronJob \
-    --prune-allowlist=batch/v1/Job
+    --prune-allowlist=batch/v1/Job \
+    --prune-allowlist=policy/v1/PodDisruptionBudget
 
   # Traefik dashboard Ingress lived in kube-system without part-of=rejourney, so --prune never removed it.
   log "Removing legacy Traefik dashboard Ingress if present..."

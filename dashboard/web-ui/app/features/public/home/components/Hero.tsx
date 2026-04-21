@@ -44,9 +44,9 @@ export const Hero: React.FC = () => {
                     <div className="space-y-8 sm:space-y-10 lg:space-y-12">
 
                         <h1 className="text-4xl sm:text-5xl md:text-6xl lg:text-7xl leading-[0.95] tracking-tight uppercase animate-fade-in-up opacity-0">
-                            <span className="font-light text-gray-400">LIGHTWEIGHT</span> <br className="hidden sm:block" />
-                            <span className="font-black" style={{ color: '#000000ff' }}>Sentry Alternative</span> <br className="hidden sm:block" />
-                            <span className="font-light" style={{ color: '#5dadec' }}>For React Native</span>
+                            <span className="font-light text-gray-400">REPLACE SENTRY,</span> <br className="hidden sm:block" />
+                            <span className="font-black" style={{ color: '#000000ff' }}>POSTHOG, AND FIREBASE</span> <br className="hidden sm:block" />
+                            <span className="font-light" style={{ color: '#5dadec' }}>WITH 3 LINES OF CODE</span>
                         </h1>
                         <p className="text-lg sm:text-xl md:text-2xl font-serif italic text-gray-500 max-w-xl animate-fade-in-up opacity-0" style={{ animationDelay: '0.2s' }}>
                             Know about friction before users complain.

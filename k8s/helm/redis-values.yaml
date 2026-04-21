@@ -1,0 +1,43 @@
+# Bitnami Redis Helm values — Sentinel mode, single master (Part 1)
+#
+# IMPORTANT: This file is NOT applied by deploy-release.sh (it only reads k8s/ root, not subdirectories).
+# Install/upgrade manually:
+#   helm install redis bitnami/redis -n rejourney -f k8s/helm/redis-values.yaml
+#   helm upgrade redis bitnami/redis -n rejourney -f k8s/helm/redis-values.yaml
+#
+# Phase 1: single master, Sentinel active, 0 replicas (ready to scale in Part 2)
+# Phase 2: bump replicaCount to 2 and quorum to 2 via helm upgrade
+
+sentinel:
+  enabled: true
+  quorum: 1        # single-node for now; Part 2 raises to 2
+
+replica:
+  replicaCount: 0  # no replicas until Part 2
+
+global:
+  storageClass: hcloud-volumes
+
+master:
+  persistence:
+    size: 2Gi
+  configuration: |
+    maxmemory 900mb
+    maxmemory-policy allkeys-lru
+    save 900 1
+  resources:
+    requests:
+      cpu: 200m
+      memory: 384Mi
+    limits:
+      cpu: "1"
+      memory: 1280Mi
+
+auth:
+  existingSecret: redis-secret
+  existingSecretPasswordKey: REDIS_PASSWORD
+
+metrics:
+  enabled: true           # deploys redis-exporter sidecar; scraped by VictoriaMetrics on port 9121
+  serviceMonitor:
+    enabled: false        # we use VictoriaMetrics static scrape, not prometheus-operator

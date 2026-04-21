@@ -48,14 +48,29 @@ function logRedisOperationFailed(operation: string, err: unknown, extra: Record<
 
 export function getRedis(): RedisClient {
     if (!redis) {
-        redis = new Redis(config.REDIS_URL, {
-            maxRetriesPerRequest: 3,
-            retryStrategy(times: number) {
-                const delay = Math.min(times * 50, 2000);
-                return delay;
-            },
-            lazyConnect: true,
-        });
+        if (config.REDIS_SENTINEL_HOST) {
+            // Sentinel mode: ioredis discovers the current master via Sentinel
+            redis = new Redis({
+                sentinels: [{ host: config.REDIS_SENTINEL_HOST, port: config.REDIS_SENTINEL_PORT! }],
+                name: config.REDIS_MASTER_NAME,
+                password: config.REDIS_PASSWORD,
+                sentinelPassword: config.REDIS_PASSWORD,
+                role: 'master',
+                maxRetriesPerRequest: 3,
+                retryStrategy: (times: number) => Math.min(times * 50, 2000),
+                lazyConnect: true,
+            });
+        } else {
+            // URL mode (current behaviour — used until Bitnami Sentinel is live)
+            redis = new Redis(config.REDIS_URL, {
+                maxRetriesPerRequest: 3,
+                retryStrategy(times: number) {
+                    const delay = Math.min(times * 50, 2000);
+                    return delay;
+                },
+                lazyConnect: true,
+            });
+        }
 
         redis.on('connect', () => {
             isConnected = true;
