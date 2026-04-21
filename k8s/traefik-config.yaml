@@ -14,6 +14,16 @@ metadata:
   namespace: kube-system
 spec:
   valuesContent: |-
+    # Hetzner Cloud Load Balancer — provisioned automatically by Hetzner CCM
+    # when it detects these annotations on the Traefik LoadBalancer Service.
+    # Applied during Phase 1-C maintenance window (CCM must be installed first).
+    service:
+      annotations:
+        load-balancer.hetzner.cloud/location: fsn1
+        load-balancer.hetzner.cloud/use-private-ip: "true"
+        load-balancer.hetzner.cloud/algorithm-type: round_robin
+        load-balancer.hetzner.cloud/health-check-port: "9000"
+
     # Expose Prometheus metrics for VictoriaMetrics to scrape
     metrics:
       prometheus:
@@ -31,6 +41,8 @@ spec:
       web:
         forwardedHeaders:
           trustedIPs:
+            # Hetzner private network (LB→node traffic via private IP)
+            - 10.0.0.0/16
             # Cloudflare IPv4 ranges
             - 173.245.48.0/20
             - 103.21.244.0/22
@@ -58,6 +70,8 @@ spec:
       websecure:
         forwardedHeaders:
           trustedIPs:
+            # Hetzner private network (LB→node traffic via private IP)
+            - 10.0.0.0/16
             # Cloudflare IPv4 ranges
             - 173.245.48.0/20
             - 103.21.244.0/22
