@@ -49,6 +49,14 @@ spec:
                 secretKeyRef:
                   name: redis-secret
                   key: REDIS_URL
+            - name: REDIS_SENTINEL_HOST
+              value: ""   # set to "redis.rejourney.svc.cluster.local" during Phase 1-C
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: redis-secret
+                  key: REDIS_PASSWORD
+                  optional: true
             - name: S3_ENDPOINT
               valueFrom:
                 secretKeyRef:
@@ -203,6 +211,14 @@ spec:
                 secretKeyRef:
                   name: redis-secret
                   key: REDIS_URL
+            - name: REDIS_SENTINEL_HOST
+              value: ""   # set to "redis.rejourney.svc.cluster.local" during Phase 1-C
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: redis-secret
+                  key: REDIS_PASSWORD
+                  optional: true
             - name: S3_ENDPOINT
               valueFrom:
                 secretKeyRef:
@@ -345,6 +361,7 @@ metadata:
     app.kubernetes.io/part-of: rejourney
 spec:
   schedule: "*/5 * * * *"
+  startingDeadlineSeconds: 300
   suspend: false
   concurrencyPolicy: Forbid
   successfulJobsHistoryLimit: 3
@@ -389,6 +406,14 @@ spec:
                     secretKeyRef:
                       name: redis-secret
                       key: REDIS_URL
+                - name: REDIS_SENTINEL_HOST
+                  value: ""   # set to "redis.rejourney.svc.cluster.local" during Phase 1-C
+                - name: REDIS_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: redis-secret
+                      key: REDIS_PASSWORD
+                      optional: true
                 - name: S3_ENDPOINT
                   valueFrom:
                     secretKeyRef:
@@ -508,6 +533,14 @@ spec:
                 secretKeyRef:
                   name: redis-secret
                   key: REDIS_URL
+            - name: REDIS_SENTINEL_HOST
+              value: ""   # set to "redis.rejourney.svc.cluster.local" during Phase 1-C
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: redis-secret
+                  key: REDIS_PASSWORD
+                  optional: true
             - name: JWT_SECRET
               valueFrom:
                 secretKeyRef:
@@ -588,6 +621,7 @@ metadata:
     app.kubernetes.io/part-of: rejourney
 spec:
   schedule: "17 * * * *"   # offset from :00 to spread load
+  startingDeadlineSeconds: 300
   suspend: false
   concurrencyPolicy: Forbid  # skip if previous run still going
   successfulJobsHistoryLimit: 3
@@ -626,6 +660,14 @@ spec:
                     secretKeyRef:
                       name: redis-secret
                       key: REDIS_URL
+                - name: REDIS_SENTINEL_HOST
+                  value: ""   # set to "redis.rejourney.svc.cluster.local" during Phase 1-C
+                - name: REDIS_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: redis-secret
+                      key: REDIS_PASSWORD
+                      optional: true
                 - name: STRIPE_SECRET_KEY
                   valueFrom:
                     secretKeyRef:

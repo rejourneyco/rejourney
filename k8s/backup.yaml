@@ -12,6 +12,7 @@ metadata:
     app.kubernetes.io/part-of: rejourney
 spec:
   schedule: "0 3 * * *"  # 3 AM UTC daily
+  startingDeadlineSeconds: 300
   concurrencyPolicy: Forbid  # Prevent overlapping backups
   successfulJobsHistoryLimit: 3
   failedJobsHistoryLimit: 3

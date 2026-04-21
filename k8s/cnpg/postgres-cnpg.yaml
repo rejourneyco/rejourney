@@ -1,0 +1,75 @@
+# CloudNativePG Cluster manifest
+#
+# IMPORTANT: This file is NOT applied by deploy-release.sh (it only reads k8s/ root, not subdirectories).
+# Applying this before the CNPG CRD is installed would fail every CI deploy.
+# Apply manually during Phase 1-D:
+#   kubectl apply -f k8s/cnpg/postgres-cnpg.yaml
+#
+# Prerequisites (Phase 1-D):
+#   1. CNPG operator installed (kubectl apply -f cnpg-X.X.X.yaml)
+#   2. cnpg-import-secret created with superuser password
+#   3. postgres superuser password set on the legacy StatefulSet
+
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: postgres
+  namespace: rejourney
+spec:
+  instances: 1   # single instance for Part 1; raise to 2 in Phase 2-B
+
+  # Must match the existing Postgres major version.
+  # Current cluster runs PostgreSQL 18.1. Verify CNPG version supports PG 18
+  # before installing (CNPG 1.25 supports up to PG 17; use 1.26+ for PG 18).
+  imageName: ghcr.io/cloudnative-pg/postgresql:18
+
+  postgresql:
+    parameters:
+      max_connections: "60"
+      shared_buffers: "1536MB"
+      effective_cache_size: "4GB"
+      work_mem: "16MB"
+      maintenance_work_mem: "128MB"
+
+  storage:
+    storageClass: hcloud-volumes
+    size: 60Gi   # database is already 27.7 GB; 60 Gi gives headroom for growth
+
+  bootstrap:
+    initdb:
+      import:
+        type: monolith
+        databases:
+          - rejourney
+        roles:
+          - rejourney
+        source:
+          externalCluster: legacy-postgres
+
+  externalClusters:
+    - name: legacy-postgres
+      connectionParameters:
+        host: postgres.rejourney.svc.cluster.local   # old StatefulSet — still running during import
+        user: postgres                                 # superuser; password set in Phase 1-D Step D-1
+        dbname: postgres
+        sslmode: disable
+      password:
+        name: cnpg-import-secret   # created in Phase 1-D Step D-2
+        key: password
+
+  backup:
+    barmanObjectStore:
+      destinationPath: s3://rejourney-backup/cnpg-wal
+      s3Credentials:
+        accessKeyId:
+          name: r2-backup-secret
+          key: AWS_ACCESS_KEY_ID      # actual key name in r2-backup-secret
+        secretAccessKey:
+          name: r2-backup-secret
+          key: AWS_SECRET_ACCESS_KEY  # actual key name in r2-backup-secret
+      endpointURL:
+        name: r2-backup-secret
+        key: R2_ENDPOINT
+      wal:
+        compression: gzip
+    retentionPolicy: "7d"

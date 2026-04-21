@@ -68,6 +68,11 @@ const envSchema = z.object({
 
     // Redis
     REDIS_URL: z.string().default('redis://localhost:6379/0'),
+    // Redis Sentinel (optional — when set, app connects via Sentinel instead of URL)
+    REDIS_SENTINEL_HOST: z.string().optional(),
+    REDIS_SENTINEL_PORT: z.coerce.number().optional().default(26379),
+    REDIS_MASTER_NAME: z.string().optional().default('mymaster'),
+    REDIS_PASSWORD: z.string().optional(),
 
     // S3/MinIO bootstrap inputs.
     // Runtime storage routing is database-backed via storage_endpoints.

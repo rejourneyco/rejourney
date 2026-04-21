@@ -75,6 +75,14 @@ spec:
                 secretKeyRef:
                   name: redis-secret
                   key: REDIS_URL
+            - name: REDIS_SENTINEL_HOST
+              value: ""   # set to "redis.rejourney.svc.cluster.local" during Phase 1-C maintenance window
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: redis-secret
+                  key: REDIS_PASSWORD
+                  optional: true  # key added to secret in Phase 1-B; optional so pods start before then
             # S3
             - name: S3_ENDPOINT
               valueFrom:
@@ -346,6 +354,14 @@ spec:
                 secretKeyRef:
                   name: redis-secret
                   key: REDIS_URL
+            - name: REDIS_SENTINEL_HOST
+              value: ""   # set to "redis.rejourney.svc.cluster.local" during Phase 1-C maintenance window
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: redis-secret
+                  key: REDIS_PASSWORD
+                  optional: true  # key added to secret in Phase 1-B; optional so pods start before then
             - name: S3_ENDPOINT
               valueFrom:
                 secretKeyRef:
