@@ -5,6 +5,8 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 K8S_DIR="${ROOT_DIR}/k8s"
 NAMESPACE="${NAMESPACE:-rejourney}"
+CNPG_CLUSTER_NAME="${CNPG_CLUSTER_NAME:-postgres}"
+ALLOW_LEGACY_POSTGRES_REMOVAL="${ALLOW_LEGACY_POSTGRES_REMOVAL:-false}"
 IMAGE_TAG="${1:?usage: deploy-release.sh <image-tag> [repository]}"
 REPOSITORY="${2:-rejourneyco/rejourney}"
 RENDER_DIR="$(mktemp -d "${TMPDIR:-/tmp}/rejourney-release.XXXXXX")"
@@ -57,6 +59,9 @@ require_bin() {
 render_manifests() {
   cp -R "${K8S_DIR}/." "${RENDER_DIR}/"
 
+  # Manual cutover assets are staged in the repo but must never be applied by CI.
+  rm -rf "${RENDER_DIR}/manual"
+
   # Ignore macOS AppleDouble metadata files and Finder artifacts if they slip into the repo/worktree.
   find "${RENDER_DIR}" \( -name '._*' -o -name '.DS_Store' \) -type f -delete
 
@@ -96,6 +101,7 @@ apply_unlabeled_support_manifests() {
   # intentionally unlabeled RBAC / ServiceAccount objects and kube-system helper services.
   kubectl apply -f "${RENDER_DIR}/exporters.yaml"
   kubectl apply -f "${RENDER_DIR}/ingress.yaml"
+  kubectl apply -f "${RENDER_DIR}/storage-class-db-local.yaml"
 }
 
 apply_cnpg_cluster_manifest() {
@@ -130,6 +136,11 @@ legacy_postgres_can_be_removed() {
 remove_legacy_postgres() {
   section "Removing Legacy PostgreSQL"
 
+  if [ "${ALLOW_LEGACY_POSTGRES_REMOVAL}" != "true" ]; then
+    log "Skipping legacy postgres removal (ALLOW_LEGACY_POSTGRES_REMOVAL is not true)."
+    return
+  fi
+
   if ! legacy_postgres_can_be_removed; then
     return
   fi
@@ -141,7 +152,7 @@ remove_legacy_postgres() {
 
 wait_for_postgres() {
   section "Waiting For PostgreSQL"
-  local label="cnpg.io/cluster=postgres,cnpg.io/instanceRole=primary"
+  local label="cnpg.io/cluster=${CNPG_CLUSTER_NAME},cnpg.io/instanceRole=primary"
   if ! kubectl wait --for=condition=ready pod -l "${label}" -n "${NAMESPACE}" --timeout=180s; then
     kubectl describe pod -l "${label}" -n "${NAMESPACE}" || true
     echo "[deploy-release] PostgreSQL did not become ready" >&2
@@ -192,7 +203,7 @@ print_migration_status() {
   log "Applied drizzle migrations in cluster:"
   local pg_pod
   pg_pod=$(kubectl get pod -n "${NAMESPACE}" \
-    -l "cnpg.io/cluster=postgres,cnpg.io/instanceRole=primary" \
+    -l "cnpg.io/cluster=${CNPG_CLUSTER_NAME},cnpg.io/instanceRole=primary" \
     -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
 
   if [ -n "${pg_pod}" ]; then

@@ -26,7 +26,10 @@ replica:
   replicaCount: 0  # no replicas until Part 2
 
 global:
-  storageClass: hcloud-volumes
+  # Safe Phase 1 prep: changing this does not move the existing live PVC.
+  # Redis will only switch storage classes after the StatefulSet/PVC is
+  # recreated during the manual cutover phase.
+  storageClass: rejourney-db-local-retain
 
 master:
   persistence:

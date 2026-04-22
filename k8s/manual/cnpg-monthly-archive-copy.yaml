@@ -1,0 +1,31 @@
+# Manual-only archive copy job. Keep out of CI until the active CNPG backup
+# layout is verified in the target object store during the storage cutover.
+
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: cnpg-monthly-archive-copy
+  namespace: rejourney
+spec:
+  schedule: "0 4 1 * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 2
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          serviceAccountName: default
+          restartPolicy: OnFailure
+          containers:
+            - name: archive-copy
+              image: python:3.12-alpine
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  set -euo pipefail
+                  apk add --no-cache aws-cli kubectl
+                  python - <<'PY'
+                  print("Validate the active CNPG backup prefix layout before enabling this job.")
+                  PY

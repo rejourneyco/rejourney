@@ -3078,7 +3078,7 @@ data:
                 "type": "prometheus",
                 "uid": "victoria-metrics"
               },
-              "expr": "100 * pg_connections_count{server=\"postgres-rw.rejourney.svc.cluster.local:5432\"} / pg_settings_max_connections{server=\"postgres-rw.rejourney.svc.cluster.local:5432\"}",
+              "expr": "100 * pg_connections_count{server=\"postgres-app-rw.rejourney.svc.cluster.local:5432\"} / pg_settings_max_connections{server=\"postgres-app-rw.rejourney.svc.cluster.local:5432\"}",
               "legendFormat": "",
               "refId": "A",
               "instant": false
@@ -4573,7 +4573,7 @@ data:
         {
           "id": 33,
           "type": "row",
-          "title": "Backups & Archive",
+          "title": "Backups & Local Storage",
           "collapsed": false,
           "gridPos": {
             "x": 0,
@@ -4594,7 +4594,7 @@ data:
           "gridPos": {
             "x": 0,
             "y": 61,
-            "w": 6,
+            "w": 4,
             "h": 4
           },
           "targets": [
@@ -4656,9 +4656,9 @@ data:
             "uid": "victoria-metrics"
           },
           "gridPos": {
-            "x": 6,
+            "x": 4,
             "y": 61,
-            "w": 6,
+            "w": 4,
             "h": 4
           },
           "targets": [
@@ -4716,9 +4716,9 @@ data:
             "uid": "victoria-metrics"
           },
           "gridPos": {
-            "x": 12,
+            "x": 8,
             "y": 61,
-            "w": 6,
+            "w": 4,
             "h": 4
           },
           "targets": [
@@ -4780,9 +4780,9 @@ data:
             "uid": "victoria-metrics"
           },
           "gridPos": {
-            "x": 18,
+            "x": 12,
             "y": 61,
-            "w": 6,
+            "w": 4,
             "h": 4
           },
           "targets": [
@@ -4829,6 +4829,126 @@ data:
         },
         {
           "id": 38,
+          "type": "stat",
+          "title": "Root disk free %",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoria-metrics"
+          },
+          "gridPos": {
+            "x": 16,
+            "y": 61,
+            "w": 4,
+            "h": 4
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "victoria-metrics"
+              },
+              "expr": "100 * node_filesystem_avail_bytes{mountpoint=\"/\",fstype!~\"tmpfs|overlay\"} / node_filesystem_size_bytes{mountpoint=\"/\",fstype!~\"tmpfs|overlay\"}",
+              "legendFormat": "",
+              "refId": "A",
+              "instant": false
+            }
+          ],
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "colorMode": "value",
+            "graphMode": "area",
+            "textMode": "auto",
+            "justifyMode": "auto"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percent",
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "red",
+                    "value": null
+                  },
+                  {
+                    "color": "orange",
+                    "value": 15
+                  },
+                  {
+                    "color": "green",
+                    "value": 30
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 39,
+          "type": "stat",
+          "title": "Local-path PVC used",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoria-metrics"
+          },
+          "gridPos": {
+            "x": 20,
+            "y": 61,
+            "w": 4,
+            "h": 4
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "victoria-metrics"
+              },
+              "expr": "sum(kubelet_volume_stats_used_bytes{namespace=\"rejourney\",persistentvolumeclaim=~\"postgres.*|redis.*\"})",
+              "legendFormat": "",
+              "refId": "A",
+              "instant": false
+            }
+          ],
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "colorMode": "value",
+            "graphMode": "area",
+            "textMode": "auto",
+            "justifyMode": "auto"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "bytes",
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 40,
           "type": "timeseries",
           "title": "Archiver: archived vs failed",
           "datasource": {

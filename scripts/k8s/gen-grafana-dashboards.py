@@ -407,7 +407,7 @@ def d_postgres():
 
     panels.append(row("Connections", y)); y += 1
     panels.append(gauge("Connection Utilization %",
-                        '100 * pg_connections_count{server="postgres-rw.rejourney.svc.cluster.local:5432"} / pg_settings_max_connections{server="postgres-rw.rejourney.svc.cluster.local:5432"}',
+                        '100 * pg_connections_count{server="postgres-app-rw.rejourney.svc.cluster.local:5432"} / pg_settings_max_connections{server="postgres-app-rw.rejourney.svc.cluster.local:5432"}',
                         0, y, w=6, h=6, unit="percent"))
     panels.append(ts("Backends by state",
                      [('cnpg_backends_total{namespace="rejourney"}', "{{state}} — {{datname}}")],
@@ -492,14 +492,17 @@ def d_postgres():
                      12, y, w=12, h=8, unit="bytes"))
     y += 8
 
-    panels.append(row("Backups & Archive", y)); y += 1
-    panels.append(stat("Seconds since last archive", 'max(cnpg_pg_stat_archiver_seconds_since_last_archival{namespace="rejourney"})', 0, y, w=6, h=4, unit="s",
+    panels.append(row("Backups & Local Storage", y)); y += 1
+    panels.append(stat("Seconds since last archive", 'max(cnpg_pg_stat_archiver_seconds_since_last_archival{namespace="rejourney"})', 0, y, w=4, h=4, unit="s",
                        thresholds={"mode": "absolute", "steps": [{"color": "green", "value": None}, {"color": "orange", "value": 300}, {"color": "red", "value": 900}]}))
-    panels.append(stat("Archive failures", 'max(cnpg_pg_stat_archiver_failed_count{namespace="rejourney"})', 6, y, w=6, h=4,
+    panels.append(stat("Archive failures", 'max(cnpg_pg_stat_archiver_failed_count{namespace="rejourney"})', 4, y, w=4, h=4,
                        thresholds={"mode": "absolute", "steps": [{"color": "green", "value": None}, {"color": "red", "value": 1}]}))
-    panels.append(stat("Last available backup age", 'time() - cnpg_collector_last_available_backup_timestamp{namespace="rejourney"}', 12, y, w=6, h=4, unit="s",
+    panels.append(stat("Last available backup age", 'time() - cnpg_collector_last_available_backup_timestamp{namespace="rejourney"}', 8, y, w=4, h=4, unit="s",
                        thresholds={"mode": "absolute", "steps": [{"color": "green", "value": None}, {"color": "orange", "value": 3600 * 26}, {"color": "red", "value": 3600 * 48}]}))
-    panels.append(stat("Last failed backup age", 'time() - cnpg_collector_last_failed_backup_timestamp{namespace="rejourney"}', 18, y, w=6, h=4, unit="s"))
+    panels.append(stat("Last failed backup age", 'time() - cnpg_collector_last_failed_backup_timestamp{namespace="rejourney"}', 12, y, w=4, h=4, unit="s"))
+    panels.append(stat("Root disk free %", '100 * node_filesystem_avail_bytes{mountpoint="/",fstype!~"tmpfs|overlay"} / node_filesystem_size_bytes{mountpoint="/",fstype!~"tmpfs|overlay"}', 16, y, w=4, h=4, unit="percent",
+                       thresholds={"mode": "absolute", "steps": [{"color": "red", "value": None}, {"color": "orange", "value": 15}, {"color": "green", "value": 30}]}))
+    panels.append(stat("Local-path PVC used", 'sum(kubelet_volume_stats_used_bytes{namespace="rejourney",persistentvolumeclaim=~"postgres.*|redis.*"})', 20, y, w=4, h=4, unit="bytes"))
     y += 4
 
     panels.append(ts("Archiver: archived vs failed",

@@ -76,4 +76,4 @@ spec:
       endpointURL: https://bea95e0d46f34ef18361f2537571d720.eu.r2.cloudflarestorage.com
       wal:
         compression: gzip
-    retentionPolicy: "7d"
+    retentionPolicy: "30d"

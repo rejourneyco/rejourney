@@ -19,11 +19,11 @@ metadata:
 #   --from-literal=POSTGRES_USER=rejourney \
 #   --from-literal=POSTGRES_PASSWORD=<SECURE_PASSWORD> \
 #   --from-literal=POSTGRES_DB=rejourney \
-#   --from-literal=DATABASE_URL=postgresql://rejourney:<SECURE_PASSWORD>@postgres-rw:5432/rejourney \
+#   --from-literal=DATABASE_URL=postgresql://rejourney:<SECURE_PASSWORD>@postgres-app-rw:5432/rejourney \
 #   --from-literal=PGBOUNCER_URL=postgresql://rejourney:<SECURE_PASSWORD>@pgbouncer:5432/rejourney
 #
-# NOTE: DATABASE_URL points directly at the CNPG primary Service `postgres-rw`
-#       (used only by pg_dump backup job).
+# NOTE: DATABASE_URL points directly at the stable app alias Service `postgres-app-rw`
+#       (used by db-setup / admin tools / direct DB access).
 #       PGBOUNCER_URL points at PgBouncer (used by all application services).
 #       Both use the same credentials — only the hostname differs.
 #
@@ -33,7 +33,7 @@ metadata:
 #   "CREATE USER monitoring WITH PASSWORD '<MONITORING_PASSWORD>'; GRANT pg_monitor TO monitoring; GRANT USAGE ON SCHEMA public TO monitoring; GRANT SELECT ON ALL TABLES IN SCHEMA public TO monitoring; ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO monitoring;"
 # kubectl create secret generic postgres-exporter-secret \
 #   --namespace rejourney \
-#   --from-literal=DATA_SOURCE_NAME=postgresql://monitoring:<MONITORING_PASSWORD>@postgres-rw:5432/rejourney
+#   --from-literal=DATA_SOURCE_NAME=postgresql://monitoring:<MONITORING_PASSWORD>@postgres-app-rw:5432/rejourney
 #
 # 2. Redis secrets:
 # kubectl create secret generic redis-secret \

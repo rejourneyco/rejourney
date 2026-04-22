@@ -117,12 +117,32 @@ async function respondWithOverviewCache<T>({
 
 function buildScopeCacheKey(
     scope: string,
-    userId: string,
     projectIds: string[],
     timeRange?: string,
     version: string = 'v1',
 ): string {
-    return `overview:${scope}:${userId}:${projectIds.slice().sort().join(',')}:${timeRange || 'all'}:${version}`;
+    return `overview:${scope}:${projectIds.slice().sort().join(',') || 'all'}:${timeRange || 'all'}:${version}`;
+}
+
+function buildPrewarmScopeMember(scope: string, projectIds: string[], timeRange?: string): string {
+    return `${scope}|${projectIds.slice().sort().join(',') || 'all'}|${timeRange || 'all'}`;
+}
+
+async function recordPrewarmScopeHit(scope: string, projectIds: string[], timeRange?: string): Promise<void> {
+    if (!config.RJ_DASHBOARD_PREWARM_ENABLED) {
+        return;
+    }
+
+    const bucketMinutes = Math.floor(Date.now() / 60000);
+    const bucketKey = `dashboard-prewarm:hits:${bucketMinutes}`;
+    const member = buildPrewarmScopeMember(scope, projectIds, timeRange);
+    const ttlSeconds = Math.max(config.RJ_DASHBOARD_PREWARM_LOOKBACK_MINUTES * 120, 600);
+
+    await redis
+        .multi()
+        .zincrby(bucketKey, 1, member)
+        .expire(bucketKey, ttlSeconds)
+        .exec();
 }
 
 function buildIdentityKey(row: {
@@ -964,8 +984,9 @@ router.get(
             return;
         }
 
+        await recordPrewarmScopeHit('general', scope.scopedProjectIds, scope.normalizedTimeRange);
         await respondWithOverviewCache({
-            cacheKey: buildScopeCacheKey('general', scope.userId, scope.scopedProjectIds, scope.normalizedTimeRange),
+            cacheKey: buildScopeCacheKey('general', scope.scopedProjectIds, scope.normalizedTimeRange),
             routeName: 'general',
             res,
             logContext: {
@@ -1047,8 +1068,9 @@ router.get(
         const trendsRange = toApiTrendsRange(scope.normalizedTimeRange);
         const regionRange = toRegionRange(scope.normalizedTimeRange);
 
+        await recordPrewarmScopeHit('api', scope.scopedProjectIds, scope.normalizedTimeRange);
         await respondWithOverviewCache({
-            cacheKey: buildScopeCacheKey('api', scope.userId, scope.scopedProjectIds, scope.normalizedTimeRange),
+            cacheKey: buildScopeCacheKey('api', scope.scopedProjectIds, scope.normalizedTimeRange),
             routeName: 'api',
             res,
             logContext: {
@@ -1118,8 +1140,9 @@ router.get(
         const trendsRange = toDevicesTrendsRange(scope.normalizedTimeRange);
         const insightsRange = toApiInsightsRange(scope.normalizedTimeRange);
 
+        await recordPrewarmScopeHit('devices', scope.scopedProjectIds, scope.normalizedTimeRange);
         await respondWithOverviewCache({
-            cacheKey: buildScopeCacheKey('devices', scope.userId, scope.scopedProjectIds, scope.normalizedTimeRange),
+            cacheKey: buildScopeCacheKey('devices', scope.scopedProjectIds, scope.normalizedTimeRange),
             routeName: 'devices',
             res,
             logContext: {
@@ -1167,8 +1190,9 @@ router.get(
         const scope = await resolveOverviewScope(req, { requireProjectId: true });
         const range = toApiInsightsRange(scope.normalizedTimeRange);
 
+        await recordPrewarmScopeHit('geo', scope.scopedProjectIds, scope.normalizedTimeRange);
         await respondWithOverviewCache({
-            cacheKey: buildScopeCacheKey('geo', scope.userId, scope.scopedProjectIds, scope.normalizedTimeRange),
+            cacheKey: buildScopeCacheKey('geo', scope.scopedProjectIds, scope.normalizedTimeRange),
             routeName: 'geo',
             res,
             logContext: {
@@ -1207,7 +1231,7 @@ router.get(
         const trendsRange = toJourneyTrendsRange(scope.normalizedTimeRange);
 
         await respondWithOverviewCache({
-            cacheKey: buildScopeCacheKey('journeys', scope.userId, scope.scopedProjectIds, scope.normalizedTimeRange),
+            cacheKey: buildScopeCacheKey('journeys', scope.scopedProjectIds, scope.normalizedTimeRange),
             routeName: 'journeys',
             res,
             logContext: {
@@ -1251,7 +1275,7 @@ router.get(
     asyncHandler(async (req, res) => {
         const scope = await resolveOverviewScope(req, { requireProjectId: true });
         await respondWithOverviewCache({
-            cacheKey: buildScopeCacheKey('heatmaps', scope.userId, scope.scopedProjectIds, scope.normalizedTimeRange),
+            cacheKey: buildScopeCacheKey('heatmaps', scope.scopedProjectIds, scope.normalizedTimeRange),
             routeName: 'heatmaps',
             res,
             logContext: {
@@ -1274,7 +1298,7 @@ router.get(
         }
 
         await respondWithOverviewCache({
-            cacheKey: buildScopeCacheKey(`heatmaps:screen:${screenName}`, scope.userId, scope.scopedProjectIds, scope.normalizedTimeRange),
+            cacheKey: buildScopeCacheKey(`heatmaps:screen:${screenName}`, scope.scopedProjectIds, scope.normalizedTimeRange),
             routeName: 'heatmaps-screen',
             res,
             logContext: {
@@ -1293,7 +1317,7 @@ router.get(
     asyncHandler(async (req, res) => {
         const scope = await resolveOverviewScope(req, { requireProjectId: true });
         await respondWithOverviewCache({
-            cacheKey: buildScopeCacheKey('errors', scope.userId, scope.scopedProjectIds, scope.normalizedTimeRange),
+            cacheKey: buildScopeCacheKey('errors', scope.scopedProjectIds, scope.normalizedTimeRange),
             routeName: 'errors',
             res,
             logContext: {
@@ -1311,7 +1335,7 @@ router.get(
     asyncHandler(async (req, res) => {
         const scope = await resolveOverviewScope(req, { requireProjectId: true });
         await respondWithOverviewCache({
-            cacheKey: buildScopeCacheKey('crashes', scope.userId, scope.scopedProjectIds, scope.normalizedTimeRange),
+            cacheKey: buildScopeCacheKey('crashes', scope.scopedProjectIds, scope.normalizedTimeRange),
             routeName: 'crashes',
             res,
             logContext: {
@@ -1329,7 +1353,7 @@ router.get(
     asyncHandler(async (req, res) => {
         const scope = await resolveOverviewScope(req, { requireProjectId: true });
         await respondWithOverviewCache({
-            cacheKey: buildScopeCacheKey('anrs', scope.userId, scope.scopedProjectIds, scope.normalizedTimeRange),
+            cacheKey: buildScopeCacheKey('anrs', scope.scopedProjectIds, scope.normalizedTimeRange),
             routeName: 'anrs',
             res,
             logContext: {

@@ -1,0 +1,66 @@
+# Manual-only manifest for the future local-storage cutover cluster.
+# Do not apply through CI. The normal deploy pipeline excludes k8s/manual/.
+
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: postgres-local
+  namespace: rejourney
+spec:
+  instances: 1
+  imageName: ghcr.io/cloudnative-pg/postgresql:18
+  postgresql:
+    parameters:
+      max_connections: "60"
+      shared_buffers: "1536MB"
+      effective_cache_size: "4GB"
+      work_mem: "16MB"
+      maintenance_work_mem: "128MB"
+      pg_stat_statements.max: "10000"
+      pg_stat_statements.track: "all"
+  resources:
+    requests:
+      cpu: "1"
+      memory: "2Gi"
+    limits:
+      cpu: "3"
+      memory: "6Gi"
+  storage:
+    storageClass: rejourney-db-local-retain
+    size: 60Gi
+  backup:
+    barmanObjectStore:
+      destinationPath: s3://rejourney-backup/cnpg-wal
+      s3Credentials:
+        accessKeyId:
+          name: r2-backup-secret
+          key: AWS_ACCESS_KEY_ID
+        secretAccessKey:
+          name: r2-backup-secret
+          key: AWS_SECRET_ACCESS_KEY
+      endpointURL: https://bea95e0d46f34ef18361f2537571d720.eu.r2.cloudflarestorage.com
+      wal:
+        compression: gzip
+    retentionPolicy: "30d"
+  bootstrap:
+    pg_basebackup:
+      source: postgres
+  replica:
+    enabled: true
+    source: postgres
+  externalClusters:
+    - name: postgres
+      connectionParameters:
+        host: postgres-rw.rejourney.svc.cluster.local
+        user: streaming_replica
+        dbname: postgres
+        sslmode: verify-full
+      sslKey:
+        name: postgres-replication
+        key: tls.key
+      sslCert:
+        name: postgres-replication
+        key: tls.crt
+      sslRootCert:
+        name: postgres-ca
+        key: ca.crt

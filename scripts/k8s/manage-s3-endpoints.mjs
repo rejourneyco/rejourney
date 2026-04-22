@@ -108,7 +108,7 @@ async function main() {
         const confirm = confirmStr.toLowerCase() === 'y';
 
         if (confirm) {
-            console.log('📡 Sending to Kubernetes (CNPG primary via postgres-rw, namespace: rejourney)...');
+            console.log('📡 Sending to Kubernetes (CNPG primary via postgres-app-rw, namespace: rejourney)...');
 
             const primaryPod = execSync(
                 `kubectl get pod -n rejourney -l cnpg.io/cluster=postgres,cnpg.io/instanceRole=primary -o jsonpath='{.items[0].metadata.name}'`,

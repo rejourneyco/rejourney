@@ -90,7 +90,8 @@ create_or_update_secret postgres-secret \
     --from-literal=POSTGRES_USER=rejourney \
     --from-literal=POSTGRES_PASSWORD="$POSTGRES_PASSWORD" \
     --from-literal=POSTGRES_DB="$POSTGRES_DATABASE" \
-    --from-literal=DATABASE_URL="postgresql://rejourney:${POSTGRES_PASSWORD}@postgres-rw:5432/${POSTGRES_DATABASE}"
+    --from-literal=DATABASE_URL="postgresql://rejourney:${POSTGRES_PASSWORD}@postgres-app-rw:5432/${POSTGRES_DATABASE}" \
+    --from-literal=PGBOUNCER_URL="postgresql://rejourney:${POSTGRES_PASSWORD}@pgbouncer:5432/${POSTGRES_DATABASE}"
 
 # 1b. Postgres exporter secret (prefer dedicated read-only monitoring creds)
 POSTGRES_EXPORTER_USER="${POSTGRES_EXPORTER_USER:-${POSTGRES_MONITORING_USER:-}}"
@@ -100,11 +101,11 @@ POSTGRES_EXPORTER_DATABASE="${POSTGRES_EXPORTER_DATABASE:-$POSTGRES_DATABASE}"
 if [ -n "$POSTGRES_EXPORTER_USER" ] && [ -n "$POSTGRES_EXPORTER_PASSWORD" ]; then
     log "Creating postgres-exporter-secret with dedicated monitoring credentials..."
     create_or_update_secret postgres-exporter-secret \
-        --from-literal=DATA_SOURCE_NAME="postgresql://${POSTGRES_EXPORTER_USER}:${POSTGRES_EXPORTER_PASSWORD}@postgres-rw:5432/${POSTGRES_EXPORTER_DATABASE}"
+        --from-literal=DATA_SOURCE_NAME="postgresql://${POSTGRES_EXPORTER_USER}:${POSTGRES_EXPORTER_PASSWORD}@postgres-app-rw:5432/${POSTGRES_EXPORTER_DATABASE}"
 else
     warn "POSTGRES_EXPORTER_USER / POSTGRES_EXPORTER_PASSWORD not provided; mirroring postgres-secret credentials into postgres-exporter-secret for now"
     create_or_update_secret postgres-exporter-secret \
-        --from-literal=DATA_SOURCE_NAME="postgresql://rejourney:${POSTGRES_PASSWORD}@postgres-rw:5432/${POSTGRES_DATABASE}"
+        --from-literal=DATA_SOURCE_NAME="postgresql://rejourney:${POSTGRES_PASSWORD}@postgres-app-rw:5432/${POSTGRES_DATABASE}"
 fi
 
 # 2. Redis Secret

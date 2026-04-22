@@ -61,6 +61,14 @@ spec:
               value: "3000"
             - name: LOG_LEVEL
               value: "info"
+            - name: RJ_DASHBOARD_PREWARM_ENABLED
+              value: "false"
+            - name: RJ_DASHBOARD_PREWARM_LOOKBACK_MINUTES
+              value: "60"
+            - name: RJ_DASHBOARD_PREWARM_INTERVAL_SECONDS
+              value: "60"
+            - name: RJ_DASHBOARD_PREWARM_SCOPE_LIMIT
+              value: "25"
             - name: COOKIE_SECURE
               value: "true"
             # Database
@@ -471,7 +479,7 @@ spec:
             - -c
             - |
               echo "Waiting for PostgreSQL to be ready..."
-              until pg_isready -h postgres-rw -p 5432 -U rejourney; do
+              until pg_isready -h postgres-app-rw -p 5432 -U rejourney; do
                 echo "PostgreSQL not ready, waiting 5s..."
                 sleep 5
               done
@@ -489,7 +497,7 @@ spec:
             - -c
             - |
               echo "Ensuring pg_stat_statements extension is installed..."
-              until PGPASSWORD="$POSTGRES_PASSWORD" psql -h postgres-rw -p 5432 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "CREATE EXTENSION IF NOT EXISTS pg_stat_statements;" >/dev/null; do
+              until PGPASSWORD="$POSTGRES_PASSWORD" psql -h postgres-app-rw -p 5432 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "CREATE EXTENSION IF NOT EXISTS pg_stat_statements;" >/dev/null; do
                 echo "pg_stat_statements not ready yet, waiting 5s..."
                 sleep 5
               done

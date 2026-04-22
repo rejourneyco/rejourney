@@ -42,7 +42,7 @@ spec:
                   name: postgres-secret
                   key: POSTGRES_DB
             - name: DATABASE_URL
-              value: "postgres://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@postgres-rw:5432/$(POSTGRES_DB)?sslmode=disable"
+              value: "postgres://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@postgres-app-rw:5432/$(POSTGRES_DB)?sslmode=disable"
           resources:
             requests:
               cpu: 5m
@@ -117,4 +117,3 @@ spec:
       targetPort: 8081
   selector:
     app: redis-commander
-

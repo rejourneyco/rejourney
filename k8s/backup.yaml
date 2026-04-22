@@ -1,6 +1,7 @@
-# PostgreSQL Daily Backup CronJob
-# Backs up database to Cloudflare R2 every day at 3 AM UTC
-# Optimized for space and compute efficiency
+# LEGACY PostgreSQL Daily Backup CronJob
+# This pg_dump path remains in Phase 1 only as fallback while CNPG ScheduledBackup
+# takes over as the primary backup mechanism. Remove this after the storage
+# cutover and CNPG restore validation are complete.
 
 ---
 apiVersion: batch/v1

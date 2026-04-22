@@ -136,12 +136,23 @@ jobs:
         working-directory: ./dashboard/web-ui
         run: npm run build
 
+  # ------------------------------------------------------------------
+  # K8S / DEPLOY CONFIG CHECKS
+  # ------------------------------------------------------------------
+  k8s-config:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate Phase 1 K8s Prep
+        run: bash scripts/k8s/validate-phase1-prep.sh
+
 
   # ------------------------------------------------------------------
   # DOCKER BUILD
   # ------------------------------------------------------------------
   build-images:
-    needs: [backend, web]
+    needs: [backend, web, k8s-config]
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:

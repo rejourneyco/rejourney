@@ -91,13 +91,13 @@ data:
 
       # Internal TCP connectivity checks
       - name: PostgreSQL
-        url: tcp://postgres-rw.rejourney.svc.cluster.local:5432
+        url: tcp://postgres-app-rw.rejourney.svc.cluster.local:5432
         interval: 30s
         conditions:
           - "[CONNECTED] == true"
 
       - name: Redis
-        url: tcp://redis-node-0.redis-headless.rejourney.svc.cluster.local:6379
+        url: tcp://redis.rejourney.svc.cluster.local:6379
         interval: 30s
         conditions:
           - "[CONNECTED] == true"
