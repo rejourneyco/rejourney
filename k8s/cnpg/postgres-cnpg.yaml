@@ -35,27 +35,17 @@ spec:
     storageClass: hcloud-volumes
     size: 60Gi   # database is already 27.7 GB; 60 Gi gives headroom for growth
 
+  # Plain initdb (no CNPG logical import).
+  # Rationale: legacy cluster's `rejourney` role has oid=10 (bootstrap superuser from Bitnami
+  # POSTGRES_USER init), which CNPG's source role query (`WHERE oid >= 16384`) silently excludes,
+  # causing every `ALTER ... OWNER TO rejourney` to fail during pg_restore.
+  # Instead: bootstrap empty, then pg_dump | psql from legacy manually (see Phase 1-D Step D-5).
   bootstrap:
     initdb:
-      import:
-        type: monolith
-        databases:
-          - rejourney
-        roles:
-          - rejourney
-        source:
-          externalCluster: legacy-postgres
-
-  externalClusters:
-    - name: legacy-postgres
-      connectionParameters:
-        host: postgres.rejourney.svc.cluster.local   # old StatefulSet — still running during import
-        user: postgres                                 # superuser; password set in Phase 1-D Step D-1
-        dbname: postgres
-        sslmode: disable
-      password:
-        name: cnpg-import-secret   # created in Phase 1-D Step D-2
-        key: password
+      database: rejourney
+      owner: rejourney
+      secret:
+        name: postgres-app-secret   # created before apply; provides rejourney's password
 
   backup:
     barmanObjectStore:
@@ -67,9 +57,7 @@ spec:
         secretAccessKey:
           name: r2-backup-secret
           key: AWS_SECRET_ACCESS_KEY  # actual key name in r2-backup-secret
-      endpointURL:
-        name: r2-backup-secret
-        key: R2_ENDPOINT
+      endpointURL: https://bea95e0d46f34ef18361f2537571d720.eu.r2.cloudflarestorage.com
       wal:
         compression: gzip
     retentionPolicy: "7d"

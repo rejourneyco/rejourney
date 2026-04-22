@@ -105,6 +105,95 @@ data:
         static_configs:
           - targets: ['localhost:8428']
 
+      # Bitnami Redis exporter sidecar (single master in Phase 1; scales with replicas in Phase 2)
+      - job_name: redis
+        relabel_configs:
+          - target_label: cluster
+            replacement: rejourney-prod
+          - target_label: namespace
+            replacement: rejourney
+        static_configs:
+          - targets: ['redis-metrics.rejourney.svc.cluster.local:9121']
+
+      # CloudNativePG instance metrics — pod SD picks up all postgres cluster members automatically
+      - job_name: cnpg
+        kubernetes_sd_configs:
+          - role: pod
+            namespaces:
+              names: [rejourney]
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_pod_label_cnpg_io_cluster]
+            action: keep
+            regex: postgres
+          - source_labels: [__meta_kubernetes_pod_name]
+            target_label: pod
+          - source_labels: [__meta_kubernetes_pod_label_cnpg_io_instanceRole]
+            target_label: role
+          - source_labels: [__meta_kubernetes_pod_ip]
+            regex: (.+)
+            replacement: '${1}:9187'
+            target_label: __address__
+          - target_label: cluster
+            replacement: rejourney-prod
+
+      # Kubelet volume + node stats (needed for PVC usage panels in infra dashboard)
+      - job_name: kubelet
+        scheme: https
+        tls_config:
+          insecure_skip_verify: true
+        bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+        kubernetes_sd_configs:
+          - role: node
+        relabel_configs:
+          - replacement: kubernetes.default.svc:443
+            target_label: __address__
+          - source_labels: [__meta_kubernetes_node_name]
+            regex: (.+)
+            replacement: /api/v1/nodes/${1}/proxy/metrics
+            target_label: __metrics_path__
+          - target_label: cluster
+            replacement: rejourney-prod
+
+---
+# RBAC — required by kubernetes_sd_configs (cnpg pod discovery, kubelet node discovery)
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: victoria-metrics
+  namespace: rejourney
+  labels:
+    app.kubernetes.io/part-of: rejourney
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: victoria-metrics
+  labels:
+    app.kubernetes.io/part-of: rejourney
+rules:
+  - apiGroups: [""]
+    resources: [nodes, nodes/proxy, nodes/metrics, pods, endpoints, services]
+    verbs: [get, list, watch]
+  - nonResourceURLs: ["/metrics"]
+    verbs: [get]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: victoria-metrics
+  labels:
+    app.kubernetes.io/part-of: rejourney
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: victoria-metrics
+subjects:
+  - kind: ServiceAccount
+    name: victoria-metrics
+    namespace: rejourney
+
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -126,6 +215,7 @@ spec:
       labels:
         app: victoria-metrics
     spec:
+      serviceAccountName: victoria-metrics
       securityContext:
         runAsNonRoot: true
         runAsUser: 1000

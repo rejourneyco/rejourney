@@ -616,6 +616,14 @@ kubectl logs deployment/api -n rejourney | grep -i "sentinel\|redis" | tail -5
 
 This runs while the app is fully live. The old Postgres StatefulSet keeps serving traffic throughout. CNPG imports a logical copy in the background — no locks, no downtime. Run this within a day of the maintenance window.
 
+> **Post-execution note (2026-04-21):** The CNPG **monolith logical import path documented in D-1..D-5 below did not work** against our legacy cluster and was abandoned mid-execution. Root cause: the legacy Bitnami-initialized Postgres created the `rejourney` role as the bootstrap superuser (`oid=10`). CNPG's source-role replication query filters with `WHERE oid >= 16384`, silently excluding bootstrap superusers — so every `ALTER ... OWNER TO rejourney` during `pg_restore` failed with `role "rejourney" does not exist`. This cannot be worked around inside the monolith spec.
+>
+> **What was actually done:** switched `k8s/cnpg/postgres-cnpg.yaml` to a plain `bootstrap.initdb` (no `import`, no `externalClusters`), then migrated data manually by streaming `pg_dump --no-owner --no-acl --format=custom` from the legacy StatefulSet directly into `pg_restore --no-owner --no-acl` on the CNPG primary (no temp file — the CNPG pod's `/tmp` is read-only; logs went to `/var/lib/postgresql/data/pgdata/*.log`). Result: 40/40 tables, row counts match (modulo expected drift on `sessions` from live writes).
+>
+> **Also learned the hard way:** the `hcloud-volumes` StorageClass uses `reclaimPolicy: Retain`, so every `kubectl delete cluster/pvc` during import-spec iteration leaked a paid Hetzner volume. We ended up cleaning up 3 orphan volumes via the Hetzner API. Future CNPG/PVC iteration: fix the manifest in place, or delete orphan Hetzner volumes in the same operation. (Captured in memory: `feedback_hetzner_volumes.md`.)
+>
+> D-1..D-5 are left below as historical reference. If redoing from scratch, skip straight to the manual path (plain initdb + streamed `pg_dump | pg_restore --no-owner --no-acl`). D-6 and D-7 are accurate as executed.
+
 ### Step D-1: Set postgres superuser password
 
 CNPG's `monolith` import connects as `user: postgres` (superuser). This user has no network password by default (peer-auth only). Set one:

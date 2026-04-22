@@ -1169,3 +1169,146 @@ data:
       "version": 2,
       "weekStart": ""
     }
+  infra-dashboard.json: |
+    {
+      "title": "Infrastructure — Volumes · CNPG · Redis",
+      "uid": "rejourney-infra",
+      "refresh": "30s",
+      "schemaVersion": 38,
+      "tags": ["infra", "cnpg", "redis", "volumes"],
+      "panels": [
+        {"type": "row", "title": "Hetzner Volumes", "id": 1, "gridPos": {"h":1,"w":24,"x":0,"y":0}, "collapsed": false},
+        {
+          "type": "bargauge",
+          "title": "PVC Usage %",
+          "id": 2,
+          "gridPos": {"h":8,"w":12,"x":0,"y":1},
+          "options": {"reduceOptions":{"calcs":["lastNotNull"]},"orientation":"horizontal","displayMode":"gradient"},
+          "fieldConfig": {"defaults":{"unit":"percentunit","min":0,"max":1,"thresholds":{"mode":"absolute","steps":[{"color":"green","value":null},{"color":"yellow","value":0.7},{"color":"red","value":0.9}]}}},
+          "targets": [{"expr":"1 - (kubelet_volume_stats_available_bytes{namespace=\"rejourney\"} / kubelet_volume_stats_capacity_bytes{namespace=\"rejourney\"})","legendFormat":"{{persistentvolumeclaim}}"}]
+        },
+        {
+          "type": "timeseries",
+          "title": "Volume Used (bytes)",
+          "id": 3,
+          "gridPos": {"h":8,"w":12,"x":12,"y":1},
+          "fieldConfig": {"defaults":{"unit":"bytes"}},
+          "targets": [{"expr":"kubelet_volume_stats_used_bytes{namespace=\"rejourney\"}","legendFormat":"{{persistentvolumeclaim}}"}]
+        },
+        {"type": "row", "title": "Redis Sentinel", "id": 10, "gridPos": {"h":1,"w":24,"x":0,"y":9}, "collapsed": false},
+        {
+          "type": "stat",
+          "title": "Redis Role",
+          "id": 11,
+          "gridPos": {"h":4,"w":4,"x":0,"y":10},
+          "options": {"reduceOptions":{"calcs":["lastNotNull"]},"textMode":"value"},
+          "fieldConfig": {"defaults":{"mappings":[{"type":"value","options":{"0":{"text":"replica","color":"blue"},"1":{"text":"master","color":"green"}}}]}},
+          "targets": [{"expr":"redis_master_repl_offset > bool 0","legendFormat":"role"}]
+        },
+        {
+          "type": "gauge",
+          "title": "Memory Used %",
+          "id": 12,
+          "gridPos": {"h":4,"w":4,"x":4,"y":10},
+          "fieldConfig": {"defaults":{"unit":"percentunit","min":0,"max":1,"thresholds":{"mode":"absolute","steps":[{"color":"green","value":null},{"color":"yellow","value":0.7},{"color":"red","value":0.85}]}}},
+          "targets": [{"expr":"redis_memory_used_bytes / redis_memory_max_bytes","legendFormat":"memory"}]
+        },
+        {
+          "type": "stat",
+          "title": "Connected Clients",
+          "id": 13,
+          "gridPos": {"h":4,"w":4,"x":8,"y":10},
+          "fieldConfig": {"defaults":{"unit":"short"}},
+          "targets": [{"expr":"redis_connected_clients","legendFormat":"clients"}]
+        },
+        {
+          "type": "stat",
+          "title": "Sentinel Masters OK",
+          "id": 14,
+          "gridPos": {"h":4,"w":4,"x":12,"y":10},
+          "fieldConfig": {"defaults":{"mappings":[{"type":"value","options":{"1":{"text":"OK","color":"green"},"0":{"text":"FAULT","color":"red"}}}]}},
+          "targets": [{"expr":"redis_sentinel_master_ok_sentinels > bool 0","legendFormat":"sentinel"}]
+        },
+        {
+          "type": "timeseries",
+          "title": "Commands / sec",
+          "id": 15,
+          "gridPos": {"h":4,"w":8,"x":16,"y":10},
+          "fieldConfig": {"defaults":{"unit":"ops"}},
+          "targets": [{"expr":"rate(redis_commands_processed_total[2m])","legendFormat":"ops/s"}]
+        },
+        {
+          "type": "timeseries",
+          "title": "Replication Offset",
+          "id": 16,
+          "gridPos": {"h":4,"w":12,"x":0,"y":14},
+          "fieldConfig": {"defaults":{"unit":"short"}},
+          "targets": [{"expr":"redis_master_repl_offset","legendFormat":"master offset"}]
+        },
+        {
+          "type": "timeseries",
+          "title": "Memory Used (bytes)",
+          "id": 17,
+          "gridPos": {"h":4,"w":12,"x":12,"y":14},
+          "fieldConfig": {"defaults":{"unit":"bytes"}},
+          "targets": [
+            {"expr":"redis_memory_used_bytes","legendFormat":"used"},
+            {"expr":"redis_memory_max_bytes","legendFormat":"limit"}
+          ]
+        },
+        {"type": "row", "title": "CloudNativePG", "id": 20, "gridPos": {"h":1,"w":24,"x":0,"y":18}, "collapsed": false},
+        {
+          "type": "stat",
+          "title": "CNPG Collector Up",
+          "id": 21,
+          "gridPos": {"h":4,"w":4,"x":0,"y":19},
+          "fieldConfig": {"defaults":{"mappings":[{"type":"value","options":{"1":{"text":"UP","color":"green"},"0":{"text":"DOWN","color":"red"}}}]}},
+          "targets": [{"expr":"cnpg_collector_up{namespace=\"rejourney\"}","legendFormat":"{{pod}}"}]
+        },
+        {
+          "type": "stat",
+          "title": "Instance Role",
+          "id": 22,
+          "gridPos": {"h":4,"w":4,"x":4,"y":19},
+          "fieldConfig": {"defaults":{}},
+          "targets": [{"expr":"cnpg_pg_replication_in_recovery{namespace=\"rejourney\"}","legendFormat":"{{pod}} (1=replica,0=primary)"}]
+        },
+        {
+          "type": "timeseries",
+          "title": "Replication Lag (s)",
+          "id": 23,
+          "gridPos": {"h":4,"w":8,"x":8,"y":19},
+          "fieldConfig": {"defaults":{"unit":"s"}},
+          "targets": [{"expr":"cnpg_pg_replication_lag{namespace=\"rejourney\"}","legendFormat":"{{pod}}"}]
+        },
+        {
+          "type": "timeseries",
+          "title": "Active Connections by State",
+          "id": 24,
+          "gridPos": {"h":4,"w":8,"x":16,"y":19},
+          "fieldConfig": {"defaults":{"unit":"short"}},
+          "targets": [{"expr":"cnpg_pg_stat_activity_count{namespace=\"rejourney\"}","legendFormat":"{{state}}"}]
+        },
+        {
+          "type": "timeseries",
+          "title": "Transactions / sec",
+          "id": 25,
+          "gridPos": {"h":4,"w":12,"x":0,"y":23},
+          "fieldConfig": {"defaults":{"unit":"ops"}},
+          "targets": [
+            {"expr":"rate(cnpg_pg_stat_database_xact_commit_total{datname=\"rejourney\",namespace=\"rejourney\"}[2m])","legendFormat":"commit/s"},
+            {"expr":"rate(cnpg_pg_stat_database_xact_rollback_total{datname=\"rejourney\",namespace=\"rejourney\"}[2m])","legendFormat":"rollback/s"}
+          ]
+        },
+        {
+          "type": "timeseries",
+          "title": "WAL Files Count",
+          "id": 26,
+          "gridPos": {"h":4,"w":12,"x":12,"y":23},
+          "fieldConfig": {"defaults":{"unit":"short"}},
+          "targets": [{"expr":"cnpg_pg_wal_count{namespace=\"rejourney\"}","legendFormat":"WAL files"}]
+        }
+      ],
+      "time": {"from":"now-3h","to":"now"},
+      "timepicker": {}
+    }
