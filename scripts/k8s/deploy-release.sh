@@ -269,6 +269,19 @@ main() {
   kubectl delete job db-setup -n "${NAMESPACE}" --ignore-not-found --wait=true --timeout=120s || true
   kubectl delete pods -n "${NAMESPACE}" -l job-name=db-setup --ignore-not-found --wait=true --timeout=60s || true
 
+  # ── Grafana dashboards ConfigMap (server-side apply) ────────────────────
+  # The grafana-dashboards ConfigMap is ~290KB, which exceeds client-side
+  # apply's 262144-byte last-applied-configuration annotation limit. Apply
+  # it separately with --server-side (field-manager metadata, no annotation)
+  # and remove it from the bulk apply dir. It's intentionally NOT labeled
+  # app.kubernetes.io/part-of=rejourney so the bulk --prune pass ignores it.
+  section "Applying Grafana dashboards (server-side)"
+  if [[ -f "${RENDER_DIR}/grafana-dashboards.yaml" ]]; then
+    kubectl apply --server-side --force-conflicts \
+      -f "${RENDER_DIR}/grafana-dashboards.yaml"
+    rm -f "${RENDER_DIR}/grafana-dashboards.yaml"
+  fi
+
   section "Applying Rendered Manifests"
   log "Applying rendered manifests..."
   kubectl apply -f "${RENDER_DIR}/" \

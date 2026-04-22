@@ -11,8 +11,12 @@ kind: ConfigMap
 metadata:
   name: grafana-dashboards
   namespace: rejourney
+  # NOTE: intentionally NOT labeled app.kubernetes.io/part-of=rejourney.
+  # This CM is ~290KB — too large for client-side apply's last-applied
+  # annotation (262144 byte limit). deploy-release.sh applies it with
+  # --server-side; keeping it outside the prune label scope prevents the
+  # bulk apply --prune pass from deleting it.
   labels:
-    app.kubernetes.io/part-of: rejourney
     grafana_dashboard: "1"
 data:
   00-overview.json: |
