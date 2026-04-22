@@ -64,6 +64,31 @@ data:
           timeInterval: "30s"
 
 ---
+# Provisioning provider: tells Grafana which on-disk folder to watch for the
+# JSON dashboards mounted from the grafana-dashboards ConfigMap below.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboard-providers
+  namespace: rejourney
+  labels:
+    app.kubernetes.io/part-of: rejourney
+data:
+  providers.yaml: |
+    apiVersion: 1
+    providers:
+      - name: rejourney-provisioned
+        orgId: 1
+        folder: Rejourney
+        type: file
+        disableDeletion: false
+        allowUiUpdates: true
+        updateIntervalSeconds: 30
+        options:
+          path: /var/lib/grafana/dashboards/rejourney
+          foldersFromFilesStructure: false
+
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
