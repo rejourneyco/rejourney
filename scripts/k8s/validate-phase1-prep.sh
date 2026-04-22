@@ -16,7 +16,7 @@ require_file() {
 require_match() {
   local pattern="$1"
   local path="$2"
-  if ! rg -n --fixed-strings --quiet "${pattern}" "${path}"; then
+  if ! grep -F -q -- "${pattern}" "${path}"; then
     echo "Missing expected content in ${path}: ${pattern}" >&2
     exit 1
   fi
