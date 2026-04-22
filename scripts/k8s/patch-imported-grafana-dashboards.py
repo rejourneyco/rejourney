@@ -520,25 +520,25 @@ def patch_postgres_dashboard(dashboard: dict) -> bool:
                 if key in target and isinstance(target[key], str):
                     target[key] = cleanup_release_filters(target[key])
 
-        if title == "Average CPU Usage":
+        if title in ("Average CPU Usage", "Postgres Container CPU Usage"):
             panel["title"] = "Postgres Container CPU Usage"
             set_single_target_expr(
                 panel,
-                'sum(rate(container_cpu_usage_seconds_total{cluster="rejourney-prod", namespace="rejourney", pod="postgres-0", container="postgres", cpu="total"}[$__rate_interval]))',
+                'sum(rate(container_cpu_usage_seconds_total{cluster="rejourney-prod", namespace="rejourney", pod=~"postgres-[1-9][0-9]*", container="postgres", cpu="total"}[$__rate_interval]))',
                 "CPU cores",
             )
             set_panel_unit(panel, "cores")
             changed = True
-        elif title == "Average Memory Usage":
+        elif title in ("Average Memory Usage", "Postgres Container Memory Usage"):
             panel["title"] = "Postgres Container Memory Usage"
             set_single_target_expr(
                 panel,
-                'sum(container_memory_working_set_bytes{cluster="rejourney-prod", namespace="rejourney", pod="postgres-0", container="postgres"})',
+                'sum(container_memory_working_set_bytes{cluster="rejourney-prod", namespace="rejourney", pod=~"postgres-[1-9][0-9]*", container="postgres"})',
                 "Working set",
             )
             set_panel_unit(panel, "bytes")
             changed = True
-        elif title == "Start Time":
+        elif title in ("Start Time", "Database Size"):
             panel["title"] = "Database Size"
             set_single_target_expr(
                 panel,
@@ -586,7 +586,7 @@ def patch_postgres_dashboard(dashboard: dict) -> bool:
         })
         y = max_y + 1
 
-        _PG = 'cluster="rejourney-prod",namespace="rejourney",pod="postgres-0",container="postgres"'
+        _PG = 'cluster="rejourney-prod",namespace="rejourney",pod=~"postgres-[1-9][0-9]*",container="postgres"'
         pg_cpu_expr = (
             f'sum(rate(container_cpu_usage_seconds_total{{{_PG},cpu="total"}}[$__rate_interval]))'
             f' / sum(container_spec_cpu_quota{{{_PG}}} / container_spec_cpu_period{{{_PG}}}) * 100'
