@@ -6,9 +6,7 @@ import {
   ChevronDown,
   ChevronRight,
   Loader,
-  Play,
   Search,
-  Sparkles,
 } from 'lucide-react';
 import { useNavigate, useSearchParams } from 'react-router';
 import { useSessionData } from '~/shared/providers/SessionContext';
@@ -20,20 +18,8 @@ import { DashboardPageHeader } from '~/shared/ui/core/DashboardPageHeader';
 import { NeoBadge } from '~/shared/ui/core/neo/NeoBadge';
 import { NeoButton } from '~/shared/ui/core/neo/NeoButton';
 import { NeoCard } from '~/shared/ui/core/neo/NeoCard';
-import { api, CrashReport, getSessionsPaginated } from '~/shared/api/client';
+import { api, CrashReport, getCrashesOverview, type CrashOverviewGroup } from '~/shared/api/client';
 import { DashboardGhostLoader } from '~/shared/ui/core/DashboardGhostLoader';
-
-interface CrashGroup {
-  name: string;
-  id: string;
-  count: number;
-  users: Set<string>;
-  firstSeen: string;
-  lastOccurred: string;
-  affectedDevices: Record<string, number>;
-  affectedVersions: Record<string, number>;
-  sampleSessionId: string;
-}
 
 const formatCompact = (value: number): string => {
   if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`;
@@ -47,7 +33,7 @@ export const CrashesList: React.FC = () => {
   const navigate = useNavigate();
   const pathPrefix = usePathPrefix();
 
-  const [sessions, setSessions] = useState<any[]>([]);
+  const [crashGroups, setCrashGroups] = useState<CrashOverviewGroup[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [expandedGroup, setExpandedGroup] = useState<string | null>(null);
   const [timeRange, setTimeRange] = useState<TimeRange>(DEFAULT_TIME_RANGE);
@@ -56,7 +42,7 @@ export const CrashesList: React.FC = () => {
 
   useEffect(() => {
     if (!selectedProject?.id) {
-      setSessions([]);
+      setCrashGroups([]);
       setIsLoading(false);
       return;
     }
@@ -64,19 +50,13 @@ export const CrashesList: React.FC = () => {
     let cancelled = false;
     setIsLoading(true);
 
-    getSessionsPaginated({
-      projectId: selectedProject.id,
-      timeRange: timeRange === 'all' ? undefined : timeRange,
-      issueFilter: 'crashes',
-      limit: 300,
-      includeTotal: false,
-    }).then((response) => {
+    getCrashesOverview(selectedProject.id, timeRange).then((response) => {
       if (cancelled) return;
-      setSessions(response.sessions || []);
+      setCrashGroups(response.groups || []);
     }).catch((err) => {
       if (cancelled) return;
-      console.error('Failed to fetch crash sessions:', err);
-      setSessions([]);
+      console.error('Failed to fetch crashes overview:', err);
+      setCrashGroups([]);
     }).finally(() => {
       if (!cancelled) setIsLoading(false);
     });
@@ -89,30 +69,6 @@ export const CrashesList: React.FC = () => {
   useEffect(() => {
     window.scrollTo(0, 0);
   }, []);
-
-  const crashGroups = useMemo<CrashGroup[]>(() => {
-    return sessions
-      .filter((session) => (session.crashCount || 0) > 0)
-      .map((session) => {
-        const lastScreen =
-          session.screensVisited && session.screensVisited.length > 0
-            ? session.screensVisited[session.screensVisited.length - 1]
-            : 'Unknown Screen';
-
-        return {
-          name: `Crash in ${lastScreen}`,
-          id: session.id,
-          count: session.crashCount || 1,
-          users: new Set([session.userId || session.deviceId || session.id]),
-          firstSeen: session.startedAt,
-          lastOccurred: session.startedAt,
-          affectedDevices: { [session.deviceModel || 'Unknown']: 1 },
-          affectedVersions: { [session.appVersion || 'Unknown']: 1 },
-          sampleSessionId: session.id,
-        };
-      })
-      .sort((a, b) => new Date(b.lastOccurred).getTime() - new Date(a.lastOccurred).getTime());
-  }, [sessions]);
 
   const filteredCrashGroups = useMemo(() => {
     if (!searchQuery.trim()) return crashGroups;
@@ -165,15 +121,7 @@ export const CrashesList: React.FC = () => {
 
     const fetchCrashForGroup = async () => {
       try {
-        const { crashes } = await api.getCrashes(selectedProject.id, 1, 100);
-        const matchingCrash = crashes.find((crash) => crash.sessionId === group.sampleSessionId);
-
-        if (!matchingCrash) {
-          setCrashDetails((prev) => ({ ...prev, [expandedGroup]: null }));
-          return;
-        }
-
-        const fullCrash = await api.getCrash(selectedProject.id, matchingCrash.id);
+        const fullCrash = await api.getCrash(selectedProject.id, group.sampleCrashId);
         setCrashDetails((prev) => ({ ...prev, [expandedGroup]: fullCrash }));
       } catch (err) {
         console.error('Failed to fetch crash details:', err);
@@ -184,7 +132,7 @@ export const CrashesList: React.FC = () => {
     fetchCrashForGroup();
   }, [expandedGroup, selectedProject?.id, crashGroups, crashDetails]);
 
-  if (isLoading || projectsLoading) {
+  if ((isLoading && crashGroups.length === 0) || projectsLoading) {
     return <DashboardGhostLoader variant="list" />;
   }
 
@@ -290,7 +238,7 @@ export const CrashesList: React.FC = () => {
 
                     <div className="w-16 text-right">
                       <NeoBadge variant="info" size="sm" className="font-mono">
-                        {formatCompact(group.users.size)}
+                        {formatCompact(group.users.length)}
                       </NeoBadge>
                     </div>
 
@@ -307,93 +255,16 @@ export const CrashesList: React.FC = () => {
 
                   {isExpanded && (
                     <div className="border-t border-slate-200 bg-slate-50/70 px-6 py-6">
-                      <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
-                        <div className="space-y-4 lg:col-span-8">
-                          <NeoCard variant="flat" disablePadding className="overflow-hidden">
-                            <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3">
-                              <h4 className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-600">
-                                <Activity size={14} className="text-rose-500" />
-                                Stack Trace Preview
-                              </h4>
-                            </div>
-
-                            {!hasLoadedDetail ? (
-                              <div className="flex items-center justify-center gap-2 px-6 py-8 text-sm text-slate-500">
-                                <Loader size={18} className="animate-spin" />
-                                Loading crash details...
-                              </div>
-                            ) : detail?.stackTrace ? (
-                              <div className="max-h-80 overflow-x-auto bg-slate-950 p-5 font-mono text-xs leading-relaxed text-emerald-300">
-                                {detail.stackTrace.split('\n').slice(0, 12).join('\n')}
-                                {detail.stackTrace.split('\n').length > 12 && (
-                                  <p className="mt-3 border-t border-slate-800 pt-3 text-[10px] text-slate-400">
-                                    Preview clipped. Open root cause analysis for full trace.
-                                  </p>
-                                )}
-                              </div>
-                            ) : (
-                              <div className="px-6 py-8 text-center text-sm text-slate-500">No stack trace captured.</div>
-                            )}
-                          </NeoCard>
-
-                          <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-                            <NeoCard variant="flat" className="p-4">
-                              <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">First Seen</p>
-                              <p className="mt-1 text-sm font-semibold text-slate-900">
-                                {new Date(group.firstSeen).toLocaleDateString()}
-                              </p>
-                            </NeoCard>
-                            <NeoCard variant="flat" className="p-4">
-                              <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Last Seen</p>
-                              <p className="mt-1 text-sm font-semibold text-slate-900">{formatLastSeen(group.lastOccurred)}</p>
-                            </NeoCard>
-                            <NeoCard variant="flat" className="p-4">
-                              <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Environment</p>
-                              <div className="mt-2 flex flex-wrap gap-2">
-                                <NeoBadge variant="neutral" size="sm">
-                                  {Object.keys(group.affectedDevices)[0] || 'Unknown'}
-                                </NeoBadge>
-                                <NeoBadge variant="info" size="sm">
-                                  v{Object.keys(group.affectedVersions)[0] || '?'}
-                                </NeoBadge>
-                              </div>
-                            </NeoCard>
-                          </div>
-                        </div>
-
-                        <div className="space-y-4 lg:col-span-4">
-                          <NeoCard variant="flat" className="p-4">
-                            <div className="mb-3 flex items-center justify-between">
-                              <h4 className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-600">
-                                <Play size={14} className="text-indigo-500" />
-                                Evidence Sample
-                              </h4>
-                            </div>
-                            <div className="flex justify-center border border-gray-200 bg-white px-3 py-4" style={{ boxShadow: '2px 2px 0 0 rgba(0,0,0,0.07)' }}>
-                              <MiniSessionCard
-                                session={{
-                                  id: group.sampleSessionId,
-                                  deviceModel: Object.keys(group.affectedDevices)[0] || 'Sample Device',
-                                  createdAt: group.lastOccurred,
-                                }}
-                                onClick={() => navigate(`${pathPrefix}/sessions/${group.sampleSessionId}`)}
-                              />
-                            </div>
-                          </NeoCard>
-
-                          <NeoCard variant="flat" className="border-rose-200 bg-rose-50 p-4">
-                            <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-rose-700">
-                              <Sparkles size={14} />
-                              Root Cause Focus
-                            </p>
-                            <p className="mt-2 text-xs leading-relaxed text-rose-700/90">
-                              Validate the failing frame, check the release version, and replay the user journey around the
-                              crash to isolate the trigger.
-                            </p>
+                      <div className="space-y-4">
+                        <NeoCard variant="flat" disablePadding className="overflow-hidden">
+                          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-4 py-3">
+                            <h4 className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-600">
+                              <Activity size={14} className="text-rose-500" />
+                              Root Cause Details
+                            </h4>
                             <NeoButton
-                              variant="primary"
+                              variant="secondary"
                               size="sm"
-                              className="mt-4"
                               onClick={(event) => {
                                 event.stopPropagation();
                                 if (detail?.id) {
@@ -403,8 +274,58 @@ export const CrashesList: React.FC = () => {
                               disabled={!detail?.id}
                               rightIcon={<ChevronRight size={14} />}
                             >
-                              Analyze Root Cause
+                              Open More Details
                             </NeoButton>
+                          </div>
+
+                          {!hasLoadedDetail ? (
+                            <div className="flex items-center justify-center gap-2 px-6 py-8 text-sm text-slate-500">
+                              <Loader size={18} className="animate-spin" />
+                              Loading crash details...
+                            </div>
+                          ) : detail?.stackTrace ? (
+                            <div className="max-h-96 overflow-auto bg-slate-950 p-5 font-mono text-xs leading-relaxed text-emerald-300">
+                              {detail.stackTrace}
+                            </div>
+                          ) : (
+                            <div className="px-6 py-8 text-center text-sm text-slate-500">No stack trace captured.</div>
+                          )}
+                        </NeoCard>
+
+                        <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
+                          <NeoCard variant="flat" className="p-4">
+                            <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">First Seen</p>
+                            <p className="mt-1 text-sm font-semibold text-slate-900">
+                              {new Date(group.firstSeen).toLocaleDateString()}
+                            </p>
+                          </NeoCard>
+                          <NeoCard variant="flat" className="p-4">
+                            <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Last Seen</p>
+                            <p className="mt-1 text-sm font-semibold text-slate-900">{formatLastSeen(group.lastOccurred)}</p>
+                          </NeoCard>
+                          <NeoCard variant="flat" className="p-4">
+                            <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Environment</p>
+                            <div className="mt-2 flex flex-wrap gap-2">
+                              <NeoBadge variant="neutral" size="sm">
+                                {Object.keys(group.affectedDevices)[0] || 'Unknown'}
+                              </NeoBadge>
+                              <NeoBadge variant="info" size="sm">
+                                v{Object.keys(group.affectedVersions)[0] || '?'}
+                              </NeoBadge>
+                            </div>
+                          </NeoCard>
+                          <NeoCard variant="flat" className="p-4">
+                            <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Evidence Sample</p>
+                            <div className="mt-3 flex justify-center border border-gray-200 bg-white px-3 py-4" style={{ boxShadow: '2px 2px 0 0 rgba(0,0,0,0.07)' }}>
+                              <MiniSessionCard
+                                session={{
+                                  id: group.sampleSessionId,
+                                  deviceModel: Object.keys(group.affectedDevices)[0] || 'Sample Device',
+                                  createdAt: group.lastOccurred,
+                                }}
+                                onClick={() => navigate(`${pathPrefix}/sessions/${group.sampleSessionId}`)}
+                              />
+                            </div>
                           </NeoCard>
                         </div>
                       </div>

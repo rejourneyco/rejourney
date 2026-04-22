@@ -91,9 +91,6 @@ async function fetchJson<T>(endpoint: string, options: RequestInit = {}): Promis
     credentials: 'include',
   };
   const method = (requestInit.method ?? 'GET').toUpperCase();
-  if ((method === 'GET' || method === 'HEAD') && !requestInit.cache) {
-    requestInit.cache = 'no-store';
-  }
 
   const response = await fetch(`${API_BASE_URL}${endpoint}`, requestInit);
 
@@ -167,6 +164,9 @@ const cache = new Map<string, { data: any; timestamp: number }>();
 const CACHE_TTL = 60000; // 60 seconds - helps tab switching feel instant when returning
 const PROJECTS_CACHE_TTL = 30000;
 const WORKSPACE_CACHE_TTL = 120000; // 2 minutes - workspace rarely changes
+const ANALYTICS_BOOTSTRAP_CACHE_TTL = 60000;
+const ARCHIVE_CACHE_TTL = 30000;
+const SESSION_BOOTSTRAP_CACHE_TTL = 15000;
 
 /**
  * Fetch with caching and error handling
@@ -420,6 +420,13 @@ export interface ApiSessionFrames {
   screenshotFramesTotalSegments: number;
 }
 
+export interface ApiSessionBootstrapResponse {
+  core: ApiSession;
+  timeline: ApiSessionTimeline;
+  stats: ApiSession['stats'];
+  hierarchyDeferred?: boolean;
+}
+
 export async function getSessionCore(
   sessionId: string,
   options?: { frameUrlMode?: 'signed' | 'proxy' | 'none' }
@@ -431,6 +438,33 @@ export async function getSessionCore(
   if (options?.frameUrlMode) params.set('frameUrlMode', options.frameUrlMode);
   const suffix = params.toString() ? `?${params.toString()}` : '';
   return fetchWithCache<ApiSession>(`/api/session/${sessionId}/core${suffix}`);
+}
+
+export async function getSessionBootstrap(
+  sessionId: string,
+  options?: { frameUrlMode?: 'signed' | 'proxy' | 'none' }
+): Promise<ApiSessionBootstrapResponse> {
+  if (isDemoMode()) {
+    const core = await getSessionCore(sessionId, options);
+    const timeline = await getSessionTimeline(sessionId);
+    return {
+      core,
+      timeline,
+      stats: core.stats,
+      hierarchyDeferred: true,
+    };
+  }
+
+  const params = new URLSearchParams();
+  if (options?.frameUrlMode) params.set('frameUrlMode', options.frameUrlMode);
+  const suffix = params.toString() ? `?${params.toString()}` : '';
+  const cacheKey = `session:bootstrap:${sessionId}:${options?.frameUrlMode || 'default'}`;
+  return fetchWithCache<ApiSessionBootstrapResponse>(
+    `/api/session/${sessionId}/bootstrap${suffix}`,
+    {},
+    cacheKey,
+    SESSION_BOOTSTRAP_CACHE_TTL,
+  );
 }
 
 export async function getSessionFrames(
@@ -845,7 +879,13 @@ export async function getSessionsArchiveTotalCount(
   }
 
   const queryParams = buildSessionArchiveQueryString({ ...params, countOnly: true, limit: 1 });
-  const response = await fetchJson<{ totalCount: number }>(`/api/sessions?${queryParams}`);
+  const endpoint = `/api/sessions?${queryParams}`;
+  const response = await fetchWithCache<{ totalCount: number }>(
+    endpoint,
+    {},
+    `sessions:archive:count:${queryParams}`,
+    ARCHIVE_CACHE_TTL,
+  );
   return response?.totalCount ?? 0;
 }
 
@@ -869,14 +909,19 @@ export async function getSessionsPaginated(
 
   const queryParams = buildSessionArchiveQueryString(params);
   const endpoint = `/api/sessions?${queryParams}`;
-
-  // Don't cache paginated requests since cursor changes
-  const response = await fetchJson<{
-    sessions: ApiSessionSummary[];
-    nextCursor: string | null;
-    hasMore: boolean;
-    totalCount: number | null;
-  }>(endpoint);
+  const response = params.cursor
+    ? await fetchJson<{
+      sessions: ApiSessionSummary[];
+      nextCursor: string | null;
+      hasMore: boolean;
+      totalCount: number | null;
+    }>(endpoint)
+    : await fetchWithCache<{
+      sessions: ApiSessionSummary[];
+      nextCursor: string | null;
+      hasMore: boolean;
+      totalCount: number | null;
+    }>(endpoint, {}, `sessions:archive:list:${queryParams}`, ARCHIVE_CACHE_TTL);
 
   const sessions = (response?.sessions || []).map(transformToRecordingSession);
   return {
@@ -1908,6 +1953,149 @@ export interface RetentionCohortsResponse {
   rows: RetentionCohortRow[];
 }
 
+export interface DashboardOverviewResponse {
+  trends: InsightsTrends;
+  overviewObs: GrowthObservability | null;
+  deepMetrics: ObservabilityDeepMetrics | null;
+  engagementTrends: UserEngagementTrends | null;
+  geoSummary: GeoSummary | null;
+  retention: RetentionCohortsResponse;
+  issues: Issue[];
+  sessions: RecordingSession[];
+  failedSections: string[];
+}
+
+export interface ApiOverviewResponse {
+  endpointStats: ApiEndpointStats | null;
+  regionStats: RegionPerformance | null;
+  deepMetrics: ObservabilityDeepMetrics | null;
+  latencyByLocation: ApiLatencyByLocationResponse | null;
+  trends: InsightsTrends;
+  failedSections: string[];
+}
+
+export interface DevicesOverviewResponse {
+  summary: DeviceSummary | null;
+  deepMetrics: ObservabilityDeepMetrics | null;
+  matrix: DeviceIssueMatrix | null;
+  trends: InsightsTrends;
+  failedSections: string[];
+}
+
+export interface GeoOverviewResponse {
+  issues: GeoIssuesSummary;
+  latencyByLocation: ApiLatencyByLocationResponse;
+  failedSections: string[];
+}
+
+export interface JourneysOverviewResponse {
+  journey: ObservabilityJourneySummary | null;
+  userEngagement: UserEngagementTrends | null;
+  trends: InsightsTrends;
+  failedSections: string[];
+}
+
+export interface HeatmapOverviewScreen {
+  name: string;
+  visits: number;
+  rageTaps: number;
+  errors: number;
+  exitRate: number;
+  frictionScore: number;
+  screenshotUrl: string | null;
+  sessionIds?: string[];
+  touchHotspots?: Array<{ x: number; y: number; intensity: number; isRageTap: boolean }>;
+  rangeVisits: number;
+  rangeRageTaps: number;
+  rangeErrors: number;
+  rangeExitRate: number;
+  rangeFrictionScore: number;
+  rangeImpactScore: number;
+  rangeRageTapRatePer100: number;
+  rangeErrorRatePer100: number;
+  rangeIncidentRatePer100: number;
+  rangeEstimatedAffectedSessions: number;
+  primarySignal: 'rage_taps' | 'errors' | 'exits' | 'mixed';
+  confidence: 'high' | 'medium' | 'low';
+  priority: 'critical' | 'high' | 'watch';
+  evidenceSessionId: string | null;
+}
+
+export interface HeatmapOverviewResponse {
+  screens: HeatmapOverviewScreen[];
+  lastUpdated: string;
+  failedSections: string[];
+}
+
+export interface HeatmapScreenOverviewResponse {
+  screen: HeatmapOverviewScreen | null;
+  failedSections: string[];
+}
+
+export interface ErrorOverviewGroup {
+  fingerprint: string;
+  errorName: string;
+  message: string;
+  count: number;
+  users: string[];
+  firstSeen: string;
+  lastOccurred: string;
+  affectedDevices: Record<string, number>;
+  affectedVersions: Record<string, number>;
+  screens: string[];
+  sampleError: {
+    id: string;
+    sessionId: string | null;
+    timestamp: string;
+    deviceModel: string | null;
+    appVersion: string | null;
+    stack: string | null;
+    screenName: string | null;
+  };
+}
+
+export interface ErrorsOverviewResponse {
+  groups: ErrorOverviewGroup[];
+  summary: {
+    issues: number;
+    events: number;
+    users: number;
+  };
+  truncated: boolean;
+}
+
+export interface CrashOverviewGroup {
+  id: string;
+  name: string;
+  sampleCrashId: string;
+  sampleSessionId: string;
+  count: number;
+  users: string[];
+  firstSeen: string;
+  lastOccurred: string;
+  affectedDevices: Record<string, number>;
+  affectedVersions: Record<string, number>;
+}
+
+export interface CrashesOverviewResponse {
+  groups: CrashOverviewGroup[];
+  summary: {
+    issues: number;
+    events: number;
+    users: number;
+  };
+  truncated: boolean;
+}
+
+export interface ANRsOverviewResponse {
+  anrs: ANRRecord[];
+  summary: {
+    issues: number;
+    events: number;
+    users: number;
+  };
+}
+
 export interface FrictionHeatmap {
   screens: Array<{
     name: string;
@@ -1997,6 +2185,320 @@ export async function getInsightsTrends(projectId?: string, timeRange?: string):
   const endpoint = `/api/insights/trends?${params.toString()}`;
   // 2 min cache - KPI cards depend on this, keep warm for snappy tab switching
   return fetchWithCache<InsightsTrends>(endpoint, {}, endpoint, 120000);
+}
+
+export async function getDashboardOverview(projectId?: string, timeRange?: string): Promise<DashboardOverviewResponse> {
+  if (isDemoMode()) {
+    const [trends, overviewObs, deepMetrics, engagementTrends, geoSummary, retention, issuesResponse, sessionsResponse] = await Promise.all([
+      getInsightsTrends(projectId, timeRange),
+      getGrowthObservability(projectId, timeRange === 'all' ? undefined : timeRange, 'summary'),
+      getObservabilityDeepMetrics(projectId, timeRange === 'all' ? undefined : timeRange, 'summary'),
+      getUserEngagementTrends(projectId, timeRange === 'all' ? undefined : timeRange),
+      getGeoSummary(projectId, timeRange === 'all' ? undefined : timeRange),
+      getRetentionCohorts(projectId, timeRange),
+      getIssues(projectId || 'demo-project', timeRange || '30d'),
+      getSessionsPaginated({
+        projectId,
+        timeRange,
+        limit: 60,
+        includeTotal: false,
+      }),
+    ]);
+
+    return {
+      trends,
+      overviewObs,
+      deepMetrics,
+      engagementTrends,
+      geoSummary,
+      retention,
+      issues: issuesResponse.issues || [],
+      sessions: (sessionsResponse.sessions || []) as RecordingSession[],
+      failedSections: [],
+    };
+  }
+
+  const params = new URLSearchParams();
+  if (projectId) params.set('projectId', projectId);
+  if (timeRange) params.set('timeRange', timeRange);
+  const endpoint = `/api/overview/general?${params.toString()}`;
+  const cacheKey = `overview:general:${projectId || 'all'}:${timeRange || 'all'}`;
+  return fetchWithCache<DashboardOverviewResponse>(endpoint, {}, cacheKey, 60000);
+}
+
+export async function getApiOverview(projectId: string, timeRange?: string): Promise<ApiOverviewResponse> {
+  if (isDemoMode()) {
+    const range = timeRange === 'all' ? undefined : timeRange;
+    const trendsRange = timeRange === '24h' ? '7d' : (timeRange || '30d');
+    const regionRange = timeRange === '24h' ? '7d' : (timeRange || '30d');
+    const [endpointStats, deepMetrics, regionStats, latencyByLocation, trends] = await Promise.all([
+      getApiEndpointStats(projectId, range),
+      getObservabilityDeepMetrics(projectId, range, 'full'),
+      getRegionPerformance(projectId, regionRange),
+      getApiLatencyByLocation(projectId, range),
+      getInsightsTrends(projectId, trendsRange),
+    ]);
+
+    return {
+      endpointStats,
+      deepMetrics,
+      regionStats,
+      latencyByLocation,
+      trends,
+      failedSections: [],
+    };
+  }
+
+  const params = new URLSearchParams({ projectId });
+  if (timeRange) params.set('timeRange', timeRange);
+  const endpoint = `/api/overview/api?${params.toString()}`;
+  const cacheKey = `overview:api:${projectId}:${timeRange || 'all'}`;
+  return fetchWithCache<ApiOverviewResponse>(endpoint, {}, cacheKey, ANALYTICS_BOOTSTRAP_CACHE_TTL);
+}
+
+export async function getDevicesOverview(projectId: string, timeRange?: string): Promise<DevicesOverviewResponse> {
+  if (isDemoMode()) {
+    const range = timeRange === 'all' ? undefined : timeRange;
+    const deviceRange = timeRange === 'all' ? 'max' : timeRange;
+    const trendsRange = timeRange === '24h'
+      ? '7d'
+      : timeRange === '7d'
+        ? '30d'
+        : timeRange === '30d'
+          ? '90d'
+          : (timeRange || '30d');
+
+    const [summary, deepMetrics, matrix, trends] = await Promise.all([
+      getDeviceSummary(projectId, deviceRange),
+      getObservabilityDeepMetrics(projectId, range, 'summary'),
+      getDeviceIssueMatrix(projectId, deviceRange),
+      getInsightsTrends(projectId, trendsRange),
+    ]);
+
+    return {
+      summary,
+      deepMetrics,
+      matrix,
+      trends,
+      failedSections: [],
+    };
+  }
+
+  const params = new URLSearchParams({ projectId });
+  if (timeRange) params.set('timeRange', timeRange);
+  const endpoint = `/api/overview/devices?${params.toString()}`;
+  const cacheKey = `overview:devices:${projectId}:${timeRange || 'all'}`;
+  return fetchWithCache<DevicesOverviewResponse>(endpoint, {}, cacheKey, ANALYTICS_BOOTSTRAP_CACHE_TTL);
+}
+
+export async function getGeoOverview(projectId: string, timeRange?: string): Promise<GeoOverviewResponse> {
+  if (isDemoMode()) {
+    const range = timeRange === 'all' ? undefined : timeRange;
+    const [issues, latencyByLocation] = await Promise.all([
+      getGeoIssues(projectId, range),
+      getApiLatencyByLocation(projectId, range),
+    ]);
+
+    return {
+      issues,
+      latencyByLocation,
+      failedSections: [],
+    };
+  }
+
+  const params = new URLSearchParams({ projectId });
+  if (timeRange) params.set('timeRange', timeRange);
+  const endpoint = `/api/overview/geo?${params.toString()}`;
+  const cacheKey = `overview:geo:${projectId}:${timeRange || 'all'}`;
+  return fetchWithCache<GeoOverviewResponse>(endpoint, {}, cacheKey, ANALYTICS_BOOTSTRAP_CACHE_TTL);
+}
+
+export async function getJourneysOverview(projectId: string, timeRange?: string): Promise<JourneysOverviewResponse> {
+  if (isDemoMode()) {
+    const journeyRange = timeRange === 'all' ? undefined : timeRange;
+    const trendsRange = timeRange === '24h'
+      ? '7d'
+      : timeRange === '7d'
+        ? '30d'
+        : timeRange === '30d'
+          ? '90d'
+          : (timeRange || '30d');
+
+    const [journey, userEngagement, trends] = await Promise.all([
+      getJourneyObservability(projectId, journeyRange, 'summary'),
+      getUserEngagementTrends(projectId, journeyRange),
+      getInsightsTrends(projectId, trendsRange),
+    ]);
+
+    return {
+      journey,
+      userEngagement,
+      trends,
+      failedSections: [],
+    };
+  }
+
+  const params = new URLSearchParams({ projectId });
+  if (timeRange) params.set('timeRange', timeRange);
+  const endpoint = `/api/overview/journeys?${params.toString()}`;
+  const cacheKey = `overview:journeys:${projectId}:${timeRange || 'all'}`;
+  return fetchWithCache<JourneysOverviewResponse>(endpoint, {}, cacheKey, ANALYTICS_BOOTSTRAP_CACHE_TTL);
+}
+
+export async function getHeatmapsOverview(projectId: string, timeRange?: string): Promise<HeatmapOverviewResponse> {
+  if (isDemoMode()) {
+    const [alltime, friction] = await Promise.all([
+      getAlltimeHeatmap(projectId),
+      getFrictionHeatmap(projectId, timeRange),
+    ]);
+
+    const byName = new Map<string, HeatmapOverviewScreen>();
+    for (const screen of alltime.screens || []) {
+      byName.set(screen.name, {
+        ...screen,
+        rangeVisits: screen.visits,
+        rangeRageTaps: screen.rageTaps,
+        rangeErrors: screen.errors,
+        rangeExitRate: screen.exitRate,
+        rangeFrictionScore: screen.frictionScore,
+        rangeImpactScore: screen.frictionScore,
+        rangeRageTapRatePer100: 0,
+        rangeErrorRatePer100: 0,
+        rangeIncidentRatePer100: 0,
+        rangeEstimatedAffectedSessions: 0,
+        primarySignal: 'mixed',
+        confidence: 'medium',
+        priority: 'watch',
+        evidenceSessionId: screen.sessionIds?.[0] || null,
+      });
+    }
+    for (const screen of friction.screens || []) {
+      const existing = byName.get(screen.name);
+      byName.set(screen.name, {
+        ...(existing || screen),
+        ...screen,
+        rangeVisits: screen.visits,
+        rangeRageTaps: screen.rageTaps,
+        rangeErrors: screen.errors,
+        rangeExitRate: screen.exitRate,
+        rangeFrictionScore: screen.frictionScore,
+        rangeImpactScore: screen.frictionScore,
+        rangeRageTapRatePer100: 0,
+        rangeErrorRatePer100: 0,
+        rangeIncidentRatePer100: 0,
+        rangeEstimatedAffectedSessions: 0,
+        primarySignal: 'mixed',
+        confidence: 'medium',
+        priority: 'watch',
+        evidenceSessionId: screen.sessionIds?.[0] || existing?.evidenceSessionId || null,
+      });
+    }
+
+    return {
+      screens: Array.from(byName.values()),
+      lastUpdated: alltime.lastUpdated,
+      failedSections: [],
+    };
+  }
+
+  const params = new URLSearchParams({ projectId });
+  if (timeRange) params.set('timeRange', timeRange);
+  const endpoint = `/api/overview/heatmaps?${params.toString()}`;
+  const cacheKey = `overview:heatmaps:${projectId}:${timeRange || 'all'}`;
+  return fetchWithCache<HeatmapOverviewResponse>(endpoint, {}, cacheKey, ANALYTICS_BOOTSTRAP_CACHE_TTL);
+}
+
+export async function getHeatmapScreenOverview(projectId: string, screenName: string, timeRange?: string): Promise<HeatmapScreenOverviewResponse> {
+  if (isDemoMode()) {
+    const overview = await getHeatmapsOverview(projectId, timeRange);
+    return {
+      screen: overview.screens.find((screen) => screen.name === screenName) || null,
+      failedSections: [],
+    };
+  }
+
+  const params = new URLSearchParams({ projectId, screenName });
+  if (timeRange) params.set('timeRange', timeRange);
+  const endpoint = `/api/overview/heatmaps/screen?${params.toString()}`;
+  const cacheKey = `overview:heatmaps:screen:${projectId}:${screenName}:${timeRange || 'all'}`;
+  return fetchWithCache<HeatmapScreenOverviewResponse>(endpoint, {}, cacheKey, ANALYTICS_BOOTSTRAP_CACHE_TTL);
+}
+
+export async function getErrorsOverview(projectId: string, timeRange?: string): Promise<ErrorsOverviewResponse> {
+  if (isDemoMode()) {
+    const response = await getErrors(projectId, { timeRange });
+    return {
+      groups: (response.grouped || []).map((group, index) => ({
+        fingerprint: `${group.errorName}:${group.message}:${index}`,
+        errorName: group.errorName,
+        message: group.message,
+        count: group.count,
+        users: group.sampleSessionId ? [group.sampleSessionId] : [],
+        firstSeen: group.firstSeen,
+        lastOccurred: group.lastSeen,
+        affectedDevices: {},
+        affectedVersions: {},
+        screens: [],
+        sampleError: {
+          id: group.sampleSessionId || `demo-error-${index}`,
+          sessionId: group.sampleSessionId,
+          timestamp: group.lastSeen,
+          deviceModel: null,
+          appVersion: null,
+          stack: null,
+          screenName: null,
+        },
+      })),
+      summary: {
+        issues: response.grouped?.length || 0,
+        events: response.summary?.total || 0,
+        users: response.grouped?.length || 0,
+      },
+      truncated: false,
+    };
+  }
+
+  const params = new URLSearchParams({ projectId });
+  if (timeRange) params.set('timeRange', timeRange);
+  const endpoint = `/api/overview/errors?${params.toString()}`;
+  const cacheKey = `overview:errors:${projectId}:${timeRange || 'all'}`;
+  return fetchWithCache<ErrorsOverviewResponse>(endpoint, {}, cacheKey, ANALYTICS_BOOTSTRAP_CACHE_TTL);
+}
+
+export async function getCrashesOverview(projectId: string, timeRange?: string): Promise<CrashesOverviewResponse> {
+  if (isDemoMode()) {
+    return {
+      groups: [],
+      summary: { issues: 0, events: 0, users: 0 },
+      truncated: false,
+    };
+  }
+
+  const params = new URLSearchParams({ projectId });
+  if (timeRange) params.set('timeRange', timeRange);
+  const endpoint = `/api/overview/crashes?${params.toString()}`;
+  const cacheKey = `overview:crashes:${projectId}:${timeRange || 'all'}`;
+  return fetchWithCache<CrashesOverviewResponse>(endpoint, {}, cacheKey, ANALYTICS_BOOTSTRAP_CACHE_TTL);
+}
+
+export async function getANRsOverview(projectId: string, timeRange?: string): Promise<ANRsOverviewResponse> {
+  if (isDemoMode()) {
+    const response = await getANRs(projectId, { timeRange });
+    return {
+      anrs: response.anrs || [],
+      summary: {
+        issues: response.totalGroups || response.anrs.length,
+        events: response.totalEvents || response.anrs.reduce((sum, anr) => sum + Number(anr.occurrenceCount || 0), 0),
+        users: response.anrs.reduce((sum, anr) => sum + Number(anr.userCount || 0), 0),
+      },
+    };
+  }
+
+  const params = new URLSearchParams({ projectId });
+  if (timeRange) params.set('timeRange', timeRange);
+  const endpoint = `/api/overview/anrs?${params.toString()}`;
+  const cacheKey = `overview:anrs:${projectId}:${timeRange || 'all'}`;
+  return fetchWithCache<ANRsOverviewResponse>(endpoint, {}, cacheKey, ANALYTICS_BOOTSTRAP_CACHE_TTL);
 }
 
 export async function getRetentionCohorts(projectId?: string, timeRange?: string): Promise<RetentionCohortsResponse> {
@@ -3284,6 +3786,7 @@ export async function saveWorkspace(
 export const api = {
   getSessions,
   getSession,
+  getSessionBootstrap,
   getSessionCore,
   getSessionFrames,
   getSessionTimeline,
@@ -3323,6 +3826,16 @@ export const api = {
   getFrictionHeatmap,
   getApiLatencyByLocation,
   getInsightsTrends,
+  getDashboardOverview,
+  getApiOverview,
+  getDevicesOverview,
+  getGeoOverview,
+  getJourneysOverview,
+  getHeatmapsOverview,
+  getHeatmapScreenOverview,
+  getErrorsOverview,
+  getCrashesOverview,
+  getANRsOverview,
   getRetentionCohorts,
   getIssues,
   getIssue,

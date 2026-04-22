@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router';
 import { Project } from '~/shared/types';
 import { createProject, createTeam, ApiTeam } from '~/shared/api/client';
+import { TabRegistry } from '~/shell/tabs/TabRegistry';
 import { Modal } from '~/shared/ui/core/Modal';
 import { Input } from '~/shared/ui/core/Input';
 import { Button } from '~/shared/ui/core/Button';
@@ -38,9 +39,20 @@ const DEFAULT_SIDEBAR_WIDTH = 280;
 const MIN_SIDEBAR_WIDTH = 200;
 const MAX_SIDEBAR_WIDTH = 440;
 const COLLAPSED_SIDEBAR_WIDTH = 64;
+const SIDEBAR_PREFETCH_TIME_RANGE = '30d';
 
 function clamp(n: number, min: number, max: number) {
   return Math.min(max, Math.max(min, n));
+}
+
+function isTimeRange(value: string | null): value is string {
+  return value === '24h' || value === '7d' || value === '30d' || value === '90d' || value === '180d' || value === '1y' || value === 'all';
+}
+
+function readSidebarPrefetchTimeRange(projectId?: string | null): string {
+  if (typeof window === 'undefined') return SIDEBAR_PREFETCH_TIME_RANGE;
+  const stored = window.localStorage.getItem(`rejourney.analytics.timeRange.${projectId || 'global'}`);
+  return isTimeRange(stored) ? stored : SIDEBAR_PREFETCH_TIME_RANGE;
 }
 
 interface SidebarProps {
@@ -219,7 +231,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     setCreateTeamError(null);
   };
 
-  const navSections = [
+  const navSections = React.useMemo(() => [
     {
       section: 'Monitor',
       items: [
@@ -265,19 +277,55 @@ export const Sidebar: React.FC<SidebarProps> = ({
         { path: p('/account'), label: 'Account', icon: User },
       ],
     },
-  ];
+  ], [currentProject, pathPrefix]);
 
   // isActive needs to check if path matches, accounting for demo prefix
   const isActive = (path: string) => location.pathname === path;
   const warehousePath = p('/warehouse');
   const isWarehouseActive = isActive(warehousePath);
   const collapsedDesktop = isDesktop && collapsed;
+  const prefetchTimeRange = readSidebarPrefetchTimeRange(currentProject?.id);
+
+  const prefetchPath = React.useCallback((path: string) => {
+    TabRegistry.prefetch(path, {
+      projectId: currentProject?.id,
+      timeRange: prefetchTimeRange,
+    });
+  }, [currentProject?.id, prefetchTimeRange]);
 
   React.useEffect(() => {
     if (typeof window === 'undefined' || isDesktop || !isMobileOpen) return;
     const maxW = Math.min(MAX_SIDEBAR_WIDTH, Math.floor(window.innerWidth * 0.92));
     setSidebarWidth((w) => (w > maxW ? maxW : w));
   }, [isDesktop, isMobileOpen]);
+
+  React.useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    const candidates = navSections
+      .flatMap((section) => section.items)
+      .filter((item) => item.path !== location.pathname)
+      .slice(0, 2);
+
+    if (candidates.length === 0) return;
+
+    const schedule = () => {
+      candidates.forEach((item) => prefetchPath(item.path));
+    };
+
+    if ('requestIdleCallback' in window) {
+      const idleId = (window as Window & { requestIdleCallback: (cb: () => void, options?: { timeout: number }) => number }).requestIdleCallback(
+        schedule,
+        { timeout: 900 },
+      );
+      return () => {
+        (window as Window & { cancelIdleCallback?: (id: number) => void }).cancelIdleCallback?.(idleId);
+      };
+    }
+
+    const timeoutId = globalThis.setTimeout(schedule, 350);
+    return () => globalThis.clearTimeout(timeoutId);
+  }, [location.pathname, navSections, prefetchPath]);
 
   return (
     <>
@@ -291,8 +339,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
       <div
         className={`
-        dashboard-sidebar relative flex-shrink-0 h-screen min-h-0 flex flex-col
-        fixed left-0 top-0 md:relative md:left-auto md:top-auto z-50 bg-[#f4f4f5] transition-transform duration-300 ease-in-out
+        bg-zinc-50 flex-shrink-0 h-screen min-h-0 flex flex-col border-r border-zinc-200/50
+        fixed left-0 top-0 md:relative md:left-auto md:top-auto z-50 transition-transform duration-300 ease-in-out
         max-w-[100vw] min-w-0
         ${isResizing ? '' : 'md:transition-[width] md:duration-200 md:ease-out'}
         ${isMobileOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}
@@ -308,7 +356,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           />
         )}
         {/* Brand & Team Switcher */}
-        <div className={`border-b border-gray-300 bg-transparent ${collapsedDesktop ? 'p-2' : 'p-4'}`}>
+        <div className={`border-b border-slate-200 bg-transparent ${collapsedDesktop ? 'p-2' : 'p-4'}`}>
           {collapsedDesktop ? (
             <Link
               to={warehousePath}
@@ -318,9 +366,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 setShowAppSelector(false);
                 setIsMobileOpen(false);
               }}
-              className={`mb-3 flex h-10 w-full items-center justify-center rounded-none border transition-colors ${isWarehouseActive
-                ? 'border-2 border-[#5dadec] bg-white text-black shadow-[2px_2px_0px_0px_rgba(0,0,0,0.1)]'
-                : 'border-gray-300 bg-white text-black hover:border-black hover:shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]'
+              className={`mb-3 flex h-10 w-full items-center justify-center rounded-lg border transition-colors ${isWarehouseActive
+                ? 'border-sky-300 bg-white text-black shadow-sm'
+                : 'border-slate-200 bg-white text-black hover:border-slate-300 hover:shadow-sm'
                 }`}
             >
               <Database className="h-4 w-4" />
@@ -333,9 +381,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 setShowAppSelector(false);
                 setIsMobileOpen(false);
               }}
-              className={`mb-3 flex w-full items-center justify-between rounded-none border px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.12em] transition-colors ${isWarehouseActive
-                ? 'border-2 border-[#5dadec] bg-white text-black shadow-[2px_2px_0px_0px_rgba(0,0,0,0.1)]'
-                : 'border-gray-300 bg-white text-black hover:border-black hover:shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]'
+              className={`mb-3 flex w-full items-center justify-between rounded-lg border px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.12em] transition-colors ${isWarehouseActive
+                ? 'border-sky-300 bg-white text-black shadow-sm'
+                : 'border-slate-200 bg-white text-black hover:border-slate-300 hover:shadow-sm'
                 }`}
             >
               <span className="inline-flex items-center gap-2">
@@ -354,10 +402,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 setShowTeamSelector(!showTeamSelector);
                 setShowAppSelector(false);
               }}
-              className={`w-full flex bg-white border border-gray-300 hover:border-black hover:shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] text-black transition-all rounded-none text-sm font-medium ${collapsedDesktop ? 'justify-center px-2 py-2.5' : 'items-center justify-between px-3 py-2'}`}
+              className={`w-full flex bg-white border border-slate-200 hover:border-slate-300 hover:shadow-sm text-black transition-all rounded-lg text-sm font-medium ${collapsedDesktop ? 'justify-center px-2 py-2.5' : 'items-center justify-between px-3 py-2'}`}
             >
               <div className={`flex items-center overflow-hidden ${collapsedDesktop ? '' : 'gap-2'}`}>
-                <div className="w-5 h-5 bg-[#f4f4f5] border border-gray-300 flex items-center justify-center text-black font-semibold text-xs shrink-0">
+                <div className="w-5 h-5 bg-slate-100 border border-slate-200 rounded-md flex items-center justify-center text-black font-semibold text-xs shrink-0">
                   {currentTeam?.name?.[0] || 'R'}
                 </div>
                 {!collapsedDesktop && (
@@ -370,8 +418,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
             </button>
 
             {showTeamSelector && (
-              <div className={`absolute top-full mt-2 bg-white border-2 border-black shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] rounded-none z-50 animate-in fade-in zoom-in-95 duration-100 ${collapsedDesktop ? 'left-0 w-64' : 'left-0 right-0'}`}>
-                <div className="px-3 py-2 text-xs font-semibold text-black border-b-2 border-black font-mono uppercase">
+              <div className={`absolute top-full mt-2 bg-white border border-slate-200 shadow-lg rounded-xl z-50 animate-in fade-in zoom-in-95 duration-100 ${collapsedDesktop ? 'left-0 w-64' : 'left-0 right-0'}`}>
+                <div className="px-3 py-2 text-xs font-semibold text-slate-700 border-b border-slate-100 uppercase">
                   Switch Team
                 </div>
                 <div className="max-h-[200px] overflow-y-auto custom-scrollbar">
@@ -389,7 +437,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                         setIsMobileOpen(false);
                         navigate(p('/general'));
                       }}
-                      className={`w-full text-left px-3 py-2 text-sm font-medium hover:bg-gray-100 flex items-center justify-between group border-b border-gray-200 last:border-0 ${currentTeam?.id === team.id ? 'bg-[#5dadec]/10 text-black font-bold' : 'text-black'}`}
+                      className={`w-full text-left px-3 py-2 text-sm font-medium hover:bg-slate-50 flex items-center justify-between group border-b border-slate-100 last:border-0 ${currentTeam?.id === team.id ? 'bg-sky-50 text-black font-semibold' : 'text-black'}`}
                     >
                       <span className="truncate">
                         {team.name || `Team ${team.id.slice(0, 8)}...`}
@@ -398,7 +446,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     </button>
                   ))}
                 </div>
-                <div className="border-t border-gray-200 p-2 bg-white">
+                <div className="border-t border-slate-100 p-2 bg-white">
                   <button
                     onClick={() => {
                       setShowTeamSelector(false);
@@ -426,10 +474,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 setShowAppSelector(!showAppSelector);
                 setShowTeamSelector(false);
               }}
-              className={`w-full flex bg-white border border-gray-300 transition-all rounded-none text-sm ${loading ? 'cursor-wait opacity-80' : 'hover:border-black hover:shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]'} ${showAppSelector ? 'border-black' : ''} ${collapsedDesktop ? 'justify-center px-2 py-2.5' : 'items-center justify-between px-3 py-2'}`}
+              className={`w-full flex bg-white border border-slate-200 transition-all rounded-lg text-sm ${loading ? 'cursor-wait opacity-80' : 'hover:border-slate-300 hover:shadow-sm'} ${showAppSelector ? 'border-slate-300' : ''} ${collapsedDesktop ? 'justify-center px-2 py-2.5' : 'items-center justify-between px-3 py-2'}`}
             >
               {collapsedDesktop ? (
-                <span className="flex h-6 w-6 items-center justify-center border border-gray-300 bg-white text-[11px] font-semibold text-black">
+                <span className="flex h-6 w-6 items-center justify-center rounded-md border border-slate-200 bg-white text-[11px] font-semibold text-black">
                   {(currentProject?.name || 'P').slice(0, 1).toUpperCase()}
                 </span>
               ) : (
@@ -443,8 +491,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
             </button>
 
             {showAppSelector && (
-              <div className={`absolute top-full mt-2 bg-white border-2 border-black shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] rounded-none z-50 animate-in fade-in zoom-in-95 duration-100 ${collapsedDesktop ? 'left-0 w-64' : 'left-0 right-0'}`}>
-                <div className="px-3 py-2 text-xs font-semibold text-black border-b-2 border-black font-mono uppercase">
+              <div className={`absolute top-full mt-2 bg-white border border-slate-200 shadow-lg rounded-xl z-50 animate-in fade-in zoom-in-95 duration-100 ${collapsedDesktop ? 'left-0 w-64' : 'left-0 right-0'}`}>
+                <div className="px-3 py-2 text-xs font-semibold text-slate-700 border-b border-slate-100 uppercase">
                   Projects
                 </div>
                 <div className="max-h-[300px] overflow-y-auto custom-scrollbar">
@@ -463,7 +511,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                           setShowAppSelector(false);
                           setIsMobileOpen(false);
                         }}
-                        className={`w-full text-left px-3 py-2 text-sm font-medium flex items-center justify-between border-b border-gray-200 last:border-0 ${currentProject?.id === project.id ? 'bg-[#5dadec]/10 text-black font-bold' : 'text-black hover:bg-gray-100'
+                        className={`w-full text-left px-3 py-2 text-sm font-medium flex items-center justify-between border-b border-slate-100 last:border-0 ${currentProject?.id === project.id ? 'bg-sky-50 text-black font-semibold' : 'text-black hover:bg-slate-50'
                           }`}
                       >
                         <span className="truncate">{project.name}</span>
@@ -476,7 +524,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     </div>
                   )}
                 </div>
-                <div className="border-t border-gray-200 p-2 bg-white">
+                <div className="border-t border-slate-100 p-2 bg-white">
                   <button
                     onClick={() => {
                       setShowAppSelector(false);
@@ -509,16 +557,18 @@ export const Sidebar: React.FC<SidebarProps> = ({
                       to={item.path}
                       title={collapsedDesktop ? item.label : undefined}
                       onClick={() => setIsMobileOpen(false)}
+                      onMouseEnter={() => prefetchPath(item.path)}
+                      onFocus={() => prefetchPath(item.path)}
                       className={`
-                        flex items-center text-sm font-medium transition-all rounded-none border relative
-                        ${collapsedDesktop ? 'justify-center px-2 py-2.5' : 'gap-3 px-3 py-2'}
+                        dashboard-nav-item flex items-center text-[0.8rem] font-black uppercase tracking-wider transition-all border-2
+                        ${collapsedDesktop ? 'justify-center px-2 py-2.5' : 'gap-3 px-3 py-2.5'}
                         ${isActive(item.path)
-                          ? 'bg-white border-black shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] -translate-x-[1px] text-black font-semibold'
-                          : 'text-gray-600 border-transparent hover:bg-white hover:border-gray-300 hover:text-black'
+                          ? 'border-black bg-black text-white shadow-neo-sm translate-x-1 -translate-y-0.5'
+                          : 'border-transparent text-gray-600 hover:border-black hover:bg-[#f1f5f9] hover:text-black hover:shadow-neo-sm hover:translate-x-1 hover:-translate-y-0.5'
                         }
                       `}
                     >
-                      <item.icon className={`w-4 h-4 shrink-0 ${isActive(item.path) ? 'text-[#5dadec]' : 'text-gray-600'}`} />
+                      <item.icon className={`w-4 h-4 shrink-0 ${isActive(item.path) ? 'text-white' : 'text-current'}`} strokeWidth={2.5} />
                       {!collapsedDesktop && <span>{item.label}</span>}
                     </Link>
                   ))}
@@ -529,7 +579,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </div>
 
         {isDesktop && (
-          <div className="mt-auto border-t border-gray-300 p-2">
+          <div className="mt-auto border-t border-slate-200 p-2">
             <button
               type="button"
               onClick={() => setCollapsed((c) => !c)}

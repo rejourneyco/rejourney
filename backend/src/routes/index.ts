@@ -21,6 +21,7 @@ import errorsRoutes from './errors.js';
 import issuesRoutes from './issues.js';
 import analyticsRoutes from './analytics.js';
 import dashboardInsightsRoutes from './dashboardInsights.js';
+import dashboardOverviewRoutes from './dashboardOverview.js';
 import workspaceRoutes from './uiWorkspace.js';
 import demoRoutes from './demo.js';
 import alertsRoutes from './alerts.js';
@@ -52,6 +53,7 @@ router.use('/analytics', analyticsRoutes);
 
 // Dashboard insights routes (actionable data)
 router.use('/insights', dashboardInsightsRoutes);
+router.use('/overview', dashboardOverviewRoutes);
 
 // UI workspace state persistence
 router.use('/', workspaceRoutes);

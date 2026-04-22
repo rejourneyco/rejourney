@@ -23,21 +23,21 @@ export const DashboardPageHeader: React.FC<DashboardPageHeaderProps> = ({
             : 'text-white';
 
     return (
-        <div className="bg-white border-b-2 border-black w-full">
+        <div className="bg-white border-b border-slate-200 w-full">
             <div className="px-6 py-4 flex flex-col md:flex-row md:items-center justify-between gap-4 max-w-[1800px] mx-auto w-full">
                 <div className="flex items-center gap-4 min-w-0">
                     {icon && (
-                        <div className={`shrink-0 p-2.5 rounded-none border-2 border-black shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] ${iconColor} ${iconToneClass}`}>
+                        <div className={`shrink-0 p-2.5 rounded-xl border border-slate-200 shadow-sm ${iconColor} ${iconToneClass}`}>
                             {icon}
                         </div>
                     )}
                     <div className="min-w-0">
-                        <h1 className="text-xl md:text-2xl font-black font-mono uppercase tracking-wide text-black leading-none">
+                        <h1 className="text-xl md:text-2xl font-semibold uppercase tracking-wide text-black leading-none">
                             {title}
                         </h1>
                         {subtitle && (
-                            <div className="flex items-center gap-2 mt-1.5 opacity-70">
-                                <p className="text-xs font-medium text-gray-500 leading-none">
+                            <div className="flex items-center gap-2 mt-1.5 opacity-80">
+                                <p className="text-xs font-medium text-slate-500 leading-none">
                                     {subtitle}
                                 </p>
                             </div>

@@ -21,10 +21,7 @@ import {
 } from 'recharts';
 import { useSessionData } from '~/shared/providers/SessionContext';
 import {
-    getDeviceIssueMatrix,
-    getDeviceSummary,
-    getInsightsTrends,
-    getObservabilityDeepMetrics,
+    getDevicesOverview,
     DeviceIssueMatrix,
     DeviceSummary,
     InsightsTrends,
@@ -125,57 +122,26 @@ export const Devices: React.FC = () => {
         setIsLoading(true);
         setPartialError(null);
 
-        const range = toApiRange(timeRange);
-        const projectId = selectedProject.id;
-        const deviceRange = timeRange === 'all' ? 'max' : timeRange;
-
-        // Primary table is driven by device summary; load the rest without blocking the page shell.
-        void getDeviceSummary(projectId, deviceRange)
-            .then((v) => {
-                if (!cancelled) setData(v);
+        void getDevicesOverview(selectedProject.id, timeRange)
+            .then((overview) => {
+                if (cancelled) return;
+                setData(overview.summary);
+                setDeepMetrics(overview.deepMetrics);
+                setMatrixData(overview.matrix);
+                setTrends(overview.trends);
+                setPartialError(overview.failedSections.length > 0 ? `${overview.failedSections.join(', ')} unavailable.` : null);
             })
             .catch((err) => {
-                console.error('Device summary failed:', err);
-                if (!cancelled) setData(null);
+                console.error('Devices overview failed:', err);
+                if (cancelled) return;
+                setData(null);
+                setDeepMetrics(null);
+                setMatrixData(null);
+                setTrends(null);
+                setPartialError('Device overview unavailable.');
             })
             .finally(() => {
                 if (!cancelled) setIsLoading(false);
-            });
-
-        void getObservabilityDeepMetrics(projectId, range, 'summary')
-            .then((v) => {
-                if (!cancelled) setDeepMetrics(v);
-            })
-            .catch((err) => {
-                console.error('Device deep metrics failed:', err);
-                if (!cancelled) {
-                    setDeepMetrics(null);
-                    setPartialError('Deep metrics unavailable.');
-                }
-            });
-
-        void getDeviceIssueMatrix(projectId, deviceRange)
-            .then((v) => {
-                if (!cancelled) setMatrixData(v);
-            })
-            .catch((err) => {
-                console.error('Device matrix failed:', err);
-                if (!cancelled) {
-                    setMatrixData(null);
-                    setPartialError((prev) => prev || 'Issue matrix unavailable.');
-                }
-            });
-
-        void getInsightsTrends(projectId, toTrendsRange(timeRange))
-            .then((v) => {
-                if (!cancelled) setTrends(v);
-            })
-            .catch((err) => {
-                console.error('Device trends failed:', err);
-                if (!cancelled) {
-                    setTrends(null);
-                    setPartialError((prev) => prev || 'Trends unavailable.');
-                }
             });
 
         return () => {
@@ -411,7 +377,7 @@ export const Devices: React.FC = () => {
         ];
     }, [trends, timeRange, topThreeDeviceShare, data, dominantPlatform, compatibilityHotspotCount, matrixHotspots, rolloutGateReleaseCount, topRelease]);
 
-    if (isLoading && selectedProject?.id) {
+    if (isLoading && selectedProject?.id && !data && !deepMetrics) {
         return <DashboardGhostLoader variant="analytics" />;
     }
 
@@ -438,7 +404,7 @@ export const Devices: React.FC = () => {
                 )}
 
                 {!isLoading && selectedProject?.id && !hasData && (
-                    <div className="border border-gray-200 bg-white p-6 text-sm text-slate-600" style={{ boxShadow: '2px 2px 0 0 rgba(0,0,0,0.07)' }}>
+                    <div className="dashboard-surface p-6 text-sm text-slate-600">
                         No device telemetry available for this range.
                     </div>
                 )}
@@ -458,9 +424,9 @@ export const Devices: React.FC = () => {
                         />
 
                         <section className="grid grid-cols-1 gap-6 xl:grid-cols-2">
-                            <div className="border border-gray-200 bg-white p-5" style={{ boxShadow: '2px 2px 0 0 rgba(0,0,0,0.07)' }}>
+                            <div className="dashboard-surface p-5">
                                 <div className="mb-4 flex items-center justify-between">
-                                    <h2 className="text-lg font-black font-mono uppercase tracking-wide text-black">Top Devices</h2>
+                                    <h2 className="text-lg font-semibold uppercase tracking-wide text-black">Top Devices</h2>
                                     <Smartphone className="h-5 w-5 text-indigo-600" />
                                 </div>
                                 <div className="h-[300px]">
@@ -476,9 +442,9 @@ export const Devices: React.FC = () => {
                                 </div>
                             </div>
 
-                            <div className="border border-gray-200 bg-white p-5" style={{ boxShadow: '2px 2px 0 0 rgba(0,0,0,0.07)' }}>
+                            <div className="dashboard-surface p-5">
                                 <div className="mb-4 flex items-center justify-between">
-                                    <h2 className="text-lg font-black font-mono uppercase tracking-wide text-black">Release Risk Curve</h2>
+                                    <h2 className="text-lg font-semibold uppercase tracking-wide text-black">Release Risk Curve</h2>
                                     <Layers className="h-5 w-5 text-indigo-600" />
                                 </div>
                                 <div className="h-[300px]">
@@ -502,7 +468,7 @@ export const Devices: React.FC = () => {
                         <section className="grid grid-cols-1 gap-6 xl:grid-cols-3">
                             <div className="border border-gray-200 bg-white p-5 xl:col-span-2" style={{ boxShadow: '2px 2px 0 0 rgba(0,0,0,0.07)' }}>
                                 <div className="mb-4 flex items-center justify-between">
-                                    <h2 className="text-lg font-black font-mono uppercase tracking-wide text-black">Device Risk Leaderboard</h2>
+                                    <h2 className="text-lg font-semibold uppercase tracking-wide text-black">Device Risk Leaderboard</h2>
                                     <Smartphone className="h-5 w-5 text-indigo-600" />
                                 </div>
                                 <div className="overflow-x-auto">
@@ -539,9 +505,9 @@ export const Devices: React.FC = () => {
                                 </div>
                             </div>
 
-                            <div className="space-y-4 border border-gray-200 bg-white p-5" style={{ boxShadow: '2px 2px 0 0 rgba(0,0,0,0.07)' }}>
+                            <div className="space-y-4 dashboard-surface p-5">
                                 <div className="flex items-center justify-between">
-                                    <h2 className="text-lg font-black font-mono uppercase tracking-wide text-black">Coverage Snapshot</h2>
+                                    <h2 className="text-lg font-semibold uppercase tracking-wide text-black">Coverage Snapshot</h2>
                                     <Layers className="h-5 w-5 text-indigo-600" />
                                 </div>
 
@@ -602,9 +568,9 @@ export const Devices: React.FC = () => {
                         </section>
 
                         <section className="grid grid-cols-1 gap-6 xl:grid-cols-2">
-                            <div className="border border-gray-200 bg-white p-5" style={{ boxShadow: '2px 2px 0 0 rgba(0,0,0,0.07)' }}>
+                            <div className="dashboard-surface p-5">
                                 <div className="mb-4 flex items-center justify-between">
-                                    <h2 className="text-lg font-black font-mono uppercase tracking-wide text-black">Release Reliability Ranking</h2>
+                                    <h2 className="text-lg font-semibold uppercase tracking-wide text-black">Release Reliability Ranking</h2>
                                     <Layers className="h-5 w-5 text-indigo-600" />
                                 </div>
                                 <div className="overflow-x-auto">
@@ -646,9 +612,9 @@ export const Devices: React.FC = () => {
                                 </div>
                             </div>
 
-                            <div className="border border-gray-200 bg-white p-5" style={{ boxShadow: '2px 2px 0 0 rgba(0,0,0,0.07)' }}>
+                            <div className="dashboard-surface p-5">
                                 <div className="mb-4 flex items-center justify-between">
-                                    <h2 className="text-lg font-black font-mono uppercase tracking-wide text-black">OS Cohort Risk</h2>
+                                    <h2 className="text-lg font-semibold uppercase tracking-wide text-black">OS Cohort Risk</h2>
                                     <Cpu className="h-5 w-5 text-amber-600" />
                                 </div>
                                 <div className="overflow-x-auto">
@@ -679,9 +645,9 @@ export const Devices: React.FC = () => {
                         </section>
 
                         <section className="grid grid-cols-1 gap-6 xl:grid-cols-3">
-                            <div className="border border-gray-200 bg-white p-5" style={{ boxShadow: '2px 2px 0 0 rgba(0,0,0,0.07)' }}>
+                            <div className="dashboard-surface p-5">
                                 <div className="mb-4 flex items-center justify-between">
-                                    <h2 className="text-lg font-black font-mono uppercase tracking-wide text-black">Platform Mix</h2>
+                                    <h2 className="text-lg font-semibold uppercase tracking-wide text-black">Platform Mix</h2>
                                     <Smartphone className="h-5 w-5 text-blue-600" />
                                 </div>
                                 <div className="space-y-3">
@@ -713,7 +679,7 @@ export const Devices: React.FC = () => {
 
                             <div className="border border-gray-200 bg-white p-5 xl:col-span-2" style={{ boxShadow: '2px 2px 0 0 rgba(0,0,0,0.07)' }}>
                                 <div className="mb-4 flex items-center justify-between">
-                                    <h2 className="text-lg font-black font-mono uppercase tracking-wide text-black">Network Reliability by Device Context</h2>
+                                    <h2 className="text-lg font-semibold uppercase tracking-wide text-black">Network Reliability by Device Context</h2>
                                     <Clock className="h-5 w-5 text-indigo-600" />
                                 </div>
                                 {(deepMetrics?.networkBreakdown?.length || 0) > 0 ? (
@@ -762,9 +728,9 @@ export const Devices: React.FC = () => {
                         </section>
 
                         {matrixHotspots.length > 0 && (
-                            <section className="border border-gray-200 bg-white p-5" style={{ boxShadow: '2px 2px 0 0 rgba(0,0,0,0.07)' }}>
+                            <section className="dashboard-surface p-5">
                                 <div className="mb-4 flex items-center justify-between">
-                                    <h2 className="text-lg font-black font-mono uppercase tracking-wide text-black">Device-Version Compatibility Hotspots</h2>
+                                    <h2 className="text-lg font-semibold uppercase tracking-wide text-black">Device-Version Compatibility Hotspots</h2>
                                     <AlertTriangle className="h-5 w-5 text-amber-600" />
                                 </div>
                                 <div className="overflow-x-auto">

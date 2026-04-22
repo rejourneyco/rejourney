@@ -9,7 +9,8 @@ import type { Route } from "./+types/DemoLayoutRoute";
 import { DemoModeProvider, DemoTeamProvider } from "~/shared/providers/DemoModeContext";
 import { SessionDataProvider } from "~/shared/providers/SessionContext";
 import { TabProvider } from "~/shared/providers/TabContext";
-import { DemoDashboardLayout } from "~/shell/components/layout/DemoDashboardLayout";
+import { ProjectLayout } from "~/shell/components/layout/AppLayout";
+import { TabWorkspace } from "~/shell/components/layout/TabWorkspace";
 import { ErrorBoundary } from "~/shared/ui/core/ErrorBoundary";
 
 export const meta: Route.MetaFunction = () => [
@@ -24,7 +25,13 @@ export default function DemoLayout() {
                 <DemoTeamProvider>
                     <SessionDataProvider>
                         <TabProvider>
-                            <DemoDashboardLayout />
+                            <ProjectLayout pathPrefix="/demo">
+                                <div className="flex flex-col h-full min-h-0 bg-transparent">
+                                    <TabWorkspace>
+                                        <Outlet />
+                                    </TabWorkspace>
+                                </div>
+                            </ProjectLayout>
                         </TabProvider>
                     </SessionDataProvider>
                 </DemoTeamProvider>

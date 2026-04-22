@@ -44,15 +44,12 @@ export const Hero: React.FC = () => {
                     <div className="space-y-8 sm:space-y-10 lg:space-y-12">
 
                         <h1 className="text-4xl sm:text-5xl md:text-6xl lg:text-7xl leading-[0.95] tracking-tight uppercase animate-fade-in-up opacity-0">
-                            <span className="font-light text-gray-400">REPLACE SENTRY,</span> <br className="hidden sm:block" />
-                            <span className="font-black" style={{ color: '#000000ff' }}>POSTHOG, AND FIREBASE</span> <br className="hidden sm:block" />
-                            <span className="font-light" style={{ color: '#5dadec' }}>WITH 3 LINES OF CODE</span>
+                            <span className="font-black text-black">Light SDK.</span> <br className="hidden sm:block" />
+                            <span data-text="Session replay." className="hero-kinetic-word font-semibold text-violet-600 tracking-[-0.01em] animate-replay-scan-in inline-block" style={{ animationDelay: '0.08s' }}>Session replay.</span> <br className="hidden sm:block" />
+                            <span data-text="ANALYTICS." className="hero-kinetic-word font-semibold text-sky-600 tracking-[-0.01em] animate-analytics-rise-in inline-block" style={{ animationDelay: '0.3s' }}>ANALYTICS.</span> <br className="hidden sm:block" />
+                            <span data-text="ERRORS." className="hero-kinetic-word hero-kinetic-word-error font-semibold text-amber-600 tracking-[-0.01em] animate-errors-jitter-in inline-block">ERRORS.</span> <br className="hidden sm:block" />
+                            <span data-text="Crashes." className="hero-kinetic-word hero-kinetic-word-crash font-semibold text-red-600 tracking-[-0.01em] animate-crash-drop-in inline-block origin-left whitespace-nowrap">Crashes.</span> <br className="hidden sm:block" />
                         </h1>
-                        <p className="text-lg sm:text-xl md:text-2xl font-serif italic text-gray-500 max-w-xl animate-fade-in-up opacity-0" style={{ animationDelay: '0.2s' }}>
-                            Know about friction before users complain.
-                        </p>
-
-
                         {/* Deployment Options */}
                         <div className="pt-4">
                             <div className="flex flex-col sm:flex-row flex-wrap gap-6 items-start sm:items-center">

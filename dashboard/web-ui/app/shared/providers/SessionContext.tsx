@@ -77,14 +77,6 @@ function selectProjectForTeam(
   return teamProjects[0] || null;
 }
 
-async function warmProjectDashboardCaches(projectId: string | null, timeRange: TimeRange): Promise<void> {
-  if (!projectId) return;
-  await Promise.allSettled([
-    api.getDashboardStats(projectId, timeRange),
-    api.getInsightsTrends(projectId, timeRange),
-  ]);
-}
-
 interface SessionContextValue {
   sessions: RecordingSession[];
   projects: Project[];
@@ -192,8 +184,7 @@ export function SessionDataProvider({
       }
     }
 
-    void warmProjectDashboardCaches(nextSelectedProject?.id ?? null, timeRange);
-  }, [timeRange]);
+  }, []);
 
   const refreshProjects = useCallback(async (options: { silent?: boolean; force?: boolean } = {}) => {
     if (demoMode.isDemoMode || !isAuthenticated || !currentTeam?.id) {
@@ -307,12 +298,6 @@ export function SessionDataProvider({
 
   useEffect(() => {
     if (demoMode.isDemoMode) return;
-    if (!selectedProject?.id) return;
-    void warmProjectDashboardCaches(selectedProject.id, timeRange);
-  }, [demoMode.isDemoMode, selectedProject?.id, timeRange]);
-
-  useEffect(() => {
-    if (demoMode.isDemoMode) return;
 
     const interval = setInterval(() => {
       if (isTeamLoading || isAuthLoading || !isAuthenticated || !currentTeam?.id) return;
@@ -380,9 +365,8 @@ export function SessionDataProvider({
       clearCacheByPrefixes([
         '/api/workspace',
       ]);
-      void warmProjectDashboardCaches(project.id, timeRange);
     }
-  }, [currentTeam?.id, timeRange]);
+  }, [currentTeam?.id]);
 
   const getSession = useCallback(async (id: string): Promise<RecordingSession | null> => {
     if (demoMode.isDemoMode) {

@@ -21,12 +21,9 @@ import {
 import { Link, useNavigate } from 'react-router';
 import { useSessionData } from '~/shared/providers/SessionContext';
 import {
-    api,
-    getGeoSummary,
+    getDashboardOverview,
     getGrowthObservability,
     getObservabilityDeepMetrics,
-    getRetentionCohorts,
-    getUserEngagementTrends,
     GeoSummary,
     GrowthObservability,
     InsightsTrends,
@@ -560,12 +557,12 @@ const GA4Card: React.FC<{
     children: React.ReactNode;
     className?: string;
 }> = ({ title, action, children, className = '' }) => (
-    <div className={`border border-gray-200 bg-white flex flex-col ${className}`} style={{ boxShadow: '2px 2px 0 0 rgba(0,0,0,0.07)' }}>
-        <div className="flex items-center justify-between px-5 pt-4 pb-2">
-            <h3 className="text-sm font-medium text-slate-700">{title}</h3>
+    <div className={`dashboard-surface flex flex-col self-start border-2 border-black bg-white shadow-neo-sm rounded-none ${className}`}>
+        <div className="flex items-center justify-between px-5 pt-4 pb-2 border-b-2 border-black bg-slate-50">
+            <h3 className="text-[11px] font-black uppercase tracking-widest text-black underline decoration-2 decoration-black/20 underline-offset-4">{title}</h3>
             {action ? <div className="flex items-center gap-1.5">{action}</div> : null}
         </div>
-        <div className="flex-1 px-5 pb-4">{children}</div>
+        <div className="px-5 pt-4 pb-4">{children}</div>
     </div>
 );
 
@@ -653,98 +650,42 @@ export const GeneralOverview: React.FC = () => {
         setIsLoading(true);
         setPartialError(null);
 
-        const obsRange = toObservabilityRange(timeRange);
-
-        // Phase 1: Load trends first (uses pre-aggregated appDailyStats, fast + Redis cached)
-        // KPI cards render as soon as trends arrives instead of waiting for all 7 endpoints
-        api.getInsightsTrends(selectedProject.id, timeRange)
-            .then((trendData) => {
+        getDashboardOverview(selectedProject.id, timeRange)
+            .then((overviewData) => {
                 if (isCancelled) return;
-                setTrends(trendData);
-                setIsLoading(false);
+
+                setTrends(overviewData.trends || null);
+                setOverviewObs(overviewData.overviewObs || null);
+                setDeepMetrics(overviewData.deepMetrics || null);
+                setEngagementTrends(overviewData.engagementTrends || null);
+                setGeoSummary(overviewData.geoSummary || null);
+                setRetentionCohortRows(overviewData.retention?.rows || []);
+                setIssues(overviewData.issues || []);
+                setSessions((overviewData.sessions || []) as RecordingSession[]);
+
+                if (overviewData.failedSections?.length) {
+                    setPartialError(`Some widgets unavailable (${overviewData.failedSections.join(', ')}).`);
+                } else {
+                    setPartialError(null);
+                }
             })
             .catch(() => {
+                if (isCancelled) return;
+                setTrends(null);
+                setOverviewObs(null);
+                setDeepMetrics(null);
+                setEngagementTrends(null);
+                setGeoSummary(null);
+                setRetentionCohortRows([]);
+                setIssues([]);
+                setSessions([]);
+                setPartialError('General overview unavailable.');
+            })
+            .finally(() => {
                 if (!isCancelled) {
-                    setTrends(null);
-                    setPartialError('Activity trends unavailable.');
                     setIsLoading(false);
                 }
             });
-
-        // Phase 2: Load heavier endpoints in parallel (don't block KPI render)
-        Promise.allSettled([
-            getGrowthObservability(selectedProject.id, obsRange, 'summary'),
-            getObservabilityDeepMetrics(selectedProject.id, obsRange, 'summary'),
-            getUserEngagementTrends(selectedProject.id, obsRange),
-            getGeoSummary(selectedProject.id, obsRange),
-            getRetentionCohorts(selectedProject.id, timeRange),
-            api.getIssues(selectedProject.id, timeRange),
-            api.getSessionsPaginated({
-                projectId: selectedProject.id,
-                timeRange,
-                limit: 120,
-                includeTotal: false,
-            }),
-        ]).then(([obsData, deepData, engagementData, geoData, cohortData, issueData, replayData]) => {
-            if (isCancelled) return;
-
-            const failedSections: string[] = [];
-
-            if (obsData.status === 'fulfilled') {
-                setOverviewObs(obsData.value);
-            } else {
-                failedSections.push('observability');
-                setOverviewObs(null);
-            }
-
-            if (deepData.status === 'fulfilled') {
-                setDeepMetrics(deepData.value);
-            } else {
-                failedSections.push('deep metrics');
-                setDeepMetrics(null);
-            }
-
-            if (engagementData.status === 'fulfilled') {
-                setEngagementTrends(engagementData.value);
-            } else {
-                failedSections.push('engagement segments');
-                setEngagementTrends(null);
-            }
-
-            if (geoData.status === 'fulfilled') {
-                setGeoSummary(geoData.value);
-            } else {
-                failedSections.push('geographic activity');
-                setGeoSummary(null);
-            }
-
-            if (cohortData.status === 'fulfilled') {
-                setRetentionCohortRows(cohortData.value.rows || []);
-            } else {
-                setRetentionCohortRows([]);
-            }
-
-            if (issueData.status === 'fulfilled') {
-                setIssues(issueData.value.issues || []);
-            } else {
-                failedSections.push('top issues');
-                setIssues([]);
-            }
-
-            if (replayData.status === 'fulfilled') {
-                setSessions((replayData.value.sessions || []) as RecordingSession[]);
-            } else {
-                failedSections.push('recommended sessions');
-                setSessions([]);
-            }
-
-            if (failedSections.length > 0) {
-                setPartialError((prev) => {
-                    const msg = `Some widgets unavailable (${failedSections.join(', ')}).`;
-                    return prev ? `${prev} ${msg}` : msg;
-                });
-            }
-        });
 
         return () => {
             isCancelled = true;
@@ -1227,7 +1168,7 @@ export const GeneralOverview: React.FC = () => {
 
             <div className="mx-auto w-full max-w-[1600px] space-y-4 px-6 py-6">
                 {!selectedProject?.id && (
-                    <div className="rounded-2xl border border-amber-200 bg-amber-50 p-5 text-sm text-amber-900">
+                    <div className="border-2 border-black bg-amber-50 p-5 shadow-neo-sm rounded-none text-sm font-black uppercase tracking-widest text-amber-900">
                         Select a project to view general diagnostics.
                     </div>
                 )}
@@ -1239,7 +1180,7 @@ export const GeneralOverview: React.FC = () => {
                 )}
 
                 {!isLoading && selectedProject?.id && !hasData && (
-                    <div className="border-2 border-black bg-white p-6 text-sm text-slate-600 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]">
+                    <div className="dashboard-card-strong p-6 text-sm font-black uppercase tracking-widest text-red-600 bg-red-50 border-2 border-black rounded-none shadow-neo-sm">
                         No general analytics available for this filter yet.
                     </div>
                 )}
@@ -1256,10 +1197,10 @@ export const GeneralOverview: React.FC = () => {
                                             : 'text-rose-600';
 
                                     return (
-                                        <div key={card.label} className="border border-gray-200 bg-white px-4 py-3" style={{ boxShadow: '2px 2px 0 0 rgba(0,0,0,0.07)' }}>
-                                            <div className="text-[11px] font-medium uppercase tracking-wide text-slate-500">{card.label}</div>
-                                            <div className="mt-2 text-2xl font-semibold text-slate-900">{card.value}</div>
-                                            <div className={`mt-1 text-xs font-medium ${deltaClass}`}>
+                                        <div key={card.label} className="dashboard-surface px-4 py-3 bg-white border-2 border-black shadow-neo-sm hover:-translate-y-1 hover:shadow-neo transition-all rounded-none">
+                                            <div className="text-[10px] font-black uppercase tracking-widest text-slate-600">{card.label}</div>
+                                            <div className="mt-2 text-3xl font-black text-black tracking-tight">{card.value}</div>
+                                            <div className={`mt-1 text-xs font-bold ${deltaClass}`}>
                                                 {card.delta}
                                             </div>
                                             {trendComparison && (
@@ -1277,20 +1218,20 @@ export const GeneralOverview: React.FC = () => {
                             <GA4Card title="User activity over time">
                                 <div className="mb-2 flex items-baseline gap-4">
                                     <div>
-                                        <span className="text-[11px] text-slate-400">LATEST DAU</span>
-                                        <div className="text-2xl font-semibold">{formatCompact(activitySummary.latestDau)}</div>
+                                        <span className="text-[9px] font-black uppercase tracking-widest text-slate-500">LATEST DAU</span>
+                                        <div className="text-3xl font-black text-black tracking-tight">{formatCompact(activitySummary.latestDau)}</div>
                                     </div>
                                     <div>
-                                        <span className="text-[11px] text-slate-400">AVG DAU</span>
-                                        <div className="text-lg font-semibold text-slate-700">{formatCompact(activitySummary.avgDau)}</div>
+                                        <span className="text-[9px] font-black uppercase tracking-widest text-slate-500">AVG DAU</span>
+                                        <div className="text-2xl font-black text-slate-700 tracking-tight">{formatCompact(activitySummary.avgDau)}</div>
                                     </div>
                                     <div>
-                                        <span className="text-[11px] text-slate-400">PEAK MAU</span>
-                                        <div className="text-lg font-semibold text-slate-700">{formatCompact(activitySummary.peakMau)}</div>
+                                        <span className="text-[9px] font-black uppercase tracking-widest text-slate-500">PEAK MAU</span>
+                                        <div className="text-2xl font-black text-slate-700 tracking-tight">{formatCompact(activitySummary.peakMau)}</div>
                                     </div>
                                     <div>
-                                        <span className="text-[11px] text-slate-400">LATEST SESSIONS</span>
-                                        <div className="text-lg font-semibold text-slate-700">{formatCompact(activitySummary.latestSessions)}</div>
+                                        <span className="text-[9px] font-black uppercase tracking-widest text-slate-500">LATEST SESSIONS</span>
+                                        <div className="text-2xl font-black text-slate-700 tracking-tight">{formatCompact(activitySummary.latestSessions)}</div>
                                     </div>
                                 </div>
                                 <div className="h-[130px]">
@@ -1309,9 +1250,9 @@ export const GeneralOverview: React.FC = () => {
 
                             <GA4Card title="Active users snapshot">
                                 <div className="mt-1 text-center">
-                                    <div className="text-4xl font-semibold text-slate-900">{formatCompact(activitySummary.latestDau)}</div>
-                                    <div className="mt-1 text-xs text-slate-500">LATEST DAILY ACTIVE USERS</div>
-                                    <div className="mt-1 text-[11px] text-slate-500">Estimated {formatCompact(activeUsersPerMinute)} users/min</div>
+                                    <div className="text-4xl font-black text-black tracking-tighter">{formatCompact(activitySummary.latestDau)}</div>
+                                    <div className="mt-2 text-[10px] font-black uppercase tracking-widest text-slate-500">LATEST DAILY ACTIVE USERS</div>
+                                    <div className="mt-1 text-[11px] font-bold text-slate-500">Estimated {formatCompact(activeUsersPerMinute)} users/min</div>
                                 </div>
 
                                 <div className="mt-3 h-[80px]">
@@ -1329,22 +1270,22 @@ export const GeneralOverview: React.FC = () => {
                                 </div>
 
                                 <div className="mt-3 border-t border-slate-100 pt-3">
-                                    <div className="mb-1.5 flex justify-between text-[11px] font-medium text-slate-500">
+                                    <div className="mb-2 flex justify-between text-[10px] font-black uppercase tracking-widest text-slate-400">
                                         <span>TOP COUNTRIES</span>
                                         <span>ACTIVE USERS</span>
                                     </div>
                                     {topCountries.length > 0 ? topCountries.map((country) => (
-                                        <div key={country.country} className="flex justify-between text-xs text-slate-700">
+                                        <div key={country.country} className="flex justify-between text-xs font-bold text-slate-700 py-0.5">
                                             <span>{country.country}</span>
-                                            <span className="font-medium">{formatCompact(country.count)}</span>
+                                            <span className="font-black text-black">{formatCompact(country.count)}</span>
                                         </div>
                                     )) : (
-                                        <div className="text-xs text-slate-400">No geographic activity available for this filter.</div>
+                                        <div className="text-[10px] font-bold text-slate-400">No geographic activity available for this filter.</div>
                                     )}
                                 </div>
 
                                 <div className="mt-3 text-right">
-                                    <Link to={`${pathPrefix}/analytics/geo`} className="text-xs text-blue-600 hover:underline">
+                                    <Link to={`${pathPrefix}/analytics/geo`} className="text-[10px] font-black uppercase tracking-widest text-[#5dadec] hover:text-black transition-colors">
                                         View geographic activity →
                                     </Link>
                                 </div>
@@ -1386,7 +1327,7 @@ export const GeneralOverview: React.FC = () => {
                                 )}
 
                                 <div className="mt-2 text-right">
-                                    <Link to={`${pathPrefix}/analytics/devices`} className="text-xs text-blue-600 hover:underline">
+                                    <Link to={`${pathPrefix}/analytics/devices`} className="text-[10px] font-black uppercase tracking-widest text-[#5dadec] hover:text-black transition-colors">
                                         View app versions →
                                     </Link>
                                 </div>
@@ -1395,7 +1336,7 @@ export const GeneralOverview: React.FC = () => {
                             <GA4Card title="Latest app release overview">
                                 <table className="mt-1 w-full text-xs">
                                     <thead>
-                                        <tr className="border-b-2 border-black text-[11px] text-black font-mono">
+                                        <tr className="border-b border-slate-200 text-[11px] text-black">
                                             <th className="py-2 text-left font-medium">APP</th>
                                             <th className="py-2 text-left font-medium">VERSION</th>
                                             <th className="py-2 text-left font-medium">STATUS</th>
@@ -1432,7 +1373,7 @@ export const GeneralOverview: React.FC = () => {
                             <GA4Card title="App stability overview">
                                 <table className="mt-1 w-full text-xs">
                                     <thead>
-                                        <tr className="border-b-2 border-black text-[11px] text-black font-mono">
+                                        <tr className="border-b border-slate-200 text-[11px] text-black">
                                             <th className="py-2 text-left font-medium">APP</th>
                                             <th className="py-2 text-right font-medium">CRASH-FREE</th>
                                             <th className="py-2 text-right font-medium">ANR-FREE</th>
@@ -1471,11 +1412,11 @@ export const GeneralOverview: React.FC = () => {
                             <GA4Card title="Average engagement time per active user">
                                 <div className="mb-2 flex items-baseline gap-6">
                                     <div>
-                                        <div className="text-2xl font-semibold">{avgEngagementTime}</div>
+                                        <div className="text-3xl font-black text-black tracking-tight">{avgEngagementTime}</div>
                                     </div>
                                     <div>
-                                        <span className="text-[11px] text-slate-400">Engaged user share</span>
-                                        <div className="text-lg font-semibold text-slate-700">
+                                        <span className="text-[9px] font-black uppercase tracking-widest text-slate-500">Engaged user share</span>
+                                        <div className="text-2xl font-black text-slate-700 tracking-tight">
                                             {engagedUserShare === null ? 'N/A' : `${engagedUserShare.toFixed(1)}%`}
                                         </div>
                                     </div>
@@ -1597,29 +1538,29 @@ export const GeneralOverview: React.FC = () => {
 
                             <GA4Card title="Acquisition and activation quality">
                                 <div className="grid grid-cols-2 gap-3 text-xs">
-                                    <div className="border-2 border-black bg-white p-3">
-                                        <div className="text-[11px] uppercase tracking-wide text-slate-500">First session success</div>
-                                        <div className="mt-1 text-xl font-semibold text-slate-900">{acquisitionSnapshot.firstSessionSuccessRate.toFixed(1)}%</div>
-                                        <div className="mt-0.5 text-[11px] text-slate-500">{formatCompact(acquisitionSnapshot.firstSessionClean)} clean / {formatCompact(acquisitionSnapshot.firstSessionTotal)} total</div>
+                                    <div className="dashboard-surface p-3 bg-white border-2 border-black shadow-neo-sm hover:-translate-y-1 hover:shadow-neo transition-all rounded-none">
+                                        <div className="text-[10px] font-black uppercase tracking-widest text-slate-500">First session success</div>
+                                        <div className="mt-2 text-2xl font-black text-black tracking-tight leading-none">{acquisitionSnapshot.firstSessionSuccessRate.toFixed(1)}%</div>
+                                        <div className="mt-1 text-[10px] font-bold text-slate-600">{formatCompact(acquisitionSnapshot.firstSessionClean)} clean / {formatCompact(acquisitionSnapshot.firstSessionTotal)} total</div>
                                     </div>
-                                    <div className="border-2 border-black bg-white p-3">
-                                        <div className="text-[11px] uppercase tracking-wide text-slate-500">First session failure</div>
-                                        <div className="mt-1 text-xl font-semibold text-slate-900">{acquisitionSnapshot.firstSessionFailureRate.toFixed(1)}%</div>
-                                        <div className="mt-0.5 text-[11px] text-slate-500">Crash, ANR, rage, or slow API on first session</div>
+                                    <div className="dashboard-surface p-3 bg-white border-2 border-black shadow-neo-sm hover:-translate-y-1 hover:shadow-neo transition-all rounded-none">
+                                        <div className="text-[10px] font-black uppercase tracking-widest text-slate-500">First session failure</div>
+                                        <div className="mt-2 text-2xl font-black text-black tracking-tight leading-none">{acquisitionSnapshot.firstSessionFailureRate.toFixed(1)}%</div>
+                                        <div className="mt-1 text-[10px] font-bold text-slate-600">Crash, ANR, rage, or slow API on first session</div>
                                     </div>
-                                    <div className="border-2 border-black bg-white p-3">
-                                        <div className="text-[11px] uppercase tracking-wide text-slate-500">Acquired users</div>
-                                        <div className="mt-1 text-xl font-semibold text-slate-900">{formatCompact(acquisitionSnapshot.acquiredUsers)}</div>
-                                        <div className="mt-0.5 text-[11px] text-slate-500">{acquisitionSnapshot.acquisitionRate.toFixed(1)}% acquisition rate</div>
+                                    <div className="dashboard-surface p-3 bg-white border-2 border-black shadow-neo-sm hover:-translate-y-1 hover:shadow-neo transition-all rounded-none">
+                                        <div className="text-[10px] font-black uppercase tracking-widest text-slate-500">Acquired users</div>
+                                        <div className="mt-2 text-2xl font-black text-black tracking-tight leading-none">{formatCompact(acquisitionSnapshot.acquiredUsers)}</div>
+                                        <div className="mt-1 text-[10px] font-bold text-slate-600">{acquisitionSnapshot.acquisitionRate.toFixed(1)}% acquisition rate</div>
                                     </div>
-                                    <div className="border-2 border-black bg-white p-3">
-                                        <div className="text-[11px] uppercase tracking-wide text-slate-500">Returned users</div>
-                                        <div className="mt-1 text-xl font-semibold text-slate-900">{formatCompact(acquisitionSnapshot.returnedUsers)}</div>
-                                        <div className="mt-0.5 text-[11px] text-slate-500">{acquisitionSnapshot.returnRate.toFixed(1)}% return rate</div>
+                                    <div className="dashboard-surface p-3 bg-white border-2 border-black shadow-neo-sm hover:-translate-y-1 hover:shadow-neo transition-all rounded-none">
+                                        <div className="text-[10px] font-black uppercase tracking-widest text-slate-500">Returned users</div>
+                                        <div className="mt-2 text-2xl font-black text-black tracking-tight leading-none">{formatCompact(acquisitionSnapshot.returnedUsers)}</div>
+                                        <div className="mt-1 text-[10px] font-bold text-slate-600">{acquisitionSnapshot.returnRate.toFixed(1)}% return rate</div>
                                     </div>
                                 </div>
                                 {firstSessionIssueMix.length > 0 && (
-                                    <div className="mt-3 border-2 border-black bg-white p-3 text-xs">
+                                    <div className="dashboard-surface mt-4 p-4 text-xs border-2 border-black bg-slate-50 shadow-neo-sm rounded-none">
                                         <div className="font-medium text-slate-700">First-session issue mix</div>
                                         <div className="mt-2 space-y-2">
                                             {firstSessionIssueMix.map((issue) => (
@@ -1641,7 +1582,7 @@ export const GeneralOverview: React.FC = () => {
 
                         <section className="space-y-3">
                             <div className="flex items-center justify-between">
-                                    <h2 className="text-base font-black font-mono uppercase text-black">Top Issues</h2>
+                                    <h2 className="text-lg font-black tracking-tight text-slate-700">Top Issues</h2>
                                 <div className="flex items-center gap-2">
                                     {topIssuesTotalPages > 1 && (
                                         <div className="flex items-center gap-1">
@@ -1649,9 +1590,9 @@ export const GeneralOverview: React.FC = () => {
                                                 type="button"
                                                 onClick={() => setTopIssuesPage((prev) => Math.max(0, prev - 1))}
                                                 disabled={topIssuesPage === 0}
-                                                className={`flex h-8 w-8 items-center justify-center rounded-lg border text-slate-700 transition ${topIssuesPage === 0
-                                                    ? 'cursor-not-allowed border-slate-200 bg-slate-100 text-slate-400'
-                                                    : 'border-slate-300 bg-white hover:border-slate-900 hover:text-slate-900'
+                                                className={`flex h-8 w-8 items-center justify-center border-2 border-black rounded-none shadow-neo-sm transition-all ${topIssuesPage === 0
+                                                    ? 'cursor-not-allowed bg-slate-100 text-slate-400 shadow-none -translate-y-0.5'
+                                                    : 'bg-white hover:-translate-y-1 hover:shadow-neo hover:bg-black hover:text-white text-black'
                                                     }`}
                                                 aria-label="Previous issues page"
                                             >
@@ -1661,9 +1602,9 @@ export const GeneralOverview: React.FC = () => {
                                                 type="button"
                                                 onClick={() => setTopIssuesPage((prev) => Math.min(topIssuesTotalPages - 1, prev + 1))}
                                                 disabled={topIssuesPage >= topIssuesTotalPages - 1}
-                                                className={`flex h-8 w-8 items-center justify-center rounded-lg border text-slate-700 transition ${topIssuesPage >= topIssuesTotalPages - 1
-                                                    ? 'cursor-not-allowed border-slate-200 bg-slate-100 text-slate-400'
-                                                    : 'border-slate-300 bg-white hover:border-slate-900 hover:text-slate-900'
+                                                className={`flex h-8 w-8 items-center justify-center border-2 border-black rounded-none shadow-neo-sm transition-all ${topIssuesPage >= topIssuesTotalPages - 1
+                                                    ? 'cursor-not-allowed bg-slate-100 text-slate-400 shadow-none -translate-y-0.5'
+                                                    : 'bg-white hover:-translate-y-1 hover:shadow-neo hover:bg-black hover:text-white text-black'
                                                     }`}
                                                 aria-label="Next issues page"
                                             >
@@ -1686,8 +1627,8 @@ export const GeneralOverview: React.FC = () => {
                                     subtitle="Issue groups appear here as they are detected."
                                 />
                             ) : (
-                                <div className="border border-gray-200 bg-white overflow-hidden" style={{ boxShadow: '2px 2px 0 0 rgba(0,0,0,0.07)' }}>
-                                    <div className="divide-y divide-gray-200">
+                                <div className="dashboard-surface overflow-hidden border-2 border-black bg-white shadow-neo-sm rounded-none">
+                                    <div className="divide-y-2 divide-black">
                                         {topIssues.map((issue) => {
                                             const issueColor = ISSUE_TYPE_COLOR[issue.issueType] || '#64748b';
                                             return (
@@ -1700,7 +1641,7 @@ export const GeneralOverview: React.FC = () => {
                                                     </NeoBadge>
 
                                                     <div className="min-w-0 flex-1">
-                                                        <div className="truncate text-sm font-black font-mono uppercase tracking-wide text-black">
+                                                        <div className="truncate text-sm font-semibold uppercase tracking-wide text-black">
                                                             {issue.title}
                                                         </div>
                                                         <div className="truncate text-[11px] text-slate-500 mt-0.5">
@@ -1754,7 +1695,7 @@ export const GeneralOverview: React.FC = () => {
                         <section className="space-y-3">
                             <div className="flex flex-wrap items-center justify-between gap-3">
                                 <div>
-                                    <h2 className="text-base font-black font-mono uppercase text-black">Recommended Sessions</h2>
+                                    <h2 className="text-lg font-black tracking-tight text-slate-700">Recommended Sessions</h2>
                                     <p className="mt-0.5 text-xs text-slate-500">
                                         Mixed user segments: new, returning, anonymous, platform-specific, and risk-heavy journeys.
                                     </p>
@@ -1784,7 +1725,7 @@ export const GeneralOverview: React.FC = () => {
                                                 return (
                                                     <article
                                                         key={rec.session.id}
-                                                        className="group w-[360px] snap-start border-2 border-black bg-gradient-to-b from-white to-slate-50/60 p-3 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] transition-all hover:shadow-md"
+                                                        className="group w-[360px] snap-start rounded-xl border border-slate-200 bg-gradient-to-b from-white to-slate-50/60 p-3 shadow-sm transition-all hover:shadow-md"
                                                     >
                                                         <div className="flex items-start justify-between gap-2">
                                                             <div className="min-w-0">
@@ -1826,23 +1767,23 @@ export const GeneralOverview: React.FC = () => {
                                                         </p>
 
                                                         <div className="mt-2 grid grid-cols-3 gap-2 text-[10px]">
-                                                            <div className="border-2 border-black bg-white/90 px-2 py-1.5">
+                                                            <div className="border-2 border-black bg-white px-2 py-1.5 shadow-none rounded-none">
                                                                 <div className="text-slate-400">Duration</div>
                                                                 <div className="font-semibold text-slate-700">{formatDuration(rec.session.durationSeconds || 0)}</div>
                                                             </div>
-                                                            <div className="border-2 border-black bg-white/90 px-2 py-1.5">
+                                                            <div className="border-2 border-black bg-white px-2 py-1.5 shadow-none rounded-none">
                                                                 <div className="text-slate-400">Signals</div>
-                                                                <div className="font-semibold text-slate-700">{issueSignalsForSession(rec.session)}</div>
+                                                                <div className="font-black text-black text-xl tracking-tight">{issueSignalsForSession(rec.session)}</div>
                                                             </div>
-                                                            <div className="border-2 border-black bg-white/90 px-2 py-1.5">
+                                                            <div className="border-2 border-black bg-white px-2 py-1.5 shadow-none rounded-none">
                                                                 <div className="text-slate-400">Last Seen</div>
-                                                                <div className="font-semibold text-slate-700">{formatLastSeen(rec.session.startedAt)}</div>
+                                                                <div className="font-black text-black text-xl tracking-tight">{formatLastSeen(rec.session.startedAt)}</div>
                                                             </div>
                                                         </div>
 
-                                                        <div className="mt-3 flex items-start justify-between gap-3 border-2 border-black bg-white/80 p-2.5">
+                                                        <div className="mt-3 flex items-start justify-between gap-3 border-2 border-dashed border-slate-300 bg-slate-50 p-2.5 rounded-none">
                                                             <div className="min-w-0 flex-1">
-                                                                <div className="truncate text-[11px] font-semibold uppercase tracking-wide text-slate-700">
+                                                                <div className="truncate text-[10px] font-black uppercase tracking-widest text-[#5dadec] hover:underline">
                                                                     {rec.session.deviceModel || 'Unknown device'}
                                                                 </div>
                                                                 <div className="text-[10px] text-slate-500">

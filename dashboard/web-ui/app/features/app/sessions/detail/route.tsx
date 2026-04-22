@@ -728,23 +728,25 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
                 }, delayMs);
             };
 
-            const corePromise = api.getSessionCore(id, { frameUrlMode: 'proxy' });
-            const timelinePromise = api.getSessionTimeline(id);
-            const hierarchyPromise = api.getSessionHierarchy(id);
-            const statsPromise = api.getSessionStats(id);
-
             try {
-                const coreResult = await corePromise;
+                const bootstrapResult = await api.getSessionBootstrap(id, { frameUrlMode: 'proxy' });
                 if (activeReplayRequestRef.current !== requestId) return;
 
                 if (typeof performance !== 'undefined') {
-                    performance.measure(`replay:getSessionCore:${id}`, coreMark);
+                    performance.measure(`replay:getSessionBootstrap:${id}`, coreMark);
                 }
 
-                setFullSession(coreResult as any);
+                setFullSession({
+                    ...(bootstrapResult.core as any),
+                    events: bootstrapResult.timeline.events || [],
+                    networkRequests: bootstrapResult.timeline.networkRequests || [],
+                    crashes: bootstrapResult.timeline.crashes || [],
+                    anrs: bootstrapResult.timeline.anrs || [],
+                    stats: bootstrapResult.stats || bootstrapResult.core.stats,
+                } as any);
                 const preparingFrames =
-                    coreResult.playbackMode === 'screenshots' &&
-                    coreResult.screenshotFramesStatus === 'preparing';
+                    bootstrapResult.core.playbackMode === 'screenshots' &&
+                    bootstrapResult.core.screenshotFramesStatus === 'preparing';
                 setIsFramesLoading(preparingFrames);
                 if (preparingFrames) {
                     scheduleFramePoll(0);
@@ -755,76 +757,35 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
             } finally {
                 if (activeReplayRequestRef.current === requestId) {
                     setIsCoreLoading(false);
+                    setIsTimelineLoading(false);
+                    setIsStatsLoading(false);
                 }
             }
 
-            timelinePromise
-                .then((timelineResult) => {
-                    if (activeReplayRequestRef.current !== requestId) return;
-                    setFullSession((prev) => {
-                        if (!prev || prev.id !== id) return prev;
-                        return {
-                            ...prev,
-                            events: timelineResult.events || [],
-                            networkRequests: timelineResult.networkRequests || [],
-                            crashes: timelineResult.crashes || [],
-                            anrs: timelineResult.anrs || [],
-                        };
+            window.requestAnimationFrame(() => {
+                void api.getSessionHierarchy(id)
+                    .then((hierarchyResult) => {
+                        if (activeReplayRequestRef.current !== requestId) return;
+                        setFullSession((prev) => {
+                            if (!prev || prev.id !== id) return prev;
+                            const next: any = {
+                                ...prev,
+                                hierarchySnapshots: hierarchyResult.hierarchySnapshots || [],
+                            };
+                            setHierarchySnapshots(transformHierarchySnapshots(next.hierarchySnapshots, next));
+                            return next;
+                        });
+                    })
+                    .catch((err) => {
+                        if (activeReplayRequestRef.current !== requestId) return;
+                        console.error('Failed to fetch session hierarchy:', err);
+                    })
+                    .finally(() => {
+                        if (activeReplayRequestRef.current === requestId) {
+                            setIsHierarchyLoading(false);
+                        }
                     });
-                })
-                .catch((err) => {
-                    if (activeReplayRequestRef.current !== requestId) return;
-                    console.error('Failed to fetch session timeline:', err);
-                })
-                .finally(() => {
-                    if (activeReplayRequestRef.current === requestId) {
-                        setIsTimelineLoading(false);
-                    }
-                });
-
-            hierarchyPromise
-                .then((hierarchyResult) => {
-                    if (activeReplayRequestRef.current !== requestId) return;
-                    setFullSession((prev) => {
-                        if (!prev || prev.id !== id) return prev;
-                        const next: any = {
-                            ...prev,
-                            hierarchySnapshots: hierarchyResult.hierarchySnapshots || [],
-                        };
-                        setHierarchySnapshots(transformHierarchySnapshots(next.hierarchySnapshots, next));
-                        return next;
-                    });
-                })
-                .catch((err) => {
-                    if (activeReplayRequestRef.current !== requestId) return;
-                    console.error('Failed to fetch session hierarchy:', err);
-                })
-                .finally(() => {
-                    if (activeReplayRequestRef.current === requestId) {
-                        setIsHierarchyLoading(false);
-                    }
-                });
-
-            statsPromise
-                .then((statsResult) => {
-                    if (activeReplayRequestRef.current !== requestId) return;
-                    setFullSession((prev) => {
-                        if (!prev || prev.id !== id) return prev;
-                        return {
-                            ...prev,
-                            stats: statsResult.stats || prev.stats,
-                        } as any;
-                    });
-                })
-                .catch((err) => {
-                    if (activeReplayRequestRef.current !== requestId) return;
-                    console.error('Failed to fetch session stats:', err);
-                })
-                .finally(() => {
-                    if (activeReplayRequestRef.current === requestId) {
-                        setIsStatsLoading(false);
-                    }
-                });
+            });
         } catch (err) {
             console.error('Failed to fetch session:', err);
         }

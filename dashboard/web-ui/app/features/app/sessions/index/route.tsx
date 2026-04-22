@@ -126,6 +126,7 @@ export const RecordingsList: React.FC = () => {
   const { currentTeam } = useSafeTeam();
   const [sessions, setSessions] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [hasMore, setHasMore] = useState(false);
@@ -178,6 +179,7 @@ export const RecordingsList: React.FC = () => {
       setHasMore(false);
       setTotalCount(demoFilteredSessions.length);
       setIsLoading(false);
+      setIsRefreshing(false);
       return;
     }
 
@@ -188,6 +190,7 @@ export const RecordingsList: React.FC = () => {
         setNextCursor(null);
         setHasMore(false);
         setIsLoading(true);
+        setIsRefreshing(false);
         return;
       }
 
@@ -198,6 +201,7 @@ export const RecordingsList: React.FC = () => {
         setHasMore(false);
         setTotalCount(null);
         setIsLoading(false);
+        setIsRefreshing(false);
         return;
       }
     }
@@ -206,9 +210,12 @@ export const RecordingsList: React.FC = () => {
       if (cursor) {
         setIsLoadingMore(true);
       } else {
-        setIsLoading(true);
-        setSessions([]);
-        setTotalCount(null);
+        const hasExistingRows = sessions.length > 0;
+        setIsLoading(!hasExistingRows);
+        setIsRefreshing(hasExistingRows);
+        if (!hasExistingRows) {
+          setTotalCount(null);
+        }
       }
 
       const qLive = debouncedSearchQuery.trim() || undefined;
@@ -274,10 +281,12 @@ export const RecordingsList: React.FC = () => {
     } finally {
       if (requestId === activeRequestIdRef.current) {
         setIsLoading(false);
+        setIsRefreshing(false);
         setIsLoadingMore(false);
       }
     }
   }, [
+    sessions.length,
     timeRange,
     isDemoMode,
     demoSessions,
@@ -473,7 +482,7 @@ export const RecordingsList: React.FC = () => {
   const hasActiveFilters = searchQuery || filter !== 'all' || eventNameFilter || metaKeyFilter || dateFilter || eventCountOp || eventPropKey;
   const advancedFilterCount = (eventNameFilter ? 1 : 0) + (metaKeyFilter ? 1 : 0) + (eventCountOp ? 1 : 0) + (eventPropKey ? 1 : 0);
   const archiveScopeLabel = formatArchiveScopeLabel(timeRange, dateFilter);
-  const archiveCountLabel = `${totalCount === null ? '…' : totalCount.toLocaleString()} total replays · ${archiveScopeLabel}`;
+  const archiveCountLabel = `${totalCount === null ? '…' : totalCount.toLocaleString()} total replays · ${archiveScopeLabel}${isRefreshing ? ' · refreshing…' : ''}`;
 
   const handleSort = (key: SortKey, multiSort: boolean) => {
     const allowMultiColumn = isDemoMode && multiSort;
@@ -532,7 +541,7 @@ export const RecordingsList: React.FC = () => {
     setExpandedSessionId(expandedSessionId === sessionId ? null : sessionId);
   };
 
-  if (isLoading && (selectedProjectId || isContextLoading)) {
+  if (isLoading && sessions.length === 0 && (selectedProjectId || isContextLoading)) {
     return <DashboardGhostLoader variant="list" />;
   }
 
@@ -568,7 +577,7 @@ export const RecordingsList: React.FC = () => {
               params.append('sortDir', primarySortDir);
               window.location.href = `/api/sessions/export?${params.toString()}`;
             }}
-            className="bg-black text-white p-2 border-2 border-black hover:shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] transition-all"
+            className="bg-black text-white p-2 border-2 border-black hover:shadow-sm transition-all"
             title="Export CSV"
           >
             <Download className="w-4 h-4" />
@@ -599,9 +608,9 @@ export const RecordingsList: React.FC = () => {
 
             <button
               onClick={() => setShowAdvancedFilters(!showAdvancedFilters)}
-              className={`flex items-center gap-1.5 px-3 py-2 text-xs font-bold uppercase rounded-none border shadow-sm transition-colors whitespace-nowrap ${showAdvancedFilters || advancedFilterCount > 0
+              className={`flex items-center gap-1.5 px-3 py-2 text-xs font-bold uppercase rounded-lg border shadow-sm transition-colors whitespace-nowrap ${showAdvancedFilters || advancedFilterCount > 0
                 ? 'bg-[#5dadec]/10 border-[#5dadec] text-black'
-                : 'bg-white border-2 border-black text-black hover:shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]'
+                : 'bg-white border-2 border-black text-black hover:shadow-sm'
                 }`}
             >
               <Filter className="w-3.5 h-3.5" />
@@ -628,7 +637,7 @@ export const RecordingsList: React.FC = () => {
                   setEventPropValue('');
                   setShowAdvancedFilters(false);
                 }}
-                className="flex items-center gap-1 px-2.5 py-2 text-[#ef4444] border-2 border-black bg-white hover:shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] rounded-none transition-all font-bold uppercase text-[10px]"
+                className="flex items-center gap-1 px-2.5 py-2 text-[#ef4444] dashboard-surface hover:shadow-sm rounded-lg transition-all font-bold uppercase text-[10px]"
                 title="Clear all filters"
               >
                 <X className="w-3 h-3" /> Clear All
@@ -684,8 +693,8 @@ export const RecordingsList: React.FC = () => {
                       ? 'bg-[#34d399] text-black border-2 border-black shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]'
                       : 'bg-black text-white border-2 border-black shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]'
                     : f.id === 'new_user'
-                      ? 'bg-white border-2 border-black text-black hover:shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]'
-                      : 'bg-white border-2 border-black text-black hover:shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]'}`}
+                      ? 'bg-white border-2 border-black text-black hover:shadow-sm'
+                      : 'bg-white border-2 border-black text-black hover:shadow-sm'}`}
                 >
                   <Icon className="w-3 h-3" />
                   {f.label}
@@ -707,7 +716,7 @@ export const RecordingsList: React.FC = () => {
                 <select
                   value={eventNameFilter}
                   onChange={(e) => setEventNameFilter(e.target.value)}
-                  className={`bg-white border-2 border-black rounded-none px-3 py-1.5 uppercase outline-none focus:border-indigo-500 font-bold max-w-[200px] text-ellipsis text-xs ${eventNameFilter ? 'border-[#5dadec] text-black' : 'border-black text-black'}`}
+                  className={`bg-white border-2 border-black rounded-lg px-3 py-1.5 uppercase outline-none focus:border-indigo-500 font-bold max-w-[200px] text-ellipsis text-xs ${eventNameFilter ? 'border-[#5dadec] text-black' : 'border-black text-black'}`}
                   title="Event name — e.g. purchase_completed"
                 >
                   <option value="">ALL EVENTS</option>
@@ -723,7 +732,7 @@ export const RecordingsList: React.FC = () => {
                     <select
                       value={eventCountOp}
                       onChange={(e) => { setEventCountOp(e.target.value); if (!e.target.value) setEventCountValue(''); }}
-                      className={`bg-white border-2 border-black rounded-none px-2 py-1.5 outline-none focus:border-indigo-500 font-bold text-xs w-16 ${eventCountOp ? 'border-[#5dadec] text-black' : 'border-black text-black'}`}
+                      className={`bg-white border-2 border-black rounded-lg px-2 py-1.5 outline-none focus:border-indigo-500 font-bold text-xs w-16 ${eventCountOp ? 'border-[#5dadec] text-black' : 'border-black text-black'}`}
                     >
                       <option value="">—</option>
                       <option value="eq">=</option>
@@ -751,7 +760,7 @@ export const RecordingsList: React.FC = () => {
                 <select
                   value={eventPropKey}
                   onChange={(e) => { setEventPropKey(e.target.value); if (!e.target.value) setEventPropValue(''); }}
-                  className={`bg-white border-2 border-black rounded-none px-3 py-1.5 outline-none focus:border-violet-500 font-bold max-w-[180px] text-ellipsis text-xs ${eventPropKey ? 'border-[#5dadec] text-black' : 'border-black text-black'}`}
+                  className={`bg-white border-2 border-black rounded-lg px-3 py-1.5 outline-none focus:border-violet-500 font-bold max-w-[180px] text-ellipsis text-xs ${eventPropKey ? 'border-[#5dadec] text-black' : 'border-black text-black'}`}
                   title="Event property — e.g. plan, amount"
                 >
                   <option value="">ANY</option>
@@ -767,7 +776,7 @@ export const RecordingsList: React.FC = () => {
                       value={eventPropValue}
                       onChange={(e) => setEventPropValue(e.target.value)}
                       placeholder="any value"
-                      className={`bg-white border-2 border-black rounded-none px-2 py-1.5 outline-none focus:border-violet-500 font-bold text-xs w-28 ${eventPropValue ? 'border-[#5dadec] text-black' : 'border-black text-black placeholder:text-gray-400'}`}
+                      className={`bg-white border-2 border-black rounded-lg px-2 py-1.5 outline-none focus:border-violet-500 font-bold text-xs w-28 ${eventPropValue ? 'border-[#5dadec] text-black' : 'border-black text-black placeholder:text-gray-400'}`}
                     />
                   </>
                 )}
@@ -786,7 +795,7 @@ export const RecordingsList: React.FC = () => {
                     setMetaKeyFilter(e.target.value);
                     setMetaValueFilter('');
                   }}
-                  className={`bg-white border-2 border-black rounded-none px-3 py-1.5 uppercase outline-none focus:border-emerald-500 font-bold max-w-[200px] text-ellipsis text-xs ${metaKeyFilter ? 'border-[#5dadec] text-black' : 'border-black text-black'}`}
+                  className={`bg-white border-2 border-black rounded-lg px-3 py-1.5 uppercase outline-none focus:border-emerald-500 font-bold max-w-[200px] text-ellipsis text-xs ${metaKeyFilter ? 'border-[#5dadec] text-black' : 'border-black text-black'}`}
                 >
                   <option value="">ANY KEY</option>
                   {Object.keys(availableFilters.metadata).map(key => (
@@ -798,7 +807,7 @@ export const RecordingsList: React.FC = () => {
                   value={metaValueFilter}
                   onChange={(e) => setMetaValueFilter(e.target.value)}
                   disabled={!metaKeyFilter}
-                  className={`bg-white border-2 border-black rounded-none px-3 py-1.5 uppercase outline-none focus:border-emerald-500 font-bold max-w-[200px] text-ellipsis text-xs ${!metaKeyFilter ? 'opacity-50 cursor-not-allowed border-black' : metaValueFilter ? 'border-[#5dadec] text-black' : 'border-black text-black'}`}
+                  className={`bg-white border-2 border-black rounded-lg px-3 py-1.5 uppercase outline-none focus:border-emerald-500 font-bold max-w-[200px] text-ellipsis text-xs ${!metaKeyFilter ? 'opacity-50 cursor-not-allowed border-black' : metaValueFilter ? 'border-[#5dadec] text-black' : 'border-black text-black'}`}
                 >
                   <option value="">{metaKeyFilter ? 'ANY VALUE' : 'SELECT KEY FIRST'}</option>
                   {metaKeyFilter && (availableFilters.metadata[metaKeyFilter] || []).map(val => (
@@ -816,7 +825,7 @@ export const RecordingsList: React.FC = () => {
         <div className="bg-white border-b border-gray-200 overflow-hidden w-full" style={{ boxShadow: '2px 2px 0 0 rgba(0,0,0,0.07)' }}>
           <table className="w-full table-fixed border-collapse">
             <thead>
-              <tr className="bg-[#f4f4f5] border-b-2 border-black">
+              <tr className="bg-[#f4f4f5] border-b border-slate-200">
                 <th className="sticky top-0 z-40 bg-[#f4f4f5] w-10 py-2.5 pl-4 pr-2" />
                 <th className="sticky top-0 z-40 bg-[#f4f4f5] text-left py-2.5 px-3 text-[11px] font-semibold font-mono text-black uppercase tracking-wider min-w-[140px]">User & Device</th>
                 <th className="sticky top-0 z-40 bg-[#f4f4f5] hidden lg:table-cell text-left py-2.5 px-3 text-[11px] font-semibold font-mono text-black uppercase tracking-wider w-32"><SortableHeader label="Date" sortKey="date" /></th>
@@ -1180,7 +1189,7 @@ export const RecordingsList: React.FC = () => {
                 <button
                   onClick={() => setCurrentPage(1)}
                   disabled={currentPage === 1}
-                  className="p-1.5 border-2 border-black bg-white hover:shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] disabled:opacity-30 disabled:cursor-not-allowed transition-all"
+                  className="p-1.5 dashboard-surface hover:shadow-sm disabled:opacity-30 disabled:cursor-not-allowed transition-all"
                   title="First page"
                 >
                   <ChevronsLeft size={14} />
@@ -1188,7 +1197,7 @@ export const RecordingsList: React.FC = () => {
                 <button
                   onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
                   disabled={currentPage === 1}
-                  className="p-1.5 border-2 border-black bg-white hover:shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] disabled:opacity-30 disabled:cursor-not-allowed transition-all"
+                  className="p-1.5 dashboard-surface hover:shadow-sm disabled:opacity-30 disabled:cursor-not-allowed transition-all"
                   title="Previous page"
                 >
                   <ChevronLeft size={14} />
@@ -1206,7 +1215,7 @@ export const RecordingsList: React.FC = () => {
                     }
                   }}
                   disabled={(currentPage >= totalPages && !hasMore) || isLoadingMore}
-                  className="p-1.5 border-2 border-black bg-white hover:shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] disabled:opacity-30 disabled:cursor-not-allowed transition-all"
+                  className="p-1.5 dashboard-surface hover:shadow-sm disabled:opacity-30 disabled:cursor-not-allowed transition-all"
                   title="Next page"
                 >
                   <ChevronRight size={14} />
@@ -1214,7 +1223,7 @@ export const RecordingsList: React.FC = () => {
                 <button
                   onClick={() => setCurrentPage(totalPages)}
                   disabled={currentPage >= totalPages}
-                  className="p-1.5 border-2 border-black bg-white hover:shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] disabled:opacity-30 disabled:cursor-not-allowed transition-all"
+                  className="p-1.5 dashboard-surface hover:shadow-sm disabled:opacity-30 disabled:cursor-not-allowed transition-all"
                   title="Last page"
                 >
                   <ChevronsRight size={14} />

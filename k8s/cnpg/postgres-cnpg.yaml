@@ -15,6 +15,8 @@ kind: Cluster
 metadata:
   name: postgres
   namespace: rejourney
+  labels:
+    app.kubernetes.io/part-of: rejourney
 spec:
   instances: 1   # single instance for Part 1; raise to 2 in Phase 2-B
 
@@ -30,6 +32,9 @@ spec:
       effective_cache_size: "4GB"
       work_mem: "16MB"
       maintenance_work_mem: "128MB"
+      shared_preload_libraries: "pg_stat_statements"
+      pg_stat_statements.max: "10000"
+      pg_stat_statements.track: "all"
 
   # Matches legacy StatefulSet sizing (node has 8 CPU / 16 GiB).
   # shared_buffers=1.5 GB and effective_cache_size=4 GB fit comfortably inside the 6 GiB limit.

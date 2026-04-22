@@ -12,7 +12,11 @@ import {
 } from 'lucide-react';
 import { useSessionData } from '~/shared/providers/SessionContext';
 import { useDemoMode } from '~/shared/providers/DemoModeContext';
-import { getAlltimeHeatmap, getFrictionHeatmap, AlltimeHeatmapScreen, FrictionHeatmap } from '~/shared/api/client';
+import {
+    getHeatmapsOverview,
+    getHeatmapScreenOverview,
+    type AlltimeHeatmapScreen,
+} from '~/shared/api/client';
 import { API_BASE_URL, getCsrfToken } from '~/shared/config/appConfig';
 import { TimeRange } from '~/shared/ui/core/TimeFilter';
 import { usePathPrefix } from '~/shell/routing/usePathPrefix';
@@ -561,6 +565,7 @@ export const TouchHeatmapSection: React.FC<TouchHeatmapSectionProps> = ({
     const [partialError, setPartialError] = useState<string | null>(null);
     const [sortMode, setSortMode] = useState<SortMode>('impact');
     const [selectedScreenName, setSelectedScreenName] = useState<string | null>(null);
+    const [isScreenDetailLoading, setIsScreenDetailLoading] = useState(false);
 
     useEffect(() => {
         if (isDemoMode) {
@@ -655,105 +660,28 @@ export const TouchHeatmapSection: React.FC<TouchHeatmapSectionProps> = ({
 
         const range = getInsightsRangeFromTimeFilter(timeRange);
 
-        Promise.allSettled([
-            getAlltimeHeatmap(selectedProject.id),
-            getFrictionHeatmap(selectedProject.id, range),
-        ])
-            .then(([allTimeResult, frictionResult]) => {
+        getHeatmapsOverview(selectedProject.id, range)
+            .then((overview) => {
                 if (cancelled) return;
 
-                heatmapDebug('Touch heatmap data fetch settled', {
+                heatmapDebug('Touch heatmap summary fetched', {
                     projectId: selectedProject.id,
                     timeRange,
                     normalizedRange: range,
-                    allTimeStatus: allTimeResult.status,
-                    frictionStatus: frictionResult.status,
+                    screenCount: overview.screens.length,
+                    failedSections: overview.failedSections,
                 });
 
-                const failedSections: string[] = [];
-                const allTime = allTimeResult.status === 'fulfilled'
-                    ? allTimeResult.value
-                    : { screens: [], lastUpdated: '' };
-                const friction = frictionResult.status === 'fulfilled'
-                    ? frictionResult.value
-                    : ({ screens: [] } as FrictionHeatmap);
-
-                if (allTimeResult.status === 'rejected') failedSections.push('all-time heatmap');
-                if (frictionResult.status === 'rejected') failedSections.push('friction range');
-
-                const alltimeMap = new Map<string, AlltimeHeatmapScreen>(
-                    (allTime.screens || []).map((screen) => [screen.name, screen]),
-                );
-                const frictionMap = new Map<string, FrictionHeatmap['screens'][number]>(
-                    (friction.screens || []).map((screen) => [screen.name, screen]),
-                );
-
-                const mergedNames = new Set<string>([
-                    ...Array.from(alltimeMap.keys()),
-                    ...Array.from(frictionMap.keys()),
-                ]);
-
-                const mergedScreens: EnrichedHeatmapScreen[] = Array.from(mergedNames)
-                    .map((name) => {
-                        const alltime = alltimeMap.get(name);
-                        const rangeData = frictionMap.get(name);
-                        const touchHotspots = alltime?.touchHotspots ?? rangeData?.touchHotspots ?? [];
-                        const rangeVisits = rangeData?.visits ?? 0;
-                        const rangeRageTaps = rangeData?.rageTaps ?? 0;
-                        const rangeErrors = rangeData?.errors ?? 0;
-                        const rangeExitRate = rangeData?.exitRate ?? 0;
-                        const rangeRageTapRatePer100 = rangeData?.rageTapRatePer100 ?? toRatePer100(rangeRageTaps, rangeVisits);
-                        const rangeErrorRatePer100 = rangeData?.errorRatePer100 ?? toRatePer100(rangeErrors, rangeVisits);
-                        const rangeIncidentRatePer100 = Number((rangeRageTapRatePer100 + rangeErrorRatePer100).toFixed(1));
-                        const rangeEstimatedAffectedSessions = rangeData?.estimatedAffectedSessions
-                            ?? Math.min(
-                                rangeVisits,
-                                Math.round(rangeVisits * Math.min(0.95, (rangeIncidentRatePer100 / 100) + ((rangeExitRate / 100) * 0.35))),
-                            );
-                        const rangeImpactScore = rangeData?.impactScore
-                            ?? Number((((rangeIncidentRatePer100 * 0.7) + (rangeExitRate * 0.3)) * Math.log10(rangeVisits + 9)).toFixed(1));
-                        const primarySignal = rangeData?.primarySignal ?? getPrimarySignal(rangeRageTapRatePer100, rangeErrorRatePer100, rangeExitRate);
-                        const confidence: ConfidenceType = rangeData?.confidence
-                            ?? (rangeVisits >= 150 ? 'high' : rangeVisits >= 50 ? 'medium' : 'low');
-
-                        return {
-                            name,
-                            visits: alltime?.visits ?? rangeData?.visits ?? 0,
-                            rageTaps: alltime?.rageTaps ?? rangeData?.rageTaps ?? 0,
-                            errors: alltime?.errors ?? rangeData?.errors ?? 0,
-                            exitRate: alltime?.exitRate ?? rangeData?.exitRate ?? 0,
-                            frictionScore: alltime?.frictionScore ?? rangeData?.frictionScore ?? 0,
-                            screenshotUrl: alltime?.screenshotUrl ?? rangeData?.screenshotUrl ?? null,
-                            sessionIds: alltime?.sessionIds ?? rangeData?.sessionIds ?? [],
-                            touchHotspots,
-                            rangeVisits,
-                            rangeRageTaps,
-                            rangeErrors,
-                            rangeExitRate,
-                            rangeFrictionScore: rangeData?.frictionScore ?? rangeImpactScore,
-                            rangeImpactScore,
-                            rangeRageTapRatePer100,
-                            rangeErrorRatePer100,
-                            rangeIncidentRatePer100,
-                            rangeEstimatedAffectedSessions,
-                            primarySignal,
-                            confidence,
-                            priority: getPriority(rangeImpactScore, rangeEstimatedAffectedSessions),
-                            evidenceSessionId: rangeData?.sessionIds?.[0] ?? alltime?.sessionIds?.[0] ?? null,
-                        };
-                    })
+                const mergedScreens = (overview.screens || [])
                     .filter((screen) => (
                         screen.rangeVisits > 0
                         || screen.rangeRageTaps > 0
                         || screen.rangeErrors > 0
                         || screen.rangeExitRate > 0
-                        || screen.touchHotspots.length > 0
-                    ));
+                    )) as EnrichedHeatmapScreen[];
 
-                heatmapDebug('Touch heatmap screens merged', {
+                heatmapDebug('Touch heatmap screens prepared', {
                     projectId: selectedProject.id,
-                    allTimeScreenCount: allTime.screens?.length ?? 0,
-                    frictionScreenCount: friction.screens?.length ?? 0,
                     mergedScreenCount: mergedScreens.length,
                     sampleScreens: mergedScreens.slice(0, 10).map((screen) => ({
                         name: screen.name,
@@ -765,14 +693,14 @@ export const TouchHeatmapSection: React.FC<TouchHeatmapSectionProps> = ({
                 });
 
                 setScreens(mergedScreens);
-                setLastUpdated(allTime.lastUpdated || '');
+                setLastUpdated(overview.lastUpdated || '');
 
-                if (failedSections.length > 0) {
+                if (overview.failedSections.length > 0) {
                     console.warn(`${TOUCH_HEATMAP_DEBUG_PREFIX} Partial touch heatmap data failure`, {
                         projectId: selectedProject.id,
-                        failedSections,
+                        failedSections: overview.failedSections,
                     });
-                    setPartialError(`Some heatmap sources are unavailable (${failedSections.join(', ')}).`);
+                    setPartialError(`Some heatmap sources are unavailable (${overview.failedSections.join(', ')}).`);
                 }
             })
             .catch((error) => {
@@ -820,6 +748,43 @@ export const TouchHeatmapSection: React.FC<TouchHeatmapSectionProps> = ({
         () => sortedScreens.find((screen) => screen.name === selectedScreenName) || sortedScreens[0] || null,
         [sortedScreens, selectedScreenName],
     );
+
+    useEffect(() => {
+        if (isDemoMode || !selectedProject?.id || !selectedScreenName) return;
+
+        let cancelled = false;
+        setIsScreenDetailLoading(true);
+
+        void getHeatmapScreenOverview(selectedProject.id, selectedScreenName, getInsightsRangeFromTimeFilter(timeRange))
+            .then((response) => {
+                if (cancelled || !response.screen) return;
+                setScreens((prev) => prev.map((screen) => (
+                    screen.name === selectedScreenName
+                        ? { ...screen, ...response.screen } as EnrichedHeatmapScreen
+                        : screen
+                )));
+                if (response.failedSections.length > 0) {
+                    setPartialError(`Some heatmap sources are unavailable (${response.failedSections.join(', ')}).`);
+                }
+            })
+            .catch((error) => {
+                if (!cancelled) {
+                    console.error(`${TOUCH_HEATMAP_DEBUG_PREFIX} Failed to load selected screen detail`, {
+                        projectId: selectedProject.id,
+                        selectedScreenName,
+                        error,
+                    });
+                    setPartialError((prev) => prev || 'Selected heatmap detail unavailable.');
+                }
+            })
+            .finally(() => {
+                if (!cancelled) setIsScreenDetailLoading(false);
+            });
+
+        return () => {
+            cancelled = true;
+        };
+    }, [selectedProject?.id, selectedScreenName, timeRange, isDemoMode]);
 
     const selectedIndex = useMemo(
         () => selectedScreen ? sortedScreens.findIndex((screen) => screen.name === selectedScreen.name) : -1,
@@ -946,7 +911,7 @@ export const TouchHeatmapSection: React.FC<TouchHeatmapSectionProps> = ({
 
     if (!selectedProject?.id) {
         return (
-            <section className={`border-2 border-black bg-white p-6 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] ${className}`.trim()}>
+            <section className={`dashboard-surface p-6 shadow-sm ${className}`.trim()}>
                 <p className="text-sm text-slate-500">Select a project to view touch heatmap intelligence.</p>
             </section>
         );
@@ -954,19 +919,19 @@ export const TouchHeatmapSection: React.FC<TouchHeatmapSectionProps> = ({
 
     if (isLoading) {
         return (
-            <section className={`border-2 border-black bg-white p-6 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] ${className}`.trim()}>
+            <section className={`dashboard-surface p-6 shadow-sm ${className}`.trim()}>
                 <div className="flex items-center gap-3 text-sm text-slate-600">
                     <MousePointer2 className="h-4 w-4 animate-pulse text-blue-600" />
                     Building interaction heatmaps and friction overlays...
                 </div>
-                <div className="mt-4 h-64 animate-pulse border-2 border-black bg-[#f4f4f5]" />
+                <div className="mt-4 h-64 animate-pulse dashboard-inner-surface" />
             </section>
         );
     }
 
     if (!screens.length || !selectedScreen) {
         return (
-            <section className={`border-2 border-black bg-white p-6 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] ${className}`.trim()}>
+            <section className={`dashboard-surface p-6 shadow-sm ${className}`.trim()}>
                 <div className={`flex flex-col items-center justify-center border-2 border-dashed border-black bg-[#f4f4f5] text-center ${compact ? 'min-h-[180px]' : 'min-h-[220px]'}`}>
                     <MousePointer2 className="mb-3 h-10 w-10 text-slate-300" />
                     <p className="text-sm font-semibold text-slate-500">No touch heatmap data available yet</p>
@@ -980,11 +945,11 @@ export const TouchHeatmapSection: React.FC<TouchHeatmapSectionProps> = ({
     }
 
     return (
-        <section className={`border-2 border-black bg-white shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] ${className}`.trim()}>
-            <div className={`border-b-2 border-black ${compact ? 'p-5' : 'p-6'}`}>
+        <section className={`dashboard-surface shadow-sm ${className}`.trim()}>
+            <div className={`border-b border-slate-200 ${compact ? 'p-5' : 'p-6'}`}>
                 <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
                     <div>
-                        <h2 className={`${compact ? 'text-base' : 'text-lg'} font-black font-mono uppercase tracking-wide text-black`}>Interaction Heatmaps</h2>
+                        <h2 className={`${compact ? 'text-base' : 'text-lg'} font-semibold uppercase tracking-wide text-black`}>Interaction Heatmaps</h2>
                         <p className="mt-1 text-sm text-slate-500">
                             {compact
                                 ? 'Prioritize high-friction screens with replay evidence.'
@@ -1021,34 +986,34 @@ export const TouchHeatmapSection: React.FC<TouchHeatmapSectionProps> = ({
 
             <div className={`${compact ? 'space-y-4 p-4' : 'space-y-5 p-5'}`}>
                 <div className={`grid grid-cols-2 gap-3 ${compact ? 'md:grid-cols-4' : 'md:grid-cols-5'}`}>
-                    <div className="border-2 border-black bg-[#f4f4f5] p-3">
+                    <div className="dashboard-inner-surface p-3">
                         <div className="text-[11px] font-mono uppercase tracking-wide text-gray-500">Tracked screens</div>
                         <div className="mt-1 text-xl font-black font-mono text-black">{screens.length}</div>
                     </div>
                     {!compact && (
-                        <div className="border-2 border-black bg-[#f4f4f5] p-3">
+                        <div className="dashboard-inner-surface p-3">
                             <div className="text-[11px] font-mono uppercase tracking-wide text-gray-500">All-time touches</div>
                             <div className="mt-1 text-xl font-black font-mono text-black">{formatCompact(summary.allTimeTouches)}</div>
                         </div>
                     )}
-                    <div className="border-2 border-black bg-[#f4f4f5] p-3">
+                    <div className="dashboard-inner-surface p-3">
                         <div className="text-[11px] font-mono uppercase tracking-wide text-gray-500">{timeRange} visits</div>
                         <div className="mt-1 text-xl font-black font-mono text-black">{formatCompact(summary.rangeVisits)}</div>
                     </div>
-                    <div className="border-2 border-black bg-[#f4f4f5] p-3">
+                    <div className="dashboard-inner-surface p-3">
                         <div className="text-[11px] font-mono uppercase tracking-wide text-gray-500">Affected sessions</div>
                         <div className="mt-1 text-xl font-black font-mono text-[#ef4444]">{formatCompact(summary.affectedSessions)}</div>
                     </div>
-                    <div className="border-2 border-black bg-[#f4f4f5] p-3">
+                    <div className="dashboard-inner-surface p-3">
                         <div className="text-[11px] font-mono uppercase tracking-wide text-gray-500">Critical screens</div>
                         <div className="mt-1 text-xl font-black font-mono text-amber-600">{summary.criticalScreens}</div>
                     </div>
                 </div>
 
                 <div className={`grid grid-cols-1 items-stretch ${compact ? 'gap-5 xl:grid-cols-[230px_minmax(0,1fr)]' : 'gap-6 xl:grid-cols-[280px_minmax(0,1fr)_320px]'}`}>
-                    <div className={`flex h-full min-h-0 flex-col border-2 border-black bg-[#f4f4f5] ${compact ? 'p-3' : 'p-4'}`}>
+                    <div className={`flex h-full min-h-0 flex-col dashboard-inner-surface ${compact ? 'p-3' : 'p-4'}`}>
                         <div className={`mb-3 flex items-center justify-between ${compact ? 'px-1' : 'px-2'} text-xs font-mono font-semibold uppercase tracking-wide text-gray-500`}>Screen ranking</div>
-                        <div className="relative flex-1 overflow-hidden border-2 border-black bg-[#f4f4f5]">
+                        <div className="relative flex-1 overflow-hidden dashboard-inner-surface">
                             <div className="h-full space-y-2 overflow-y-auto p-2 pr-1">
                                 {sortedScreens.map((screen) => {
                                     const isSelected = selectedScreen.name === screen.name;
@@ -1058,7 +1023,7 @@ export const TouchHeatmapSection: React.FC<TouchHeatmapSectionProps> = ({
                                             onClick={() => setSelectedScreenName(screen.name)}
                                             className={`w-full rounded-xl border px-3 py-2 text-left transition ${isSelected
                                                 ? 'border-2 border-black bg-black text-white'
-                                                : 'border-2 border-black bg-white text-black hover:bg-[#f4f4f5]'
+                                                : 'dashboard-surface text-black hover:bg-[#f4f4f5]'
                                                 }`}
                                         >
                                             <div className="flex items-center justify-between gap-2">
@@ -1084,13 +1049,18 @@ export const TouchHeatmapSection: React.FC<TouchHeatmapSectionProps> = ({
                         </div>
                     </div>
 
-                    <div className={`border-2 border-black bg-[#f4f4f5] ${compact ? 'p-3.5' : 'p-4'}`}>
+                    <div className={`dashboard-inner-surface ${compact ? 'p-3.5' : 'p-4'}`}>
                         <div className="mb-3 flex items-center justify-between gap-3">
                             <div>
-                                <h3 className={`${compact ? 'text-sm' : 'text-base'} font-black font-mono uppercase tracking-wide text-black`}>{selectedScreen.name}</h3>
+                                <h3 className={`${compact ? 'text-sm' : 'text-base'} font-semibold uppercase tracking-wide text-black`}>{selectedScreen.name}</h3>
                                 <p className="text-xs font-mono text-gray-500">Primary signal: {selectedScreen.primarySignal.replace('_', ' ')}</p>
                             </div>
                             <div className="flex items-center gap-2">
+                                {isScreenDetailLoading && (
+                                    <span className="dashboard-surface px-2 py-0.5 text-[11px] font-mono font-semibold uppercase text-gray-500">
+                                        Refreshing
+                                    </span>
+                                )}
                                 <span className={`border-2 border-black px-2 py-0.5 text-xs font-mono font-semibold uppercase ${priorityChipClass}`}>{selectedScreen.priority}</span>
                                 <span className={`border-2 border-black px-2 py-0.5 text-xs font-mono font-semibold uppercase ${confidenceChipClass}`}>{selectedScreen.confidence}</span>
                             </div>
@@ -1100,7 +1070,7 @@ export const TouchHeatmapSection: React.FC<TouchHeatmapSectionProps> = ({
                             <button
                                 onClick={() => moveSelection(-1)}
                                 disabled={selectedIndex <= 0}
-                                className="border-2 border-black bg-white p-1.5 text-black hover:shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] disabled:cursor-not-allowed disabled:opacity-40 transition-all"
+                                className="dashboard-surface p-1.5 text-black hover:shadow-sm disabled:cursor-not-allowed disabled:opacity-40 transition-all"
                                 aria-label="Previous screen"
                             >
                                 <ChevronLeft className="h-4 w-4" />
@@ -1108,7 +1078,7 @@ export const TouchHeatmapSection: React.FC<TouchHeatmapSectionProps> = ({
                             <button
                                 onClick={() => moveSelection(1)}
                                 disabled={selectedIndex < 0 || selectedIndex >= sortedScreens.length - 1}
-                                className="border-2 border-black bg-white p-1.5 text-black hover:shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] disabled:cursor-not-allowed disabled:opacity-40 transition-all"
+                                className="dashboard-surface p-1.5 text-black hover:shadow-sm disabled:cursor-not-allowed disabled:opacity-40 transition-all"
                                 aria-label="Next screen"
                             >
                                 <ChevronRight className="h-4 w-4" />
@@ -1120,19 +1090,19 @@ export const TouchHeatmapSection: React.FC<TouchHeatmapSectionProps> = ({
                         {compact && (
                             <>
                                 <div className="mt-3 grid grid-cols-2 gap-2">
-                                    <div className="border-2 border-black bg-white px-2.5 py-2">
+                                    <div className="dashboard-surface px-2.5 py-2">
                                         <div className="text-[10px] font-mono uppercase tracking-wide text-gray-500">Issue rate</div>
                                         <div className="mt-0.5 text-sm font-black font-mono text-black">{selectedScreen.rangeIncidentRatePer100.toFixed(1)}/100</div>
                                     </div>
-                                    <div className="border-2 border-black bg-white px-2.5 py-2">
+                                    <div className="dashboard-surface px-2.5 py-2">
                                         <div className="text-[10px] font-mono uppercase tracking-wide text-gray-500">Rage taps</div>
                                         <div className="mt-0.5 text-sm font-black font-mono text-[#ef4444]">{selectedScreen.rangeRageTapRatePer100.toFixed(1)}/100</div>
                                     </div>
-                                    <div className="border-2 border-black bg-white px-2.5 py-2">
+                                    <div className="dashboard-surface px-2.5 py-2">
                                         <div className="text-[10px] font-mono uppercase tracking-wide text-gray-500">{timeRange} visits</div>
                                         <div className="mt-0.5 text-sm font-black font-mono text-black">{formatCompact(selectedScreen.rangeVisits)}</div>
                                     </div>
-                                    <div className="border-2 border-black bg-white px-2.5 py-2">
+                                    <div className="dashboard-surface px-2.5 py-2">
                                         <div className="text-[10px] font-mono uppercase tracking-wide text-gray-500">All-time touches</div>
                                         <div className="mt-0.5 text-sm font-black font-mono text-black">{formatCompact(selectedScreen.visits)}</div>
                                     </div>
@@ -1151,21 +1121,21 @@ export const TouchHeatmapSection: React.FC<TouchHeatmapSectionProps> = ({
                     </div>
 
                     {!compact && (
-                        <div className="border-2 border-black bg-white p-4">
+                        <div className="dashboard-surface p-4">
                             <div className="mb-3 grid grid-cols-2 gap-2">
-                                <div className="border-2 border-black bg-[#f4f4f5] p-2.5">
+                                <div className="dashboard-inner-surface p-2.5">
                                     <div className="text-[11px] font-mono uppercase tracking-wide text-gray-500">Issue rate</div>
                                     <div className="mt-1 text-xl font-black font-mono text-black">{selectedScreen.rangeIncidentRatePer100.toFixed(1)}/100</div>
                                 </div>
-                                <div className="border-2 border-black bg-[#f4f4f5] p-2.5">
+                                <div className="dashboard-inner-surface p-2.5">
                                     <div className="text-[11px] font-mono uppercase tracking-wide text-gray-500">Rage taps</div>
                                     <div className="mt-1 text-xl font-black font-mono text-[#ef4444]">{selectedScreen.rangeRageTapRatePer100.toFixed(1)}/100</div>
                                 </div>
-                                <div className="border-2 border-black bg-[#f4f4f5] p-2.5">
+                                <div className="dashboard-inner-surface p-2.5">
                                     <div className="text-[11px] font-mono uppercase tracking-wide text-gray-500">{timeRange} visits</div>
                                     <div className="mt-1 text-xl font-black font-mono text-black">{formatCompact(selectedScreen.rangeVisits)}</div>
                                 </div>
-                                <div className="border-2 border-black bg-[#f4f4f5] p-2.5">
+                                <div className="dashboard-inner-surface p-2.5">
                                     <div className="text-[11px] font-mono uppercase tracking-wide text-gray-500">All-time touches</div>
                                     <div className="mt-1 text-xl font-black font-mono text-black">{formatCompact(selectedScreen.visits)}</div>
                                 </div>
@@ -1189,7 +1159,7 @@ export const TouchHeatmapSection: React.FC<TouchHeatmapSectionProps> = ({
                                 })}
                             </div>
 
-                            <div className="border-2 border-black bg-[#f4f4f5] p-3">
+                            <div className="dashboard-inner-surface p-3">
                                 <div className="text-xs font-mono font-semibold uppercase tracking-wide text-gray-500">Top friction zones</div>
                                 <div className="mt-2 space-y-2">
                                     {hotspotZones.map((zone) => (
@@ -1205,11 +1175,11 @@ export const TouchHeatmapSection: React.FC<TouchHeatmapSectionProps> = ({
                                     )}
                                 </div>
                             </div>
-                            <div className="mt-3 border-2 border-black bg-[#f4f4f5] p-3">
+                            <div className="mt-3 dashboard-inner-surface p-3">
                                 <div className="text-xs font-mono font-semibold uppercase tracking-wide text-gray-500">Signal distribution</div>
                                 <div className="mt-2 grid grid-cols-3 gap-2">
                                     {selectedSignalMix.map((item) => (
-                                        <div key={item.key} className="border-2 border-black bg-white px-2 py-1.5 text-center">
+                                        <div key={item.key} className="dashboard-surface px-2 py-1.5 text-center">
                                             <div className="text-[10px] font-mono uppercase tracking-wide text-gray-500">{item.label}</div>
                                             <div className="mt-0.5 text-sm font-black font-mono text-black">{item.share.toFixed(1)}%</div>
                                         </div>
