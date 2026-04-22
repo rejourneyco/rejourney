@@ -1,6 +1,6 @@
 ## Tailscale, public traffic, and admin access
 
-**Public path (unchanged):** Internet → **Cloudflare** (DNS / TLS / WAF) → **Traefik** on k3s → `rejourney.co`, `api.rejourney.co`, `ingest.rejourney.co`.
+**Public path:** Internet → **Cloudflare** (DNS / TLS / WAF) → **Hetzner Load Balancer** (Phase 1-B, with PROXY protocol and trusted private-network IPs) → **Traefik** on k3s → `rejourney.co`, `api.rejourney.co`, `ingest.rejourney.co`. The Hetzner LB is what real-client IPs come through; Traefik is configured with the LB's private-network IP in `trustedIPs` so it forwards `X-Forwarded-For` correctly.
 
 **Admin path:** Operators join the **Tailscale tailnet** (Mac + VPS). They use **SSH** and **`kubectl`** over **100.x** addresses. **Admin UIs** (pgweb, Redis Commander, Grafana, Gatus, VictoriaMetrics, Pushgateway, Traefik dashboard) have **no public Ingress**; open them with **`kubectl port-forward`** to `127.0.0.1` on the laptop. The **internal dashboard** repo (`rejourney-internal`) talks to Postgres/S3 the same way: tunnels + local Node.
 
@@ -11,10 +11,11 @@ flowchart TB
   subgraph publicPath [Public path]
     Users[End users]
     CF[Cloudflare]
+    LB[Hetzner LB]
     Traefik[Traefik Ingress]
     Web[Web UI]
     API[API and ingest]
-    Users --> CF --> Traefik
+    Users --> CF --> LB --> Traefik
     Traefik --> Web
     Traefik --> API
   end
@@ -35,16 +36,25 @@ flowchart TB
 Deployment:
 ┌──────────────┐      ┌─────────────────────────────┐      ┌─────────────────┐
 │  GitHub Repo │─────▶│      GitHub Actions         │─────▶│      GHCR       │
-│ (rejourney)  │      │   (Force Deploy VPS)        │      │ (Docker Images) │
+│ (rejourney)  │      │  scripts/k8s/deploy-release │      │ (Docker Images) │
 └──────────────┘      └──────────────┬──────────────┘      └────────┬────────┘
                                      │                              │
-                                     │ 2) kubectl apply             │ 3) Pull
-                                     │    manifests                 │    Images
+                                     │ 2) kubectl apply --prune     │ 3) Pull
+                                     │    (part-of=rejourney)       │    Images
                                      ▼                              ▼
                       ┌────────────────────────────────────────────────────┐
-                      │             Hetzner VPS Cluster (k3s)              │
+                      │         Hetzner CPX42 k3s node (single)            │
                       │                namespace: rejourney                │
                       └────────────────────────────────────────────────────┘
+
+  deploy-release.sh renders k8s/*.yaml into a tmp dir (image-tag substitution),
+  then applies with --prune -l app.kubernetes.io/part-of=rejourney plus an
+  explicit allowlist (ConfigMap, Service, Deployment, StatefulSet, Ingress,
+  traefik Middleware, CronJob, Job, PodDisruptionBudget). Anything labelled
+  part-of=rejourney but no longer in the repo is removed on next deploy.
+  Helm-managed resources (Bitnami redis Service) have that label explicitly
+  stripped so --prune never touches them. CNPG is managed by its operator
+  (separate CRD reconciler) — k8s/cnpg/ is not applied by the deploy script.
 
 
 
@@ -65,14 +75,18 @@ K3s Details:
 │              │                                                   │           │
 │  ┌───────────▼────────────┐          ┌───────────────────────────▼────────┐  │
 │  │      Monitoring        │          │           Storage Layer            │  │
-│  │ ┌──────────────────┐   │          │  ┌──────────┐        ┌──────────┐  │  │
-│  │ │ Grafana / Gatus /│   │          │  │ Postgres │        │  Redis   │  │  │
-│  │ │ VictoriaMetrics  │   │          │  │          │        │          │  │  │
-│  │ │ (admin port-fwd) │   │          │  │ (PVC 20G)│        │ (In-Mem) │  │  │
-│  │ └──────────────────┘   │          │  └──────────┘        └──────────┘  │  │
-│  │ exporters + pushgw +   │          │                                    │  │
-│  │ Traefik metrics (svc)  │          │                                    │  │
-│  └────────────────────────┘          └────────────────────────────────────┘  │
+│  │ ┌──────────────────┐   │          │  ┌───────────────┐  ┌────────────┐ │  │
+│  │ │ Grafana / Gatus /│   │          │  │  PgBouncer    │  │ Redis      │ │  │
+│  │ │ VictoriaMetrics  │   │          │  │  (pooler)     │  │ (Bitnami)  │ │  │
+│  │ │ (admin port-fwd) │   │          │  └───────┬───────┘  │ + Sentinel │ │  │
+│  │ └──────────────────┘   │          │          ▼          │ 10Gi PVC   │ │  │
+│  │ exporters + pushgw +   │          │  ┌───────────────┐  └────────────┘ │  │
+│  │ Traefik metrics (svc)  │          │  │  CNPG Postgres│                 │  │
+│  └────────────────────────┘          │  │  postgres-rw  │                 │  │
+│                                      │  │  60Gi Hetzner │                 │  │
+│                                      │  │  vol, PG 18.3 │                 │  │
+│                                      │  └───────────────┘                 │  │
+│                                      └────────────────────────────────────┘  │
 │                                                                              │
 │  ┌────────────────────────────────────────────────────────────────────────┐  │
 │  │                     Background workers (Deployments)                   │  │
@@ -106,9 +120,10 @@ Ingest pathway (workers + data plane):
        │  PUT uploads (relay)                                     │ enqueue + state
        ▼                                                        ▼
 ┌─────────────┐   object payloads                      ┌────────────────┐
-│ Hetzner S3  │ ◀──────────────────────────────────────│ Postgres     │
-│ (artifacts) │                                        │ (source of   │
-└──────┬──────┘                                        │  truth)      │
+│ Hetzner S3  │ ◀───────────────────────────────────── │ PgBouncer →    │
+│ (artifacts) │                                        │ CNPG Postgres  │
+└──────┬──────┘                                        │ (source of     │
+       │                                               │  truth)        │
        │                                               └───────┬────────┘
        │                                                       │
        │                                                       │ job rows / locks
@@ -139,15 +154,19 @@ Admins: **Tailscale** (100.x) → SSH / `kubectl` / `port-forward` (not through 
 
 Monitoring runtime path:
 
-- **Grafana** reads from **VictoriaMetrics** over internal Kubernetes DNS.
-- **VictoriaMetrics** scrapes `node-exporter`, `kube-state-metrics`, `postgres-exporter`, `pushgateway`, and Traefik metrics over internal Kubernetes DNS.
-- **Gatus** should prefer internal service URLs for app-health checks because public HTTP checks can be blocked by Cloudflare managed challenge/bot protection even while the app is healthy.
+- **Grafana** reads from **VictoriaMetrics** over internal Kubernetes DNS. Two dashboards are shipped via the `grafana-dashboard-s3` ConfigMap: `rejourney-s3` (storage/backup observability) and `rejourney-infra` (Hetzner volumes, Redis Sentinel, CNPG).
+- **VictoriaMetrics** scrapes `node-exporter`, `cadvisor`, `kube-state-metrics`, `postgres-exporter`, `pushgateway`, Traefik metrics, Redis (Bitnami exporter sidecar, `redis-metrics:9121`), CNPG instance metrics (pod service-discovery on `cnpg.io/cluster=postgres`), and the kubelet (`/api/v1/nodes/<node>/proxy/metrics`). Pod / node discovery needs RBAC — VM has a dedicated `ServiceAccount` + `ClusterRole` (get/list/watch on nodes, pods, endpoints, services).
+- **Gatus** should prefer internal service URLs for app-health checks because public HTTP checks can be blocked by Cloudflare managed challenge/bot protection even while the app is healthy. The PostgreSQL TCP check now probes `postgres-rw.rejourney.svc.cluster.local:5432` (CNPG primary service), not the legacy `postgres` service.
 - **TLS checks** still intentionally use the public hostnames because they validate the public certificate chain at the edge.
-- `postgres-exporter -> postgres` is an in-cluster connection. If Postgres is not serving SSL internally, the exporter must use `sslmode=disable` or equivalent.
+- `postgres-exporter -> postgres-rw` is an in-cluster connection using the `monitoring` user (`sslmode=disable`). The `monitoring` role is not bundled by `pg_dump` so it was recreated on CNPG by hand during Phase 1-E. One pre-existing warning is noise: `stat_bgwriter: column "checkpoints_timed" does not exist` — the exporter's queries.yaml predates PG 17's rename; safe to ignore or update the YAML.
 
                         ┌────────────────────────┐
                         │       Cloudflare       │
                         │   (DNS / SSL / public) │
+                        └────────────┬───────────┘
+                                     │
+                        ┌────────────▼───────────┐
+                        │   Hetzner LB (PROXY)   │
                         └────────────┬───────────┘
                                      │
                         ┌────────────▼───────────┐
@@ -160,17 +179,22 @@ Monitoring runtime path:
       │     Web UI     │                             │   API Backend  │
       └────────────────┘                             └───────┬────────┘
                                                              │
-        ┌─────────────────┬─────────────────┬────────────────┴──────────┐
-        │                 │                 │                           │
-┌───────▼───────┐ ┌───────▼───────┐ ┌───────▼────────┐        ┌─────────▼────────┐
-│   Postgres    │ │     Redis     │ │  Hetzner S3   │        │   External APIs   │
-│ (Main Data)   │ │ cache / queue │ │ (Recordings)  │        │  (Stripe / SMTP)  │
-│               │ │ ingest jobs   │ │               │        │                   │
-└───────▲───────┘ └───────▲───────┘ └───────▲───────┘        └────────────────────┘
-        │                 │                 │
-        └─────────────────┴─────────────────┘
+        ┌─────────────────────────┬───────────────────┬──────┴──────────┐
+        │                         │                   │                 │
+┌───────▼────────┐      ┌─────────▼────────┐  ┌───────▼───────┐  ┌──────▼────────────┐
+│  PgBouncer →   │      │  Redis Sentinel  │  │  Hetzner S3   │  │  External APIs    │
+│  CNPG Postgres │      │  (Bitnami chart) │  │  (Recordings) │  │  (Stripe / SMTP)  │
+│  postgres-rw   │      │  cache / queue   │  │               │  │                   │
+│  + postgres-r  │      │  ingest jobs     │  │               │  │                   │
+│  + postgres-ro │      │                  │  │               │  │                   │
+└───────▲────────┘      └──────────▲───────┘  └───────▲───────┘  └───────────────────┘
+        │                          │                  │
+        └──────────────────────────┴──────────────────┘
               ingest · replay · session-lifecycle · alert workers
               (drain queues, update sessions/artifacts, alerts)
+
+              CNPG WAL archived to R2 (s3://rejourney-backup/cnpg-wal) via Barman;
+              logical daily backup job also dumps to R2 (postgres-backup CronJob).
 
 
 Session Backup Deployment Notes:
@@ -183,6 +207,20 @@ Session Backup Deployment Notes:
 - The live CronJob can be suspended during reset, but the committed manifest controls whether it resumes after the next deploy.
 - The committed `session-backup-seed` manifest should stay `suspend: false`; if prod is manually unsuspended but Git still says `true`, the next deploy will silently turn it off again.
 - Detailed queue / backup / retention rules live in [Session Backup + Retention Internals](./session-backup-retention-internals.md).
+
+Data Plane (post Phase 1 migration):
+
+- **Postgres** — CloudNativePG (CNPG) Cluster named `postgres` in the `rejourney` namespace, managed by the `cnpg-system` operator. Single instance in Phase 1 (raises to 2 in Phase 2-B). Backed by a 60 Gi Hetzner volume (`hcloud-volumes` StorageClass, `reclaimPolicy: Retain` — see `dev_docs/legacy.md` for the volume-churn warning). Running PostgreSQL 18.3 on `ghcr.io/cloudnative-pg/postgresql:18`.
+  - Services: `postgres-rw` (primary read-write), `postgres-ro` (replicas only), `postgres-r` (any instance). Apps go through PgBouncer → `postgres-rw`.
+  - Roles: `rejourney` (app, owns all public + drizzle schema objects), `monitoring` (read-only for postgres-exporter), `postgres` (superuser), `streaming_replica` (used by future replicas).
+  - Manifest: `k8s/cnpg/postgres-cnpg.yaml`. **Not** applied by `deploy-release.sh` — the cluster's spec is managed out-of-band to avoid accidental recreation (which would churn paid Hetzner volumes).
+  - Backups: continuous WAL archive to R2 via Barman (`s3://rejourney-backup/cnpg-wal`, 7-day retention, gzip) + daily logical dump via the `postgres-backup` CronJob in `k8s/backup.yaml` (R2, 30-day retention).
+
+- **PgBouncer** — `edoburu/pgbouncer:v1.25.1-p0`, transaction pooling, `DEFAULT_POOL_SIZE=15`, `MAX_CLIENT_CONN=300`. All app services connect via `postgres-secret.PGBOUNCER_URL` (`postgresql://rejourney:...@pgbouncer:5432/rejourney`). PgBouncer itself connects upstream to `postgres-rw:5432` using `postgres-secret` credentials.
+
+- **Redis** — Bitnami helm chart with Sentinel (Phase 1-C). StatefulSet `redis-node` with three containers per pod: `redis`, `sentinel`, `redis-exporter` (metrics). 10 Gi Hetzner volume per replica. Apps read Sentinel for current master via `redis-headless` + `REDIS_SENTINEL_HOSTS`. The legacy single-Deployment Redis is gone; `k8s/redis.yaml` in the repo is a stub comment pointing at the helm chart (`k8s/helm/redis-values.yaml`). The Bitnami `redis` Service has its `app.kubernetes.io/part-of=rejourney` label stripped so `--prune` never touches it.
+
+- **S3 (Hetzner + R2)** — Hetzner S3 for live session artifacts; Cloudflare R2 for long-term session backups, CNPG WAL, and logical DB dumps. Credentials split into `s3-secret` (Hetzner) and `r2-backup-secret` (Cloudflare R2).
 
 Current Production Runtime Notes:
 
