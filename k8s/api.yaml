@@ -471,7 +471,7 @@ spec:
             - -c
             - |
               echo "Waiting for PostgreSQL to be ready..."
-              until pg_isready -h postgres -p 5432 -U rejourney; do
+              until pg_isready -h postgres-rw -p 5432 -U rejourney; do
                 echo "PostgreSQL not ready, waiting 5s..."
                 sleep 5
               done

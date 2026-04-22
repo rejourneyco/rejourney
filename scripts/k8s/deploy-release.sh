@@ -98,33 +98,9 @@ apply_unlabeled_support_manifests() {
   kubectl apply -f "${RENDER_DIR}/ingress.yaml"
 }
 
-ensure_pgbouncer_url_secret() {
-  # One-time migration: add PGBOUNCER_URL to postgres-secret if it doesn't exist yet.
-  # Derived from DATABASE_URL by swapping @postgres: for @pgbouncer: — no manual steps needed.
-  local existing
-  existing="$(kubectl get secret postgres-secret -n "${NAMESPACE}" -o jsonpath='{.data.PGBOUNCER_URL}' 2>/dev/null || true)"
-  if [ -n "${existing}" ]; then
-    log "PGBOUNCER_URL already present in postgres-secret, skipping"
-    return
-  fi
-
-  log "Adding PGBOUNCER_URL to postgres-secret (one-time migration)..."
-  local db_url
-  db_url="$(kubectl get secret postgres-secret -n "${NAMESPACE}" -o jsonpath='{.data.DATABASE_URL}' | base64 -d)"
-  local pgbouncer_url
-  pgbouncer_url="${db_url/@postgres:/@pgbouncer:}"
-  kubectl patch secret postgres-secret -n "${NAMESPACE}" \
-    --type=json \
-    -p="[{\"op\":\"add\",\"path\":\"/data/PGBOUNCER_URL\",\"value\":\"$(echo -n "${pgbouncer_url}" | base64 | tr -d '\n')\"}]"
-  log "PGBOUNCER_URL added: ${pgbouncer_url}"
-}
-
 wait_for_postgres() {
   section "Waiting For PostgreSQL"
-  local label="app=postgres"
-  if kubectl get cluster postgres -n "${NAMESPACE}" >/dev/null 2>&1; then
-    label="cnpg.io/cluster=postgres,cnpg.io/instanceRole=primary"
-  fi
+  local label="cnpg.io/cluster=postgres,cnpg.io/instanceRole=primary"
   if ! kubectl wait --for=condition=ready pod -l "${label}" -n "${NAMESPACE}" --timeout=180s; then
     kubectl describe pod -l "${label}" -n "${NAMESPACE}" || true
     echo "[deploy-release] PostgreSQL did not become ready" >&2
@@ -174,22 +150,17 @@ print_migration_status() {
 
   log "Applied drizzle migrations in cluster:"
   local pg_pod
-  if kubectl get cluster postgres -n "${NAMESPACE}" >/dev/null 2>&1; then
-    # CNPG: primary pod carries instanceRole=primary label
-    pg_pod=$(kubectl get pod -n "${NAMESPACE}" \
-      -l "cnpg.io/cluster=postgres,cnpg.io/instanceRole=primary" \
-      -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
-  else
-    pg_pod="postgres-0"
-  fi
+  pg_pod=$(kubectl get pod -n "${NAMESPACE}" \
+    -l "cnpg.io/cluster=postgres,cnpg.io/instanceRole=primary" \
+    -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
 
   if [ -n "${pg_pod}" ]; then
-    kubectl exec -n "${NAMESPACE}" "${pg_pod}" -- \
-      psql -U rejourney -d rejourney -At -F $'\t' \
+    kubectl exec -n "${NAMESPACE}" "${pg_pod}" -c postgres -- \
+      psql -U postgres -d rejourney -At -F $'\t' \
         -c "select id, hash, created_at from drizzle.__drizzle_migrations order by created_at desc limit 10;" \
       || log "Could not query drizzle.__drizzle_migrations yet"
   else
-    log "No postgres pod found yet"
+    log "No CNPG primary pod found yet"
   fi
 }
 
@@ -287,7 +258,6 @@ main() {
   kubectl apply -f "${K8S_DIR}/traefik-config.yaml"
   ensure_cert_manager
   ensure_grafana_secret
-  ensure_pgbouncer_url_secret
   apply_unlabeled_support_manifests
 
   bash "${ROOT_DIR}/scripts/k8s/check-archive-sync.sh"

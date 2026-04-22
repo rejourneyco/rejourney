@@ -19,19 +19,21 @@ metadata:
 #   --from-literal=POSTGRES_USER=rejourney \
 #   --from-literal=POSTGRES_PASSWORD=<SECURE_PASSWORD> \
 #   --from-literal=POSTGRES_DB=rejourney \
-#   --from-literal=DATABASE_URL=postgresql://rejourney:<SECURE_PASSWORD>@postgres:5432/rejourney \
+#   --from-literal=DATABASE_URL=postgresql://rejourney:<SECURE_PASSWORD>@postgres-rw:5432/rejourney \
 #   --from-literal=PGBOUNCER_URL=postgresql://rejourney:<SECURE_PASSWORD>@pgbouncer:5432/rejourney
 #
-# NOTE: DATABASE_URL points directly at Postgres (used only by pg_dump backup job).
+# NOTE: DATABASE_URL points directly at the CNPG primary Service `postgres-rw`
+#       (used only by pg_dump backup job).
 #       PGBOUNCER_URL points at PgBouncer (used by all application services).
 #       Both use the same credentials — only the hostname differs.
-# 
+#
 # Optional but recommended: separate read-only exporter credentials:
-# kubectl exec -it postgres-0 -n rejourney -- psql -U rejourney -d rejourney -c \
-#   "CREATE USER monitoring WITH PASSWORD '<MONITORING_PASSWORD>'; GRANT pg_monitor TO monitoring; GRANT USAGE ON SCHEMA public TO monitoring; GRANT SELECT ON TABLE public.storage_endpoints, public.recording_artifacts, public.ingest_jobs, public.session_backup_log, public.session_backup_queue, public.retention_deletion_log TO monitoring;"
+# kubectl exec -it -n rejourney -c postgres $(kubectl get pod -n rejourney -l cnpg.io/cluster=postgres,cnpg.io/instanceRole=primary -o name) -- \
+#   psql -U postgres -d rejourney -c \
+#   "CREATE USER monitoring WITH PASSWORD '<MONITORING_PASSWORD>'; GRANT pg_monitor TO monitoring; GRANT USAGE ON SCHEMA public TO monitoring; GRANT SELECT ON ALL TABLES IN SCHEMA public TO monitoring; ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO monitoring;"
 # kubectl create secret generic postgres-exporter-secret \
 #   --namespace rejourney \
-#   --from-literal=DATA_SOURCE_NAME=postgresql://monitoring:<MONITORING_PASSWORD>@postgres:5432/rejourney
+#   --from-literal=DATA_SOURCE_NAME=postgresql://monitoring:<MONITORING_PASSWORD>@postgres-rw:5432/rejourney
 #
 # 2. Redis secrets:
 # kubectl create secret generic redis-secret \
