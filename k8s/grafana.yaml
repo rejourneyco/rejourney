@@ -46,11 +46,21 @@ data:
     apiVersion: 1
     datasources:
       - name: VictoriaMetrics
-        uid: victoriametrics
+        uid: victoria-metrics
         type: prometheus
         access: proxy
         url: http://victoria-metrics.rejourney.svc.cluster.local:8428
         isDefault: true
+        editable: false
+        jsonData:
+          timeInterval: "30s"
+      # Keep the historical UID around so any older imported dashboards keep
+      # working while the file-provisioned dashboards use the dashed UID.
+      - name: VictoriaMetrics Legacy
+        uid: victoriametrics
+        type: prometheus
+        access: proxy
+        url: http://victoria-metrics.rejourney.svc.cluster.local:8428
         editable: false
         jsonData:
           timeInterval: "30s"
