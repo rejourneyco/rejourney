@@ -29,7 +29,7 @@ spec:
             - containerPort: 5432
           env:
             - name: DB_HOST
-              value: postgres
+              value: postgres-rw
             - name: DB_PORT
               value: "5432"
             - name: DB_NAME
