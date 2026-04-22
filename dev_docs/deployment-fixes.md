@@ -937,9 +937,29 @@ kubectl apply -f k8s/grafana-s3-dashboard.yaml
 
 ---
 
-## Phase 1-E — CNPG Cutover (~30s downtime)
+## Phase 1-E — CNPG Cutover (~5 min downtime)
 
-Schedule this as a separate small window. Only PgBouncer restarts — ~30s of connection errors while it comes back up with the new host.
+Schedule this as a separate small window.
+
+> **Post-execution note (2026-04-22):** The doc previously claimed "~30s downtime via PgBouncer restart." That only applies when CNPG has been catching up via logical replication. Because we took the manual-migration path in D, the CNPG snapshot was ~1h behind legacy by cutover time (416 sessions + 5,508 artifacts drift). A naive PgBouncer flip would have stranded those rows.
+>
+> **What was actually done:**
+> 1. `kubectl scale deploy/{api,ingest-upload,ingest-worker,alert-worker,replay-worker,session-lifecycle-worker,web} --replicas=0` — pause all writers, wait 45s for in-flight drain, confirm `pg_stat_activity` has no app backends.
+> 2. On CNPG: `pg_terminate_backend` any stray connections, `DROP DATABASE rejourney`, `CREATE DATABASE rejourney OWNER rejourney`.
+> 3. Re-run streamed `pg_dump -Fc --no-owner --no-acl` from legacy piped into `pg_restore --no-owner --no-acl -U postgres -d rejourney` on CNPG (~11 min for 27 GB).
+> 4. Reassign ownership of **both** `public` and `drizzle` schemas + all tables/sequences/views/matviews to `rejourney` (pg_restore `--no-owner` leaves everything as `postgres`-owned, which breaks both app auth and the `postgres-backup` CronJob).
+> 5. Manually `CREATE ROLE monitoring LOGIN PASSWORD '...'` + `GRANT pg_monitor, CONNECT, USAGE ON SCHEMA public, SELECT ON ALL TABLES IN SCHEMA public` (pg_dump of a single DB does **not** include global roles — they must be recreated).
+> 6. Apply updated `k8s/pgbouncer.yaml` (`DB_HOST=postgres-rw`) + rolling restart.
+> 7. Smoke-test read via pgbouncer, confirm `inet_server_addr()` = CNPG pod IP.
+> 8. Scale writers back up to original replica counts (api/ingest-upload/replay-worker/web=2, others=1).
+> 9. Patch `postgres-exporter-secret` + `postgres-secret` DATABASE_URL in-place to `@postgres-rw:5432`.
+> 10. Apply updated `k8s/gatus.yaml` + `k8s/admin-tools.yaml`; rollout-restart gatus/postgres-exporter/pgweb.
+> 11. Test `postgres-backup` CronJob manually: `kubectl create job --from=cronjob/postgres-backup cutover-test -n rejourney`. Verify 2.5 GiB file uploaded to R2, retention rotation ran. Delete any empty/partial file from the first failed attempt.
+>
+> **Gotchas captured:**
+> - `--no-owner` restore + `CREATE DATABASE ... OWNER rejourney` is not enough — schema and object ownership stays `postgres` and the app sees permission-denied. Always run the ownership-reassign DO block for both `public` and `drizzle` schemas after a plain `pg_restore --no-owner`.
+> - `pg_dump` of a single database skips global roles. Any non-default role (`monitoring`, future replication roles, etc.) must be recreated by hand on the target before cutover.
+> - Do **not** scale the legacy StatefulSet to 0 immediately after cutover — leave it running idle for ~1 week as warm rollback insurance.
 
 ### Step E-1: Verify CNPG primary is healthy
 
