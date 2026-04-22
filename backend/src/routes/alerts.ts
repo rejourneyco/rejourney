@@ -11,9 +11,30 @@ import { logger } from '../logger.js';
 import { sessionAuth, requireProjectAccess, asyncHandler, ApiError } from '../middleware/index.js';
 import { validate } from '../middleware/validation.js';
 import { dashboardRateLimiter, writeApiRateLimiter } from '../middleware/rateLimit.js';
+import { auditFromRequest, buildAuditFieldChanges } from '../services/auditLog.js';
 import { z } from 'zod';
 
 const router = Router();
+
+function getAlertSettingsAuditState(settings?: {
+    crashAlertsEnabled?: boolean | null;
+    anrAlertsEnabled?: boolean | null;
+    errorSpikeAlertsEnabled?: boolean | null;
+    apiDegradationAlertsEnabled?: boolean | null;
+    errorSpikeThresholdPercent?: number | null;
+    apiDegradationThresholdPercent?: number | null;
+    apiLatencyThresholdMs?: number | null;
+} | null): Record<string, unknown> {
+    return {
+        crashAlertsEnabled: settings?.crashAlertsEnabled ?? true,
+        anrAlertsEnabled: settings?.anrAlertsEnabled ?? true,
+        errorSpikeAlertsEnabled: settings?.errorSpikeAlertsEnabled ?? true,
+        apiDegradationAlertsEnabled: settings?.apiDegradationAlertsEnabled ?? true,
+        errorSpikeThresholdPercent: settings?.errorSpikeThresholdPercent ?? 50,
+        apiDegradationThresholdPercent: settings?.apiDegradationThresholdPercent ?? 100,
+        apiLatencyThresholdMs: settings?.apiLatencyThresholdMs ?? 3000,
+    };
+}
 
 // =============================================================================
 // Validation Schemas
@@ -117,6 +138,22 @@ router.put(
         }
 
         logger.info({ projectId, userId: req.user!.id }, 'Alert settings updated');
+
+        const changes = buildAuditFieldChanges(
+            getAlertSettingsAuditState(existing),
+            getAlertSettingsAuditState(settings),
+        );
+        if (changes.changedFields.length > 0) {
+            await auditFromRequest(req, 'alert_settings_updated', {
+                targetType: 'project',
+                targetId: projectId,
+                previousValue: changes.previousValue,
+                newValue: changes.newValue,
+                metadata: {
+                    changedFields: changes.changedFields,
+                },
+            });
+        }
 
         res.json({ settings });
     })
@@ -233,6 +270,16 @@ router.post(
 
         logger.info({ projectId, userId, addedBy: req.user!.id }, 'Alert recipient added');
 
+        await auditFromRequest(req, 'alert_recipient_added', {
+            targetType: 'project',
+            targetId: projectId,
+            newValue: {
+                userId,
+                email: user?.email ?? null,
+                displayName: user?.displayName ?? null,
+            },
+        });
+
         res.status(201).json({
             recipient: {
                 id: recipient.id,
@@ -260,6 +307,19 @@ router.delete(
     asyncHandler(async (req, res) => {
         const projectId = req.params.projectId;
         const userId = req.params.userId;
+        const [recipient] = await db
+            .select({
+                userId: alertRecipients.userId,
+                email: users.email,
+                displayName: users.displayName,
+            })
+            .from(alertRecipients)
+            .innerJoin(users, eq(alertRecipients.userId, users.id))
+            .where(and(
+                eq(alertRecipients.projectId, projectId),
+                eq(alertRecipients.userId, userId)
+            ))
+            .limit(1);
 
         await db.delete(alertRecipients)
             .where(and(
@@ -268,6 +328,14 @@ router.delete(
             ));
 
         logger.info({ projectId, userId, removedBy: req.user!.id }, 'Alert recipient removed');
+
+        if (recipient) {
+            await auditFromRequest(req, 'alert_recipient_removed', {
+                targetType: 'project',
+                targetId: projectId,
+                previousValue: recipient,
+            });
+        }
 
         res.json({ success: true });
     })

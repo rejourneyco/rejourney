@@ -108,11 +108,16 @@ async function main() {
         const confirm = confirmStr.toLowerCase() === 'y';
 
         if (confirm) {
-            console.log('📡 Sending to Kubernetes (pod: postgres-0, namespace: rejourney)...');
+            console.log('📡 Sending to Kubernetes (CNPG primary via postgres-rw, namespace: rejourney)...');
 
-            // We use base64 encoding to avoid any shell escaping issues
+            const primaryPod = execSync(
+                `kubectl get pod -n rejourney -l cnpg.io/cluster=postgres,cnpg.io/instanceRole=primary -o jsonpath='{.items[0].metadata.name}'`,
+                { encoding: 'utf8' }
+            ).trim();
+            if (!primaryPod) throw new Error('Could not locate CNPG primary pod');
+
             const b64Sql = Buffer.from(sql).toString('base64');
-            const cmd = `echo "${b64Sql}" | base64 -d | kubectl exec -i postgres-0 -n rejourney -- psql -U rejourney -d rejourney`;
+            const cmd = `echo "${b64Sql}" | base64 -d | kubectl exec -i ${primaryPod} -n rejourney -c postgres -- psql -U postgres -d rejourney`;
 
             execSync(cmd, { stdio: 'inherit' });
 

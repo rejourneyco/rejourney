@@ -1,17 +1,19 @@
-Billing + Usage Architecture (Visual)
+# Billing + Usage Architecture (Visual)
 
+## Flow Index
 
-Flow Index:
+```text
 ┌──────────────────────────────────────────────────────────────────────────────┐
-│ [B1] Upload Lanes → [B2] Ingest Core → [B3] Usage Aggregation → [B6] UI    │
-│                                ↘ [B4] Promotion                              │
-│ [B5] Stripe State feeds [B2]/[B3]/[B6]                                       │
-│ [B7] Redis Plane supports [B2]/[B4]                                           │
+│ [B1] Upload Lanes -> [B2] Ingest Core -> [B3] Usage Aggregation -> [B6] UI │
+│                               ↘ [B4] Promotion                              │
+│ [B5] Stripe State feeds [B2]/[B3]/[B6]                                      │
+│ [B7] Redis Plane supports [B2]/[B4]                                         │
 └──────────────────────────────────────────────────────────────────────────────┘
+```
 
+## [B1] Upload Lanes (SDK)
 
-[B1] Upload Lanes (SDK)
-
+```text
 ┌──────────────────────────────┐             ┌──────────────────────────────┐
 │         Events Lane          │             │   Screenshots Segment Lane   │
 │                              │             │                              │
@@ -23,21 +25,22 @@ Flow Index:
                └──────────────────────┬─────────────────────┘
                                       ▼
                               [B2] Ingest Core
+```
 
+## [B2] Ingest Core (Counting + Gate)
 
-[B2] Ingest Core (Counting + Gate)
-
+```text
 ┌──────────────────────────────────────────────────────────────────────────────┐
 │                          Ingest Request Processing                           │
 │                                                                              │
 │  1) Billing Gate                                                             │
 │     checkBillingStatus(teamId)                                               │
-│       ├─ teams.payment_failed_at ? -> block                                 │
-│       └─ canUserRecord(ownerUserId, teamId) -> limit check                  │
-│          (uses Redis-backed session limit cache+lock)                       │
+│       ├─ teams.payment_failed_at ? -> block                                  │
+│       └─ canUserRecord(ownerUserId, teamId) -> limit check                   │
+│          (uses Redis-backed session limit cache+lock)                        │
 │                                                                              │
 │  2) Session Upsert                                                           │
-│     ensureIngestSession(projectId, sessionId) -> created?                   │
+│     ensureIngestSession(projectId, sessionId) -> created?                    │
 │                                                                              │
 │  3) Session Counting (single increment)                                      │
 │     if created == true -> incrementProjectSessionCount(projectId, teamId,+1)│
@@ -50,16 +53,19 @@ Flow Index:
 │  5) Idempotency (retry-safe ingest)                                          │
 │     get/set ingest:idempotency:* keys in Redis                               │
 └──────────────────────────────────────────────────────────────────────────────┘
+```
 
+```text
                  ┌──────────────────────────────┐
                  │  writes project_usage table  │
                  └──────────────┬───────────────┘
                                 ▼
                         [B3] Usage Aggregation
+```
 
+## [B3] Usage Aggregation (Free vs Paid)
 
-[B3] Usage Aggregation (Free vs Paid)
-
+```text
 ┌─────────────────────────────────────┐      ┌──────────────────────────────────┐
 │        FREE (Owner Scoped)          │      │         PAID (Team Scoped)       │
 │                                     │      │                                  │
@@ -72,12 +78,13 @@ Flow Index:
 │   -> compare vs 5000                │      │   -> compare vs Stripe price     │
 │                                     │      │      metadata.session_limit      │
 └─────────────────────────────────────┘      └──────────────────────────────────┘
+```
 
-                     feeds canUserRecord() and billing dashboards
+Feeds `canUserRecord()` and billing dashboards.
 
+## [B4] Replay Visibility Branch (Screenshot Presence, Not Billing)
 
-[B4] Replay Visibility Branch (Screenshot Presence, NOT Billing)
-
+```text
 ┌──────────────────────────────────────────────────────────────────────────────┐
 │                         POST /api/ingest/session/end                         │
 │                                      │                                       │
@@ -90,10 +97,11 @@ Flow Index:
 │                      Billing usage is unchanged here.                        │
 │            Billing was already counted in [B2] on session creation.          │
 └──────────────────────────────────────────────────────────────────────────────┘
+```
 
+## [B5] Stripe State + Webhooks
 
-[B5] Stripe State + Webhooks
-
+```text
 ┌──────────────┐      ┌──────────────────────────────┐      ┌─────────────────┐
 │  Dashboard   │─────▶│  Stripe API / Billing Portal │─────▶│ Stripe Webhooks │
 └──────────────┘      └──────────────┬───────────────┘      └────────┬────────┘
@@ -109,57 +117,63 @@ Flow Index:
                       │                                                     │
                       │ stripe_webhook_events: processed event ids          │
                       └────────────────────────────────────────────────────┘
+```
 
 These fields affect [B2] gate behavior and [B3] aggregation mode.
 
+## [B6] UI Counters (Why Values Can Differ)
 
-[B6] UI Counters (why values can differ)
-
+```text
 ┌─────────────────────────────────────┐      ┌──────────────────────────────────┐
 │ Top Bar Project Sessions            │      │ Billing / Account Free Tier      │
 │                                     │      │                                  │
 │ Source: sessions stats              │      │ Source: aggregated project_usage │
 │ (project list / last 7 days)        │      │ (free-tier or team usage APIs)   │
 └─────────────────────────────────────┘      └──────────────────────────────────┘
+```
 
 Mismatch pattern:
+
+```text
 ┌──────────────────────────────────────────────────────────────────────────────┐
 │ sessions > 0 but project_usage empty -> Top Bar shows sessions, Billing 0   │
 │                                                                              │
 │ New ingest flow in [B2] prevents this for new sessions.                     │
 │ Historical sessions before fix may require one-time project_usage backfill. │
 └──────────────────────────────────────────────────────────────────────────────┘
+```
 
+## [B7] Redis Plane (What It Does In This System)
 
-[B7] Redis Plane (what it does in this system)
-
+```text
 ┌──────────────────────────────────────────────────────────────────────────────┐
 │                                  Redis                                       │
 │                                                                              │
-│  A) Session Limit Cache + Stampede Lock                                     │
-│     keys: sessions:{teamId}:{period}                                        │
-│           session_lock:{teamId}:{period}                                    │
-│     used by getSessionLimitCacheWithLock() in billing gate                  │
+│  A) Session Limit Cache + Stampede Lock                                      │
+│     keys: sessions:{teamId}:{period}                                         │
+│           session_lock:{teamId}:{period}                                     │
+│     used by getSessionLimitCacheWithLock() in billing gate                   │
 │                                                                              │
 │  B) Ingest Idempotency                                                       │
-│     keys: ingest:idempotency:{projectId}:{idempotencyKey}                   │
+│     keys: ingest:idempotency:{projectId}:{idempotencyKey}                    │
 │     prevents duplicate counting/processing on retries                        │
 │                                                                              │
 │  C) Replay Promotion Reason Rate Limits                                      │
-│     keys: replay_rate:{projectId}:{reason}:{windowId}                       │
-│     limits floods (crash/anr/rage/etc.)                                     │
+│     keys: replay_rate:{projectId}:{reason}:{windowId}                        │
+│     limits floods (crash/anr/rage/etc.)                                      │
 │                                                                              │
 │  D) Upload Token State (short-lived)                                         │
-│     keys: upload:token:{projectId}:{deviceId}                               │
+│     keys: upload:token:{projectId}:{deviceId}                                │
 │                                                                              │
-│  Degradation behavior:                                                        │
+│  Degradation behavior:                                                       │
 │  - if Redis cache/lock fails: fallback to DB path                            │
 │  - if idempotency key is missing/unavailable: less retry dedupe protection   │
 └──────────────────────────────────────────────────────────────────────────────┘
+```
 
+## Schema View (Billing-Relevant)
 
-Schema View (Billing-Relevant)
-
+```text
 ┌───────────┐      ┌─────────┐      ┌─────────────┐      ┌──────────────┐
 │   users   │◀────▶│  teams  │◀────▶│  projects   │◀────▶│ project_usage │
 └───────────┘      └─────────┘      └─────────────┘      └──────────────┘
@@ -167,20 +181,25 @@ Schema View (Billing-Relevant)
                         ├────────────▶ billing_usage
                         ├────────────▶ billing_notifications
                         └────────────▶ stripe_webhook_events
+```
 
+```text
 ┌──────────────────────────────────────────────────────────────────────────────┐
 │ Redis keys (runtime plane, not SQL schema):                                 │
 │ sessions:*  session_lock:*  ingest:idempotency:*  replay_rate:* upload:token:* │
 └──────────────────────────────────────────────────────────────────────────────┘
+```
 
+```text
 ┌───────────┐
 │ sessions  │  (analytics/session timeline)
 └─────┬─────┘
       └────────────▶ replay_promoted / replay_promoted_reason (promotion only)
+```
 
+## Screenshot-Only Session Trace (End-to-End)
 
-Screenshot-Only Session Trace (end-to-end)
-
+```text
 SDK screenshots
    -> /api/ingest/segment/presign
    -> ensureIngestSession(created=true)
@@ -189,5 +208,6 @@ SDK screenshots
    -> /api/ingest/segment/complete
    -> session_metrics.screenshot_segment_count += 1
    -> replay archive visibility becomes true
+```
 
 Billing usage remains counted independently of replay visibility.

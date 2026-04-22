@@ -17,6 +17,7 @@ import { config } from '../config.js';
 import { sessionAuth, requireTeamAccess, requireBillingAdmin, asyncHandler, ApiError } from '../middleware/index.js';
 import { validate } from '../middleware/validation.js';
 import { adminRateLimiter } from '../middleware/rateLimit.js';
+import { auditFromRequest } from '../services/auditLog.js';
 import { teamIdParamSchema } from '../validation/teams.js';
 import {
     isStripeEnabled,
@@ -212,6 +213,14 @@ router.post(
 
         logger.info({ teamId, paymentMethodId }, 'Payment method attached');
 
+        await auditFromRequest(req, 'payment_method_added', {
+            targetType: 'team',
+            targetId: teamId,
+            newValue: {
+                paymentMethodId,
+            },
+        });
+
         res.json({ success: true });
     })
 );
@@ -287,6 +296,14 @@ router.delete(
         await detachPaymentMethod(paymentMethodId, teamId);
 
         logger.info({ teamId, paymentMethodId }, 'Payment method removed');
+
+        await auditFromRequest(req, 'payment_method_removed', {
+            targetType: 'team',
+            targetId: teamId,
+            previousValue: {
+                paymentMethodId,
+            },
+        });
 
         res.json({ success: true });
     })
@@ -379,6 +396,15 @@ router.post(
         const result = await completeHostedCheckoutForTeam({
             teamId,
             sessionId,
+        });
+
+        await auditFromRequest(req, 'billing_checkout_completed', {
+            targetType: 'team',
+            targetId: teamId,
+            newValue: {
+                sessionId,
+                ...result,
+            },
         });
 
         res.json(result);
@@ -666,6 +692,7 @@ router.put(
         }
 
         const requestId = (req.headers['x-request-id'] as string | undefined) || 'unknown';
+        const previousSubscription = await getTeamSubscription(teamId);
 
         try {
             logger.info(
@@ -681,6 +708,28 @@ router.put(
                 userId,
                 requestId,
             }, 'Plan change executed');
+
+            await auditFromRequest(req, 'billing_plan_changed', {
+                targetType: 'team',
+                targetId: teamId,
+                previousValue: {
+                    subscriptionId: previousSubscription.subscriptionId,
+                    priceId: previousSubscription.priceId,
+                    planName: previousSubscription.planName,
+                    displayName: previousSubscription.displayName,
+                    cancelAtPeriodEnd: previousSubscription.cancelAtPeriodEnd,
+                    scheduledPriceId: previousSubscription.scheduledPriceId,
+                },
+                newValue: {
+                    subscriptionId: result.subscriptionId,
+                    priceId: result.plan.priceId,
+                    planName: result.plan.name,
+                    displayName: result.plan.displayName,
+                    changeType: result.changeType,
+                    effectiveDate: result.effectiveDate,
+                    isImmediate: result.isImmediate,
+                },
+            });
 
             res.json(result);
         } catch (err: unknown) {
@@ -713,10 +762,25 @@ router.delete(
     asyncHandler(async (req, res) => {
         const teamId = req.params.teamId;
         const { immediate } = req.body;
+        const previousSubscription = await getTeamSubscription(teamId);
 
         await cancelSubscription(teamId, immediate === true);
 
         logger.info({ teamId, immediate }, 'Subscription canceled');
+
+        await auditFromRequest(req, 'subscription_cancel_requested', {
+            targetType: 'team',
+            targetId: teamId,
+            previousValue: {
+                subscriptionId: previousSubscription.subscriptionId,
+                priceId: previousSubscription.priceId,
+                planName: previousSubscription.planName,
+                displayName: previousSubscription.displayName,
+            },
+            newValue: {
+                immediate: immediate === true,
+            },
+        });
 
         res.json({ success: true });
     })

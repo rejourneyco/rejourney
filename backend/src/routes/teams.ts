@@ -13,7 +13,7 @@ import { sessionAuth, requireTeamAccess, requireTeamAdmin, requireTeamOwner, asy
 import { validate } from '../middleware/validation.js';
 import { dashboardRateLimiter, writeApiRateLimiter, inviteRateLimiter } from '../middleware/rateLimit.js';
 import { sendTeamInviteEmail } from '../services/email.js';
-import { auditFromRequest } from '../services/auditLog.js';
+import { auditFromRequest, buildAuditFieldChanges } from '../services/auditLog.js';
 import { syncTeamVideoRetention } from '../services/videoRetention.js';
 import { hardDeleteTeam } from '../services/deletion.js';
 import { sendDeletionOtp, verifyDeletionOtp } from '../services/deleteOtp.js';
@@ -36,6 +36,16 @@ import {
 } from '../validation/teams.js';
 
 const router = Router();
+
+function getTeamAuditState(team: {
+    name: string | null;
+    retentionTier?: number | null;
+}): Record<string, unknown> {
+    return {
+        name: team.name ?? null,
+        retentionTier: team.retentionTier ?? null,
+    };
+}
 
 /**
  * Get all teams for user
@@ -110,7 +120,11 @@ router.post(
         await auditFromRequest(req, 'team_created', {
             targetType: 'team',
             targetId: team.id,
-            newValue: { name: team.name },
+            teamId: team.id,
+            newValue: {
+                ...getTeamAuditState(team),
+                ownerUserId: team.ownerUserId,
+            },
         });
 
         res.status(201).json({ team });
@@ -167,6 +181,16 @@ router.put(
     validate(updateTeamSchema),
     requireTeamAdmin,
     asyncHandler(async (req, res) => {
+        const [currentTeam] = await db
+            .select()
+            .from(teams)
+            .where(eq(teams.id, req.params.teamId))
+            .limit(1);
+
+        if (!currentTeam) {
+            throw ApiError.notFound('Team not found');
+        }
+
         if (req.body.name) {
             await assertNoDuplicateContentSpam({
                 actorId: req.user!.id,
@@ -197,12 +221,23 @@ router.put(
 
         logger.info({ teamId: team.id, userId: req.user!.id }, 'Team updated');
 
-        // Audit log
-        await auditFromRequest(req, 'project_updated', {
-            targetType: 'team',
-            targetId: team.id,
-            newValue: { name: team.name, retentionTier: team.retentionTier },
-        });
+        const changes = buildAuditFieldChanges(
+            getTeamAuditState(currentTeam),
+            getTeamAuditState(team),
+        );
+        if (changes.changedFields.length > 0) {
+            await auditFromRequest(req, 'team_updated', {
+                targetType: 'team',
+                targetId: team.id,
+                teamId: team.id,
+                previousValue: changes.previousValue,
+                newValue: changes.newValue,
+                metadata: {
+                    changedFields: changes.changedFields,
+                    retentionBackfillApplied: req.body.retentionTier !== undefined,
+                },
+            });
+        }
 
         res.json({ team });
     })
@@ -348,6 +383,7 @@ router.delete(
         await auditFromRequest(req, 'team_deleted', {
             targetType: 'team',
             targetId: teamId,
+            teamId,
             previousValue: {
                 name: team.name,
                 ownerUserId: team.ownerUserId,
@@ -492,7 +528,11 @@ router.post(
             await auditFromRequest(req, 'team_member_added', {
                 targetType: 'team',
                 targetId: teamId,
+                teamId,
                 newValue: { userId: existingUser.id, email: existingUser.email, role: member.role },
+                metadata: {
+                    addedVia: 'direct_member_add',
+                },
             });
 
             res.status(201).json({
@@ -546,6 +586,18 @@ router.post(
 
             logger.info({ teamId, email: normalizedEmail, invitedBy: req.user!.id }, 'Team invitation sent');
 
+            await auditFromRequest(req, 'team_invitation_sent', {
+                targetType: 'team',
+                targetId: teamId,
+                teamId,
+                newValue: {
+                    invitationId: invitation.id,
+                    email: invitation.email,
+                    role: invitation.role,
+                    expiresAt: invitation.expiresAt,
+                },
+            });
+
             res.status(201).json({
                 invitation: {
                     id: invitation.id,
@@ -575,6 +627,19 @@ router.put(
     asyncHandler(async (req, res) => {
         const { userId, role } = req.body;
         const teamId = req.params.teamId;
+        const [existingMembership] = await db
+            .select({
+                role: teamMembers.role,
+                email: users.email,
+            })
+            .from(teamMembers)
+            .leftJoin(users, eq(teamMembers.userId, users.id))
+            .where(and(eq(teamMembers.teamId, teamId), eq(teamMembers.userId, userId)))
+            .limit(1);
+
+        if (!existingMembership) {
+            throw ApiError.notFound('Team member not found');
+        }
 
         // Cannot change owner role
         const [team] = await db.select().from(teams).where(eq(teams.id, teamId)).limit(1);
@@ -588,12 +653,23 @@ router.put(
 
         logger.info({ teamId, userId, role, updatedBy: req.user!.id }, 'Team member role updated');
 
-        // Audit log
-        await auditFromRequest(req, 'team_member_role_changed', {
-            targetType: 'team',
-            targetId: teamId,
-            newValue: { userId, role },
-        });
+        if (existingMembership.role !== role) {
+            await auditFromRequest(req, 'team_member_role_changed', {
+                targetType: 'team',
+                targetId: teamId,
+                teamId,
+                previousValue: {
+                    userId,
+                    email: existingMembership.email,
+                    role: existingMembership.role,
+                },
+                newValue: {
+                    userId,
+                    email: existingMembership.email,
+                    role,
+                },
+            });
+        }
 
         res.json({ success: true });
     })
@@ -613,6 +689,19 @@ router.delete(
     asyncHandler(async (req, res) => {
         const { userId } = req.body;
         const teamId = req.params.teamId;
+        const [member] = await db
+            .select({
+                role: teamMembers.role,
+                email: users.email,
+            })
+            .from(teamMembers)
+            .leftJoin(users, eq(teamMembers.userId, users.id))
+            .where(and(eq(teamMembers.teamId, teamId), eq(teamMembers.userId, userId)))
+            .limit(1);
+
+        if (!member) {
+            throw ApiError.notFound('Team member not found');
+        }
 
         // Cannot remove owner
         const [team] = await db.select().from(teams).where(eq(teams.id, teamId)).limit(1);
@@ -629,7 +718,8 @@ router.delete(
         await auditFromRequest(req, 'team_member_removed', {
             targetType: 'team',
             targetId: teamId,
-            previousValue: { userId },
+            teamId,
+            previousValue: { userId, email: member.email, role: member.role },
         });
 
         res.json({ success: true });
@@ -716,6 +806,18 @@ router.delete(
 
         logger.info({ teamId, invitationId, cancelledBy: req.user!.id }, 'Team invitation cancelled');
 
+        await auditFromRequest(req, 'team_invitation_cancelled', {
+            targetType: 'team',
+            targetId: teamId,
+            teamId,
+            previousValue: {
+                invitationId,
+                email: result[0].email,
+                role: result[0].role,
+                expiresAt: result[0].expiresAt,
+            },
+        });
+
         res.json({ success: true });
     })
 );
@@ -786,6 +888,24 @@ router.post(
         await sendTeamInviteEmail(invitation.email, team.name || 'Unnamed Team', inviterName, invitation.role, newToken);
 
         logger.info({ teamId, invitationId, email: invitation.email, resentBy: req.user!.id }, 'Team invitation resent');
+
+        await auditFromRequest(req, 'team_invitation_resent', {
+            targetType: 'team',
+            targetId: teamId,
+            teamId,
+            previousValue: {
+                invitationId,
+                email: invitation.email,
+                role: invitation.role,
+                expiresAt: invitation.expiresAt,
+            },
+            newValue: {
+                invitationId,
+                email: invitation.email,
+                role: invitation.role,
+                expiresAt: newExpiresAt,
+            },
+        });
 
         res.json({ success: true, message: 'Invitation resent' });
     })
@@ -861,6 +981,25 @@ router.post(
                 .set({ acceptedAt: new Date() })
                 .where(eq(teamInvitations.id, invitation.id));
 
+            await auditFromRequest(req, 'team_invitation_accepted', {
+                targetType: 'team',
+                targetId: invitation.teamId,
+                teamId: invitation.teamId,
+                previousValue: {
+                    invitationId: invitation.id,
+                    email: invitation.email,
+                    role: invitation.role,
+                },
+                newValue: {
+                    invitationId: invitation.id,
+                    email: invitation.email,
+                    role: invitation.role,
+                    acceptedByUserId: userId,
+                    acceptedByEmail: userEmail,
+                    membershipAlreadyExisted: true,
+                },
+            });
+
             res.json({
                 success: true,
                 team: {
@@ -884,6 +1023,25 @@ router.post(
             .where(eq(teamInvitations.id, invitation.id));
 
         logger.info({ teamId: invitation.teamId, userId, role: invitation.role }, 'Team invitation accepted');
+
+        await auditFromRequest(req, 'team_invitation_accepted', {
+            targetType: 'team',
+            targetId: invitation.teamId,
+            teamId: invitation.teamId,
+            previousValue: {
+                invitationId: invitation.id,
+                email: invitation.email,
+                role: invitation.role,
+            },
+            newValue: {
+                invitationId: invitation.id,
+                email: invitation.email,
+                role: invitation.role,
+                acceptedByUserId: userId,
+                acceptedByEmail: userEmail,
+                membershipAlreadyExisted: false,
+            },
+        });
 
         res.json({
             success: true,

@@ -108,7 +108,14 @@ router.post(
         await auditFromRequest(req, 'api_key_created', {
             targetType: 'api_key',
             targetId: apiKey.id,
-            newValue: { keyId: apiKey.id, name: apiKey.name, projectId },
+            teamId: req.project?.teamId,
+            newValue: {
+                keyId: apiKey.id,
+                name: apiKey.name,
+                maskedKey: apiKey.maskedKey,
+                projectId,
+                scopes: apiKey.scopes,
+            },
         });
 
         // Return full key only once
@@ -171,7 +178,14 @@ router.delete(
         await auditFromRequest(req, 'api_key_deleted', {
             targetType: 'api_key',
             targetId: keyId,
-            previousValue: { keyId, projectId: keyResult.key.projectId },
+            teamId: keyResult.teamId,
+            previousValue: {
+                keyId,
+                name: keyResult.key.name,
+                maskedKey: keyResult.key.maskedKey,
+                projectId: keyResult.key.projectId,
+                scopes: keyResult.key.scopes,
+            },
         });
 
         res.json({ success: true });

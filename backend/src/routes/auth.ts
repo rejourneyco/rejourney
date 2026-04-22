@@ -4,7 +4,7 @@
  * OTP-based authentication with OAuth support (future)
  */
 
-import { Router } from 'express';
+import { Router, type Request } from 'express';
 import { createHash, randomBytes } from 'crypto';
 import { eq, gt, and, sql, desc } from 'drizzle-orm';
 import { db, users, teams, teamMembers, otpTokens, userSessions, sessions, sessionMetrics, projects } from '../db/client.js';
@@ -21,7 +21,7 @@ import {
 } from '../middleware/rateLimit.js';
 import { sendOtpSchema, verifyOtpSchema } from '../validation/auth.js';
 import { sendOtpEmail } from '../services/email.js';
-import { createAuditLog } from '../services/auditLog.js';
+import { createAuditLog, type AuditAction, type TargetType } from '../services/auditLog.js';
 import { UAParser } from 'ua-parser-js';
 import { getSessionCookieOptions, getOAuthStateCookieOptions } from '../utils/cookies.js';
 import { isDisposableEmail } from '../utils/disposableEmail.js';
@@ -37,6 +37,25 @@ const router = Router();
 // OTP settings
 const OTP_EXPIRY_MINUTES = 10;
 const SESSION_EXPIRY_DAYS = 30;
+
+async function auditAuthEvent(
+    req: Request,
+    params: {
+        action: AuditAction;
+        userId?: string;
+        targetType?: TargetType;
+        targetId?: string;
+        metadata?: Record<string, unknown>;
+    },
+): Promise<void> {
+    await createAuditLog({
+        userId: params.userId,
+        action: params.action,
+        targetType: params.targetType,
+        targetId: params.targetId,
+        metadata: params.metadata,
+    }, req);
+}
 
 /**
  * Verify Cloudflare Turnstile token
@@ -122,6 +141,8 @@ router.post(
 
         // Find or create user
         let [user] = await db.select().from(users).where(eq(users.email, normalizedEmail)).limit(1);
+        let createdUser = false;
+        let createdTeamId: string | null = null;
 
         if (!user) {
             if (isDisposableEmail(normalizedEmail)) {
@@ -146,6 +167,7 @@ router.post(
                 languagePreference: fingerprint?.language || req.headers['accept-language']?.split(',')[0] || null,
                 registrationPlatform: fingerprint?.platform || parsedPlatform || null,
             }).returning();
+            createdUser = true;
 
             // Get free plan for new teams - no database reference needed
             // Teams start on free tier, Stripe subscription is created via billing flow
@@ -156,6 +178,7 @@ router.post(
                 name: `${normalizedEmail.split('@')[0]}'s Team`,
                 // No billingPlanId needed - teams start on free tier
             }).returning();
+            createdTeamId = team.id;
 
             // Add user as team owner
             await db.insert(teamMembers).values({
@@ -165,6 +188,18 @@ router.post(
             });
 
             logger.info({ userId: user.id, email: normalizedEmail }, 'Created new user');
+
+            await auditAuthEvent(req, {
+                action: 'account_created',
+                userId: user.id,
+                targetType: 'user',
+                targetId: user.id,
+                metadata: {
+                    provider: 'otp',
+                    email: normalizedEmail,
+                    defaultTeamId: team.id,
+                },
+            });
         }
 
         // Delete old OTP tokens for this email
@@ -176,6 +211,20 @@ router.post(
             email: normalizedEmail,
             codeHash,
             expiresAt,
+        });
+
+        await auditAuthEvent(req, {
+            action: 'login_challenge_requested',
+            userId: user.id,
+            targetType: 'user',
+            targetId: user.id,
+            metadata: {
+                provider: 'otp',
+                email: normalizedEmail,
+                expiresAt,
+                createdAccount: createdUser,
+                defaultTeamId: createdTeamId,
+            },
         });
 
         // Send email
@@ -250,6 +299,15 @@ router.post(
 
         if (!otpToken) {
             await recordFailedAuthAttempt({ email: normalizedEmail, ip: req.ip });
+            await auditAuthEvent(req, {
+                action: 'login_failed',
+                metadata: {
+                    provider: 'otp',
+                    stage: 'verify',
+                    email: normalizedEmail,
+                    reason: 'invalid_or_expired_code',
+                },
+            });
             throw ApiError.badRequest('Invalid or expired code');
         }
 
@@ -257,6 +315,19 @@ router.post(
         if (otpToken.attempts >= 5) {
             await db.delete(otpTokens).where(eq(otpTokens.id, otpToken.id));
             await recordFailedAuthAttempt({ email: normalizedEmail, ip: req.ip });
+            await auditAuthEvent(req, {
+                action: 'login_failed',
+                userId: otpToken.user?.id,
+                targetType: otpToken.user?.id ? 'user' : undefined,
+                targetId: otpToken.user?.id,
+                metadata: {
+                    provider: 'otp',
+                    stage: 'verify',
+                    email: normalizedEmail,
+                    reason: 'attempts_exhausted',
+                    attempts: otpToken.attempts,
+                },
+            });
             throw ApiError.tooManyRequests('Too many attempts. Please request a new code.');
         }
 
@@ -266,6 +337,19 @@ router.post(
                 .set({ attempts: sql`${otpTokens.attempts} + 1` })
                 .where(eq(otpTokens.id, otpToken.id));
             await recordFailedAuthAttempt({ email: normalizedEmail, ip: req.ip });
+            await auditAuthEvent(req, {
+                action: 'login_failed',
+                userId: otpToken.user?.id,
+                targetType: otpToken.user?.id ? 'user' : undefined,
+                targetId: otpToken.user?.id,
+                metadata: {
+                    provider: 'otp',
+                    stage: 'verify',
+                    email: normalizedEmail,
+                    reason: 'invalid_code',
+                    attemptsAfterFailure: otpToken.attempts + 1,
+                },
+            });
             throw ApiError.badRequest('Invalid code');
         }
 
@@ -298,12 +382,15 @@ router.post(
         const sessionToken = randomBytes(32).toString('hex');
         const sessionExpiresAt = new Date(Date.now() + SESSION_EXPIRY_DAYS * 24 * 60 * 60 * 1000);
 
-        await db.insert(userSessions).values({
+        const [session] = await db.insert(userSessions).values({
             userId: otpToken.user!.id,
             token: sessionToken,
             userAgent: req.headers['user-agent'],
             ipAddress: req.ip,
             expiresAt: sessionExpiresAt,
+        }).returning({
+            id: userSessions.id,
+            expiresAt: userSessions.expiresAt,
         });
 
         // Set session cookie
@@ -312,14 +399,18 @@ router.post(
         logger.info({ userId: otpToken.user!.id, email: normalizedEmail }, 'User logged in');
 
         // Audit log for successful login
-        await createAuditLog({
-            userId: otpToken.user!.id,
+        await auditAuthEvent(req, {
             action: 'login_success',
+            userId: otpToken.user!.id,
             targetType: 'user',
             targetId: otpToken.user!.id,
-            ipAddress: req.ip,
-            userAgent: req.headers['user-agent'],
-        }, req);
+            metadata: {
+                provider: 'otp',
+                email: normalizedEmail,
+                sessionId: session.id,
+                sessionExpiresAt: session.expiresAt,
+            },
+        });
 
         res.json({
             success: true,
@@ -415,9 +506,35 @@ router.post(
     writeApiRateLimiter,
     asyncHandler(async (req, res) => {
         const token = req.cookies?.session || req.headers.authorization?.replace('Bearer ', '');
+        const authSource = req.cookies?.session ? 'cookie' : req.headers.authorization ? 'bearer' : 'none';
 
         if (token) {
+            const [session] = await db
+                .select({
+                    id: userSessions.id,
+                    userId: userSessions.userId,
+                    createdAt: userSessions.createdAt,
+                    expiresAt: userSessions.expiresAt,
+                })
+                .from(userSessions)
+                .where(eq(userSessions.token, token))
+                .limit(1);
+
             await db.delete(userSessions).where(eq(userSessions.token, token));
+
+            if (session) {
+                await auditAuthEvent(req, {
+                    action: 'logout',
+                    userId: session.userId,
+                    targetType: 'session',
+                    targetId: session.id,
+                    metadata: {
+                        authSource,
+                        sessionCreatedAt: session.createdAt,
+                        sessionExpiresAt: session.expiresAt,
+                    },
+                });
+            }
         }
 
         res.clearCookie('session');
@@ -495,17 +612,41 @@ router.get(
         // Validate state
         if (!state || state !== storedState) {
             logger.warn('GitHub OAuth: Invalid state parameter');
+            await auditAuthEvent(req, {
+                action: 'login_failed',
+                metadata: {
+                    provider: 'github',
+                    stage: 'callback',
+                    reason: 'invalid_state',
+                },
+            });
             const dashboardUrl = config.PUBLIC_DASHBOARD_URL || 'https://rejourney.co';
             return res.redirect(`${dashboardUrl}/login?error=invalid_state`);
         }
 
         if (!code || typeof code !== 'string') {
             logger.warn('GitHub OAuth: No code provided');
+            await auditAuthEvent(req, {
+                action: 'login_failed',
+                metadata: {
+                    provider: 'github',
+                    stage: 'callback',
+                    reason: 'missing_code',
+                },
+            });
             const dashboardUrl = config.PUBLIC_DASHBOARD_URL || 'https://rejourney.co';
             return res.redirect(`${dashboardUrl}/login?error=no_code`);
         }
 
         if (!config.GITHUB_CLIENT_ID || !config.GITHUB_CLIENT_SECRET) {
+            await auditAuthEvent(req, {
+                action: 'login_failed',
+                metadata: {
+                    provider: 'github',
+                    stage: 'callback',
+                    reason: 'oauth_not_configured',
+                },
+            });
             const dashboardUrl = config.PUBLIC_DASHBOARD_URL || 'https://rejourney.co';
             return res.redirect(`${dashboardUrl}/login?error=not_configured`);
         }
@@ -517,6 +658,10 @@ router.get(
                 : `${req.protocol}://${req.get('host')}/api/auth/github/callback`;
 
         try {
+            let linkedGithubToExistingUser = false;
+            let createdUserFromGithub = false;
+            let defaultTeamId: string | null = null;
+
             // Exchange code for access token
             const tokenResponse = await fetch(GITHUB_TOKEN_URL, {
                 method: 'POST',
@@ -537,6 +682,14 @@ router.get(
             if (!tokenData.access_token) {
                 const dashboardUrl = config.PUBLIC_DASHBOARD_URL || 'https://rejourney.co';
                 logger.error({ error: tokenData.error }, 'GitHub OAuth: Failed to get access token');
+                await auditAuthEvent(req, {
+                    action: 'login_failed',
+                    metadata: {
+                        provider: 'github',
+                        stage: 'token_exchange',
+                        reason: 'token_failed',
+                    },
+                });
                 return res.redirect(`${dashboardUrl}/login?error=token_failed`);
             }
 
@@ -582,6 +735,15 @@ router.get(
             if (!primaryEmail) {
                 const dashboardUrl = config.PUBLIC_DASHBOARD_URL || 'https://rejourney.co';
                 logger.warn({ githubId: githubUser.id }, 'GitHub OAuth: No verified email found');
+                await auditAuthEvent(req, {
+                    action: 'login_failed',
+                    metadata: {
+                        provider: 'github',
+                        stage: 'profile',
+                        githubUserId: String(githubUser.id),
+                        reason: 'no_verified_email',
+                    },
+                });
                 return res.redirect(`${dashboardUrl}/login?error=no_email`);
             }
 
@@ -617,6 +779,7 @@ router.get(
                             updatedAt: new Date(),
                         })
                         .where(eq(users.id, existingUser.id));
+                    linkedGithubToExistingUser = true;
 
                     logger.info({ userId: existingUser.id, email: normalizedEmail }, 'Linked GitHub to existing user');
                 }
@@ -627,6 +790,15 @@ router.get(
                 if (isDisposableEmail(normalizedEmail)) {
                     const dashboardUrl = config.PUBLIC_DASHBOARD_URL || 'https://rejourney.co';
                     logger.warn({ email: normalizedEmail }, 'GitHub OAuth rejected disposable email domain');
+                    await auditAuthEvent(req, {
+                        action: 'login_failed',
+                        metadata: {
+                            provider: 'github',
+                            stage: 'profile',
+                            email: normalizedEmail,
+                            reason: 'disposable_email',
+                        },
+                    });
                     return res.redirect(`${dashboardUrl}/login?error=disposable_email`);
                 }
 
@@ -636,6 +808,15 @@ router.get(
                     if (err instanceof ApiError) {
                         const dashboardUrl = config.PUBLIC_DASHBOARD_URL || 'https://rejourney.co';
                         logger.warn({ ip: req.ip, email: normalizedEmail }, 'GitHub OAuth signup velocity check blocked');
+                        await auditAuthEvent(req, {
+                            action: 'login_failed',
+                            metadata: {
+                                provider: 'github',
+                                stage: 'account_create',
+                                email: normalizedEmail,
+                                reason: 'signup_limited',
+                            },
+                        });
                         return res.redirect(`${dashboardUrl}/login?error=signup_limited`);
                     }
                     throw err;
@@ -658,6 +839,7 @@ router.get(
                     languagePreference: req.headers['accept-language']?.split(',')[0] || null,
                     registrationPlatform: parsedPlatform || null,
                 }).returning();
+                createdUserFromGithub = true;
 
                 // Teams start on free tier - Stripe subscription created via billing flow
 
@@ -666,6 +848,7 @@ router.get(
                     ownerUserId: existingUser.id,
                     name: `${normalizedEmail.split('@')[0]}'s Team`,
                 }).returning();
+                defaultTeamId = team.id;
 
                 // Add user as team owner
                 await db.insert(teamMembers).values({
@@ -675,24 +858,56 @@ router.get(
                 });
 
                 logger.info({ userId: existingUser.id, email: normalizedEmail }, 'Created new user via GitHub OAuth');
+
+                await auditAuthEvent(req, {
+                    action: 'account_created',
+                    userId: existingUser.id,
+                    targetType: 'user',
+                    targetId: existingUser.id,
+                    metadata: {
+                        provider: 'github',
+                        email: normalizedEmail,
+                        defaultTeamId: team.id,
+                    },
+                });
             }
 
             // Create session
             const sessionToken = randomBytes(32).toString('hex');
             const sessionExpiresAt = new Date(Date.now() + SESSION_EXPIRY_DAYS * 24 * 60 * 60 * 1000);
 
-            await db.insert(userSessions).values({
+            const [session] = await db.insert(userSessions).values({
                 userId: existingUser.id,
                 token: sessionToken,
                 userAgent: req.headers['user-agent'],
                 ipAddress: req.ip,
                 expiresAt: sessionExpiresAt,
+            }).returning({
+                id: userSessions.id,
+                expiresAt: userSessions.expiresAt,
             });
 
             // Set session cookie
             res.cookie('session', sessionToken, getSessionCookieOptions(req, SESSION_EXPIRY_DAYS * 24 * 60 * 60 * 1000));
 
             logger.info({ userId: existingUser.id, email: normalizedEmail }, 'User logged in via GitHub');
+
+            await auditAuthEvent(req, {
+                action: 'login_success',
+                userId: existingUser.id,
+                targetType: 'user',
+                targetId: existingUser.id,
+                metadata: {
+                    provider: 'github',
+                    email: normalizedEmail,
+                    githubUserId,
+                    sessionId: session.id,
+                    sessionExpiresAt: session.expiresAt,
+                    linkedGithubToExistingUser,
+                    createdAccount: createdUserFromGithub,
+                    defaultTeamId,
+                },
+            });
 
             // Return to the dashboard login route first so the frontend can
             // honor any saved returnUrl (for example, invite acceptance flows).
@@ -702,6 +917,15 @@ router.get(
         } catch (error) {
             const dashboardUrl = config.PUBLIC_DASHBOARD_URL || 'https://rejourney.co';
             logger.error({ error }, 'GitHub OAuth callback failed');
+            await auditAuthEvent(req, {
+                action: 'login_failed',
+                metadata: {
+                    provider: 'github',
+                    stage: 'callback',
+                    reason: 'oauth_callback_failed',
+                    errorName: error instanceof Error ? error.name : 'unknown',
+                },
+            });
             return res.redirect(`${dashboardUrl}/login?error=oauth_failed`);
         }
     })
@@ -898,6 +1122,18 @@ router.post(
             .where(eq(users.id, userId));
 
         logger.info({ userId, sessionCount: sessionSummaries.length }, 'User exported data (GDPR)');
+
+        await auditAuthEvent(req, {
+            action: 'data_export_requested',
+            userId,
+            targetType: 'user',
+            targetId: userId,
+            metadata: {
+                exportedAt: now,
+                sessionCount: sessionSummaries.length,
+                teamCount: userTeams.length,
+            },
+        });
 
         // Return as JSON download
         res.setHeader('Content-Type', 'application/json');

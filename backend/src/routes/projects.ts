@@ -20,7 +20,7 @@ import {
     requestDeleteProjectOtpSchema,
     deleteProjectSchema,
 } from '../validation/projects.js';
-import { auditFromRequest } from '../services/auditLog.js';
+import { auditFromRequest, buildAuditFieldChanges } from '../services/auditLog.js';
 import { hardDeleteProject } from '../services/deletion.js';
 import { sendDeletionOtp, verifyDeletionOtp } from '../services/deleteOtp.js';
 import {
@@ -34,6 +34,30 @@ function getProjectPlatforms(project: { bundleId?: string | null; packageName?: 
     if (project.packageName) platforms.push('android');
     if (platforms.length === 0 && project.platform) platforms.push(project.platform);
     return platforms;
+}
+
+function getProjectAuditState(project: {
+    name: string;
+    teamId: string;
+    bundleId?: string | null;
+    packageName?: string | null;
+    webDomain?: string | null;
+    rejourneyEnabled?: boolean | null;
+    recordingEnabled?: boolean | null;
+    sampleRate?: number | null;
+    maxRecordingMinutes?: number | null;
+}): Record<string, unknown> {
+    return {
+        name: project.name,
+        teamId: project.teamId,
+        bundleId: project.bundleId ?? null,
+        packageName: project.packageName ?? null,
+        webDomain: project.webDomain ?? null,
+        rejourneyEnabled: project.rejourneyEnabled ?? null,
+        recordingEnabled: project.recordingEnabled ?? null,
+        sampleRate: project.sampleRate ?? null,
+        maxRecordingMinutes: project.maxRecordingMinutes ?? null,
+    };
 }
 
 const router = Router();
@@ -399,7 +423,11 @@ router.post(
         await auditFromRequest(req, 'project_created', {
             targetType: 'project',
             targetId: project.id,
-            newValue: { name: project.name, teamId: project.teamId },
+            teamId,
+            newValue: getProjectAuditState(project),
+            metadata: {
+                createdWithExplicitTeam: data.teamId !== undefined,
+            },
         });
 
         res.status(201).json({
@@ -537,13 +565,24 @@ router.put(
 
         logger.info({ projectId: project.id, userId: req.user!.id }, 'Project updated');
 
-        // Audit log
-        await auditFromRequest(req, 'project_updated', {
-            targetType: 'project',
-            targetId: project.id,
-            previousValue: { name: currentProject.name, recordingEnabled: currentProject.recordingEnabled },
-            newValue: { name: project.name, recordingEnabled: project.recordingEnabled },
-        });
+        const changes = buildAuditFieldChanges(
+            getProjectAuditState(currentProject),
+            getProjectAuditState(project),
+        );
+        if (changes.changedFields.length > 0) {
+            await auditFromRequest(req, 'project_updated', {
+                targetType: 'project',
+                targetId: project.id,
+                teamId: currentProject.teamId,
+                previousValue: changes.previousValue,
+                newValue: changes.newValue,
+                metadata: {
+                    changedFields: changes.changedFields,
+                    newTeamId: project.teamId,
+                    previousTeamId: currentProject.teamId,
+                },
+            });
+        }
 
         res.json({
             project: {
@@ -683,6 +722,7 @@ router.delete(
         await auditFromRequest(req, 'project_deleted', {
             targetType: 'project',
             targetId: projectId,
+            teamId: projectResult.project.teamId,
             previousValue: { name: projectResult.project.name, teamId: projectResult.project.teamId },
             newValue: { hardDeleted: true, otpConfirmed: true, deletedByRole: 'owner' },
         });
