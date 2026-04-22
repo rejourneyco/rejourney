@@ -1,9 +1,9 @@
 # CloudNativePG Cluster manifest
 #
-# IMPORTANT: This file is NOT applied by deploy-release.sh (it only reads k8s/ root, not subdirectories).
-# Applying this before the CNPG CRD is installed would fail every CI deploy.
-# Apply manually during Phase 1-D:
-#   kubectl apply -f k8s/cnpg/postgres-cnpg.yaml
+# IMPORTANT: This file is applied by deploy-release.sh via an explicit
+# k8s/cnpg/postgres-cnpg.yaml step after the root manifests/prereqs. We keep it
+# in a subdirectory so the main root-level apply/prune pass does not touch the
+# CNPG CR before the operator is installed.
 #
 # Prerequisites (Phase 1-D):
 #   1. CNPG operator installed (kubectl apply -f cnpg-X.X.X.yaml)
@@ -32,7 +32,8 @@ spec:
       effective_cache_size: "4GB"
       work_mem: "16MB"
       maintenance_work_mem: "128MB"
-      shared_preload_libraries: "pg_stat_statements"
+      # CNPG automatically manages shared_preload_libraries for pg_stat_statements
+      # when pg_stat_statements.* settings are present.
       pg_stat_statements.max: "10000"
       pg_stat_statements.track: "all"
 
