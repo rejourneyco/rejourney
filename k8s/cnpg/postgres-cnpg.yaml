@@ -31,6 +31,16 @@ spec:
       work_mem: "16MB"
       maintenance_work_mem: "128MB"
 
+  # Matches legacy StatefulSet sizing (node has 8 CPU / 16 GiB).
+  # shared_buffers=1.5 GB and effective_cache_size=4 GB fit comfortably inside the 6 GiB limit.
+  resources:
+    requests:
+      cpu: "1"
+      memory: "2Gi"
+    limits:
+      cpu: "3"
+      memory: "6Gi"
+
   storage:
     storageClass: hcloud-volumes
     size: 60Gi   # database is already 27.7 GB; 60 Gi gives headroom for growth

@@ -11,6 +11,16 @@
 sentinel:
   enabled: true
   quorum: 1        # single-node for now; Part 2 raises to 2
+  # Bitnami's `resourcesPreset` ("nano" by default) silently overrides `resources:` —
+  # must be set to "none" for our explicit limits below to take effect.
+  resourcesPreset: "none"
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
 
 replica:
   replicaCount: 0  # no replicas until Part 2
@@ -25,6 +35,10 @@ master:
     maxmemory 900mb
     maxmemory-policy allkeys-lru
     save 900 1
+  # See sentinel.resourcesPreset note above — same override applies here.
+  # Node has 8 CPU / 16 GiB; CNPG reserves 3 CPU / 6 GiB. 1 CPU / 1.25 GiB for redis
+  # leaves plenty of headroom. Current peak RSS is ~17 MiB, maxmemory caps dataset at 900 MiB.
+  resourcesPreset: "none"
   resources:
     requests:
       cpu: 200m
@@ -41,3 +55,11 @@ metrics:
   enabled: true           # deploys redis-exporter sidecar; scraped by VictoriaMetrics on port 9121
   serviceMonitor:
     enabled: false        # we use VictoriaMetrics static scrape, not prometheus-operator
+  resourcesPreset: "none"
+  resources:
+    requests:
+      cpu: 25m
+      memory: 32Mi
+    limits:
+      cpu: 100m
+      memory: 96Mi

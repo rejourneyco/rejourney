@@ -130,7 +130,7 @@ spec:
             # every updateIntervalSeconds.
             - name: dashboard-providers
               mountPath: /etc/grafana/provisioning/dashboards
-            - name: dashboard-s3
+            - name: dashboards
               mountPath: /var/lib/grafana/dashboards/rejourney
           resources:
             requests:
@@ -161,9 +161,9 @@ spec:
         - name: dashboard-providers
           configMap:
             name: grafana-dashboard-providers
-        - name: dashboard-s3
+        - name: dashboards
           configMap:
-            name: grafana-dashboard-s3
+            name: grafana-dashboards
 
 ---
 apiVersion: v1

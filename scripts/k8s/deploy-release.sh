@@ -335,7 +335,7 @@ main() {
   wait_for_daemonset cadvisor
   wait_for_daemonset node-exporter
 
-  section "Patching Imported Grafana Dashboards"
+  section "Cleaning up legacy Grafana dashboards"
   python3 "${ROOT_DIR}/scripts/k8s/patch-imported-grafana-dashboards.py" "${NAMESPACE}"
 
   restart_seeder_jobs

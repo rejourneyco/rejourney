@@ -135,6 +135,8 @@ data:
             target_label: __address__
           - target_label: cluster
             replacement: rejourney-prod
+          - target_label: namespace
+            replacement: rejourney
 
       # Kubelet volume + node stats (needed for PVC usage panels in infra dashboard)
       - job_name: kubelet
