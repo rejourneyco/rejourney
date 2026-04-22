@@ -482,6 +482,34 @@ spec:
                 secretKeyRef:
                   name: postgres-secret
                   key: POSTGRES_PASSWORD
+        - name: enable-pg-stat-statements
+          image: postgres:18-alpine
+          command:
+            - /bin/sh
+            - -c
+            - |
+              echo "Ensuring pg_stat_statements extension is installed..."
+              until PGPASSWORD="$POSTGRES_PASSWORD" psql -h postgres-rw -p 5432 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "CREATE EXTENSION IF NOT EXISTS pg_stat_statements;" >/dev/null; do
+                echo "pg_stat_statements not ready yet, waiting 5s..."
+                sleep 5
+              done
+              echo "pg_stat_statements ready."
+          env:
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: POSTGRES_USER
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: POSTGRES_PASSWORD
+            - name: POSTGRES_DB
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: POSTGRES_DB
       containers:
         - name: setup
           image: ghcr.io/rejourneyco/rejourney/migration:latest

@@ -1,25 +1,22 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Activity, Globe, ShieldAlert } from 'lucide-react';
+import { Globe, ShieldAlert } from 'lucide-react';
 import { useSessionData } from '~/shared/providers/SessionContext';
 import { DashboardPageHeader } from '~/shared/ui/core/DashboardPageHeader';
 import { TimeFilter, TimeRange, DEFAULT_TIME_RANGE } from '~/shared/ui/core/TimeFilter';
 import { useDemoMode } from '~/shared/providers/DemoModeContext';
 import {
-    getApiLatencyByLocation,
-    getGeoIssues,
+    getGeoOverview,
     type ApiLatencyByLocationResponse,
     type GeoIssuesSummary,
-} from '~/features/app/analytics/geo/api';
+} from '~/shared/api/client';
 import { DashboardGhostLoader } from '~/shared/ui/core/DashboardGhostLoader';
 import { disableMapboxTelemetry, isMapboxConfigured } from '~/shared/integrations/mapbox';
 import { getMapboxToken } from '~/shared/config/runtimeEnv';
-
-// @ts-ignore: React-map-gl types might not resolve with this TS config
+// @ts-ignore: react-map-gl typing can fail under current tsconfig
 import MapGL, { Marker, NavigationControl, Popup } from 'react-map-gl';
 import 'mapbox-gl/dist/mapbox-gl.css';
-
-const MAPBOX_TOKEN = getMapboxToken();
 const DISABLE_MAPBOX_IN_DEMO = true;
+const MAPBOX_TOKEN = getMapboxToken();
 
 type LatencyTier = 'excellent' | 'good' | 'degraded' | 'critical' | 'unknown';
 
@@ -148,52 +145,22 @@ export const Geo: React.FC = () => {
         setIsLoading(true);
         setLoadError(null);
 
-        const range = timeRange === 'all' ? undefined : timeRange;
-        const projectId = selectedProject.id;
-
-        let firstPaint = false;
-        const markReady = () => {
-            if (isCancelled || firstPaint) return;
-            firstPaint = true;
-            setIsLoading(false);
-        };
-
-        let geoRejected = false;
-        let latencyRejected = false;
-        const checkBothFailed = () => {
-            if (geoRejected && latencyRejected && !isCancelled) {
-                setLoadError('Could not load map data.');
-            }
-        };
-
-        void getGeoIssues(projectId, range)
-            .then((v) => {
+        void getGeoOverview(selectedProject.id, timeRange)
+            .then((overview) => {
                 if (isCancelled) return;
-                setIssues(v);
-                markReady();
+                setIssues(overview.issues);
+                setLatencyByLocation(overview.latencyByLocation);
+                setLoadError(overview.failedSections.length > 0 ? 'Some geographic sections are unavailable.' : null);
             })
             .catch((err) => {
-                console.error('Failed to load geo issue data:', err);
+                console.error('Failed to load geographic overview:', err);
                 if (isCancelled) return;
                 setIssues(EMPTY_ISSUES);
-                geoRejected = true;
-                checkBothFailed();
-                markReady();
-            });
-
-        void getApiLatencyByLocation(projectId, range)
-            .then((v) => {
-                if (isCancelled) return;
-                setLatencyByLocation(v);
-                markReady();
-            })
-            .catch((err) => {
-                console.error('Failed to load geo latency data:', err);
-                if (isCancelled) return;
                 setLatencyByLocation(EMPTY_LATENCY);
-                latencyRejected = true;
-                checkBothFailed();
-                markReady();
+                setLoadError('Could not load map data.');
+            })
+            .finally(() => {
+                if (!isCancelled) setIsLoading(false);
             });
 
         return () => {
@@ -241,7 +208,7 @@ export const Geo: React.FC = () => {
 
     const hoveredMarker = useMemo(
         () => (hoveredMarkerId ? markers.find((marker) => marker.id === hoveredMarkerId) || null : null),
-        [markers, hoveredMarkerId]
+        [hoveredMarkerId, markers],
     );
 
     if (isLoading && selectedProject?.id) {
@@ -260,7 +227,7 @@ export const Geo: React.FC = () => {
                 </DashboardPageHeader>
             </div>
 
-            <div className="flex-1 w-full bg-white relative">
+            <div className="flex-1 w-full relative bg-white">
                 {!selectedProject?.id ? (
                     <div className="absolute inset-0 flex items-center justify-center text-sm text-slate-500">Select a project.</div>
                 ) : !isMapboxConfigured() ? (
@@ -301,7 +268,6 @@ export const Geo: React.FC = () => {
                             doubleClickZoom
                             keyboard
                             cursor="grab"
-                            onError={(event: any) => console.error('[Mapbox] error:', event)}
                         >
                             <NavigationControl position="bottom-right" showCompass showZoom />
 
@@ -322,10 +288,10 @@ export const Geo: React.FC = () => {
                                                 height: `${marker.markerSize}px`,
                                                 transform: isHovered ? 'scale(1.1)' : 'scale(1)',
                                                 backgroundColor: marker.style.fill,
-                                                border: '1.5px solid rgba(15, 23, 42, 0.38)',
+                                                border: '1px solid rgba(15, 23, 42, 0.28)',
                                                 boxShadow: isHovered
-                                                    ? `0 0 0 2px ${marker.style.ring}, 0 3px 8px rgba(15,23,42,0.24)`
-                                                    : '0 1px 3px rgba(15,23,42,0.24)',
+                                                    ? `0 0 0 2px ${marker.style.ring}, 0 3px 10px rgba(15,23,42,0.18)`
+                                                    : '0 1px 3px rgba(15,23,42,0.18)',
                                             }}
                                             aria-label={`${marker.city}, ${marker.country}: ${marker.uniqueUsers.toLocaleString()} unique users, ${marker.sessions.toLocaleString()} sessions, ${formatLatency(marker.avgLatencyMs)} avg latency`}
                                             onMouseEnter={() => setHoveredMarkerId(marker.id)}
@@ -345,12 +311,12 @@ export const Geo: React.FC = () => {
                                     offset={14}
                                     className="geo-hover-popup"
                                 >
-                                    <div className="border-2 border-black bg-white px-2.5 py-2 text-[11px] text-slate-700 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] backdrop-blur-[2px]">
+                                    <div className="dashboard-surface px-3 py-2 text-[11px] text-slate-700">
                                         <div className="mb-0.5 font-semibold text-slate-900">
                                             {hoveredMarker.city}, {hoveredMarker.country}
                                         </div>
                                         <div className="flex items-center gap-2 text-slate-600">
-                                            <span>{hoveredMarker.uniqueUsers.toLocaleString()} unique users</span>
+                                            <span>{hoveredMarker.uniqueUsers.toLocaleString()} users</span>
                                             <span className="h-1 w-1 rounded-full bg-slate-300" />
                                             <span>{hoveredMarker.sessions.toLocaleString()} sessions</span>
                                             <span className="h-1 w-1 rounded-full bg-slate-300" />
@@ -360,22 +326,14 @@ export const Geo: React.FC = () => {
                                 </Popup>
                             )}
                         </MapGL>
-
+                        {loadError && (
+                            <div className="absolute left-4 top-4 z-20 rounded-xl border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-900 shadow-sm">
+                                {loadError}
+                            </div>
+                        )}
                     </div>
                 )}
             </div>
-
-            <style>{`
-                .geo-hover-popup .mapboxgl-popup-content {
-                    background: transparent !important;
-                    box-shadow: none !important;
-                    padding: 0 !important;
-                    pointer-events: none !important;
-                }
-                .geo-hover-popup .mapboxgl-popup-tip {
-                    border-top-color: rgba(255, 255, 255, 0.92) !important;
-                }
-            `}</style>
         </div>
     );
 };

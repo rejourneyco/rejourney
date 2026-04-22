@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router';
 import { SplitSquareVertical } from 'lucide-react';
 import { TabRegistry } from '~/shell/tabs/TabRegistry';
@@ -32,6 +32,7 @@ export const TabWorkspace: React.FC<TabWorkspaceProps> = ({ children }) => {
     const navigate = useNavigate();
     const location = useLocation();
     const routeWithoutPrefix = useMemo(() => stripPathPrefix(location.pathname), [location.pathname]);
+    const tabPathPrefix = useMemo(() => (location.pathname.startsWith('/demo') ? '/demo' : '/dashboard'), [location.pathname]);
     const hideTabChrome = routeWithoutPrefix.startsWith('/warehouse');
     const splitContainerRef = useRef<HTMLDivElement | null>(null);
     const primaryScrollRef = useRef<HTMLDivElement | null>(null);
@@ -102,7 +103,7 @@ export const TabWorkspace: React.FC<TabWorkspaceProps> = ({ children }) => {
     if (!isSplitView || !secondaryTab) {
         return (
             <div className="flex flex-col h-full min-h-0 bg-transparent">
-                <TabBar group="primary" pathPrefix="/dashboard" />
+                <TabBar group="primary" pathPrefix={tabPathPrefix} />
                 <div
                     className="relative flex-1 min-h-0 overflow-y-auto"
                     ref={primaryScrollRef}
@@ -117,9 +118,9 @@ export const TabWorkspace: React.FC<TabWorkspaceProps> = ({ children }) => {
                 >
                     {children}
                     {isSplitDropActive && canSplit && (
-                        <div className="absolute inset-0 z-20 border-2 border-dashed border-blue-600 bg-blue-50/70 pointer-events-none">
+                        <div className="absolute inset-0 z-20 border-2 border-dashed border-sky-400 bg-sky-50/70 pointer-events-none">
                             <div className="absolute inset-0 flex items-center justify-center">
-                                <div className="flex items-center gap-2 rounded-md border border-blue-300 bg-white px-5 py-3 text-xs font-semibold text-blue-700 shadow-sm">
+                                <div className="flex items-center gap-2 rounded-xl border border-sky-200 bg-white px-5 py-3 text-xs font-semibold text-sky-700 shadow-sm">
                                     <SplitSquareVertical className="h-4 w-4" />
                                     Drop tab to create split view
                                 </div>
@@ -137,8 +138,8 @@ export const TabWorkspace: React.FC<TabWorkspaceProps> = ({ children }) => {
     return (
         <div ref={splitContainerRef} className="flex flex-1 min-h-0 bg-transparent h-full">
             {/* Primary Pane */}
-            <section className="flex min-w-0 flex-col border-r border-slate-300 h-full" style={{ width: `${splitRatio * 100}%` }}>
-                <TabBar group="primary" pathPrefix="/dashboard" />
+            <section className="flex min-w-0 flex-col border-r border-slate-200 h-full" style={{ width: `${splitRatio * 100}%` }}>
+                <TabBar group="primary" pathPrefix={tabPathPrefix} />
                 <div ref={primaryScrollRef} className="flex-1 min-h-0 overflow-y-auto relative">
                     {children}
                 </div>
@@ -146,17 +147,19 @@ export const TabWorkspace: React.FC<TabWorkspaceProps> = ({ children }) => {
 
             {/* Resizer */}
             <div
-                className={`w-1 cursor-col-resize border-x border-slate-200 bg-slate-100 hover:bg-blue-400 hover:border-blue-400 transition-colors z-10 ${isResizing ? 'bg-blue-500 border-blue-500' : ''}`}
+                className={`w-1 cursor-col-resize border-x border-slate-200 bg-slate-100 hover:bg-sky-300 hover:border-sky-300 transition-colors z-10 ${isResizing ? 'bg-sky-400 border-sky-400' : ''}`}
                 onMouseDown={() => setIsResizing(true)}
                 title="Drag to resize panes"
             />
 
             {/* Secondary Pane */}
             <section className="flex min-w-0 flex-col h-full" style={{ width: `${(1 - splitRatio) * 100}%` }}>
-                <TabBar group="secondary" pathPrefix="/dashboard" />
+                <TabBar group="secondary" pathPrefix={tabPathPrefix} />
                 <div ref={secondaryScrollRef} className="flex-1 min-h-0 overflow-y-auto bg-transparent relative">
                     {SecondaryComponent && secondaryTabDefinition ? (
-                        <SecondaryComponent key={secondaryTab.id} {...(secondaryTabDefinition.props || {})} />
+                        <Suspense fallback={<div className="flex h-full items-center justify-center text-xs text-slate-500">Loading tab…</div>}>
+                            <SecondaryComponent key={secondaryTab.id} {...(secondaryTabDefinition.props || {})} />
+                        </Suspense>
                     ) : (
                         <div className="flex h-full items-center justify-center text-xs text-slate-500">
                             Unable to render secondary tab. Open it as primary and retry.

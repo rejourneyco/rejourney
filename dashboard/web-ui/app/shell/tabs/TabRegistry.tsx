@@ -17,29 +17,20 @@ import {
     Users,
     CreditCard,
     User,
-    Search as SearchIcon
+    Search as SearchIcon,
 } from 'lucide-react';
-import { GeneralOverview } from "~/features/app/general/index/route";
-import { IssueDetail } from "~/features/app/general/detail/route";
-import { RecordingsList } from "~/features/app/sessions/index/route";
-import { RecordingDetail } from "~/features/app/sessions/detail/route";
-import { ApiAnalytics } from "~/features/app/analytics/api/route";
-import { Devices } from "~/features/app/analytics/devices/route";
-import { Geo } from "~/features/app/analytics/geo/route";
-import { Journeys } from "~/features/app/analytics/journeys/route";
-import { Heatmaps } from "~/features/app/analytics/heatmaps/route";
-import { AlertEmails } from "~/features/app/alerts/email/route";
-import { CrashesList } from "~/features/app/stability/crashes/index/route";
-import { CrashDetail } from "~/features/app/stability/crashes/detail/route";
-import { ANRsList } from "~/features/app/stability/anrs/index/route";
-import { ANRDetail } from "~/features/app/stability/anrs/detail/route";
-import { ErrorsList } from "~/features/app/stability/errors/index/route";
-import { ErrorDetail } from "~/features/app/stability/errors/detail/route";
-import { TeamSettings } from "~/features/app/team/route";
-import { BillingSettings } from "~/features/app/billing/route";
-import { AccountSettings } from "~/features/app/account/route";
-import { ProjectSettings } from "~/features/app/settings/project/route";
-import { Search } from "~/features/app/search/route";
+import {
+    getDashboardOverview,
+    getApiOverview,
+    getDevicesOverview,
+    getGeoOverview,
+    getJourneysOverview,
+    getHeatmapsOverview,
+    getErrorsOverview,
+    getCrashesOverview,
+    getANRsOverview,
+    getSessionsPaginated,
+} from '~/shared/api/client';
 
 export interface TabInfo {
     id: string;
@@ -52,85 +43,230 @@ export interface TabDefinition extends TabInfo {
     props?: Record<string, any>;
 }
 
-// Route definitions for tab creation and component rendering
-const routes: Array<{
+type TabPrefetchContext = {
+    projectId?: string | null;
+    timeRange?: string;
+};
+
+type RouteDefinition = {
     pattern: string;
     getInfo: (params: Record<string, string>) => TabInfo;
     Component: React.ComponentType<any>;
+    loadComponent?: () => Promise<unknown>;
     getProps?: (params: Record<string, string>) => Record<string, any>;
-}> = [
-        { pattern: '/general', getInfo: () => ({ id: 'general', title: 'General', icon: MessageSquareWarning }), Component: GeneralOverview },
-        {
-            pattern: '/general/:issueId',
-            getInfo: (p) => ({ id: `issue-${p.issueId}`, title: `Issue ${(p.issueId || '').substring(0, 8)}...`, icon: MessageSquareWarning }),
-            Component: IssueDetail,
-            getProps: (p) => ({ issueId: p.issueId })
-        },
-        // Legacy route aliases - keep compatibility for old saved tabs/bookmarks.
-        { pattern: '/issues', getInfo: () => ({ id: 'general', title: 'General', icon: MessageSquareWarning }), Component: GeneralOverview },
-        {
-            pattern: '/issues/:issueId',
-            getInfo: (p) => ({ id: `issue-${p.issueId}`, title: `Issue ${(p.issueId || '').substring(0, 8)}...`, icon: MessageSquareWarning }),
-            Component: IssueDetail,
-            getProps: (p) => ({ issueId: p.issueId })
-        },
-        // Analytics routes
-        { pattern: '/analytics/api', getInfo: () => ({ id: 'analytics-api', title: 'API Insights', icon: Activity }), Component: ApiAnalytics },
-        { pattern: '/analytics/journeys', getInfo: () => ({ id: 'analytics-journeys', title: 'User Journeys', icon: Map }), Component: Journeys },
-        { pattern: '/analytics/heatmaps', getInfo: () => ({ id: 'analytics-heatmaps', title: 'Heatmaps', icon: Flame }), Component: Heatmaps },
-        { pattern: '/analytics/devices', getInfo: () => ({ id: 'analytics-devices', title: 'Devices', icon: Smartphone }), Component: Devices },
-        { pattern: '/analytics/geo', getInfo: () => ({ id: 'analytics-geo', title: 'Geographic', icon: Globe }), Component: Geo },
-        // Stability routes
-        { pattern: '/stability/crashes', getInfo: () => ({ id: 'stability-crashes', title: 'Crashes', icon: AlertOctagon }), Component: CrashesList },
-        { pattern: '/stability/anrs', getInfo: () => ({ id: 'stability-anrs', title: 'ANRs', icon: Clock }), Component: ANRsList },
-        { pattern: '/stability/errors', getInfo: () => ({ id: 'stability-errors', title: 'Errors', icon: Terminal }), Component: ErrorsList },
-        // Sessions routes
-        { pattern: '/sessions', getInfo: () => ({ id: 'sessions', title: 'Replays', icon: Database }), Component: RecordingsList },
-        // Alerts
-        { pattern: '/alerts/emails', getInfo: () => ({ id: 'alerts-emails', title: 'Email Alerts', icon: Mail }), Component: AlertEmails },
-        {
-            pattern: '/sessions/:sessionId',
-            getInfo: (p) => ({ id: `session-${p.sessionId}`, title: `Replay ${(p.sessionId || '').replace('session_', '').substring(0, 8)}...`, icon: Play }),
-            Component: RecordingDetail,
-            getProps: (p) => ({ sessionId: p.sessionId })
-        },
-        {
-            pattern: '/stability/crashes/:projectId/:crashId',
-            getInfo: (p) => ({ id: `crash-${p.crashId}`, title: `Crash ${(p.crashId || '').substring(0, 8)}...`, icon: AlertOctagon }),
-            Component: CrashDetail,
-            getProps: (p) => ({ crashId: p.crashId, projectId: p.projectId })
-        },
-        {
-            pattern: '/stability/anrs/:projectId/:anrId',
-            getInfo: (p) => ({ id: `anr-${p.anrId}`, title: `ANR ${(p.anrId || '').substring(0, 8)}...`, icon: Clock }),
-            Component: ANRDetail,
-            getProps: (p) => ({ anrId: p.anrId, projectId: p.projectId })
-        },
-        {
-            pattern: '/stability/errors/:projectId/:errorId',
-            getInfo: (p) => ({ id: `error-${p.errorId}`, title: `Error ${(p.errorId || '').substring(0, 8)}...`, icon: Terminal }),
-            Component: ErrorDetail,
-            getProps: (p) => ({ errorId: p.errorId, projectId: p.projectId })
-        },
+    prefetchData?: (context: TabPrefetchContext) => Promise<unknown>;
+};
 
-        { pattern: '/team', getInfo: () => ({ id: 'team', title: 'Team', icon: Users }), Component: TeamSettings },
-        { pattern: '/billing', getInfo: () => ({ id: 'billing', title: 'Billing', icon: CreditCard }), Component: BillingSettings },
-        { pattern: '/account', getInfo: () => ({ id: 'account', title: 'Account', icon: User }), Component: AccountSettings },
-        // Settings with projectId
-        {
-            pattern: '/settings/:projectId',
-            getInfo: (p) => ({ id: `settings-${p.projectId}`, title: 'Project Settings', icon: Settings }),
-            Component: ProjectSettings,
-            getProps: (p) => ({ projectId: p.projectId })
+const DEFAULT_PREFETCH_TIME_RANGE = '30d';
+
+const loadGeneralOverview = () => import('~/features/app/general/index/route').then((module) => ({ default: module.GeneralOverview }));
+const loadIssueDetail = () => import('~/features/app/general/detail/route').then((module) => ({ default: module.IssueDetail }));
+const loadRecordingsList = () => import('~/features/app/sessions/index/route').then((module) => ({ default: module.RecordingsList }));
+const loadRecordingDetail = () => import('~/features/app/sessions/detail/route').then((module) => ({ default: module.RecordingDetail }));
+const loadApiAnalytics = () => import('~/features/app/analytics/api/route').then((module) => ({ default: module.ApiAnalytics }));
+const loadDevices = () => import('~/features/app/analytics/devices/route').then((module) => ({ default: module.Devices }));
+const loadGeo = () => import('~/features/app/analytics/geo/route').then((module) => ({ default: module.Geo }));
+const loadJourneys = () => import('~/features/app/analytics/journeys/route').then((module) => ({ default: module.Journeys }));
+const loadHeatmaps = () => import('~/features/app/analytics/heatmaps/route').then((module) => ({ default: module.Heatmaps }));
+const loadAlertEmails = () => import('~/features/app/alerts/email/route').then((module) => ({ default: module.AlertEmails }));
+const loadCrashesList = () => import('~/features/app/stability/crashes/index/route').then((module) => ({ default: module.CrashesList }));
+const loadCrashDetail = () => import('~/features/app/stability/crashes/detail/route').then((module) => ({ default: module.CrashDetail }));
+const loadANRsList = () => import('~/features/app/stability/anrs/index/route').then((module) => ({ default: module.ANRsList }));
+const loadANRDetail = () => import('~/features/app/stability/anrs/detail/route').then((module) => ({ default: module.ANRDetail }));
+const loadErrorsList = () => import('~/features/app/stability/errors/index/route').then((module) => ({ default: module.ErrorsList }));
+const loadErrorDetail = () => import('~/features/app/stability/errors/detail/route').then((module) => ({ default: module.ErrorDetail }));
+const loadTeamSettings = () => import('~/features/app/team/route').then((module) => ({ default: module.TeamSettings }));
+const loadBillingSettings = () => import('~/features/app/billing/route').then((module) => ({ default: module.BillingSettings }));
+const loadAccountSettings = () => import('~/features/app/account/route').then((module) => ({ default: module.AccountSettings }));
+const loadProjectSettings = () => import('~/features/app/settings/project/route').then((module) => ({ default: module.ProjectSettings }));
+const loadSearch = () => import('~/features/app/search/route').then((module) => ({ default: module.Search }));
+
+const routes: RouteDefinition[] = [
+    {
+        pattern: '/general',
+        getInfo: () => ({ id: 'general', title: 'General', icon: MessageSquareWarning }),
+        Component: React.lazy(loadGeneralOverview),
+        loadComponent: loadGeneralOverview,
+        prefetchData: async ({ projectId, timeRange }) => {
+            if (!projectId) return;
+            await getDashboardOverview(projectId, timeRange || DEFAULT_PREFETCH_TIME_RANGE);
         },
-        { pattern: '/search', getInfo: () => ({ id: 'search', title: 'New Tab', icon: SearchIcon }), Component: Search },
-    ];
+    },
+    {
+        pattern: '/general/:issueId',
+        getInfo: (p) => ({ id: `issue-${p.issueId}`, title: `Issue ${(p.issueId || '').substring(0, 8)}...`, icon: MessageSquareWarning }),
+        Component: React.lazy(loadIssueDetail),
+        loadComponent: loadIssueDetail,
+        getProps: (p) => ({ issueId: p.issueId }),
+    },
+    { pattern: '/issues', getInfo: () => ({ id: 'general', title: 'General', icon: MessageSquareWarning }), Component: React.lazy(loadGeneralOverview), loadComponent: loadGeneralOverview },
+    {
+        pattern: '/issues/:issueId',
+        getInfo: (p) => ({ id: `issue-${p.issueId}`, title: `Issue ${(p.issueId || '').substring(0, 8)}...`, icon: MessageSquareWarning }),
+        Component: React.lazy(loadIssueDetail),
+        loadComponent: loadIssueDetail,
+        getProps: (p) => ({ issueId: p.issueId }),
+    },
+    {
+        pattern: '/analytics/api',
+        getInfo: () => ({ id: 'analytics-api', title: 'API Insights', icon: Activity }),
+        Component: React.lazy(loadApiAnalytics),
+        loadComponent: loadApiAnalytics,
+        prefetchData: async ({ projectId, timeRange }) => {
+            if (!projectId) return;
+            await getApiOverview(projectId, timeRange || DEFAULT_PREFETCH_TIME_RANGE);
+        },
+    },
+    {
+        pattern: '/analytics/journeys',
+        getInfo: () => ({ id: 'analytics-journeys', title: 'User Journeys', icon: Map }),
+        Component: React.lazy(loadJourneys),
+        loadComponent: loadJourneys,
+        prefetchData: async ({ projectId, timeRange }) => {
+            if (!projectId) return;
+            await getJourneysOverview(projectId, timeRange || DEFAULT_PREFETCH_TIME_RANGE);
+        },
+    },
+    {
+        pattern: '/analytics/heatmaps',
+        getInfo: () => ({ id: 'analytics-heatmaps', title: 'Heatmaps', icon: Flame }),
+        Component: React.lazy(loadHeatmaps),
+        loadComponent: loadHeatmaps,
+        prefetchData: async ({ projectId, timeRange }) => {
+            if (!projectId) return;
+            await getHeatmapsOverview(projectId, timeRange || DEFAULT_PREFETCH_TIME_RANGE);
+        },
+    },
+    {
+        pattern: '/analytics/devices',
+        getInfo: () => ({ id: 'analytics-devices', title: 'Devices', icon: Smartphone }),
+        Component: React.lazy(loadDevices),
+        loadComponent: loadDevices,
+        prefetchData: async ({ projectId, timeRange }) => {
+            if (!projectId) return;
+            await getDevicesOverview(projectId, timeRange || DEFAULT_PREFETCH_TIME_RANGE);
+        },
+    },
+    {
+        pattern: '/analytics/geo',
+        getInfo: () => ({ id: 'analytics-geo', title: 'Geographic', icon: Globe }),
+        Component: React.lazy(loadGeo),
+        loadComponent: loadGeo,
+        prefetchData: async ({ projectId, timeRange }) => {
+            if (!projectId) return;
+            await getGeoOverview(projectId, timeRange || DEFAULT_PREFETCH_TIME_RANGE);
+        },
+    },
+    {
+        pattern: '/stability/crashes',
+        getInfo: () => ({ id: 'stability-crashes', title: 'Crashes', icon: AlertOctagon }),
+        Component: React.lazy(loadCrashesList),
+        loadComponent: loadCrashesList,
+        prefetchData: async ({ projectId, timeRange }) => {
+            if (!projectId) return;
+            await getCrashesOverview(projectId, timeRange || DEFAULT_PREFETCH_TIME_RANGE);
+        },
+    },
+    {
+        pattern: '/stability/anrs',
+        getInfo: () => ({ id: 'stability-anrs', title: 'ANRs', icon: Clock }),
+        Component: React.lazy(loadANRsList),
+        loadComponent: loadANRsList,
+        prefetchData: async ({ projectId, timeRange }) => {
+            if (!projectId) return;
+            await getANRsOverview(projectId, timeRange || DEFAULT_PREFETCH_TIME_RANGE);
+        },
+    },
+    {
+        pattern: '/stability/errors',
+        getInfo: () => ({ id: 'stability-errors', title: 'Errors', icon: Terminal }),
+        Component: React.lazy(loadErrorsList),
+        loadComponent: loadErrorsList,
+        prefetchData: async ({ projectId, timeRange }) => {
+            if (!projectId) return;
+            await getErrorsOverview(projectId, timeRange || DEFAULT_PREFETCH_TIME_RANGE);
+        },
+    },
+    {
+        pattern: '/sessions',
+        getInfo: () => ({ id: 'sessions', title: 'Replays', icon: Database }),
+        Component: React.lazy(loadRecordingsList),
+        loadComponent: loadRecordingsList,
+        prefetchData: async ({ projectId, timeRange }) => {
+            if (!projectId) return;
+            await getSessionsPaginated({
+                projectId,
+                timeRange: timeRange || DEFAULT_PREFETCH_TIME_RANGE,
+                limit: 50,
+                includeTotal: false,
+                hasRecording: true,
+            });
+        },
+    },
+    {
+        pattern: '/alerts/emails',
+        getInfo: () => ({ id: 'alerts-emails', title: 'Email Alerts', icon: Mail }),
+        Component: React.lazy(loadAlertEmails),
+        loadComponent: loadAlertEmails,
+    },
+    {
+        pattern: '/sessions/:sessionId',
+        getInfo: (p) => ({ id: `session-${p.sessionId}`, title: `Replay ${(p.sessionId || '').replace('session_', '').substring(0, 8)}...`, icon: Play }),
+        Component: React.lazy(loadRecordingDetail),
+        loadComponent: loadRecordingDetail,
+        getProps: (p) => ({ sessionId: p.sessionId }),
+    },
+    {
+        pattern: '/stability/crashes/:projectId/:crashId',
+        getInfo: (p) => ({ id: `crash-${p.crashId}`, title: `Crash ${(p.crashId || '').substring(0, 8)}...`, icon: AlertOctagon }),
+        Component: React.lazy(loadCrashDetail),
+        loadComponent: loadCrashDetail,
+        getProps: (p) => ({ crashId: p.crashId, projectId: p.projectId }),
+    },
+    {
+        pattern: '/stability/anrs/:projectId/:anrId',
+        getInfo: (p) => ({ id: `anr-${p.anrId}`, title: `ANR ${(p.anrId || '').substring(0, 8)}...`, icon: Clock }),
+        Component: React.lazy(loadANRDetail),
+        loadComponent: loadANRDetail,
+        getProps: (p) => ({ anrId: p.anrId, projectId: p.projectId }),
+    },
+    {
+        pattern: '/stability/errors/:projectId/:errorId',
+        getInfo: (p) => ({ id: `error-${p.errorId}`, title: `Error ${(p.errorId || '').substring(0, 8)}...`, icon: Terminal }),
+        Component: React.lazy(loadErrorDetail),
+        loadComponent: loadErrorDetail,
+        getProps: (p) => ({ errorId: p.errorId, projectId: p.projectId }),
+    },
+    { pattern: '/team', getInfo: () => ({ id: 'team', title: 'Team', icon: Users }), Component: React.lazy(loadTeamSettings), loadComponent: loadTeamSettings },
+    { pattern: '/billing', getInfo: () => ({ id: 'billing', title: 'Billing', icon: CreditCard }), Component: React.lazy(loadBillingSettings), loadComponent: loadBillingSettings },
+    { pattern: '/account', getInfo: () => ({ id: 'account', title: 'Account', icon: User }), Component: React.lazy(loadAccountSettings), loadComponent: loadAccountSettings },
+    {
+        pattern: '/settings/:projectId',
+        getInfo: (p) => ({ id: `settings-${p.projectId}`, title: 'Project Settings', icon: Settings }),
+        Component: React.lazy(loadProjectSettings),
+        loadComponent: loadProjectSettings,
+        getProps: (p) => ({ projectId: p.projectId }),
+    },
+    { pattern: '/search', getInfo: () => ({ id: 'search', title: 'New Tab', icon: SearchIcon }), Component: React.lazy(loadSearch), loadComponent: loadSearch },
+];
+
+function stripRoutePrefix(pathname: string): string {
+    return pathname.replace(/^\/(dashboard|demo)/, '');
+}
+
+function findRoute(pathname: string): RouteDefinition | null {
+    const pathWithoutPrefix = stripRoutePrefix(pathname);
+    for (const route of routes) {
+        if (matchPath(route.pattern, pathWithoutPrefix)) {
+            return route;
+        }
+    }
+    return null;
+}
 
 export const TabRegistry = {
-    // Get just the tab info (id, title, icon) for a path - used by TabContext
     getTabInfo: (pathname: string): TabInfo | null => {
-        // Strip /dashboard/ or /demo/ prefix before matching
-        const pathWithoutPrefix = pathname.replace(/^\/(dashboard|demo)/, '');
+        const pathWithoutPrefix = stripRoutePrefix(pathname);
 
         for (const route of routes) {
             const match = matchPath(route.pattern, pathWithoutPrefix);
@@ -141,7 +277,6 @@ export const TabRegistry = {
         return null;
     },
 
-    // Get full definition including component - used for rendering
     resolve: (pathname: string): TabDefinition | null => {
         for (const route of routes) {
             const match = matchPath(route.pattern, pathname);
@@ -151,10 +286,22 @@ export const TabRegistry = {
                 return {
                     ...info,
                     Component: route.Component,
-                    props: route.getProps?.(params)
+                    props: route.getProps?.(params),
                 };
             }
         }
         return null;
-    }
+    },
+
+    prefetch: (pathname: string, context: TabPrefetchContext = {}): void => {
+        const route = findRoute(pathname);
+        if (!route) return;
+
+        if (route.loadComponent) {
+            void route.loadComponent();
+        }
+        if (route.prefetchData) {
+            void route.prefetchData(context);
+        }
+    },
 };

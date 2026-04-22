@@ -98,6 +98,47 @@ apply_unlabeled_support_manifests() {
   kubectl apply -f "${RENDER_DIR}/ingress.yaml"
 }
 
+apply_cnpg_cluster_manifest() {
+  local cnpg_manifest="${RENDER_DIR}/cnpg/postgres-cnpg.yaml"
+  if [ ! -f "${cnpg_manifest}" ]; then
+    log "Skipping CNPG manifest apply (file not found)"
+    return
+  fi
+
+  section "Applying CNPG Cluster"
+  kubectl apply -f "${cnpg_manifest}"
+}
+
+legacy_postgres_can_be_removed() {
+  local direct_url pooled_url
+  direct_url="$(kubectl get secret postgres-secret -n "${NAMESPACE}" -o jsonpath='{.data.DATABASE_URL}' 2>/dev/null | base64 -d 2>/dev/null || true)"
+  pooled_url="$(kubectl get secret postgres-secret -n "${NAMESPACE}" -o jsonpath='{.data.PGBOUNCER_URL}' 2>/dev/null | base64 -d 2>/dev/null || true)"
+
+  if [[ "${direct_url}" == *"@postgres:"* ]]; then
+    log "Legacy postgres removal skipped: postgres-secret DATABASE_URL still points at postgres service."
+    return 1
+  fi
+
+  if [[ "${pooled_url}" == *"@postgres:"* ]]; then
+    log "Legacy postgres removal skipped: postgres-secret PGBOUNCER_URL still points at postgres service."
+    return 1
+  fi
+
+  return 0
+}
+
+remove_legacy_postgres() {
+  section "Removing Legacy PostgreSQL"
+
+  if ! legacy_postgres_can_be_removed; then
+    return
+  fi
+
+  log "Deleting legacy postgres StatefulSet/service now that prod points at CNPG..."
+  kubectl delete statefulset postgres -n "${NAMESPACE}" --ignore-not-found
+  kubectl delete service postgres -n "${NAMESPACE}" --ignore-not-found
+}
+
 wait_for_postgres() {
   section "Waiting For PostgreSQL"
   local label="cnpg.io/cluster=postgres,cnpg.io/instanceRole=primary"
@@ -259,6 +300,7 @@ main() {
   ensure_cert_manager
   ensure_grafana_secret
   apply_unlabeled_support_manifests
+  apply_cnpg_cluster_manifest
 
   bash "${ROOT_DIR}/scripts/k8s/check-archive-sync.sh"
 
@@ -328,6 +370,7 @@ main() {
   wait_for_postgres
   wait_for_deployment pgbouncer
   wait_for_job
+  remove_legacy_postgres
   print_migration_status "after"
 
   section "Waiting For Rollouts"

@@ -22,6 +22,22 @@ const app = express();
 const PORT = process.env.PORT || 8080;
 const API_URL = process.env.API_URL || 'http://api:3000';
 const isProduction = process.env.NODE_ENV === 'production';
+const EDGE_CACHEABLE_HTML_PATTERNS = [
+  /^\/$/,
+  /^\/login$/,
+  /^\/pricing$/,
+  /^\/docs(?:\/.*)?$/,
+  /^\/contribute$/,
+  /^\/engineering(?:\/.*)?$/,
+  /^\/terms-of-service$/,
+  /^\/privacy-policy$/,
+  /^\/dpa$/,
+  /^\/changelog$/,
+];
+
+function isEdgeCacheableHtmlPath(pathname) {
+  return EDGE_CACHEABLE_HTML_PATTERNS.some((pattern) => pattern.test(pathname));
+}
 
 // Security headers (fallback if Traefik middleware fails)
 if (isProduction) {
@@ -125,6 +141,22 @@ app.use(express.static(buildClientPath, {
   immutable: true,
   index: false, // Don't serve index.html for directory requests
 }));
+
+app.use((req, res, next) => {
+  if ((req.method !== 'GET' && req.method !== 'HEAD') || req.path.startsWith('/api')) {
+    next();
+    return;
+  }
+
+  const acceptsHtml = req.headers.accept?.includes('text/html') ?? false;
+  if (acceptsHtml && isEdgeCacheableHtmlPath(req.path)) {
+    // Let Cloudflare cache public marketing/login HTML briefly while browsers
+    // still revalidate on navigation.
+    res.setHeader('Cache-Control', 'public, max-age=0, s-maxage=60, stale-while-revalidate=300');
+  }
+
+  next();
+});
 
 // Handle all other requests with React Router SSR
 // Use relative path for dynamic import (ES modules require file:// URLs or relative paths)

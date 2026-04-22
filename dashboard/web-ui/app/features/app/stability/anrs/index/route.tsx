@@ -5,15 +5,13 @@ import {
   ChevronDown,
   ChevronRight,
   Clock,
-  Play,
   Search,
-  Sparkles,
 } from 'lucide-react';
 import { useNavigate, useSearchParams } from 'react-router';
 import { useDemoMode } from '~/shared/providers/DemoModeContext';
 import { useSessionData } from '~/shared/providers/SessionContext';
 import { usePathPrefix } from '~/shell/routing/usePathPrefix';
-import { api, ANRRecord } from '~/shared/api/client';
+import { getANRsOverview, type ANRRecord } from '~/shared/api/client';
 import { TimeFilter, TimeRange, DEFAULT_TIME_RANGE } from '~/shared/ui/core/TimeFilter';
 import { MiniSessionCard } from '~/shared/ui/core/MiniSessionCard';
 import { formatLastSeen } from '~/shared/lib/formatDates';
@@ -29,10 +27,9 @@ const formatCompact = (value: number): string => {
   return value.toString();
 };
 
-const getStackPreview = (threadState: string | null): string => {
+const getThreadStateDetails = (threadState: string | null): string => {
   if (!threadState) return 'No main-thread snapshot available.';
-  const lines = threadState.split('\n').filter((line) => line.trim().length > 0);
-  return lines.slice(0, 8).join('\n');
+  return threadState;
 };
 
 export const ANRsList: React.FC = () => {
@@ -59,10 +56,11 @@ export const ANRsList: React.FC = () => {
 
       setIsLoading(true);
       try {
-        const data = await api.getANRs(currentProject?.id || 'demo', { timeRange });
+        const data = await getANRsOverview(currentProject?.id || 'demo', timeRange);
         setAnrs(data.anrs || []);
       } catch (error) {
         console.error('Failed to fetch ANRs:', error);
+        setAnrs([]);
       } finally {
         setIsLoading(false);
       }
@@ -124,7 +122,7 @@ export const ANRsList: React.FC = () => {
     return () => clearInterval(scrollInterval);
   }, [focusId, isLoading, anrs]);
 
-  if (isLoading) {
+  if (isLoading && anrs.length === 0) {
     return <DashboardGhostLoader variant="list" />;
   }
 
@@ -240,50 +238,53 @@ export const ANRsList: React.FC = () => {
 
                   {isExpanded && (
                     <div className="border-t border-slate-200 bg-slate-50/70 px-6 py-6">
-                      <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
-                        <div className="space-y-4 lg:col-span-8">
-                          <NeoCard variant="flat" disablePadding className="overflow-hidden">
-                            <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3">
-                              <h4 className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-600">
-                                <Activity size={14} className="text-violet-500" />
-                                Main Thread Snapshot
-                              </h4>
-                            </div>
-                            <div className="max-h-80 overflow-x-auto bg-slate-950 p-5 font-mono text-xs leading-relaxed text-violet-200">
-                              {getStackPreview(anr.threadState)}
+                      <div className="space-y-4">
+                        <NeoCard variant="flat" disablePadding className="overflow-hidden">
+                          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-4 py-3">
+                            <h4 className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-600">
+                              <Activity size={14} className="text-violet-500" />
+                              Root Cause Details
+                            </h4>
+                            <NeoButton
+                              variant="secondary"
+                              size="sm"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                navigate(`${pathPrefix}/stability/anrs/${currentProject?.id}/${anr.id}`);
+                              }}
+                              rightIcon={<ChevronRight size={14} />}
+                            >
+                              Open More Details
+                            </NeoButton>
+                          </div>
+                          <div className="max-h-96 overflow-auto bg-slate-950 p-5 font-mono text-xs leading-relaxed text-violet-200">
+                            {getThreadStateDetails(anr.threadState)}
+                          </div>
+                        </NeoCard>
+
+                        <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
+                          <NeoCard variant="flat" className="p-4">
+                            <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Freeze Duration</p>
+                            <p className="mt-1 text-sm font-semibold text-slate-900">{(anr.durationMs / 1000).toFixed(2)}s</p>
+                          </NeoCard>
+                          <NeoCard variant="flat" className="p-4">
+                            <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Detected At</p>
+                            <p className="mt-1 text-sm font-semibold text-slate-900">{new Date(anr.timestamp).toLocaleString()}</p>
+                          </NeoCard>
+                          <NeoCard variant="flat" className="p-4">
+                            <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Environment</p>
+                            <div className="mt-2 flex flex-wrap gap-2">
+                              <NeoBadge variant="neutral" size="sm">
+                                {anr.deviceMetadata?.deviceModel || 'Unknown'}
+                              </NeoBadge>
+                              <NeoBadge variant="anr" size="sm">
+                                {anr.deviceMetadata?.osVersion ? `OS ${anr.deviceMetadata.osVersion}` : 'OS unknown'}
+                              </NeoBadge>
                             </div>
                           </NeoCard>
-
-                          <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-                            <NeoCard variant="flat" className="p-4">
-                              <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Freeze Duration</p>
-                              <p className="mt-1 text-sm font-semibold text-slate-900">{(anr.durationMs / 1000).toFixed(2)}s</p>
-                            </NeoCard>
-                            <NeoCard variant="flat" className="p-4">
-                              <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Detected At</p>
-                              <p className="mt-1 text-sm font-semibold text-slate-900">{new Date(anr.timestamp).toLocaleString()}</p>
-                            </NeoCard>
-                            <NeoCard variant="flat" className="p-4">
-                              <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Environment</p>
-                              <div className="mt-2 flex flex-wrap gap-2">
-                                <NeoBadge variant="neutral" size="sm">
-                                  {anr.deviceMetadata?.deviceModel || 'Unknown'}
-                                </NeoBadge>
-                                <NeoBadge variant="anr" size="sm">
-                                  {anr.deviceMetadata?.osVersion ? `OS ${anr.deviceMetadata.osVersion}` : 'OS unknown'}
-                                </NeoBadge>
-                              </div>
-                            </NeoCard>
-                          </div>
-                        </div>
-
-                        <div className="space-y-4 lg:col-span-4">
                           <NeoCard variant="flat" className="p-4">
-                            <div className="mb-3 flex items-center justify-between">
-                              <h4 className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-600">
-                                <Play size={14} className="text-indigo-500" />
-                                Evidence Sample
-                              </h4>
+                            <div className="flex items-center justify-between">
+                              <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Evidence Sample</p>
                               {anr.sessionId && (
                                 <NeoButton
                                   variant="ghost"
@@ -297,7 +298,7 @@ export const ANRsList: React.FC = () => {
                                 </NeoButton>
                               )}
                             </div>
-                            <div className="flex justify-center border border-gray-200 bg-white px-3 py-4" style={{ boxShadow: '2px 2px 0 0 rgba(0,0,0,0.07)' }}>
+                            <div className="mt-3 flex justify-center border border-gray-200 bg-white px-3 py-4" style={{ boxShadow: '2px 2px 0 0 rgba(0,0,0,0.07)' }}>
                               <MiniSessionCard
                                 session={{
                                   id: anr.sessionId,
@@ -307,29 +308,6 @@ export const ANRsList: React.FC = () => {
                                 onClick={() => navigate(`${pathPrefix}/sessions/${anr.sessionId}`)}
                               />
                             </div>
-                          </NeoCard>
-
-                          <NeoCard variant="flat" className="border-violet-200 bg-violet-50 p-4">
-                            <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-violet-700">
-                              <Sparkles size={14} />
-                              Root Cause Focus
-                            </p>
-                            <p className="mt-2 text-xs leading-relaxed text-violet-700/90">
-                              Prioritize expensive synchronous work and long-running callbacks in this snapshot. Replay
-                              context helps identify exactly what blocked the main thread.
-                            </p>
-                            <NeoButton
-                              variant="primary"
-                              size="sm"
-                              className="mt-4"
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                navigate(`${pathPrefix}/stability/anrs/${currentProject?.id}/${anr.id}`);
-                              }}
-                              rightIcon={<ChevronRight size={14} />}
-                            >
-                              Analyze Root Cause
-                            </NeoButton>
                           </NeoCard>
                         </div>
                       </div>

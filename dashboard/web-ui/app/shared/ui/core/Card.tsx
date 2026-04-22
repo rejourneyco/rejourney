@@ -18,22 +18,22 @@ export const Card: React.FC<CardProps> = ({
   ...props
 }) => {
   const variantStyles = {
-    default: 'dashboard-card-surface',
-    flat: 'dashboard-card-surface shadow-none',
-    subtle: 'dashboard-card-surface bg-slate-50 shadow-none',
+    default: 'bg-white border-2 border-black shadow-neo-sm hover:shadow-neo transition-all duration-200',
+    flat: 'bg-white border-2 border-black',
+    subtle: 'bg-slate-50 border-2 border-slate-300 border-dashed',
   };
 
   const headerStyles = {
-    default: 'border-b border-slate-100 bg-white',
-    flat: 'border-b border-slate-200 bg-slate-50',
-    subtle: 'border-b border-slate-200 bg-slate-50',
+    default: 'border-b-2 border-black bg-slate-50',
+    flat: 'border-b-2 border-black bg-slate-50',
+    subtle: 'border-b-2 border-slate-200 bg-slate-50',
   };
 
   return (
     <div className={`${variantStyles[variant]} overflow-hidden ${className}`} {...props}>
       {(title || headerAction) && (
         <div className={`px-5 py-3 flex justify-between items-center ${headerStyles[variant]}`}>
-          {title && <h3 className="text-sm font-semibold text-slate-900">{title}</h3>}
+          {title && <h3 className="text-xs font-black uppercase tracking-widest text-black">{title}</h3>}
           {headerAction && <div>{headerAction}</div>}
         </div>
       )}

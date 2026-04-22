@@ -31,9 +31,7 @@ import { SankeyEvidenceSession, SankeyJourney } from '~/features/app/analytics/j
 import { KpiCardItem, KpiCardsGrid, computePeriodDeltaFromSeries } from '~/features/app/shared/dashboard/KpiCardsGrid';
 import { DashboardGhostLoader } from '~/shared/ui/core/DashboardGhostLoader';
 import {
-    getInsightsTrends,
-    getJourneyObservability,
-    getUserEngagementTrends,
+    getJourneysOverview,
     InsightsTrends,
     ObservabilityJourneySummary,
     UserEngagementTrends,
@@ -184,55 +182,25 @@ export const Journeys: React.FC = () => {
         setIsLoading(true);
         setPartialError(null);
 
-        const projectId = selectedProject.id;
-        const journeyRange = toJourneyTimeRange(timeRange);
-
-        // Sankey + health cards only need journey summary; trends/segments load in parallel without blocking the shell.
-        void getJourneyObservability(projectId, journeyRange, 'summary')
-            .then((summary) => {
+        void getJourneysOverview(selectedProject.id, timeRange)
+            .then((overview) => {
                 if (isCancelled) return;
-                setData(summary);
-                void getJourneyObservability(projectId, journeyRange, 'full')
-                    .then((fullJourney) => {
-                        if (!isCancelled) setData(fullJourney);
-                    })
-                    .catch(() => {
-                        // Keep the summary payload if the richer evidence pass fails.
-                    });
+                setData(overview.journey);
+                setTrends(overview.trends);
+                setUserEngagementTrends(overview.userEngagement);
+                setPartialError(overview.failedSections.length > 0 ? `${overview.failedSections.join(', ')} unavailable.` : null);
             })
             .catch((err) => {
-                console.error('Journey summary failed:', err);
+                console.error('Journeys overview failed:', err);
                 if (!isCancelled) {
                     setData(null);
-                    setPartialError('Journey summary unavailable.');
+                    setTrends(null);
+                    setUserEngagementTrends(null);
+                    setPartialError('Journey overview unavailable.');
                 }
             })
             .finally(() => {
                 if (!isCancelled) setIsLoading(false);
-            });
-
-        void getInsightsTrends(projectId, toTrendsRange(timeRange))
-            .then((v) => {
-                if (!isCancelled) setTrends(v);
-            })
-            .catch((err) => {
-                console.error('Journey trends failed:', err);
-                if (!isCancelled) {
-                    setTrends(null);
-                    setPartialError((prev) => prev || 'Trend window unavailable.');
-                }
-            });
-
-        void getUserEngagementTrends(projectId, journeyRange)
-            .then((v) => {
-                if (!isCancelled) setUserEngagementTrends(v);
-            })
-            .catch((err) => {
-                console.error('User engagement trends failed:', err);
-                if (!isCancelled) {
-                    setUserEngagementTrends(null);
-                    setPartialError((prev) => prev || 'User segment mix unavailable.');
-                }
             });
 
         return () => {
@@ -718,7 +686,7 @@ export const Journeys: React.FC = () => {
 
     const hasData = Boolean(data && totalSessions > 0);
 
-    if (isLoading && selectedProject?.id) {
+    if (isLoading && selectedProject?.id && !data) {
         return <DashboardGhostLoader variant="analytics" />;
     }
 
@@ -745,7 +713,7 @@ export const Journeys: React.FC = () => {
                 )}
 
                 {!isLoading && selectedProject?.id && !hasData && (
-                    <div className="border border-gray-200 bg-white p-6 text-sm text-slate-600" style={{ boxShadow: '2px 2px 0 0 rgba(0,0,0,0.07)' }}>
+                    <div className="dashboard-surface p-6 text-sm text-slate-600">
                         No journey activity matched this filter yet.
                     </div>
                 )}
@@ -765,9 +733,9 @@ export const Journeys: React.FC = () => {
                         />
 
                         <section className="grid grid-cols-1 gap-6 xl:grid-cols-2">
-                            <div className="border border-gray-200 bg-white p-5" style={{ boxShadow: '2px 2px 0 0 rgba(0,0,0,0.07)' }}>
+                            <div className="dashboard-surface p-5">
                                 <div className="mb-4 flex items-center justify-between">
-                                    <h2 className="text-lg font-black font-mono uppercase tracking-wide text-black">User Type Mix</h2>
+                                    <h2 className="text-lg font-semibold uppercase tracking-wide text-black">User Type Mix</h2>
                                     <Users className="h-5 w-5 text-blue-600" />
                                 </div>
                                 <div className="h-[260px]">
@@ -813,9 +781,9 @@ export const Journeys: React.FC = () => {
                                 </div>
                             </div>
 
-                            <div className="border border-gray-200 bg-white p-5" style={{ boxShadow: '2px 2px 0 0 rgba(0,0,0,0.07)' }}>
+                            <div className="dashboard-surface p-5">
                                 <div className="mb-4 flex items-center justify-between">
-                                    <h2 className="text-lg font-black font-mono uppercase tracking-wide text-black">Top Leakage Stages</h2>
+                                    <h2 className="text-lg font-semibold uppercase tracking-wide text-black">Top Leakage Stages</h2>
                                     <AlertTriangle className="h-5 w-5 text-amber-600" />
                                 </div>
                                 <div className="h-[300px]">
@@ -832,11 +800,11 @@ export const Journeys: React.FC = () => {
                             </div>
                         </section>
 
-                        <section className="border border-gray-200 bg-white" style={{ boxShadow: '2px 2px 0 0 rgba(0,0,0,0.07)' }}>
+                        <section className="dashboard-surface">
                             <div>
                                 <div className="border-b border-slate-200 px-5 py-4">
                                     <div className="flex items-center justify-between gap-3">
-                                        <h2 className="text-lg font-black font-mono uppercase tracking-wide text-black">Journey Flow Map</h2>
+                                        <h2 className="text-lg font-semibold uppercase tracking-wide text-black">Journey Flow Map</h2>
                                         <Compass className="h-5 w-5 text-blue-600" />
                                     </div>
                                     <div className="mt-3 grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-4">
@@ -910,9 +878,9 @@ export const Journeys: React.FC = () => {
                         </section>
 
                         <section className="grid grid-cols-1 gap-6 xl:grid-cols-2">
-                            <div className="border border-gray-200 bg-white p-5" style={{ boxShadow: '2px 2px 0 0 rgba(0,0,0,0.07)' }}>
+                            <div className="dashboard-surface p-5">
                                 <div className="mb-4 flex items-center justify-between">
-                                    <h2 className="text-lg font-black font-mono uppercase tracking-wide text-black">Backtrack Loop Imbalance</h2>
+                                    <h2 className="text-lg font-semibold uppercase tracking-wide text-black">Backtrack Loop Imbalance</h2>
                                     <Compass className="h-5 w-5 text-indigo-600" />
                                 </div>
                                 <div className="h-[320px]">
@@ -957,9 +925,9 @@ export const Journeys: React.FC = () => {
                                 </div>
                             </div>
 
-                            <div className="border border-gray-200 bg-white p-5" style={{ boxShadow: '2px 2px 0 0 rgba(0,0,0,0.07)' }}>
+                            <div className="dashboard-surface p-5">
                                 <div className="mb-4 flex items-center justify-between">
-                                    <h2 className="text-lg font-black font-mono uppercase tracking-wide text-black">Backtrack Hotspots by Screen</h2>
+                                    <h2 className="text-lg font-semibold uppercase tracking-wide text-black">Backtrack Hotspots by Screen</h2>
                                     <AlertTriangle className="h-5 w-5 text-amber-600" />
                                 </div>
                                 <div className="h-[320px]">
@@ -1004,9 +972,9 @@ export const Journeys: React.FC = () => {
                         </section>
 
                         <section className="grid grid-cols-1 gap-6 xl:grid-cols-2">
-                            <div className="border border-gray-200 bg-white p-5" style={{ boxShadow: '2px 2px 0 0 rgba(0,0,0,0.07)' }}>
+                            <div className="dashboard-surface p-5">
                                 <div className="mb-4 flex items-center justify-between">
-                                    <h2 className="text-lg font-black font-mono uppercase tracking-wide text-black">Failure Signatures by Journey Cluster</h2>
+                                    <h2 className="text-lg font-semibold uppercase tracking-wide text-black">Failure Signatures by Journey Cluster</h2>
                                     <HeartPulse className="h-5 w-5 text-rose-600" />
                                 </div>
                                 <div className="h-[320px]">
@@ -1042,9 +1010,9 @@ export const Journeys: React.FC = () => {
                                 </div>
                             </div>
 
-                            <div className="border border-gray-200 bg-white p-5" style={{ boxShadow: '2px 2px 0 0 rgba(0,0,0,0.07)' }}>
+                            <div className="dashboard-surface p-5">
                                 <div className="mb-4 flex items-center justify-between">
-                                    <h2 className="text-lg font-black font-mono uppercase tracking-wide text-black">Daily Interaction Load</h2>
+                                    <h2 className="text-lg font-semibold uppercase tracking-wide text-black">Daily Interaction Load</h2>
                                     <Activity className="h-5 w-5 text-blue-600" />
                                 </div>
                                 <div className="h-[320px]">

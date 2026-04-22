@@ -12,23 +12,23 @@ export function Badge({
   ...props
 }: BadgeProps) {
 
-  const baseStyles = "inline-flex items-center rounded-md border-2 px-2.5 py-0.5 font-bold font-mono transition-colors focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2";
+  const baseStyles = "inline-flex items-center rounded-full border px-2.5 py-0.5 font-semibold transition-colors focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2";
 
   const variants = {
-    neutral: "border-slate-900 bg-slate-100 text-slate-900 hover:bg-slate-200",
-    primary: "border-slate-900 bg-blue-500 text-white hover:bg-blue-600",
-    secondary: "border-slate-900 bg-purple-500 text-white hover:bg-purple-600",
-    destructive: "border-slate-900 bg-red-500 text-white hover:bg-red-600",
-    outline: "border-slate-900 text-slate-900 bg-transparent hover:bg-slate-100",
-    success: "border-slate-900 bg-emerald-400 text-slate-900",
-    warning: "border-slate-900 bg-amber-400 text-slate-900",
-    error: "border-slate-900 bg-rose-500 text-white",
-    danger: "border-slate-900 bg-rose-500 text-white",
+    neutral: "border-slate-200 bg-slate-100 text-slate-800 hover:bg-slate-200",
+    primary: "border-sky-200 bg-sky-50 text-sky-700 hover:bg-sky-100",
+    secondary: "border-violet-200 bg-violet-50 text-violet-700 hover:bg-violet-100",
+    destructive: "border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100",
+    outline: "border-slate-200 text-slate-700 bg-transparent hover:bg-slate-100",
+    success: "border-emerald-200 bg-emerald-50 text-emerald-700",
+    warning: "border-amber-200 bg-amber-50 text-amber-700",
+    error: "border-rose-200 bg-rose-50 text-rose-700",
+    danger: "border-rose-200 bg-rose-50 text-rose-700",
   };
 
   const sizes = {
-    sm: "text-[10px] px-1.5 py-0.5 shadow-[2px_2px_0_0_#0f172a]",
-    md: "text-xs px-2.5 py-0.5 shadow-[2px_2px_0_0_#0f172a]",
+    sm: "text-[10px] px-1.5 py-0.5",
+    md: "text-xs px-2.5 py-0.5",
   }
 
   const variantStyles = variants[variant] || variants.neutral;

@@ -261,8 +261,7 @@ export const TabBar: React.FC<TabBarProps> = ({ pathPrefix = '', group = 'primar
 
     return (
         <div
-            className="dashboard-tabbar flex items-end gap-1 overflow-x-auto no-scrollbar border-b bg-slate-100 px-2 pt-2"
-            style={{ borderColor: '#cbd5e1' }}
+            className="flex items-end overflow-x-auto no-scrollbar bg-slate-50 border-b-2 border-black"
             onClick={() => setContextMenu(null)}
             onDragOver={(e) => e.preventDefault()}
             onDrop={(e) => {
@@ -274,31 +273,12 @@ export const TabBar: React.FC<TabBarProps> = ({ pathPrefix = '', group = 'primar
                 }
             }}
         >
-            <div className="flex flex-1 items-end gap-1 overflow-hidden min-w-0">
+            <div className="flex flex-1 items-end overflow-hidden pt-2 px-2 gap-[2px]">
                 {groupTabs.map((tab, index) => {
                     const isActive = tab.id === activeId;
                     const isDraggingOver = dragOverIndex === index;
                     const projectLabel = compactLabel(tab.projectName || selectedProject?.name, 'Project');
                     const TabIcon = tab.icon || FileText;
-                    const category = getTabCategory(tab.path, tab.id);
-                    const tabTheme = TAB_THEME_MAP[category];
-
-                    const tabStyle: React.CSSProperties = isActive
-                        ? {
-                            borderColor: '#cbd5e1',
-                            background: 'linear-gradient(180deg, #ffffff 0%, #ffffff 68%, #f8fafc 100%)',
-                            boxShadow: `inset 0 3px 0 0 ${tabTheme.accent}`,
-                        }
-                        : {
-                            borderColor: '#d7e0eb',
-                            backgroundColor: tabTheme.idleBg,
-                            boxShadow: `inset 0 2px 0 0 ${tabTheme.accent}99`,
-                        };
-
-                    if (isDraggingOver) {
-                        tabStyle.borderColor = tabTheme.accent;
-                        tabStyle.backgroundColor = tabTheme.idleHoverBg;
-                    }
 
                     return (
                         <div
@@ -311,39 +291,28 @@ export const TabBar: React.FC<TabBarProps> = ({ pathPrefix = '', group = 'primar
                             onClick={() => handleTabClick(tab)}
                             onContextMenu={(e) => handleContextMenu(e, tab.id)}
                             className={[
-                                'group relative flex flex-1 min-w-0 max-w-[260px] cursor-pointer select-none items-center gap-2 rounded-t-lg border border-b-0 px-3 py-2 text-xs transition-all duration-150',
-                                isActive ? 'z-20 -mb-px text-slate-900' : 'text-slate-600 hover:-translate-y-[1px] hover:text-slate-900',
+                                'group relative flex min-w-[120px] max-w-[220px] cursor-pointer select-none items-center gap-2 px-3 py-2 text-xs transition-all border-2 border-black border-b-0 -mb-[2px]',
+                                isActive ? 'bg-white text-black z-10 shadow-neo-sm transform translate-y-0.5 pb-[10px]' : 'bg-slate-200 text-slate-500 hover:bg-slate-100 hover:text-black z-0 opacity-90',
+                                isDraggingOver ? 'bg-blue-100' : ''
                             ].join(' ')}
-                            style={tabStyle}
                             title={`Project: ${projectLabel}\n${tab.title}`}
                         >
-                            <div
-                                className="absolute left-2 right-2 top-0 h-[3px] rounded-full"
-                                style={{ backgroundColor: tabTheme.accent, opacity: isActive ? 1 : 0.75 }}
-                            />
-
                             <div className="min-w-0 flex-1 flex items-center gap-2">
-                                <TabIcon className="h-3.5 w-3.5 shrink-0" style={{ color: tabTheme.accent }} />
-                                <div className="truncate text-[12px] leading-tight font-semibold">{tab.title}</div>
-                                <span
-                                    className="hidden shrink-0 items-center rounded-full px-1.5 py-0.5 text-[9px] font-bold tracking-[0.08em] text-inherit sm:inline-flex"
-                                    style={{ backgroundColor: tabTheme.badgeBg, color: tabTheme.badgeText }}
-                                >
-                                    {tabTheme.shortLabel}
-                                </span>
+                                <TabIcon className={`h-3.5 w-3.5 shrink-0 ${isActive ? 'text-black stroke-[3]' : 'text-slate-400 group-hover:text-black stroke-[2]'}`} />
+                                <div className={`truncate text-xs uppercase tracking-widest ${isActive ? 'font-black' : 'font-bold'}`}>{tab.title}</div>
                             </div>
 
-                            <div className={`flex items-center gap-0.5 shrink-0 ${isActive ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'} transition-opacity`}>
+                            <div className={`flex items-center shrink-0 ${isActive ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'} transition-opacity`}>
                                 {tab.isClosable && (
                                     <button
                                         onClick={(e) => {
                                             e.stopPropagation();
                                             closeTab(tab.id, e);
                                         }}
-                                        className="flex h-4 w-4 items-center justify-center rounded-sm text-slate-500 hover:bg-red-100 hover:text-red-600 transition-colors"
+                                        className="flex h-5 w-5 items-center justify-center text-black border-2 border-transparent hover:border-black hover:bg-red-500 hover:text-white transition-all shadow-none hover:shadow-[1px_1px_0px_0px_rgba(0,0,0,1)]"
                                         title="Close tab"
                                     >
-                                        <X className="h-3 w-3" />
+                                        <X className="h-3.5 w-3.5 stroke-[3]" />
                                     </button>
                                 )}
                             </div>
@@ -351,13 +320,12 @@ export const TabBar: React.FC<TabBarProps> = ({ pathPrefix = '', group = 'primar
                     );
                 })}
                 {groupTabs.length === 0 && (
-                    <div className="px-4 py-2 text-sm text-slate-500 italic">No open tabs</div>
+                    <div className="px-4 py-2 text-xs font-bold uppercase tracking-widest text-slate-400">No open tabs</div>
                 )}
                 {group === 'primary' && (
                     <button
                         onClick={handleNewTab}
-                        className="flex h-[35px] shrink-0 items-center justify-center rounded-t-lg border border-b-0 px-3 text-slate-600 transition-colors hover:text-slate-900"
-                        style={{ borderColor: '#d7e0eb', backgroundColor: '#e2e8f0' }}
+                        className="flex h-[34px] w-[34px] shrink-0 items-center justify-center border-2 border-black border-b-0 bg-slate-200 text-slate-500 hover:bg-white hover:text-black transition-colors -mb-[2px] ml-1"
                         title="New tab"
                     >
                         <Plus className="h-4 w-4" />
@@ -366,7 +334,7 @@ export const TabBar: React.FC<TabBarProps> = ({ pathPrefix = '', group = 'primar
             </div>
 
             {/* Controls Area */}
-            <div className="flex items-center gap-1 border-l border-slate-300 pl-2 ml-1 shrink-0 pb-1">
+            <div className="flex items-center gap-1 border-l border-slate-200 pl-2 ml-1 shrink-0 pb-1">
                 {group === 'primary' && (
                     <>
                         <button

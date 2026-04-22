@@ -152,9 +152,9 @@ export const ProjectLayout: React.FC<AppLayoutProps> = ({ children, pathPrefix =
   };
 
   return (
-    <div className="dashboard-modern dashboard-shell flex h-screen">
+    <div className="bg-slate-50 text-black font-sans flex h-screen antialiased selection:bg-[#5dadec] selection:text-black">
       {!isWarehouseRoute && (
-        <div className="w-0 shrink-0 overflow-visible md:w-auto md:shrink-0">
+        <div className="w-0 shrink-0 overflow-visible md:w-auto md:shrink-0 border-r-2 border-black bg-white z-20 shadow-[2px_0_0_0_rgba(0,0,0,1)]">
           <Sidebar
             currentProject={selectedProject}
             onProjectChange={handleProjectChange}
@@ -169,40 +169,39 @@ export const ProjectLayout: React.FC<AppLayoutProps> = ({ children, pathPrefix =
           />
         </div>
       )}
-      <div key={routeScopeKey} className="flex-1 flex flex-col overflow-hidden">
+      <div key={routeScopeKey} className="flex-1 flex flex-col overflow-hidden bg-slate-50 relative">
         {!isWarehouseRoute && <TopBar currentProject={selectedProject} />}
         {!isWarehouseRoute && (isManualRefreshing || showRefreshCompleteBar) && (
-          <div className="h-1 border-b border-slate-200 bg-slate-100 overflow-hidden">
+          <div className="h-1 bg-slate-200 overflow-hidden border-b-2 border-black relative z-10">
             <div className={`h-full ${isManualRefreshing
-              ? 'w-1/3 bg-gradient-to-r from-sky-500 via-cyan-400 to-sky-500 animate-[shimmer_1.1s_linear_infinite]'
-              : 'w-full bg-emerald-500 transition-all duration-300'
+              ? 'w-1/3 bg-black animate-[shimmer_1.1s_linear_infinite]'
+              : 'w-full bg-[#5dadec] transition-all duration-300'
               }`} />
           </div>
         )}
         {!isWarehouseRoute && projectsError && (
-          <div className="mx-4 mt-3 rounded-md border border-amber-300 bg-amber-50 px-4 py-2 text-sm text-amber-900">
+          <div className="mx-6 mt-4 border-2 border-black bg-red-100 shadow-neo-sm px-4 py-3 font-bold uppercase tracking-wider text-sm text-red-900">
             {projectsError}
           </div>
         )}
         <div
           key={contentScopeKey}
-          className={isWarehouseRoute ? 'flex-1 overflow-hidden' : 'flex-1 overflow-y-auto dashboard-content'}
+          className={isWarehouseRoute ? 'flex-1 overflow-hidden bg-slate-50' : 'flex-1 overflow-y-auto bg-slate-50'}
         >
           {isWarehouseRoute ? children : hasNoTeam ? (
-            <div className="mx-auto flex h-full w-full max-w-4xl items-center justify-center p-6">
-              <div className="w-full rounded-2xl border border-slate-200 bg-white p-8 shadow-sm">
-                <div className="mb-3 inline-flex items-center gap-2 rounded-full bg-sky-50 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-sky-700">
-                  <Layers3 className="h-3.5 w-3.5" />
-                  No Team Yet
+            <div className="mx-auto flex h-full w-full max-w-4xl items-center justify-center p-8">
+              <div className="w-full bg-white border-2 border-black p-10 shadow-neo">
+                <div className="mb-4 inline-flex h-12 w-12 items-center justify-center border-2 border-black bg-[#5dadec] text-black shadow-neo-sm">
+                  <Layers3 className="h-6 w-6 stroke-[3]" />
                 </div>
-                <h2 className="text-2xl font-semibold text-slate-900">Create a team to start using the dashboard.</h2>
-                <p className="mt-2 text-sm text-slate-600">
+                <h2 className="text-2xl font-black uppercase tracking-tight text-black">Create a team to start</h2>
+                <p className="mt-3 text-base font-medium text-slate-600">
                   Teams hold your projects, members, and billing. Once a team exists, you can add a project and data will appear here.
                 </p>
-                <div className="mt-6 flex flex-wrap gap-3">
+                <div className="mt-8 flex gap-4">
                   <button
                     onClick={openCreateTeamModal}
-                    className="inline-flex items-center gap-2 rounded-md bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800"
+                    className="inline-flex items-center gap-2 border-2 border-black bg-black px-6 py-3 text-sm font-black uppercase tracking-widest text-white shadow-neo-sm hover:-translate-y-0.5 hover:shadow-neo transition-all"
                   >
                     Create Team
                   </button>
@@ -210,29 +209,28 @@ export const ProjectLayout: React.FC<AppLayoutProps> = ({ children, pathPrefix =
               </div>
             </div>
           ) : shouldShowNoProjectState ? (
-            <div className="mx-auto flex h-full w-full max-w-4xl items-center justify-center p-6">
-              <div className="w-full rounded-2xl border border-slate-200 bg-white p-8 shadow-sm">
-                <div className="mb-3 inline-flex items-center gap-2 rounded-full bg-indigo-50 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-indigo-700">
-                  <Layers3 className="h-3.5 w-3.5" />
-                  Empty Team Workspace
+            <div className="mx-auto flex h-full w-full max-w-4xl items-center justify-center p-8">
+              <div className="w-full bg-white border-2 border-black p-10 shadow-neo">
+                <div className="mb-4 inline-flex h-12 w-12 items-center justify-center border-2 border-black bg-[#fef08a] text-black shadow-neo-sm">
+                  <FolderPlus className="h-6 w-6 stroke-[3]" />
                 </div>
-                <h2 className="text-2xl font-semibold text-slate-900">This team has no projects yet.</h2>
-                <p className="mt-2 text-sm text-slate-600">
+                <h2 className="text-2xl font-black uppercase tracking-tight text-black">Empty Team Workspace</h2>
+                <p className="mt-3 text-base font-medium text-slate-600">
                   You can create a project now, or continue managing your team and come back later.
                 </p>
-                <div className="mt-6 flex flex-wrap gap-3">
+                <div className="mt-8 flex flex-wrap gap-4">
                   <button
                     onClick={openCreateProjectModal}
-                    className="inline-flex items-center gap-2 rounded-md bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800"
+                    className="inline-flex items-center gap-2 border-2 border-black bg-[#5dadec] px-6 py-3 text-sm font-black uppercase tracking-widest text-black shadow-neo-sm hover:-translate-y-0.5 hover:shadow-neo transition-all"
                   >
-                    <FolderPlus className="h-4 w-4" />
+                    <FolderPlus className="h-4 w-4 stroke-[3]" />
                     Create Project
                   </button>
                   <button
                     onClick={() => navigate(`${pathPrefix}/team`)}
-                    className="inline-flex items-center gap-2 rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                    className="inline-flex items-center gap-2 border-2 border-black bg-white px-6 py-3 text-sm font-black uppercase tracking-widest text-black shadow-neo-sm hover:-translate-y-0.5 hover:shadow-neo transition-all"
                   >
-                    Go to Team Settings
+                    Team Settings
                   </button>
                 </div>
               </div>

@@ -198,59 +198,59 @@ export const TopBar: React.FC<TopBarProps> = ({ currentProject }) => {
     : `Refresh data (last: ${lastRefreshTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })})`;
 
   return (
-    <div className="dashboard-topbar flex flex-wrap items-start justify-between gap-x-4 gap-y-2 border-b border-slate-200 bg-white px-4 py-2 font-sans sm:px-6">
-      <div className="flex min-w-0 flex-1 items-center gap-3 sm:gap-6">
+    <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b-2 border-black bg-white px-4 py-3 sm:px-6 z-10 relative">
+      <div className="flex min-w-0 flex-1 items-center gap-3 sm:gap-4">
         {/* Mobile Menu Button */}
         <button
           onClick={() => window.dispatchEvent(new CustomEvent('toggleMobileSidebar'))}
-          className="mr-1 flex h-8 w-8 items-center justify-center border-2 border-black bg-white text-slate-500 hover:bg-slate-50 md:hidden"
+          className="mr-1 flex h-8 w-8 items-center justify-center border-2 border-black bg-white hover:bg-[#5dadec] md:hidden transition-colors shadow-neo-sm"
           aria-label="Toggle sidebar"
         >
-          <Menu className="h-5 w-5" />
+          <Menu className="h-4 w-4 stroke-[3]" />
         </button>
 
         {/* Logo */}
-        <Link to="/" className="shrink-0 hover:opacity-80 transition-opacity">
-          <img src="/rejourneyIcon-removebg-preview.png" alt="Rejourney" className="w-8 h-8 object-contain" />
+        <Link to="/" className="shrink-0 hover:scale-105 transition-transform active:scale-95">
+          <img src="/rejourneyIcon-removebg-preview.png" alt="Rejourney" className="w-8 h-8 object-contain drop-shadow-[2px_2px_0px_rgba(0,0,0,1)]" />
         </Link>
-        <div className="hidden h-8 w-px bg-slate-200 sm:block"></div>
+        <div className="hidden h-6 w-0.5 bg-black/10 sm:block"></div>
 
         {currentProject ? (
           <>
-            <div className="min-w-0">
-              <h1 className="truncate text-sm font-black font-mono uppercase tracking-wide text-black">{currentProject.name}</h1>
-              <div className="mt-0.5 flex flex-wrap items-center gap-2">
+            <div className="min-w-0 flex flex-col justify-center">
+              <h1 className="truncate text-sm font-black uppercase tracking-widest text-black leading-none">{currentProject.name}</h1>
+              <div className="flex items-center gap-1.5 mt-1">
                 {currentProject.platforms.map((platform) => (
-                  <span key={platform} className="flex items-center gap-1 border-2 border-black bg-white px-1.5 py-0 text-[10px] font-mono uppercase text-black">
+                  <span key={platform} className="flex items-center gap-1 bg-[#5dadec] px-1.5 py-px text-[10px] font-black uppercase tracking-wider text-black border border-black shadow-[1px_1px_0px_0px_rgba(0,0,0,1)]">
                     {platform}
                   </span>
                 ))}
                 {teamPlan?.videoRetentionLabel && (
-                  <span className="flex items-center gap-1 rounded-sm border border-amber-200 bg-amber-50 px-1.5 py-0 text-[10px] font-semibold uppercase text-amber-700">
-                    {teamPlan.videoRetentionLabel} video retention
+                  <span className="flex items-center gap-1 bg-[#fef08a] px-1.5 py-px text-[10px] font-black uppercase tracking-wider text-black border border-black shadow-[1px_1px_0px_0px_rgba(0,0,0,1)]">
+                    {teamPlan.videoRetentionLabel} retention
                   </span>
                 )}
               </div>
             </div>
           </>
         ) : (
-          <div className="text-sm font-medium text-slate-400">Select a project</div>
+          <div className="text-sm font-black uppercase tracking-widest text-slate-400">Select a project</div>
         )}
       </div>
 
-      <div className="flex w-full flex-wrap items-center justify-end gap-2 sm:w-auto sm:flex-nowrap sm:gap-3">
+      <div className="flex w-full flex-wrap items-center justify-end gap-3 sm:w-auto sm:flex-nowrap">
         {/* Public Key - Truncated & Copyable */}
         {currentProject?.publicKey && (
           <button
             onClick={handleCopyPublicKey}
-            className="group hidden h-8 items-center gap-1.5 border-2 border-black bg-white px-3 py-1.5 text-xs transition-all hover:shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] md:flex"
+            className="group hidden h-9 items-center gap-2 border-2 border-black bg-white px-3 shadow-neo-sm transition-all hover:-translate-y-0.5 hover:shadow-neo active:translate-y-0 active:shadow-none md:flex"
             title={`Copy Public Key: ${currentProject.publicKey}`}
           >
-            <span className="font-mono text-slate-500 font-medium text-[11px]">{truncatedKey}</span>
+            <span className="font-mono text-black font-bold text-xs">{truncatedKey}</span>
             {copiedKey ? (
-              <Check className="w-3 h-3 text-green-600" />
+              <Check className="w-4 h-4 text-black stroke-[3]" />
             ) : (
-              <Copy className="w-3 h-3 text-slate-400 group-hover:text-slate-600" />
+              <Copy className="w-4 h-4 text-black group-hover:text-[#5dadec] transition-colors stroke-[2]" />
             )}
           </button>
         )}
@@ -258,15 +258,15 @@ export const TopBar: React.FC<TopBarProps> = ({ currentProject }) => {
         {/* AI Docs Button */}
         <button
           onClick={handleCopyDocsUrl}
-          className="group flex h-8 items-center gap-1.5 border-2 border-black bg-white px-2.5 py-1.5 text-xs transition-all hover:shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] sm:px-3"
+          className="group flex h-9 items-center gap-2 border-2 border-black bg-white px-3 shadow-neo-sm transition-all hover:-translate-y-0.5 hover:shadow-neo active:translate-y-0 active:shadow-none"
           title="Copy AI Integration Prompt"
         >
-          <BookOpen className="w-3.5 h-3.5 text-black" />
-          <span className="hidden text-[10px] font-semibold uppercase text-black sm:inline">AI Docs</span>
+          <BookOpen className="w-4 h-4 text-black stroke-[2]" />
+          <span className="hidden sm:inline text-xs font-black uppercase tracking-widest">AI Docs</span>
           {copiedDocs ? (
-            <Check className="w-3 h-3 text-black" />
+            <Check className="w-4 h-4 text-black stroke-[3]" />
           ) : (
-            <Copy className="w-3 h-3 text-black group-hover:text-black" />
+             <span />
           )}
         </button>
 
@@ -274,27 +274,27 @@ export const TopBar: React.FC<TopBarProps> = ({ currentProject }) => {
         <button
           onClick={handleRefresh}
           disabled={isRefreshing}
-          className={`flex items-center justify-center w-8 h-8 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed ${isRefreshing
-            ? 'bg-white border-2 border-[#5dadec]'
+          className={`flex items-center justify-center w-9 h-9 border-2 border-black shadow-neo-sm transition-all active:translate-y-0 active:shadow-none disabled:opacity-50 disabled:cursor-not-allowed ${isRefreshing
+            ? 'bg-white'
             : refreshCompletedPulse
-              ? 'bg-white border-2 border-[#34d399]'
-              : 'border-2 border-black bg-white hover:shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]'
+              ? 'bg-[#34d399]'
+              : 'bg-white hover:-translate-y-0.5 hover:shadow-neo hover:bg-[#5dadec]'
             }`}
           title={refreshTitle}
         >
-          <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'text-[#5dadec] animate-spin' : refreshCompletedPulse ? 'text-[#34d399]' : 'text-slate-500'}`} />
+          <RefreshCw className={`w-4 h-4 text-black stroke-[3] ${isRefreshing ? 'animate-spin' : ''}`} />
         </button>
 
         {/* Plan / Usage - Team usage this month */}
         {user && currentTeam && (
           <Link
             to={`${pathPrefix}/team`}
-            className="hidden h-8 items-center gap-2 rounded-md border-2 border-black bg-white px-3 py-1.5 text-xs transition-colors hover:border-black xl:flex"
+            className="hidden h-9 items-center gap-2 border-2 border-black bg-white px-3 shadow-neo-sm transition-all hover:-translate-y-0.5 hover:shadow-neo active:translate-y-0 active:shadow-none xl:flex"
             title={`${currentTeam.name} - Usage this month`}
           >
-            <span className="font-semibold text-black uppercase font-mono">{planLabel}</span>
-            <span className="h-3 w-px bg-black"></span>
-            <span className="font-mono font-medium text-black">{sessionsUsed.toLocaleString()}</span>
+            <span className="font-black text-black uppercase tracking-wider text-xs">{planLabel}</span>
+            <span className="h-4 w-0.5 bg-black"></span>
+            <span className="font-mono font-black text-black text-sm">{sessionsUsed.toLocaleString()}</span>
           </Link>
         )}
 
@@ -302,21 +302,21 @@ export const TopBar: React.FC<TopBarProps> = ({ currentProject }) => {
         <div className="relative">
           <button
             onClick={() => setShowUserMenu(!showUserMenu)}
-            className="group flex items-center gap-2 border-2 border-black bg-white px-2 py-1.5 text-left transition-all hover:shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] focus:outline-none"
+            className="group flex items-center gap-2 border-2 border-black bg-white px-2 py-1 shadow-neo-sm transition-all hover:-translate-y-0.5 hover:shadow-neo active:translate-y-0 active:shadow-none focus:outline-none h-9 line-clamp-1"
           >
-            <div className="w-8 h-8 bg-white rounded-none flex items-center justify-center text-black border-2 border-black">
-              <UserIcon className="w-4 h-4" />
+            <div className="w-5 h-5 bg-black flex items-center justify-center text-white">
+              <UserIcon className="w-3.5 h-3.5 stroke-[3]" />
             </div>
             <div className="hidden md:block">
-              <div className="text-xs font-semibold text-slate-700 max-w-[120px] truncate">{displayLabel}</div>
+              <div className="text-xs font-black uppercase tracking-wider text-black max-w-[100px] truncate">{displayLabel}</div>
             </div>
-            <ChevronDown className="w-3 h-3 text-slate-400 ml-1" />
+            <ChevronDown className="w-4 h-4 text-black stroke-[3]" />
           </button>
 
           {showUserMenu && (
             <>
               <div className="fixed inset-0 z-[90]" onClick={() => setShowUserMenu(false)} />
-              <div className="absolute right-0 top-full mt-2 bg-white border-2 border-black shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] rounded-none z-[100] w-56 py-1 animate-in fade-in zoom-in-95 duration-100">
+              <div className="absolute right-0 top-full mt-2 bg-white border-2 border-black p-1 shadow-neo-lg z-[100] w-56 animate-in fade-in zoom-in-95 duration-100">
                 <div className="px-4 py-3 border-b border-gray-200 mb-1">
                   <div className="text-xs font-semibold text-slate-800 truncate">{displayLabel}</div>
                   <div className="text-[10px] text-slate-500 truncate font-mono">{userEmail}</div>

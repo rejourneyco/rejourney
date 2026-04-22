@@ -297,7 +297,9 @@ const frameModeFromEnv = (process.env.RJ_REPLAY_FRAME_URL_MODE || 'proxy').toLow
 const DEFAULT_FRAME_URL_MODE: ScreenshotFrameUrlMode = frameModeFromEnv === 'signed' ? 'signed' : 'proxy';
 const SESSION_CORE_CACHE_TTL_SECONDS = Number(process.env.RJ_SESSION_CORE_CACHE_TTL_SECONDS ?? 300);
 const SESSION_DETAIL_CACHE_TTL_SECONDS = Number(process.env.RJ_SESSION_DETAIL_CACHE_TTL_SECONDS ?? 300);
+const SESSION_BOOTSTRAP_CACHE_TTL_SECONDS = Number(process.env.RJ_SESSION_BOOTSTRAP_CACHE_TTL_SECONDS ?? 15);
 const FRAME_AUTH_CACHE_TTL_SECONDS = Number(process.env.RJ_FRAME_AUTH_CACHE_TTL_SECONDS ?? 60);
+const SESSION_BOOTSTRAP_CACHE_CONTROL = 'private, max-age=15, stale-while-revalidate=45';
 
 function resolveFrameUrlMode(raw: unknown): ScreenshotFrameUrlMode {
     if (typeof raw !== 'string') return DEFAULT_FRAME_URL_MODE;
@@ -306,12 +308,13 @@ function resolveFrameUrlMode(raw: unknown): ScreenshotFrameUrlMode {
     return DEFAULT_FRAME_URL_MODE;
 }
 
-function buildSessionDetailCacheKey(kind: 'core' | 'timeline' | 'hierarchy', sessionId: string): string {
+function buildSessionDetailCacheKey(kind: 'bootstrap' | 'core' | 'timeline' | 'hierarchy', sessionId: string): string {
+    if (kind === 'bootstrap') return `session_bootstrap:${sessionId}`;
     if (kind === 'core') return `session_core:${sessionId}`;
     return `session_${kind}:${sessionId}`;
 }
 
-async function readCachedSessionDetail(kind: 'core' | 'timeline' | 'hierarchy', sessionId: string): Promise<string | null> {
+async function readCachedSessionDetail(kind: 'bootstrap' | 'core' | 'timeline' | 'hierarchy', sessionId: string): Promise<string | null> {
     try {
         return await getRedis().get(buildSessionDetailCacheKey(kind, sessionId));
     } catch (err) {
@@ -320,9 +323,13 @@ async function readCachedSessionDetail(kind: 'core' | 'timeline' | 'hierarchy', 
     }
 }
 
-async function writeCachedSessionDetail(kind: 'core' | 'timeline' | 'hierarchy', sessionId: string, payload: unknown): Promise<void> {
+async function writeCachedSessionDetail(kind: 'bootstrap' | 'core' | 'timeline' | 'hierarchy', sessionId: string, payload: unknown): Promise<void> {
     try {
-        const ttl = kind === 'core' ? SESSION_CORE_CACHE_TTL_SECONDS : SESSION_DETAIL_CACHE_TTL_SECONDS;
+        const ttl = kind === 'bootstrap'
+            ? SESSION_BOOTSTRAP_CACHE_TTL_SECONDS
+            : kind === 'core'
+                ? SESSION_CORE_CACHE_TTL_SECONDS
+                : SESSION_DETAIL_CACHE_TTL_SECONDS;
         await getRedis().setex(buildSessionDetailCacheKey(kind, sessionId), ttl, JSON.stringify(payload));
     } catch (err) {
         logger.warn({ err, kind, sessionId }, '[sessions] Failed to write session detail cache');
@@ -2002,6 +2009,98 @@ router.get(
             hasSuccessfulRecording: successfulRecording,
         });
     })
+);
+
+/**
+ * Get combined session bootstrap payload for first render
+ * GET /api/session/:id/bootstrap
+ */
+router.get(
+    '/:id/bootstrap',
+    sessionAuth,
+    validate(sessionIdParamSchema, 'params'),
+    dashboardRateLimiter,
+    asyncHandler(async (req, res) => {
+        const { session, metrics } = await getAuthorizedSession(req.user!.id, req.params.id);
+        res.setHeader('Cache-Control', SESSION_BOOTSTRAP_CACHE_CONTROL);
+
+        const cached = await readCachedSessionDetail('bootstrap', session.id);
+        if (cached) {
+            res.type('json').send(cached);
+            return;
+        }
+
+        const [artifactsList, aggregate, supersededByNewerVisitorSession] = await Promise.all([
+            getReadyArtifacts(session.id),
+            loadSessionWorkAggregate(session.id),
+            hasNewerSessionForSameVisitor({
+                projectId: session.projectId,
+                sessionId: session.id,
+                startedAt: session.startedAt,
+                deviceId: session.deviceId,
+                anonymousHash: session.anonymousHash,
+                userDisplayId: session.userDisplayId,
+            }),
+        ]);
+
+        const screenshotArtifacts = artifactsList.filter((artifact) => artifact.kind === 'screenshots');
+        const frameUrlMode = resolveFrameUrlMode(req.query.frameUrlMode);
+        const replayBootstrap = await loadScreenshotReplayBootstrap(
+            session,
+            screenshotArtifacts.length,
+            frameUrlMode,
+        );
+
+        const basePayload = buildSessionBasePayload(
+            session,
+            metrics,
+            replayBootstrap.screenshotFrames,
+            screenshotArtifacts.length > 0,
+            deriveSessionPresentationState({
+                status: session.status,
+                replayAvailable: session.replayAvailable,
+                recordingDeleted: session.recordingDeleted,
+                isReplayExpired: session.isReplayExpired,
+                lastIngestActivityAt: session.lastIngestActivityAt,
+                startedAt: session.startedAt,
+                endedAt: session.endedAt,
+                hasPendingWork: aggregate.hasPendingWork,
+                hasPendingReplayWork: aggregate.hasPendingReplayWork,
+                supersededByNewerVisitorSession,
+            }),
+            aggregate.latestReplayArtifactEndMs,
+        );
+
+        const [timeline, stats] = await Promise.all([
+            loadTimelinePayload(session, artifactsList),
+            computeSessionStats(session, metrics, artifactsList, false),
+        ]);
+
+        const core = {
+            ...basePayload,
+            hasRecording: replayBootstrap.hasRecording,
+            playbackMode: replayBootstrap.playbackMode,
+            screenshotFrames: replayBootstrap.screenshotFrames,
+            screenshotFramesStatus: replayBootstrap.screenshotFramesStatus,
+            screenshotFrameCount: replayBootstrap.screenshotFrameCount,
+            screenshotFramesProcessedSegments: replayBootstrap.processedSegments,
+            screenshotFramesTotalSegments: replayBootstrap.totalSegments,
+            stats,
+        };
+
+        const responseBody = {
+            core,
+            timeline,
+            stats,
+            hierarchyDeferred: true,
+        };
+
+        res.json(responseBody);
+
+        if (replayBootstrap.screenshotFramesStatus !== 'preparing') {
+            await writeCachedSessionDetail('bootstrap', session.id, responseBody);
+        }
+    }),
 );
 
 /**

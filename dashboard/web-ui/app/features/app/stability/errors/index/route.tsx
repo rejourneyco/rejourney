@@ -5,15 +5,13 @@ import {
   Bug,
   ChevronDown,
   ChevronRight,
-  Play,
   Search,
-  Sparkles,
 } from 'lucide-react';
 import { useNavigate, useSearchParams } from 'react-router';
 import { useDemoMode } from '~/shared/providers/DemoModeContext';
 import { useSessionData } from '~/shared/providers/SessionContext';
 import { usePathPrefix } from '~/shell/routing/usePathPrefix';
-import { api, JSError } from '~/shared/api/client';
+import { getErrorsOverview, type ErrorOverviewGroup } from '~/shared/api/client';
 import { TimeFilter, TimeRange, DEFAULT_TIME_RANGE } from '~/shared/ui/core/TimeFilter';
 import { MiniSessionCard } from '~/shared/ui/core/MiniSessionCard';
 import { formatAge, formatLastSeen } from '~/shared/lib/formatDates';
@@ -22,20 +20,6 @@ import { NeoBadge } from '~/shared/ui/core/neo/NeoBadge';
 import { NeoButton } from '~/shared/ui/core/neo/NeoButton';
 import { NeoCard } from '~/shared/ui/core/neo/NeoCard';
 import { DashboardGhostLoader } from '~/shared/ui/core/DashboardGhostLoader';
-
-interface ErrorGroup {
-  fingerprint: string;
-  errorName: string;
-  message: string;
-  count: number;
-  users: Set<string>;
-  firstSeen: string;
-  lastOccurred: string;
-  affectedDevices: Record<string, number>;
-  affectedVersions: Record<string, number>;
-  sampleError: JSError;
-  screens: Set<string>;
-}
 
 const formatCompact = (value: number): string => {
   if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`;
@@ -55,12 +39,12 @@ export const ErrorsList: React.FC = () => {
   const [timeRange, setTimeRange] = useState<TimeRange>(DEFAULT_TIME_RANGE);
   const [searchQuery, setSearchQuery] = useState('');
 
-  const [errors, setErrors] = useState<JSError[]>([]);
+  const [errorGroups, setErrorGroups] = useState<ErrorOverviewGroup[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     if (!isDemoMode && !currentProject) {
-      setErrors([]);
+      setErrorGroups([]);
       setLoading(false);
       return;
     }
@@ -68,71 +52,22 @@ export const ErrorsList: React.FC = () => {
     const fetchErrors = async () => {
       setLoading(true);
       try {
-        const data = await api.getErrors(currentProject?.id || 'demo');
-        setErrors(data.errors || []);
+        const data = await getErrorsOverview(currentProject?.id || 'demo', timeRange);
+        setErrorGroups(data.groups || []);
       } catch (err) {
         console.error('Failed to fetch errors:', err);
+        setErrorGroups([]);
       } finally {
         setLoading(false);
       }
     };
 
     fetchErrors();
-  }, [currentProject, isDemoMode]);
+  }, [currentProject?.id, isDemoMode, timeRange]);
 
   useEffect(() => {
     window.scrollTo(0, 0);
   }, []);
-
-  const filteredErrors = useMemo(() => {
-    if (timeRange === 'all') return errors;
-
-    const now = new Date();
-    const cutoff = new Date();
-    let days = 30;
-
-    switch (timeRange) {
-      case '24h':
-        days = 1;
-        break;
-      case '7d':
-        days = 7;
-        break;
-      case '30d':
-        days = 30;
-        break;
-      case '90d':
-        days = 90;
-        break;
-      default:
-        days = 30;
-    }
-
-    cutoff.setDate(now.getDate() - days);
-    return errors.filter((error) => new Date(error.timestamp) >= cutoff);
-  }, [errors, timeRange]);
-
-  const errorGroups = useMemo<ErrorGroup[]>(() => {
-    return filteredErrors
-      .map((error, index) => {
-        const fingerprint = `${error.id || index}-${error.timestamp}`;
-
-        return {
-          fingerprint,
-          errorName: error.errorName,
-          message: error.message,
-          count: 1,
-          users: new Set([error.sessionId || 'unknown']),
-          firstSeen: error.timestamp,
-          lastOccurred: error.timestamp,
-          affectedDevices: { [error.deviceModel || 'Unknown']: 1 },
-          affectedVersions: { [error.appVersion || 'Unknown']: 1 },
-          sampleError: error,
-          screens: new Set(error.screenName ? [error.screenName] : []),
-        };
-      })
-      .sort((a, b) => new Date(b.lastOccurred).getTime() - new Date(a.lastOccurred).getTime());
-  }, [filteredErrors]);
 
   const filteredGroups = useMemo(() => {
     if (!searchQuery.trim()) return errorGroups;
@@ -142,7 +77,7 @@ export const ErrorsList: React.FC = () => {
       (group) =>
         group.errorName.toLowerCase().includes(query) ||
         group.message.toLowerCase().includes(query) ||
-        Array.from(group.screens).some((screen) => screen.toLowerCase().includes(query)),
+        group.screens.some((screen) => screen.toLowerCase().includes(query)),
     );
   }, [errorGroups, searchQuery]);
 
@@ -182,7 +117,7 @@ export const ErrorsList: React.FC = () => {
     }, 100);
   }, [focusId, loading, errorGroups]);
 
-  if (loading || contextLoading) {
+  if ((loading && errorGroups.length === 0) || contextLoading) {
     return <DashboardGhostLoader variant="list" />;
   }
 
@@ -283,7 +218,7 @@ export const ErrorsList: React.FC = () => {
 
                     <div className="w-16 text-right">
                       <NeoBadge variant="info" size="sm" className="font-mono">
-                        {formatCompact(group.users.size)}
+                        {formatCompact(group.users.length)}
                       </NeoBadge>
                     </div>
 
@@ -300,64 +235,60 @@ export const ErrorsList: React.FC = () => {
 
                   {isExpanded && (
                     <div className="border-t border-slate-200 bg-slate-50/70 px-6 py-6">
-                      <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
-                        <div className="space-y-4 lg:col-span-8">
-                          <NeoCard variant="flat" disablePadding className="overflow-hidden">
-                            <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3">
-                              <h4 className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-600">
-                                <Activity size={14} className="text-amber-500" />
-                                Stack Trace Preview
-                              </h4>
-                            </div>
-
-                            {group.sampleError.stack ? (
-                              <div className="max-h-80 overflow-x-auto bg-slate-950 p-5 font-mono text-xs leading-relaxed text-slate-300">
-                                {group.sampleError.stack.split('\n').slice(0, 12).join('\n')}
-                                {group.sampleError.stack.split('\n').length > 12 && (
-                                  <p className="mt-3 border-t border-slate-800 pt-3 text-[10px] text-slate-400">
-                                    Preview clipped. Open root cause analysis for full trace.
-                                  </p>
-                                )}
-                              </div>
-                            ) : (
-                              <div className="px-6 py-8 text-center text-sm text-slate-500">No stack trace captured for this issue.</div>
-                            )}
-                          </NeoCard>
-
-                          <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-                            <NeoCard variant="flat" className="p-4">
-                              <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">First Seen</p>
-                              <p className="mt-1 text-sm font-semibold text-slate-900">
-                                {new Date(group.firstSeen).toLocaleDateString()}
-                              </p>
-                            </NeoCard>
-                            <NeoCard variant="flat" className="p-4">
-                              <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Last Seen</p>
-                              <p className="mt-1 text-sm font-semibold text-slate-900">{formatLastSeen(group.lastOccurred)}</p>
-                            </NeoCard>
-                            <NeoCard variant="flat" className="p-4">
-                              <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Environment</p>
-                              <div className="mt-2 flex flex-wrap gap-2">
-                                <NeoBadge variant="neutral" size="sm">
-                                  {Object.keys(group.affectedDevices)[0] || 'Unknown'}
-                                </NeoBadge>
-                                <NeoBadge variant="warning" size="sm">
-                                  v{Object.keys(group.affectedVersions)[0] || '?'}
-                                </NeoBadge>
-                              </div>
-                            </NeoCard>
+                      <div className="space-y-4">
+                        <NeoCard variant="flat" disablePadding className="overflow-hidden">
+                          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-4 py-3">
+                            <h4 className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-600">
+                              <Activity size={14} className="text-amber-500" />
+                              Root Cause Details
+                            </h4>
+                            <NeoButton
+                              variant="secondary"
+                              size="sm"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                navigate(`${pathPrefix}/stability/errors/${currentProject?.id}/${group.sampleError.id}`);
+                              }}
+                              rightIcon={<ChevronRight size={14} />}
+                            >
+                              Open More Details
+                            </NeoButton>
                           </div>
-                        </div>
 
-                        <div className="space-y-4 lg:col-span-4">
-                          <NeoCard variant="flat" className="p-4">
-                            <div className="mb-3 flex items-center justify-between">
-                              <h4 className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-600">
-                                <Play size={14} className="text-indigo-500" />
-                                Evidence Sample
-                              </h4>
+                          {group.sampleError.stack ? (
+                            <div className="max-h-96 overflow-auto bg-slate-950 p-5 font-mono text-xs leading-relaxed text-slate-300">
+                              {group.sampleError.stack}
                             </div>
-                            <div className="flex justify-center border border-gray-200 bg-white px-3 py-4" style={{ boxShadow: '2px 2px 0 0 rgba(0,0,0,0.07)' }}>
+                          ) : (
+                            <div className="px-6 py-8 text-center text-sm text-slate-500">No stack trace captured for this issue.</div>
+                          )}
+                        </NeoCard>
+
+                        <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
+                          <NeoCard variant="flat" className="p-4">
+                            <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">First Seen</p>
+                            <p className="mt-1 text-sm font-semibold text-slate-900">
+                              {new Date(group.firstSeen).toLocaleDateString()}
+                            </p>
+                          </NeoCard>
+                          <NeoCard variant="flat" className="p-4">
+                            <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Last Seen</p>
+                            <p className="mt-1 text-sm font-semibold text-slate-900">{formatLastSeen(group.lastOccurred)}</p>
+                          </NeoCard>
+                          <NeoCard variant="flat" className="p-4">
+                            <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Environment</p>
+                            <div className="mt-2 flex flex-wrap gap-2">
+                              <NeoBadge variant="neutral" size="sm">
+                                {Object.keys(group.affectedDevices)[0] || 'Unknown'}
+                              </NeoBadge>
+                              <NeoBadge variant="warning" size="sm">
+                                v{Object.keys(group.affectedVersions)[0] || '?'}
+                              </NeoBadge>
+                            </div>
+                          </NeoCard>
+                          <NeoCard variant="flat" className="p-4">
+                            <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Evidence Sample</p>
+                            <div className="mt-3 flex justify-center border border-gray-200 bg-white px-3 py-4" style={{ boxShadow: '2px 2px 0 0 rgba(0,0,0,0.07)' }}>
                               <MiniSessionCard
                                 session={{
                                   id: group.sampleError.sessionId || '',
@@ -370,29 +301,6 @@ export const ErrorsList: React.FC = () => {
                                 }
                               />
                             </div>
-                          </NeoCard>
-
-                          <NeoCard variant="flat" className="border-amber-200 bg-amber-50 p-4">
-                            <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-amber-700">
-                              <Sparkles size={14} />
-                              Root Cause Focus
-                            </p>
-                            <p className="mt-2 text-xs leading-relaxed text-amber-700/90">
-                              Correlate the top frame with the active screen and release version, then replay the same
-                              session to reproduce the exact failing path.
-                            </p>
-                            <NeoButton
-                              variant="primary"
-                              size="sm"
-                              className="mt-4"
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                navigate(`${pathPrefix}/stability/errors/${currentProject?.id}/${group.sampleError.id}`);
-                              }}
-                              rightIcon={<ChevronRight size={14} />}
-                            >
-                              Analyze Root Cause
-                            </NeoButton>
                           </NeoCard>
                         </div>
                       </div>

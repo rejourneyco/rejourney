@@ -18,22 +18,19 @@ export const NeoCard: React.FC<NeoCardProps> = ({
     disablePadding = false,
     ...props
 }) => {
-    const baseStyles = "transition-all duration-200 rounded-lg";
+    const baseStyles = "transition-all duration-200 bg-white border-2 border-black relative";
     const variants = {
-        default: "dashboard-card-surface hover:shadow-sm",
-        flat: "dashboard-card-surface shadow-none bg-white",
-        monitor: "p-6 relative bg-slate-900 shadow-lg border border-slate-800"
+        default: "shadow-neo-sm hover:shadow-neo hover:-translate-y-1 transition-all rounded-none",
+        flat: "shadow-none rounded-none",
+        monitor: "p-6 relative bg-slate-900 border-4 border-black shadow-[8px_8px_0_0_rgba(0,0,0,1)] rounded-none"
     };
 
     if (variant === 'monitor') {
         return (
             <div className={`${baseStyles} ${variants.monitor} ${className}`} {...props}>
-                {/* Monitor Screen Effect - Modernized */}
-                <div className="bg-white border border-slate-700 h-full relative overflow-hidden shadow-inner rounded-lg">
+                <div className="bg-slate-50 border-2 border-black h-full relative overflow-hidden shadow-inner p-1">
                     {children}
                 </div>
-                {/* Monitor Base - Subtle */}
-                <div className="absolute -bottom-4 left-1/2 -translate-x-1/2 w-1/3 h-4 bg-slate-800 rounded-b-lg opacity-35"></div>
             </div>
         );
     }
@@ -41,11 +38,11 @@ export const NeoCard: React.FC<NeoCardProps> = ({
     return (
         <div className={`${baseStyles} ${variants[variant]} ${disablePadding ? '' : 'p-6'} ${className}`} {...props}>
             {(title || action) && (
-                <div className="flex justify-between items-center mb-6 pb-4 border-b border-slate-100/80">
+                <div className={`flex justify-between items-center ${disablePadding ? 'p-6 pb-4' : 'mb-6 pb-4'} border-b-2 border-black`}>
                     {title && (
-                        <h3 className="text-lg font-semibold text-slate-900 tracking-tight">{title}</h3>
+                        <h3 className="text-sm font-black uppercase tracking-widest text-slate-800">{title}</h3>
                     )}
-                    {action && <div className="flex gap-3">{action}</div>}
+                    {action && <div className="flex gap-2">{action}</div>}
                 </div>
             )}
             {children}
