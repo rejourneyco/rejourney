@@ -41,8 +41,13 @@ export const DOCS_MAP: Record<string, { file: string; title: string; category?: 
         category: 'Self-Hosting'
     },
     'architecture/distributed-vs-single-node': {
-        file: 'distributed-vs-single-node/distributed-vs-single-node.md',
+        file: 'architecture/distributed-vs-single-node.md',
         title: 'Distributed vs Single-Node Cloud',
+        category: 'Architecture'
+    },
+    'architecture/diagrams': {
+        file: 'architecture/diagrams.md',
+        title: 'Architecture Diagrams',
         category: 'Architecture'
     },
     'architecture/ci-cd': {

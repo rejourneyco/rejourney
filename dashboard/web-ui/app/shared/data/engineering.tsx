@@ -147,13 +147,13 @@ const ScalingArticleContent = () => (
 
             <figure className="mb-8 border-2 border-black bg-slate-50 overflow-hidden">
                 <img
-                    src="/images/engineering/ingestion-pipeline.png"
-                    alt="Rejourney ingestion pipeline architecture from API handshake through workers and storage"
+                    src="/images/engineering/session-lifecycle.svg"
+                    alt="Session lifecycle architecture from SDK start through upload lanes, workers, and reconciliation"
                     className="w-full h-auto object-cover"
                     loading="lazy"
                 />
                 <figcaption className="px-4 py-3 text-xs sm:text-sm font-mono font-bold uppercase tracking-wide text-gray-600 bg-white border-t-2 border-black">
-                    Ingestion pipeline overview: API handshake, relay, durable queue boundary, workers, and reconciliation.
+                    Session lifecycle overview: upload lanes, durable queue boundary, workers, and reconciliation.
                 </figcaption>
             </figure>
 
@@ -196,6 +196,18 @@ const ScalingArticleContent = () => (
                 We’ve moved away from the single-node bottleneck to a High Availability configuration. We now run HA Postgres and Redis with automated failover. If a VPS goes down, the databases automatically fall back to a replica. The platform keeps moving, and the data stays safe.
             </p>
 
+            <figure className="mt-8 border-2 border-black bg-slate-50 overflow-hidden">
+                <img
+                    src="/images/engineering/k3s-cloud-setup.svg"
+                    alt="K3s cloud setup showing ingress, API, workers, and data services"
+                    className="w-full h-auto object-cover"
+                    loading="lazy"
+                />
+                <figcaption className="px-4 py-3 text-xs sm:text-sm font-mono font-bold uppercase tracking-wide text-gray-600 bg-white border-t-2 border-black">
+                    K3s cloud setup: ingress, app services, workers, and HA data plane.
+                </figcaption>
+            </figure>
+
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-8">
                 <div className="border-2 border-black bg-rose-50 p-5">
                     <div className="font-mono text-[10px] font-black uppercase tracking-widest text-gray-600 mb-3">
@@ -235,6 +247,18 @@ const ScalingArticleContent = () => (
             <p className="mt-4">
                 Instead of hard-coding storage locations in environment variables, we moved the source of truth to a <code>storage_endpoints</code> table in Postgres. This allows us to manage storage with extreme granularity:
             </p>
+
+            <figure className="mt-8 border-2 border-black bg-slate-50 overflow-hidden">
+                <img
+                    src="/images/engineering/multi-bucket-topology.svg"
+                    alt="Multi-bucket topology with endpoint resolution, artifact pinning, and shadow replication"
+                    className="w-full h-auto object-cover"
+                    loading="lazy"
+                />
+                <figcaption className="px-4 py-3 text-xs sm:text-sm font-mono font-bold uppercase tracking-wide text-gray-600 bg-white border-t-2 border-black">
+                    Multi-bucket topology: endpoint routing, artifact pinning, and shadow durability.
+                </figcaption>
+            </figure>
             <ul className="list-disc pl-6 space-y-4 mt-4 ml-4">
                 <li>
                     <strong>Weighted Traffic Splitting:</strong> We can resolve active buckets and perform weighted random selection to balance load across providers.
@@ -247,25 +271,6 @@ const ScalingArticleContent = () => (
                 </li>
             </ul>
 
-            <div className="mt-8 border-2 border-black bg-slate-50 p-6">
-                <div className="font-mono text-xs font-black uppercase tracking-widest text-gray-500 mb-4">
-                    Storage Decision Flow
-                </div>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                    <div className="border-2 border-black bg-white p-4">
-                        <div className="font-mono text-[10px] font-black uppercase text-gray-500 mb-2">1. Resolve</div>
-                        <p className="m-0 text-sm leading-relaxed">Pick an active endpoint using weighted routing from <code>storage_endpoints</code>.</p>
-                    </div>
-                    <div className="border-2 border-black bg-white p-4">
-                        <div className="font-mono text-[10px] font-black uppercase text-gray-500 mb-2">2. Pin</div>
-                        <p className="m-0 text-sm leading-relaxed">Write the chosen <code>endpoint_id</code> to each artifact for deterministic reads.</p>
-                    </div>
-                    <div className="border-2 border-black bg-white p-4">
-                        <div className="font-mono text-[10px] font-black uppercase text-gray-500 mb-2">3. Shadow</div>
-                        <p className="m-0 text-sm leading-relaxed">Fan out async replicas to shadow storage for extra durability coverage.</p>
-                    </div>
-                </div>
-            </div>
         </div>
 
         <div className="my-12">

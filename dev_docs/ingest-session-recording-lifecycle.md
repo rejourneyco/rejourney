@@ -1,6 +1,6 @@
 # Ingest + Session Recording Lifecycle (Visual)
 
-Last updated: 2026-04-10
+Last updated: 2026-04-23
 
 This doc is the ingest/runtime view: package start, upload lanes, relay, workers, Redis, and Postgres session state.
 
@@ -21,18 +21,7 @@ Shortest correct mental model:
 
 ## Flow Index
 
-```text
-┌──────────────────────────────────────────────────────────────────────────────┐
-│ [I1] Package Start / Rollover                                               │
-│ [I2] Upload Lanes / Session Creation                                        │
-│ [I3] Upload Relay / Artifact + lifecycle workers / Artifact States          │
-│ [I4] Reconciliation / Auto-Finalizer / Close-Time Math                      │
-│ [I5] Redis vs Postgres Ownership                                            │
-│ [I6] Quick Answers / Constants                                              │
-│ [I7] Archive list duration + read model (dashboard)                         │
-│ [I8] Ingest guardrails + late-arrival behavior                              │
-└──────────────────────────────────────────────────────────────────────────────┘
-```
+![Session lifecycle diagram](./assets/diagrams/session-lifecycle.svg)
 
 ## [I1] Package Start / Rollover
 
