@@ -63,6 +63,8 @@ spec:
                   key: SELF_HOSTED_MODE
             - name: LOG_LEVEL
               value: "info"
+            - name: NODE_OPTIONS
+              value: "--max-old-space-size=512"
             - name: COOKIE_SECURE
               value: "false"
             - name: DATABASE_URL
@@ -240,16 +242,16 @@ spec:
               port: 3000
             initialDelaySeconds: 15
             periodSeconds: 10
-            timeoutSeconds: 3
-            failureThreshold: 5
+            timeoutSeconds: 5
+            failureThreshold: 6
           readinessProbe:
             httpGet:
               path: /health/ready
               port: 3000
             initialDelaySeconds: 5
             periodSeconds: 5
-            timeoutSeconds: 3
-            failureThreshold: 2
+            timeoutSeconds: 5
+            failureThreshold: 3
 
 ---
 apiVersion: v1

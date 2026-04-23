@@ -42,6 +42,20 @@ def pvc_free_series(regex=ACTIVE_PVC_REGEX):
 def pvc_inodes_used_series(regex=ACTIVE_PVC_REGEX):
     return f'sum by (persistentvolumeclaim)(rejourney_local_pvc_inodes_used{{namespace="rejourney",persistentvolumeclaim=~"{regex}"}})'
 
+def kube_limit_expr(pod_regex, container, resource):
+    return (
+        'sum('
+        f'kube_pod_container_resource_limits{{namespace="rejourney",pod=~"{pod_regex}",container="{container}",resource="{resource}"}}'
+        ')'
+    )
+
+def kube_request_expr(pod_regex, container, resource):
+    return (
+        'sum('
+        f'kube_pod_container_resource_requests{{namespace="rejourney",pod=~"{pod_regex}",container="{container}",resource="{resource}"}}'
+        ')'
+    )
+
 def target(expr, legend="", instant=False, ref="A"):
     return {
         "datasource": DATASOURCE,
@@ -489,18 +503,28 @@ def d_postgres():
 
     panels.append(row("Container Resources", y)); y += 1
     pg_lbl = 'namespace="rejourney",pod=~"postgres-local-[0-9]+",container="postgres"'
+    pg_mem_limit = kube_limit_expr('postgres-local-[0-9]+', 'postgres', 'memory')
+    pg_mem_request = kube_request_expr('postgres-local-[0-9]+', 'postgres', 'memory')
+    pg_cpu_limit = kube_limit_expr('postgres-local-[0-9]+', 'postgres', 'cpu')
+    pg_cpu_request = kube_request_expr('postgres-local-[0-9]+', 'postgres', 'cpu')
     panels.append(gauge("CPU Usage % of Limit",
-                        f'100 * sum(rate(container_cpu_usage_seconds_total{{{pg_lbl},cpu="total"}}[2m])) / sum(container_spec_cpu_quota{{{pg_lbl}}} / container_spec_cpu_period{{{pg_lbl}}})',
+                        f'100 * sum(rate(container_cpu_usage_seconds_total{{{pg_lbl},cpu="total"}}[2m])) / clamp_min({pg_cpu_limit}, 0.001)',
                         0, y, w=6, h=6, unit="percent"))
     panels.append(gauge("Memory Usage % of Limit",
-                        f'100 * sum(container_memory_working_set_bytes{{{pg_lbl}}}) / sum(container_spec_memory_limit_bytes{{{pg_lbl}}})',
+                        f'100 * sum(container_memory_working_set_bytes{{{pg_lbl}}}) / clamp_min({pg_mem_limit}, 1)',
                         6, y, w=6, h=6, unit="percent"))
-    panels.append(stat("CPU Limit (cores)",
-                       f'sum(container_spec_cpu_quota{{{pg_lbl}}} / container_spec_cpu_period{{{pg_lbl}}})',
-                       12, y, w=6, h=6, unit="short"))
-    panels.append(stat("Memory Limit",
-                       f'sum(container_spec_memory_limit_bytes{{{pg_lbl}}})',
-                       18, y, w=6, h=6, unit="bytes"))
+    panels.append(stat("CPU Limit (declared cores)",
+                       pg_cpu_limit,
+                       12, y, w=3, h=6, unit="short"))
+    panels.append(stat("CPU Request (declared cores)",
+                       pg_cpu_request,
+                       15, y, w=3, h=6, unit="short"))
+    panels.append(stat("Memory Limit (declared)",
+                       pg_mem_limit,
+                       18, y, w=3, h=6, unit="bytes"))
+    panels.append(stat("Memory Request (declared)",
+                       pg_mem_request,
+                       21, y, w=3, h=6, unit="bytes"))
     y += 6
 
     panels.append(ts("CPU throttling",
@@ -509,7 +533,8 @@ def d_postgres():
     panels.append(ts("Memory usage",
                      [(f'container_memory_working_set_bytes{{{pg_lbl}}}', "working set"),
                       (f'container_memory_rss{{{pg_lbl}}}', "rss"),
-                      (f'container_spec_memory_limit_bytes{{{pg_lbl}}}', "limit")],
+                      (pg_mem_limit, "declared limit"),
+                      (pg_mem_request, "declared request")],
                      12, y, w=12, h=8, unit="bytes"))
     y += 8
 
@@ -615,16 +640,26 @@ def d_redis():
 
     panels.append(row("Container Resources", y)); y += 1
     rd_lbl = 'namespace="rejourney",pod=~"redis-node-[0-9]+",container="redis"'
+    rd_mem_limit = kube_limit_expr('redis-node-[0-9]+', 'redis', 'memory')
+    rd_mem_request = kube_request_expr('redis-node-[0-9]+', 'redis', 'memory')
+    rd_cpu_limit = kube_limit_expr('redis-node-[0-9]+', 'redis', 'cpu')
     panels.append(gauge("CPU Usage % of Limit",
-                        f'100 * sum(rate(container_cpu_usage_seconds_total{{{rd_lbl},cpu="total"}}[2m])) / sum(container_spec_cpu_quota{{{rd_lbl}}} / container_spec_cpu_period{{{rd_lbl}}})',
+                        f'100 * sum(rate(container_cpu_usage_seconds_total{{{rd_lbl},cpu="total"}}[2m])) / clamp_min({rd_cpu_limit}, 0.001)',
                         0, y, w=6, h=6, unit="percent"))
     panels.append(gauge("Memory Usage % of Limit",
-                        f'100 * sum(container_memory_working_set_bytes{{{rd_lbl}}}) / sum(container_spec_memory_limit_bytes{{{rd_lbl}}})',
+                        f'100 * sum(container_memory_working_set_bytes{{{rd_lbl}}}) / clamp_min({rd_mem_limit}, 1)',
                         6, y, w=6, h=6, unit="percent"))
     panels.append(ts("CPU cores used",
                      [(f'sum(rate(container_cpu_usage_seconds_total{{{rd_lbl},cpu="total"}}[2m]))', "redis cpu")],
                      12, y, w=12, h=6, unit="short", decimals=3))
     y += 6
+
+    panels.append(ts("Declared memory vs usage",
+                     [(f'sum(container_memory_working_set_bytes{{{rd_lbl}}})', "working set"),
+                      (rd_mem_limit, "declared limit"),
+                      (rd_mem_request, "declared request")],
+                     0, y, w=24, h=8, unit="bytes"))
+    y += 8
 
     return dashboard("rejourney-redis", "30 — Redis", ["redis"], panels)
 
@@ -635,6 +670,9 @@ def d_traefik():
     reset_ids()
     panels = []
     y = 0
+    edge_5xx = 'sum(rate(traefik_service_requests_total{code=~"5.."}[2m]))'
+    edge_504 = 'sum(rate(traefik_service_requests_total{code="504"}[2m]))'
+    edge_5xx_pct = '100 * sum(rate(traefik_service_requests_total{code=~"5.."}[2m])) / clamp_min(sum(rate(traefik_service_requests_total[2m])), 0.001)'
 
     panels.append(row("Overview", y)); y += 1
     panels.append(stat("Config reload OK", 'traefik_config_last_reload_success', 0, y, w=4, h=4,
@@ -642,11 +680,30 @@ def d_traefik():
     panels.append(stat("Config reloads (1h)", 'increase(traefik_config_reloads_total[1h])', 4, y, w=4, h=4))
     panels.append(stat("Open connections", 'sum(traefik_open_connections)', 8, y, w=4, h=4))
     panels.append(stat("RPS (all entrypoints)", 'sum(rate(traefik_entrypoint_requests_total[2m]))', 12, y, w=4, h=4, unit="reqps"))
-    panels.append(stat("5xx rate", 'sum(rate(traefik_service_requests_total{code=~"5.."}[2m]))', 16, y, w=4, h=4, unit="reqps",
+    panels.append(stat("5xx rate", edge_5xx, 16, y, w=4, h=4, unit="reqps",
                        thresholds={"mode": "absolute", "steps": [{"color": "green", "value": None}, {"color": "orange", "value": 1}, {"color": "red", "value": 10}]}))
     panels.append(stat("TLS cert min days to expiry", '(min(traefik_tls_certs_not_after) - time()) / 86400', 20, y, w=4, h=4, unit="d",
                        thresholds={"mode": "absolute", "steps": [{"color": "red", "value": None}, {"color": "orange", "value": 14}, {"color": "green", "value": 30}]}))
     y += 4
+
+    panels.append(row("Edge errors", y)); y += 1
+    panels.append(stat("504 rate", edge_504, 0, y, w=6, h=4, unit="reqps",
+                       thresholds={"mode": "absolute", "steps": [{"color": "green", "value": None}, {"color": "orange", "value": 0.1}, {"color": "red", "value": 1}]}))
+    panels.append(stat("5xx %", edge_5xx_pct, 6, y, w=6, h=4, unit="percent",
+                       thresholds={"mode": "absolute", "steps": [{"color": "green", "value": None}, {"color": "orange", "value": 1}, {"color": "red", "value": 5}]}))
+    panels.append(stat("5xx total (15m)", 'sum(increase(traefik_service_requests_total{code=~"5.."}[15m]))', 12, y, w=6, h=4,
+                       thresholds={"mode": "absolute", "steps": [{"color": "green", "value": None}, {"color": "orange", "value": 10}, {"color": "red", "value": 100}]}))
+    panels.append(stat("504 total (15m)", 'sum(increase(traefik_service_requests_total{code="504"}[15m]))', 18, y, w=6, h=4,
+                       thresholds={"mode": "absolute", "steps": [{"color": "green", "value": None}, {"color": "orange", "value": 1}, {"color": "red", "value": 20}]}))
+    y += 4
+
+    panels.append(ts("5xx by code",
+                     [('sum by (code)(rate(traefik_service_requests_total{code=~"5.."}[2m]))', "{{code}}")],
+                     0, y, w=12, h=8, unit="reqps", stack="normal"))
+    panels.append(ts("Top routers by 504 / sec",
+                     [('topk(10, sum by (router)(rate(traefik_router_requests_total{code="504"}[5m])))', "{{router}}")],
+                     12, y, w=12, h=8, unit="reqps"))
+    y += 8
 
     panels.append(row("Entrypoint traffic", y)); y += 1
     panels.append(ts("Requests / sec by entrypoint",
@@ -688,6 +745,36 @@ def d_application():
     reset_ids()
     panels = []
     y = 0
+    api_lbl = 'namespace="rejourney",pod=~"api-.*",container="api"'
+    api_mem_limit = kube_limit_expr('api-.*', 'api', 'memory')
+    api_cpu_limit = kube_limit_expr('api-.*', 'api', 'cpu')
+
+    panels.append(row("API health", y)); y += 1
+    panels.append(stat("Edge 504s (15m)", 'sum(increase(traefik_service_requests_total{code="504"}[15m]))', 0, y, w=4, h=4,
+                       thresholds={"mode": "absolute", "steps": [{"color": "green", "value": None}, {"color": "orange", "value": 1}, {"color": "red", "value": 20}]}))
+    panels.append(stat("API Restarts (15m)", 'sum(increase(kube_pod_container_status_restarts_total{namespace="rejourney",pod=~"api-.*",container="api"}[15m]))', 4, y, w=4, h=4,
+                       thresholds={"mode": "absolute", "steps": [{"color": "green", "value": None}, {"color": "orange", "value": 1}, {"color": "red", "value": 4}]}))
+    panels.append(stat("API pods last OOMKilled", 'sum(max by (pod)(kube_pod_container_status_last_terminated_reason{namespace="rejourney",pod=~"api-.*",container="api",reason="OOMKilled"}))', 8, y, w=4, h=4,
+                       thresholds={"mode": "absolute", "steps": [{"color": "green", "value": None}, {"color": "red", "value": 1}]}))
+    panels.append(stat("API pods not ready", 'sum(1 - kube_pod_container_status_ready{namespace="rejourney",pod=~"api-.*",container="api"})', 12, y, w=4, h=4,
+                       thresholds={"mode": "absolute", "steps": [{"color": "green", "value": None}, {"color": "orange", "value": 1}, {"color": "red", "value": 2}]}))
+    panels.append(gauge("API CPU % of Limit",
+                        f'100 * sum(rate(container_cpu_usage_seconds_total{{{api_lbl},cpu="total"}}[2m])) / clamp_min({api_cpu_limit}, 0.001)',
+                        16, y, w=4, h=4, unit="percent"))
+    panels.append(gauge("API Memory % of Limit",
+                        f'100 * sum(container_memory_working_set_bytes{{{api_lbl}}}) / clamp_min({api_mem_limit}, 1)',
+                        20, y, w=4, h=4, unit="percent"))
+    y += 4
+
+    panels.append(ts("API memory by pod",
+                     [(f'sum by (pod)(container_memory_working_set_bytes{{{api_lbl}}})', "{{pod}}"),
+                      (f'sum by (pod)(container_memory_rss{{{api_lbl}}})', "rss — {{pod}}")],
+                     0, y, w=12, h=8, unit="bytes"))
+    panels.append(ts("API restarts / readiness",
+                     [('sum by (pod)(increase(kube_pod_container_status_restarts_total{namespace="rejourney",pod=~"api-.*",container="api"}[15m]))', "restarts — {{pod}}"),
+                      ('sum by (pod)(1 - kube_pod_container_status_ready{namespace="rejourney",pod=~"api-.*",container="api"})', "not ready — {{pod}}")],
+                     12, y, w=12, h=8, unit="short"))
+    y += 8
 
     panels.append(row("Artifacts pipeline", y)); y += 1
     panels.append(stat("Created (1h)", 'sum(rejourney_artifacts_created_recent_created_count)', 0, y, w=4, h=4))

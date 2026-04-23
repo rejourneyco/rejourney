@@ -48,22 +48,22 @@ spec:
             - name: POOL_MODE
               value: transaction
             - name: DEFAULT_POOL_SIZE
-              value: "5"
+              value: "8"
             - name: MAX_CLIENT_CONN
-              value: "50"
+              value: "100"
             - name: SERVER_IDLE_TIMEOUT
-              value: "60"
+              value: "120"
             - name: AUTH_TYPE
               value: scram-sha-256
             - name: IGNORE_STARTUP_PARAMETERS
               value: extra_float_digits
           resources:
             requests:
-              cpu: 10m
-              memory: 32Mi
+              cpu: 25m
+              memory: 48Mi
             limits:
-              cpu: 100m
-              memory: 64Mi
+              cpu: 200m
+              memory: 128Mi
           readinessProbe:
             tcpSocket:
               port: 5432

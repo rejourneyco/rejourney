@@ -4198,7 +4198,7 @@ data:
                 "type": "prometheus",
                 "uid": "victoria-metrics"
               },
-              "expr": "100 * sum(rate(container_cpu_usage_seconds_total{namespace=\"rejourney\",pod=~\"postgres-local-[0-9]+\",container=\"postgres\",cpu=\"total\"}[2m])) / sum(container_spec_cpu_quota{namespace=\"rejourney\",pod=~\"postgres-local-[0-9]+\",container=\"postgres\"} / container_spec_cpu_period{namespace=\"rejourney\",pod=~\"postgres-local-[0-9]+\",container=\"postgres\"})",
+              "expr": "100 * sum(rate(container_cpu_usage_seconds_total{namespace=\"rejourney\",pod=~\"postgres-local-[0-9]+\",container=\"postgres\",cpu=\"total\"}[2m])) / clamp_min(sum(kube_pod_container_resource_limits{namespace=\"rejourney\",pod=~\"postgres-local-[0-9]+\",container=\"postgres\",resource=\"cpu\"}), 0.001)",
               "legendFormat": "",
               "refId": "A",
               "instant": false
@@ -4261,7 +4261,7 @@ data:
                 "type": "prometheus",
                 "uid": "victoria-metrics"
               },
-              "expr": "100 * sum(container_memory_working_set_bytes{namespace=\"rejourney\",pod=~\"postgres-local-[0-9]+\",container=\"postgres\"}) / sum(container_spec_memory_limit_bytes{namespace=\"rejourney\",pod=~\"postgres-local-[0-9]+\",container=\"postgres\"})",
+              "expr": "100 * sum(container_memory_working_set_bytes{namespace=\"rejourney\",pod=~\"postgres-local-[0-9]+\",container=\"postgres\"}) / clamp_min(sum(kube_pod_container_resource_limits{namespace=\"rejourney\",pod=~\"postgres-local-[0-9]+\",container=\"postgres\",resource=\"memory\"}), 1)",
               "legendFormat": "",
               "refId": "A",
               "instant": false
@@ -4307,7 +4307,7 @@ data:
         {
           "id": 29,
           "type": "stat",
-          "title": "CPU Limit (cores)",
+          "title": "CPU Limit (declared cores)",
           "datasource": {
             "type": "prometheus",
             "uid": "victoria-metrics"
@@ -4315,7 +4315,7 @@ data:
           "gridPos": {
             "x": 12,
             "y": 46,
-            "w": 6,
+            "w": 3,
             "h": 6
           },
           "targets": [
@@ -4324,7 +4324,7 @@ data:
                 "type": "prometheus",
                 "uid": "victoria-metrics"
               },
-              "expr": "sum(container_spec_cpu_quota{namespace=\"rejourney\",pod=~\"postgres-local-[0-9]+\",container=\"postgres\"} / container_spec_cpu_period{namespace=\"rejourney\",pod=~\"postgres-local-[0-9]+\",container=\"postgres\"})",
+              "expr": "sum(kube_pod_container_resource_limits{namespace=\"rejourney\",pod=~\"postgres-local-[0-9]+\",container=\"postgres\",resource=\"cpu\"})",
               "legendFormat": "",
               "refId": "A",
               "instant": false
@@ -4363,15 +4363,15 @@ data:
         {
           "id": 30,
           "type": "stat",
-          "title": "Memory Limit",
+          "title": "CPU Request (declared cores)",
           "datasource": {
             "type": "prometheus",
             "uid": "victoria-metrics"
           },
           "gridPos": {
-            "x": 18,
+            "x": 15,
             "y": 46,
-            "w": 6,
+            "w": 3,
             "h": 6
           },
           "targets": [
@@ -4380,7 +4380,63 @@ data:
                 "type": "prometheus",
                 "uid": "victoria-metrics"
               },
-              "expr": "sum(container_spec_memory_limit_bytes{namespace=\"rejourney\",pod=~\"postgres-local-[0-9]+\",container=\"postgres\"})",
+              "expr": "sum(kube_pod_container_resource_requests{namespace=\"rejourney\",pod=~\"postgres-local-[0-9]+\",container=\"postgres\",resource=\"cpu\"})",
+              "legendFormat": "",
+              "refId": "A",
+              "instant": false
+            }
+          ],
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "colorMode": "value",
+            "graphMode": "area",
+            "textMode": "auto",
+            "justifyMode": "auto"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 31,
+          "type": "stat",
+          "title": "Memory Limit (declared)",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoria-metrics"
+          },
+          "gridPos": {
+            "x": 18,
+            "y": 46,
+            "w": 3,
+            "h": 6
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "victoria-metrics"
+              },
+              "expr": "sum(kube_pod_container_resource_limits{namespace=\"rejourney\",pod=~\"postgres-local-[0-9]+\",container=\"postgres\",resource=\"memory\"})",
               "legendFormat": "",
               "refId": "A",
               "instant": false
@@ -4417,7 +4473,63 @@ data:
           }
         },
         {
-          "id": 31,
+          "id": 32,
+          "type": "stat",
+          "title": "Memory Request (declared)",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoria-metrics"
+          },
+          "gridPos": {
+            "x": 21,
+            "y": 46,
+            "w": 3,
+            "h": 6
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "victoria-metrics"
+              },
+              "expr": "sum(kube_pod_container_resource_requests{namespace=\"rejourney\",pod=~\"postgres-local-[0-9]+\",container=\"postgres\",resource=\"memory\"})",
+              "legendFormat": "",
+              "refId": "A",
+              "instant": false
+            }
+          ],
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "colorMode": "value",
+            "graphMode": "area",
+            "textMode": "auto",
+            "justifyMode": "auto"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "bytes",
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 33,
           "type": "timeseries",
           "title": "CPU throttling",
           "datasource": {
@@ -4491,7 +4603,7 @@ data:
           }
         },
         {
-          "id": 32,
+          "id": 34,
           "type": "timeseries",
           "title": "Memory usage",
           "datasource": {
@@ -4530,9 +4642,19 @@ data:
                 "type": "prometheus",
                 "uid": "victoria-metrics"
               },
-              "expr": "container_spec_memory_limit_bytes{namespace=\"rejourney\",pod=~\"postgres-local-[0-9]+\",container=\"postgres\"}",
-              "legendFormat": "limit",
+              "expr": "sum(kube_pod_container_resource_limits{namespace=\"rejourney\",pod=~\"postgres-local-[0-9]+\",container=\"postgres\",resource=\"memory\"})",
+              "legendFormat": "declared limit",
               "refId": "C",
+              "instant": false
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "victoria-metrics"
+              },
+              "expr": "sum(kube_pod_container_resource_requests{namespace=\"rejourney\",pod=~\"postgres-local-[0-9]+\",container=\"postgres\",resource=\"memory\"})",
+              "legendFormat": "declared request",
+              "refId": "D",
               "instant": false
             }
           ],
@@ -4585,7 +4707,7 @@ data:
           }
         },
         {
-          "id": 33,
+          "id": 35,
           "type": "row",
           "title": "Backups & Local Storage",
           "collapsed": false,
@@ -4598,7 +4720,7 @@ data:
           "panels": []
         },
         {
-          "id": 34,
+          "id": 36,
           "type": "stat",
           "title": "Seconds since last archive",
           "datasource": {
@@ -4662,7 +4784,7 @@ data:
           }
         },
         {
-          "id": 35,
+          "id": 37,
           "type": "stat",
           "title": "Archive failures",
           "datasource": {
@@ -4722,7 +4844,7 @@ data:
           }
         },
         {
-          "id": 36,
+          "id": 38,
           "type": "stat",
           "title": "Last available backup age",
           "datasource": {
@@ -4786,7 +4908,7 @@ data:
           }
         },
         {
-          "id": 37,
+          "id": 39,
           "type": "stat",
           "title": "Last failed backup age",
           "datasource": {
@@ -4842,7 +4964,7 @@ data:
           }
         },
         {
-          "id": 38,
+          "id": 40,
           "type": "stat",
           "title": "Root disk free %",
           "datasource": {
@@ -4906,7 +5028,7 @@ data:
           }
         },
         {
-          "id": 39,
+          "id": 41,
           "type": "stat",
           "title": "Database PVC used",
           "datasource": {
@@ -4962,7 +5084,7 @@ data:
           }
         },
         {
-          "id": 40,
+          "id": 42,
           "type": "timeseries",
           "title": "Archiver: archived vs failed",
           "datasource": {
@@ -6511,7 +6633,7 @@ data:
                 "type": "prometheus",
                 "uid": "victoria-metrics"
               },
-              "expr": "100 * sum(rate(container_cpu_usage_seconds_total{namespace=\"rejourney\",pod=~\"redis-node-[0-9]+\",container=\"redis\",cpu=\"total\"}[2m])) / sum(container_spec_cpu_quota{namespace=\"rejourney\",pod=~\"redis-node-[0-9]+\",container=\"redis\"} / container_spec_cpu_period{namespace=\"rejourney\",pod=~\"redis-node-[0-9]+\",container=\"redis\"})",
+              "expr": "100 * sum(rate(container_cpu_usage_seconds_total{namespace=\"rejourney\",pod=~\"redis-node-[0-9]+\",container=\"redis\",cpu=\"total\"}[2m])) / clamp_min(sum(kube_pod_container_resource_limits{namespace=\"rejourney\",pod=~\"redis-node-[0-9]+\",container=\"redis\",resource=\"cpu\"}), 0.001)",
               "legendFormat": "",
               "refId": "A",
               "instant": false
@@ -6574,7 +6696,7 @@ data:
                 "type": "prometheus",
                 "uid": "victoria-metrics"
               },
-              "expr": "100 * sum(container_memory_working_set_bytes{namespace=\"rejourney\",pod=~\"redis-node-[0-9]+\",container=\"redis\"}) / sum(container_spec_memory_limit_bytes{namespace=\"rejourney\",pod=~\"redis-node-[0-9]+\",container=\"redis\"})",
+              "expr": "100 * sum(container_memory_working_set_bytes{namespace=\"rejourney\",pod=~\"redis-node-[0-9]+\",container=\"redis\"}) / clamp_min(sum(kube_pod_container_resource_limits{namespace=\"rejourney\",pod=~\"redis-node-[0-9]+\",container=\"redis\",resource=\"memory\"}), 1)",
               "legendFormat": "",
               "refId": "A",
               "instant": false
@@ -6673,6 +6795,100 @@ data:
                 }
               },
               "decimals": 3
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom",
+              "calcs": [
+                "mean",
+                "lastNotNull",
+                "max"
+              ]
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          }
+        },
+        {
+          "id": 28,
+          "type": "timeseries",
+          "title": "Declared memory vs usage",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoria-metrics"
+          },
+          "gridPos": {
+            "x": 0,
+            "y": 54,
+            "w": 24,
+            "h": 8
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "victoria-metrics"
+              },
+              "expr": "sum(container_memory_working_set_bytes{namespace=\"rejourney\",pod=~\"redis-node-[0-9]+\",container=\"redis\"})",
+              "legendFormat": "working set",
+              "refId": "A",
+              "instant": false
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "victoria-metrics"
+              },
+              "expr": "sum(kube_pod_container_resource_limits{namespace=\"rejourney\",pod=~\"redis-node-[0-9]+\",container=\"redis\",resource=\"memory\"})",
+              "legendFormat": "declared limit",
+              "refId": "B",
+              "instant": false
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "victoria-metrics"
+              },
+              "expr": "sum(kube_pod_container_resource_requests{namespace=\"rejourney\",pod=~\"redis-node-[0-9]+\",container=\"redis\",resource=\"memory\"})",
+              "legendFormat": "declared request",
+              "refId": "C",
+              "instant": false
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "bytes",
+              "custom": {
+                "drawStyle": "line",
+                "lineInterpolation": "smooth",
+                "lineWidth": 2,
+                "fillOpacity": 10,
+                "gradientMode": "opacity",
+                "showPoints": "never",
+                "pointSize": 5,
+                "stacking": {
+                  "mode": "none",
+                  "group": "A"
+                },
+                "axisPlacement": "auto",
+                "axisLabel": "",
+                "scaleDistribution": {
+                  "type": "linear"
+                },
+                "hideFrom": {
+                  "tooltip": false,
+                  "viz": false,
+                  "legend": false
+                },
+                "thresholdsStyle": {
+                  "mode": "off"
+                }
+              }
             },
             "overrides": []
           },
@@ -7114,7 +7330,7 @@ data:
         {
           "id": 8,
           "type": "row",
-          "title": "Entrypoint traffic",
+          "title": "Edge errors",
           "collapsed": false,
           "gridPos": {
             "x": 0,
@@ -7126,6 +7342,423 @@ data:
         },
         {
           "id": 9,
+          "type": "stat",
+          "title": "504 rate",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoria-metrics"
+          },
+          "gridPos": {
+            "x": 0,
+            "y": 6,
+            "w": 6,
+            "h": 4
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "victoria-metrics"
+              },
+              "expr": "sum(rate(traefik_service_requests_total{code=\"504\"}[2m]))",
+              "legendFormat": "",
+              "refId": "A",
+              "instant": false
+            }
+          ],
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "colorMode": "value",
+            "graphMode": "area",
+            "textMode": "auto",
+            "justifyMode": "auto"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "reqps",
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "orange",
+                    "value": 0.1
+                  },
+                  {
+                    "color": "red",
+                    "value": 1
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 10,
+          "type": "stat",
+          "title": "5xx %",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoria-metrics"
+          },
+          "gridPos": {
+            "x": 6,
+            "y": 6,
+            "w": 6,
+            "h": 4
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "victoria-metrics"
+              },
+              "expr": "100 * sum(rate(traefik_service_requests_total{code=~\"5..\"}[2m])) / clamp_min(sum(rate(traefik_service_requests_total[2m])), 0.001)",
+              "legendFormat": "",
+              "refId": "A",
+              "instant": false
+            }
+          ],
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "colorMode": "value",
+            "graphMode": "area",
+            "textMode": "auto",
+            "justifyMode": "auto"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percent",
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "orange",
+                    "value": 1
+                  },
+                  {
+                    "color": "red",
+                    "value": 5
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 11,
+          "type": "stat",
+          "title": "5xx total (15m)",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoria-metrics"
+          },
+          "gridPos": {
+            "x": 12,
+            "y": 6,
+            "w": 6,
+            "h": 4
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "victoria-metrics"
+              },
+              "expr": "sum(increase(traefik_service_requests_total{code=~\"5..\"}[15m]))",
+              "legendFormat": "",
+              "refId": "A",
+              "instant": false
+            }
+          ],
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "colorMode": "value",
+            "graphMode": "area",
+            "textMode": "auto",
+            "justifyMode": "auto"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "orange",
+                    "value": 10
+                  },
+                  {
+                    "color": "red",
+                    "value": 100
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 12,
+          "type": "stat",
+          "title": "504 total (15m)",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoria-metrics"
+          },
+          "gridPos": {
+            "x": 18,
+            "y": 6,
+            "w": 6,
+            "h": 4
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "victoria-metrics"
+              },
+              "expr": "sum(increase(traefik_service_requests_total{code=\"504\"}[15m]))",
+              "legendFormat": "",
+              "refId": "A",
+              "instant": false
+            }
+          ],
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "colorMode": "value",
+            "graphMode": "area",
+            "textMode": "auto",
+            "justifyMode": "auto"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "orange",
+                    "value": 1
+                  },
+                  {
+                    "color": "red",
+                    "value": 20
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 13,
+          "type": "timeseries",
+          "title": "5xx by code",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoria-metrics"
+          },
+          "gridPos": {
+            "x": 0,
+            "y": 10,
+            "w": 12,
+            "h": 8
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "victoria-metrics"
+              },
+              "expr": "sum by (code)(rate(traefik_service_requests_total{code=~\"5..\"}[2m]))",
+              "legendFormat": "{{code}}",
+              "refId": "A",
+              "instant": false
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "reqps",
+              "custom": {
+                "drawStyle": "line",
+                "lineInterpolation": "smooth",
+                "lineWidth": 2,
+                "fillOpacity": 10,
+                "gradientMode": "opacity",
+                "showPoints": "never",
+                "pointSize": 5,
+                "stacking": {
+                  "mode": "normal",
+                  "group": "A"
+                },
+                "axisPlacement": "auto",
+                "axisLabel": "",
+                "scaleDistribution": {
+                  "type": "linear"
+                },
+                "hideFrom": {
+                  "tooltip": false,
+                  "viz": false,
+                  "legend": false
+                },
+                "thresholdsStyle": {
+                  "mode": "off"
+                }
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom",
+              "calcs": [
+                "mean",
+                "lastNotNull",
+                "max"
+              ]
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          }
+        },
+        {
+          "id": 14,
+          "type": "timeseries",
+          "title": "Top routers by 504 / sec",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoria-metrics"
+          },
+          "gridPos": {
+            "x": 12,
+            "y": 10,
+            "w": 12,
+            "h": 8
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "victoria-metrics"
+              },
+              "expr": "topk(10, sum by (router)(rate(traefik_router_requests_total{code=\"504\"}[5m])))",
+              "legendFormat": "{{router}}",
+              "refId": "A",
+              "instant": false
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "reqps",
+              "custom": {
+                "drawStyle": "line",
+                "lineInterpolation": "smooth",
+                "lineWidth": 2,
+                "fillOpacity": 10,
+                "gradientMode": "opacity",
+                "showPoints": "never",
+                "pointSize": 5,
+                "stacking": {
+                  "mode": "none",
+                  "group": "A"
+                },
+                "axisPlacement": "auto",
+                "axisLabel": "",
+                "scaleDistribution": {
+                  "type": "linear"
+                },
+                "hideFrom": {
+                  "tooltip": false,
+                  "viz": false,
+                  "legend": false
+                },
+                "thresholdsStyle": {
+                  "mode": "off"
+                }
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom",
+              "calcs": [
+                "mean",
+                "lastNotNull",
+                "max"
+              ]
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          }
+        },
+        {
+          "id": 15,
+          "type": "row",
+          "title": "Entrypoint traffic",
+          "collapsed": false,
+          "gridPos": {
+            "x": 0,
+            "y": 18,
+            "w": 24,
+            "h": 1
+          },
+          "panels": []
+        },
+        {
+          "id": 16,
           "type": "timeseries",
           "title": "Requests / sec by entrypoint",
           "datasource": {
@@ -7134,7 +7767,7 @@ data:
           },
           "gridPos": {
             "x": 0,
-            "y": 6,
+            "y": 19,
             "w": 12,
             "h": 8
           },
@@ -7199,7 +7832,7 @@ data:
           }
         },
         {
-          "id": 10,
+          "id": 17,
           "type": "timeseries",
           "title": "Bytes / sec by entrypoint",
           "datasource": {
@@ -7208,7 +7841,7 @@ data:
           },
           "gridPos": {
             "x": 12,
-            "y": 6,
+            "y": 19,
             "w": 12,
             "h": 8
           },
@@ -7283,20 +7916,20 @@ data:
           }
         },
         {
-          "id": 11,
+          "id": 18,
           "type": "row",
           "title": "Latency by router",
           "collapsed": false,
           "gridPos": {
             "x": 0,
-            "y": 14,
+            "y": 27,
             "w": 24,
             "h": 1
           },
           "panels": []
         },
         {
-          "id": 12,
+          "id": 19,
           "type": "timeseries",
           "title": "p50",
           "datasource": {
@@ -7305,7 +7938,7 @@ data:
           },
           "gridPos": {
             "x": 0,
-            "y": 15,
+            "y": 28,
             "w": 8,
             "h": 8
           },
@@ -7370,7 +8003,7 @@ data:
           }
         },
         {
-          "id": 13,
+          "id": 20,
           "type": "timeseries",
           "title": "p95",
           "datasource": {
@@ -7379,7 +8012,7 @@ data:
           },
           "gridPos": {
             "x": 8,
-            "y": 15,
+            "y": 28,
             "w": 8,
             "h": 8
           },
@@ -7444,7 +8077,7 @@ data:
           }
         },
         {
-          "id": 14,
+          "id": 21,
           "type": "timeseries",
           "title": "p99",
           "datasource": {
@@ -7453,7 +8086,7 @@ data:
           },
           "gridPos": {
             "x": 16,
-            "y": 15,
+            "y": 28,
             "w": 8,
             "h": 8
           },
@@ -7518,20 +8151,20 @@ data:
           }
         },
         {
-          "id": 15,
+          "id": 22,
           "type": "row",
           "title": "Status codes",
           "collapsed": false,
           "gridPos": {
             "x": 0,
-            "y": 23,
+            "y": 36,
             "w": 24,
             "h": 1
           },
           "panels": []
         },
         {
-          "id": 16,
+          "id": 23,
           "type": "timeseries",
           "title": "Requests by code (service)",
           "datasource": {
@@ -7540,7 +8173,7 @@ data:
           },
           "gridPos": {
             "x": 0,
-            "y": 24,
+            "y": 37,
             "w": 12,
             "h": 8
           },
@@ -7605,7 +8238,7 @@ data:
           }
         },
         {
-          "id": 17,
+          "id": 24,
           "type": "timeseries",
           "title": "Top routers by 5xx / sec",
           "datasource": {
@@ -7614,7 +8247,7 @@ data:
           },
           "gridPos": {
             "x": 12,
-            "y": 24,
+            "y": 37,
             "w": 12,
             "h": 8
           },
@@ -7721,7 +8354,7 @@ data:
         {
           "id": 1,
           "type": "row",
-          "title": "Artifacts pipeline",
+          "title": "API health",
           "collapsed": false,
           "gridPos": {
             "x": 0,
@@ -7734,7 +8367,7 @@ data:
         {
           "id": 2,
           "type": "stat",
-          "title": "Created (1h)",
+          "title": "Edge 504s (15m)",
           "datasource": {
             "type": "prometheus",
             "uid": "victoria-metrics"
@@ -7742,6 +8375,565 @@ data:
           "gridPos": {
             "x": 0,
             "y": 1,
+            "w": 4,
+            "h": 4
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "victoria-metrics"
+              },
+              "expr": "sum(increase(traefik_service_requests_total{code=\"504\"}[15m]))",
+              "legendFormat": "",
+              "refId": "A",
+              "instant": false
+            }
+          ],
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "colorMode": "value",
+            "graphMode": "area",
+            "textMode": "auto",
+            "justifyMode": "auto"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "orange",
+                    "value": 1
+                  },
+                  {
+                    "color": "red",
+                    "value": 20
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 3,
+          "type": "stat",
+          "title": "API Restarts (15m)",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoria-metrics"
+          },
+          "gridPos": {
+            "x": 4,
+            "y": 1,
+            "w": 4,
+            "h": 4
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "victoria-metrics"
+              },
+              "expr": "sum(increase(kube_pod_container_status_restarts_total{namespace=\"rejourney\",pod=~\"api-.*\",container=\"api\"}[15m]))",
+              "legendFormat": "",
+              "refId": "A",
+              "instant": false
+            }
+          ],
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "colorMode": "value",
+            "graphMode": "area",
+            "textMode": "auto",
+            "justifyMode": "auto"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "orange",
+                    "value": 1
+                  },
+                  {
+                    "color": "red",
+                    "value": 4
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 4,
+          "type": "stat",
+          "title": "API pods last OOMKilled",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoria-metrics"
+          },
+          "gridPos": {
+            "x": 8,
+            "y": 1,
+            "w": 4,
+            "h": 4
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "victoria-metrics"
+              },
+              "expr": "sum(max by (pod)(kube_pod_container_status_last_terminated_reason{namespace=\"rejourney\",pod=~\"api-.*\",container=\"api\",reason=\"OOMKilled\"}))",
+              "legendFormat": "",
+              "refId": "A",
+              "instant": false
+            }
+          ],
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "colorMode": "value",
+            "graphMode": "area",
+            "textMode": "auto",
+            "justifyMode": "auto"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "red",
+                    "value": 1
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 5,
+          "type": "stat",
+          "title": "API pods not ready",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoria-metrics"
+          },
+          "gridPos": {
+            "x": 12,
+            "y": 1,
+            "w": 4,
+            "h": 4
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "victoria-metrics"
+              },
+              "expr": "sum(1 - kube_pod_container_status_ready{namespace=\"rejourney\",pod=~\"api-.*\",container=\"api\"})",
+              "legendFormat": "",
+              "refId": "A",
+              "instant": false
+            }
+          ],
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "colorMode": "value",
+            "graphMode": "area",
+            "textMode": "auto",
+            "justifyMode": "auto"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "orange",
+                    "value": 1
+                  },
+                  {
+                    "color": "red",
+                    "value": 2
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 6,
+          "type": "gauge",
+          "title": "API CPU % of Limit",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoria-metrics"
+          },
+          "gridPos": {
+            "x": 16,
+            "y": 1,
+            "w": 4,
+            "h": 4
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "victoria-metrics"
+              },
+              "expr": "100 * sum(rate(container_cpu_usage_seconds_total{namespace=\"rejourney\",pod=~\"api-.*\",container=\"api\",cpu=\"total\"}[2m])) / clamp_min(sum(kube_pod_container_resource_limits{namespace=\"rejourney\",pod=~\"api-.*\",container=\"api\",resource=\"cpu\"}), 0.001)",
+              "legendFormat": "",
+              "refId": "A",
+              "instant": false
+            }
+          ],
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "showThresholdLabels": false,
+            "showThresholdMarkers": true
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percent",
+              "min": 0,
+              "max": 100,
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "orange",
+                    "value": 70
+                  },
+                  {
+                    "color": "red",
+                    "value": 90
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 7,
+          "type": "gauge",
+          "title": "API Memory % of Limit",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoria-metrics"
+          },
+          "gridPos": {
+            "x": 20,
+            "y": 1,
+            "w": 4,
+            "h": 4
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "victoria-metrics"
+              },
+              "expr": "100 * sum(container_memory_working_set_bytes{namespace=\"rejourney\",pod=~\"api-.*\",container=\"api\"}) / clamp_min(sum(kube_pod_container_resource_limits{namespace=\"rejourney\",pod=~\"api-.*\",container=\"api\",resource=\"memory\"}), 1)",
+              "legendFormat": "",
+              "refId": "A",
+              "instant": false
+            }
+          ],
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "showThresholdLabels": false,
+            "showThresholdMarkers": true
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percent",
+              "min": 0,
+              "max": 100,
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "orange",
+                    "value": 70
+                  },
+                  {
+                    "color": "red",
+                    "value": 90
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 8,
+          "type": "timeseries",
+          "title": "API memory by pod",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoria-metrics"
+          },
+          "gridPos": {
+            "x": 0,
+            "y": 5,
+            "w": 12,
+            "h": 8
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "victoria-metrics"
+              },
+              "expr": "sum by (pod)(container_memory_working_set_bytes{namespace=\"rejourney\",pod=~\"api-.*\",container=\"api\"})",
+              "legendFormat": "{{pod}}",
+              "refId": "A",
+              "instant": false
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "victoria-metrics"
+              },
+              "expr": "sum by (pod)(container_memory_rss{namespace=\"rejourney\",pod=~\"api-.*\",container=\"api\"})",
+              "legendFormat": "rss \u2014 {{pod}}",
+              "refId": "B",
+              "instant": false
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "bytes",
+              "custom": {
+                "drawStyle": "line",
+                "lineInterpolation": "smooth",
+                "lineWidth": 2,
+                "fillOpacity": 10,
+                "gradientMode": "opacity",
+                "showPoints": "never",
+                "pointSize": 5,
+                "stacking": {
+                  "mode": "none",
+                  "group": "A"
+                },
+                "axisPlacement": "auto",
+                "axisLabel": "",
+                "scaleDistribution": {
+                  "type": "linear"
+                },
+                "hideFrom": {
+                  "tooltip": false,
+                  "viz": false,
+                  "legend": false
+                },
+                "thresholdsStyle": {
+                  "mode": "off"
+                }
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom",
+              "calcs": [
+                "mean",
+                "lastNotNull",
+                "max"
+              ]
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          }
+        },
+        {
+          "id": 9,
+          "type": "timeseries",
+          "title": "API restarts / readiness",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoria-metrics"
+          },
+          "gridPos": {
+            "x": 12,
+            "y": 5,
+            "w": 12,
+            "h": 8
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "victoria-metrics"
+              },
+              "expr": "sum by (pod)(increase(kube_pod_container_status_restarts_total{namespace=\"rejourney\",pod=~\"api-.*\",container=\"api\"}[15m]))",
+              "legendFormat": "restarts \u2014 {{pod}}",
+              "refId": "A",
+              "instant": false
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "victoria-metrics"
+              },
+              "expr": "sum by (pod)(1 - kube_pod_container_status_ready{namespace=\"rejourney\",pod=~\"api-.*\",container=\"api\"})",
+              "legendFormat": "not ready \u2014 {{pod}}",
+              "refId": "B",
+              "instant": false
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "custom": {
+                "drawStyle": "line",
+                "lineInterpolation": "smooth",
+                "lineWidth": 2,
+                "fillOpacity": 10,
+                "gradientMode": "opacity",
+                "showPoints": "never",
+                "pointSize": 5,
+                "stacking": {
+                  "mode": "none",
+                  "group": "A"
+                },
+                "axisPlacement": "auto",
+                "axisLabel": "",
+                "scaleDistribution": {
+                  "type": "linear"
+                },
+                "hideFrom": {
+                  "tooltip": false,
+                  "viz": false,
+                  "legend": false
+                },
+                "thresholdsStyle": {
+                  "mode": "off"
+                }
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom",
+              "calcs": [
+                "mean",
+                "lastNotNull",
+                "max"
+              ]
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          }
+        },
+        {
+          "id": 10,
+          "type": "row",
+          "title": "Artifacts pipeline",
+          "collapsed": false,
+          "gridPos": {
+            "x": 0,
+            "y": 13,
+            "w": 24,
+            "h": 1
+          },
+          "panels": []
+        },
+        {
+          "id": 11,
+          "type": "stat",
+          "title": "Created (1h)",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoria-metrics"
+          },
+          "gridPos": {
+            "x": 0,
+            "y": 14,
             "w": 4,
             "h": 4
           },
@@ -7788,7 +8980,7 @@ data:
           }
         },
         {
-          "id": 3,
+          "id": 12,
           "type": "stat",
           "title": "Completed (1h)",
           "datasource": {
@@ -7797,7 +8989,7 @@ data:
           },
           "gridPos": {
             "x": 4,
-            "y": 1,
+            "y": 14,
             "w": 4,
             "h": 4
           },
@@ -7844,7 +9036,7 @@ data:
           }
         },
         {
-          "id": 4,
+          "id": 13,
           "type": "stat",
           "title": "Failed artifacts (1h)",
           "datasource": {
@@ -7853,7 +9045,7 @@ data:
           },
           "gridPos": {
             "x": 8,
-            "y": 1,
+            "y": 14,
             "w": 4,
             "h": 4
           },
@@ -7908,7 +9100,7 @@ data:
           }
         },
         {
-          "id": 5,
+          "id": 14,
           "type": "stat",
           "title": "Stalled (current)",
           "datasource": {
@@ -7917,7 +9109,7 @@ data:
           },
           "gridPos": {
             "x": 12,
-            "y": 1,
+            "y": 14,
             "w": 4,
             "h": 4
           },
@@ -7972,7 +9164,7 @@ data:
           }
         },
         {
-          "id": 6,
+          "id": 15,
           "type": "stat",
           "title": "Stalled oldest age",
           "datasource": {
@@ -7981,7 +9173,7 @@ data:
           },
           "gridPos": {
             "x": 16,
-            "y": 1,
+            "y": 14,
             "w": 4,
             "h": 4
           },
@@ -8028,7 +9220,7 @@ data:
           }
         },
         {
-          "id": 7,
+          "id": 16,
           "type": "stat",
           "title": "Bytes created (1h)",
           "datasource": {
@@ -8037,7 +9229,7 @@ data:
           },
           "gridPos": {
             "x": 20,
-            "y": 1,
+            "y": 14,
             "w": 4,
             "h": 4
           },
@@ -8084,7 +9276,7 @@ data:
           }
         },
         {
-          "id": 8,
+          "id": 17,
           "type": "timeseries",
           "title": "Upload latency (recent window)",
           "datasource": {
@@ -8093,7 +9285,7 @@ data:
           },
           "gridPos": {
             "x": 0,
-            "y": 5,
+            "y": 18,
             "w": 12,
             "h": 8
           },
@@ -8188,7 +9380,7 @@ data:
           }
         },
         {
-          "id": 9,
+          "id": 18,
           "type": "timeseries",
           "title": "Recording artifacts by status",
           "datasource": {
@@ -8197,7 +9389,7 @@ data:
           },
           "gridPos": {
             "x": 12,
-            "y": 5,
+            "y": 18,
             "w": 12,
             "h": 8
           },
@@ -8262,20 +9454,20 @@ data:
           }
         },
         {
-          "id": 10,
+          "id": 19,
           "type": "row",
           "title": "Ingest jobs",
           "collapsed": false,
           "gridPos": {
             "x": 0,
-            "y": 13,
+            "y": 26,
             "w": 24,
             "h": 1
           },
           "panels": []
         },
         {
-          "id": 11,
+          "id": 20,
           "type": "timeseries",
           "title": "Jobs by status",
           "datasource": {
@@ -8284,7 +9476,7 @@ data:
           },
           "gridPos": {
             "x": 0,
-            "y": 14,
+            "y": 27,
             "w": 24,
             "h": 8
           },
@@ -8349,20 +9541,20 @@ data:
           }
         },
         {
-          "id": 12,
+          "id": 21,
           "type": "row",
           "title": "Session backup",
           "collapsed": false,
           "gridPos": {
             "x": 0,
-            "y": 22,
+            "y": 35,
             "w": 24,
             "h": 1
           },
           "panels": []
         },
         {
-          "id": 13,
+          "id": 22,
           "type": "stat",
           "title": "Queue depth",
           "datasource": {
@@ -8371,7 +9563,7 @@ data:
           },
           "gridPos": {
             "x": 0,
-            "y": 23,
+            "y": 36,
             "w": 4,
             "h": 4
           },
@@ -8426,7 +9618,7 @@ data:
           }
         },
         {
-          "id": 14,
+          "id": 23,
           "type": "stat",
           "title": "Oldest queue age",
           "datasource": {
@@ -8435,7 +9627,7 @@ data:
           },
           "gridPos": {
             "x": 4,
-            "y": 23,
+            "y": 36,
             "w": 4,
             "h": 4
           },
@@ -8482,7 +9674,7 @@ data:
           }
         },
         {
-          "id": 15,
+          "id": 24,
           "type": "stat",
           "title": "Max attempts seen",
           "datasource": {
@@ -8491,7 +9683,7 @@ data:
           },
           "gridPos": {
             "x": 8,
-            "y": 23,
+            "y": 36,
             "w": 4,
             "h": 4
           },
@@ -8538,7 +9730,7 @@ data:
           }
         },
         {
-          "id": 16,
+          "id": 25,
           "type": "stat",
           "title": "Seconds since last backup",
           "datasource": {
@@ -8547,7 +9739,7 @@ data:
           },
           "gridPos": {
             "x": 12,
-            "y": 23,
+            "y": 36,
             "w": 4,
             "h": 4
           },
@@ -8602,7 +9794,7 @@ data:
           }
         },
         {
-          "id": 17,
+          "id": 26,
           "type": "stat",
           "title": "Sessions backed up (1h)",
           "datasource": {
@@ -8611,7 +9803,7 @@ data:
           },
           "gridPos": {
             "x": 16,
-            "y": 23,
+            "y": 36,
             "w": 4,
             "h": 4
           },
@@ -8658,7 +9850,7 @@ data:
           }
         },
         {
-          "id": 18,
+          "id": 27,
           "type": "stat",
           "title": "Bytes backed up (1h)",
           "datasource": {
@@ -8667,7 +9859,7 @@ data:
           },
           "gridPos": {
             "x": 20,
-            "y": 23,
+            "y": 36,
             "w": 4,
             "h": 4
           },
@@ -8714,7 +9906,7 @@ data:
           }
         },
         {
-          "id": 19,
+          "id": 28,
           "type": "timeseries",
           "title": "Integrity (7d rolling)",
           "datasource": {
@@ -8723,7 +9915,7 @@ data:
           },
           "gridPos": {
             "x": 0,
-            "y": 27,
+            "y": 40,
             "w": 24,
             "h": 8
           },
@@ -8818,20 +10010,20 @@ data:
           }
         },
         {
-          "id": 20,
+          "id": 29,
           "type": "row",
           "title": "Retention",
           "collapsed": false,
           "gridPos": {
             "x": 0,
-            "y": 35,
+            "y": 48,
             "w": 24,
             "h": 1
           },
           "panels": []
         },
         {
-          "id": 21,
+          "id": 30,
           "type": "stat",
           "title": "Deleted objects (24h)",
           "datasource": {
@@ -8840,7 +10032,7 @@ data:
           },
           "gridPos": {
             "x": 0,
-            "y": 36,
+            "y": 49,
             "w": 6,
             "h": 4
           },
@@ -8887,7 +10079,7 @@ data:
           }
         },
         {
-          "id": 22,
+          "id": 31,
           "type": "stat",
           "title": "Deleted bytes (24h)",
           "datasource": {
@@ -8896,7 +10088,7 @@ data:
           },
           "gridPos": {
             "x": 6,
-            "y": 36,
+            "y": 49,
             "w": 6,
             "h": 4
           },
@@ -8943,7 +10135,7 @@ data:
           }
         },
         {
-          "id": 23,
+          "id": 32,
           "type": "stat",
           "title": "Failed purges (24h)",
           "datasource": {
@@ -8952,7 +10144,7 @@ data:
           },
           "gridPos": {
             "x": 12,
-            "y": 36,
+            "y": 49,
             "w": 6,
             "h": 4
           },
@@ -9003,7 +10195,7 @@ data:
           }
         },
         {
-          "id": 24,
+          "id": 33,
           "type": "stat",
           "title": "Seconds since last purge",
           "datasource": {
@@ -9012,7 +10204,7 @@ data:
           },
           "gridPos": {
             "x": 18,
-            "y": 36,
+            "y": 49,
             "w": 6,
             "h": 4
           },
@@ -9059,7 +10251,7 @@ data:
           }
         },
         {
-          "id": 25,
+          "id": 34,
           "type": "timeseries",
           "title": "Retention per-endpoint (recent)",
           "datasource": {
@@ -9068,7 +10260,7 @@ data:
           },
           "gridPos": {
             "x": 0,
-            "y": 40,
+            "y": 53,
             "w": 24,
             "h": 8
           },
@@ -9133,20 +10325,20 @@ data:
           }
         },
         {
-          "id": 26,
+          "id": 35,
           "type": "row",
           "title": "Workers \u2014 container resources",
           "collapsed": false,
           "gridPos": {
             "x": 0,
-            "y": 48,
+            "y": 61,
             "w": 24,
             "h": 1
           },
           "panels": []
         },
         {
-          "id": 27,
+          "id": 36,
           "type": "timeseries",
           "title": "Worker CPU",
           "datasource": {
@@ -9155,7 +10347,7 @@ data:
           },
           "gridPos": {
             "x": 0,
-            "y": 49,
+            "y": 62,
             "w": 12,
             "h": 8
           },
@@ -9221,7 +10413,7 @@ data:
           }
         },
         {
-          "id": 28,
+          "id": 37,
           "type": "timeseries",
           "title": "Worker Memory",
           "datasource": {
@@ -9230,7 +10422,7 @@ data:
           },
           "gridPos": {
             "x": 12,
-            "y": 49,
+            "y": 62,
             "w": 12,
             "h": 8
           },
