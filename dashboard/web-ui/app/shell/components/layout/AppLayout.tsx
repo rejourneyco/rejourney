@@ -152,9 +152,9 @@ export const ProjectLayout: React.FC<AppLayoutProps> = ({ children, pathPrefix =
   };
 
   return (
-    <div className="bg-slate-50 text-black font-sans flex h-screen antialiased selection:bg-[#5dadec] selection:text-black">
+    <div className="flex h-dvh min-h-screen min-w-0 bg-slate-50 font-sans text-black antialiased selection:bg-[#5dadec] selection:text-black">
       {!isWarehouseRoute && (
-        <div className="w-0 shrink-0 overflow-visible md:w-auto md:shrink-0 border-r-2 border-black bg-white z-20 shadow-[2px_0_0_0_rgba(0,0,0,1)]">
+        <div className="z-20 w-0 shrink-0 overflow-visible border-r-2 border-black bg-white shadow-[2px_0_0_0_rgba(0,0,0,1)] md:w-auto md:shrink-0">
           <Sidebar
             currentProject={selectedProject}
             onProjectChange={handleProjectChange}
@@ -169,7 +169,7 @@ export const ProjectLayout: React.FC<AppLayoutProps> = ({ children, pathPrefix =
           />
         </div>
       )}
-      <div key={routeScopeKey} className="flex-1 flex flex-col overflow-hidden bg-slate-50 relative">
+      <div key={routeScopeKey} className="relative flex min-w-0 flex-1 flex-col overflow-hidden bg-slate-50">
         {!isWarehouseRoute && <TopBar currentProject={selectedProject} />}
         {!isWarehouseRoute && (isManualRefreshing || showRefreshCompleteBar) && (
           <div className="h-1 bg-slate-200 overflow-hidden border-b-2 border-black relative z-10">
@@ -186,11 +186,11 @@ export const ProjectLayout: React.FC<AppLayoutProps> = ({ children, pathPrefix =
         )}
         <div
           key={contentScopeKey}
-          className={isWarehouseRoute ? 'flex-1 overflow-hidden bg-slate-50' : 'flex-1 overflow-y-auto bg-slate-50'}
+          className={isWarehouseRoute ? 'min-w-0 flex-1 overflow-hidden bg-slate-50' : 'min-w-0 flex-1 overflow-y-auto bg-slate-50'}
         >
           {isWarehouseRoute ? children : hasNoTeam ? (
-            <div className="mx-auto flex h-full w-full max-w-4xl items-center justify-center p-8">
-              <div className="w-full bg-white border-2 border-black p-10 shadow-neo">
+            <div className="mx-auto flex h-full w-full max-w-4xl items-center justify-center p-4 sm:p-8">
+              <div className="w-full bg-white border-2 border-black p-6 shadow-neo sm:p-10">
                 <div className="mb-4 inline-flex h-12 w-12 items-center justify-center border-2 border-black bg-[#5dadec] text-black shadow-neo-sm">
                   <Layers3 className="h-6 w-6 stroke-[3]" />
                 </div>
@@ -198,7 +198,7 @@ export const ProjectLayout: React.FC<AppLayoutProps> = ({ children, pathPrefix =
                 <p className="mt-3 text-base font-medium text-slate-600">
                   Teams hold your projects, members, and billing. Once a team exists, you can add a project and data will appear here.
                 </p>
-                <div className="mt-8 flex gap-4">
+                <div className="mt-8 flex flex-wrap gap-4">
                   <button
                     onClick={openCreateTeamModal}
                     className="inline-flex items-center gap-2 border-2 border-black bg-black px-6 py-3 text-sm font-black uppercase tracking-widest text-white shadow-neo-sm hover:-translate-y-0.5 hover:shadow-neo transition-all"
@@ -209,8 +209,8 @@ export const ProjectLayout: React.FC<AppLayoutProps> = ({ children, pathPrefix =
               </div>
             </div>
           ) : shouldShowNoProjectState ? (
-            <div className="mx-auto flex h-full w-full max-w-4xl items-center justify-center p-8">
-              <div className="w-full bg-white border-2 border-black p-10 shadow-neo">
+            <div className="mx-auto flex h-full w-full max-w-4xl items-center justify-center p-4 sm:p-8">
+              <div className="w-full bg-white border-2 border-black p-6 shadow-neo sm:p-10">
                 <div className="mb-4 inline-flex h-12 w-12 items-center justify-center border-2 border-black bg-[#fef08a] text-black shadow-neo-sm">
                   <FolderPlus className="h-6 w-6 stroke-[3]" />
                 </div>

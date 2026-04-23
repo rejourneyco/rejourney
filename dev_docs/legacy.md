@@ -8,12 +8,12 @@ Before deleting anything, re-verify the new stack is healthy:
 
 ```bash
 ssh -i ~/.ssh/vps_deploy root@46.224.98.62 \
-  'kubectl get cluster postgres -n rejourney -o jsonpath="{.status.phase}"; echo'
+  'kubectl get cluster postgres-local -n rejourney -o jsonpath="{.status.phase}"; echo'
 # Expect: "Cluster in healthy state"
 
-# Backup ran successfully at least once in the last 24h:
+# CNPG base backup ran successfully at least once recently:
 ssh -i ~/.ssh/vps_deploy root@46.224.98.62 \
-  'kubectl get jobs -n rejourney -l batch.kubernetes.io/cronjob=postgres-backup --sort-by=.metadata.creationTimestamp | tail -5'
+  'kubectl get backup -n rejourney -l cnpg.io/cluster=postgres-local,cnpg.io/scheduled-backup=postgres-daily-backup --sort-by=.metadata.creationTimestamp | tail -5'
 ```
 
 ---
@@ -66,15 +66,15 @@ kubectl delete pvc cloudbeaver-data pgadmin-data uptime-kuma-data -n rejourney
 
 ## 3. Phase 1-D historical note
 
-The `k8s/cnpg/postgres-cnpg.yaml` Cluster spec no longer has a `bootstrap.import` block — the monolith-import path was abandoned because of the `oid=10` issue (see `dev_docs/deployment-fixes.md` Phase 1-D post-execution note). Nothing to clean up there, noted for grep-discoverability.
+The `k8s/cnpg/postgres-cnpg.yaml` Cluster spec no longer has a `bootstrap.import` block. That monolith-import path was abandoned during the cutover because of the `oid=10` issue. Nothing to clean up there; this note only exists for grep-discoverability.
 
 ---
 
 ## 4. Repo-side changes already made (for reference)
 
 - `k8s/postgres.yaml` — **deleted** (legacy StatefulSet).
-- `k8s/namespace.yaml` — secret-bootstrap comments updated from `@postgres:5432` to `@postgres-rw:5432`.
-- `k8s/api.yaml` — `db-setup` wait-postgres initContainer now probes `postgres-rw`.
-- `k8s/pgbouncer.yaml`, `k8s/gatus.yaml`, `k8s/admin-tools.yaml` — all point at `postgres-rw` (Phase 1-E commit `b20190e2`).
+- `k8s/namespace.yaml` — secret-bootstrap comments updated from `@postgres:5432` to `@postgres-app-rw:5432`.
+- `k8s/api.yaml` — `db-setup` wait-postgres initContainer now probes `postgres-app-rw`.
+- `k8s/pgbouncer.yaml`, `k8s/gatus.yaml`, `k8s/admin-tools.yaml` — all point at `postgres-app-rw`.
 - `scripts/k8s/deploy-release.sh`: removed `ensure_pgbouncer_url_secret` (one-time migration, completed) and the dual-path CNPG/legacy branching in `wait_for_postgres` / `print_migration_status`. CNPG-only now.
 - Live cluster: `statefulset/postgres` and `service/postgres` had their `app.kubernetes.io/part-of=rejourney` label stripped so the deploy script's `--prune` will not delete them while they sit idle.

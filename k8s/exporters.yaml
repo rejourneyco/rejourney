@@ -24,6 +24,77 @@ metadata:
   namespace: rejourney
 
 ---
+# Local PVC metrics collector script — mounted into the node-exporter pod so we
+# can report real disk usage for local-path PVC directories even when kubelet
+# does not emit kubelet_volume_stats_* for them.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: local-pvc-metrics-script
+  namespace: rejourney
+  labels:
+    app.kubernetes.io/part-of: rejourney
+data:
+  collect-local-pvc-metrics.sh: |
+    #!/bin/sh
+    # Keep this script in sync with scripts/k8s/collect-local-pvc-metrics.sh.
+    set -eu
+
+    STORAGE_ROOT="${STORAGE_ROOT:-/host-storage}"
+    OUT_FILE="${OUT_FILE:-/textfile/rejourney-local-pvc.prom}"
+    INTERVAL_SECONDS="${INTERVAL_SECONDS:-120}"
+    NODE_NAME="${NODE_NAME:-unknown}"
+
+    collect_once() {
+      tmp_file="${OUT_FILE}.tmp"
+
+      {
+        echo '# HELP rejourney_local_pvc_used_bytes Local-path PVC disk usage on this node.'
+        echo '# TYPE rejourney_local_pvc_used_bytes gauge'
+        echo '# HELP rejourney_local_pvc_inodes_used Local-path PVC inode count on this node.'
+        echo '# TYPE rejourney_local_pvc_inodes_used gauge'
+
+        if [ -d "$STORAGE_ROOT" ]; then
+          find "$STORAGE_ROOT" -mindepth 1 -maxdepth 1 -type d | sort | while IFS= read -r dir; do
+            base="$(basename "$dir")"
+            case "$base" in
+              pvc-*_*_*) ;;
+              *) continue ;;
+            esac
+
+            rest="${base#pvc-}"
+            pvc_uid="${rest%%_*}"
+            rest="${rest#*_}"
+            namespace="${rest%%_*}"
+            claim="${rest#*_}"
+
+            used_kib="$(du -sk "$dir" 2>/dev/null | awk 'NR==1 { print $1 }')"
+            inodes_used="$(du -s --inodes "$dir" 2>/dev/null | awk 'NR==1 { print $1 }')"
+            if [ -z "$inodes_used" ]; then
+              inodes_used="$(find "$dir" -xdev 2>/dev/null | wc -l | awk 'NR==1 { print $1 }')"
+            fi
+
+            used_kib="${used_kib:-0}"
+            inodes_used="${inodes_used:-0}"
+            used_bytes=$((used_kib * 1024))
+
+            printf 'rejourney_local_pvc_used_bytes{node="%s",namespace="%s",persistentvolumeclaim="%s",pvc_uid="%s"} %s\n' \
+              "$NODE_NAME" "$namespace" "$claim" "$pvc_uid" "$used_bytes"
+            printf 'rejourney_local_pvc_inodes_used{node="%s",namespace="%s",persistentvolumeclaim="%s",pvc_uid="%s"} %s\n' \
+              "$NODE_NAME" "$namespace" "$claim" "$pvc_uid" "$inodes_used"
+          done
+        fi
+      } >"$tmp_file"
+
+      mv "$tmp_file" "$OUT_FILE"
+    }
+
+    while true; do
+      collect_once
+      sleep "$INTERVAL_SECONDS"
+    done
+
+---
 # node-exporter DaemonSet — runs on every node, mounts host paths read-only
 apiVersion: apps/v1
 kind: DaemonSet
@@ -52,6 +123,7 @@ spec:
             - --path.sysfs=/host/sys
             - --path.rootfs=/host/root
             - --collector.filesystem.mount-points-exclude=^/(dev|proc|sys|var/lib/docker/.+|var/lib/kubelet/pods/.+|var/lib/rancher/k3s/.+)($$|/)
+            - --collector.textfile.directory=/textfile
             - --web.listen-address=:9100
           ports:
             - containerPort: 9100
@@ -70,6 +142,9 @@ spec:
               mountPath: /host/root
               readOnly: true
               mountPropagation: HostToContainer
+            - name: textfile
+              mountPath: /textfile
+              readOnly: true
           resources:
             requests:
               cpu: 10m
@@ -77,6 +152,35 @@ spec:
             limits:
               cpu: 50m
               memory: 50Mi
+        - name: local-pvc-metrics
+          image: debian:12-slim
+          command:
+            - /bin/sh
+            - /scripts/collect-local-pvc-metrics.sh
+          env:
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+          securityContext:
+            runAsUser: 0
+            readOnlyRootFilesystem: true
+          volumeMounts:
+            - name: local-storage
+              mountPath: /host-storage
+              readOnly: true
+            - name: textfile
+              mountPath: /textfile
+            - name: local-pvc-metrics-script
+              mountPath: /scripts
+              readOnly: true
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 50m
+              memory: 64Mi
       tolerations:
         - operator: Exists
           effect: NoSchedule
@@ -90,6 +194,15 @@ spec:
         - name: root
           hostPath:
             path: /
+        - name: local-storage
+          hostPath:
+            path: /var/lib/rancher/k3s/storage
+        - name: textfile
+          emptyDir: {}
+        - name: local-pvc-metrics-script
+          configMap:
+            name: local-pvc-metrics-script
+            defaultMode: 0555
 
 ---
 apiVersion: v1
@@ -396,7 +509,7 @@ spec:
 # mirrors the app credentials into postgres-exporter-secret so deploys remain functional.
 #
 # OPTIONAL (enables dashboard 9628 query stats):
-#   PRIMARY=$(kubectl get pod -n rejourney -l cnpg.io/cluster=postgres,cnpg.io/instanceRole=primary -o jsonpath='{.items[0].metadata.name}')
+#   PRIMARY=$(kubectl get pod -n rejourney -l cnpg.io/cluster=postgres-local,cnpg.io/instanceRole=primary -o jsonpath='{.items[0].metadata.name}')
 #   kubectl exec -it "$PRIMARY" -n rejourney -c postgres -- psql -U postgres -d rejourney -c \
 #     "CREATE EXTENSION IF NOT EXISTS pg_stat_statements;"
 # Also add to k8s/cnpg/postgres-cnpg.yaml under spec.postgresql.parameters:

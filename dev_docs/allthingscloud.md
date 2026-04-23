@@ -1,12 +1,16 @@
 # All Things Cloud
 
+Last updated: 2026-04-22
+
+This is the operator-facing map of production: network path, deploy flow, storage layout, monitoring, backups, and the runtime services we actually have today.
+
 ## Tailscale, public traffic, and admin access
 
-**Public path:** Internet -> **Cloudflare** (DNS / TLS / WAF) -> **Hetzner Load Balancer** (Phase 1-B, with PROXY protocol and trusted private-network IPs) -> **Traefik** on k3s -> `rejourney.co`, `api.rejourney.co`, `ingest.rejourney.co`. The Hetzner LB is what real-client IPs come through; Traefik is configured with the LB's private-network IP in `trustedIPs` so it forwards `X-Forwarded-For` correctly.
+**Public path:** Internet -> **Cloudflare** (DNS / TLS / WAF) -> **Hetzner Load Balancer** (PROXY protocol) -> **Traefik** on k3s -> `rejourney.co`, `api.rejourney.co`, `ingest.rejourney.co`
 
-**Admin path:** Operators join the **Tailscale tailnet** (Mac + VPS). They use **SSH** and **`kubectl`** over **100.x** addresses. **Admin UIs** (pgweb, Redis Commander, Grafana, Gatus, VictoriaMetrics, Pushgateway, Traefik dashboard) have **no public Ingress**; open them with **`kubectl port-forward`** to `127.0.0.1` on the laptop. The **internal dashboard** repo (`rejourney-internal`) talks to Postgres/S3 the same way: tunnels + local Node.
+**Admin path:** Operators join the **Tailscale tailnet** and use **SSH**, **kubectl**, and **kubectl port-forward** over `100.x` addresses. Admin UIs are not public anymore.
 
-**Important boundary:** Tailscale is the secure operator/admin doorway into the node and cluster. It is **not** in the normal in-cluster service path. Internal service-to-service traffic such as `Grafana -> VictoriaMetrics`, `VictoriaMetrics -> kube-state-metrics`, or `postgres-exporter -> postgres` stays on Kubernetes service networking. Cloudflare only fronts the public customer hostnames.
+**Important boundary:** Tailscale protects operator access to the node and cluster. It is not in the normal in-cluster service path. Internal traffic such as `Grafana -> VictoriaMetrics` or `postgres-exporter -> postgres-app-rw` stays on Kubernetes service networking.
 
 ```mermaid
 flowchart TB
@@ -26,14 +30,17 @@ flowchart TB
     VPS[VPS k3s node]
     Admin -->|WireGuard 100.x| VPS
   end
-  Admin -->|kubectl port-forward| Web
-  Admin -->|kubectl port-forward| API
+  Admin -->|kubectl port-forward| VPS
   Admin -->|kubectl / SSH| VPS
 ```
 
-**Docs:** [network-exposure-and-tailscale.md](./network-exposure-and-tailscale.md), [admin-tools-private-access.md](./admin-tools-private-access.md), sibling repo `rejourney-internal/dev_docs/`.
+Related docs:
 
----
+- [admin-tools-private-access.md](./admin-tools-private-access.md)
+- [rejourney-ci.md](./rejourney-ci.md)
+- [legacy.md](./legacy.md)
+- [postgres-backup-and-restore.md](./postgres-backup-and-restore.md)
+- sibling repo `rejourney-internal/dev_docs/`
 
 ## Deployment
 
@@ -43,8 +50,7 @@ flowchart TB
 │ (rejourney)  │      │  scripts/k8s/deploy-release │      │ (Docker Images) │
 └──────────────┘      └──────────────┬──────────────┘      └────────┬────────┘
                                      │                              │
-                                     │ 2) kubectl apply --prune     │ 3) Pull
-                                     │    (part-of=rejourney)       │    Images
+                                     │ render + kubectl apply       │ pull
                                      ▼                              ▼
                       ┌────────────────────────────────────────────────────┐
                       │         Hetzner CPX42 k3s node (single)            │
@@ -52,7 +58,18 @@ flowchart TB
                       └────────────────────────────────────────────────────┘
 ```
 
-`deploy-release.sh` renders `k8s/*.yaml` into a temp dir with image-tag substitution, then applies with `--prune -l app.kubernetes.io/part-of=rejourney` plus an explicit allowlist (ConfigMap, Service, Deployment, StatefulSet, Ingress, Traefik Middleware, CronJob, Job, PodDisruptionBudget). Anything labeled `part-of=rejourney` but no longer in the repo is removed on the next deploy. Helm-managed resources such as the Bitnami Redis `Service` have that label explicitly stripped so `--prune` never touches them. CNPG is managed by its operator, so `k8s/cnpg/` is not applied by the deploy script.
+`deploy-release.sh` does all of the following now:
+
+- renders `k8s/*.yaml` into a temp dir with image-tag substitution
+- applies `namespace.yaml`, `traefik-config.yaml`, `exporters.yaml`, `ingress.yaml`, and `storage-class-db-local.yaml` up front
+- applies `k8s/cnpg/postgres-cnpg.yaml` explicitly in its own CNPG step
+- server-side applies `k8s/grafana-dashboards.yaml` because the ConfigMap is too large for client-side apply annotations
+- bulk-applies the rendered root manifests with `--prune -l app.kubernetes.io/part-of=rejourney`
+- restores and de-labels the Helm-managed `redis` Service if prune touched it
+- waits for `cadvisor` and `node-exporter` DaemonSets as well as the normal Deployments
+- removes legacy imported Grafana dashboards after the rollout
+
+`k8s/cnpg-backups.yaml` is a normal root-level manifest, so it is applied in the bulk pass. The live CNPG `Cluster` CR itself is still handled separately.
 
 ## K3s Details
 
@@ -74,12 +91,13 @@ flowchart TB
 │  │ │ Grafana / Gatus /│   │          │  │  PgBouncer    │  │ Redis      │ │  │
 │  │ │ VictoriaMetrics  │   │          │  │  (pooler)     │  │ (Bitnami)  │ │  │
 │  │ │ (admin port-fwd) │   │          │  └───────┬───────┘  │ + Sentinel │ │  │
-│  │ └──────────────────┘   │          │          ▼          │ 10Gi PVC   │ │  │
+│  │ └──────────────────┘   │          │          ▼          │ 8Gi PVC    │ │  │
 │  │ exporters + pushgw +   │          │  ┌───────────────┐  └────────────┘ │  │
-│  │ Traefik metrics (svc)  │          │  │  CNPG Postgres│                 │  │
-│  └────────────────────────┘          │  │  postgres-rw  │                 │  │
-│                                      │  │  60Gi Hetzner │                 │  │
-│                                      │  │  vol, PG 18.3 │                 │  │
+│  │ Traefik metrics (svc)  │          │  │ CNPG Postgres │                 │  │
+│  └────────────────────────┘          │  │ postgres-local│                 │  │
+│                                      │  │ via           │                 │  │
+│                                      │  │ postgres-app-*│                 │  │
+│                                      │  │ 40Gi PVC      │                 │  │
 │                                      │  └───────────────┘                 │  │
 │                                      └────────────────────────────────────┘  │
 │                                                                              │
@@ -93,17 +111,17 @@ flowchart TB
 │  │           │                     │                         │               │
 │  │           └─────────────────────┴─────────────────────────┘               │
 │  │                                   │                                       │
-│  │  ┌──────────────────┐             │  CronJobs (on schedule)               │
-│  │  │ alert-worker     │             │  retention-worker · session-backup ·  │
-│  │  │ (alert pipeline) │             │  postgres-backup                      │
+│  │  ┌──────────────────┐             │  Periodic jobs                        │
+│  │  │ alert-worker     │             │  retention-worker · session-backup · │
+│  │  │ (alert pipeline) │             │  session-backup-seed                  │
 │  │  └──────────────────┘             │                                       │
 │  └────────────────────────────────────────────────────────────────────────┘  │
 └──────────────────────────────────────────────────────────────────────────────┘
 ```
 
-Ingest pathway detail is below: SDK -> API -> storage -> queue -> workers.
+The monitoring stack also uses small local-path PVCs for `grafana-data`, `gatus-data`, and `victoria-metrics-data`.
 
-## Ingest Pathway (Workers + Data Plane)
+## Ingest Pathway
 
 ```text
 ┌─────────────┐   presign / complete / relay    ┌─────────────────────────────────────┐
@@ -116,9 +134,9 @@ Ingest pathway detail is below: SDK -> API -> storage -> queue -> workers.
        ▼                                                        ▼
 ┌─────────────┐   object payloads                      ┌────────────────┐
 │ Hetzner S3  │ ◀───────────────────────────────────── │ PgBouncer ->   │
-│ (artifacts) │                                        │ CNPG Postgres  │
-└──────┬──────┘                                        │ (source of     │
-       │                                               │  truth)        │
+│ (artifacts) │                                        │ postgres-app-rw│
+└──────┬──────┘                                        │ -> postgres-local
+       │                                               │ (source of truth)
        │                                               └───────┬────────┘
        │                                                       │
        │                                                       │ job rows / locks
@@ -143,97 +161,98 @@ Ingest pathway detail is below: SDK -> API -> storage -> queue -> workers.
                     lifecycle flags (still Postgres + S3 as above)
 ```
 
-## External Boundary
-
-Admins use **Tailscale** (`100.x`) for SSH, `kubectl`, and `port-forward`, not Cloudflare.
-
 ## Monitoring Runtime Path
 
-- **Grafana** reads from **VictoriaMetrics** over internal Kubernetes DNS. Dashboards ship via the `grafana-dashboards` ConfigMap (generated by `scripts/k8s/gen-grafana-dashboards.py` into `k8s/grafana-dashboards.yaml`). Eight dashboards, numbered `00 — Overview` through `70 — VictoriaMetrics & Self`, covering cluster health, Kubernetes resources, Postgres/CNPG, Redis + Sentinel, Traefik, application pipeline (artifacts/ingest/backup/retention), storage, and self-monitoring. The legacy community-imported dashboards are deleted on every deploy by `scripts/k8s/patch-imported-grafana-dashboards.py`.
-- **VictoriaMetrics** scrapes `node-exporter`, `cadvisor`, `kube-state-metrics`, `postgres-exporter`, `pushgateway`, Traefik metrics, Redis (Bitnami exporter sidecar, `redis-metrics:9121`), CNPG instance metrics (pod service-discovery on `cnpg.io/cluster=postgres`), and the kubelet (`/api/v1/nodes/<node>/proxy/metrics`). Pod and node discovery needs RBAC, so VM has a dedicated `ServiceAccount` + `ClusterRole` with get/list/watch on nodes, pods, endpoints, and services.
-- **Gatus** should prefer internal service URLs for app-health checks because public HTTP checks can be blocked by Cloudflare managed challenge or bot protection even while the app is healthy. The PostgreSQL TCP check now probes `postgres-rw.rejourney.svc.cluster.local:5432` (CNPG primary service), not the legacy `postgres` service.
-- **TLS checks** still intentionally use the public hostnames because they validate the public certificate chain at the edge.
-- `postgres-exporter -> postgres-rw` is an in-cluster connection using the `monitoring` user (`sslmode=disable`). The `monitoring` role is not bundled by `pg_dump`, so it was recreated on CNPG by hand during Phase 1-E. One pre-existing warning is noise: `stat_bgwriter: column "checkpoints_timed" does not exist`. The exporter's `queries.yaml` predates the PG 17 rename, so it is safe to ignore or update the YAML.
-
-```text
-                        ┌────────────────────────┐
-                        │       Cloudflare       │
-                        │   (DNS / SSL / public) │
-                        └────────────┬───────────┘
-                                     │
-                        ┌────────────▼───────────┐
-                        │   Hetzner LB (PROXY)   │
-                        └────────────┬───────────┘
-                                     │
-                        ┌────────────▼───────────┐
-                        │     Traefik (k8s)      │
-                        └────────────┬───────────┘
-                                     │
-              ┌──────────────────────┴───────────────────────┐
-              │                                              │
-      ┌───────▼────────┐                             ┌───────▼────────┐
-      │     Web UI     │                             │   API Backend  │
-      └────────────────┘                             └───────┬────────┘
-                                                             │
-        ┌─────────────────────────┬───────────────────┬──────┴──────────┐
-        │                         │                   │                 │
-┌───────▼────────┐      ┌─────────▼────────┐  ┌───────▼───────┐  ┌──────▼────────────┐
-│  PgBouncer ->  │      │  Redis Sentinel  │  │  Hetzner S3   │  │  External APIs    │
-│  CNPG Postgres │      │  (Bitnami chart) │  │  (Recordings) │  │  (Stripe / SMTP)  │
-│  postgres-rw   │      │  cache / queue   │  │               │  │                   │
-│  + postgres-r  │      │  ingest jobs     │  │               │  │                   │
-│  + postgres-ro │      │                  │  │               │  │                   │
-└───────▲────────┘      └──────────▲───────┘  └───────▲───────┘  └───────────────────┘
-        │                          │                  │
-        └──────────────────────────┴──────────────────┘
-              ingest · replay · session-lifecycle · alert workers
-              (drain queues, update sessions/artifacts, alerts)
-
-              CNPG WAL archived to R2 (s3://rejourney-backup/cnpg-wal) via Barman;
-              logical daily backup job also dumps to R2 (postgres-backup CronJob).
-```
+- **Grafana** reads from **VictoriaMetrics** over internal Kubernetes DNS. Dashboards are generated from `scripts/k8s/gen-grafana-dashboards.py` into `k8s/grafana-dashboards.yaml` and auto-provisioned under the `Rejourney` folder. Imported Grafana.com dashboards are intentionally temporary and are deleted on deploy.
+- **Node exporter** is part of the first-party dashboard set now:
+  - `10 — Kubernetes` is the main node CPU / memory / disk view
+  - `70 — VictoriaMetrics & Self` shows target health by scrape job
+  - `00 — Overview` includes a direct node-exporter up/down stat
+- **PVC charts** intentionally show only the live claims we actually use now:
+  - `postgres-local-*`
+  - `redis-data-redis-node-*`
+  - `grafana-data`
+  - `gatus-data`
+  - `victoria-metrics-data`
+  Legacy orphan PVCs are excluded from the Grafana queries on purpose so they do not pollute storage panels. Actual local-path usage now comes from the node-exporter textfile collector sidecar (`rejourney_local_pvc_*`) because kubelet does not reliably emit `kubelet_volume_stats_*` for the Postgres and Redis PVCs on this storage path and returns misleading root-filesystem-sized values for the remaining local-path claims.
+- **VictoriaMetrics** scrapes `node-exporter`, `cadvisor`, `kube-state-metrics`, `postgres-exporter`, `pushgateway`, Traefik metrics, Redis exporter metrics, CNPG pod metrics discovered via `cnpg.io/cluster=postgres-local`, and kubelet metrics for general node state. Local-path PVC sizing panels use `rejourney_local_pvc_*` plus PVC requested size from `kube-state-metrics`.
+- **Gatus** should prefer internal service URLs for app-health checks because Cloudflare can challenge public HTTP probes even while the app is healthy. Its PostgreSQL TCP check targets `postgres-app-rw.rejourney.svc.cluster.local:5432`.
+- **postgres-exporter** connects to `postgres-app-rw` using the `monitoring` role with `sslmode=disable`.
+- **cAdvisor** is the source of truth for live pod/container CPU and memory. If Grafana shows object state but blank resource charts, check `cadvisor`, not `kube-state-metrics`.
 
 ## Session Backup Deployment Notes
 
 - The session backup CronJob is deployed from [archive.yaml](../k8s/archive.yaml).
 - Production currently schedules that CronJob hourly so queued backupable sessions do not wait for a once-daily drain.
 - Production also runs a `session-backup-seed` CronJob every 5 minutes to enqueue old eligible sessions that were not already inserted from the finalize path.
-- The source-of-truth script for that job is [session-backup.mjs](../scripts/k8s/session-backup.mjs), and GitHub Actions now runs [check-archive-sync.sh](../scripts/k8s/check-archive-sync.sh) before `kubectl apply`.
-- A deploy from `main` now updates the backup job logic, including legacy hierarchy gzip repair and archive-friendly screenshot repacking for R2.
-- The live CronJob can be suspended during reset, but the committed manifest controls whether it resumes after the next deploy.
+- The source-of-truth script for that job is [session-backup.mjs](../scripts/k8s/session-backup.mjs), and GitHub Actions runs [check-archive-sync.sh](../scripts/k8s/check-archive-sync.sh) before `kubectl apply`.
+- A deploy from `main` updates the backup job logic, including legacy hierarchy gzip repair and archive-friendly screenshot repacking for R2.
 - The committed `session-backup-seed` manifest should stay `suspend: false`; if prod is manually unsuspended but Git still says `true`, the next deploy will silently turn it off again.
-- Detailed queue / backup / retention rules live in [Session Backup + Retention Internals](./session-backup-retention-internals.md).
+- Detailed queue / backup / retention rules live in [session-backup-retention-internals.md](./session-backup-retention-internals.md).
 
-## Data Plane (Post Phase 1 Migration)
+## Data Plane (Current Production)
 
-- **Postgres** - CloudNativePG (CNPG) `Cluster` named `postgres` in the `rejourney` namespace, managed by the `cnpg-system` operator. Single instance in Phase 1 and raises to 2 in Phase 2-B. Backed by a 60 Gi Hetzner volume (`hcloud-volumes` `StorageClass`, `reclaimPolicy: Retain`; see `dev_docs/legacy.md` for the volume-churn warning). Running PostgreSQL 18.3 on `ghcr.io/cloudnative-pg/postgresql:18`.
-  - Services: `postgres-rw` (primary read-write), `postgres-ro` (replicas only), `postgres-r` (any instance). Apps go through PgBouncer -> `postgres-rw`.
-  - Roles: `rejourney` (app, owns all public + drizzle schema objects), `monitoring` (read-only for postgres-exporter), `postgres` (superuser), `streaming_replica` (used by future replicas).
-  - Manifest: `k8s/cnpg/postgres-cnpg.yaml`. Applied by `deploy-release.sh` in a dedicated CNPG step; it stays in `k8s/cnpg/` so the main root-level apply/prune pass does not manage the CR implicitly.
-  - Backups: continuous WAL archive to R2 via Barman (`s3://rejourney-backup/cnpg-wal`, 7-day retention, gzip) plus the daily logical dump from the `postgres-backup` CronJob in `k8s/backup.yaml` (R2, 30-day retention).
-- **PgBouncer** - `edoburu/pgbouncer:v1.25.1-p0`, transaction pooling, `DEFAULT_POOL_SIZE=15`, `MAX_CLIENT_CONN=300`. All app services connect via `postgres-secret.PGBOUNCER_URL` (`postgresql://rejourney:...@pgbouncer:5432/rejourney`). PgBouncer itself connects upstream to `postgres-rw:5432` using `postgres-secret` credentials.
-- **Redis** - Bitnami Helm chart with Sentinel (Phase 1-C). StatefulSet `redis-node` with three containers per pod: `redis`, `sentinel`, `redis-exporter` (metrics). 10 Gi Hetzner volume per replica. Apps read Sentinel for the current master via `redis-headless` + `REDIS_SENTINEL_HOSTS`. The legacy single-Deployment Redis is gone; `k8s/redis.yaml` in the repo is a stub comment pointing at the Helm chart (`k8s/helm/redis-values.yaml`). The Bitnami `redis` `Service` has its `app.kubernetes.io/part-of=rejourney` label stripped so `--prune` never touches it.
-- **S3 (Hetzner + R2)** - Hetzner S3 for live session artifacts; Cloudflare R2 for long-term session backups, CNPG WAL, and logical DB dumps. Credentials split into `s3-secret` (Hetzner) and `r2-backup-secret` (Cloudflare R2).
+- **Postgres**
+  - CloudNativePG `Cluster` name: `postgres-local`
+  - Manifest: `k8s/cnpg/postgres-cnpg.yaml`
+  - Storage: `rejourney-db-local-retain`, `40Gi`
+  - Runtime services: `postgres-app-rw`, `postgres-app-r`, `postgres-app-ro`
+  - Application path: app services -> `PGBOUNCER_URL` -> `pgbouncer` -> `postgres-app-rw`
+  - Backup model: continuous WAL archive to Cloudflare R2 (`s3://rejourney-backup/cnpg-wal`) plus daily CNPG `ScheduledBackup` `postgres-daily-backup` from `k8s/cnpg-backups.yaml` at `03:00:00 UTC`
+  - Retention policy in the cluster spec is `30d`
+  - The `bootstrap.pg_basebackup` and `externalClusters` blocks remain in the manifest only because the live cluster was created during the storage cutover from an earlier source. They are not part of the normal application traffic path.
+- **PgBouncer**
+  - Image: `edoburu/pgbouncer:v1.25.1-p0`
+  - Transaction pooling
+  - `DEFAULT_POOL_SIZE=15`
+  - `MAX_CLIENT_CONN=300`
+  - Upstream target: `postgres-app-rw:5432`
+- **Redis**
+  - Bitnami Helm chart with Sentinel
+  - Config source: `k8s/helm/redis-values.yaml`
+  - Storage class: `rejourney-db-local-retain`
+  - Current persistence: 8Gi master PVC
+  - Metrics come from the Bitnami redis-exporter sidecar on `redis-metrics:9121`
+- **Live object storage**
+  - Hetzner S3 stores live session artifacts
+  - Cloudflare R2 stores session backups plus CNPG WAL/base backups
+  - Credentials split between `s3-secret` and `r2-backup-secret`
+- **Monitoring PVCs**
+  - `grafana-data`
+  - `gatus-data`
+  - `victoria-metrics-data`
 
 ## Current Production Runtime Notes
 
-- Long-running deployments:
-  - API
-  - Web UI
-  - `ingest-worker` ([`ingestArtifactWorker.js`](../backend/src/worker/ingestArtifactWorker.ts) - events, crashes, ANRs)
-  - `replay-worker` ([`replayArtifactWorker.js`](../backend/src/worker/replayArtifactWorker.ts) - screenshots, hierarchy)
-  - `session-lifecycle-worker` ([`sessionLifecycleWorker.js`](../backend/src/worker/sessionLifecycleWorker.ts) - lifecycle sweeps, session reconciliation)
+- Long-running Deployments:
+  - `api`
+  - `web`
+  - `pgbouncer`
+  - `ingest-worker`
+  - `replay-worker`
+  - `session-lifecycle-worker`
   - `alert-worker`
-- CronJobs:
-  - `session-backup` in [archive.yaml](../k8s/archive.yaml)
-  - `session-backup-seed` in [archive.yaml](../k8s/archive.yaml)
-  - `retention-worker` in [workers.yaml](../k8s/workers.yaml)
-  - `postgres-backup` in [backup.yaml](../k8s/backup.yaml)
+  - `victoria-metrics`
+  - `grafana`
+  - `gatus`
+  - `pushgateway`
+  - `kube-state-metrics`
+  - `postgres-exporter`
+- DaemonSets:
+  - `cadvisor`
+  - `node-exporter`
+- Kubernetes CronJobs:
+  - `session-backup`
+  - `session-backup-seed`
+  - `retention-worker`
+- CNPG scheduled backups:
+  - `ScheduledBackup/postgres-daily-backup`
+  - resulting `Backup` CRs in the `rejourney` namespace
 - There is no separate billing worker anymore. Billing is handled by Stripe webhooks through the API.
 
 ## Retention + Backup Coordination
 
-- Production retention now runs as a CronJob every 15 minutes with `concurrencyPolicy: Forbid`.
+- Production retention runs every 15 minutes with `concurrencyPolicy: Forbid`.
 - The container entrypoint is `node dist/worker/retentionWorker.js --once --drain-backlog --trigger=scheduled`.
 - Retention also takes a Postgres run lock in `retention_run_lock`, so a manual backfill and the CronJob cannot overlap.
 - Retention only purges a session after backup safety checks pass:
@@ -243,7 +262,7 @@ Admins use **Tailscale** (`100.x`) for SSH, `kubectl`, and `port-forward`, not C
   - if `session_backup_log` does not exist yet, retention skips session purges
   - if a session has not been backed up yet, retention skips that session
 - Backup is the source that creates and populates `session_backup_log`, so backup must run successfully before retention can start draining expired sessions.
-- Some historical queue rows may now be parked as `status = 'source_missing'` instead of retrying forever. That is an operator safeguard for stale source-storage gaps, not a success path; those sessions still do not count as backed up, and retention still skips them.
+- Some historical queue rows may now be parked as `status = 'source_missing'` instead of retrying forever. That is an operator safeguard for stale source-storage gaps, not a success path.
 - Retention deletes only the session artifact payloads and cache state:
   - canonical S3 objects under `tenant/{teamId}/project/{projectId}/sessions/{sessionId}/...`
   - legacy disconnected objects under bare `sessions/...`
@@ -255,7 +274,7 @@ Admins use **Tailscale** (`100.x`) for SSH, `kubectl`, and `port-forward`, not C
 
 ## Operational Commands
 
-- Apply schema changes before enabling the new retention behavior:
+- Apply schema changes before enabling new retention behavior:
   - `cd backend && npm run db:migrate`
 - Manually drain the backlog once the backup job has populated `session_backup_log`:
   - `cd backend && npm run retention:backfill:expired-artifacts`

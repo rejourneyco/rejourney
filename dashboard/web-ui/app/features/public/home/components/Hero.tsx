@@ -48,7 +48,7 @@ export const Hero: React.FC = () => {
                             <span data-text="Session replay." className="hero-kinetic-word font-semibold text-violet-600 tracking-[-0.01em] animate-replay-scan-in inline-block" style={{ animationDelay: '0.08s' }}>Session replay.</span> <br className="hidden sm:block" />
                             <span data-text="ANALYTICS." className="hero-kinetic-word font-semibold text-sky-600 tracking-[-0.01em] animate-analytics-rise-in inline-block" style={{ animationDelay: '0.3s' }}>ANALYTICS.</span> <br className="hidden sm:block" />
                             <span data-text="ERRORS." className="hero-kinetic-word hero-kinetic-word-error font-semibold text-amber-600 tracking-[-0.01em] animate-errors-jitter-in inline-block">ERRORS.</span> <br className="hidden sm:block" />
-                            <span data-text="Crashes." className="hero-kinetic-word hero-kinetic-word-crash font-semibold text-red-600 tracking-[-0.01em] animate-crash-drop-in inline-block origin-left whitespace-nowrap">Crashes.</span> <br className="hidden sm:block" />
+                            <span data-text="Crashes." className="hero-kinetic-word hero-kinetic-word-crash font-semibold text-red-600 tracking-[-0.01em] animate-crash-drop-in inline-block origin-bottom-left whitespace-nowrap">Crashes.</span> <br className="hidden sm:block" />
                         </h1>
                         {/* Deployment Options */}
                         <div className="pt-4">

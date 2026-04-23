@@ -22,11 +22,11 @@ export const DataWatermarkBanner: React.FC<{
 
     return (
         <div
-            className={`inline-flex items-center gap-1.5 rounded-lg border border-slate-200/80 bg-slate-50/80 px-2.5 py-1.5 text-xs font-medium text-slate-600 ${className}`}
+            className={`inline-flex min-w-0 max-w-full items-center gap-1.5 rounded-lg border border-slate-200/80 bg-slate-50/80 px-2.5 py-1.5 text-xs font-medium text-slate-600 ${className}`}
             title="Analytics rollups have completed through this date. Later days are excluded until rollups run."
         >
             <Calendar className="h-3.5 w-3.5 shrink-0 text-slate-500" />
-            <span>Data complete through {formatted}</span>
+            <span className="min-w-0 truncate">Data complete through {formatted}</span>
         </div>
     );
 };

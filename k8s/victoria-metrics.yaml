@@ -124,7 +124,7 @@ data:
         relabel_configs:
           - source_labels: [__meta_kubernetes_pod_label_cnpg_io_cluster]
             action: keep
-            regex: postgres
+            regex: postgres-local
           - source_labels: [__meta_kubernetes_pod_name]
             target_label: pod
           - source_labels: [__meta_kubernetes_pod_label_cnpg_io_instanceRole]
@@ -138,7 +138,9 @@ data:
           - target_label: namespace
             replacement: rejourney
 
-      # Kubelet volume + node stats (needed for PVC usage panels in infra dashboard)
+      # Kubelet volume + node stats. Local-path PVC sizing is collected via the
+      # node-exporter textfile sidecar because kubelet volume stats on this
+      # storage path are incomplete / misleading for our PVC dashboards.
       - job_name: kubelet
         scheme: https
         tls_config:

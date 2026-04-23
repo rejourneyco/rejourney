@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { useTabs } from '~/shared/providers/TabContext';
 import { useSessionData } from '~/shared/providers/SessionContext';
@@ -21,7 +21,21 @@ interface TabBarProps {
 const STALE_TAB_KEEP_COUNT = 6;
 const TAB_DRAG_MIME = 'application/x-rejourney-tab-id';
 
-type TabCategory = 'issues' | 'replays' | 'analytics' | 'stability' | 'alerts' | 'settings' | 'search' | 'other';
+type TabThemeKey =
+    | 'general'
+    | 'sessions'
+    | 'api'
+    | 'journeys'
+    | 'heatmaps'
+    | 'devices'
+    | 'geo'
+    | 'crashes'
+    | 'anrs'
+    | 'errors'
+    | 'alerts'
+    | 'settings'
+    | 'search'
+    | 'other';
 
 type TabTheme = {
     shortLabel: string;
@@ -32,46 +46,94 @@ type TabTheme = {
     idleHoverBg: string;
 };
 
-const TAB_THEME_MAP: Record<TabCategory, TabTheme> = {
-    issues: {
+const TAB_THEME_MAP: Record<TabThemeKey, TabTheme> = {
+    general: {
         shortLabel: 'GEN',
-        accent: '#2563eb',
+        accent: '#5dadec',
         badgeBg: '#dbeafe',
-        badgeText: '#1d4ed8',
+        badgeText: '#0369a1',
         idleBg: '#eff6ff',
         idleHoverBg: '#dbeafe',
     },
-    replays: {
+    sessions: {
         shortLabel: 'RPL',
-        accent: '#0f766e',
-        badgeBg: '#ccfbf1',
-        badgeText: '#0f766e',
-        idleBg: '#ecfeff',
-        idleHoverBg: '#cffafe',
+        accent: '#6366f1',
+        badgeBg: '#e0e7ff',
+        badgeText: '#4338ca',
+        idleBg: '#eef2ff',
+        idleHoverBg: '#e0e7ff',
     },
-    analytics: {
-        shortLabel: 'ANL',
-        accent: '#0e7490',
-        badgeBg: '#d1f4ff',
-        badgeText: '#0e7490',
-        idleBg: '#e0f2fe',
-        idleHoverBg: '#bae6fd',
+    api: {
+        shortLabel: 'API',
+        accent: '#10b981',
+        badgeBg: '#d1fae5',
+        badgeText: '#047857',
+        idleBg: '#ecfdf5',
+        idleHoverBg: '#d1fae5',
     },
-    stability: {
-        shortLabel: 'STB',
-        accent: '#dc2626',
-        badgeBg: '#fee2e2',
-        badgeText: '#b91c1c',
-        idleBg: '#fef2f2',
-        idleHoverBg: '#fee2e2',
+    journeys: {
+        shortLabel: 'JRN',
+        accent: '#d946ef',
+        badgeBg: '#fae8ff',
+        badgeText: '#a21caf',
+        idleBg: '#fdf4ff',
+        idleHoverBg: '#fae8ff',
     },
-    alerts: {
-        shortLabel: 'ALT',
-        accent: '#b45309',
+    heatmaps: {
+        shortLabel: 'HEA',
+        accent: '#f43f5e',
+        badgeBg: '#ffe4e6',
+        badgeText: '#be123c',
+        idleBg: '#fff1f2',
+        idleHoverBg: '#ffe4e6',
+    },
+    devices: {
+        shortLabel: 'DEV',
+        accent: '#6366f1',
+        badgeBg: '#e0e7ff',
+        badgeText: '#4338ca',
+        idleBg: '#eef2ff',
+        idleHoverBg: '#e0e7ff',
+    },
+    geo: {
+        shortLabel: 'GEO',
+        accent: '#0284c7',
+        badgeBg: '#dbeafe',
+        badgeText: '#0369a1',
+        idleBg: '#f0f9ff',
+        idleHoverBg: '#dbeafe',
+    },
+    crashes: {
+        shortLabel: 'CRH',
+        accent: '#e11d48',
+        badgeBg: '#ffe4e6',
+        badgeText: '#be123c',
+        idleBg: '#fff1f2',
+        idleHoverBg: '#ffe4e6',
+    },
+    anrs: {
+        shortLabel: 'ANR',
+        accent: '#8b5cf6',
+        badgeBg: '#ede9fe',
+        badgeText: '#6d28d9',
+        idleBg: '#f5f3ff',
+        idleHoverBg: '#ede9fe',
+    },
+    errors: {
+        shortLabel: 'ERR',
+        accent: '#f59e0b',
         badgeBg: '#fef3c7',
         badgeText: '#b45309',
         idleBg: '#fffbeb',
         idleHoverBg: '#fef3c7',
+    },
+    alerts: {
+        shortLabel: 'ALT',
+        accent: '#ef4444',
+        badgeBg: '#fee2e2',
+        badgeText: '#b91c1c',
+        idleBg: '#fef2f2',
+        idleHoverBg: '#fee2e2',
     },
     settings: {
         shortLabel: 'CFG',
@@ -108,13 +170,19 @@ function stripPathPrefix(pathname: string): string {
     return pathname.replace(/^\/(dashboard|demo)/, '');
 }
 
-function getTabCategory(path: string, tabId: string): TabCategory {
+function getTabThemeKey(path: string, tabId: string): TabThemeKey {
     const normalizedPath = stripPathPrefix(path);
 
-    if (normalizedPath.startsWith('/analytics')) return 'analytics';
-    if (normalizedPath.startsWith('/stability')) return 'stability';
-    if (normalizedPath.startsWith('/sessions')) return 'replays';
+    if (normalizedPath.startsWith('/analytics/api')) return 'api';
+    if (normalizedPath.startsWith('/analytics/journeys')) return 'journeys';
+    if (normalizedPath.startsWith('/analytics/heatmaps')) return 'heatmaps';
+    if (normalizedPath.startsWith('/analytics/devices')) return 'devices';
+    if (normalizedPath.startsWith('/analytics/geo')) return 'geo';
+    if (normalizedPath.startsWith('/sessions')) return 'sessions';
     if (normalizedPath.startsWith('/alerts')) return 'alerts';
+    if (normalizedPath.startsWith('/stability/crashes')) return 'crashes';
+    if (normalizedPath.startsWith('/stability/anrs')) return 'anrs';
+    if (normalizedPath.startsWith('/stability/errors')) return 'errors';
     if (
         normalizedPath.startsWith('/settings')
         || normalizedPath.startsWith('/team')
@@ -122,11 +190,13 @@ function getTabCategory(path: string, tabId: string): TabCategory {
         || normalizedPath.startsWith('/billing')
     ) return 'settings';
     if (normalizedPath.startsWith('/search')) return 'search';
-    if (normalizedPath.startsWith('/general') || normalizedPath.startsWith('/issues')) return 'issues';
+    if (normalizedPath.startsWith('/general') || normalizedPath.startsWith('/issues')) return 'general';
 
-    if (tabId.startsWith('session-')) return 'replays';
-    if (tabId.startsWith('crash-') || tabId.startsWith('anr-') || tabId.startsWith('error-')) return 'stability';
-    if (tabId.startsWith('issue-')) return 'issues';
+    if (tabId.startsWith('session-')) return 'sessions';
+    if (tabId.startsWith('crash-')) return 'crashes';
+    if (tabId.startsWith('anr-')) return 'anrs';
+    if (tabId.startsWith('error-')) return 'errors';
+    if (tabId.startsWith('issue-')) return 'general';
 
     return 'other';
 }
@@ -156,12 +226,26 @@ export const TabBar: React.FC<TabBarProps> = ({ pathPrefix = '', group = 'primar
     const activeId = group === 'primary' ? activeTabId : secondaryTabId;
 
     const draggedItem = useRef<number | null>(null);
+    const tabScrollRef = useRef<HTMLDivElement | null>(null);
+    const tabElementRefs = useRef<Record<string, HTMLDivElement | null>>({});
     const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
     const [contextMenu, setContextMenu] = useState<{ id: string; x: number; y: number } | null>(null);
 
     const closableTabs = tabs.filter((tab) => tab.isClosable).length;
     const canReopen = recentlyClosed.length > 0;
     const canCloseStale = closableTabs > STALE_TAB_KEEP_COUNT;
+    const tabOrderKey = groupTabs.map((tab) => tab.id).join('|');
+
+    useEffect(() => {
+        if (!activeId) return;
+        const activeTabElement = tabElementRefs.current[activeId];
+        if (!activeTabElement) return;
+        activeTabElement.scrollIntoView({
+            behavior: 'smooth',
+            block: 'nearest',
+            inline: 'nearest',
+        });
+    }, [activeId, tabOrderKey]);
 
     const handleDragStart = (e: React.DragEvent<HTMLDivElement>, index: number, tabId: string) => {
         draggedItem.current = index;
@@ -259,9 +343,20 @@ export const TabBar: React.FC<TabBarProps> = ({ pathPrefix = '', group = 'primar
         navigate(`${pathPrefix}/search`);
     };
 
+    const handleTabStripWheel = (event: React.WheelEvent<HTMLDivElement>) => {
+        const container = tabScrollRef.current;
+        if (!container || container.scrollWidth <= container.clientWidth) return;
+
+        const delta = Math.abs(event.deltaX) > 0 ? event.deltaX : event.deltaY;
+        if (Math.abs(delta) < 0.5) return;
+
+        event.preventDefault();
+        container.scrollLeft += delta;
+    };
+
     return (
         <div
-            className="flex items-end overflow-x-auto no-scrollbar bg-slate-50 border-b-2 border-black"
+            className="flex min-w-0 items-end bg-slate-50 border-b-2 border-black"
             onClick={() => setContextMenu(null)}
             onDragOver={(e) => e.preventDefault()}
             onDrop={(e) => {
@@ -273,64 +368,89 @@ export const TabBar: React.FC<TabBarProps> = ({ pathPrefix = '', group = 'primar
                 }
             }}
         >
-            <div className="flex flex-1 items-end overflow-hidden pt-2 px-2 gap-[2px]">
-                {groupTabs.map((tab, index) => {
-                    const isActive = tab.id === activeId;
-                    const isDraggingOver = dragOverIndex === index;
-                    const projectLabel = compactLabel(tab.projectName || selectedProject?.name, 'Project');
-                    const TabIcon = tab.icon || FileText;
+            <div className="min-w-0 flex-1 overflow-hidden">
+                <div
+                    ref={tabScrollRef}
+                    className="flex w-full items-end gap-[2px] overflow-x-auto overflow-y-hidden custom-scrollbar px-2 pt-2 pb-1"
+                    onWheel={handleTabStripWheel}
+                >
+                    {groupTabs.map((tab, index) => {
+                        const isActive = tab.id === activeId;
+                        const isDraggingOver = dragOverIndex === index;
+                        const projectLabel = compactLabel(tab.projectName || selectedProject?.name, 'Project');
+                        const TabIcon = tab.icon || FileText;
+                        const theme = TAB_THEME_MAP[getTabThemeKey(tab.path, tab.id)];
+                        const tabStyle: React.CSSProperties = {
+                            backgroundColor: isDraggingOver ? theme.idleHoverBg : isActive ? '#ffffff' : theme.idleBg,
+                            color: isActive ? '#0f172a' : theme.badgeText,
+                            borderTopColor: theme.accent,
+                            borderTopWidth: '4px',
+                            boxShadow: isActive ? `0 -1px 0 0 ${theme.accent} inset` : undefined,
+                        };
 
-                    return (
-                        <div
-                            key={tab.id}
-                            draggable
-                            onDragStart={(e) => handleDragStart(e, index, tab.id)}
-                            onDragOver={(e) => handleDragOver(e, index)}
-                            onDrop={(e) => handleDrop(e, index)}
-                            onDragEnd={handleDragEnd}
-                            onClick={() => handleTabClick(tab)}
-                            onContextMenu={(e) => handleContextMenu(e, tab.id)}
-                            className={[
-                                'group relative flex min-w-[120px] max-w-[220px] cursor-pointer select-none items-center gap-2 px-3 py-2 text-xs transition-all border-2 border-black border-b-0 -mb-[2px]',
-                                isActive ? 'bg-white text-black z-10 shadow-neo-sm transform translate-y-0.5 pb-[10px]' : 'bg-slate-200 text-slate-500 hover:bg-slate-100 hover:text-black z-0 opacity-90',
-                                isDraggingOver ? 'bg-blue-100' : ''
-                            ].join(' ')}
-                            title={`Project: ${projectLabel}\n${tab.title}`}
+                        return (
+                            <div
+                                key={tab.id}
+                                ref={(node) => {
+                                    tabElementRefs.current[tab.id] = node;
+                                }}
+                                draggable
+                                data-tab-id={tab.id}
+                                onDragStart={(e) => handleDragStart(e, index, tab.id)}
+                                onDragOver={(e) => handleDragOver(e, index)}
+                                onDrop={(e) => handleDrop(e, index)}
+                                onDragEnd={handleDragEnd}
+                                onClick={() => handleTabClick(tab)}
+                                onContextMenu={(e) => handleContextMenu(e, tab.id)}
+                                className={[
+                                    'group relative flex min-w-[120px] max-w-[220px] shrink-0 cursor-pointer select-none items-center gap-2 px-3 py-2 text-xs transition-all border-2 border-black border-b-0 -mb-[2px]',
+                                    isActive
+                                        ? 'z-10 shadow-neo-sm translate-y-0.5 pb-[10px]'
+                                        : 'z-0 opacity-95 hover:-translate-y-px hover:brightness-[0.98]',
+                                ].join(' ')}
+                                style={tabStyle}
+                                title={`Project: ${projectLabel}\n${tab.title}`}
+                            >
+                                <div className="min-w-0 flex flex-1 items-center gap-2">
+                                    <TabIcon
+                                        className={`h-3.5 w-3.5 shrink-0 ${isActive ? 'stroke-[2.8]' : 'stroke-[2.3]'}`}
+                                        style={{ color: theme.accent }}
+                                    />
+                                    <div className={`truncate text-xs uppercase tracking-widest ${isActive ? 'font-black text-slate-900' : 'font-bold'}`}>
+                                        {tab.title}
+                                    </div>
+                                </div>
+
+                                <div className={`flex shrink-0 items-center ${isActive ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'} transition-opacity`}>
+                                    {tab.isClosable && (
+                                        <button
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                closeTab(tab.id, e);
+                                            }}
+                                            className="flex h-5 w-5 items-center justify-center border-2 border-transparent text-slate-700 transition-all hover:border-black hover:bg-red-500 hover:text-white hover:shadow-[1px_1px_0px_0px_rgba(0,0,0,1)]"
+                                            title="Close tab"
+                                        >
+                                            <X className="h-3.5 w-3.5 stroke-[3]" />
+                                        </button>
+                                    )}
+                                </div>
+                            </div>
+                        );
+                    })}
+                    {groupTabs.length === 0 && (
+                        <div className="px-4 py-2 text-xs font-bold uppercase tracking-widest text-slate-400">No open tabs</div>
+                    )}
+                    {group === 'primary' && (
+                        <button
+                            onClick={handleNewTab}
+                            className="ml-1 flex h-[34px] w-[34px] shrink-0 items-center justify-center border-2 border-black border-b-0 bg-slate-200 text-slate-500 transition-colors hover:bg-white hover:text-black -mb-[2px]"
+                            title="New tab"
                         >
-                            <div className="min-w-0 flex-1 flex items-center gap-2">
-                                <TabIcon className={`h-3.5 w-3.5 shrink-0 ${isActive ? 'text-black stroke-[3]' : 'text-slate-400 group-hover:text-black stroke-[2]'}`} />
-                                <div className={`truncate text-xs uppercase tracking-widest ${isActive ? 'font-black' : 'font-bold'}`}>{tab.title}</div>
-                            </div>
-
-                            <div className={`flex items-center shrink-0 ${isActive ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'} transition-opacity`}>
-                                {tab.isClosable && (
-                                    <button
-                                        onClick={(e) => {
-                                            e.stopPropagation();
-                                            closeTab(tab.id, e);
-                                        }}
-                                        className="flex h-5 w-5 items-center justify-center text-black border-2 border-transparent hover:border-black hover:bg-red-500 hover:text-white transition-all shadow-none hover:shadow-[1px_1px_0px_0px_rgba(0,0,0,1)]"
-                                        title="Close tab"
-                                    >
-                                        <X className="h-3.5 w-3.5 stroke-[3]" />
-                                    </button>
-                                )}
-                            </div>
-                        </div>
-                    );
-                })}
-                {groupTabs.length === 0 && (
-                    <div className="px-4 py-2 text-xs font-bold uppercase tracking-widest text-slate-400">No open tabs</div>
-                )}
-                {group === 'primary' && (
-                    <button
-                        onClick={handleNewTab}
-                        className="flex h-[34px] w-[34px] shrink-0 items-center justify-center border-2 border-black border-b-0 bg-slate-200 text-slate-500 hover:bg-white hover:text-black transition-colors -mb-[2px] ml-1"
-                        title="New tab"
-                    >
-                        <Plus className="h-4 w-4" />
-                    </button>
-                )}
+                            <Plus className="h-4 w-4" />
+                        </button>
+                    )}
+                </div>
             </div>
 
             {/* Controls Area */}

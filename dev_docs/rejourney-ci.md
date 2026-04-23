@@ -1,6 +1,6 @@
 # Rejourney CI + Deploy Path (Visual)
 
-Last updated: 2026-03-25
+Last updated: 2026-04-22
 
 This doc owns the CI, image-build, deploy, `db-setup`, and local parity flow.
 
@@ -113,16 +113,19 @@ Primary workflow file:
 │ Kubernetes release flow                                                     │
 │                                                                              │
 │ 1. Render manifests with the target image tag                               │
-│ 2. Apply namespace / Traefik / cert-manager prerequisites                   │
-│ 3. Verify archive.yaml matches session-backup.mjs                           │
-│ 4. Print current drizzle migration status                                   │
-│ 5. Delete old db-setup job                                                  │
-│ 6. kubectl apply rendered manifests                                         │
-│ 7. Wait for Postgres                                                        │
-│ 8. Wait for db-setup success                                                │
-│ 9. Print migration status again                                             │
-│ 10. Wait for api / ingest-upload / web / workers rollouts                   │
-│ 11. Cleanup finished pods                                                   │
+│ 2. Apply namespace / Traefik / exporters / ingress / storage-class support  │
+│ 3. Apply the CNPG postgres-local Cluster manifest                           │
+│ 4. Verify archive.yaml matches session-backup.mjs                           │
+│ 5. Print current drizzle migration status                                   │
+│ 6. Delete old db-setup job                                                  │
+│ 7. Server-side apply grafana-dashboards ConfigMap                           │
+│ 8. kubectl apply rendered manifests with prune                              │
+│ 9. Reconcile the Helm-managed redis Service label/restore guard             │
+│ 10. Wait for Postgres                                                       │
+│ 11. Wait for db-setup success                                               │
+│ 12. Print migration status again                                            │
+│ 13. Wait for Deployments plus cadvisor/node-exporter                        │
+│ 14. Cleanup imported dashboards / restart seed jobs / clean finished pods   │
 └──────────────────────────────────────────────────────────────────────────────┘
 ```
 
