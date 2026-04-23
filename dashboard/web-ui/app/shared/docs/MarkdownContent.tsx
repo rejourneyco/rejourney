@@ -250,6 +250,20 @@ export function MarkdownContent({ content, onAIPromptRender }: MarkdownContentPr
                             {children}
                         </a>
                     ),
+                    // Style images to match docs/engineering visual cards
+                    img: ({ src, alt }) => {
+                        if (!src) return null;
+                        return (
+                            <figure className="my-8 border-2 border-black bg-slate-50 overflow-hidden">
+                                <img
+                                    src={src as string}
+                                    alt={alt || 'Documentation image'}
+                                    className="w-full h-auto object-cover"
+                                    loading="lazy"
+                                />
+                            </figure>
+                        );
+                    },
                     // Style blockquotes - handle Alerts
                     blockquote: ({ children }) => {
                         // Regular expression to match the alert tag
@@ -392,6 +406,7 @@ export function MarkdownContent({ content, onAIPromptRender }: MarkdownContentPr
             >
                 {processedContent}
             </ReactMarkdown>
+
         </div>
     );
 }

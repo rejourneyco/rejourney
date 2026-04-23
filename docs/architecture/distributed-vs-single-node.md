@@ -105,14 +105,4 @@ For the latest internal engineering visuals and deeper operator detail:
 - `dev_docs/storage-and-endpoints.md` (multi-bucket topology diagram)
 - `dev_docs/allthingscloud.md` (k3s cloud setup diagram)
 
-### Session Lifecycle
-
-![Session lifecycle architecture](./assets/session-lifecycle.svg)
-
-### Multi-Bucket Topology
-
-![Multi-bucket storage topology](./assets/multi-bucket-topology.svg)
-
-### K3s Cloud Setup
-
-![K3s distributed cloud architecture](./assets/k3s-cloud-setup.svg)
+For a graphics-only architecture page, open [`/docs/architecture/diagrams`](/docs/architecture/diagrams).

@@ -6,22 +6,7 @@ Diagram-first reference for multi-bucket, project-scoped endpoints, shadow repli
 
 ## 1) System Map
 
-```mermaid
-flowchart LR
-  sdk[SDK] --> presign[PresignAPI]
-  presign --> selectEndpoint[EndpointSelector]
-  selectEndpoint --> primaryWrite[PrimaryBucketWrite]
-  primaryWrite --> persistArtifact[recording_artifacts.endpoint_id]
-  primaryWrite --> shadowWrite[ShadowWritesAsync]
-
-  persistArtifact --> ingestWorker[IngestWorkers]
-  persistArtifact --> replayRoutes[ReplayDownloadRoutes]
-  persistArtifact --> backupWorker[SessionBackupWorker]
-  persistArtifact --> retentionWorker[RetentionDeletionWorker]
-
-  backupWorker --> backupLog[session_backup_log]
-  backupLog --> backupGate[RetentionBackupGate]
-```
+![Multi-bucket topology diagram](./assets/diagrams/multi-bucket-topology.svg)
 
 ---
 

@@ -1,6 +1,6 @@
 # All Things Cloud
 
-Last updated: 2026-04-22
+Last updated: 2026-04-23
 
 This is the operator-facing map of production: network path, deploy flow, storage layout, monitoring, backups, and the runtime services we actually have today.
 
@@ -12,27 +12,7 @@ This is the operator-facing map of production: network path, deploy flow, storag
 
 **Important boundary:** Tailscale protects operator access to the node and cluster. It is not in the normal in-cluster service path. Internal traffic such as `Grafana -> VictoriaMetrics` or `postgres-exporter -> postgres-app-rw` stays on Kubernetes service networking.
 
-```mermaid
-flowchart TB
-  subgraph publicPath [Public path]
-    Users[End users]
-    CF[Cloudflare]
-    LB[Hetzner LB]
-    Traefik[Traefik Ingress]
-    Web[Web UI]
-    API[API and ingest]
-    Users --> CF --> LB --> Traefik
-    Traefik --> Web
-    Traefik --> API
-  end
-  subgraph tailnet [Tailscale tailnet]
-    Admin[Admin laptop]
-    VPS[VPS k3s node]
-    Admin -->|WireGuard 100.x| VPS
-  end
-  Admin -->|kubectl port-forward| VPS
-  Admin -->|kubectl / SSH| VPS
-```
+![K3s cloud setup diagram](./assets/diagrams/k3s-cloud-setup.svg)
 
 Related docs:
 
@@ -73,51 +53,7 @@ Related docs:
 
 ## K3s Details
 
-```text
-┌──────────────────────────────────────────────────────────────────────────────┐
-│                           Kubernetes Cluster (k3s)                           │
-│                                                                              │
-│  ┌────────────────────────┐          ┌────────────────────────────────────┐  │
-│  │      Networking        │          │            Entrypoints             │  │
-│  │ ┌──────────────────┐   │          │  ┌──────────┐        ┌──────────┐  │  │
-│  │ │ Traefik Ingress  │◀──┼──────────┼──┤  Web UI  │        │ API+ingest│  │  │
-│  │ └─────────┬────────┘   │          │  │  (Node)  │        │ Backend  │  │  │
-│  └───────────┼────────────┘          │  └──────────┘        └────┬─────┘  │  │
-│              │                       └───────────────────────────┼────────┘  │
-│              │                                                   │           │
-│  ┌───────────▼────────────┐          ┌───────────────────────────▼────────┐  │
-│  │      Monitoring        │          │           Storage Layer            │  │
-│  │ ┌──────────────────┐   │          │  ┌───────────────┐  ┌────────────┐ │  │
-│  │ │ Grafana / Gatus /│   │          │  │  PgBouncer    │  │ Redis      │ │  │
-│  │ │ VictoriaMetrics  │   │          │  │  (pooler)     │  │ (Bitnami)  │ │  │
-│  │ │ (admin port-fwd) │   │          │  └───────┬───────┘  │ + Sentinel │ │  │
-│  │ └──────────────────┘   │          │          ▼          │ 8Gi PVC    │ │  │
-│  │ exporters + pushgw +   │          │  ┌───────────────┐  └────────────┘ │  │
-│  │ Traefik metrics (svc)  │          │  │ CNPG Postgres │                 │  │
-│  └────────────────────────┘          │  │ postgres-local│                 │  │
-│                                      │  │ via           │                 │  │
-│                                      │  │ postgres-app-*│                 │  │
-│                                      │  │ 40Gi PVC      │                 │  │
-│                                      │  └───────────────┘                 │  │
-│                                      └────────────────────────────────────┘  │
-│                                                                              │
-│  ┌────────────────────────────────────────────────────────────────────────┐  │
-│  │                     Background workers (Deployments)                   │  │
-│  │  ┌──────────────────┐  ┌──────────────────┐  ┌──────────────────────────┐│
-│  │  │ ingest-worker    │  │ replay-worker    │  │ session-lifecycle-worker ││
-│  │  │ events, crashes, │  │ screenshots,     │  │ lifecycle sweeps +       ││
-│  │  │ ANRs             │  │ hierarchy        │  │ session reconcile        ││
-│  │  └────────┬─────────┘  └────────┬─────────┘  └────────────┬─────────────┘│
-│  │           │                     │                         │               │
-│  │           └─────────────────────┴─────────────────────────┘               │
-│  │                                   │                                       │
-│  │  ┌──────────────────┐             │  Periodic jobs                        │
-│  │  │ alert-worker     │             │  retention-worker · session-backup · │
-│  │  │ (alert pipeline) │             │  session-backup-seed                  │
-│  │  └──────────────────┘             │                                       │
-│  └────────────────────────────────────────────────────────────────────────┘  │
-└──────────────────────────────────────────────────────────────────────────────┘
-```
+![K3s cluster runtime architecture](./assets/diagrams/k3s-cloud-setup.svg)
 
 The monitoring stack also uses small local-path PVCs for `grafana-data`, `gatus-data`, and `victoria-metrics-data`.
 
