@@ -5,11 +5,13 @@
  * directly on the landing page via iframe.
  */
 
-import React from 'react';
+import React, { useState } from 'react';
 import { Link } from 'react-router';
-import { ExternalLink, Maximize2 } from 'lucide-react';
+import { ExternalLink, Maximize2, Play } from 'lucide-react';
 
 export const EmbeddedDemoWindow: React.FC = () => {
+    const [isDemoLoaded, setIsDemoLoaded] = useState(false);
+
     return (
         <section
             aria-label="Interactive Demo"
@@ -69,12 +71,27 @@ export const EmbeddedDemoWindow: React.FC = () => {
 
                         {/* Demo Content via iframe */}
                         <div className="relative bg-gray-100">
-                            <iframe
-                                src="/demo"
-                                className="w-full border-0 h-[560px] sm:h-[640px] md:h-[min(78vh,880px)] md:min-h-[680px] md:max-h-[880px]"
-                                title="Rejourney Dashboard Demo"
-                                loading="lazy"
-                            />
+                            {isDemoLoaded ? (
+                                <iframe
+                                    src="/demo"
+                                    className="w-full border-0 h-[560px] sm:h-[640px] md:h-[min(78vh,880px)] md:min-h-[680px] md:max-h-[880px]"
+                                    title="Rejourney Dashboard Demo"
+                                    loading="lazy"
+                                />
+                            ) : (
+                                <div className="flex h-[170px] items-center justify-center px-6 text-center sm:h-[200px] md:h-[240px]">
+                                    <div className="max-w-xl">
+                                        <button
+                                            type="button"
+                                            onClick={() => setIsDemoLoaded(true)}
+                                            className="inline-flex items-center gap-2 border-2 border-[#1c4fbf] bg-[#5dadec] px-5 py-3 text-sm font-black uppercase tracking-[0.2em] text-white [image-rendering:pixelated] shadow-[0_0_0_2px_#ffffff,6px_6px_0_0_#1c4fbf] transition-all duration-150 hover:-translate-y-0.5 hover:bg-[#4c9ddd] active:translate-y-[1px] active:shadow-[0_0_0_2px_#ffffff,3px_3px_0_0_#1c4fbf]"
+                                        >
+                                            <Play size={16} className="stroke-[2.5]" />
+                                            Load Demo
+                                        </button>
+                                    </div>
+                                </div>
+                            )}
                         </div>
                     </div>
                 </div>
