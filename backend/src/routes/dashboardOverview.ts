@@ -12,6 +12,12 @@ import { getRedis } from '../db/redis.js';
 import { logger } from '../logger.js';
 import { sessionAuth, asyncHandler, ApiError } from '../middleware/index.js';
 import { config } from '../config.js';
+import {
+    OVERVIEW_CACHE_TTL_SECONDS,
+    buildOverviewCacheKey,
+    persistOverviewCachePayload,
+    recordDashboardPrewarmScopeHit,
+} from '../services/dashboardPrewarm.js';
 import { boundedTimeRangeToDays } from '../utils/analyticsTimeRange.js';
 import { buildRetentionCohortRows } from '../services/retentionCohorts.js';
 import { generateAnonymousName } from '../utils/anonymousName.js';
@@ -19,7 +25,6 @@ import { generateAnonymousName } from '../utils/anonymousName.js';
 const router = Router();
 const redis = getRedis();
 
-const OVERVIEW_CACHE_TTL_SECONDS = 60;
 const RETENTION_PREVIEW_CACHE_TTL_SECONDS = 900;
 const ISSUE_PREVIEW_LIMIT = 18;
 const SESSION_PREVIEW_LIMIT = 60;
@@ -100,7 +105,10 @@ async function respondWithOverviewCache<T>({
     const payload = await build();
     const serializedPayload = jsonSafeStringify(payload);
 
-    await redis.set(cacheKey, serializedPayload, 'EX', ttlSeconds);
+    await persistOverviewCachePayload(cacheKey, serializedPayload, {
+        redisClient: redis,
+        ttlSeconds,
+    });
 
     logger.info(
         {
@@ -113,36 +121,6 @@ async function respondWithOverviewCache<T>({
 
     res.setHeader('X-Rejourney-Overview-Cache', 'miss');
     res.json(JSON.parse(serializedPayload));
-}
-
-function buildScopeCacheKey(
-    scope: string,
-    projectIds: string[],
-    timeRange?: string,
-    version: string = 'v1',
-): string {
-    return `overview:${scope}:${projectIds.slice().sort().join(',') || 'all'}:${timeRange || 'all'}:${version}`;
-}
-
-function buildPrewarmScopeMember(scope: string, projectIds: string[], timeRange?: string): string {
-    return `${scope}|${projectIds.slice().sort().join(',') || 'all'}|${timeRange || 'all'}`;
-}
-
-async function recordPrewarmScopeHit(scope: string, projectIds: string[], timeRange?: string): Promise<void> {
-    if (!config.RJ_DASHBOARD_PREWARM_ENABLED) {
-        return;
-    }
-
-    const bucketMinutes = Math.floor(Date.now() / 60000);
-    const bucketKey = `dashboard-prewarm:hits:${bucketMinutes}`;
-    const member = buildPrewarmScopeMember(scope, projectIds, timeRange);
-    const ttlSeconds = Math.max(config.RJ_DASHBOARD_PREWARM_LOOKBACK_MINUTES * 120, 600);
-
-    await redis
-        .multi()
-        .zincrby(bucketKey, 1, member)
-        .expire(bucketKey, ttlSeconds)
-        .exec();
 }
 
 function buildIdentityKey(row: {
@@ -984,9 +962,9 @@ router.get(
             return;
         }
 
-        await recordPrewarmScopeHit('general', scope.scopedProjectIds, scope.normalizedTimeRange);
+        await recordDashboardPrewarmScopeHit('general', scope.scopedProjectIds, scope.normalizedTimeRange, redis);
         await respondWithOverviewCache({
-            cacheKey: buildScopeCacheKey('general', scope.scopedProjectIds, scope.normalizedTimeRange),
+            cacheKey: buildOverviewCacheKey('general', scope.scopedProjectIds, scope.normalizedTimeRange),
             routeName: 'general',
             res,
             logContext: {
@@ -1068,9 +1046,9 @@ router.get(
         const trendsRange = toApiTrendsRange(scope.normalizedTimeRange);
         const regionRange = toRegionRange(scope.normalizedTimeRange);
 
-        await recordPrewarmScopeHit('api', scope.scopedProjectIds, scope.normalizedTimeRange);
+        await recordDashboardPrewarmScopeHit('api', scope.scopedProjectIds, scope.normalizedTimeRange, redis);
         await respondWithOverviewCache({
-            cacheKey: buildScopeCacheKey('api', scope.scopedProjectIds, scope.normalizedTimeRange),
+            cacheKey: buildOverviewCacheKey('api', scope.scopedProjectIds, scope.normalizedTimeRange),
             routeName: 'api',
             res,
             logContext: {
@@ -1140,9 +1118,9 @@ router.get(
         const trendsRange = toDevicesTrendsRange(scope.normalizedTimeRange);
         const insightsRange = toApiInsightsRange(scope.normalizedTimeRange);
 
-        await recordPrewarmScopeHit('devices', scope.scopedProjectIds, scope.normalizedTimeRange);
+        await recordDashboardPrewarmScopeHit('devices', scope.scopedProjectIds, scope.normalizedTimeRange, redis);
         await respondWithOverviewCache({
-            cacheKey: buildScopeCacheKey('devices', scope.scopedProjectIds, scope.normalizedTimeRange),
+            cacheKey: buildOverviewCacheKey('devices', scope.scopedProjectIds, scope.normalizedTimeRange),
             routeName: 'devices',
             res,
             logContext: {
@@ -1190,9 +1168,9 @@ router.get(
         const scope = await resolveOverviewScope(req, { requireProjectId: true });
         const range = toApiInsightsRange(scope.normalizedTimeRange);
 
-        await recordPrewarmScopeHit('geo', scope.scopedProjectIds, scope.normalizedTimeRange);
+        await recordDashboardPrewarmScopeHit('geo', scope.scopedProjectIds, scope.normalizedTimeRange, redis);
         await respondWithOverviewCache({
-            cacheKey: buildScopeCacheKey('geo', scope.scopedProjectIds, scope.normalizedTimeRange),
+            cacheKey: buildOverviewCacheKey('geo', scope.scopedProjectIds, scope.normalizedTimeRange),
             routeName: 'geo',
             res,
             logContext: {
@@ -1231,7 +1209,7 @@ router.get(
         const trendsRange = toJourneyTrendsRange(scope.normalizedTimeRange);
 
         await respondWithOverviewCache({
-            cacheKey: buildScopeCacheKey('journeys', scope.scopedProjectIds, scope.normalizedTimeRange),
+            cacheKey: buildOverviewCacheKey('journeys', scope.scopedProjectIds, scope.normalizedTimeRange),
             routeName: 'journeys',
             res,
             logContext: {
@@ -1275,7 +1253,7 @@ router.get(
     asyncHandler(async (req, res) => {
         const scope = await resolveOverviewScope(req, { requireProjectId: true });
         await respondWithOverviewCache({
-            cacheKey: buildScopeCacheKey('heatmaps', scope.scopedProjectIds, scope.normalizedTimeRange),
+            cacheKey: buildOverviewCacheKey('heatmaps', scope.scopedProjectIds, scope.normalizedTimeRange),
             routeName: 'heatmaps',
             res,
             logContext: {
@@ -1298,7 +1276,7 @@ router.get(
         }
 
         await respondWithOverviewCache({
-            cacheKey: buildScopeCacheKey(`heatmaps:screen:${screenName}`, scope.scopedProjectIds, scope.normalizedTimeRange),
+            cacheKey: buildOverviewCacheKey(`heatmaps:screen:${screenName}`, scope.scopedProjectIds, scope.normalizedTimeRange),
             routeName: 'heatmaps-screen',
             res,
             logContext: {
@@ -1317,7 +1295,7 @@ router.get(
     asyncHandler(async (req, res) => {
         const scope = await resolveOverviewScope(req, { requireProjectId: true });
         await respondWithOverviewCache({
-            cacheKey: buildScopeCacheKey('errors', scope.scopedProjectIds, scope.normalizedTimeRange),
+            cacheKey: buildOverviewCacheKey('errors', scope.scopedProjectIds, scope.normalizedTimeRange),
             routeName: 'errors',
             res,
             logContext: {
@@ -1335,7 +1313,7 @@ router.get(
     asyncHandler(async (req, res) => {
         const scope = await resolveOverviewScope(req, { requireProjectId: true });
         await respondWithOverviewCache({
-            cacheKey: buildScopeCacheKey('crashes', scope.scopedProjectIds, scope.normalizedTimeRange),
+            cacheKey: buildOverviewCacheKey('crashes', scope.scopedProjectIds, scope.normalizedTimeRange),
             routeName: 'crashes',
             res,
             logContext: {
@@ -1353,7 +1331,7 @@ router.get(
     asyncHandler(async (req, res) => {
         const scope = await resolveOverviewScope(req, { requireProjectId: true });
         await respondWithOverviewCache({
-            cacheKey: buildScopeCacheKey('anrs', scope.scopedProjectIds, scope.normalizedTimeRange),
+            cacheKey: buildOverviewCacheKey('anrs', scope.scopedProjectIds, scope.normalizedTimeRange),
             routeName: 'anrs',
             res,
             logContext: {

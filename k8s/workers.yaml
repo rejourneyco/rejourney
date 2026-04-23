@@ -699,3 +699,93 @@ spec:
                 limits:
                   cpu: 500m
                   memory: 256Mi
+
+---
+# Dashboard Prewarm Worker CronJob
+# Refreshes only the hottest single-project shared overview caches from
+# recently-built shadow payloads so active teams land on warm dashboards.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: dashboard-prewarm-worker
+  namespace: rejourney
+  labels:
+    app.kubernetes.io/part-of: rejourney
+spec:
+  schedule: "* * * * *"
+  startingDeadlineSeconds: 45
+  suspend: false
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 2
+  failedJobsHistoryLimit: 5
+  jobTemplate:
+    spec:
+      activeDeadlineSeconds: 50
+      backoffLimit: 0
+      template:
+        metadata:
+          labels:
+            app: dashboard-prewarm-worker
+        spec:
+          restartPolicy: Never
+          imagePullSecrets:
+            - name: ghcr-secret
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            fsGroup: 1000
+          containers:
+            - name: worker
+              image: ghcr.io/rejourneyco/rejourney/api:latest
+              imagePullPolicy: Always
+              command: ["node", "dist/worker/dashboardPrewarmWorker.js"]
+              env:
+                - name: NODE_ENV
+                  value: production
+                - name: LOG_LEVEL
+                  value: "info"
+                - name: REDIS_URL
+                  valueFrom:
+                    secretKeyRef:
+                      name: redis-secret
+                      key: REDIS_URL
+                - name: REDIS_SENTINEL_HOST
+                  value: "redis.rejourney.svc.cluster.local"
+                - name: REDIS_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: redis-secret
+                      key: REDIS_PASSWORD
+                      optional: true
+                # Required by app config validation.
+                - name: DATABASE_URL
+                  value: "postgresql://prewarm:disabled@127.0.0.1:5432/rejourney"
+                - name: JWT_SECRET
+                  valueFrom:
+                    secretKeyRef:
+                      name: app-secret
+                      key: JWT_SECRET
+                - name: INGEST_HMAC_SECRET
+                  valueFrom:
+                    secretKeyRef:
+                      name: app-secret
+                      key: INGEST_HMAC_SECRET
+                - name: RJ_DASHBOARD_PREWARM_TRACKING_ENABLED
+                  value: "false"
+                - name: RJ_DASHBOARD_PREWARM_ENABLED
+                  value: "true"
+                - name: RJ_DASHBOARD_PREWARM_LOOKBACK_MINUTES
+                  value: "60"
+                - name: RJ_DASHBOARD_PREWARM_INTERVAL_SECONDS
+                  value: "60"
+                - name: RJ_DASHBOARD_PREWARM_SCOPE_LIMIT
+                  value: "12"
+                - name: PUSHGATEWAY_URL
+                  value: "http://pushgateway.rejourney.svc.cluster.local:9091"
+              resources:
+                requests:
+                  cpu: 100m
+                  memory: 256Mi
+                limits:
+                  cpu: 300m
+                  memory: 512Mi

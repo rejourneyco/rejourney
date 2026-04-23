@@ -14,17 +14,28 @@ interface DashboardGhostLoaderProps {
 }
 
 const GhostBlock: React.FC<{ className?: string }> = ({ className }) => (
-  <div aria-hidden="true" className={cn('dashboard-ghost-block rounded-none border-2 border-black', className)} />
+  <div
+    aria-hidden="true"
+    className={cn(
+      'dashboard-ghost-block rounded-none border border-white/80 shadow-[inset_0_1px_0_rgba(255,255,255,0.78)]',
+      className,
+    )}
+  />
 );
 
 const GhostSurface: React.FC<{ className?: string; children: React.ReactNode }> = ({ className, children }) => (
-  <div className={cn('rounded-none border-4 border-black bg-white p-5 shadow-neo-sm', className)}>
+  <div
+    className={cn(
+      'dashboard-card-surface border-slate-200/80 bg-white/85 p-5 shadow-[0_14px_34px_rgba(148,163,184,0.12)] backdrop-blur-[2px]',
+      className,
+    )}
+  >
     {children}
   </div>
 );
 
 const DashboardHeaderGhost: React.FC<{ actionCount?: number }> = ({ actionCount = 2 }) => (
-  <div className="sticky top-0 z-30 border-b-2 border-black bg-white">
+  <div className="sticky top-0 z-30 border-b border-slate-200/80 bg-[rgba(248,250,252,0.92)] backdrop-blur-sm">
     <div className="mx-auto flex w-full max-w-[1800px] flex-col gap-4 px-6 py-4 md:flex-row md:items-center md:justify-between">
       <div className="flex min-w-0 flex-wrap items-center gap-4">
         <GhostBlock className="h-12 w-12 rounded-none" />
@@ -43,11 +54,11 @@ const DashboardHeaderGhost: React.FC<{ actionCount?: number }> = ({ actionCount 
 );
 
 const SettingsHeaderGhost: React.FC = () => (
-  <div className="sticky top-0 z-50 border-b-2 border-black bg-white/95 backdrop-blur-sm">
+  <div className="sticky top-0 z-50 border-b border-slate-200/80 bg-[rgba(248,250,252,0.94)] backdrop-blur-sm">
     <div className="flex flex-col gap-4 px-6 py-4 md:flex-row md:items-center md:justify-between">
       <div className="flex flex-1 items-center gap-6">
         <GhostBlock className="h-8 w-40 rounded-none" />
-        <div className="hidden h-8 w-0.5 bg-black md:block w-0.5" />
+        <div className="hidden h-8 w-px bg-slate-200 md:block" />
         <GhostBlock className="hidden h-3 w-52 rounded-none md:block" />
       </div>
       <GhostBlock className="h-9 w-28 rounded-none" />
@@ -116,7 +127,7 @@ const ListGhostBody: React.FC = () => (
     </div>
 
     <GhostSurface className="overflow-hidden p-0">
-      <div className="border-b-2 border-black bg-white px-6 py-4">
+      <div className="border-b border-slate-100 bg-white/55 px-6 py-4">
         <div className="flex flex-wrap items-center gap-3">
           <GhostBlock className="h-10 min-w-[240px] flex-1 rounded-none" />
           <GhostBlock className="h-10 w-36 rounded-none" />
@@ -124,7 +135,7 @@ const ListGhostBody: React.FC = () => (
         </div>
       </div>
 
-      <div className="divide-y-2 divide-black">
+      <div className="divide-y divide-slate-100">
         {Array.from({ length: 8 }).map((_, index) => (
           <div key={index} className="flex items-center gap-4 px-6 py-4">
             <GhostBlock className="h-8 w-8 rounded-none" />
@@ -143,11 +154,11 @@ const ListGhostBody: React.FC = () => (
 );
 
 const MapGhostBody: React.FC = () => (
-  <div className="relative flex-1 w-full bg-white">
+  <div className="relative flex-1 w-full bg-[radial-gradient(circle_at_top,_rgba(255,255,255,0.98),_rgba(248,250,252,0.92)_48%,_rgba(241,245,249,0.86)_100%)]">
     <div className="absolute left-6 right-6 top-6 z-10 flex flex-wrap gap-3">
-      <GhostBlock className="h-16 w-44 rounded-none bg-white/90" />
-      <GhostBlock className="h-16 w-44 rounded-none bg-white/90" />
-      <GhostBlock className="h-16 w-36 rounded-none bg-white/90" />
+      <GhostBlock className="h-16 w-44 rounded-none" />
+      <GhostBlock className="h-16 w-44 rounded-none" />
+      <GhostBlock className="h-16 w-36 rounded-none" />
     </div>
     <div className="absolute inset-0 p-6">
       <GhostBlock className="h-full w-full rounded-none" />
@@ -218,13 +229,13 @@ const AlertsGhostBody: React.FC = () => (
     </div>
 
     <GhostSurface className="overflow-hidden p-0">
-      <div className="border-b-2 border-black px-6 py-4">
+      <div className="border-b border-slate-100 bg-white/55 px-6 py-4">
         <div className="flex flex-wrap items-center gap-3">
           <GhostBlock className="h-10 min-w-[220px] flex-1 rounded-none" />
           <GhostBlock className="h-10 w-32 rounded-none" />
         </div>
       </div>
-      <div className="divide-y-2 divide-black">
+      <div className="divide-y divide-slate-100">
         {Array.from({ length: 6 }).map((_, index) => (
           <div key={index} className="flex items-center justify-between gap-4 px-6 py-4">
             <div className="min-w-0 flex-1 space-y-2">

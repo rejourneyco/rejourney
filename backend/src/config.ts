@@ -134,11 +134,12 @@ const envSchema = z.object({
     // Logging
     LOG_LEVEL: z.enum(['trace', 'debug', 'info', 'warn', 'error', 'fatal']).default('info'),
 
-    // Dashboard prewarm (disabled by default; enabled after Redis/storage cutover)
+    // Dashboard prewarm
+    RJ_DASHBOARD_PREWARM_TRACKING_ENABLED: z.string().transform(v => v === 'true').default('true'),
     RJ_DASHBOARD_PREWARM_ENABLED: z.string().transform(v => v === 'true').default('false'),
     RJ_DASHBOARD_PREWARM_LOOKBACK_MINUTES: z.string().transform(Number).default('60'),
     RJ_DASHBOARD_PREWARM_INTERVAL_SECONDS: z.string().transform(Number).default('60'),
-    RJ_DASHBOARD_PREWARM_SCOPE_LIMIT: z.string().transform(Number).default('25'),
+    RJ_DASHBOARD_PREWARM_SCOPE_LIMIT: z.string().transform(Number).default('12'),
 });
 
 type Env = z.infer<typeof envSchema>;

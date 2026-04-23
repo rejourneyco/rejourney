@@ -557,12 +557,12 @@ const GA4Card: React.FC<{
     children: React.ReactNode;
     className?: string;
 }> = ({ title, action, children, className = '' }) => (
-    <div className={`dashboard-surface flex min-w-0 flex-col self-start overflow-hidden border-2 border-black bg-white shadow-neo-sm rounded-none ${className}`}>
+    <div className={`dashboard-surface flex h-full min-w-0 flex-col overflow-hidden border-2 border-black bg-white shadow-neo-sm rounded-none ${className}`}>
         <div className="flex flex-wrap items-center justify-between gap-2 border-b-2 border-black bg-slate-50 px-4 pb-2 pt-4 sm:px-5">
             <h3 className="min-w-0 break-words text-[11px] font-black uppercase tracking-widest text-black underline decoration-2 decoration-black/20 underline-offset-4">{title}</h3>
             {action ? <div className="flex flex-wrap items-center gap-1.5">{action}</div> : null}
         </div>
-        <div className="min-w-0 overflow-hidden px-4 pb-4 pt-4 sm:px-5">{children}</div>
+        <div className="flex min-w-0 flex-1 flex-col overflow-hidden px-4 pb-4 pt-4 sm:px-5">{children}</div>
     </div>
 );
 
@@ -577,6 +577,25 @@ type TrendChartRow = {
     mau: number;
     avgDurationSeconds: number;
 };
+
+type EngagementSegmentKey = 'bouncers' | 'casuals' | 'explorers' | 'loyalists';
+
+type EngagementMixChartRow = {
+    dateKey: string;
+    bouncers: number;
+    casuals: number;
+    explorers: number;
+    loyalists: number;
+    total: number;
+    engagedShare: number;
+};
+
+const ENGAGEMENT_SEGMENTS: Array<{ key: EngagementSegmentKey; label: string; color: string }> = [
+    { key: 'bouncers', label: 'Bouncers', color: '#ef4444' },
+    { key: 'casuals', label: 'Casuals', color: '#f59e0b' },
+    { key: 'explorers', label: 'Explorers', color: '#3b82f6' },
+    { key: 'loyalists', label: 'Loyalists', color: '#10b981' },
+];
 
 type MomentumCard = {
     label: string;
@@ -796,18 +815,38 @@ export const GeneralOverview: React.FC = () => {
             }));
     }, [geoSummary]);
 
-    const latestReleases = useMemo(() => {
-        if (!deepMetrics?.releaseRisk?.length) return [];
+    const engagementMixChartData = useMemo<EngagementMixChartRow[]>(() => {
+        if (!engagementTrends?.daily?.length) return [];
 
-        return [...deepMetrics.releaseRisk]
-            .sort((a, b) => new Date(b.latestSeen).getTime() - new Date(a.latestSeen).getTime())
-            .slice(0, 4)
-            .map((row) => ({
-                version: row.version,
-                sessions: row.sessions,
-                status: row.failureRate < 5 ? 'Successful' : 'Degraded',
-            }));
-    }, [deepMetrics]);
+        return engagementTrends.daily
+            .map((entry) => {
+                const dateKey = toUtcDateKey(entry.date);
+                if (!dateKey) return null;
+
+                const bouncers = Number(entry.bouncers || 0);
+                const casuals = Number(entry.casuals || 0);
+                const explorers = Number(entry.explorers || 0);
+                const loyalists = Number(entry.loyalists || 0);
+                const total = bouncers + casuals + explorers + loyalists;
+
+                return {
+                    dateKey,
+                    bouncers,
+                    casuals,
+                    explorers,
+                    loyalists,
+                    total,
+                    engagedShare: total > 0 ? ((explorers + loyalists) / total) * 100 : 0,
+                };
+            })
+            .filter((row): row is EngagementMixChartRow => Boolean(row))
+            .sort((a, b) => a.dateKey.localeCompare(b.dateKey));
+    }, [engagementTrends]);
+
+    const latestEngagementMix = useMemo(() => {
+        if (!engagementMixChartData.length) return null;
+        return engagementMixChartData[engagementMixChartData.length - 1];
+    }, [engagementMixChartData]);
 
     const crashFreeRate = deepMetrics?.reliability?.crashFreeSessionRate ?? null;
     const anrFreeRate = deepMetrics?.reliability?.anrFreeSessionRate ?? null;
@@ -1188,7 +1227,7 @@ export const GeneralOverview: React.FC = () => {
                 {!isLoading && hasData && (
                     <>
                         {momentumCards.length > 0 && (
-                            <div className="grid grid-cols-[repeat(auto-fit,minmax(220px,1fr))] gap-4">
+                            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
                                 {momentumCards.map((card) => {
                                     const deltaClass = card.deltaValue === null || card.deltaValue === 0
                                         ? 'text-slate-500'
@@ -1214,7 +1253,7 @@ export const GeneralOverview: React.FC = () => {
                             </div>
                         )}
 
-                        <div className="grid grid-cols-[repeat(auto-fit,minmax(280px,1fr))] gap-4">
+                        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
                             <GA4Card title="User activity over time">
                                 <div className="mb-4 grid grid-cols-2 gap-3 text-left">
                                     <div>
@@ -1333,47 +1372,88 @@ export const GeneralOverview: React.FC = () => {
                                 </div>
                             </GA4Card>
 
-                            <GA4Card title="Latest app release overview">
-                                <div className="-mx-1 overflow-x-auto px-1">
-                                    <table className="mt-1 min-w-[420px] w-full text-xs">
-                                        <thead>
-                                            <tr className="border-b border-slate-200 text-[11px] text-black">
-                                                <th className="py-2 text-left font-medium">APP</th>
-                                                <th className="py-2 text-left font-medium">VERSION</th>
-                                                <th className="py-2 text-left font-medium">STATUS</th>
-                                                <th className="py-2 text-right font-medium">SESSIONS</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody>
-                                            {latestReleases.map((release) => (
-                                                <tr key={release.version} className="border-b border-slate-50">
-                                                    <td className="py-2 text-slate-700">
-                                                        <div className="flex items-center gap-1.5">
-                                                            <span className="h-2 w-2 rounded-full bg-emerald-500" />
-                                                            <span className="truncate">{selectedProject?.name ?? 'App'}</span>
-                                                        </div>
-                                                    </td>
-                                                    <td className="py-2 text-slate-700">{release.version}</td>
-                                                    <td className="py-2">
-                                                        <span className={release.status === 'Successful' ? 'text-green-600' : 'text-amber-600'}>
-                                                            {release.status}
-                                                        </span>
-                                                    </td>
-                                                    <td className="py-2 text-right text-slate-700">{formatCompact(release.sessions)}</td>
-                                                </tr>
-                                            ))}
-                                            {latestReleases.length === 0 && (
-                                                <tr>
-                                                    <td colSpan={4} className="py-4 text-center text-slate-400">No releases found</td>
-                                                </tr>
-                                            )}
-                                        </tbody>
-                                    </table>
+                            <GA4Card title="User engagement mix">
+                                <div className="mb-4 grid grid-cols-2 gap-3 text-left">
+                                    <div>
+                                        <span className="text-[9px] font-black uppercase tracking-widest text-slate-500">Latest tracked users</span>
+                                        <div className="text-3xl font-black text-black tracking-tight">
+                                            {latestEngagementMix ? formatCompact(latestEngagementMix.total) : '0'}
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <span className="text-[9px] font-black uppercase tracking-widest text-slate-500">Engaged share</span>
+                                        <div className="text-2xl font-black text-slate-700 tracking-tight">
+                                            {latestEngagementMix ? `${latestEngagementMix.engagedShare.toFixed(1)}%` : 'N/A'}
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <span className="text-[9px] font-black uppercase tracking-widest text-slate-500">Loyalists</span>
+                                        <div className="text-2xl font-black text-slate-700 tracking-tight">
+                                            {latestEngagementMix ? formatCompact(latestEngagementMix.loyalists) : '0'}
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <span className="text-[9px] font-black uppercase tracking-widest text-slate-500">Bouncers</span>
+                                        <div className="text-2xl font-black text-slate-700 tracking-tight">
+                                            {latestEngagementMix ? formatCompact(latestEngagementMix.bouncers) : '0'}
+                                        </div>
+                                    </div>
                                 </div>
+
+                                {engagementMixChartData.length > 0 ? (
+                                    <>
+                                        <div className="h-[180px]">
+                                            <ResponsiveContainer width="100%" height="100%">
+                                                <AreaChart data={engagementMixChartData} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
+                                                    <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                                                    <XAxis dataKey="dateKey" tick={{ fontSize: 10 }} tickFormatter={formatDateLabel} minTickGap={40} />
+                                                    <YAxis tick={{ fontSize: 10 }} />
+                                                    <Tooltip
+                                                        labelFormatter={(value) => formatDateLabel(String(value))}
+                                                        formatter={(value: number | undefined, name: string | undefined) => [formatCompact(value ?? 0), name ?? 'Users']}
+                                                    />
+                                                    {ENGAGEMENT_SEGMENTS.map((segment) => (
+                                                        <Area
+                                                            key={segment.key}
+                                                            type="monotone"
+                                                            dataKey={segment.key}
+                                                            stackId="segments"
+                                                            stroke={segment.color}
+                                                            fill={segment.color}
+                                                            strokeWidth={1.5}
+                                                            fillOpacity={0.95}
+                                                            dot={false}
+                                                            name={segment.label}
+                                                        />
+                                                    ))}
+                                                </AreaChart>
+                                            </ResponsiveContainer>
+                                        </div>
+
+                                        <div className="mt-3 flex flex-wrap gap-3">
+                                            {ENGAGEMENT_SEGMENTS.slice().reverse().map((segment) => (
+                                                <span key={segment.key} className="flex items-center gap-1 text-[10px] text-slate-500">
+                                                    <span className="h-2 w-2 rounded-full" style={{ backgroundColor: segment.color }} />
+                                                    {segment.label}
+                                                </span>
+                                            ))}
+                                        </div>
+
+                                        <div className="mt-2 text-right">
+                                            <Link to={`${pathPrefix}/analytics/journeys`} className="text-[10px] font-black uppercase tracking-widest text-[#5dadec] hover:text-black transition-colors">
+                                                View journey analytics →
+                                            </Link>
+                                        </div>
+                                    </>
+                                ) : (
+                                    <div className="flex flex-1 items-center justify-center py-8 text-center text-xs text-slate-400">
+                                        No engagement segment rollups for this filter.
+                                    </div>
+                                )}
                             </GA4Card>
                         </div>
 
-                        <div className="grid grid-cols-[repeat(auto-fit,minmax(280px,1fr))] gap-4">
+                        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
                             <GA4Card title="App stability overview">
                                 <div className="-mx-1 overflow-x-auto px-1">
                                     <table className="mt-1 min-w-[360px] w-full text-xs">
@@ -1513,7 +1593,7 @@ export const GeneralOverview: React.FC = () => {
                             </GA4Card>
                         </div>
 
-                        <div className="grid grid-cols-[repeat(auto-fit,minmax(320px,1fr))] gap-4">
+                        <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
                             <GA4Card title="Custom Events">
                                 {customEvents.length > 0 ? (
                                     <div className="space-y-2 max-h-[300px] overflow-y-auto pr-2">

@@ -28,7 +28,16 @@ export type WorkerName =
     | 'retentionWorker'
     | 'statsAggregator'
     | 'alertWorker'
-    | 'stripeSyncWorker';
+    | 'stripeSyncWorker'
+    | 'dashboardPrewarmWorker';
+
+export type WorkerMetric = {
+    help: string;
+    labels?: Record<string, string>;
+    name: string;
+    type?: 'gauge' | 'counter';
+    value: number;
+};
 
 interface QueueHealth {
     pendingJobs: number;
@@ -66,6 +75,25 @@ function getPushgatewayUrl(): string | null {
     return process.env.PUSHGATEWAY_URL ?? null;
 }
 
+function escapePrometheusLabelValue(value: string): string {
+    return value.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '\\n');
+}
+
+function renderWorkerMetric(metric: WorkerMetric): string {
+    const labels = metric.labels && Object.keys(metric.labels).length > 0
+        ? `{${Object.entries(metric.labels)
+            .map(([key, value]) => `${key}="${escapePrometheusLabelValue(String(value))}"`)
+            .join(',')}}`
+        : '';
+
+    const type = metric.type ?? 'gauge';
+    return (
+        `# TYPE ${metric.name} ${type}\n` +
+        `# HELP ${metric.name} ${metric.help}\n` +
+        `${metric.name}${labels} ${metric.value}\n`
+    );
+}
+
 /**
  * Push a heartbeat metric to Prometheus Pushgateway for a specific worker.
  *
@@ -82,7 +110,8 @@ export async function pingWorker(
     workerName: WorkerName,
     status: 'up' | 'down' = 'up',
     message?: string,
-    ping?: number
+    ping?: number,
+    extraMetrics: WorkerMetric[] = [],
 ): Promise<void> {
     const baseUrl = getPushgatewayUrl();
 
@@ -112,6 +141,10 @@ export async function pingWorker(
                 `# TYPE worker_heartbeat_duration_ms gauge\n` +
                 `# HELP worker_heartbeat_duration_ms Processing time of last worker run in ms\n` +
                 `worker_heartbeat_duration_ms ${ping}\n`;
+        }
+
+        for (const metric of extraMetrics) {
+            body += renderWorkerMetric(metric);
         }
 
         const controller = new AbortController();
@@ -327,6 +360,7 @@ export async function getWorkerStatuses(): Promise<Record<WorkerName, WorkerHeal
         'statsAggregator',
         'alertWorker',
         'stripeSyncWorker',
+        'dashboardPrewarmWorker',
     ];
 
     const statuses: Record<WorkerName, WorkerHealthMetrics> = {} as any;
