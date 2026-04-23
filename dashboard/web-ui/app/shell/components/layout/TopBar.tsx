@@ -147,11 +147,6 @@ export const TopBar: React.FC<TopBarProps> = ({ currentProject }) => {
     };
   }, [currentTeam]);
 
-  // Set initial refresh time on mount
-  useEffect(() => {
-    setLastRefreshTime(new Date());
-  }, []);
-
   useEffect(() => {
     return () => {
       if (refreshPulseTimeoutRef.current) {
@@ -198,7 +193,7 @@ export const TopBar: React.FC<TopBarProps> = ({ currentProject }) => {
     : `Refresh data (last: ${lastRefreshTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })})`;
 
   return (
-    <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b-2 border-black bg-white px-4 py-3 sm:px-6 z-10 relative">
+    <div className="relative z-10 flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b-2 border-black bg-white px-4 py-3 sm:px-6">
       <div className="flex min-w-0 flex-1 items-center gap-3 sm:gap-4">
         {/* Mobile Menu Button */}
         <button
@@ -219,7 +214,7 @@ export const TopBar: React.FC<TopBarProps> = ({ currentProject }) => {
           <>
             <div className="min-w-0 flex flex-col justify-center">
               <h1 className="truncate text-sm font-black uppercase tracking-widest text-black leading-none">{currentProject.name}</h1>
-              <div className="flex items-center gap-1.5 mt-1">
+              <div className="mt-1 flex flex-wrap items-center gap-1.5">
                 {currentProject.platforms.map((platform) => (
                   <span key={platform} className="flex items-center gap-1 bg-[#5dadec] px-1.5 py-px text-[10px] font-black uppercase tracking-wider text-black border border-black shadow-[1px_1px_0px_0px_rgba(0,0,0,1)]">
                     {platform}
@@ -238,7 +233,7 @@ export const TopBar: React.FC<TopBarProps> = ({ currentProject }) => {
         )}
       </div>
 
-      <div className="flex w-full flex-wrap items-center justify-end gap-3 sm:w-auto sm:flex-nowrap">
+      <div className="flex w-full min-w-0 flex-wrap items-center justify-start gap-3 sm:w-auto sm:justify-end sm:flex-nowrap">
         {/* Public Key - Truncated & Copyable */}
         {currentProject?.publicKey && (
           <button
@@ -302,12 +297,12 @@ export const TopBar: React.FC<TopBarProps> = ({ currentProject }) => {
         <div className="relative">
           <button
             onClick={() => setShowUserMenu(!showUserMenu)}
-            className="group flex items-center gap-2 border-2 border-black bg-white px-2 py-1 shadow-neo-sm transition-all hover:-translate-y-0.5 hover:shadow-neo active:translate-y-0 active:shadow-none focus:outline-none h-9 line-clamp-1"
+            className="group flex h-9 max-w-full items-center gap-2 border-2 border-black bg-white px-2 py-1 shadow-neo-sm transition-all hover:-translate-y-0.5 hover:shadow-neo active:translate-y-0 active:shadow-none focus:outline-none"
           >
             <div className="w-5 h-5 bg-black flex items-center justify-center text-white">
               <UserIcon className="w-3.5 h-3.5 stroke-[3]" />
             </div>
-            <div className="hidden md:block">
+            <div className="hidden min-w-0 md:block">
               <div className="text-xs font-black uppercase tracking-wider text-black max-w-[100px] truncate">{displayLabel}</div>
             </div>
             <ChevronDown className="w-4 h-4 text-black stroke-[3]" />

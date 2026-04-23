@@ -28,7 +28,7 @@ metadata:
 #       Both use the same credentials — only the hostname differs.
 #
 # Optional but recommended: separate read-only exporter credentials:
-# kubectl exec -it -n rejourney -c postgres $(kubectl get pod -n rejourney -l cnpg.io/cluster=postgres,cnpg.io/instanceRole=primary -o name) -- \
+# kubectl exec -it -n rejourney -c postgres $(kubectl get pod -n rejourney -l cnpg.io/cluster=postgres-local,cnpg.io/instanceRole=primary -o name) -- \
 #   psql -U postgres -d rejourney -c \
 #   "CREATE USER monitoring WITH PASSWORD '<MONITORING_PASSWORD>'; GRANT pg_monitor TO monitoring; GRANT USAGE ON SCHEMA public TO monitoring; GRANT SELECT ON ALL TABLES IN SCHEMA public TO monitoring; ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO monitoring;"
 # kubectl create secret generic postgres-exporter-secret \
@@ -92,5 +92,5 @@ metadata:
 #   --namespace rejourney \
 #   --from-literal=R2_ENDPOINT=https://<ACCOUNT_ID>.r2.cloudflarestorage.com \
 #   --from-literal=R2_BUCKET=<YOUR_BACKUP_BUCKET> \
-#   --from-literal=R2_ACCESS_KEY_ID=<YOUR_R2_ACCESS_KEY> \
-#   --from-literal=R2_SECRET_ACCESS_KEY=<YOUR_R2_SECRET_KEY>
+#   --from-literal=AWS_ACCESS_KEY_ID=<YOUR_R2_ACCESS_KEY> \
+#   --from-literal=AWS_SECRET_ACCESS_KEY=<YOUR_R2_SECRET_KEY>

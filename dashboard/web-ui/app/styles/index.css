@@ -539,63 +539,71 @@
   @keyframes crash-swing-stuck-sideways {
     0% {
       opacity: 0;
-      transform: translate3d(0, -8px, 0) rotate(-28deg);
+      transform: translate3d(-0.04em, -0.36em, 0) rotate(0deg) scaleX(0.82) scaleY(1.16);
+      filter: blur(8px);
     }
 
-    16% {
+    14% {
+      opacity: 0.72;
+      transform: translate3d(-0.02em, -0.14em, 0) rotate(0deg) scaleX(0.9) scaleY(1.1);
+      filter: blur(3px);
+    }
+
+    24% {
+      opacity: 0.72;
+      transform: translate3d(-0.02em, -0.14em, 0) rotate(0deg) scaleX(0.9) scaleY(1.1);
+      filter: blur(3px);
+    }
+
+    42% {
       opacity: 1;
-      transform: translate3d(0, 0, 0) rotate(40deg);
+      transform: translate3d(0, 0.08em, 0) rotate(0deg) scaleX(0.98) scaleY(1.03);
+      filter: blur(0);
     }
 
-    34% {
-      transform: rotate(-34deg);
+    52% {
+      transform: translate3d(0, 0.08em, 0) rotate(0deg) scaleX(0.98) scaleY(1.03);
+      filter: blur(0);
     }
 
-    50% {
-      transform: rotate(26deg);
+    68% {
+      transform: translate3d(0, 0.22em, 0) rotate(0deg) scaleX(1.04) scaleY(0.98);
     }
 
-    64% {
-      transform: rotate(-20deg);
+    78% {
+      transform: translate3d(0, 0.22em, 0) rotate(0deg) scaleX(1.04) scaleY(0.98);
     }
 
-    76% {
-      transform: rotate(13deg);
-    }
-
-    92% {
-      transform: rotate(96deg) translateY(2px);
+    90% {
+      transform: translate3d(0.02em, 0.34em, 0) rotate(-2deg) scaleX(1.01) scaleY(0.99);
     }
 
     100% {
       opacity: 1;
-      transform: rotate(96deg) translateY(2px);
+      transform: translate3d(0.02em, 0.34em, 0) rotate(-2deg) scaleX(1) scaleY(1);
+      filter: blur(0);
     }
   }
 
   @keyframes crash-stuck-rattle {
     0% {
-      transform: rotate(96deg) translateY(2px);
+      transform: translate3d(0.02em, 0.34em, 0) rotate(-2deg);
     }
 
-    20% {
-      transform: rotate(92deg) translateY(2px);
+    28% {
+      transform: translate3d(0.03em, 0.44em, 0) rotate(-8deg);
     }
 
-    40% {
-      transform: rotate(99deg) translateY(2px);
+    52% {
+      transform: translate3d(0.05em, 0.55em, 0) rotate(4deg);
     }
 
-    60% {
-      transform: rotate(93.5deg) translateY(2px);
-    }
-
-    80% {
-      transform: rotate(97.5deg) translateY(2px);
+    76% {
+      transform: translate3d(0.06em, 0.66em, 0) rotate(-14deg);
     }
 
     100% {
-      transform: rotate(96deg) translateY(2px);
+      transform: translate3d(0.06em, 0.66em, 0) rotate(-14deg);
     }
   }
 
@@ -618,23 +626,19 @@
 
   @keyframes crash-momentum-loop {
     0%, 100% {
-      transform: rotate(96deg) translateY(2px);
+      transform: translate3d(0.06em, 0.66em, 0) rotate(-14deg);
     }
 
-    20% {
-      transform: rotate(106deg) translateY(2px);
+    25% {
+      transform: translate3d(0.05em, 0.62em, 0) rotate(-10deg);
     }
 
-    40% {
-      transform: rotate(87deg) translateY(2px);
+    50% {
+      transform: translate3d(0.07em, 0.69em, 0) rotate(-16deg);
     }
 
-    60% {
-      transform: rotate(102deg) translateY(2px);
-    }
-
-    80% {
-      transform: rotate(90deg) translateY(2px);
+    75% {
+      transform: translate3d(0.06em, 0.64em, 0) rotate(-12deg);
     }
   }
 
@@ -675,12 +679,12 @@
 
   .animate-crash-drop-in {
     opacity: 0;
-    will-change: transform, opacity;
+    will-change: transform, opacity, filter;
     display: inline-block;
-    animation: crash-swing-stuck-sideways 1.3s cubic-bezier(0.2, 0.9, 0.25, 1) forwards,
-      crash-stuck-rattle 0.32s ease-in-out 2.12s 2 forwards,
-      crash-momentum-loop 2.2s ease-in-out infinite;
-    animation-delay: 0.82s, 0s, 2.76s;
+    transform-origin: left bottom;
+    animation: crash-swing-stuck-sideways 1.18s linear 0.82s forwards,
+      crash-stuck-rattle 0.58s cubic-bezier(0.22, 1, 0.3, 1) 2s forwards,
+      crash-momentum-loop 2.4s ease-in-out 2.78s infinite;
   }
 
   .hero-kinetic-word {
@@ -740,7 +744,7 @@
     background: rgba(220, 38, 38, 0.55);
     transform-origin: left center;
     opacity: 0;
-    animation: crash-impact-flash 0.26s ease-out 1.18s forwards;
+    animation: crash-impact-flash 0.28s ease-out 2.34s forwards;
   }
 
   /* Reveal Utilities (for Intersection Observer) */
@@ -819,6 +823,7 @@
   border: 1px solid var(--dashboard-border);
   border-radius: 14px;
   box-shadow: var(--dashboard-shadow-sm);
+  min-width: 0;
 }
 
 /* Tier 2 — Strong card: full neo treatment for KPI cards, primary CTAs */
@@ -827,6 +832,7 @@
   border: 1px solid color-mix(in oklab, var(--dashboard-brand) 48%, white);
   border-radius: 16px;
   box-shadow: var(--dashboard-shadow-md);
+  min-width: 0;
 }
 
 /* Tier 3 — Inner surface: subtle background for nested panels */
@@ -834,6 +840,11 @@
   background: var(--dashboard-surface-muted);
   border: 1px solid var(--dashboard-border);
   border-radius: 12px;
+  min-width: 0;
+}
+
+.dashboard-surface {
+  min-width: 0;
 }
 
 /* Logo-aligned blue accents for a lightweight premium feel */
@@ -934,11 +945,12 @@
 }
 
 .dashboard-ghost-block {
+  background-color: #cbd5e1;
   background-image: linear-gradient(
     90deg,
     #e2e8f0 0%,
-    #f8fafc 38%,
-    #e2e8f0 76%
+    #ffffff 50%,
+    #e2e8f0 100%
   );
   background-size: 200% 100%;
   animation: dashboard-ghost-shimmer 1.5s linear infinite;

@@ -7,12 +7,9 @@
 #   kubectl create secret generic grafana-secret -n rejourney \
 #     --from-literal=admin-password=$(openssl rand -hex 16)
 #
-# DASHBOARDS — import these IDs after first login (Dashboards → Import):
-#   1860  — Node Exporter Full       (CPU, RAM, disk, network)
-#   13332 — Kubernetes Cluster       (pod/deployment health, resource usage)
-#   9628  — PostgreSQL               (connections, query stats, table sizes)
-#   17346 — Traefik                  (requests/s, latency, error rate per route)
-#   10229 — VictoriaMetrics          (VM internal health, ingestion rate)
+# DASHBOARDS — Rejourney dashboards are provisioned automatically from
+# k8s/grafana-dashboards.yaml. Imported Grafana.com dashboards are treated as
+# temporary and removed on deploy by scripts/k8s/patch-imported-grafana-dashboards.py.
 
 ---
 apiVersion: v1

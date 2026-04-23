@@ -557,12 +557,12 @@ const GA4Card: React.FC<{
     children: React.ReactNode;
     className?: string;
 }> = ({ title, action, children, className = '' }) => (
-    <div className={`dashboard-surface flex flex-col self-start border-2 border-black bg-white shadow-neo-sm rounded-none ${className}`}>
-        <div className="flex items-center justify-between px-5 pt-4 pb-2 border-b-2 border-black bg-slate-50">
-            <h3 className="text-[11px] font-black uppercase tracking-widest text-black underline decoration-2 decoration-black/20 underline-offset-4">{title}</h3>
-            {action ? <div className="flex items-center gap-1.5">{action}</div> : null}
+    <div className={`dashboard-surface flex min-w-0 flex-col self-start overflow-hidden border-2 border-black bg-white shadow-neo-sm rounded-none ${className}`}>
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b-2 border-black bg-slate-50 px-4 pb-2 pt-4 sm:px-5">
+            <h3 className="min-w-0 break-words text-[11px] font-black uppercase tracking-widest text-black underline decoration-2 decoration-black/20 underline-offset-4">{title}</h3>
+            {action ? <div className="flex flex-wrap items-center gap-1.5">{action}</div> : null}
         </div>
-        <div className="px-5 pt-4 pb-4">{children}</div>
+        <div className="min-w-0 overflow-hidden px-4 pb-4 pt-4 sm:px-5">{children}</div>
     </div>
 );
 
@@ -1145,7 +1145,7 @@ export const GeneralOverview: React.FC = () => {
                 icon={<MessageSquareWarning className="w-6 h-6" />}
                 iconColor="bg-[#5dadec]"
             >
-                <div className="flex flex-wrap items-center gap-3">
+                <div className="flex min-w-0 max-w-full flex-wrap items-center gap-3">
                     <DataWatermarkBanner dataCompleteThrough={trends?.dataCompleteThrough} />
                     <TimeFilter value={timeRange} onChange={setTimeRange} />
                     {selectedProject?.id && (
@@ -1166,7 +1166,7 @@ export const GeneralOverview: React.FC = () => {
                 </div>
             </DashboardPageHeader>
 
-            <div className="mx-auto w-full max-w-[1600px] space-y-4 px-6 py-6">
+            <div className="mx-auto w-full max-w-[1600px] space-y-4 px-4 py-6 sm:px-6">
                 {!selectedProject?.id && (
                     <div className="border-2 border-black bg-amber-50 p-5 shadow-neo-sm rounded-none text-sm font-black uppercase tracking-widest text-amber-900">
                         Select a project to view general diagnostics.
@@ -1188,7 +1188,7 @@ export const GeneralOverview: React.FC = () => {
                 {!isLoading && hasData && (
                     <>
                         {momentumCards.length > 0 && (
-                            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-7">
+                            <div className="grid grid-cols-[repeat(auto-fit,minmax(220px,1fr))] gap-4">
                                 {momentumCards.map((card) => {
                                     const deltaClass = card.deltaValue === null || card.deltaValue === 0
                                         ? 'text-slate-500'
@@ -1197,9 +1197,9 @@ export const GeneralOverview: React.FC = () => {
                                             : 'text-rose-600';
 
                                     return (
-                                        <div key={card.label} className="dashboard-surface px-4 py-3 bg-white border-2 border-black shadow-neo-sm hover:-translate-y-1 hover:shadow-neo transition-all rounded-none">
-                                            <div className="text-[10px] font-black uppercase tracking-widest text-slate-600">{card.label}</div>
-                                            <div className="mt-2 text-3xl font-black text-black tracking-tight">{card.value}</div>
+                                        <div key={card.label} className="dashboard-surface min-w-0 bg-white px-4 py-3 border-2 border-black shadow-neo-sm hover:-translate-y-1 hover:shadow-neo transition-all rounded-none">
+                                            <div className="break-words text-[10px] font-black uppercase tracking-widest text-slate-600">{card.label}</div>
+                                            <div className="mt-2 break-words text-2xl font-black tracking-tight text-black sm:text-3xl">{card.value}</div>
                                             <div className={`mt-1 text-xs font-bold ${deltaClass}`}>
                                                 {card.delta}
                                             </div>
@@ -1214,9 +1214,9 @@ export const GeneralOverview: React.FC = () => {
                             </div>
                         )}
 
-                        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+                        <div className="grid grid-cols-[repeat(auto-fit,minmax(280px,1fr))] gap-4">
                             <GA4Card title="User activity over time">
-                                <div className="mb-2 flex items-baseline gap-4">
+                                <div className="mb-4 grid grid-cols-2 gap-3 text-left">
                                     <div>
                                         <span className="text-[9px] font-black uppercase tracking-widest text-slate-500">LATEST DAU</span>
                                         <div className="text-3xl font-black text-black tracking-tight">{formatCompact(activitySummary.latestDau)}</div>
@@ -1334,83 +1334,89 @@ export const GeneralOverview: React.FC = () => {
                             </GA4Card>
 
                             <GA4Card title="Latest app release overview">
-                                <table className="mt-1 w-full text-xs">
-                                    <thead>
-                                        <tr className="border-b border-slate-200 text-[11px] text-black">
-                                            <th className="py-2 text-left font-medium">APP</th>
-                                            <th className="py-2 text-left font-medium">VERSION</th>
-                                            <th className="py-2 text-left font-medium">STATUS</th>
-                                            <th className="py-2 text-right font-medium">SESSIONS</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        {latestReleases.map((release) => (
-                                            <tr key={release.version} className="border-b border-slate-50">
-                                                <td className="flex items-center gap-1.5 py-2 text-slate-700">
-                                                    <span className="h-2 w-2 rounded-full bg-emerald-500" />
-                                                    {selectedProject?.name ?? 'App'}
-                                                </td>
-                                                <td className="py-2 text-slate-700">{release.version}</td>
-                                                <td className="py-2">
-                                                    <span className={release.status === 'Successful' ? 'text-green-600' : 'text-amber-600'}>
-                                                        {release.status}
-                                                    </span>
-                                                </td>
-                                                <td className="py-2 text-right text-slate-700">{formatCompact(release.sessions)}</td>
+                                <div className="-mx-1 overflow-x-auto px-1">
+                                    <table className="mt-1 min-w-[420px] w-full text-xs">
+                                        <thead>
+                                            <tr className="border-b border-slate-200 text-[11px] text-black">
+                                                <th className="py-2 text-left font-medium">APP</th>
+                                                <th className="py-2 text-left font-medium">VERSION</th>
+                                                <th className="py-2 text-left font-medium">STATUS</th>
+                                                <th className="py-2 text-right font-medium">SESSIONS</th>
                                             </tr>
-                                        ))}
-                                        {latestReleases.length === 0 && (
-                                            <tr>
-                                                <td colSpan={4} className="py-4 text-center text-slate-400">No releases found</td>
-                                            </tr>
-                                        )}
-                                    </tbody>
-                                </table>
+                                        </thead>
+                                        <tbody>
+                                            {latestReleases.map((release) => (
+                                                <tr key={release.version} className="border-b border-slate-50">
+                                                    <td className="py-2 text-slate-700">
+                                                        <div className="flex items-center gap-1.5">
+                                                            <span className="h-2 w-2 rounded-full bg-emerald-500" />
+                                                            <span className="truncate">{selectedProject?.name ?? 'App'}</span>
+                                                        </div>
+                                                    </td>
+                                                    <td className="py-2 text-slate-700">{release.version}</td>
+                                                    <td className="py-2">
+                                                        <span className={release.status === 'Successful' ? 'text-green-600' : 'text-amber-600'}>
+                                                            {release.status}
+                                                        </span>
+                                                    </td>
+                                                    <td className="py-2 text-right text-slate-700">{formatCompact(release.sessions)}</td>
+                                                </tr>
+                                            ))}
+                                            {latestReleases.length === 0 && (
+                                                <tr>
+                                                    <td colSpan={4} className="py-4 text-center text-slate-400">No releases found</td>
+                                                </tr>
+                                            )}
+                                        </tbody>
+                                    </table>
+                                </div>
                             </GA4Card>
                         </div>
 
-                        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+                        <div className="grid grid-cols-[repeat(auto-fit,minmax(280px,1fr))] gap-4">
                             <GA4Card title="App stability overview">
-                                <table className="mt-1 w-full text-xs">
-                                    <thead>
-                                        <tr className="border-b border-slate-200 text-[11px] text-black">
-                                            <th className="py-2 text-left font-medium">APP</th>
-                                            <th className="py-2 text-right font-medium">CRASH-FREE</th>
-                                            <th className="py-2 text-right font-medium">ANR-FREE</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        {platformBreakdown.length > 0 ? (
-                                            platformBreakdown.map((platformData) => (
-                                                <tr key={platformData.platform} className="border-b border-slate-50">
-                                                    <td className="py-2 text-slate-700 capitalize">
-                                                        {selectedProject?.name ?? 'App'} ({platformData.platform})
+                                <div className="-mx-1 overflow-x-auto px-1">
+                                    <table className="mt-1 min-w-[360px] w-full text-xs">
+                                        <thead>
+                                            <tr className="border-b border-slate-200 text-[11px] text-black">
+                                                <th className="py-2 text-left font-medium">APP</th>
+                                                <th className="py-2 text-right font-medium">CRASH-FREE</th>
+                                                <th className="py-2 text-right font-medium">ANR-FREE</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {platformBreakdown.length > 0 ? (
+                                                platformBreakdown.map((platformData) => (
+                                                    <tr key={platformData.platform} className="border-b border-slate-50">
+                                                        <td className="py-2 text-slate-700 capitalize">
+                                                            {selectedProject?.name ?? 'App'} ({platformData.platform})
+                                                        </td>
+                                                        <td className="py-2 text-right text-slate-700 font-medium">
+                                                            {platformData.crashFreeSessionRate !== null ? `${platformData.crashFreeSessionRate.toFixed(1)}%` : 'N/A'}
+                                                        </td>
+                                                        <td className="py-2 text-right text-slate-700 font-medium">
+                                                            {platformData.anrFreeSessionRate !== null ? `${platformData.anrFreeSessionRate.toFixed(1)}%` : 'N/A'}
+                                                        </td>
+                                                    </tr>
+                                                ))
+                                            ) : (
+                                                <tr className="border-b border-slate-50">
+                                                    <td className="py-2 text-slate-700">{selectedProject?.name ?? 'App'}</td>
+                                                    <td className="py-2 text-right text-slate-700 font-medium">
+                                                        {crashFreeRate !== null ? `${crashFreeRate.toFixed(1)}%` : 'N/A'}
                                                     </td>
                                                     <td className="py-2 text-right text-slate-700 font-medium">
-                                                        {platformData.crashFreeSessionRate !== null ? `${platformData.crashFreeSessionRate.toFixed(1)}%` : 'N/A'}
-                                                    </td>
-                                                    <td className="py-2 text-right text-slate-700 font-medium">
-                                                        {platformData.anrFreeSessionRate !== null ? `${platformData.anrFreeSessionRate.toFixed(1)}%` : 'N/A'}
+                                                        {anrFreeRate !== null ? `${anrFreeRate.toFixed(1)}%` : 'N/A'}
                                                     </td>
                                                 </tr>
-                                            ))
-                                        ) : (
-                                            <tr className="border-b border-slate-50">
-                                                <td className="py-2 text-slate-700">{selectedProject?.name ?? 'App'}</td>
-                                                <td className="py-2 text-right text-slate-700 font-medium">
-                                                    {crashFreeRate !== null ? `${crashFreeRate.toFixed(1)}%` : 'N/A'}
-                                                </td>
-                                                <td className="py-2 text-right text-slate-700 font-medium">
-                                                    {anrFreeRate !== null ? `${anrFreeRate.toFixed(1)}%` : 'N/A'}
-                                                </td>
-                                            </tr>
-                                        )}
-                                    </tbody>
-                                </table>
+                                            )}
+                                        </tbody>
+                                    </table>
+                                </div>
                             </GA4Card>
 
                             <GA4Card title="Average engagement time per active user">
-                                <div className="mb-2 flex items-baseline gap-6">
+                                <div className="mb-4 flex flex-wrap items-baseline gap-x-6 gap-y-3">
                                     <div>
                                         <div className="text-3xl font-black text-black tracking-tight">{avgEngagementTime}</div>
                                     </div>
@@ -1507,7 +1513,7 @@ export const GeneralOverview: React.FC = () => {
                             </GA4Card>
                         </div>
 
-                        <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+                        <div className="grid grid-cols-[repeat(auto-fit,minmax(320px,1fr))] gap-4">
                             <GA4Card title="Custom Events">
                                 {customEvents.length > 0 ? (
                                     <div className="space-y-2 max-h-[300px] overflow-y-auto pr-2">
@@ -1537,7 +1543,7 @@ export const GeneralOverview: React.FC = () => {
                             </GA4Card>
 
                             <GA4Card title="Acquisition and activation quality">
-                                <div className="grid grid-cols-2 gap-3 text-xs">
+                                <div className="grid grid-cols-1 gap-3 text-xs sm:grid-cols-2">
                                     <div className="dashboard-surface p-3 bg-white border-2 border-black shadow-neo-sm hover:-translate-y-1 hover:shadow-neo transition-all rounded-none">
                                         <div className="text-[10px] font-black uppercase tracking-widest text-slate-500">First session success</div>
                                         <div className="mt-2 text-2xl font-black text-black tracking-tight leading-none">{acquisitionSnapshot.firstSessionSuccessRate.toFixed(1)}%</div>
@@ -1581,9 +1587,9 @@ export const GeneralOverview: React.FC = () => {
                         </div>
 
                         <section className="space-y-3">
-                            <div className="flex items-center justify-between">
-                                    <h2 className="text-lg font-black tracking-tight text-slate-700">Top Issues</h2>
-                                <div className="flex items-center gap-2">
+                            <div className="flex flex-wrap items-center justify-between gap-3">
+                                <h2 className="text-lg font-black tracking-tight text-slate-700">Top Issues</h2>
+                                <div className="flex flex-wrap items-center gap-2">
                                     {topIssuesTotalPages > 1 && (
                                         <div className="flex items-center gap-1">
                                             <button
@@ -1634,7 +1640,7 @@ export const GeneralOverview: React.FC = () => {
                                             return (
                                                 <div
                                                     key={issue.id}
-                                                    className="flex items-center gap-4 px-5 py-3.5 hover:bg-[#f4f4f5] transition-colors"
+                                                    className="flex flex-col gap-3 px-5 py-3.5 transition-colors hover:bg-[#f4f4f5] md:flex-row md:items-center"
                                                 >
                                                     <NeoBadge variant={ISSUE_TYPE_BADGE_VARIANT[issue.issueType] || 'neutral'} size="sm">
                                                         {issue.issueType.replace('_', ' ')}
@@ -1653,7 +1659,7 @@ export const GeneralOverview: React.FC = () => {
                                                         <IssueSparkline dailyEvents={issue.dailyEvents} color={issueColor} />
                                                     </div>
 
-                                                    <div className="hidden sm:flex items-center gap-4 shrink-0 text-right">
+                                                    <div className="hidden shrink-0 items-center gap-4 text-right sm:flex">
                                                         <div>
                                                             <div className="text-[10px] font-bold uppercase tracking-wide text-slate-400">Events</div>
                                                             <div className="text-sm font-black text-slate-900">{formatCompact(issue.eventCount)}</div>
@@ -1668,7 +1674,7 @@ export const GeneralOverview: React.FC = () => {
                                                         </div>
                                                     </div>
 
-                                                    <div className="flex items-center gap-2 shrink-0">
+                                                    <div className="flex w-full flex-wrap items-center gap-2 shrink-0 md:w-auto">
                                                         <Link
                                                             to={`${pathPrefix}/general/${issue.id}`}
                                                             className="rounded-md border border-slate-300 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-slate-700 hover:border-slate-900 hover:text-slate-900 transition-colors"
@@ -1712,9 +1718,9 @@ export const GeneralOverview: React.FC = () => {
                                 />
                             ) : (
                                 <div className="relative">
-                                    <div className="pointer-events-none absolute inset-y-0 right-0 z-10 w-12 bg-gradient-to-l from-white via-white/80 to-transparent" />
+                                    <div className="pointer-events-none absolute inset-y-0 right-0 z-10 hidden w-12 bg-gradient-to-l from-white via-white/80 to-transparent sm:block" />
                                     <div className="overflow-x-auto pb-3">
-                                        <div className="flex min-w-max snap-x snap-mandatory gap-3 pl-3 pr-4">
+                                        <div className="flex min-w-full snap-x snap-mandatory gap-3 pl-1 pr-2 sm:min-w-max sm:pl-3 sm:pr-4">
                                             {recommendedSessions.map((rec) => {
                                                 const anonymousNickname = getAnonymousNickname(rec.session);
                                                 const nicknameStyle = anonymousNickname
@@ -1725,9 +1731,9 @@ export const GeneralOverview: React.FC = () => {
                                                 return (
                                                     <article
                                                         key={rec.session.id}
-                                                        className="group w-[360px] snap-start rounded-xl border border-slate-200 bg-gradient-to-b from-white to-slate-50/60 p-3 shadow-sm transition-all hover:shadow-md"
+                                                        className="group min-w-[280px] w-[calc(100vw-4rem)] max-w-[360px] snap-start rounded-xl border border-slate-200 bg-gradient-to-b from-white to-slate-50/60 p-3 shadow-sm transition-all hover:shadow-md sm:w-[320px] lg:w-[360px]"
                                                     >
-                                                        <div className="flex items-start justify-between gap-2">
+                                                        <div className="flex flex-wrap items-start justify-between gap-2">
                                                             <div className="min-w-0">
                                                                 <span
                                                                     className={`inline-flex items-center rounded-md border px-2 py-1 text-[10px] font-semibold uppercase tracking-wide ${RECOMMENDED_SESSION_PRIORITY_STYLES[rec.priority]}`}
@@ -1766,7 +1772,7 @@ export const GeneralOverview: React.FC = () => {
                                                             {rec.reason}
                                                         </p>
 
-                                                        <div className="mt-2 grid grid-cols-3 gap-2 text-[10px]">
+                                                        <div className="mt-2 grid grid-cols-2 gap-2 text-[10px] sm:grid-cols-3">
                                                             <div className="border-2 border-black bg-white px-2 py-1.5 shadow-none rounded-none">
                                                                 <div className="text-slate-400">Duration</div>
                                                                 <div className="font-semibold text-slate-700">{formatDuration(rec.session.durationSeconds || 0)}</div>
@@ -1781,7 +1787,7 @@ export const GeneralOverview: React.FC = () => {
                                                             </div>
                                                         </div>
 
-                                                        <div className="mt-3 flex items-start justify-between gap-3 border-2 border-dashed border-slate-300 bg-slate-50 p-2.5 rounded-none">
+                                                        <div className="mt-3 flex flex-col gap-3 border-2 border-dashed border-slate-300 bg-slate-50 p-2.5 rounded-none sm:flex-row sm:items-start sm:justify-between">
                                                             <div className="min-w-0 flex-1">
                                                                 <div className="truncate text-[10px] font-black uppercase tracking-widest text-[#5dadec] hover:underline">
                                                                     {rec.session.deviceModel || 'Unknown device'}
@@ -1820,7 +1826,7 @@ export const GeneralOverview: React.FC = () => {
                                                                 }
                                                                 size="xs"
                                                                 showMeta={false}
-                                                                className="p-0"
+                                                                className="self-end p-0 sm:self-auto"
                                                             />
                                                         </div>
                                                     </article>

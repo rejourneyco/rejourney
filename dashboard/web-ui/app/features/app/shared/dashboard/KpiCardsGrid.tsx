@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { startTransition, useEffect, useMemo, useState } from 'react';
 import { TimeRange } from '~/shared/ui/core/TimeFilter';
 import { InfoTooltip } from '~/shared/ui/core/InfoTooltip';
 import { NeoCard } from '~/shared/ui/core/neo/NeoCard';
@@ -172,7 +172,7 @@ export const KpiCardsGrid: React.FC<KpiCardsGridProps> = ({
     timeRange,
     storageKey,
     className = '',
-    gridClassName = 'grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-4',
+    gridClassName = 'grid grid-cols-[repeat(auto-fit,minmax(220px,1fr))] gap-5',
     showControls = true,
 }) => {
     const [trendFilter, setTrendFilter] = useState<KpiTrendFilter>('all');
@@ -204,32 +204,38 @@ export const KpiCardsGrid: React.FC<KpiCardsGridProps> = ({
         const ids = cardIdsSignature ? cardIdsSignature.split(',') : [];
         const raw = window.localStorage.getItem(`${STORAGE_PREFIX}${storageKey}`);
         if (!raw) {
-            setHydrated(true);
+            startTransition(() => {
+                setHydrated(true);
+            });
             return;
         }
 
         try {
             const parsed = JSON.parse(raw) as Partial<KpiPreferenceState>;
-            if (parsed.trendFilter === 'all' || parsed.trendFilter === 'improving' || parsed.trendFilter === 'declining' || parsed.trendFilter === 'flat' || parsed.trendFilter === 'unknown') {
-                setTrendFilter(parsed.trendFilter);
-            }
-            if (parsed.sortMode === 'default' || parsed.sortMode === 'value-desc' || parsed.sortMode === 'value-asc' || parsed.sortMode === 'delta-desc' || parsed.sortMode === 'delta-asc') {
-                setSortMode(parsed.sortMode);
-            }
-            if (Array.isArray(parsed.visibleIds)) {
-                const allowed = new Set(ids);
-                const filtered = parsed.visibleIds.filter((id): id is string => typeof id === 'string' && allowed.has(id));
-                if (filtered.length > 0) {
-                    setVisibleIds(filtered);
+            startTransition(() => {
+                if (parsed.trendFilter === 'all' || parsed.trendFilter === 'improving' || parsed.trendFilter === 'declining' || parsed.trendFilter === 'flat' || parsed.trendFilter === 'unknown') {
+                    setTrendFilter(parsed.trendFilter);
                 }
-            }
-            if (typeof parsed.showDetails === 'boolean') {
-                setShowDetails(parsed.showDetails);
-            }
+                if (parsed.sortMode === 'default' || parsed.sortMode === 'value-desc' || parsed.sortMode === 'value-asc' || parsed.sortMode === 'delta-desc' || parsed.sortMode === 'delta-asc') {
+                    setSortMode(parsed.sortMode);
+                }
+                if (Array.isArray(parsed.visibleIds)) {
+                    const allowed = new Set(ids);
+                    const filtered = parsed.visibleIds.filter((id): id is string => typeof id === 'string' && allowed.has(id));
+                    if (filtered.length > 0) {
+                        setVisibleIds(filtered);
+                    }
+                }
+                if (typeof parsed.showDetails === 'boolean') {
+                    setShowDetails(parsed.showDetails);
+                }
+            });
         } catch {
             // Ignore invalid local storage payloads.
         } finally {
-            setHydrated(true);
+            startTransition(() => {
+                setHydrated(true);
+            });
         }
     }, [cardIdsSignature, storageKey]);
 
@@ -338,7 +344,7 @@ export const KpiCardsGrid: React.FC<KpiCardsGridProps> = ({
                             {customizeOpen ? 'Hide Customize' : 'Customize'}
                         </button>
 
-                        <span className="dashboard-meta ml-auto text-[11px] text-gray-500">
+                        <span className="dashboard-meta w-full text-[11px] text-gray-500 sm:ml-auto sm:w-auto">
                             {filteredCards.length} cards visible
                         </span>
                     </div>
@@ -393,19 +399,19 @@ export const KpiCardsGrid: React.FC<KpiCardsGridProps> = ({
                     const deltaLabel = card.delta?.label ?? comparisonLabel;
 
                     return (
-                        <NeoCard key={card.id} className="bg-white !p-5 hover:-translate-y-1 hover:translate-x-1 transition-transform border-2 border-black shadow-neo-sm">
+                        <NeoCard key={card.id} className="min-w-0 bg-white !p-5 hover:-translate-y-1 hover:translate-x-1 transition-transform border-2 border-black shadow-neo-sm">
                             <div className="flex items-start justify-between gap-2">
-                                <div className="text-[11px] font-black uppercase tracking-widest text-black">
+                                <div className="min-w-0 text-[11px] font-black uppercase tracking-widest text-black break-words">
                                     {card.label}
                                 </div>
                                 <InfoTooltip content={card.info} align="right" />
                             </div>
 
-                            <div className="mt-4 text-3xl font-black leading-none text-black tracking-tight">
+                            <div className="mt-4 break-words text-[1.75rem] font-black leading-none tracking-tight text-black sm:text-3xl">
                                 {card.value}
                             </div>
 
-                            <div className="mt-2 flex items-center gap-2">
+                            <div className="mt-2 flex flex-wrap items-center gap-2">
                                 <span className={`px-2 py-1 ${getTrendToneClass(trendState)}`}>
                                     {card.delta ? formatDelta(card.delta) : 'N/A'}
                                 </span>

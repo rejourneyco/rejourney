@@ -5,7 +5,7 @@
  * Teams own projects and billing.
  */
 
-import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
+import React, { createContext, startTransition, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { getTeams, getTeamMembers, ApiTeam, ApiTeamMember, clearCache, clearCacheByPrefixes } from '~/shared/api/client';
 import { clearSelectionCookie, SELECTED_TEAM_COOKIE, writeSelectionCookie } from '~/shared/utils/selectionCookies';
 import { useAuth } from './AuthContext';
@@ -174,11 +174,13 @@ export function TeamProvider({
       currentTeamId: currentTeamIdRef.current,
       preferStoredSelection: true,
     });
-    setTeams(normalizedInitialTeams);
-    setCurrentTeamState(bootstrappedTeam);
-    setTeamMembers([]);
-    setError(null);
-    setIsLoading(false);
+    startTransition(() => {
+      setTeams(normalizedInitialTeams);
+      setCurrentTeamState(bootstrappedTeam);
+      setTeamMembers([]);
+      setError(null);
+      setIsLoading(false);
+    });
 
     if (typeof window !== 'undefined') {
       if (bootstrappedTeam) {

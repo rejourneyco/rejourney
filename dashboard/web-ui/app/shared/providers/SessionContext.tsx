@@ -6,7 +6,7 @@
  * own data locally.
  */
 
-import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import React, { createContext, startTransition, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { useAuth } from './AuthContext';
 import { useDemoMode } from './DemoModeContext';
 import { useSafeTeam } from './TeamContext';
@@ -218,14 +218,16 @@ export function SessionDataProvider({
   useEffect(() => {
     if (!demoMode.isDemoMode) return;
 
-    setSessions(demoMode.demoSessions);
-    setProjects(demoMode.demoProjects);
-    setDailyStats(demoMode.demoDailyStats);
-    setDashboardStats(demoMode.demoDashboardStats);
-    setSelectedProjectState(demoMode.demoProjects[0] ?? null);
-    setProjectsLoading(false);
-    setProjectsReady(true);
-    setProjectsError(null);
+    startTransition(() => {
+      setSessions(demoMode.demoSessions);
+      setProjects(demoMode.demoProjects);
+      setDailyStats(demoMode.demoDailyStats);
+      setDashboardStats(demoMode.demoDashboardStats);
+      setSelectedProjectState(demoMode.demoProjects[0] ?? null);
+      setProjectsLoading(false);
+      setProjectsReady(true);
+      setProjectsError(null);
+    });
   }, [
     demoMode.demoDailyStats,
     demoMode.demoDashboardStats,
@@ -275,9 +277,11 @@ export function SessionDataProvider({
       && teamId === initialProjectsTeamId
     ) {
       bootstrapConsumedRef.current = true;
-      applyProjectsForTeam(initialProjects, teamId, {
-        preferredProjectId: initialSelectedProjectId,
-        preferStoredSelection: true,
+      startTransition(() => {
+        applyProjectsForTeam(initialProjects, teamId, {
+          preferredProjectId: initialSelectedProjectId,
+          preferStoredSelection: true,
+        });
       });
       return;
     }

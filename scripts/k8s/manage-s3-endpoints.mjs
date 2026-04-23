@@ -111,7 +111,7 @@ async function main() {
             console.log('📡 Sending to Kubernetes (CNPG primary via postgres-app-rw, namespace: rejourney)...');
 
             const primaryPod = execSync(
-                `kubectl get pod -n rejourney -l cnpg.io/cluster=postgres,cnpg.io/instanceRole=primary -o jsonpath='{.items[0].metadata.name}'`,
+                `kubectl get pod -n rejourney -l cnpg.io/cluster=postgres-local,cnpg.io/instanceRole=primary -o jsonpath='{.items[0].metadata.name}'`,
                 { encoding: 'utf8' }
             ).trim();
             if (!primaryPod) throw new Error('Could not locate CNPG primary pod');

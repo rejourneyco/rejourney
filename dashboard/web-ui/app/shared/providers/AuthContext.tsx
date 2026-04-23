@@ -5,7 +5,7 @@
  * Uses Better Auth for passwordless email OTP authentication.
  */
 
-import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
+import React, { createContext, startTransition, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { getFingerprint } from '~/shared/lib/fingerprint';
 import { API_BASE_URL, getCsrfToken } from '~/shared/config/appConfig';
 
@@ -231,9 +231,11 @@ export function AuthProvider({ children, initialHydrated = false, initialUser = 
 
   useEffect(() => {
     if (!initialHydrated) return;
-    setUser(initialUser);
-    setError(null);
-    setIsLoading(false);
+    startTransition(() => {
+      setUser(initialUser);
+      setError(null);
+      setIsLoading(false);
+    });
   }, [initialHydrated, initialUser]);
 
   // Check auth status on mount

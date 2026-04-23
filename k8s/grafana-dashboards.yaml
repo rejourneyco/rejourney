@@ -372,7 +372,7 @@ data:
         {
           "id": 7,
           "type": "stat",
-          "title": "Scrape Targets Up",
+          "title": "Node Exporter",
           "datasource": {
             "type": "prometheus",
             "uid": "victoria-metrics"
@@ -389,7 +389,7 @@ data:
                 "type": "prometheus",
                 "uid": "victoria-metrics"
               },
-              "expr": "sum(up)",
+              "expr": "min(up{job=\"node-exporter\"})",
               "legendFormat": "",
               "refId": "A",
               "instant": false
@@ -411,7 +411,21 @@ data:
           "fieldConfig": {
             "defaults": {
               "unit": "short",
-              "mappings": [],
+              "mappings": [
+                {
+                  "type": "value",
+                  "options": {
+                    "1": {
+                      "text": "UP",
+                      "color": "green"
+                    },
+                    "0": {
+                      "text": "DOWN",
+                      "color": "red"
+                    }
+                  }
+                }
+              ],
               "thresholds": {
                 "mode": "absolute",
                 "steps": [
@@ -2463,7 +2477,7 @@ data:
         {
           "id": 15,
           "type": "row",
-          "title": "PVCs",
+          "title": "Active PVCs",
           "collapsed": false,
           "gridPos": {
             "x": 0,
@@ -2493,7 +2507,7 @@ data:
                 "type": "prometheus",
                 "uid": "victoria-metrics"
               },
-              "expr": "100 * sum by (persistentvolumeclaim)(kubelet_volume_stats_used_bytes{namespace=\"rejourney\"}) / sum by (persistentvolumeclaim)(kubelet_volume_stats_capacity_bytes{namespace=\"rejourney\"})",
+              "expr": "100 * (sum by (persistentvolumeclaim)(rejourney_local_pvc_used_bytes{namespace=\"rejourney\",persistentvolumeclaim=~\"grafana-data|gatus-data|victoria-metrics-data|redis-data-redis-node-[0-9]+|postgres-local-[0-9]+\"})) / (max by (persistentvolumeclaim)(kube_persistentvolumeclaim_resource_requests_storage_bytes{namespace=\"rejourney\",persistentvolumeclaim=~\"grafana-data|gatus-data|victoria-metrics-data|redis-data-redis-node-[0-9]+|postgres-local-[0-9]+\"}))",
               "legendFormat": "{{persistentvolumeclaim}}",
               "refId": "A",
               "instant": false
@@ -2558,7 +2572,7 @@ data:
                 "type": "prometheus",
                 "uid": "victoria-metrics"
               },
-              "expr": "sum by (persistentvolumeclaim)(kubelet_volume_stats_used_bytes{namespace=\"rejourney\"})",
+              "expr": "sum by (persistentvolumeclaim)(rejourney_local_pvc_used_bytes{namespace=\"rejourney\",persistentvolumeclaim=~\"grafana-data|gatus-data|victoria-metrics-data|redis-data-redis-node-[0-9]+|postgres-local-[0-9]+\"})",
               "legendFormat": "{{persistentvolumeclaim}}",
               "refId": "A",
               "instant": false
@@ -4184,7 +4198,7 @@ data:
                 "type": "prometheus",
                 "uid": "victoria-metrics"
               },
-              "expr": "100 * sum(rate(container_cpu_usage_seconds_total{namespace=\"rejourney\",pod=~\"postgres-[1-9][0-9]*\",container=\"postgres\",cpu=\"total\"}[2m])) / sum(container_spec_cpu_quota{namespace=\"rejourney\",pod=~\"postgres-[1-9][0-9]*\",container=\"postgres\"} / container_spec_cpu_period{namespace=\"rejourney\",pod=~\"postgres-[1-9][0-9]*\",container=\"postgres\"})",
+              "expr": "100 * sum(rate(container_cpu_usage_seconds_total{namespace=\"rejourney\",pod=~\"postgres-local-[0-9]+\",container=\"postgres\",cpu=\"total\"}[2m])) / sum(container_spec_cpu_quota{namespace=\"rejourney\",pod=~\"postgres-local-[0-9]+\",container=\"postgres\"} / container_spec_cpu_period{namespace=\"rejourney\",pod=~\"postgres-local-[0-9]+\",container=\"postgres\"})",
               "legendFormat": "",
               "refId": "A",
               "instant": false
@@ -4247,7 +4261,7 @@ data:
                 "type": "prometheus",
                 "uid": "victoria-metrics"
               },
-              "expr": "100 * sum(container_memory_working_set_bytes{namespace=\"rejourney\",pod=~\"postgres-[1-9][0-9]*\",container=\"postgres\"}) / sum(container_spec_memory_limit_bytes{namespace=\"rejourney\",pod=~\"postgres-[1-9][0-9]*\",container=\"postgres\"})",
+              "expr": "100 * sum(container_memory_working_set_bytes{namespace=\"rejourney\",pod=~\"postgres-local-[0-9]+\",container=\"postgres\"}) / sum(container_spec_memory_limit_bytes{namespace=\"rejourney\",pod=~\"postgres-local-[0-9]+\",container=\"postgres\"})",
               "legendFormat": "",
               "refId": "A",
               "instant": false
@@ -4310,7 +4324,7 @@ data:
                 "type": "prometheus",
                 "uid": "victoria-metrics"
               },
-              "expr": "sum(container_spec_cpu_quota{namespace=\"rejourney\",pod=~\"postgres-[1-9][0-9]*\",container=\"postgres\"} / container_spec_cpu_period{namespace=\"rejourney\",pod=~\"postgres-[1-9][0-9]*\",container=\"postgres\"})",
+              "expr": "sum(container_spec_cpu_quota{namespace=\"rejourney\",pod=~\"postgres-local-[0-9]+\",container=\"postgres\"} / container_spec_cpu_period{namespace=\"rejourney\",pod=~\"postgres-local-[0-9]+\",container=\"postgres\"})",
               "legendFormat": "",
               "refId": "A",
               "instant": false
@@ -4366,7 +4380,7 @@ data:
                 "type": "prometheus",
                 "uid": "victoria-metrics"
               },
-              "expr": "sum(container_spec_memory_limit_bytes{namespace=\"rejourney\",pod=~\"postgres-[1-9][0-9]*\",container=\"postgres\"})",
+              "expr": "sum(container_spec_memory_limit_bytes{namespace=\"rejourney\",pod=~\"postgres-local-[0-9]+\",container=\"postgres\"})",
               "legendFormat": "",
               "refId": "A",
               "instant": false
@@ -4422,7 +4436,7 @@ data:
                 "type": "prometheus",
                 "uid": "victoria-metrics"
               },
-              "expr": "rate(container_cpu_cfs_throttled_seconds_total{namespace=\"rejourney\",pod=~\"postgres-[1-9][0-9]*\",container=\"postgres\"}[5m])",
+              "expr": "rate(container_cpu_cfs_throttled_seconds_total{namespace=\"rejourney\",pod=~\"postgres-local-[0-9]+\",container=\"postgres\"}[5m])",
               "legendFormat": "throttled seconds/s",
               "refId": "A",
               "instant": false
@@ -4496,7 +4510,7 @@ data:
                 "type": "prometheus",
                 "uid": "victoria-metrics"
               },
-              "expr": "container_memory_working_set_bytes{namespace=\"rejourney\",pod=~\"postgres-[1-9][0-9]*\",container=\"postgres\"}",
+              "expr": "container_memory_working_set_bytes{namespace=\"rejourney\",pod=~\"postgres-local-[0-9]+\",container=\"postgres\"}",
               "legendFormat": "working set",
               "refId": "A",
               "instant": false
@@ -4506,7 +4520,7 @@ data:
                 "type": "prometheus",
                 "uid": "victoria-metrics"
               },
-              "expr": "container_memory_rss{namespace=\"rejourney\",pod=~\"postgres-[1-9][0-9]*\",container=\"postgres\"}",
+              "expr": "container_memory_rss{namespace=\"rejourney\",pod=~\"postgres-local-[0-9]+\",container=\"postgres\"}",
               "legendFormat": "rss",
               "refId": "B",
               "instant": false
@@ -4516,7 +4530,7 @@ data:
                 "type": "prometheus",
                 "uid": "victoria-metrics"
               },
-              "expr": "container_spec_memory_limit_bytes{namespace=\"rejourney\",pod=~\"postgres-[1-9][0-9]*\",container=\"postgres\"}",
+              "expr": "container_spec_memory_limit_bytes{namespace=\"rejourney\",pod=~\"postgres-local-[0-9]+\",container=\"postgres\"}",
               "legendFormat": "limit",
               "refId": "C",
               "instant": false
@@ -4894,7 +4908,7 @@ data:
         {
           "id": 39,
           "type": "stat",
-          "title": "Local-path PVC used",
+          "title": "Database PVC used",
           "datasource": {
             "type": "prometheus",
             "uid": "victoria-metrics"
@@ -4911,7 +4925,7 @@ data:
                 "type": "prometheus",
                 "uid": "victoria-metrics"
               },
-              "expr": "sum(kubelet_volume_stats_used_bytes{namespace=\"rejourney\",persistentvolumeclaim=~\"postgres.*|redis.*\"})",
+              "expr": "sum(sum by (persistentvolumeclaim)(rejourney_local_pvc_used_bytes{namespace=\"rejourney\",persistentvolumeclaim=~\"redis-data-redis-node-[0-9]+|postgres-local-[0-9]+\"}))",
               "legendFormat": "",
               "refId": "A",
               "instant": false
@@ -9323,7 +9337,7 @@ data:
         {
           "id": 1,
           "type": "row",
-          "title": "PVC usage (Hetzner volumes + local-path)",
+          "title": "Active PVC usage",
           "collapsed": false,
           "gridPos": {
             "x": 0,
@@ -9336,7 +9350,7 @@ data:
         {
           "id": 2,
           "type": "bargauge",
-          "title": "PVC Usage %",
+          "title": "Active PVC Usage %",
           "datasource": {
             "type": "prometheus",
             "uid": "victoria-metrics"
@@ -9353,7 +9367,7 @@ data:
                 "type": "prometheus",
                 "uid": "victoria-metrics"
               },
-              "expr": "100 * sum by (persistentvolumeclaim)(kubelet_volume_stats_used_bytes{namespace=\"rejourney\"}) / sum by (persistentvolumeclaim)(kubelet_volume_stats_capacity_bytes{namespace=\"rejourney\"})",
+              "expr": "100 * (sum by (persistentvolumeclaim)(rejourney_local_pvc_used_bytes{namespace=\"rejourney\",persistentvolumeclaim=~\"grafana-data|gatus-data|victoria-metrics-data|redis-data-redis-node-[0-9]+|postgres-local-[0-9]+\"})) / (max by (persistentvolumeclaim)(kube_persistentvolumeclaim_resource_requests_storage_bytes{namespace=\"rejourney\",persistentvolumeclaim=~\"grafana-data|gatus-data|victoria-metrics-data|redis-data-redis-node-[0-9]+|postgres-local-[0-9]+\"}))",
               "legendFormat": "{{persistentvolumeclaim}}",
               "refId": "A",
               "instant": false
@@ -9401,7 +9415,7 @@ data:
         {
           "id": 3,
           "type": "timeseries",
-          "title": "PVC used bytes",
+          "title": "Active PVC used bytes",
           "datasource": {
             "type": "prometheus",
             "uid": "victoria-metrics"
@@ -9418,7 +9432,7 @@ data:
                 "type": "prometheus",
                 "uid": "victoria-metrics"
               },
-              "expr": "sum by (persistentvolumeclaim)(kubelet_volume_stats_used_bytes{namespace=\"rejourney\"})",
+              "expr": "sum by (persistentvolumeclaim)(rejourney_local_pvc_used_bytes{namespace=\"rejourney\",persistentvolumeclaim=~\"grafana-data|gatus-data|victoria-metrics-data|redis-data-redis-node-[0-9]+|postgres-local-[0-9]+\"})",
               "legendFormat": "{{persistentvolumeclaim}}",
               "refId": "A",
               "instant": false
@@ -9475,7 +9489,7 @@ data:
         {
           "id": 4,
           "type": "timeseries",
-          "title": "PVC free bytes",
+          "title": "Active PVC free bytes",
           "datasource": {
             "type": "prometheus",
             "uid": "victoria-metrics"
@@ -9492,7 +9506,7 @@ data:
                 "type": "prometheus",
                 "uid": "victoria-metrics"
               },
-              "expr": "sum by (persistentvolumeclaim)(kubelet_volume_stats_available_bytes{namespace=\"rejourney\"})",
+              "expr": "clamp_min((max by (persistentvolumeclaim)(kube_persistentvolumeclaim_resource_requests_storage_bytes{namespace=\"rejourney\",persistentvolumeclaim=~\"grafana-data|gatus-data|victoria-metrics-data|redis-data-redis-node-[0-9]+|postgres-local-[0-9]+\"})) - (sum by (persistentvolumeclaim)(rejourney_local_pvc_used_bytes{namespace=\"rejourney\",persistentvolumeclaim=~\"grafana-data|gatus-data|victoria-metrics-data|redis-data-redis-node-[0-9]+|postgres-local-[0-9]+\"})), 0)",
               "legendFormat": "{{persistentvolumeclaim}}",
               "refId": "A",
               "instant": false
@@ -9549,7 +9563,7 @@ data:
         {
           "id": 5,
           "type": "timeseries",
-          "title": "Inode usage",
+          "title": "Active PVC inode count",
           "datasource": {
             "type": "prometheus",
             "uid": "victoria-metrics"
@@ -9566,7 +9580,7 @@ data:
                 "type": "prometheus",
                 "uid": "victoria-metrics"
               },
-              "expr": "100 * sum by (persistentvolumeclaim)(kubelet_volume_stats_inodes_used{namespace=\"rejourney\"}) / sum by (persistentvolumeclaim)(kubelet_volume_stats_inodes{namespace=\"rejourney\"})",
+              "expr": "sum by (persistentvolumeclaim)(rejourney_local_pvc_inodes_used{namespace=\"rejourney\",persistentvolumeclaim=~\"grafana-data|gatus-data|victoria-metrics-data|redis-data-redis-node-[0-9]+|postgres-local-[0-9]+\"})",
               "legendFormat": "{{persistentvolumeclaim}}",
               "refId": "A",
               "instant": false
@@ -9574,7 +9588,7 @@ data:
           ],
           "fieldConfig": {
             "defaults": {
-              "unit": "percent",
+              "unit": "short",
               "custom": {
                 "drawStyle": "line",
                 "lineInterpolation": "smooth",

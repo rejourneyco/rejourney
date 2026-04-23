@@ -13,6 +13,8 @@ REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 OUT_YAML = os.path.join(REPO_ROOT, "k8s", "grafana-dashboards.yaml")
 
 DATASOURCE = {"type": "prometheus", "uid": "victoria-metrics"}
+ACTIVE_PVC_REGEX = 'grafana-data|gatus-data|victoria-metrics-data|redis-data-redis-node-[0-9]+|postgres-local-[0-9]+'
+DATABASE_PVC_REGEX = 'redis-data-redis-node-[0-9]+|postgres-local-[0-9]+'
 
 NEXT_ID = [0]
 def nid():
@@ -21,6 +23,24 @@ def nid():
 
 def reset_ids():
     NEXT_ID[0] = 0
+
+def pvc_metric(metric, regex=ACTIVE_PVC_REGEX):
+    return f'{metric}{{namespace="rejourney",persistentvolumeclaim=~"{regex}"}}'
+
+def pvc_used_series(regex=ACTIVE_PVC_REGEX):
+    return f'sum by (persistentvolumeclaim)(rejourney_local_pvc_used_bytes{{namespace="rejourney",persistentvolumeclaim=~"{regex}"}})'
+
+def pvc_capacity_series(regex=ACTIVE_PVC_REGEX):
+    return f'max by (persistentvolumeclaim)(kube_persistentvolumeclaim_resource_requests_storage_bytes{{namespace="rejourney",persistentvolumeclaim=~"{regex}"}})'
+
+def pvc_usage_percent_series(regex=ACTIVE_PVC_REGEX):
+    return f'100 * ({pvc_used_series(regex)}) / ({pvc_capacity_series(regex)})'
+
+def pvc_free_series(regex=ACTIVE_PVC_REGEX):
+    return f'clamp_min(({pvc_capacity_series(regex)}) - ({pvc_used_series(regex)}), 0)'
+
+def pvc_inodes_used_series(regex=ACTIVE_PVC_REGEX):
+    return f'sum by (persistentvolumeclaim)(rejourney_local_pvc_inodes_used{{namespace="rejourney",persistentvolumeclaim=~"{regex}"}})'
 
 def target(expr, legend="", instant=False, ref="A"):
     return {
@@ -265,7 +285,8 @@ def d_overview():
                        thresholds={"mode": "absolute", "steps": [{"color": "green", "value": None}, {"color": "orange", "value": 1}]}))
     panels.append(stat("Restarts (24h)", 'sum(increase(kube_pod_container_status_restarts_total{namespace="rejourney"}[24h]))', 16, y, w=4, h=4,
                        thresholds={"mode": "absolute", "steps": [{"color": "green", "value": None}, {"color": "orange", "value": 1}, {"color": "red", "value": 5}]}))
-    panels.append(stat("Scrape Targets Up", 'sum(up)', 20, y, w=4, h=4))
+    panels.append(stat("Node Exporter", 'min(up{job="node-exporter"})', 20, y, w=4, h=4,
+                       mappings=[{"type": "value", "options": {"1": {"text": "UP", "color": "green"}, "0": {"text": "DOWN", "color": "red"}}}]))
     y += 4
 
     panels.append(row("Core Services", y)); y += 1
@@ -374,12 +395,12 @@ def d_kubernetes():
                         12, y, w=12, h=8))
     y += 8
 
-    panels.append(row("PVCs", y)); y += 1
+    panels.append(row("Active PVCs", y)); y += 1
     panels.append(bargauge("PVC Usage %",
-                           '100 * sum by (persistentvolumeclaim)(kubelet_volume_stats_used_bytes{namespace="rejourney"}) / sum by (persistentvolumeclaim)(kubelet_volume_stats_capacity_bytes{namespace="rejourney"})',
+                           pvc_usage_percent_series(),
                            0, y, w=12, h=8, unit="percent", legend="{{persistentvolumeclaim}}"))
     panels.append(ts("PVC Used (bytes)",
-                     [('sum by (persistentvolumeclaim)(kubelet_volume_stats_used_bytes{namespace="rejourney"})', "{{persistentvolumeclaim}}")],
+                     [(pvc_used_series(), "{{persistentvolumeclaim}}")],
                      12, y, w=12, h=8, unit="bytes"))
     y += 8
 
@@ -467,7 +488,7 @@ def d_postgres():
     y += 8
 
     panels.append(row("Container Resources", y)); y += 1
-    pg_lbl = 'namespace="rejourney",pod=~"postgres-[1-9][0-9]*",container="postgres"'
+    pg_lbl = 'namespace="rejourney",pod=~"postgres-local-[0-9]+",container="postgres"'
     panels.append(gauge("CPU Usage % of Limit",
                         f'100 * sum(rate(container_cpu_usage_seconds_total{{{pg_lbl},cpu="total"}}[2m])) / sum(container_spec_cpu_quota{{{pg_lbl}}} / container_spec_cpu_period{{{pg_lbl}}})',
                         0, y, w=6, h=6, unit="percent"))
@@ -502,7 +523,7 @@ def d_postgres():
     panels.append(stat("Last failed backup age", 'time() - cnpg_collector_last_failed_backup_timestamp{namespace="rejourney"}', 12, y, w=4, h=4, unit="s"))
     panels.append(stat("Root disk free %", '100 * node_filesystem_avail_bytes{mountpoint="/",fstype!~"tmpfs|overlay"} / node_filesystem_size_bytes{mountpoint="/",fstype!~"tmpfs|overlay"}', 16, y, w=4, h=4, unit="percent",
                        thresholds={"mode": "absolute", "steps": [{"color": "red", "value": None}, {"color": "orange", "value": 15}, {"color": "green", "value": 30}]}))
-    panels.append(stat("Local-path PVC used", 'sum(kubelet_volume_stats_used_bytes{namespace="rejourney",persistentvolumeclaim=~"postgres.*|redis.*"})', 20, y, w=4, h=4, unit="bytes"))
+    panels.append(stat("Database PVC used", f'sum({pvc_used_series(DATABASE_PVC_REGEX)})', 20, y, w=4, h=4, unit="bytes"))
     y += 4
 
     panels.append(ts("Archiver: archived vs failed",
@@ -748,21 +769,21 @@ def d_storage():
     panels = []
     y = 0
 
-    panels.append(row("PVC usage (Hetzner volumes + local-path)", y)); y += 1
-    panels.append(bargauge("PVC Usage %",
-                           '100 * sum by (persistentvolumeclaim)(kubelet_volume_stats_used_bytes{namespace="rejourney"}) / sum by (persistentvolumeclaim)(kubelet_volume_stats_capacity_bytes{namespace="rejourney"})',
+    panels.append(row("Active PVC usage", y)); y += 1
+    panels.append(bargauge("Active PVC Usage %",
+                           pvc_usage_percent_series(),
                            0, y, w=12, h=10, unit="percent", legend="{{persistentvolumeclaim}}"))
-    panels.append(ts("PVC used bytes",
-                     [('sum by (persistentvolumeclaim)(kubelet_volume_stats_used_bytes{namespace="rejourney"})', "{{persistentvolumeclaim}}")],
+    panels.append(ts("Active PVC used bytes",
+                     [(pvc_used_series(), "{{persistentvolumeclaim}}")],
                      12, y, w=12, h=10, unit="bytes"))
     y += 10
 
-    panels.append(ts("PVC free bytes",
-                     [('sum by (persistentvolumeclaim)(kubelet_volume_stats_available_bytes{namespace="rejourney"})', "{{persistentvolumeclaim}}")],
+    panels.append(ts("Active PVC free bytes",
+                     [(pvc_free_series(), "{{persistentvolumeclaim}}")],
                      0, y, w=12, h=8, unit="bytes"))
-    panels.append(ts("Inode usage",
-                     [('100 * sum by (persistentvolumeclaim)(kubelet_volume_stats_inodes_used{namespace="rejourney"}) / sum by (persistentvolumeclaim)(kubelet_volume_stats_inodes{namespace="rejourney"})', "{{persistentvolumeclaim}}")],
-                     12, y, w=12, h=8, unit="percent"))
+    panels.append(ts("Active PVC inode count",
+                     [(pvc_inodes_used_series(), "{{persistentvolumeclaim}}")],
+                     12, y, w=12, h=8, unit="short"))
     y += 8
 
     panels.append(row("R2 / S3 backups", y)); y += 1

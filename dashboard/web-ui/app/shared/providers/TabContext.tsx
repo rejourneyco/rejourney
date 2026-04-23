@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useCallback, useRef, useEffect } from 'react';
+import React, { createContext, startTransition, useContext, useState, useCallback, useRef, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router';
 import { TabRegistry } from '~/shell/tabs/TabRegistry';
 import { useSessionData } from './SessionContext';
@@ -375,7 +375,9 @@ export const TabProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         if (demoMode.isDemoMode || !hasPersistableWorkspaceScope || !workspaceTeamId || !workspaceProjectId) {
             isScopeTransitionRef.current = false;
             skipRestoreForNextScopeRef.current = false;
-            setHasLoaded(true);
+            startTransition(() => {
+                setHasLoaded(true);
+            });
             return;
         }
 
@@ -388,7 +390,9 @@ export const TabProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             loadedProjectIdRef.current = workspaceProjectId;
             skipRestoreForNextScopeRef.current = false;
             isScopeTransitionRef.current = false;
-            setHasLoaded(true);
+            startTransition(() => {
+                setHasLoaded(true);
+            });
             return;
         }
 
@@ -459,8 +463,10 @@ export const TabProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                         loadedClosed,
                         new Set([resolvedActiveTabId || ''])
                     );
-                    setTabs(trimmed.tabs);
-                    setRecentlyClosed(trimmed.recentlyClosed);
+                    startTransition(() => {
+                        setTabs(trimmed.tabs);
+                        setRecentlyClosed(trimmed.recentlyClosed);
+                    });
 
                     // Check if current URL is a valid registered route
                     const currentRouteInfo = TabRegistry.getTabInfo(location.pathname);
@@ -482,10 +488,14 @@ export const TabProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                                 icon: currentRouteInfo.icon,
                             })];
                             const mergedTrimmed = trimTabsForLimits(merged, recentlyClosedRef.current, new Set([currentRouteInfo.id]));
-                            setTabs(mergedTrimmed.tabs);
-                            setRecentlyClosed(mergedTrimmed.recentlyClosed);
+                            startTransition(() => {
+                                setTabs(mergedTrimmed.tabs);
+                                setRecentlyClosed(mergedTrimmed.recentlyClosed);
+                            });
                         }
-                        setActiveTabId(currentRouteInfo.id);
+                        startTransition(() => {
+                            setActiveTabId(currentRouteInfo.id);
+                        });
                     } else if (resolvedActiveTabId) {
                         // Current URL is not a known route - fall back to saved active tab
                         const activeTab = trimmed.tabs.find(t => t.id === resolvedActiveTabId);
@@ -494,11 +504,15 @@ export const TabProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                             // Don't restore sessions tab - always default to general
                             if (activeTab.id === 'sessions' || activeTab.path.includes('/sessions')) {
                                 navigate(`${prefix}/general`, { replace: true });
-                                setActiveTabId('general');
+                                startTransition(() => {
+                                    setActiveTabId('general');
+                                });
                                 return;
                             }
 
-                            setActiveTabId(resolvedActiveTabId);
+                            startTransition(() => {
+                                setActiveTabId(resolvedActiveTabId);
+                            });
 
                             // Only navigate if we're not on a public page
                             const isPublicPage = location.pathname === '/' ||
@@ -532,17 +546,19 @@ export const TabProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                     // No persisted workspace yet for this project; seed from current route.
                     const currentRouteInfo = TabRegistry.getTabInfo(location.pathname);
                     if (currentRouteInfo) {
-                        setTabs([annotateTabWithScope({
-                            id: currentRouteInfo.id,
-                            type: 'page',
-                            title: currentRouteInfo.title,
-                            path: location.pathname,
-                            isClosable: true,
-                            group: 'primary',
-                            icon: currentRouteInfo.icon,
-                        })]);
-                        setRecentlyClosed([]);
-                        setActiveTabId(currentRouteInfo.id);
+                        startTransition(() => {
+                            setTabs([annotateTabWithScope({
+                                id: currentRouteInfo.id,
+                                type: 'page',
+                                title: currentRouteInfo.title,
+                                path: location.pathname,
+                                isClosable: true,
+                                group: 'primary',
+                                icon: currentRouteInfo.icon,
+                            })]);
+                            setRecentlyClosed([]);
+                            setActiveTabId(currentRouteInfo.id);
+                        });
                     }
                 }
             } catch (err) {
@@ -554,7 +570,9 @@ export const TabProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                     // remount). Otherwise the next run early-exits while hasLoaded never becomes true and
                     // the tab bar stays empty ("No open tabs").
                     loadedProjectIdRef.current = projectId;
-                    setHasLoaded(true);
+                    startTransition(() => {
+                        setHasLoaded(true);
+                    });
                 }
             }
         }
@@ -576,9 +594,13 @@ export const TabProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         if (existingTab) {
             if (existingTab.path !== location.pathname) {
                 const updatedTabs = currentTabs.map(t => t.id === info.id ? annotateTabWithScope({ ...t, path: location.pathname }) : t);
-                setTabs(updatedTabs);
+                startTransition(() => {
+                    setTabs(updatedTabs);
+                });
             }
-            setActiveTabId(info.id);
+            startTransition(() => {
+                setActiveTabId(info.id);
+            });
             return;
         }
         const merged = [...currentTabs, annotateTabWithScope({
@@ -591,9 +613,11 @@ export const TabProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             icon: info.icon,
         })];
         const trimmed = trimTabsForLimits(merged, recentlyClosedRef.current, new Set([info.id]));
-        setTabs(trimmed.tabs);
-        setRecentlyClosed(trimmed.recentlyClosed);
-        setActiveTabId(info.id);
+        startTransition(() => {
+            setTabs(trimmed.tabs);
+            setRecentlyClosed(trimmed.recentlyClosed);
+            setActiveTabId(info.id);
+        });
     }, [location.pathname, hasLoaded, setActiveTabId, annotateTabWithScope]);
 
 

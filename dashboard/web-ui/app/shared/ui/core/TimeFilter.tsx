@@ -21,15 +21,16 @@ interface TimeFilterProps {
 
 export const TimeFilter: React.FC<TimeFilterProps> = ({ value, onChange, className = '' }) => {
     return (
-        <div className={`flex items-center p-0.5 ${className}`}>
-            <div className="flex items-center border border-slate-200 rounded-lg bg-white shadow-sm overflow-hidden">
+        <div className={`min-w-0 max-w-full p-0.5 ${className}`.trim()}>
+            <div className="max-w-full overflow-x-auto overflow-y-hidden rounded-lg border border-slate-200 bg-white shadow-sm no-scrollbar">
+                <div className="inline-flex min-w-max items-center overflow-hidden">
                 {TIME_RANGE_OPTIONS.map((option, index) => (
                     <button
                         key={option.value}
                         type="button"
                         onClick={() => onChange(option.value)}
                         aria-pressed={value === option.value}
-                        className={`px-3 py-1 text-[10px] font-bold uppercase tracking-wider transition-colors 
+                        className={`shrink-0 px-3 py-1 text-[10px] font-bold uppercase tracking-wider transition-colors 
                         ${value === option.value
                                 ? 'bg-slate-900 text-white'
                                 : 'bg-white text-slate-600 hover:bg-slate-50'
@@ -40,6 +41,7 @@ export const TimeFilter: React.FC<TimeFilterProps> = ({ value, onChange, classNa
                         {option.label}
                     </button>
                 ))}
+                </div>
             </div>
         </div>
     );

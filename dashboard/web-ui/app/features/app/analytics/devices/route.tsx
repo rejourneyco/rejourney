@@ -389,7 +389,7 @@ export const Devices: React.FC = () => {
                     icon={<Smartphone className="w-6 h-6" />}
                     iconColor="bg-indigo-500"
                 >
-                    <div className="flex items-center gap-3">
+                    <div className="flex min-w-0 max-w-full flex-wrap items-center gap-3">
                         <DataWatermarkBanner dataCompleteThrough={trends?.dataCompleteThrough} />
                         <TimeFilter value={timeRange} onChange={setTimeRange} />
                     </div>

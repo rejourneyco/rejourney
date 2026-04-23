@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { startTransition, useEffect, useMemo, useState } from 'react';
 import {
     Activity,
     ChevronDown,
@@ -394,7 +394,9 @@ export const ApiAnalytics: React.FC = () => {
     useEffect(() => {
         if (typeof window === 'undefined') return;
         if (!endpointFilterPersistenceKey) {
-            setHydratedFilterPreferenceKey(null);
+            startTransition(() => {
+                setHydratedFilterPreferenceKey(null);
+            });
             return;
         }
 
@@ -404,22 +406,30 @@ export const ApiAnalytics: React.FC = () => {
                 raw = window.localStorage.getItem(`${API_ENDPOINT_FILTER_PREFERENCES_PREFIX}global`);
             }
             if (!raw) {
-                setExcludedEndpointQuery('');
-                setSelectedFailureCodes([]);
+                startTransition(() => {
+                    setExcludedEndpointQuery('');
+                    setSelectedFailureCodes([]);
+                });
             } else {
                 const parsed = JSON.parse(raw) as ApiEndpointFilterPreferences;
-                setExcludedEndpointQuery(typeof parsed.excludedEndpointQuery === 'string' ? parsed.excludedEndpointQuery : '');
-                setSelectedFailureCodes(
-                    Array.isArray(parsed.selectedFailureCodes)
-                        ? parsed.selectedFailureCodes.filter((value): value is string => typeof value === 'string')
-                        : [],
-                );
+                startTransition(() => {
+                    setExcludedEndpointQuery(typeof parsed.excludedEndpointQuery === 'string' ? parsed.excludedEndpointQuery : '');
+                    setSelectedFailureCodes(
+                        Array.isArray(parsed.selectedFailureCodes)
+                            ? parsed.selectedFailureCodes.filter((value): value is string => typeof value === 'string')
+                            : [],
+                    );
+                });
             }
         } catch {
-            setExcludedEndpointQuery('');
-            setSelectedFailureCodes([]);
+            startTransition(() => {
+                setExcludedEndpointQuery('');
+                setSelectedFailureCodes([]);
+            });
         } finally {
-            setHydratedFilterPreferenceKey(endpointFilterPersistenceKey);
+            startTransition(() => {
+                setHydratedFilterPreferenceKey(endpointFilterPersistenceKey);
+            });
         }
     }, [endpointFilterPersistenceKey]);
 
@@ -943,7 +953,7 @@ export const ApiAnalytics: React.FC = () => {
                     icon={<Activity className="w-6 h-6" />}
                     iconColor="bg-emerald-500"
                 >
-                    <div className="flex items-center gap-3">
+                    <div className="flex min-w-0 max-w-full flex-wrap items-center gap-3">
                         <DataWatermarkBanner dataCompleteThrough={trends?.dataCompleteThrough} />
                         <TimeFilter value={timeRange} onChange={setTimeRange} />
                     </div>
