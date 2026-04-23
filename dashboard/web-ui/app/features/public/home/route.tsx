@@ -4,7 +4,7 @@
  * This is the main landing page, server-side rendered for SEO/crawlers.
  */
 
-import { Suspense, lazy } from "react";
+import { Suspense, lazy, useEffect } from "react";
 import type { Route } from "./+types/route";
 import { Hero } from "~/features/public/home/components/Hero";
 import { TrustBanners } from "~/features/public/home/components/TrustBanners";
@@ -53,6 +53,11 @@ export const meta: Route.MetaFunction = () => [
 ];
 
 export default function LandingPage() {
+    useEffect(() => {
+        // Always start the landing page at the top instead of restoring prior scroll.
+        window.scrollTo(0, 0);
+    }, []);
+
     return (
         <div className="min-h-screen w-full bg-background text-foreground overflow-x-hidden">
             <Header />

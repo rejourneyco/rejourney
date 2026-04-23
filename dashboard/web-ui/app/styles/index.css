@@ -539,106 +539,123 @@
   @keyframes crash-swing-stuck-sideways {
     0% {
       opacity: 0;
-      transform: translate3d(-0.04em, -0.36em, 0) rotate(0deg) scaleX(0.82) scaleY(1.16);
-      filter: blur(8px);
+      transform: translate3d(1.42em, -1.04em, 0) rotate(-32deg) scaleX(1.24) scaleY(0.72);
+      filter: blur(9px);
     }
 
-    14% {
-      opacity: 0.72;
-      transform: translate3d(-0.02em, -0.14em, 0) rotate(0deg) scaleX(0.9) scaleY(1.1);
-      filter: blur(3px);
+    12% {
+      opacity: 0.96;
+      transform: translate3d(0.96em, -0.64em, 0) rotate(-25deg) scaleX(1.2) scaleY(0.78);
+      filter: blur(6px);
     }
 
-    24% {
-      opacity: 0.72;
-      transform: translate3d(-0.02em, -0.14em, 0) rotate(0deg) scaleX(0.9) scaleY(1.1);
-      filter: blur(3px);
-    }
-
-    42% {
+    30% {
       opacity: 1;
-      transform: translate3d(0, 0.08em, 0) rotate(0deg) scaleX(0.98) scaleY(1.03);
+      transform: translate3d(0.44em, -0.28em, 0) rotate(-18deg) scaleX(1.12) scaleY(0.88);
+      filter: blur(2px);
+    }
+
+    44% {
+      transform: translate3d(0.04em, 0.34em, 0) rotate(13deg) scaleX(0.78) scaleY(1.3);
       filter: blur(0);
     }
 
-    52% {
-      transform: translate3d(0, 0.08em, 0) rotate(0deg) scaleX(0.98) scaleY(1.03);
-      filter: blur(0);
+    56% {
+      transform: translate3d(-0.18em, -0.12em, 0) rotate(-12deg) scaleX(1.08) scaleY(0.92);
     }
 
-    68% {
-      transform: translate3d(0, 0.22em, 0) rotate(0deg) scaleX(1.04) scaleY(0.98);
+    72% {
+      transform: translate3d(0.12em, 0.08em, 0) rotate(7deg) scaleX(0.95) scaleY(1.06);
     }
 
-    78% {
-      transform: translate3d(0, 0.22em, 0) rotate(0deg) scaleX(1.04) scaleY(0.98);
-    }
-
-    90% {
-      transform: translate3d(0.02em, 0.34em, 0) rotate(-2deg) scaleX(1.01) scaleY(0.99);
+    86% {
+      transform: translate3d(-0.06em, -0.03em, 0) rotate(-6deg) scaleX(1.02) scaleY(0.98);
     }
 
     100% {
       opacity: 1;
-      transform: translate3d(0.02em, 0.34em, 0) rotate(-2deg) scaleX(1) scaleY(1);
+      transform: translate3d(0, 0, 0) rotate(-7deg) scaleX(1) scaleY(1);
       filter: blur(0);
     }
   }
 
   @keyframes crash-stuck-rattle {
     0% {
-      transform: translate3d(0.02em, 0.34em, 0) rotate(-2deg);
+      transform: translate3d(0, 0, 0) rotate(-7deg) scaleX(1) scaleY(1);
     }
 
-    28% {
-      transform: translate3d(0.03em, 0.44em, 0) rotate(-8deg);
+    16% {
+      transform: translate3d(-0.045em, 0.025em, 0) rotate(4deg) scaleX(0.98) scaleY(1.03);
     }
 
-    52% {
-      transform: translate3d(0.05em, 0.55em, 0) rotate(4deg);
+    34% {
+      transform: translate3d(0.035em, -0.02em, 0) rotate(-11deg) scaleX(1.03) scaleY(0.97);
     }
 
-    76% {
-      transform: translate3d(0.06em, 0.66em, 0) rotate(-14deg);
+    56% {
+      transform: translate3d(-0.02em, 0.014em, 0) rotate(-3deg) scaleX(0.99) scaleY(1.02);
+    }
+
+    78% {
+      transform: translate3d(0.012em, -0.008em, 0) rotate(-8deg) scaleX(1.01) scaleY(0.99);
     }
 
     100% {
-      transform: translate3d(0.06em, 0.66em, 0) rotate(-14deg);
+      transform: translate3d(0, 0, 0) rotate(-7deg) scaleX(1) scaleY(1);
+    }
+  }
+
+  @keyframes crash-skid-trail {
+    0% {
+      opacity: 0;
+      transform: translate3d(0.74em, -0.15em, 0) scaleX(0.12) scaleY(0.62);
+      filter: blur(10px);
+    }
+
+    22% {
+      opacity: 0.52;
+      transform: translate3d(0.34em, -0.05em, 0) scaleX(0.56) scaleY(0.82);
+      filter: blur(6px);
+    }
+
+    46% {
+      opacity: 0.92;
+      transform: translate3d(-0.02em, 0.06em, 0) scaleX(1.42) scaleY(1.04);
+      filter: blur(3.5px);
+    }
+
+    66% {
+      opacity: 0.44;
+      transform: translate3d(-0.21em, 0.08em, 0) scaleX(0.92) scaleY(0.95);
+      filter: blur(2.4px);
+    }
+
+    100% {
+      opacity: 0;
+      transform: translate3d(-0.36em, 0.12em, 0) scaleX(0.36) scaleY(0.84);
+      filter: blur(2px);
     }
   }
 
   @keyframes crash-impact-flash {
     0% {
       opacity: 0;
-      transform: scaleX(0);
+      transform: translate3d(0.12em, 0.01em, 0) scale(0.12) rotate(-24deg);
     }
 
-    40% {
-      opacity: 0.95;
-      transform: scaleX(1);
+    28% {
+      opacity: 1;
+      transform: translate3d(-0.01em, 0.03em, 0) scale(1.18) rotate(3deg);
+    }
+
+    54% {
+      opacity: 0.72;
+      transform: translate3d(-0.03em, 0.06em, 0) scale(0.74) rotate(-6deg);
     }
 
     100% {
       opacity: 0;
-      transform: scaleX(0.4);
-    }
-  }
-
-  @keyframes crash-momentum-loop {
-    0%, 100% {
-      transform: translate3d(0.06em, 0.66em, 0) rotate(-14deg);
-    }
-
-    25% {
-      transform: translate3d(0.05em, 0.62em, 0) rotate(-10deg);
-    }
-
-    50% {
-      transform: translate3d(0.07em, 0.69em, 0) rotate(-16deg);
-    }
-
-    75% {
-      transform: translate3d(0.06em, 0.64em, 0) rotate(-12deg);
+      transform: translate3d(-0.07em, 0.08em, 0) scale(1.52) rotate(16deg);
     }
   }
 
@@ -682,9 +699,8 @@
     will-change: transform, opacity, filter;
     display: inline-block;
     transform-origin: left bottom;
-    animation: crash-swing-stuck-sideways 1.18s linear 0.82s forwards,
-      crash-stuck-rattle 0.58s cubic-bezier(0.22, 1, 0.3, 1) 2s forwards,
-      crash-momentum-loop 2.4s ease-in-out 2.78s infinite;
+    animation: crash-swing-stuck-sideways 1.06s cubic-bezier(0.2, 0.98, 0.28, 1) 0.82s forwards,
+      crash-stuck-rattle 0.6s cubic-bezier(0.16, 1, 0.3, 1) 1.88s forwards;
   }
 
   .hero-kinetic-word {
@@ -733,18 +749,41 @@
     animation-delay: 0.54s, 1.49s;
   }
 
+  .hero-kinetic-word-crash::before {
+    content: '';
+    position: absolute;
+    left: 0.34em;
+    right: -0.82em;
+    top: 0.56em;
+    height: 0.15em;
+    border-radius: 999px;
+    background: linear-gradient(90deg,
+        rgba(254, 226, 226, 0) 0%,
+        rgba(248, 113, 113, 0.18) 20%,
+        rgba(239, 68, 68, 0.72) 76%,
+        rgba(254, 226, 226, 0.92) 100%);
+    filter: blur(7px);
+    transform-origin: left center;
+    opacity: 0;
+    pointer-events: none;
+    animation: crash-skid-trail 1.06s cubic-bezier(0.2, 0.98, 0.28, 1) 0.82s forwards;
+  }
+
   .hero-kinetic-word-crash::after {
     content: '';
     position: absolute;
-    left: -0.12em;
-    top: 0.52em;
-    width: 0.28em;
-    height: 0.11em;
-    border-radius: 999px;
-    background: rgba(220, 38, 38, 0.55);
-    transform-origin: left center;
+    left: -0.18em;
+    top: 0.46em;
+    width: 0.86em;
+    height: 0.54em;
+    background:
+      linear-gradient(90deg, transparent 0 43%, rgba(254, 226, 226, 0.96) 44% 56%, transparent 57% 100%),
+      linear-gradient(135deg, transparent 0 43%, rgba(248, 113, 113, 0.84) 44% 56%, transparent 57% 100%),
+      linear-gradient(45deg, transparent 0 43%, rgba(248, 113, 113, 0.84) 44% 56%, transparent 57% 100%);
+    transform-origin: center center;
     opacity: 0;
-    animation: crash-impact-flash 0.28s ease-out 2.34s forwards;
+    pointer-events: none;
+    animation: crash-impact-flash 0.42s cubic-bezier(0.18, 1, 0.32, 1) 1.26s forwards;
   }
 
   /* Reveal Utilities (for Intersection Observer) */
