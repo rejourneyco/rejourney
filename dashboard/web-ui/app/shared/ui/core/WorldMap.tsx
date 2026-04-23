@@ -179,12 +179,13 @@ export const WorldMap: React.FC<WorldMapProps> = ({ locations, className }) => {
                             <div
                                 className={`
                                     relative rounded-full transition-all duration-300 border-2
-                                    ${markerClass} shadow-[0_0_8px_${shadowColor}]
+                                    ${markerClass}
                                     hover:scale-125 hover:bg-opacity-80 hover:z-50
                                 `}
                                 style={{
                                     width: `${size}px`,
                                     height: `${size}px`,
+                                    boxShadow: `0 0 8px ${shadowColor}`,
                                 }}
                             />
 

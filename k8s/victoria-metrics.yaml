@@ -243,11 +243,11 @@ spec:
               mountPath: /etc/vm
           resources:
             requests:
-              cpu: 50m
-              memory: 64Mi
-            limits:
-              cpu: 200m
+              cpu: 100m
               memory: 256Mi
+            limits:
+              cpu: 400m
+              memory: 768Mi
           livenessProbe:
             httpGet:
               path: /health

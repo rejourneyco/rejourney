@@ -50,16 +50,17 @@ master:
     maxmemory-policy allkeys-lru
     save 900 1
   # See sentinel.resourcesPreset note above — same override applies here.
-  # Node has 8 CPU / 16 GiB; CNPG reserves 3 CPU / 6 GiB. 1 CPU / 1.25 GiB for redis
-  # leaves plenty of headroom. Current peak RSS is ~17 MiB, maxmemory caps dataset at 900 MiB.
+  # Node now has 12 CPU / 24 GiB. Redis is still far from its ceiling in prod,
+  # but we give it a bit more burst room so it doesn't become the next avoidable
+  # bottleneck while Postgres/API use the extra headroom.
   resourcesPreset: "none"
   resources:
     requests:
-      cpu: 200m
-      memory: 384Mi
+      cpu: 300m
+      memory: 512Mi
     limits:
-      cpu: "1"
-      memory: 1280Mi
+      cpu: "1500m"
+      memory: 1536Mi
 
 auth:
   existingSecret: redis-secret

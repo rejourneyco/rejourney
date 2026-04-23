@@ -27,7 +27,7 @@ metadata:
   labels:
     app.kubernetes.io/part-of: rejourney
 spec:
-  replicas: 2  # On the 8 vCPU node, two API pods give better latency and isolate event-loop stalls
+  replicas: 2  # On the 12 vCPU / 24 GiB node, two API pods leave room for Postgres + workers while keeping latency stable
   strategy:
     type: RollingUpdate
     rollingUpdate:
@@ -270,11 +270,11 @@ spec:
                   optional: true
           resources:
             requests:
-              cpu: 500m
-              memory: 768Mi
+              cpu: 600m
+              memory: 1Gi
             limits:
-              cpu: "2"
-              memory: 1536Mi
+              cpu: "2500m"
+              memory: 2Gi
           livenessProbe:
             httpGet:
               path: /health/live
@@ -436,11 +436,11 @@ spec:
                   optional: true
           resources:
             requests:
-              cpu: 200m
-              memory: 256Mi
+              cpu: 300m
+              memory: 384Mi
             limits:
-              cpu: "1"
-              memory: 768Mi
+              cpu: "1500m"
+              memory: 1Gi
           livenessProbe:
             httpGet:
               path: /health

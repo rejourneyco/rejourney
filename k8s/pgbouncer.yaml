@@ -61,11 +61,11 @@ spec:
               value: extra_float_digits
           resources:
             requests:
-              cpu: 50m
-              memory: 64Mi
-            limits:
-              cpu: 200m
+              cpu: 100m
               memory: 128Mi
+            limits:
+              cpu: 400m
+              memory: 256Mi
           readinessProbe:
             tcpSocket:
               port: 5432

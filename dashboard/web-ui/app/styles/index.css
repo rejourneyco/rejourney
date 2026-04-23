@@ -102,6 +102,20 @@
     font-family: 'Outfit', sans-serif;
     font-feature-settings: "rlig" 1, "calt" 1;
   }
+
+  /*
+   * Recharts appends a measurement span directly under <body> to size labels.
+   * In dev/HMR flows that node can occasionally escape its intended offscreen
+   * position and show up as stray text in the viewport.
+   */
+  #recharts_measurement_span {
+    position: absolute !important;
+    top: -20000px !important;
+    left: 0 !important;
+    visibility: hidden !important;
+    pointer-events: none !important;
+    white-space: pre !important;
+  }
 }
 
 /* Custom Scrollbar */

@@ -166,11 +166,11 @@ spec:
               mountPath: /var/lib/grafana/dashboards/rejourney
           resources:
             requests:
-              cpu: 100m
-              memory: 150Mi
+              cpu: 150m
+              memory: 256Mi
             limits:
-              cpu: 500m
-              memory: 280Mi
+              cpu: 750m
+              memory: 512Mi
           livenessProbe:
             httpGet:
               path: /api/health

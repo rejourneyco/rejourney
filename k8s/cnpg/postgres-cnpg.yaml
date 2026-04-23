@@ -28,10 +28,10 @@ spec:
   postgresql:
     parameters:
       max_connections: "60"
-      shared_buffers: "1536MB"
-      effective_cache_size: "4GB"
-      work_mem: "16MB"
-      maintenance_work_mem: "128MB"
+      shared_buffers: "4GB"
+      effective_cache_size: "12GB"
+      work_mem: "32MB"
+      maintenance_work_mem: "512MB"
       # CNPG automatically manages shared_preload_libraries for pg_stat_statements
       # when pg_stat_statements.* settings are present.
       pg_stat_statements.max: "10000"
@@ -39,11 +39,11 @@ spec:
 
   resources:
     requests:
-      cpu: "1"
-      memory: "2Gi"
-    limits:
-      cpu: "3"
+      cpu: "2"
       memory: "6Gi"
+    limits:
+      cpu: "5"
+      memory: "10Gi"
 
   storage:
     storageClass: rejourney-db-local-retain
