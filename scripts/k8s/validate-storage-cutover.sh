@@ -22,22 +22,34 @@ require_match() {
   fi
 }
 
+require_absent() {
+  local path="$1"
+  if [ -e "${path}" ]; then
+    echo "Path should have been removed after cleanup: ${path}" >&2
+    exit 1
+  fi
+}
+
 require_file "k8s/postgres-service-aliases.yaml"
 require_file "k8s/storage-class-db-local.yaml"
 require_file "k8s/cnpg-backups.yaml"
-require_file "k8s/manual/postgres-local-cluster.yaml"
-require_file "k8s/manual/postgres-manual-backup.yaml"
+require_file "k8s/cnpg/postgres-cnpg.yaml"
+require_file "scripts/k8s/validate-storage-cutover.sh"
 
-require_match 'name: postgres-app-rw' "k8s/postgres-service-aliases.yaml"
-require_match 'name: postgres-app-ro' "k8s/postgres-service-aliases.yaml"
-require_match 'name: postgres-app-r' "k8s/postgres-service-aliases.yaml"
-require_match 'kind: ScheduledBackup' "k8s/cnpg-backups.yaml"
+require_absent "k8s/manual"
+require_absent "k8s/backup.yaml"
+
+require_match 'name: postgres-local' "k8s/cnpg/postgres-cnpg.yaml"
+require_match 'storageClass: rejourney-db-local-retain' "k8s/cnpg/postgres-cnpg.yaml"
+require_match 'size: 40Gi' "k8s/cnpg/postgres-cnpg.yaml"
+require_match 'enabled: false' "k8s/cnpg/postgres-cnpg.yaml"
+require_match 'cnpg.io/cluster: postgres-local' "k8s/postgres-service-aliases.yaml"
+require_match 'cnpg.io/podRole: instance' "k8s/postgres-service-aliases.yaml"
 require_match 'name: postgres-daily-backup' "k8s/cnpg-backups.yaml"
-require_match 'retentionPolicy: "30d"' "k8s/cnpg/postgres-cnpg.yaml"
+require_match 'name: postgres-local' "k8s/cnpg-backups.yaml"
+require_match 'CNPG_CLUSTER_NAME="${CNPG_CLUSTER_NAME:-postgres-local}"' "scripts/k8s/deploy-release.sh"
 require_match 'PGBOUNCER_URL=' "scripts/k8s/k8s-sync-secrets.sh"
 require_match '@postgres-app-rw:5432/' "scripts/k8s/k8s-sync-secrets.sh"
-require_match 'rm -rf "${RENDER_DIR}/manual"' "scripts/k8s/deploy-release.sh"
-require_match 'ALLOW_LEGACY_POSTGRES_REMOVAL="${ALLOW_LEGACY_POSTGRES_REMOVAL:-false}"' "scripts/k8s/deploy-release.sh"
 
 ruby <<'RUBY'
 require 'yaml'
@@ -46,8 +58,7 @@ files = [
   'k8s/postgres-service-aliases.yaml',
   'k8s/storage-class-db-local.yaml',
   'k8s/cnpg-backups.yaml',
-  'k8s/manual/postgres-local-cluster.yaml',
-  'k8s/manual/postgres-manual-backup.yaml',
+  'k8s/cnpg/postgres-cnpg.yaml',
 ]
 
 files.each do |path|
@@ -59,4 +70,4 @@ files.each do |path|
 end
 RUBY
 
-echo "Phase 1 prep manifests and deploy guardrails look valid."
+echo "Storage cutover manifests and cleanup guardrails look valid."

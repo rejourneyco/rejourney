@@ -1,7 +1,7 @@
 # PgBouncer — connection pooler in transaction mode.
 # Sits between all application services and Postgres.
 # Services connect to pgbouncer:5432 via PGBOUNCER_URL secret key.
-# postgres-backup (pg_dump) bypasses PgBouncer and uses DATABASE_URL directly.
+# Operational backups now use CNPG directly; application traffic uses PgBouncer.
 
 ---
 apiVersion: apps/v1

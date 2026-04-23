@@ -1,6 +1,4 @@
-# CloudNativePG scheduled backups for the active postgres cluster.
-# This is safe to deploy before the storage cutover because it reuses the
-# existing object-store backup configuration already attached to the cluster.
+# CloudNativePG scheduled backups for the active postgres-local cluster.
 
 ---
 apiVersion: postgresql.cnpg.io/v1
@@ -14,36 +12,5 @@ spec:
   schedule: "0 0 3 * * *"
   backupOwnerReference: self
   cluster:
-    name: postgres
+    name: postgres-local
   method: barmanObjectStore
-
----
-# Disabled until the CNPG backup layout is validated against the archive
-# retention workflow during the manual cutover phase. The actual copy job is
-# prepared in k8s/manual/cnpg-monthly-archive-copy.yaml.
-apiVersion: batch/v1
-kind: CronJob
-metadata:
-  name: cnpg-monthly-archive-copy
-  namespace: rejourney
-  labels:
-    app.kubernetes.io/part-of: rejourney
-spec:
-  schedule: "0 4 1 * *"
-  suspend: true
-  concurrencyPolicy: Forbid
-  successfulJobsHistoryLimit: 1
-  failedJobsHistoryLimit: 2
-  jobTemplate:
-    spec:
-      template:
-        spec:
-          restartPolicy: Never
-          containers:
-            - name: placeholder
-              image: alpine:3.22
-              command:
-                - /bin/sh
-                - -c
-                - |
-                  echo "Manual archive-copy workflow is staged in k8s/manual/cnpg-monthly-archive-copy.yaml"
