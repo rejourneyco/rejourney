@@ -1,24 +1,24 @@
-# CloudNativePG Cluster manifest
+# CloudNativePG Cluster manifest for the active local-storage primary.
 #
 # IMPORTANT: This file is applied by deploy-release.sh via an explicit
 # k8s/cnpg/postgres-cnpg.yaml step after the root manifests/prereqs. We keep it
 # in a subdirectory so the main root-level apply/prune pass does not touch the
 # CNPG CR before the operator is installed.
 #
-# Prerequisites (Phase 1-D):
-#   1. CNPG operator installed (kubectl apply -f cnpg-X.X.X.yaml)
-#   2. cnpg-import-secret created with superuser password
-#   3. postgres superuser password set on the legacy StatefulSet
+# The bootstrap / external cluster fields are intentionally retained because the
+# live `postgres-local` cluster was created via pg_basebackup from `postgres`
+# during the storage cutover. Keeping the reconciled spec aligned avoids
+# surprise diffs on the next CI deploy.
 
 apiVersion: postgresql.cnpg.io/v1
 kind: Cluster
 metadata:
-  name: postgres
+  name: postgres-local
   namespace: rejourney
   labels:
     app.kubernetes.io/part-of: rejourney
 spec:
-  instances: 1   # single instance for Part 1; raise to 2 in Phase 2-B
+  instances: 1
 
   # Must match the existing Postgres major version.
   # Current cluster runs PostgreSQL 18.1. Verify CNPG version supports PG 18
@@ -37,8 +37,6 @@ spec:
       pg_stat_statements.max: "10000"
       pg_stat_statements.track: "all"
 
-  # Matches legacy StatefulSet sizing (node has 8 CPU / 16 GiB).
-  # shared_buffers=1.5 GB and effective_cache_size=4 GB fit comfortably inside the 6 GiB limit.
   resources:
     requests:
       cpu: "1"
@@ -48,20 +46,37 @@ spec:
       memory: "6Gi"
 
   storage:
-    storageClass: hcloud-volumes
-    size: 60Gi   # database is already 27.7 GB; 60 Gi gives headroom for growth
+    storageClass: rejourney-db-local-retain
+    size: 40Gi
 
-  # Plain initdb (no CNPG logical import).
-  # Rationale: legacy cluster's `rejourney` role has oid=10 (bootstrap superuser from Bitnami
-  # POSTGRES_USER init), which CNPG's source role query (`WHERE oid >= 16384`) silently excludes,
-  # causing every `ALTER ... OWNER TO rejourney` to fail during pg_restore.
-  # Instead: bootstrap empty, then pg_dump | psql from legacy manually (see Phase 1-D Step D-5).
   bootstrap:
-    initdb:
+    pg_basebackup:
       database: rejourney
       owner: rejourney
       secret:
-        name: postgres-app-secret   # created before apply; provides rejourney's password
+        name: postgres-app-secret
+      source: postgres
+
+  replica:
+    enabled: false
+    source: postgres
+
+  externalClusters:
+    - name: postgres
+      connectionParameters:
+        host: postgres-rw.rejourney.svc.cluster.local
+        user: streaming_replica
+        dbname: postgres
+        sslmode: verify-full
+      sslKey:
+        name: postgres-replication
+        key: tls.key
+      sslCert:
+        name: postgres-replication
+        key: tls.crt
+      sslRootCert:
+        name: postgres-ca
+        key: ca.crt
 
   backup:
     barmanObjectStore:

@@ -382,9 +382,9 @@ spec:
 # Connects read-only to PostgreSQL and exposes metrics for Grafana.
 #
 # IMPORTANT: Uses a dedicated postgres-exporter-secret DATA_SOURCE_NAME pointing at
-# postgres-rw:5432 with a dedicated read-only `monitoring` role.
+# postgres-app-rw:5432 with a dedicated read-only `monitoring` role.
 # To (re)create the monitoring role on CNPG:
-#   PRIMARY=$(kubectl get pod -n rejourney -l cnpg.io/cluster=postgres,cnpg.io/instanceRole=primary -o jsonpath='{.items[0].metadata.name}')
+#   PRIMARY=$(kubectl get pod -n rejourney -l cnpg.io/cluster=postgres-local,cnpg.io/instanceRole=primary -o jsonpath='{.items[0].metadata.name}')
 #   kubectl exec -it "$PRIMARY" -n rejourney -c postgres -- psql -U postgres -d rejourney -c \
 #     "CREATE ROLE monitoring LOGIN PASSWORD '<pw>'; \
 #      GRANT pg_monitor TO monitoring; \

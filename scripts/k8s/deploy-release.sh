@@ -5,7 +5,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 K8S_DIR="${ROOT_DIR}/k8s"
 NAMESPACE="${NAMESPACE:-rejourney}"
-CNPG_CLUSTER_NAME="${CNPG_CLUSTER_NAME:-postgres}"
+CNPG_CLUSTER_NAME="${CNPG_CLUSTER_NAME:-postgres-local}"
 ALLOW_LEGACY_POSTGRES_REMOVAL="${ALLOW_LEGACY_POSTGRES_REMOVAL:-false}"
 IMAGE_TAG="${1:?usage: deploy-release.sh <image-tag> [repository]}"
 REPOSITORY="${2:-rejourneyco/rejourney}"
@@ -58,9 +58,6 @@ require_bin() {
 
 render_manifests() {
   cp -R "${K8S_DIR}/." "${RENDER_DIR}/"
-
-  # Manual cutover assets are staged in the repo but must never be applied by CI.
-  rm -rf "${RENDER_DIR}/manual"
 
   # Ignore macOS AppleDouble metadata files and Finder artifacts if they slip into the repo/worktree.
   find "${RENDER_DIR}" \( -name '._*' -o -name '.DS_Store' \) -type f -delete

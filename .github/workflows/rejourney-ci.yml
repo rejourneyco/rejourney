@@ -144,8 +144,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Validate Phase 1 K8s Prep
-        run: bash scripts/k8s/validate-phase1-prep.sh
+      - name: Validate Storage Cutover Config
+        run: bash scripts/k8s/validate-storage-cutover.sh
 
 
   # ------------------------------------------------------------------

@@ -1,12 +1,23 @@
-# Bitnami Redis Helm values — Sentinel mode, single master (Part 1)
+# Bitnami Redis Helm values for the current production Redis layout.
 #
 # IMPORTANT: This file is NOT applied by deploy-release.sh (it only reads k8s/ root, not subdirectories).
 # Install/upgrade manually:
 #   helm install redis bitnami/redis -n rejourney -f k8s/helm/redis-values.yaml
 #   helm upgrade redis bitnami/redis -n rejourney -f k8s/helm/redis-values.yaml
 #
-# Phase 1: single master, Sentinel active, 0 replicas (ready to scale in Part 2)
-# Phase 2: bump replicaCount to 2 and quorum to 2 via helm upgrade
+# This mirrors the current single-node production deployment after moving Redis
+# back to local storage. When we add more nodes later, we can raise the replica
+# count and quorum without changing the service names.
+
+architecture: replication
+
+commonConfiguration: |-
+  # Enable ReJSON and RediSearch modules used by the dashboard feature set.
+  loadmodule /opt/bitnami/redis/lib/redis/modules/redisearch.so
+  loadmodule /opt/bitnami/redis/lib/redis/modules/rejson.so
+  # Persist writes with AOF; disable RDB snapshots to avoid duplicate work.
+  appendonly yes
+  save ""
 
 sentinel:
   enabled: true
@@ -23,7 +34,7 @@ sentinel:
       memory: 128Mi
 
 replica:
-  replicaCount: 0  # no replicas until Part 2
+  replicaCount: 0  # single-node for now; raise once the cluster spans nodes
 
 global:
   # Safe Phase 1 prep: changing this does not move the existing live PVC.
@@ -33,7 +44,7 @@ global:
 
 master:
   persistence:
-    size: 2Gi
+    size: 8Gi
   configuration: |
     maxmemory 900mb
     maxmemory-policy allkeys-lru
