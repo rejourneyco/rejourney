@@ -921,9 +921,9 @@ data:
             usage: "GAUGE"
             description: "Age in seconds of the oldest pending/processing event job for a replay-ready zero-event session"
 
-    # Snapshot of recent sessions grouped by whether replay is already available.
-    # Graphed over time, this makes it easy to see whether replay-capable sessions
-    # are keeping pace with total recent sessions or falling behind.
+    # Snapshot of very recent sessions grouped by whether replay is already available.
+    # A 15-minute lookback keeps the series sensitive enough to show short-term
+    # patterns instead of flattening into a long-window inventory count.
     rejourney_sessions_replay_availability_recent:
       query: >
         SELECT
@@ -934,7 +934,7 @@ data:
           s.status,
           COUNT(*)::bigint AS session_count
         FROM sessions s
-        WHERE s.started_at > NOW() - INTERVAL '24 hours'
+        WHERE s.started_at > NOW() - INTERVAL '15 minutes'
         GROUP BY replay_state, s.status
       metrics:
         - replay_state:
@@ -943,7 +943,7 @@ data:
             usage: "LABEL"
         - session_count:
             usage: "GAUGE"
-            description: "Sessions started in the last 24h grouped by replay availability and status"
+            description: "Sessions started in the last 15m grouped by replay availability and status"
 
     # Session backup worker (in-cluster retentionWorker backs sessions up
     # before deletion). These expose backup throughput, total footprint
