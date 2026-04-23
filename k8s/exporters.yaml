@@ -845,6 +845,106 @@ data:
             usage: "GAUGE"
             description: "ingest_jobs rows (24h window) grouped by kind and status"
 
+    # Replay/event consistency signal. Catches the case where screenshot replay
+    # is already available in the dashboard but event payloads are still missing
+    # or stuck in the ingest queue, which makes the replay viewer appear partial
+    # for several minutes before the session finally fills in.
+    rejourney_ingest_replay_event_gap_recent:
+      query: >
+        WITH recent_sessions AS (
+          SELECT
+            s.id,
+            s.status,
+            s.replay_available,
+            s.started_at
+          FROM sessions s
+          WHERE s.started_at > NOW() - INTERVAL '24 hours'
+        ),
+        event_jobs AS (
+          SELECT
+            ij.session_id,
+            COUNT(*) FILTER (
+              WHERE ij.kind = 'events'
+                AND ij.status IN ('pending', 'processing')
+            ) AS waiting_event_jobs,
+            MIN(COALESCE(ij.next_run_at, ij.started_at, ij.created_at)) FILTER (
+              WHERE ij.kind = 'events'
+                AND ij.status IN ('pending', 'processing')
+            ) AS oldest_waiting_event_job_at
+          FROM ingest_jobs ij
+          WHERE ij.created_at > NOW() - INTERVAL '24 hours'
+          GROUP BY ij.session_id
+        )
+        SELECT
+          COUNT(*) FILTER (
+            WHERE rs.replay_available = TRUE
+              AND COALESCE(sm.total_events, 0) = 0
+          )::bigint AS replay_ready_zero_event_sessions,
+          COUNT(*) FILTER (
+            WHERE rs.replay_available = TRUE
+              AND COALESCE(sm.total_events, 0) = 0
+              AND COALESCE(ej.waiting_event_jobs, 0) > 0
+          )::bigint AS replay_ready_waiting_event_sessions,
+          COUNT(*) FILTER (
+            WHERE rs.status IN ('pending', 'processing')
+              AND rs.replay_available = TRUE
+              AND COALESCE(sm.total_events, 0) = 0
+          )::bigint AS processing_replay_zero_event_sessions,
+          COALESCE(SUM(COALESCE(ej.waiting_event_jobs, 0)), 0)::bigint AS waiting_event_jobs,
+          COALESCE(
+            EXTRACT(EPOCH FROM (
+              NOW() - MIN(ej.oldest_waiting_event_job_at) FILTER (
+                WHERE rs.replay_available = TRUE
+                  AND COALESCE(sm.total_events, 0) = 0
+                  AND ej.oldest_waiting_event_job_at IS NOT NULL
+              )
+            ))::bigint,
+            0
+          ) AS oldest_waiting_event_job_age_seconds
+        FROM recent_sessions rs
+        LEFT JOIN session_metrics sm ON sm.session_id = rs.id
+        LEFT JOIN event_jobs ej ON ej.session_id = rs.id
+      metrics:
+        - replay_ready_zero_event_sessions:
+            usage: "GAUGE"
+            description: "Replay-ready sessions started in the last 24h that still have zero processed events"
+        - replay_ready_waiting_event_sessions:
+            usage: "GAUGE"
+            description: "Replay-ready zero-event sessions that still have pending/processing event ingest jobs"
+        - processing_replay_zero_event_sessions:
+            usage: "GAUGE"
+            description: "Replay-ready zero-event sessions still marked processing"
+        - waiting_event_jobs:
+            usage: "GAUGE"
+            description: "Total pending/processing event jobs attached to replay-ready zero-event sessions"
+        - oldest_waiting_event_job_age_seconds:
+            usage: "GAUGE"
+            description: "Age in seconds of the oldest pending/processing event job for a replay-ready zero-event session"
+
+    # Snapshot of recent sessions grouped by whether replay is already available.
+    # Graphed over time, this makes it easy to see whether replay-capable sessions
+    # are keeping pace with total recent sessions or falling behind.
+    rejourney_sessions_replay_availability_recent:
+      query: >
+        SELECT
+          CASE
+            WHEN s.replay_available IS TRUE THEN 'available'
+            ELSE 'not_available'
+          END AS replay_state,
+          s.status,
+          COUNT(*)::bigint AS session_count
+        FROM sessions s
+        WHERE s.started_at > NOW() - INTERVAL '24 hours'
+        GROUP BY replay_state, s.status
+      metrics:
+        - replay_state:
+            usage: "LABEL"
+        - status:
+            usage: "LABEL"
+        - session_count:
+            usage: "GAUGE"
+            description: "Sessions started in the last 24h grouped by replay availability and status"
+
     # Session backup worker (in-cluster retentionWorker backs sessions up
     # before deletion). These expose backup throughput, total footprint
     # backed up, and a freshness signal for alerting.

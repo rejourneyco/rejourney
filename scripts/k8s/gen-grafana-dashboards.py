@@ -776,6 +776,55 @@ def d_application():
                      12, y, w=12, h=8, unit="short"))
     y += 8
 
+    panels.append(row("Replay / event consistency", y)); y += 1
+    panels.append(stat("Replay-ready zero-event sessions",
+                       'max(rejourney_ingest_replay_event_gap_recent_replay_ready_zero_event_sessions)',
+                       0, y, w=4, h=4,
+                       thresholds={"mode": "absolute", "steps": [{"color": "green", "value": None}, {"color": "orange", "value": 1}, {"color": "red", "value": 5}]}))
+    panels.append(stat("Replay-ready waiting on events",
+                       'max(rejourney_ingest_replay_event_gap_recent_replay_ready_waiting_event_sessions)',
+                       4, y, w=4, h=4,
+                       thresholds={"mode": "absolute", "steps": [{"color": "green", "value": None}, {"color": "orange", "value": 1}, {"color": "red", "value": 5}]}))
+    panels.append(stat("Processing replay zero-event",
+                       'max(rejourney_ingest_replay_event_gap_recent_processing_replay_zero_event_sessions)',
+                       8, y, w=4, h=4,
+                       thresholds={"mode": "absolute", "steps": [{"color": "green", "value": None}, {"color": "orange", "value": 1}, {"color": "red", "value": 5}]}))
+    panels.append(stat("Waiting event jobs",
+                       'max(rejourney_ingest_replay_event_gap_recent_waiting_event_jobs)',
+                       12, y, w=4, h=4,
+                       thresholds={"mode": "absolute", "steps": [{"color": "green", "value": None}, {"color": "orange", "value": 10}, {"color": "red", "value": 100}]}))
+    panels.append(stat("Oldest waiting event job age",
+                       'max(rejourney_ingest_replay_event_gap_recent_oldest_waiting_event_job_age_seconds)',
+                       16, y, w=4, h=4, unit="s",
+                       thresholds={"mode": "absolute", "steps": [{"color": "green", "value": None}, {"color": "orange", "value": 120}, {"color": "red", "value": 600}]}))
+    panels.append(stat("Events uploaded, not ready",
+                       'sum(rejourney_recording_artifacts_by_status_artifact_count{kind="events",status="uploaded"})',
+                       20, y, w=4, h=4,
+                       thresholds={"mode": "absolute", "steps": [{"color": "green", "value": None}, {"color": "orange", "value": 10}, {"color": "red", "value": 100}]}))
+    y += 4
+
+    panels.append(ts("Replay/event lag signals",
+                     [('max(rejourney_ingest_replay_event_gap_recent_replay_ready_zero_event_sessions)', "replay-ready zero-event"),
+                      ('max(rejourney_ingest_replay_event_gap_recent_replay_ready_waiting_event_sessions)', "replay-ready waiting events"),
+                      ('max(rejourney_ingest_replay_event_gap_recent_waiting_event_jobs)', "waiting event jobs"),
+                      ('sum(rejourney_recording_artifacts_by_status_artifact_count{kind="events",status="uploaded"})', "events uploaded")],
+                     0, y, w=12, h=8, unit="short"))
+    panels.append(ts("Pending ingest jobs by kind",
+                     [('sum by (kind)(rejourney_ingest_jobs_by_status_job_count{status="pending"})', "pending — {{kind}}"),
+                      ('sum by (kind)(rejourney_ingest_jobs_by_status_job_count{status="processing"})', "processing — {{kind}}")],
+                     12, y, w=12, h=8, unit="short"))
+    y += 8
+
+    panels.append(ts("Replay availability over time",
+                     [('sum(rejourney_sessions_replay_availability_recent_session_count{replay_state="available"})', "replay available"),
+                      ('sum(rejourney_sessions_replay_availability_recent_session_count{replay_state="not_available"})', "replay not available")],
+                     0, y, w=12, h=8, unit="short"))
+    panels.append(ts("Replay availability by session status",
+                     [('sum by (status)(rejourney_sessions_replay_availability_recent_session_count{replay_state="available"})', "available — {{status}}"),
+                      ('sum by (status)(rejourney_sessions_replay_availability_recent_session_count{replay_state="not_available"})', "not available — {{status}}")],
+                     12, y, w=12, h=8, unit="short"))
+    y += 8
+
     panels.append(row("Artifacts pipeline", y)); y += 1
     panels.append(stat("Created (1h)", 'sum(rejourney_artifacts_created_recent_created_count)', 0, y, w=4, h=4))
     panels.append(stat("Completed (1h)", 'sum(rejourney_artifacts_completed_recent_completed_count)', 4, y, w=4, h=4))

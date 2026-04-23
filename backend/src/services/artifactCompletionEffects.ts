@@ -8,6 +8,7 @@ export async function invalidateSessionDetailCaches(sessionId: string): Promise<
     try {
         await invalidateFrameCache(sessionId);
         await getRedis().del(
+            `session_bootstrap:${sessionId}`,
             `session_core:${sessionId}`,
             `session_timeline:${sessionId}`,
             `session_hierarchy:${sessionId}`,

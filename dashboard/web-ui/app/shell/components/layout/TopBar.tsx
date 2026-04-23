@@ -222,7 +222,7 @@ export const TopBar: React.FC<TopBarProps> = ({ currentProject }) => {
                 ))}
                 {teamPlan?.videoRetentionLabel && (
                   <span className="flex items-center gap-1 bg-[#fef08a] px-1.5 py-px text-[10px] font-black uppercase tracking-wider text-black border border-black shadow-[1px_1px_0px_0px_rgba(0,0,0,1)]">
-                    {teamPlan.videoRetentionLabel} retention
+                    {teamPlan.videoRetentionLabel} video retention
                   </span>
                 )}
               </div>

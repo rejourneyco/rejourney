@@ -8913,7 +8913,7 @@ data:
         {
           "id": 10,
           "type": "row",
-          "title": "Artifacts pipeline",
+          "title": "Replay / event consistency",
           "collapsed": false,
           "gridPos": {
             "x": 0,
@@ -8926,7 +8926,7 @@ data:
         {
           "id": 11,
           "type": "stat",
-          "title": "Created (1h)",
+          "title": "Replay-ready zero-event sessions",
           "datasource": {
             "type": "prometheus",
             "uid": "victoria-metrics"
@@ -8934,6 +8934,759 @@ data:
           "gridPos": {
             "x": 0,
             "y": 14,
+            "w": 4,
+            "h": 4
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "victoria-metrics"
+              },
+              "expr": "max(rejourney_ingest_replay_event_gap_recent_replay_ready_zero_event_sessions)",
+              "legendFormat": "",
+              "refId": "A",
+              "instant": false
+            }
+          ],
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "colorMode": "value",
+            "graphMode": "area",
+            "textMode": "auto",
+            "justifyMode": "auto"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "orange",
+                    "value": 1
+                  },
+                  {
+                    "color": "red",
+                    "value": 5
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 12,
+          "type": "stat",
+          "title": "Replay-ready waiting on events",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoria-metrics"
+          },
+          "gridPos": {
+            "x": 4,
+            "y": 14,
+            "w": 4,
+            "h": 4
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "victoria-metrics"
+              },
+              "expr": "max(rejourney_ingest_replay_event_gap_recent_replay_ready_waiting_event_sessions)",
+              "legendFormat": "",
+              "refId": "A",
+              "instant": false
+            }
+          ],
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "colorMode": "value",
+            "graphMode": "area",
+            "textMode": "auto",
+            "justifyMode": "auto"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "orange",
+                    "value": 1
+                  },
+                  {
+                    "color": "red",
+                    "value": 5
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 13,
+          "type": "stat",
+          "title": "Processing replay zero-event",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoria-metrics"
+          },
+          "gridPos": {
+            "x": 8,
+            "y": 14,
+            "w": 4,
+            "h": 4
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "victoria-metrics"
+              },
+              "expr": "max(rejourney_ingest_replay_event_gap_recent_processing_replay_zero_event_sessions)",
+              "legendFormat": "",
+              "refId": "A",
+              "instant": false
+            }
+          ],
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "colorMode": "value",
+            "graphMode": "area",
+            "textMode": "auto",
+            "justifyMode": "auto"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "orange",
+                    "value": 1
+                  },
+                  {
+                    "color": "red",
+                    "value": 5
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 14,
+          "type": "stat",
+          "title": "Waiting event jobs",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoria-metrics"
+          },
+          "gridPos": {
+            "x": 12,
+            "y": 14,
+            "w": 4,
+            "h": 4
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "victoria-metrics"
+              },
+              "expr": "max(rejourney_ingest_replay_event_gap_recent_waiting_event_jobs)",
+              "legendFormat": "",
+              "refId": "A",
+              "instant": false
+            }
+          ],
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "colorMode": "value",
+            "graphMode": "area",
+            "textMode": "auto",
+            "justifyMode": "auto"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "orange",
+                    "value": 10
+                  },
+                  {
+                    "color": "red",
+                    "value": 100
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 15,
+          "type": "stat",
+          "title": "Oldest waiting event job age",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoria-metrics"
+          },
+          "gridPos": {
+            "x": 16,
+            "y": 14,
+            "w": 4,
+            "h": 4
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "victoria-metrics"
+              },
+              "expr": "max(rejourney_ingest_replay_event_gap_recent_oldest_waiting_event_job_age_seconds)",
+              "legendFormat": "",
+              "refId": "A",
+              "instant": false
+            }
+          ],
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "colorMode": "value",
+            "graphMode": "area",
+            "textMode": "auto",
+            "justifyMode": "auto"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "s",
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "orange",
+                    "value": 120
+                  },
+                  {
+                    "color": "red",
+                    "value": 600
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 16,
+          "type": "stat",
+          "title": "Events uploaded, not ready",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoria-metrics"
+          },
+          "gridPos": {
+            "x": 20,
+            "y": 14,
+            "w": 4,
+            "h": 4
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "victoria-metrics"
+              },
+              "expr": "sum(rejourney_recording_artifacts_by_status_artifact_count{kind=\"events\",status=\"uploaded\"})",
+              "legendFormat": "",
+              "refId": "A",
+              "instant": false
+            }
+          ],
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "colorMode": "value",
+            "graphMode": "area",
+            "textMode": "auto",
+            "justifyMode": "auto"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "orange",
+                    "value": 10
+                  },
+                  {
+                    "color": "red",
+                    "value": 100
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 17,
+          "type": "timeseries",
+          "title": "Replay/event lag signals",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoria-metrics"
+          },
+          "gridPos": {
+            "x": 0,
+            "y": 18,
+            "w": 12,
+            "h": 8
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "victoria-metrics"
+              },
+              "expr": "max(rejourney_ingest_replay_event_gap_recent_replay_ready_zero_event_sessions)",
+              "legendFormat": "replay-ready zero-event",
+              "refId": "A",
+              "instant": false
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "victoria-metrics"
+              },
+              "expr": "max(rejourney_ingest_replay_event_gap_recent_replay_ready_waiting_event_sessions)",
+              "legendFormat": "replay-ready waiting events",
+              "refId": "B",
+              "instant": false
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "victoria-metrics"
+              },
+              "expr": "max(rejourney_ingest_replay_event_gap_recent_waiting_event_jobs)",
+              "legendFormat": "waiting event jobs",
+              "refId": "C",
+              "instant": false
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "victoria-metrics"
+              },
+              "expr": "sum(rejourney_recording_artifacts_by_status_artifact_count{kind=\"events\",status=\"uploaded\"})",
+              "legendFormat": "events uploaded",
+              "refId": "D",
+              "instant": false
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "custom": {
+                "drawStyle": "line",
+                "lineInterpolation": "smooth",
+                "lineWidth": 2,
+                "fillOpacity": 10,
+                "gradientMode": "opacity",
+                "showPoints": "never",
+                "pointSize": 5,
+                "stacking": {
+                  "mode": "none",
+                  "group": "A"
+                },
+                "axisPlacement": "auto",
+                "axisLabel": "",
+                "scaleDistribution": {
+                  "type": "linear"
+                },
+                "hideFrom": {
+                  "tooltip": false,
+                  "viz": false,
+                  "legend": false
+                },
+                "thresholdsStyle": {
+                  "mode": "off"
+                }
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom",
+              "calcs": [
+                "mean",
+                "lastNotNull",
+                "max"
+              ]
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          }
+        },
+        {
+          "id": 18,
+          "type": "timeseries",
+          "title": "Pending ingest jobs by kind",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoria-metrics"
+          },
+          "gridPos": {
+            "x": 12,
+            "y": 18,
+            "w": 12,
+            "h": 8
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "victoria-metrics"
+              },
+              "expr": "sum by (kind)(rejourney_ingest_jobs_by_status_job_count{status=\"pending\"})",
+              "legendFormat": "pending \u2014 {{kind}}",
+              "refId": "A",
+              "instant": false
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "victoria-metrics"
+              },
+              "expr": "sum by (kind)(rejourney_ingest_jobs_by_status_job_count{status=\"processing\"})",
+              "legendFormat": "processing \u2014 {{kind}}",
+              "refId": "B",
+              "instant": false
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "custom": {
+                "drawStyle": "line",
+                "lineInterpolation": "smooth",
+                "lineWidth": 2,
+                "fillOpacity": 10,
+                "gradientMode": "opacity",
+                "showPoints": "never",
+                "pointSize": 5,
+                "stacking": {
+                  "mode": "none",
+                  "group": "A"
+                },
+                "axisPlacement": "auto",
+                "axisLabel": "",
+                "scaleDistribution": {
+                  "type": "linear"
+                },
+                "hideFrom": {
+                  "tooltip": false,
+                  "viz": false,
+                  "legend": false
+                },
+                "thresholdsStyle": {
+                  "mode": "off"
+                }
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom",
+              "calcs": [
+                "mean",
+                "lastNotNull",
+                "max"
+              ]
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          }
+        },
+        {
+          "id": 19,
+          "type": "timeseries",
+          "title": "Replay availability over time",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoria-metrics"
+          },
+          "gridPos": {
+            "x": 0,
+            "y": 26,
+            "w": 12,
+            "h": 8
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "victoria-metrics"
+              },
+              "expr": "sum(rejourney_sessions_replay_availability_recent_session_count{replay_state=\"available\"})",
+              "legendFormat": "replay available",
+              "refId": "A",
+              "instant": false
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "victoria-metrics"
+              },
+              "expr": "sum(rejourney_sessions_replay_availability_recent_session_count{replay_state=\"not_available\"})",
+              "legendFormat": "replay not available",
+              "refId": "B",
+              "instant": false
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "custom": {
+                "drawStyle": "line",
+                "lineInterpolation": "smooth",
+                "lineWidth": 2,
+                "fillOpacity": 10,
+                "gradientMode": "opacity",
+                "showPoints": "never",
+                "pointSize": 5,
+                "stacking": {
+                  "mode": "none",
+                  "group": "A"
+                },
+                "axisPlacement": "auto",
+                "axisLabel": "",
+                "scaleDistribution": {
+                  "type": "linear"
+                },
+                "hideFrom": {
+                  "tooltip": false,
+                  "viz": false,
+                  "legend": false
+                },
+                "thresholdsStyle": {
+                  "mode": "off"
+                }
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom",
+              "calcs": [
+                "mean",
+                "lastNotNull",
+                "max"
+              ]
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          }
+        },
+        {
+          "id": 20,
+          "type": "timeseries",
+          "title": "Replay availability by session status",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoria-metrics"
+          },
+          "gridPos": {
+            "x": 12,
+            "y": 26,
+            "w": 12,
+            "h": 8
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "victoria-metrics"
+              },
+              "expr": "sum by (status)(rejourney_sessions_replay_availability_recent_session_count{replay_state=\"available\"})",
+              "legendFormat": "available \u2014 {{status}}",
+              "refId": "A",
+              "instant": false
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "victoria-metrics"
+              },
+              "expr": "sum by (status)(rejourney_sessions_replay_availability_recent_session_count{replay_state=\"not_available\"})",
+              "legendFormat": "not available \u2014 {{status}}",
+              "refId": "B",
+              "instant": false
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "custom": {
+                "drawStyle": "line",
+                "lineInterpolation": "smooth",
+                "lineWidth": 2,
+                "fillOpacity": 10,
+                "gradientMode": "opacity",
+                "showPoints": "never",
+                "pointSize": 5,
+                "stacking": {
+                  "mode": "none",
+                  "group": "A"
+                },
+                "axisPlacement": "auto",
+                "axisLabel": "",
+                "scaleDistribution": {
+                  "type": "linear"
+                },
+                "hideFrom": {
+                  "tooltip": false,
+                  "viz": false,
+                  "legend": false
+                },
+                "thresholdsStyle": {
+                  "mode": "off"
+                }
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom",
+              "calcs": [
+                "mean",
+                "lastNotNull",
+                "max"
+              ]
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          }
+        },
+        {
+          "id": 21,
+          "type": "row",
+          "title": "Artifacts pipeline",
+          "collapsed": false,
+          "gridPos": {
+            "x": 0,
+            "y": 34,
+            "w": 24,
+            "h": 1
+          },
+          "panels": []
+        },
+        {
+          "id": 22,
+          "type": "stat",
+          "title": "Created (1h)",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoria-metrics"
+          },
+          "gridPos": {
+            "x": 0,
+            "y": 35,
             "w": 4,
             "h": 4
           },
@@ -8980,7 +9733,7 @@ data:
           }
         },
         {
-          "id": 12,
+          "id": 23,
           "type": "stat",
           "title": "Completed (1h)",
           "datasource": {
@@ -8989,7 +9742,7 @@ data:
           },
           "gridPos": {
             "x": 4,
-            "y": 14,
+            "y": 35,
             "w": 4,
             "h": 4
           },
@@ -9036,7 +9789,7 @@ data:
           }
         },
         {
-          "id": 13,
+          "id": 24,
           "type": "stat",
           "title": "Failed artifacts (1h)",
           "datasource": {
@@ -9045,7 +9798,7 @@ data:
           },
           "gridPos": {
             "x": 8,
-            "y": 14,
+            "y": 35,
             "w": 4,
             "h": 4
           },
@@ -9100,7 +9853,7 @@ data:
           }
         },
         {
-          "id": 14,
+          "id": 25,
           "type": "stat",
           "title": "Stalled (current)",
           "datasource": {
@@ -9109,7 +9862,7 @@ data:
           },
           "gridPos": {
             "x": 12,
-            "y": 14,
+            "y": 35,
             "w": 4,
             "h": 4
           },
@@ -9164,7 +9917,7 @@ data:
           }
         },
         {
-          "id": 15,
+          "id": 26,
           "type": "stat",
           "title": "Stalled oldest age",
           "datasource": {
@@ -9173,7 +9926,7 @@ data:
           },
           "gridPos": {
             "x": 16,
-            "y": 14,
+            "y": 35,
             "w": 4,
             "h": 4
           },
@@ -9220,7 +9973,7 @@ data:
           }
         },
         {
-          "id": 16,
+          "id": 27,
           "type": "stat",
           "title": "Bytes created (1h)",
           "datasource": {
@@ -9229,7 +9982,7 @@ data:
           },
           "gridPos": {
             "x": 20,
-            "y": 14,
+            "y": 35,
             "w": 4,
             "h": 4
           },
@@ -9276,7 +10029,7 @@ data:
           }
         },
         {
-          "id": 17,
+          "id": 28,
           "type": "timeseries",
           "title": "Upload latency (recent window)",
           "datasource": {
@@ -9285,7 +10038,7 @@ data:
           },
           "gridPos": {
             "x": 0,
-            "y": 18,
+            "y": 39,
             "w": 12,
             "h": 8
           },
@@ -9380,7 +10133,7 @@ data:
           }
         },
         {
-          "id": 18,
+          "id": 29,
           "type": "timeseries",
           "title": "Recording artifacts by status",
           "datasource": {
@@ -9389,7 +10142,7 @@ data:
           },
           "gridPos": {
             "x": 12,
-            "y": 18,
+            "y": 39,
             "w": 12,
             "h": 8
           },
@@ -9454,20 +10207,20 @@ data:
           }
         },
         {
-          "id": 19,
+          "id": 30,
           "type": "row",
           "title": "Ingest jobs",
           "collapsed": false,
           "gridPos": {
             "x": 0,
-            "y": 26,
+            "y": 47,
             "w": 24,
             "h": 1
           },
           "panels": []
         },
         {
-          "id": 20,
+          "id": 31,
           "type": "timeseries",
           "title": "Jobs by status",
           "datasource": {
@@ -9476,7 +10229,7 @@ data:
           },
           "gridPos": {
             "x": 0,
-            "y": 27,
+            "y": 48,
             "w": 24,
             "h": 8
           },
@@ -9541,20 +10294,20 @@ data:
           }
         },
         {
-          "id": 21,
+          "id": 32,
           "type": "row",
           "title": "Session backup",
           "collapsed": false,
           "gridPos": {
             "x": 0,
-            "y": 35,
+            "y": 56,
             "w": 24,
             "h": 1
           },
           "panels": []
         },
         {
-          "id": 22,
+          "id": 33,
           "type": "stat",
           "title": "Queue depth",
           "datasource": {
@@ -9563,7 +10316,7 @@ data:
           },
           "gridPos": {
             "x": 0,
-            "y": 36,
+            "y": 57,
             "w": 4,
             "h": 4
           },
@@ -9618,7 +10371,7 @@ data:
           }
         },
         {
-          "id": 23,
+          "id": 34,
           "type": "stat",
           "title": "Oldest queue age",
           "datasource": {
@@ -9627,7 +10380,7 @@ data:
           },
           "gridPos": {
             "x": 4,
-            "y": 36,
+            "y": 57,
             "w": 4,
             "h": 4
           },
@@ -9674,7 +10427,7 @@ data:
           }
         },
         {
-          "id": 24,
+          "id": 35,
           "type": "stat",
           "title": "Max attempts seen",
           "datasource": {
@@ -9683,7 +10436,7 @@ data:
           },
           "gridPos": {
             "x": 8,
-            "y": 36,
+            "y": 57,
             "w": 4,
             "h": 4
           },
@@ -9730,7 +10483,7 @@ data:
           }
         },
         {
-          "id": 25,
+          "id": 36,
           "type": "stat",
           "title": "Seconds since last backup",
           "datasource": {
@@ -9739,7 +10492,7 @@ data:
           },
           "gridPos": {
             "x": 12,
-            "y": 36,
+            "y": 57,
             "w": 4,
             "h": 4
           },
@@ -9794,7 +10547,7 @@ data:
           }
         },
         {
-          "id": 26,
+          "id": 37,
           "type": "stat",
           "title": "Sessions backed up (1h)",
           "datasource": {
@@ -9803,7 +10556,7 @@ data:
           },
           "gridPos": {
             "x": 16,
-            "y": 36,
+            "y": 57,
             "w": 4,
             "h": 4
           },
@@ -9850,7 +10603,7 @@ data:
           }
         },
         {
-          "id": 27,
+          "id": 38,
           "type": "stat",
           "title": "Bytes backed up (1h)",
           "datasource": {
@@ -9859,7 +10612,7 @@ data:
           },
           "gridPos": {
             "x": 20,
-            "y": 36,
+            "y": 57,
             "w": 4,
             "h": 4
           },
@@ -9906,7 +10659,7 @@ data:
           }
         },
         {
-          "id": 28,
+          "id": 39,
           "type": "timeseries",
           "title": "Integrity (7d rolling)",
           "datasource": {
@@ -9915,7 +10668,7 @@ data:
           },
           "gridPos": {
             "x": 0,
-            "y": 40,
+            "y": 61,
             "w": 24,
             "h": 8
           },
@@ -10010,20 +10763,20 @@ data:
           }
         },
         {
-          "id": 29,
+          "id": 40,
           "type": "row",
           "title": "Retention",
           "collapsed": false,
           "gridPos": {
             "x": 0,
-            "y": 48,
+            "y": 69,
             "w": 24,
             "h": 1
           },
           "panels": []
         },
         {
-          "id": 30,
+          "id": 41,
           "type": "stat",
           "title": "Deleted objects (24h)",
           "datasource": {
@@ -10032,7 +10785,7 @@ data:
           },
           "gridPos": {
             "x": 0,
-            "y": 49,
+            "y": 70,
             "w": 6,
             "h": 4
           },
@@ -10079,7 +10832,7 @@ data:
           }
         },
         {
-          "id": 31,
+          "id": 42,
           "type": "stat",
           "title": "Deleted bytes (24h)",
           "datasource": {
@@ -10088,7 +10841,7 @@ data:
           },
           "gridPos": {
             "x": 6,
-            "y": 49,
+            "y": 70,
             "w": 6,
             "h": 4
           },
@@ -10135,7 +10888,7 @@ data:
           }
         },
         {
-          "id": 32,
+          "id": 43,
           "type": "stat",
           "title": "Failed purges (24h)",
           "datasource": {
@@ -10144,7 +10897,7 @@ data:
           },
           "gridPos": {
             "x": 12,
-            "y": 49,
+            "y": 70,
             "w": 6,
             "h": 4
           },
@@ -10195,7 +10948,7 @@ data:
           }
         },
         {
-          "id": 33,
+          "id": 44,
           "type": "stat",
           "title": "Seconds since last purge",
           "datasource": {
@@ -10204,7 +10957,7 @@ data:
           },
           "gridPos": {
             "x": 18,
-            "y": 49,
+            "y": 70,
             "w": 6,
             "h": 4
           },
@@ -10251,7 +11004,7 @@ data:
           }
         },
         {
-          "id": 34,
+          "id": 45,
           "type": "timeseries",
           "title": "Retention per-endpoint (recent)",
           "datasource": {
@@ -10260,7 +11013,7 @@ data:
           },
           "gridPos": {
             "x": 0,
-            "y": 53,
+            "y": 74,
             "w": 24,
             "h": 8
           },
@@ -10325,20 +11078,20 @@ data:
           }
         },
         {
-          "id": 35,
+          "id": 46,
           "type": "row",
           "title": "Workers \u2014 container resources",
           "collapsed": false,
           "gridPos": {
             "x": 0,
-            "y": 61,
+            "y": 82,
             "w": 24,
             "h": 1
           },
           "panels": []
         },
         {
-          "id": 36,
+          "id": 47,
           "type": "timeseries",
           "title": "Worker CPU",
           "datasource": {
@@ -10347,7 +11100,7 @@ data:
           },
           "gridPos": {
             "x": 0,
-            "y": 62,
+            "y": 83,
             "w": 12,
             "h": 8
           },
@@ -10413,7 +11166,7 @@ data:
           }
         },
         {
-          "id": 37,
+          "id": 48,
           "type": "timeseries",
           "title": "Worker Memory",
           "datasource": {
@@ -10422,7 +11175,7 @@ data:
           },
           "gridPos": {
             "x": 12,
-            "y": 62,
+            "y": 83,
             "w": 12,
             "h": 8
           },

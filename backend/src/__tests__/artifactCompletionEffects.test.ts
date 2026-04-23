@@ -37,6 +37,7 @@ describe('artifactCompletionEffects', () => {
 
         expect(invalidateFrameCacheMock).toHaveBeenCalledWith('session-123');
         expect(delMock).toHaveBeenCalledWith(
+            'session_bootstrap:session-123',
             'session_core:session-123',
             'session_timeline:session-123',
             'session_hierarchy:session-123',
