@@ -4446,50 +4446,65 @@ router.get(
         const days = timeRange === '24h' ? 1 : timeRange === '7d' ? 7 : timeRange === '30d' ? 30 : timeRange === '90d' ? 90 : 30;
         const startedAfter = new Date();
         startedAfter.setDate(startedAfter.getDate() - days);
-        const startDateStr = startedAfter.toISOString().split('T')[0];
-        const lastRolledUpDate = await getLastRolledUpDate();
 
-        const dailyRows = await db
-            .select({
-                date: appDailyStats.date,
-                totalBouncers: appDailyStats.totalBouncers,
-                totalCasuals: appDailyStats.totalCasuals,
-                totalExplorers: appDailyStats.totalExplorers,
-                totalLoyalists: appDailyStats.totalLoyalists,
-            })
-            .from(appDailyStats)
-            .where(and(
-                inArray(appDailyStats.projectId, projectIds),
-                gte(appDailyStats.date, startDateStr),
-                lte(appDailyStats.date, lastRolledUpDate),
-            ))
-            .orderBy(asc(appDailyStats.date));
-
-        const dailyMap = new Map<string, {
+        // Compute per-user-day segments: each user is classified once per day by their
+        // BEST session of that day (longest duration), so the chart shows unique active
+        // users per segment rather than raw session counts.
+        const rawRows = await db.execute<{
+            day: string;
             bouncers: number;
             casuals: number;
             explorers: number;
             loyalists: number;
-        }>();
+        }>(sql`
+            WITH user_day AS (
+                SELECT
+                    (${sessions.startedAt}::date)::text AS day,
+                    coalesce(
+                        nullif(trim(${sessions.userDisplayId}), ''),
+                        nullif(trim(${sessions.anonymousHash}), ''),
+                        ${sessions.deviceId}
+                    ) AS user_key,
+                    max(coalesce(${sessions.durationSeconds}, 0)) AS best_duration
+                FROM ${sessions}
+                WHERE ${inArray(sessions.projectId, projectIds)}
+                  AND ${sessions.startedAt} >= ${startedAfter}
+                  AND coalesce(
+                        nullif(trim(${sessions.userDisplayId}), ''),
+                        nullif(trim(${sessions.anonymousHash}), ''),
+                        ${sessions.deviceId}
+                    ) IS NOT NULL
+                GROUP BY day, user_key
+            )
+            SELECT
+                day,
+                cast(count(*) FILTER (WHERE best_duration < 10) AS int) AS bouncers,
+                cast(count(*) FILTER (WHERE best_duration >= 10 AND best_duration <= 60) AS int) AS casuals,
+                cast(count(*) FILTER (WHERE best_duration > 60 AND best_duration <= 180) AS int) AS explorers,
+                cast(count(*) FILTER (WHERE best_duration > 180) AS int) AS loyalists
+            FROM user_day
+            GROUP BY day
+            ORDER BY day
+        `);
+
+        const dailyResult: Array<{ day: string; bouncers: number; casuals: number; explorers: number; loyalists: number }> =
+            Array.isArray(rawRows) ? rawRows : (rawRows as any).rows ?? [];
+
         const totals = { bouncers: 0, casuals: 0, explorers: 0, loyalists: 0 };
-
-        for (const row of dailyRows) {
-            const current = dailyMap.get(row.date) ?? { bouncers: 0, casuals: 0, explorers: 0, loyalists: 0 };
-            current.bouncers += Number(row.totalBouncers || 0);
-            current.casuals += Number(row.totalCasuals || 0);
-            current.explorers += Number(row.totalExplorers || 0);
-            current.loyalists += Number(row.totalLoyalists || 0);
-            dailyMap.set(row.date, current);
-
-            totals.bouncers += Number(row.totalBouncers || 0);
-            totals.casuals += Number(row.totalCasuals || 0);
-            totals.explorers += Number(row.totalExplorers || 0);
-            totals.loyalists += Number(row.totalLoyalists || 0);
+        for (const row of dailyResult) {
+            totals.bouncers += Number(row.bouncers);
+            totals.casuals += Number(row.casuals);
+            totals.explorers += Number(row.explorers);
+            totals.loyalists += Number(row.loyalists);
         }
 
-        const daily = Array.from(dailyMap.entries())
-            .map(([date, counts]) => ({ date, ...counts }))
-            .sort((a, b) => a.date.localeCompare(b.date));
+        const daily = dailyResult.map((row) => ({
+            date: row.day,
+            bouncers: Number(row.bouncers),
+            casuals: Number(row.casuals),
+            explorers: Number(row.explorers),
+            loyalists: Number(row.loyalists),
+        }));
 
         const result = { daily, totals };
         await redis.set(cacheKey, JSON.stringify(result), 'EX', CACHE_TTL);

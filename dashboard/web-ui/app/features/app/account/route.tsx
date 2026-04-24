@@ -92,7 +92,7 @@ export const AccountSettings: React.FC = () => {
 
   if (!user) {
     return (
-      <SettingsLayout title="Account" description="Manage your personal settings">
+      <SettingsLayout title="Account" description="Manage your personal settings" icon={<UserCircle className="w-6 h-6" />} iconColor="bg-sky-50">
         <div className="p-8 text-center border-2 border-dashed border-slate-300 bg-slate-50">
           <p className="text-sm font-bold uppercase text-slate-400">Not logged in</p>
         </div>
@@ -105,7 +105,7 @@ export const AccountSettings: React.FC = () => {
   }
 
   return (
-    <SettingsLayout title="Account" description="Manage your personal settings">
+    <SettingsLayout title="Account" description="Manage your personal settings" icon={<UserCircle className="w-6 h-6" />} iconColor="bg-sky-50">
       <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
         {/* Profile Card */}
         <section className="space-y-4">

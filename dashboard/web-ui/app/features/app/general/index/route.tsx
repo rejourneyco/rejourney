@@ -33,6 +33,7 @@ import {
     InsightsTrends,
     ObservabilityDeepMetrics,
     RetentionCohortRow,
+    TopUserEntry,
     UserEngagementTrends,
 } from '~/shared/api/client';
 import { DataWatermarkBanner } from '~/features/app/shared/dashboard/DataWatermarkBanner';
@@ -657,12 +658,12 @@ const GA4Card: React.FC<{
     children: React.ReactNode;
     className?: string;
 }> = ({ title, action, children, className = '' }) => (
-    <div className={`dashboard-surface flex h-full min-w-0 flex-col overflow-hidden border-2 border-black bg-white shadow-neo-sm rounded-none ${className}`}>
-        <div className="flex flex-wrap items-center justify-between gap-2 border-b-2 border-black bg-slate-50 px-4 pb-2 pt-4 sm:px-5">
-            <h3 className="min-w-0 break-words text-[11px] font-black uppercase tracking-widest text-black underline decoration-2 decoration-black/20 underline-offset-4">{title}</h3>
+    <div className={`dashboard-card-surface flex h-full min-w-0 flex-col overflow-hidden p-4 sm:p-5 ${className}`}>
+        <div className="mb-4 flex flex-wrap items-start justify-between gap-2">
+            <h3 className="min-w-0 break-words text-base font-semibold uppercase tracking-wide text-black">{title}</h3>
             {action ? <div className="flex flex-wrap items-center gap-1.5">{action}</div> : null}
         </div>
-        <div className="flex min-w-0 flex-1 flex-col overflow-hidden px-4 pb-4 pt-4 sm:px-5">{children}</div>
+        <div className="flex min-w-0 flex-1 flex-col overflow-hidden">{children}</div>
     </div>
 );
 
@@ -720,6 +721,7 @@ export const GeneralOverview: React.FC = () => {
     const [isLoading, setIsLoading] = useState(true);
     const [isHeavyLoading, setIsHeavyLoading] = useState(true);
     const [partialError, setPartialError] = useState<string | null>(null);
+    const [topUsersFromBackend, setTopUsersFromBackend] = useState<TopUserEntry[]>([]);
     const [trends, setTrends] = useState<InsightsTrends | null>(null);
     const [overviewObs, setOverviewObs] = useState<GrowthObservability | null>(null);
     const [deepMetrics, setDeepMetrics] = useState<ObservabilityDeepMetrics | null>(null);
@@ -820,6 +822,7 @@ export const GeneralOverview: React.FC = () => {
         if (!selectedProject?.id) {
             setIsHeavyLoading(false);
             setSessions([]);
+            setTopUsersFromBackend([]);
             return;
         }
 
@@ -830,10 +833,12 @@ export const GeneralOverview: React.FC = () => {
             .then((heavyData) => {
                 if (isCancelled) return;
                 setSessions((heavyData.sessions || []) as RecordingSession[]);
+                setTopUsersFromBackend(heavyData.topUsers || []);
             })
             .catch(() => {
                 if (isCancelled) return;
                 setSessions([]);
+                setTopUsersFromBackend([]);
             })
             .finally(() => {
                 if (!isCancelled) {
@@ -1331,10 +1336,27 @@ export const GeneralOverview: React.FC = () => {
         [sessions],
     );
 
-    const topUsers = useMemo(
-        () => buildTopUsers(sessions),
-        [sessions],
-    );
+    // Prefer backend-aggregated top users (accurate all-window counts).
+    // Fall back to session-pool computation only in demo mode.
+    const topUsers = useMemo(() => {
+        if (topUsersFromBackend.length > 0) {
+            return topUsersFromBackend.map((entry) => {
+                const identity = getTopUserIdentity(entry.latestSession);
+                return {
+                    userKey: identity.key,
+                    displayName: identity.displayName,
+                    copyValue: identity.copyValue,
+                    sessions: [entry.latestSession],
+                    firstSession: entry.latestSession,
+                    latestSession: entry.latestSession,
+                    replayCount: entry.sessionCount,
+                    totalDurationSeconds: entry.totalDurationSeconds,
+                    userFirstSeenAt: entry.userFirstSeenAt,
+                };
+            });
+        }
+        return buildTopUsers(sessions);
+    }, [topUsersFromBackend, sessions]);
 
     const handleCopyTopUser = useCallback(async (value: string, userKey: string) => {
         try {
@@ -1405,7 +1427,7 @@ export const GeneralOverview: React.FC = () => {
                 </div>
             </DashboardPageHeader>
 
-            <div className="mx-auto w-full max-w-[1600px] space-y-4 px-4 py-6 sm:px-6">
+            <div className="mx-auto w-full max-w-[1600px] space-y-6 px-4 py-6 sm:px-6">
                 {!selectedProject?.id && (
                     <div className="border-2 border-black bg-amber-50 p-5 shadow-neo-sm rounded-none text-sm font-black uppercase tracking-widest text-amber-900">
                         Select a project to view general diagnostics.
@@ -1453,7 +1475,7 @@ export const GeneralOverview: React.FC = () => {
                             </div>
                         )}
 
-                        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+                        <div className="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-4">
                             <GA4Card title="User activity over time">
                                 <div className="mb-4 grid grid-cols-2 gap-3 text-left">
                                     <div>
@@ -1653,7 +1675,7 @@ export const GeneralOverview: React.FC = () => {
                             </GA4Card>
                         </div>
 
-                        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+                        <div className="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-4">
                             <GA4Card title="App stability overview">
                                 <div className="-mx-1 overflow-x-auto px-1">
                                     <table className="mt-1 min-w-[360px] w-full text-xs">
@@ -1793,7 +1815,7 @@ export const GeneralOverview: React.FC = () => {
                             </GA4Card>
                         </div>
 
-                        <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+                        <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
                             <GA4Card title="Custom Events">
                                 {customEvents.length > 0 ? (
                                     <div className="space-y-2 max-h-[300px] overflow-y-auto pr-2">
@@ -1824,12 +1846,12 @@ export const GeneralOverview: React.FC = () => {
 
                             <GA4Card title="Regional user reach">
                                 <div className="mb-4 grid grid-cols-1 gap-3 text-xs sm:grid-cols-3">
-                                    <div className="dashboard-surface p-3 bg-white border-2 border-black shadow-neo-sm hover:-translate-y-1 hover:shadow-neo transition-all rounded-none sm:col-span-1">
+                                    <div className="dashboard-inner-surface p-3 sm:col-span-1">
                                         <div className="text-[10px] font-black uppercase tracking-widest text-slate-500">Active markets</div>
                                         <div className="mt-2 text-3xl font-black text-black tracking-tight leading-none">{formatCompact(countryUsersByRegion.activeCountries)}</div>
                                         <div className="mt-1 text-[10px] font-bold text-slate-600">Countries with tracked users</div>
                                     </div>
-                                    <div className="dashboard-surface p-3 bg-white border-2 border-black shadow-neo-sm hover:-translate-y-1 hover:shadow-neo transition-all rounded-none sm:col-span-2">
+                                    <div className="dashboard-inner-surface p-3 sm:col-span-2">
                                         <div className="text-[10px] font-black uppercase tracking-widest text-slate-500">Top user region</div>
                                         <div className="mt-2 truncate text-2xl font-black text-black tracking-tight leading-none" title={countryUsersByRegion.topCountry || 'No region'}>
                                             {countryUsersByRegion.topCountry || 'No region'}
@@ -1888,7 +1910,7 @@ export const GeneralOverview: React.FC = () => {
 
                         <section className="space-y-3">
                             <div className="flex flex-wrap items-center justify-between gap-3">
-                                <h2 className="text-lg font-black tracking-tight text-slate-700">Top Issues</h2>
+                                <h2 className="text-lg font-semibold tracking-tight text-black">Top Issues</h2>
                                 <div className="flex flex-wrap items-center gap-2">
                                     {topIssuesTotalPages > 1 && (
                                         <div className="flex items-center gap-1">
@@ -1896,10 +1918,7 @@ export const GeneralOverview: React.FC = () => {
                                                 type="button"
                                                 onClick={() => setTopIssuesPage((prev) => Math.max(0, prev - 1))}
                                                 disabled={topIssuesPage === 0}
-                                                className={`flex h-8 w-8 items-center justify-center border-2 border-black rounded-none shadow-neo-sm transition-all ${topIssuesPage === 0
-                                                    ? 'cursor-not-allowed bg-slate-100 text-slate-400 shadow-none -translate-y-0.5'
-                                                    : 'bg-white hover:-translate-y-1 hover:shadow-neo hover:bg-black hover:text-white text-black'
-                                                    }`}
+                                                className="inline-flex h-8 w-8 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 transition hover:border-slate-300 hover:bg-slate-100 disabled:pointer-events-none disabled:opacity-40"
                                                 aria-label="Previous issues page"
                                             >
                                                 <ChevronLeft className="h-4 w-4" />
@@ -1908,10 +1927,7 @@ export const GeneralOverview: React.FC = () => {
                                                 type="button"
                                                 onClick={() => setTopIssuesPage((prev) => Math.min(topIssuesTotalPages - 1, prev + 1))}
                                                 disabled={topIssuesPage >= topIssuesTotalPages - 1}
-                                                className={`flex h-8 w-8 items-center justify-center border-2 border-black rounded-none shadow-neo-sm transition-all ${topIssuesPage >= topIssuesTotalPages - 1
-                                                    ? 'cursor-not-allowed bg-slate-100 text-slate-400 shadow-none -translate-y-0.5'
-                                                    : 'bg-white hover:-translate-y-1 hover:shadow-neo hover:bg-black hover:text-white text-black'
-                                                    }`}
+                                                className="inline-flex h-8 w-8 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 transition hover:border-slate-300 hover:bg-slate-100 disabled:pointer-events-none disabled:opacity-40"
                                                 aria-label="Next issues page"
                                             >
                                                 <ChevronRight className="h-4 w-4" />
@@ -1933,8 +1949,8 @@ export const GeneralOverview: React.FC = () => {
                                     subtitle="Issue groups appear here as they are detected."
                                 />
                             ) : (
-                                <div className="dashboard-surface overflow-hidden border-2 border-black bg-white shadow-neo-sm rounded-none">
-                                    <div className="divide-y-2 divide-black">
+                                <div className="dashboard-card-surface overflow-hidden">
+                                    <div className="divide-y divide-slate-100">
                                         {topIssues.map((issue) => {
                                             const issueColor = ISSUE_TYPE_COLOR[issue.issueType] || '#64748b';
                                             return (
@@ -2001,7 +2017,7 @@ export const GeneralOverview: React.FC = () => {
                         <section className="space-y-3">
                             <div className="flex flex-wrap items-center justify-between gap-3">
                                 <div>
-                                    <h2 className="text-lg font-black tracking-tight text-slate-700">Top Users</h2>
+                                    <h2 className="text-lg font-semibold tracking-tight text-black">Top Users</h2>
                                 </div>
                                 <NeoBadge variant="info" size="sm" className="shadow-none border-sky-200">
                                     {isHeavyLoading ? '…' : `${topUsers.length}/20 users`}
@@ -2106,7 +2122,7 @@ export const GeneralOverview: React.FC = () => {
                                                     </div>
                                                 </div>
 
-                                                <div className="mt-3 flex flex-col gap-3 border-2 border-dashed border-slate-300 bg-slate-50 p-2.5 rounded-none sm:flex-row sm:items-start sm:justify-between">
+                                                <div className="mt-3 flex flex-col gap-3 rounded-xl border border-dashed border-slate-200 bg-slate-50/80 p-2.5 sm:flex-row sm:items-start sm:justify-between">
                                                     <div className="min-w-0 flex-1">
                                                         <div className="truncate text-[10px] font-black uppercase tracking-widest text-[#5dadec]" title={deviceLabel}>
                                                             {deviceLabel}
@@ -2153,7 +2169,7 @@ export const GeneralOverview: React.FC = () => {
                         <section className="space-y-3">
                             <div className="flex flex-wrap items-center justify-between gap-3">
                                 <div>
-                                    <h2 className="text-lg font-black tracking-tight text-slate-700">Recommended Sessions</h2>
+                                    <h2 className="text-lg font-semibold tracking-tight text-black">Recommended Sessions</h2>
                                     <p className="mt-0.5 text-xs text-slate-500">
                                         Mixed user segments: new, returning, anonymous, platform-specific, and risk-heavy journeys.
                                     </p>
@@ -2228,21 +2244,21 @@ export const GeneralOverview: React.FC = () => {
                                                         </p>
 
                                                         <div className="mt-2 grid grid-cols-2 gap-2 text-[10px] sm:grid-cols-3">
-                                                            <div className="border-2 border-black bg-white px-2 py-1.5 shadow-none rounded-none">
+                                                            <div className="rounded-lg border border-slate-200 bg-white px-2 py-1.5">
                                                                 <div className="text-slate-400">Duration</div>
                                                                 <div className="font-semibold text-slate-700">{formatDuration(rec.session.durationSeconds || 0)}</div>
                                                             </div>
-                                                            <div className="border-2 border-black bg-white px-2 py-1.5 shadow-none rounded-none">
+                                                            <div className="rounded-lg border border-slate-200 bg-white px-2 py-1.5">
                                                                 <div className="text-slate-400">Signals</div>
                                                                 <div className="font-black text-black text-xl tracking-tight">{issueSignalsForSession(rec.session)}</div>
                                                             </div>
-                                                            <div className="border-2 border-black bg-white px-2 py-1.5 shadow-none rounded-none">
+                                                            <div className="rounded-lg border border-slate-200 bg-white px-2 py-1.5">
                                                                 <div className="text-slate-400">Last Seen</div>
                                                                 <div className="font-black text-black text-xl tracking-tight">{formatLastSeen(rec.session.startedAt)}</div>
                                                             </div>
                                                         </div>
 
-                                                        <div className="mt-3 flex flex-col gap-3 border-2 border-dashed border-slate-300 bg-slate-50 p-2.5 rounded-none sm:flex-row sm:items-start sm:justify-between">
+                                                        <div className="mt-3 flex flex-col gap-3 rounded-xl border border-dashed border-slate-200 bg-slate-50/80 p-2.5 sm:flex-row sm:items-start sm:justify-between">
                                                             <div className="min-w-0 flex-1">
                                                                 <div className="truncate text-[10px] font-black uppercase tracking-widest text-[#5dadec] hover:underline">
                                                                     {rec.session.deviceModel || 'Unknown device'}

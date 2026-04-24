@@ -10,6 +10,7 @@ import { NeoBadge } from '~/shared/ui/core/neo/NeoBadge';
 import { Input } from '~/shared/ui/core/Input';
 import { Modal } from '~/shared/ui/core/Modal';
 import { DashboardGhostLoader } from '~/shared/ui/core/DashboardGhostLoader';
+import { DashboardPageHeader } from '~/shared/ui/core/DashboardPageHeader';
 import { Copy, Plus, Trash2, Key, AlertTriangle, CheckCircle, Shield, Info, Check, Settings, Save, AlertOctagon, Smartphone, Clock } from 'lucide-react';
 import { getAndroidPackageError, getIosBundleIdError } from '~/shared/lib/validation';
 import {
@@ -382,30 +383,17 @@ export const ProjectSettings: React.FC<SettingsProps> = ({ projectId: propProjec
   }
 
   return (
-    <div className="min-h-screen flex flex-col font-sans text-slate-900 bg-transparent">
-      {/* Sticky Header */}
-      <div className="sticky top-0 z-50 bg-white/95 backdrop-blur-sm border-b-2 border-black">
-        <div className="px-6 py-4 flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div className="flex items-center gap-6 flex-1">
-            <h1 className="text-3xl font-semibold uppercase tracking-tighter flex items-center gap-3">
-              <Settings className="w-8 h-8" /> Project Settings
-            </h1>
-            <div className="h-8 w-[2px] bg-slate-900 hidden md:block"></div>
-            <div className="hidden md:block">
-              <p className="text-slate-500 font-bold text-[10px] uppercase tracking-widest">
-                Configure {project.name}
-              </p>
-            </div>
-          </div>
-          <div className="flex items-center gap-4">
-            {!canEdit && (
-              <NeoBadge variant="warning">View Only</NeoBadge>
-            )}
-          </div>
-        </div>
-      </div>
+    <div className="flex min-h-screen flex-col bg-transparent font-sans text-slate-900">
+      <DashboardPageHeader
+        title="Project Settings"
+        subtitle={`Configure ${project.name}`}
+        icon={<Settings className="w-6 h-6" />}
+        iconColor="bg-slate-200"
+      >
+        {!canEdit ? <NeoBadge variant="warning">View Only</NeoBadge> : null}
+      </DashboardPageHeader>
 
-      <div className="flex-1 p-6 md:p-8 space-y-12 max-w-[1600px] mx-auto w-full">
+      <div className="mx-auto w-full max-w-[1600px] flex-1 space-y-12 px-4 py-6 sm:px-6">
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
           {/* Left Column: Main Settings */}

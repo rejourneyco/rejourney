@@ -691,21 +691,19 @@ export const Journeys: React.FC = () => {
     }
 
     return (
-        <div className="min-h-screen font-sans text-slate-900 bg-transparent">
-            <div className="sticky top-0 z-30 bg-white">
-                <DashboardPageHeader
-                    title="User Journeys"
-                    icon={<Route className="w-6 h-6" />}
-                    iconColor="bg-fuchsia-500"
-                >
-                    <div className="flex min-w-0 max-w-full flex-wrap items-center gap-3">
-                        <DataWatermarkBanner dataCompleteThrough={trends?.dataCompleteThrough} />
-                        <TimeFilter value={timeRange} onChange={setTimeRange} />
-                    </div>
-                </DashboardPageHeader>
-            </div>
+        <div className="min-h-screen bg-transparent pb-12 font-sans text-slate-900">
+            <DashboardPageHeader
+                title="User Journeys"
+                icon={<Route className="w-6 h-6" />}
+                iconColor="bg-fuchsia-500"
+            >
+                <div className="flex min-w-0 max-w-full flex-wrap items-center gap-3">
+                    <DataWatermarkBanner dataCompleteThrough={trends?.dataCompleteThrough} />
+                    <TimeFilter value={timeRange} onChange={setTimeRange} />
+                </div>
+            </DashboardPageHeader>
 
-            <div className="mx-auto w-full max-w-[1600px] space-y-6 px-6 py-6">
+            <div className="mx-auto w-full max-w-[1600px] space-y-6 px-4 py-6 sm:px-6">
                 {!selectedProject?.id && (
                     <div className="rounded-2xl border border-amber-200 bg-amber-50 p-5 text-sm text-amber-900">
                         Select a project to load journey analytics.

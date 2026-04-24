@@ -24,7 +24,7 @@ export const DashboardPageHeader: React.FC<DashboardPageHeaderProps> = ({
 
     return (
         <div className="bg-white border-b border-slate-200 w-full">
-            <div className="mx-auto grid w-full max-w-[1800px] gap-4 px-4 py-4 sm:px-6 xl:grid-cols-[minmax(0,1fr)_auto] xl:items-center">
+            <div className="mx-auto grid w-full max-w-[1800px] gap-x-4 gap-y-3 px-4 py-4 sm:px-6 xl:grid-cols-[minmax(0,1fr)_auto] xl:items-center">
                 <div className="flex min-w-0 flex-wrap items-start gap-3 sm:gap-4">
                     {icon && (
                         <div className={`mt-0.5 shrink-0 rounded-xl border border-slate-200 p-2.5 shadow-sm ${iconColor} ${iconToneClass}`}>

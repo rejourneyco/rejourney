@@ -546,6 +546,179 @@ async function loadSessionPreview(projectIds: string[], timeRange?: string) {
 }
 
 
+const TOP_USERS_LIMIT = 20;
+
+async function loadTopUsersPreview(projectIds: string[], timeRange?: string) {
+    if (projectIds.length === 0) return [];
+
+    const conditions = [inArray(sessions.projectId, projectIds)];
+    const startedAfter = buildStartedAfter(timeRange);
+    if (startedAfter) {
+        conditions.push(gte(sessions.startedAt, startedAfter));
+    }
+
+    const identityExpr = sql<string>`coalesce(nullif(trim(${sessions.userDisplayId}), ''), nullif(trim(${sessions.anonymousHash}), ''), ${sessions.deviceId})`;
+
+    // Query A: aggregate stats per user — accurate counts across entire time window
+    const userStats = await db
+        .select({
+            userKey: identityExpr,
+            userDisplayId: sessions.userDisplayId,
+            anonymousHash: sessions.anonymousHash,
+            deviceId: sessions.deviceId,
+            sessionCount: sql<number>`cast(count(*) as int)`,
+            totalDurationSeconds: sql<number>`cast(sum(coalesce(${sessions.durationSeconds}, 0)) as int)`,
+        })
+        .from(sessions)
+        .where(and(...conditions, sql`${identityExpr} is not null`))
+        .groupBy(identityExpr, sessions.userDisplayId, sessions.anonymousHash, sessions.deviceId)
+        .orderBy(desc(sql`count(*)`))
+        .limit(TOP_USERS_LIMIT);
+
+    if (userStats.length === 0) return [];
+
+    const topUserKeys = userStats.map((u) => u.userKey).filter(Boolean);
+
+    // Query B: latest session per user via DISTINCT ON — gives full session context for display
+    const latestRows = await db.execute<{
+        user_key: string;
+        id: string;
+        project_id: string;
+        started_at: Date;
+        ended_at: Date | null;
+        duration_seconds: number | null;
+        platform: string | null;
+        app_version: string | null;
+        device_model: string | null;
+        os_version: string | null;
+        user_display_id: string | null;
+        anonymous_display_id: string | null;
+        anonymous_hash: string | null;
+        device_id: string | null;
+        geo_city: string | null;
+        geo_region: string | null;
+        geo_country: string | null;
+        geo_country_code: string | null;
+        geo_latitude: number | null;
+        geo_longitude: number | null;
+        geo_timezone: string | null;
+        status: string;
+        recording_deleted: boolean;
+        recording_deleted_at: Date | null;
+        retention_days: number | null;
+        retention_tier: string | null;
+        is_replay_expired: boolean;
+        replay_available: boolean | null;
+    }>(sql`
+        SELECT DISTINCT ON (${identityExpr})
+            ${identityExpr} AS user_key,
+            ${sessions.id}, ${sessions.projectId}, ${sessions.startedAt}, ${sessions.endedAt},
+            ${sessions.durationSeconds}, ${sessions.platform}, ${sessions.appVersion},
+            ${sessions.deviceModel}, ${sessions.osVersion},
+            ${sessions.userDisplayId}, ${sessions.anonymousDisplayId}, ${sessions.anonymousHash}, ${sessions.deviceId},
+            ${sessions.geoCity}, ${sessions.geoRegion}, ${sessions.geoCountry}, ${sessions.geoCountryCode},
+            ${sessions.geoLatitude}, ${sessions.geoLongitude}, ${sessions.geoTimezone},
+            ${sessions.status}, ${sessions.recordingDeleted}, ${sessions.recordingDeletedAt},
+            ${sessions.retentionDays}, ${sessions.retentionTier}, ${sessions.isReplayExpired}, ${sessions.replayAvailable}
+        FROM ${sessions}
+        WHERE ${inArray(sessions.projectId, projectIds)}
+          AND ${identityExpr} = ANY(${topUserKeys})
+        ORDER BY ${identityExpr}, ${sessions.startedAt} DESC
+    `);
+
+    const latestResult: Array<{
+        user_key: string; id: string; project_id: string; started_at: Date; ended_at: Date | null;
+        duration_seconds: number | null; platform: string | null; app_version: string | null;
+        device_model: string | null; os_version: string | null; user_display_id: string | null;
+        anonymous_display_id: string | null; anonymous_hash: string | null; device_id: string | null;
+        geo_city: string | null; geo_region: string | null; geo_country: string | null;
+        geo_country_code: string | null; geo_latitude: number | null; geo_longitude: number | null;
+        geo_timezone: string | null; status: string; recording_deleted: boolean;
+        recording_deleted_at: Date | null; retention_days: number | null; retention_tier: string | null;
+        is_replay_expired: boolean; replay_available: boolean | null;
+    }> = Array.isArray(latestRows) ? latestRows : (latestRows as any).rows ?? [];
+
+    const firstSeenMap = await loadUserFirstSeenMap(
+        projectIds,
+        latestResult.map((r) => ({
+            userDisplayId: r.user_display_id,
+            anonymousDisplayId: r.anonymous_display_id,
+            anonymousHash: r.anonymous_hash,
+            deviceId: r.device_id,
+        })),
+    );
+
+    const latestByUserKey = new Map(latestResult.map((r) => [r.user_key, r]));
+
+    return userStats
+        .map((stats) => {
+            const latest = latestByUserKey.get(stats.userKey);
+            if (!latest) return null;
+
+            const identityKey = latest.user_display_id
+                ? `user:${latest.user_display_id}`
+                : latest.anonymous_hash
+                ? `hash:${latest.anonymous_hash}`
+                : `device:${latest.device_id}`;
+            const userFirstSeenAt = firstSeenMap.get(identityKey);
+
+            return {
+                sessionCount: stats.sessionCount,
+                totalDurationSeconds: stats.totalDurationSeconds ?? 0,
+                userFirstSeenAt: userFirstSeenAt?.toISOString(),
+                latestSession: {
+                    id: latest.id,
+                    projectId: latest.project_id,
+                    startedAt: new Date(latest.started_at).toISOString(),
+                    endedAt: latest.ended_at ? new Date(latest.ended_at).toISOString() : undefined,
+                    durationSeconds: latest.duration_seconds ?? 0,
+                    platform: latest.platform,
+                    appVersion: latest.app_version,
+                    deviceModel: latest.device_model,
+                    osVersion: latest.os_version ?? undefined,
+                    userId: latest.user_display_id ?? undefined,
+                    anonymousId: latest.anonymous_display_id || latest.anonymous_hash || undefined,
+                    anonymousDisplayName: latest.device_id && !latest.user_display_id
+                        ? generateAnonymousName(latest.device_id)
+                        : undefined,
+                    deviceId: latest.device_id ?? undefined,
+                    geoLocation: latest.geo_city
+                        ? {
+                            city: latest.geo_city,
+                            region: latest.geo_region,
+                            country: latest.geo_country,
+                            countryCode: latest.geo_country_code,
+                            latitude: latest.geo_latitude,
+                            longitude: latest.geo_longitude,
+                            timezone: latest.geo_timezone,
+                        }
+                        : null,
+                    status: latest.status,
+                    recordingDeleted: latest.recording_deleted,
+                    recordingDeletedAt: latest.recording_deleted_at
+                        ? new Date(latest.recording_deleted_at).toISOString()
+                        : null,
+                    retentionDays: latest.retention_days ?? undefined,
+                    retentionTier: latest.retention_tier ?? undefined,
+                    isReplayExpired: latest.is_replay_expired,
+                    hasSuccessfulRecording: Boolean(latest.replay_available) && !latest.recording_deleted && !latest.is_replay_expired,
+                    effectiveStatus: latest.status,
+                    isLiveIngest: false,
+                    isBackgroundProcessing: false,
+                    canOpenReplay: Boolean(latest.replay_available) && !latest.recording_deleted && !latest.is_replay_expired,
+                    userFirstSeenAt: userFirstSeenAt?.toISOString(),
+                    // Minimal metric stubs — Top Users display doesn't need these
+                    totalEvents: 0, errorCount: 0, touchCount: 0, scrollCount: 0,
+                    gestureCount: 0, inputCount: 0, apiSuccessCount: 0, apiErrorCount: 0,
+                    apiTotalCount: 0, apiAvgResponseMs: 0, rageTapCount: 0, deadTapCount: 0,
+                    screensVisited: [], interactionScore: 0, explorationScore: 0,
+                    customEventCount: 0, crashCount: 0, anrCount: 0,
+                },
+            };
+        })
+        .filter((item): item is NonNullable<typeof item> => item !== null);
+}
+
 function toRatePer100(value: number, total: number): number {
     if (total <= 0) return 0;
     return Number(((value / total) * 100).toFixed(1));
@@ -1152,17 +1325,23 @@ router.get(
             },
             build: async () => {
                 const failedSections: string[] = [];
-                const [sessionsResult] = await Promise.allSettled([
+                const [sessionsResult, topUsersResult] = await Promise.allSettled([
                     loadSessionPreview(scope.scopedProjectIds, scope.normalizedTimeRange),
+                    loadTopUsersPreview(scope.scopedProjectIds, scope.normalizedTimeRange),
                 ]);
 
                 if (sessionsResult.status !== 'fulfilled') {
                     failedSections.push('recommended sessions');
                     logger.warn({ err: sessionsResult.reason, projectId: scope.normalizedProjectId, timeRange: scope.normalizedTimeRange }, '[overview] heavy sessions load failed');
                 }
+                if (topUsersResult.status !== 'fulfilled') {
+                    failedSections.push('top users');
+                    logger.warn({ err: topUsersResult.reason, projectId: scope.normalizedProjectId, timeRange: scope.normalizedTimeRange }, '[overview] top users load failed');
+                }
 
                 return {
                     sessions: sessionsResult.status === 'fulfilled' ? sessionsResult.value : [],
+                    topUsers: topUsersResult.status === 'fulfilled' ? topUsersResult.value : [],
                     failedSections,
                 };
             },

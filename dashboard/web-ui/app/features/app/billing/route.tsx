@@ -490,7 +490,7 @@ export const BillingSettings: React.FC = () => {
 
   if (!currentTeam) {
     return (
-      <SettingsLayout title="Billing" description="Select a team to manage billing">
+      <SettingsLayout title="Billing" description="Select a team to manage billing" icon={<CreditCard className="w-6 h-6" />} iconColor="bg-emerald-500">
         <div className="p-12 text-center border-2 border-dashed border-slate-300 bg-slate-50">
           <Building className="w-12 h-12 text-slate-300 mx-auto mb-3" />
           <h2 className="text-lg font-bold text-slate-900 mb-1">No Team Selected</h2>
@@ -505,6 +505,8 @@ export const BillingSettings: React.FC = () => {
       <SettingsLayout
         title="Billing"
         description={`Demo billing preview for ${currentTeam.name}`}
+        icon={<CreditCard className="w-6 h-6" />}
+        iconColor="bg-emerald-500"
       >
         <NeoCard className="p-8 border-sky-600 bg-sky-50">
           <div className="flex items-start gap-6">
@@ -537,6 +539,8 @@ export const BillingSettings: React.FC = () => {
       <SettingsLayout
         title="Billing"
         description={`Enterprise billing for ${currentTeam.name}`}
+        icon={<CreditCard className="w-6 h-6" />}
+        iconColor="bg-emerald-500"
       >
         <NeoCard className="p-8 border-emerald-600 bg-emerald-50">
           <div className="flex items-start gap-6">
@@ -564,6 +568,8 @@ export const BillingSettings: React.FC = () => {
     <SettingsLayout
       title="Billing"
       description={`Plan & usage for ${currentTeam.name}`}
+      icon={<CreditCard className="w-6 h-6" />}
+      iconColor="bg-emerald-500"
       headerAction={
         <div className="flex items-center gap-3">
           <NeoBadge variant={teamPlan?.planName === 'free' ? 'warning' : 'success'} className="font-mono uppercase">

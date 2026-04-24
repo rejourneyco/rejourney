@@ -216,8 +216,8 @@ export const Geo: React.FC = () => {
     }
 
     return (
-        <div className="min-h-screen font-sans text-slate-900 bg-transparent flex flex-col">
-            <div className="sticky top-0 z-30 bg-white border-b border-slate-200">
+        <div className="flex min-h-screen flex-col bg-transparent font-sans text-slate-900">
+            <div className="shrink-0">
                 <DashboardPageHeader
                     title="Geographic Analysis"
                     icon={<Globe className="w-6 h-6" />}
@@ -227,7 +227,7 @@ export const Geo: React.FC = () => {
                 </DashboardPageHeader>
             </div>
 
-            <div className="flex-1 w-full relative bg-white">
+            <div className="relative min-h-0 w-full flex-1 bg-white">
                 {!selectedProject?.id ? (
                     <div className="absolute inset-0 flex items-center justify-center text-sm text-slate-500">Select a project.</div>
                 ) : !isMapboxConfigured() ? (

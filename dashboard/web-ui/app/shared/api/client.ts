@@ -1965,8 +1965,16 @@ export interface DashboardOverviewResponse {
   failedSections: string[];
 }
 
+export interface TopUserEntry {
+  sessionCount: number;
+  totalDurationSeconds: number;
+  userFirstSeenAt?: string;
+  latestSession: RecordingSession;
+}
+
 export interface DashboardHeavyResponse {
   sessions: RecordingSession[];
+  topUsers: TopUserEntry[];
   failedSections: string[];
 }
 
@@ -2234,6 +2242,7 @@ export async function getDashboardOverviewHeavy(projectId?: string, timeRange?: 
     });
     return {
       sessions: (sessionsResponse.sessions || []) as RecordingSession[],
+      topUsers: [],
       failedSections: [],
     };
   }

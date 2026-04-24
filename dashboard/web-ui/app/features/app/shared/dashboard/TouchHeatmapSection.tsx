@@ -946,18 +946,15 @@ export const TouchHeatmapSection: React.FC<TouchHeatmapSectionProps> = ({
 
     return (
         <section className={`dashboard-surface shadow-sm ${className}`.trim()}>
-            <div className={`border-b border-slate-200 ${compact ? 'p-5' : 'p-6'}`}>
-                <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
-                    <div>
-                        <h2 className={`${compact ? 'text-base' : 'text-lg'} font-semibold uppercase tracking-wide text-black`}>Interaction Heatmaps</h2>
-                        <p className="mt-1 text-sm text-slate-500">
-                            {compact
-                                ? 'Prioritize high-friction screens with replay evidence.'
-                                : 'Visualize where users tap, fail, and abandon, then jump directly to evidence replay.'}
-                        </p>
-                    </div>
-
-                    <div className="flex flex-wrap items-center gap-2">
+            <div className={`${compact ? 'space-y-4 p-4' : 'space-y-5 p-5'}`}>
+                <div className="flex flex-col gap-3 border-b border-slate-200 pb-4 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
+                    {compact ? (
+                        <div className="min-w-0">
+                            <h2 className="text-base font-semibold uppercase tracking-wide text-black">Interaction Heatmaps</h2>
+                            <p className="mt-1 text-sm text-slate-500">Prioritize high-friction screens with replay evidence.</p>
+                        </div>
+                    ) : null}
+                    <div className={`flex flex-wrap items-center gap-2 ${compact ? '' : 'sm:justify-end'}`}>
                         {sortOptions.map((option) => (
                             <button
                                 key={option.value}
@@ -970,43 +967,42 @@ export const TouchHeatmapSection: React.FC<TouchHeatmapSectionProps> = ({
                                 {option.label}
                             </button>
                         ))}
-                        {lastUpdated && (
-                            <span className="ml-1 text-xs text-slate-500">
+                        {lastUpdated ? (
+                            <span className="text-xs text-slate-500 sm:ml-1">
                                 Updated {new Date(lastUpdated).toLocaleString()}
                             </span>
-                        )}
+                        ) : null}
                     </div>
                 </div>
-                {partialError && (
-                    <div className="mt-4 border-2 border-black bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                {partialError ? (
+                    <div className="border-2 border-black bg-amber-50 px-3 py-2 text-xs text-amber-900">
                         {partialError}
                     </div>
-                )}
-            </div>
-
-            <div className={`${compact ? 'space-y-4 p-4' : 'space-y-5 p-5'}`}>
-                <div className={`grid grid-cols-2 gap-3 ${compact ? 'md:grid-cols-4' : 'md:grid-cols-5'}`}>
-                    <div className="dashboard-inner-surface p-3">
-                        <div className="text-[11px] font-mono uppercase tracking-wide text-gray-500">Tracked screens</div>
-                        <div className="mt-1 text-xl font-black font-mono text-black">{screens.length}</div>
+                ) : null}
+                <div
+                    className={`grid grid-cols-1 gap-4 ${compact ? 'sm:grid-cols-2 xl:grid-cols-4' : 'sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5'}`}
+                >
+                    <div className="dashboard-surface min-w-0 bg-white px-4 py-3 border-2 border-black shadow-neo-sm transition-all hover:-translate-y-1 hover:shadow-neo rounded-none">
+                        <div className="break-words text-[10px] font-black uppercase tracking-widest text-slate-600">Tracked screens</div>
+                        <div className="mt-2 break-words text-2xl font-black tracking-tight text-black sm:text-3xl">{screens.length}</div>
                     </div>
                     {!compact && (
-                        <div className="dashboard-inner-surface p-3">
-                            <div className="text-[11px] font-mono uppercase tracking-wide text-gray-500">All-time touches</div>
-                            <div className="mt-1 text-xl font-black font-mono text-black">{formatCompact(summary.allTimeTouches)}</div>
+                        <div className="dashboard-surface min-w-0 bg-white px-4 py-3 border-2 border-black shadow-neo-sm transition-all hover:-translate-y-1 hover:shadow-neo rounded-none">
+                            <div className="break-words text-[10px] font-black uppercase tracking-widest text-slate-600">All-time touches</div>
+                            <div className="mt-2 break-words text-2xl font-black tracking-tight text-black sm:text-3xl">{formatCompact(summary.allTimeTouches)}</div>
                         </div>
                     )}
-                    <div className="dashboard-inner-surface p-3">
-                        <div className="text-[11px] font-mono uppercase tracking-wide text-gray-500">{timeRange} visits</div>
-                        <div className="mt-1 text-xl font-black font-mono text-black">{formatCompact(summary.rangeVisits)}</div>
+                    <div className="dashboard-surface min-w-0 bg-white px-4 py-3 border-2 border-black shadow-neo-sm transition-all hover:-translate-y-1 hover:shadow-neo rounded-none">
+                        <div className="break-words text-[10px] font-black uppercase tracking-widest text-slate-600">{timeRange} visits</div>
+                        <div className="mt-2 break-words text-2xl font-black tracking-tight text-black sm:text-3xl">{formatCompact(summary.rangeVisits)}</div>
                     </div>
-                    <div className="dashboard-inner-surface p-3">
-                        <div className="text-[11px] font-mono uppercase tracking-wide text-gray-500">Affected sessions</div>
-                        <div className="mt-1 text-xl font-black font-mono text-[#ef4444]">{formatCompact(summary.affectedSessions)}</div>
+                    <div className="dashboard-surface min-w-0 bg-white px-4 py-3 border-2 border-black shadow-neo-sm transition-all hover:-translate-y-1 hover:shadow-neo rounded-none">
+                        <div className="break-words text-[10px] font-black uppercase tracking-widest text-slate-600">Affected sessions</div>
+                        <div className="mt-2 break-words text-2xl font-black tracking-tight text-rose-600 sm:text-3xl">{formatCompact(summary.affectedSessions)}</div>
                     </div>
-                    <div className="dashboard-inner-surface p-3">
-                        <div className="text-[11px] font-mono uppercase tracking-wide text-gray-500">Critical screens</div>
-                        <div className="mt-1 text-xl font-black font-mono text-amber-600">{summary.criticalScreens}</div>
+                    <div className="dashboard-surface min-w-0 bg-white px-4 py-3 border-2 border-black shadow-neo-sm transition-all hover:-translate-y-1 hover:shadow-neo rounded-none">
+                        <div className="break-words text-[10px] font-black uppercase tracking-widest text-slate-600">Critical screens</div>
+                        <div className="mt-2 break-words text-2xl font-black tracking-tight text-amber-700 sm:text-3xl">{summary.criticalScreens}</div>
                     </div>
                 </div>
 

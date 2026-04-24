@@ -372,21 +372,20 @@ export const AlertEmails: React.FC = () => {
     const nonRecipientMembers = availableMembers.filter(m => !m.isRecipient);
 
     return (
-        <div className="p-8 space-y-8 animate-fade-in max-w-[1200px] mx-auto pb-12 font-sans bg-slate-50">
-            {/* Header */}
-            <div className="sticky top-0 z-50 bg-white">
-                <DashboardPageHeader
-                    title="Alert Settings"
-                    subtitle="Configure real-time notifications for critical events"
-                    icon={<Mail className="w-6 h-6" />}
-                    iconColor="bg-red-500"
-                >
-                    <div className="hidden lg:flex items-center gap-2 mr-4 bg-[#f4f4f5] border-2 border-black px-3 py-1 rounded-md">
-                        <div className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse shadow-[0_0_8px_rgba(16,185,129,0.6)]"></div>
-                        <span className="text-[10px] font-bold uppercase text-slate-400">System Ready</span>
-                    </div>
-                </DashboardPageHeader>
-            </div>
+        <div className="min-h-screen animate-fade-in bg-transparent pb-12 font-sans text-slate-900">
+            <DashboardPageHeader
+                title="Alert Settings"
+                subtitle="Configure real-time notifications for critical events"
+                icon={<Mail className="w-6 h-6" />}
+                iconColor="bg-red-500"
+            >
+                <div className="hidden items-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-3 py-1 lg:flex">
+                    <div className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.6)]" />
+                    <span className="text-[10px] font-bold uppercase text-slate-500">System ready</span>
+                </div>
+            </DashboardPageHeader>
+
+            <div className="mx-auto max-w-[1200px] space-y-8 px-4 py-6 sm:px-6">
             {error && (
                 <div className="bg-red-50 border border-red-200 p-4 text-sm text-red-900 rounded-xl flex items-center gap-3">
                     <AlertTriangle className="w-5 h-5 text-red-500" />
@@ -754,6 +753,7 @@ export const AlertEmails: React.FC = () => {
                         </div>
                     )}
                 </NeoCard>
+            </div>
             </div>
         </div>
     );
