@@ -28,8 +28,7 @@ export type WorkerName =
     | 'retentionWorker'
     | 'statsAggregator'
     | 'alertWorker'
-    | 'stripeSyncWorker'
-    | 'dashboardPrewarmWorker';
+    | 'stripeSyncWorker';
 
 export type WorkerMetric = {
     help: string;
@@ -360,7 +359,6 @@ export async function getWorkerStatuses(): Promise<Record<WorkerName, WorkerHeal
         'statsAggregator',
         'alertWorker',
         'stripeSyncWorker',
-        'dashboardPrewarmWorker',
     ];
 
     const statuses: Record<WorkerName, WorkerHealthMetrics> = {} as any;

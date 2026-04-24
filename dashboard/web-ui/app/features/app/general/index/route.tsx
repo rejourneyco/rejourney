@@ -3,7 +3,10 @@ import {
     Activity,
     ChevronLeft,
     ChevronRight,
+    Check,
+    Copy,
     MessageSquareWarning,
+    User,
 } from 'lucide-react';
 import {
     Area,
@@ -36,6 +39,7 @@ import { DashboardPageHeader } from '~/shared/ui/core/DashboardPageHeader';
 import { TimeFilter, TimeRange } from '~/shared/ui/core/TimeFilter';
 import { usePathPrefix } from '~/shell/routing/usePathPrefix';
 import { useSharedAnalyticsTimeRange } from '~/shared/hooks/useSharedAnalyticsTimeRange';
+import { formatGeoDisplay } from '~/shared/lib/geoDisplay';
 import { NeoBadge } from '~/shared/ui/core/neo/NeoBadge';
 import { MiniSessionCard } from '~/shared/ui/core/MiniSessionCard';
 import { Issue, RecordingSession } from '~/shared/types';
@@ -205,6 +209,17 @@ interface RecommendedSession {
     reason: string;
 }
 
+interface TopUserRecommendation {
+    userKey: string;
+    displayName: string;
+    copyValue: string;
+    sessions: RecordingSession[];
+    firstSession: RecordingSession;
+    latestSession: RecordingSession;
+    replayCount: number;
+    totalDurationSeconds: number;
+}
+
 const RECOMMENDED_SESSION_PRIORITY_STYLES: Record<RecommendedSession['priority'], string> = {
     critical: 'border-rose-200 bg-rose-50 text-rose-700',
     high: 'border-amber-200 bg-amber-50 text-amber-700',
@@ -225,6 +240,17 @@ const ANONYMOUS_NICKNAME_STYLES = [
     'border-pink-200 bg-pink-100 text-pink-800',
     'border-lime-200 bg-lime-100 text-lime-800',
     'border-green-200 bg-green-100 text-green-800',
+];
+
+const TOP_USER_ICON_STYLES = [
+    'border-rose-200 bg-rose-100 text-rose-700',
+    'border-amber-200 bg-amber-100 text-amber-700',
+    'border-emerald-200 bg-emerald-100 text-emerald-700',
+    'border-cyan-200 bg-cyan-100 text-cyan-700',
+    'border-blue-200 bg-blue-100 text-blue-700',
+    'border-indigo-200 bg-indigo-100 text-indigo-700',
+    'border-fuchsia-200 bg-fuchsia-100 text-fuchsia-700',
+    'border-lime-200 bg-lime-100 text-lime-700',
 ];
 
 function hashString(input: string): number {
@@ -249,6 +275,11 @@ function getAnonymousNicknameStyle(nickname: string): string {
     return ANONYMOUS_NICKNAME_STYLES[idx];
 }
 
+function getTopUserIconStyle(value: string): string {
+    const idx = hashString(value) % TOP_USER_ICON_STYLES.length;
+    return TOP_USER_ICON_STYLES[idx];
+}
+
 function getSessionLocationLabel(session: RecordingSession): string {
     const city = session.geoLocation?.city?.trim();
     const region = session.geoLocation?.region?.trim();
@@ -265,6 +296,69 @@ function getSessionLocationLabel(session: RecordingSession): string {
 
 function hasSuccessfulRecording(session: RecordingSession): boolean {
     return Boolean(session.hasSuccessfulRecording);
+}
+
+function getTopUserIdentity(session: RecordingSession): { key: string; displayName: string; copyValue: string } {
+    const anonymousNickname = getAnonymousNickname(session);
+    if (session.userId) {
+        return { key: `user:${session.userId}`, displayName: session.userId, copyValue: session.userId };
+    }
+    if (anonymousNickname) {
+        return { key: `anonymous:${anonymousNickname}`, displayName: anonymousNickname, copyValue: anonymousNickname };
+    }
+    if (session.deviceId) {
+        return { key: `device:${session.deviceId}`, displayName: session.deviceId, copyValue: session.deviceId };
+    }
+    return { key: `session:${session.id}`, displayName: session.id, copyValue: session.id };
+}
+
+function truncateUserLabel(value: string): string {
+    return value.length > 28 ? `${value.slice(0, 12)}...${value.slice(-10)}` : value;
+}
+
+function buildTopUsers(sessions: RecordingSession[]): TopUserRecommendation[] {
+    if (sessions.length === 0) return [];
+
+    const replayReady = sessions.filter((s) => hasSuccessfulRecording(s) && !s.isReplayExpired);
+    const pool = replayReady.length > 0 ? replayReady : sessions;
+    const groups = new Map<string, TopUserRecommendation>();
+
+    for (const session of pool) {
+        const identity = getTopUserIdentity(session);
+        const existing = groups.get(identity.key);
+
+        if (!existing) {
+            groups.set(identity.key, {
+                userKey: identity.key,
+                displayName: identity.displayName,
+                copyValue: identity.copyValue,
+                sessions: [session],
+                firstSession: session,
+                latestSession: session,
+                replayCount: 1,
+                totalDurationSeconds: session.durationSeconds || 0,
+            });
+            continue;
+        }
+
+        existing.sessions.push(session);
+        existing.replayCount += 1;
+        existing.totalDurationSeconds += session.durationSeconds || 0;
+
+        if (new Date(session.startedAt).getTime() < new Date(existing.firstSession.startedAt).getTime()) {
+            existing.firstSession = session;
+        }
+        if (new Date(session.startedAt).getTime() > new Date(existing.latestSession.startedAt).getTime()) {
+            existing.latestSession = session;
+        }
+    }
+
+    return [...groups.values()]
+        .sort((a, b) => {
+            if (b.replayCount !== a.replayCount) return b.replayCount - a.replayCount;
+            return new Date(b.latestSession.startedAt).getTime() - new Date(a.latestSession.startedAt).getTime();
+        })
+        .slice(0, 20);
 }
 
 function buildRecommendedSessions(sessions: RecordingSession[]): RecommendedSession[] {
@@ -578,6 +672,10 @@ type TrendChartRow = {
     avgDurationSeconds: number;
 };
 
+type CountryUsersChartRow = {
+    dateKey: string;
+} & Record<string, string | number>;
+
 type EngagementSegmentKey = 'bouncers' | 'casuals' | 'explorers' | 'loyalists';
 
 type EngagementMixChartRow = {
@@ -596,6 +694,8 @@ const ENGAGEMENT_SEGMENTS: Array<{ key: EngagementSegmentKey; label: string; col
     { key: 'explorers', label: 'Explorers', color: '#3b82f6' },
     { key: 'loyalists', label: 'Loyalists', color: '#10b981' },
 ];
+
+const COUNTRY_LINE_COLORS = ['#1a73e8', '#e8710a', '#1e8e3e', '#d93025', '#9334e6', '#0f766e'];
 
 type MomentumCard = {
     label: string;
@@ -622,6 +722,7 @@ export const GeneralOverview: React.FC = () => {
     const [sessions, setSessions] = useState<RecordingSession[]>([]);
     const [retentionCohortRows, setRetentionCohortRows] = useState<RetentionCohortRow[]>([]);
     const [topIssuesPage, setTopIssuesPage] = useState(0);
+    const [copiedTopUserKey, setCopiedTopUserKey] = useState<string | null>(null);
     const [extendedInsightsLoading, setExtendedInsightsLoading] = useState(false);
     const [extendedInsightsLoaded, setExtendedInsightsLoaded] = useState(false);
 
@@ -815,6 +916,97 @@ export const GeneralOverview: React.FC = () => {
             }));
     }, [geoSummary]);
 
+    const countryUsersByRegion = useMemo(() => {
+        const totals = new Map<string, number>();
+        let rows: CountryUsersChartRow[] = [];
+
+        if (trends?.daily?.some((entry) => entry.countryDauBreakdown && Object.keys(entry.countryDauBreakdown).length > 0)) {
+            for (const entry of trends.daily) {
+                const dateKey = toUtcDateKey(entry.date);
+                if (!dateKey) continue;
+
+                const breakdown = entry.countryDauBreakdown || {};
+                for (const [country, value] of Object.entries(breakdown)) {
+                    const count = Number(value || 0);
+                    if (count > 0) totals.set(country || 'Unknown', (totals.get(country || 'Unknown') || 0) + count);
+                }
+            }
+
+            const countryKeys = [...totals.entries()]
+                .sort((a, b) => b[1] - a[1])
+                .slice(0, 5)
+                .map(([country]) => country);
+
+            rows = trends.daily
+                .map((entry) => {
+                    const dateKey = toUtcDateKey(entry.date);
+                    if (!dateKey) return null;
+                    const row: CountryUsersChartRow = { dateKey };
+                    for (const country of countryKeys) {
+                        row[country] = Number(entry.countryDauBreakdown?.[country] || 0);
+                    }
+                    return row;
+                })
+                .filter((row): row is CountryUsersChartRow => Boolean(row))
+                .sort((a, b) => String(a.dateKey).localeCompare(String(b.dateKey)));
+        } else {
+            const dailyCountryUsers = new Map<string, Map<string, Set<string>>>();
+
+            for (const session of sessions) {
+                const dateKey = toUtcDateKey(session.startedAt);
+                const country = session.geoLocation?.country?.trim();
+                if (!dateKey || !country) continue;
+
+                const userKey = sessionUserKey(session);
+                if (!dailyCountryUsers.has(dateKey)) dailyCountryUsers.set(dateKey, new Map());
+                const countryMap = dailyCountryUsers.get(dateKey)!;
+                if (!countryMap.has(country)) countryMap.set(country, new Set());
+                countryMap.get(country)!.add(userKey);
+            }
+
+            for (const countryMap of dailyCountryUsers.values()) {
+                for (const [country, usersForCountry] of countryMap.entries()) {
+                    totals.set(country, (totals.get(country) || 0) + usersForCountry.size);
+                }
+            }
+
+            const countryKeys = [...totals.entries()]
+                .sort((a, b) => b[1] - a[1])
+                .slice(0, 5)
+                .map(([country]) => country);
+
+            const dateKeys = trendChartData.length > 0
+                ? trendChartData.map((row) => row.dateKey)
+                : [...dailyCountryUsers.keys()].sort();
+
+            rows = dateKeys.map((dateKey) => {
+                const row: CountryUsersChartRow = { dateKey };
+                const countryMap = dailyCountryUsers.get(dateKey);
+                for (const country of countryKeys) {
+                    row[country] = countryMap?.get(country)?.size || 0;
+                }
+                return row;
+            });
+        }
+
+        const countryKeys = [...totals.entries()]
+            .sort((a, b) => b[1] - a[1])
+            .slice(0, 5)
+            .map(([country]) => country);
+        const totalUserDays = [...totals.values()].reduce((sum, value) => sum + value, 0);
+        const topCountry = countryKeys[0] || null;
+        const topCountryUsers = topCountry ? totals.get(topCountry) || 0 : 0;
+
+        return {
+            rows,
+            countryKeys,
+            activeCountries: totals.size,
+            totalUserDays,
+            topCountry,
+            topCountryShare: totalUserDays > 0 ? (topCountryUsers / totalUserDays) * 100 : null,
+        };
+    }, [trends, sessions, trendChartData]);
+
     const engagementMixChartData = useMemo<EngagementMixChartRow[]>(() => {
         if (!engagementTrends?.daily?.length) return [];
 
@@ -998,48 +1190,6 @@ export const GeneralOverview: React.FC = () => {
         };
     }, [overviewObs]);
 
-    const acquisitionSnapshot = useMemo(() => {
-        const firstSessionStats = overviewObs?.firstSessionStats;
-        const newUserGrowth = overviewObs?.newUserGrowth;
-        const firstSessionTotal = Number(firstSessionStats?.total || 0);
-        const firstSessionClean = Number(firstSessionStats?.clean || 0);
-        const firstSessionFailureRate = firstSessionTotal > 0
-            ? ((firstSessionTotal - firstSessionClean) / firstSessionTotal) * 100
-            : 0;
-
-        return {
-            firstSessionSuccessRate: Number(overviewObs?.firstSessionSuccessRate || 0),
-            firstSessionFailureRate,
-            firstSessionTotal,
-            firstSessionClean,
-            acquiredUsers: Number(newUserGrowth?.acquiredUsers || 0),
-            acquisitionRate: Number(newUserGrowth?.acquisitionRate || 0),
-            returnedUsers: Number(newUserGrowth?.returnedUsers || 0),
-            returnRate: Number(newUserGrowth?.returnRate || 0),
-        };
-    }, [overviewObs]);
-
-    const firstSessionIssueMix = useMemo(() => {
-        const first = overviewObs?.firstSessionStats;
-        if (!first || Number(first.total || 0) <= 0) return [];
-
-        const total = Number(first.total || 0);
-        const mix = [
-            { label: 'Crash', count: Number(first.withCrash || 0), color: '#ef4444' },
-            { label: 'ANR', count: Number(first.withAnr || 0), color: '#f97316' },
-            { label: 'Rage Tap', count: Number(first.withRageTaps || 0), color: '#eab308' },
-            { label: 'Slow API', count: Number(first.withSlowApi || 0), color: '#3b82f6' },
-        ];
-
-        return mix
-            .filter((row) => row.count > 0)
-            .map((row) => ({
-                ...row,
-                rate: (row.count / total) * 100,
-            }))
-            .sort((a, b) => b.rate - a.rate);
-    }, [overviewObs]);
-
     const momentumCards = useMemo<MomentumCard[]>(() => {
         if (!trendComparison) return [];
 
@@ -1146,6 +1296,23 @@ export const GeneralOverview: React.FC = () => {
         () => buildRecommendedSessions(sessions),
         [sessions],
     );
+
+    const topUsers = useMemo(
+        () => buildTopUsers(sessions),
+        [sessions],
+    );
+
+    const handleCopyTopUser = useCallback(async (value: string, userKey: string) => {
+        try {
+            await navigator.clipboard.writeText(value);
+            setCopiedTopUserKey(userKey);
+            window.setTimeout(() => {
+                setCopiedTopUserKey((current) => current === userKey ? null : current);
+            }, 1600);
+        } catch (error) {
+            console.error('Failed to copy top user identifier:', error);
+        }
+    }, []);
 
     const anonymousNicknameStyleMap = useMemo(() => {
         const styleMap: Record<string, string> = {};
@@ -1311,7 +1478,7 @@ export const GeneralOverview: React.FC = () => {
                                 <div className="mt-3 border-t border-slate-100 pt-3">
                                     <div className="mb-2 flex justify-between text-[10px] font-black uppercase tracking-widest text-slate-400">
                                         <span>TOP COUNTRIES</span>
-                                        <span>ACTIVE USERS</span>
+                                        <span>SESSIONS</span>
                                     </div>
                                     {topCountries.length > 0 ? topCountries.map((country) => (
                                         <div key={country.country} className="flex justify-between text-xs font-bold text-slate-700 py-0.5">
@@ -1622,45 +1789,65 @@ export const GeneralOverview: React.FC = () => {
                                 )}
                             </GA4Card>
 
-                            <GA4Card title="Acquisition and activation quality">
-                                <div className="grid grid-cols-1 gap-3 text-xs sm:grid-cols-2">
-                                    <div className="dashboard-surface p-3 bg-white border-2 border-black shadow-neo-sm hover:-translate-y-1 hover:shadow-neo transition-all rounded-none">
-                                        <div className="text-[10px] font-black uppercase tracking-widest text-slate-500">First session success</div>
-                                        <div className="mt-2 text-2xl font-black text-black tracking-tight leading-none">{acquisitionSnapshot.firstSessionSuccessRate.toFixed(1)}%</div>
-                                        <div className="mt-1 text-[10px] font-bold text-slate-600">{formatCompact(acquisitionSnapshot.firstSessionClean)} clean / {formatCompact(acquisitionSnapshot.firstSessionTotal)} total</div>
+                            <GA4Card title="Regional user reach">
+                                <div className="mb-4 grid grid-cols-1 gap-3 text-xs sm:grid-cols-3">
+                                    <div className="dashboard-surface p-3 bg-white border-2 border-black shadow-neo-sm hover:-translate-y-1 hover:shadow-neo transition-all rounded-none sm:col-span-1">
+                                        <div className="text-[10px] font-black uppercase tracking-widest text-slate-500">Active markets</div>
+                                        <div className="mt-2 text-3xl font-black text-black tracking-tight leading-none">{formatCompact(countryUsersByRegion.activeCountries)}</div>
+                                        <div className="mt-1 text-[10px] font-bold text-slate-600">Countries with tracked users</div>
                                     </div>
-                                    <div className="dashboard-surface p-3 bg-white border-2 border-black shadow-neo-sm hover:-translate-y-1 hover:shadow-neo transition-all rounded-none">
-                                        <div className="text-[10px] font-black uppercase tracking-widest text-slate-500">First session failure</div>
-                                        <div className="mt-2 text-2xl font-black text-black tracking-tight leading-none">{acquisitionSnapshot.firstSessionFailureRate.toFixed(1)}%</div>
-                                        <div className="mt-1 text-[10px] font-bold text-slate-600">Crash, ANR, rage, or slow API on first session</div>
-                                    </div>
-                                    <div className="dashboard-surface p-3 bg-white border-2 border-black shadow-neo-sm hover:-translate-y-1 hover:shadow-neo transition-all rounded-none">
-                                        <div className="text-[10px] font-black uppercase tracking-widest text-slate-500">Acquired users</div>
-                                        <div className="mt-2 text-2xl font-black text-black tracking-tight leading-none">{formatCompact(acquisitionSnapshot.acquiredUsers)}</div>
-                                        <div className="mt-1 text-[10px] font-bold text-slate-600">{acquisitionSnapshot.acquisitionRate.toFixed(1)}% acquisition rate</div>
-                                    </div>
-                                    <div className="dashboard-surface p-3 bg-white border-2 border-black shadow-neo-sm hover:-translate-y-1 hover:shadow-neo transition-all rounded-none">
-                                        <div className="text-[10px] font-black uppercase tracking-widest text-slate-500">Returned users</div>
-                                        <div className="mt-2 text-2xl font-black text-black tracking-tight leading-none">{formatCompact(acquisitionSnapshot.returnedUsers)}</div>
-                                        <div className="mt-1 text-[10px] font-bold text-slate-600">{acquisitionSnapshot.returnRate.toFixed(1)}% return rate</div>
+                                    <div className="dashboard-surface p-3 bg-white border-2 border-black shadow-neo-sm hover:-translate-y-1 hover:shadow-neo transition-all rounded-none sm:col-span-2">
+                                        <div className="text-[10px] font-black uppercase tracking-widest text-slate-500">Top user region</div>
+                                        <div className="mt-2 truncate text-2xl font-black text-black tracking-tight leading-none" title={countryUsersByRegion.topCountry || 'No region'}>
+                                            {countryUsersByRegion.topCountry || 'No region'}
+                                        </div>
+                                        <div className="mt-1 text-[10px] font-bold text-slate-600">
+                                            {countryUsersByRegion.topCountryShare === null
+                                                ? 'No geographic user activity in this filter'
+                                                : `${countryUsersByRegion.topCountryShare.toFixed(1)}% of daily active user-days`}
+                                        </div>
                                     </div>
                                 </div>
-                                {firstSessionIssueMix.length > 0 && (
-                                    <div className="dashboard-surface mt-4 p-4 text-xs border-2 border-black bg-slate-50 shadow-neo-sm rounded-none">
-                                        <div className="font-medium text-slate-700">First-session issue mix</div>
-                                        <div className="mt-2 space-y-2">
-                                            {firstSessionIssueMix.map((issue) => (
-                                                <div key={issue.label}>
-                                                    <div className="mb-1 flex justify-between text-slate-600">
-                                                        <span>{issue.label}</span>
-                                                        <span>{issue.rate.toFixed(1)}%</span>
-                                                    </div>
-                                                    <div className="h-1.5 rounded bg-slate-100">
-                                                        <div className="h-1.5 rounded" style={{ width: `${Math.min(100, issue.rate)}%`, backgroundColor: issue.color }} />
-                                                    </div>
-                                                </div>
+
+                                {countryUsersByRegion.countryKeys.length > 0 ? (
+                                    <>
+                                        <div className="h-[220px]">
+                                            <ResponsiveContainer width="100%" height="100%">
+                                                <LineChart data={countryUsersByRegion.rows} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
+                                                    <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                                                    <XAxis dataKey="dateKey" tick={{ fontSize: 10 }} tickFormatter={formatDateLabel} minTickGap={40} />
+                                                    <YAxis tick={{ fontSize: 10 }} allowDecimals={false} />
+                                                    <Tooltip
+                                                        labelFormatter={(value) => formatDateLabel(String(value))}
+                                                        formatter={(value: number | undefined, name: string | undefined) => [formatCompact(value ?? 0), name ?? 'Users']}
+                                                    />
+                                                    {countryUsersByRegion.countryKeys.map((country, index) => (
+                                                        <Line
+                                                            key={country}
+                                                            type="monotone"
+                                                            dataKey={country}
+                                                            stroke={COUNTRY_LINE_COLORS[index % COUNTRY_LINE_COLORS.length]}
+                                                            strokeWidth={2}
+                                                            dot={false}
+                                                            name={country}
+                                                        />
+                                                    ))}
+                                                </LineChart>
+                                            </ResponsiveContainer>
+                                        </div>
+
+                                        <div className="mt-3 flex flex-wrap gap-3">
+                                            {countryUsersByRegion.countryKeys.map((country, index) => (
+                                                <span key={country} className="flex items-center gap-1 text-[10px] text-slate-500">
+                                                    <span className="h-2 w-2 rounded-full" style={{ backgroundColor: COUNTRY_LINE_COLORS[index % COUNTRY_LINE_COLORS.length] }} />
+                                                    {country}
+                                                </span>
                                             ))}
                                         </div>
+                                    </>
+                                ) : (
+                                    <div className="flex flex-1 items-center justify-center py-8 text-center text-xs text-slate-400">
+                                        No country-level user activity available for this filter.
                                     </div>
                                 )}
                             </GA4Card>
@@ -1781,6 +1968,156 @@ export const GeneralOverview: React.FC = () => {
                         <section className="space-y-3">
                             <div className="flex flex-wrap items-center justify-between gap-3">
                                 <div>
+                                    <h2 className="text-lg font-black tracking-tight text-slate-700">Top Users</h2>
+                                </div>
+                                <NeoBadge variant="info" size="sm" className="shadow-none border-sky-200">
+                                    {topUsers.length}/20 users
+                                </NeoBadge>
+                            </div>
+
+                            {topUsers.length === 0 ? (
+                                <EmptyStateCard
+                                    title="No top users yet"
+                                    subtitle="Top users will appear once replay data is available in this time window."
+                                />
+                            ) : (
+                                <div className="relative">
+                                    <div className="pointer-events-none absolute inset-y-0 right-0 z-10 hidden w-12 bg-gradient-to-l from-white via-white/80 to-transparent sm:block" />
+                                    <div className="overflow-x-auto pb-3">
+                                        <div className="flex min-w-full snap-x snap-mandatory gap-3 pl-1 pr-2 sm:min-w-max sm:pl-3 sm:pr-4">
+                                            {topUsers.map((user) => {
+                                        const session = user.latestSession;
+                                        const firstSession = user.firstSession;
+                                        const displayName = truncateUserLabel(user.displayName);
+                                        const geoDisplay = formatGeoDisplay(session.geoLocation);
+                                        const isCopied = copiedTopUserKey === user.userKey;
+                                        const iconStyle = getTopUserIconStyle(user.userKey);
+                                        const platforms = [...new Set(user.sessions.map((s) => s.platform).filter(Boolean))];
+                                        const appVersions = [...new Set(user.sessions.map((s) => s.appVersion).filter(Boolean))];
+                                        const devices = [...new Set(user.sessions.map((s) => s.deviceModel).filter(Boolean))];
+                                        const platformLabel = platforms.length > 1 ? `${platforms.length} platforms` : (platforms[0] || 'unknown');
+                                        const versionLabel = appVersions.length > 1 ? `${appVersions.length} versions` : (appVersions[0] ? `v${appVersions[0]}` : 'unknown version');
+                                        const deviceLabel = devices.length > 1 ? `${devices.length} devices` : (devices[0] || 'Unknown device');
+
+                                        return (
+                                            <article
+                                                key={user.userKey}
+                                                className="group min-w-[320px] w-[calc(100vw-4rem)] max-w-[420px] snap-start rounded-xl border border-slate-200 bg-gradient-to-b from-white to-slate-50/60 p-3 shadow-sm transition-all hover:shadow-md sm:w-[360px] lg:w-[400px]"
+                                            >
+                                                <div className="flex items-start justify-between gap-3">
+                                                    <div className="min-w-0 flex-1">
+                                                        <div className="flex items-center gap-2">
+                                                            <span className={`inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border ${iconStyle}`}>
+                                                                <User size={15} className="stroke-[2.4]" />
+                                                            </span>
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => handleCopyTopUser(user.copyValue, user.userKey)}
+                                                                className="inline-flex min-w-0 max-w-full items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2 py-1 text-left font-mono text-[11px] font-semibold text-slate-800 transition-colors hover:border-slate-400 hover:bg-slate-50"
+                                                                title={`Copy ${user.displayName}`}
+                                                                aria-label={`Copy ${user.displayName}`}
+                                                            >
+                                                                <span className="truncate">{displayName}</span>
+                                                                {isCopied ? <Check size={13} className="shrink-0 text-emerald-600" /> : <Copy size={13} className="shrink-0 text-slate-400" />}
+                                                            </button>
+                                                        </div>
+                                                        <div className="mt-2 text-[11px] text-slate-500">
+                                                            Last seen {formatLastSeen(session.startedAt)}
+                                                        </div>
+                                                    </div>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => navigate(`${pathPrefix}/sessions/${session.id}`)}
+                                                        className="inline-flex items-center gap-1.5 rounded-lg border-2 border-black bg-black px-3 py-2 text-[10px] font-black uppercase tracking-[0.14em] text-white shadow-[2px_2px_0px_0px_rgba(15,23,42,0.18)] transition-all hover:-translate-y-px hover:bg-slate-800 hover:shadow-[4px_4px_0px_0px_rgba(15,23,42,0.18)] active:translate-y-0 active:shadow-[2px_2px_0px_0px_rgba(15,23,42,0.18)]"
+                                                    >
+                                                        Open latest
+                                                        <ChevronRight size={13} className="shrink-0" />
+                                                    </button>
+                                                </div>
+
+                                                <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 text-[11px] text-slate-600">
+                                                    <div>
+                                                        <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Country</div>
+                                                        <div className="mt-0.5 flex items-center gap-2 truncate font-semibold text-slate-800" title={geoDisplay.fullLabel}>
+                                                            <span className="text-base leading-none">{geoDisplay.flagEmoji}</span>
+                                                            <span className="truncate">{geoDisplay.fullLabel}</span>
+                                                        </div>
+                                                    </div>
+                                                    <div>
+                                                        <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Total Sessions</div>
+                                                        <div className="mt-0.5 font-semibold text-slate-800">{user.replayCount.toLocaleString()}</div>
+                                                    </div>
+                                                    <div>
+                                                        <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">First Appeared</div>
+                                                        <div className="mt-0.5 font-semibold text-slate-800">
+                                                            {new Date(firstSession.startedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                                                        </div>
+                                                    </div>
+                                                    <div>
+                                                        <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Last Appeared</div>
+                                                        <div className="mt-0.5 font-semibold text-slate-800">
+                                                            {new Date(session.startedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                                                        </div>
+                                                    </div>
+                                                    <div>
+                                                        <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Total Time</div>
+                                                        <div className="mt-0.5 font-semibold text-slate-800">{formatDuration(user.totalDurationSeconds)}</div>
+                                                    </div>
+                                                    <div>
+                                                        <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Latest Device</div>
+                                                        <div className="mt-0.5 truncate font-semibold text-slate-800" title={deviceLabel}>
+                                                            {deviceLabel}
+                                                        </div>
+                                                    </div>
+                                                </div>
+
+                                                <div className="mt-3 flex flex-col gap-3 border-2 border-dashed border-slate-300 bg-slate-50 p-2.5 rounded-none sm:flex-row sm:items-start sm:justify-between">
+                                                    <div className="min-w-0 flex-1">
+                                                        <div className="truncate text-[10px] font-black uppercase tracking-widest text-[#5dadec]" title={deviceLabel}>
+                                                            {deviceLabel}
+                                                        </div>
+                                                        <div className="mt-1 text-[10px] text-slate-500">
+                                                            First seen {formatLastSeen(firstSession.startedAt)} and last seen {formatLastSeen(session.startedAt)}
+                                                        </div>
+                                                        <div className="mt-1.5 flex min-w-0 flex-wrap gap-1.5">
+                                                            <span className="inline-flex items-center rounded border border-slate-200 bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium uppercase text-slate-600">
+                                                                {platformLabel}
+                                                            </span>
+                                                            <span className="inline-flex items-center rounded border border-slate-200 bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-600">
+                                                                {versionLabel}
+                                                            </span>
+                                                        </div>
+                                                    </div>
+                                                    <div className="shrink-0 self-end sm:self-auto">
+                                                        <MiniSessionCard
+                                                            session={{
+                                                                id: session.id,
+                                                                deviceModel: session.deviceModel,
+                                                                createdAt: session.startedAt,
+                                                                coverPhotoUrl:
+                                                                    hasSuccessfulRecording(session)
+                                                                        ? `/api/sessions/cover/${session.id}`
+                                                                        : null,
+                                                            }}
+                                                            onClick={() => navigate(`${pathPrefix}/sessions/${session.id}`)}
+                                                            size="xs"
+                                                            showMeta={false}
+                                                            className="p-0"
+                                                        />
+                                                    </div>
+                                                </div>
+                                            </article>
+                                        );
+                                    })}
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+                        </section>
+
+                        <section className="space-y-3">
+                            <div className="flex flex-wrap items-center justify-between gap-3">
+                                <div>
                                     <h2 className="text-lg font-black tracking-tight text-slate-700">Recommended Sessions</h2>
                                     <p className="mt-0.5 text-xs text-slate-500">
                                         Mixed user segments: new, returning, anonymous, platform-specific, and risk-heavy journeys.
@@ -1842,9 +2179,10 @@ export const GeneralOverview: React.FC = () => {
                                                             <button
                                                                 type="button"
                                                                 onClick={() => navigate(`${pathPrefix}/sessions/${rec.session.id}`)}
-                                                                className="rounded-md border border-slate-300 bg-white px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-slate-700 transition-colors hover:border-slate-900 hover:text-slate-900"
+                                                                className="inline-flex items-center gap-1.5 rounded-lg border-2 border-black bg-black px-3 py-2 text-[10px] font-black uppercase tracking-[0.14em] text-white shadow-[2px_2px_0px_0px_rgba(15,23,42,0.18)] transition-all hover:-translate-y-px hover:bg-slate-800 hover:shadow-[4px_4px_0px_0px_rgba(15,23,42,0.18)] active:translate-y-0 active:shadow-[2px_2px_0px_0px_rgba(15,23,42,0.18)]"
                                                             >
                                                                 Open
+                                                                <ChevronRight size={13} className="shrink-0" />
                                                             </button>
                                                         </div>
 

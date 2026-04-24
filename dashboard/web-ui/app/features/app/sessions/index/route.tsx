@@ -553,7 +553,7 @@ export const RecordingsList: React.FC = () => {
           title="Session Archive"
           subtitle={selectedProjectId ? archiveCountLabel : 'Browse, filter & replay user sessions'}
           icon={<Layers className="w-6 h-6" />}
-          iconColor="bg-indigo-500"
+          iconColor="bg-sky-50"
         >
           <TimeFilter value={timeRange} onChange={setTimeRange} />
           <button
@@ -577,7 +577,7 @@ export const RecordingsList: React.FC = () => {
               params.append('sortDir', primarySortDir);
               window.location.href = `/api/sessions/export?${params.toString()}`;
             }}
-            className="bg-black text-white p-2 border-2 border-black hover:shadow-sm transition-all"
+            className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-700 shadow-sm transition-colors hover:border-slate-300 hover:bg-slate-50"
             title="Export CSV"
           >
             <Download className="w-4 h-4" />
@@ -585,42 +585,44 @@ export const RecordingsList: React.FC = () => {
         </DashboardPageHeader>
 
         {/* Search & Controls Row */}
-        <div className="bg-white border-b border-gray-200 px-6 py-1.5">
-          <div className="flex items-center gap-2 max-w-[1800px] mx-auto">
-            <div className="relative flex-1 group min-w-[180px]">
+        <div className="bg-white border-b border-gray-200 px-4 py-3 sm:px-6">
+          <div className="flex flex-col gap-2 max-w-[1800px] mx-auto sm:flex-row sm:items-center">
+            <div className="relative flex-1 group min-w-0">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 group-focus-within:text-indigo-600 transition-colors" />
               <input
                 type="text"
                 placeholder="SEARCH SESSION, USER, DEVICE..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full pl-10 pr-4 py-2 bg-white border-2 border-black font-bold text-sm uppercase placeholder:text-gray-400 focus:outline-none focus:border-[#5dadec] transition-all"
+                className="w-full rounded-lg border border-slate-200 bg-white py-2 pl-10 pr-4 text-sm font-semibold uppercase text-slate-900 shadow-sm placeholder:text-gray-400 focus:border-[#5dadec] focus:outline-none"
               />
             </div>
 
-            <input
-              type="date"
-              value={dateFilter}
-              onChange={(e) => setDateFilter(e.target.value)}
-              className={`bg-white border-2 border-black px-3 py-2 text-xs font-bold outline-none max-w-[150px] ${dateFilter ? 'border-[#5dadec] text-black' : 'border-black text-gray-500'}`}
-              title="Filter by specific date"
-            />
+            <div className="flex min-w-0 items-center gap-2">
+              <input
+                type="date"
+                value={dateFilter}
+                onChange={(e) => setDateFilter(e.target.value)}
+                className={`min-w-0 flex-1 rounded-lg border px-3 py-2 text-xs font-semibold outline-none shadow-sm sm:max-w-[150px] ${dateFilter ? 'border-[#5dadec] text-black' : 'border-slate-200 text-gray-500'}`}
+                title="Filter by specific date"
+              />
 
-            <button
-              onClick={() => setShowAdvancedFilters(!showAdvancedFilters)}
-              className={`flex items-center gap-1.5 px-3 py-2 text-xs font-bold uppercase rounded-lg border shadow-sm transition-colors whitespace-nowrap ${showAdvancedFilters || advancedFilterCount > 0
-                ? 'bg-[#5dadec]/10 border-[#5dadec] text-black'
-                : 'bg-white border-2 border-black text-black hover:shadow-sm'
-                }`}
-            >
-              <Filter className="w-3.5 h-3.5" />
-              Filters
-              {advancedFilterCount > 0 && (
-                <span className="ml-1 px-1.5 py-0.5 text-[9px] font-bold bg-black text-white leading-none">
-                  {advancedFilterCount}
-                </span>
-              )}
-            </button>
+              <button
+                onClick={() => setShowAdvancedFilters(!showAdvancedFilters)}
+                className={`flex items-center gap-1.5 rounded-lg border px-3 py-2 text-xs font-bold uppercase shadow-sm transition-colors whitespace-nowrap ${showAdvancedFilters || advancedFilterCount > 0
+                  ? 'bg-[#5dadec]/10 border-[#5dadec] text-black'
+                  : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
+                  }`}
+              >
+                <Filter className="w-3.5 h-3.5" />
+                Filters
+                {advancedFilterCount > 0 && (
+                  <span className="ml-1 rounded bg-slate-900 px-1.5 py-0.5 text-[9px] font-bold text-white leading-none">
+                    {advancedFilterCount}
+                  </span>
+                )}
+              </button>
+            </div>
 
             {hasActiveFilters && (
               <button
@@ -637,7 +639,7 @@ export const RecordingsList: React.FC = () => {
                   setEventPropValue('');
                   setShowAdvancedFilters(false);
                 }}
-                className="flex items-center gap-1 px-2.5 py-2 text-[#ef4444] dashboard-surface hover:shadow-sm rounded-lg transition-all font-bold uppercase text-[10px]"
+                className="flex items-center justify-center gap-1 rounded-lg border border-red-200 bg-red-50 px-2.5 py-2 text-[#ef4444] shadow-sm transition-colors hover:bg-red-100 font-bold uppercase text-[10px] sm:justify-start"
                 title="Clear all filters"
               >
                 <X className="w-3 h-3" /> Clear All
@@ -647,7 +649,7 @@ export const RecordingsList: React.FC = () => {
 
           {/* Active Filter Summary Pills */}
           {advancedFilterCount > 0 && !showAdvancedFilters && (
-            <div className="flex items-center gap-2 mt-2 max-w-[1800px] mx-auto">
+            <div className="flex items-center gap-2 mt-2 max-w-[1800px] mx-auto overflow-x-auto no-scrollbar">
               <span className="text-[10px] text-slate-400 font-semibold uppercase">Active:</span>
               {eventNameFilter && (
                 <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-[#f4f4f5] border border-gray-300 text-[10px] font-bold text-black uppercase">
@@ -678,7 +680,7 @@ export const RecordingsList: React.FC = () => {
         </div>
 
         {/* Issue Filter Pills */}
-        <div className="bg-white border-b border-gray-200 px-6 py-1.5 overflow-x-auto scrollbar-hide">
+        <div className="bg-white border-b border-gray-200 px-4 py-2 sm:px-6 overflow-x-auto no-scrollbar">
           <div className="flex items-center gap-2 max-w-[1800px] mx-auto">
             {SESSION_ARCHIVE_ISSUE_FILTER_OPTIONS.map((f) => {
               const Icon = ISSUE_FILTER_ICONS[f.id];
@@ -687,14 +689,14 @@ export const RecordingsList: React.FC = () => {
                 <button
                   key={f.id}
                   onClick={() => setFilter(f.id)}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 font-bold text-[10px] uppercase border transition-all whitespace-nowrap shadow-sm hover:-translate-y-0.5
+                  className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 font-bold text-[10px] uppercase border transition-colors whitespace-nowrap shadow-sm
                     ${isActive
                     ? f.id === 'new_user'
-                      ? 'bg-[#34d399] text-black border-2 border-black shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]'
-                      : 'bg-black text-white border-2 border-black shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]'
+                      ? 'bg-emerald-100 text-emerald-950 border-emerald-300'
+                      : 'bg-slate-900 text-white border-slate-900'
                     : f.id === 'new_user'
-                      ? 'bg-white border-2 border-black text-black hover:shadow-sm'
-                      : 'bg-white border-2 border-black text-black hover:shadow-sm'}`}
+                      ? 'bg-white border-slate-200 text-slate-700 hover:bg-emerald-50'
+                      : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'}`}
                 >
                   <Icon className="w-3 h-3" />
                   {f.label}
@@ -706,7 +708,7 @@ export const RecordingsList: React.FC = () => {
 
         {/* Advanced Filters Panel — below issue pills, no overlap */}
         {showAdvancedFilters && (
-          <div className="bg-white border-b border-gray-200 px-6 py-4">
+          <div className="bg-white border-b border-gray-200 px-4 py-4 sm:px-6">
             <div className="max-w-[1800px] mx-auto space-y-3">
               {/* Events Section — event name required; count & property optional */}
               <div className="flex flex-wrap items-center gap-3">
@@ -716,7 +718,7 @@ export const RecordingsList: React.FC = () => {
                 <select
                   value={eventNameFilter}
                   onChange={(e) => setEventNameFilter(e.target.value)}
-                  className={`bg-white border-2 border-black rounded-lg px-3 py-1.5 uppercase outline-none focus:border-indigo-500 font-bold max-w-[200px] text-ellipsis text-xs ${eventNameFilter ? 'border-[#5dadec] text-black' : 'border-black text-black'}`}
+                  className={`rounded-lg border bg-white px-3 py-1.5 uppercase shadow-sm outline-none focus:border-indigo-500 font-semibold max-w-[200px] text-ellipsis text-xs ${eventNameFilter ? 'border-[#5dadec] text-black' : 'border-slate-200 text-black'}`}
                   title="Event name — e.g. purchase_completed"
                 >
                   <option value="">ALL EVENTS</option>
@@ -732,7 +734,7 @@ export const RecordingsList: React.FC = () => {
                     <select
                       value={eventCountOp}
                       onChange={(e) => { setEventCountOp(e.target.value); if (!e.target.value) setEventCountValue(''); }}
-                      className={`bg-white border-2 border-black rounded-lg px-2 py-1.5 outline-none focus:border-indigo-500 font-bold text-xs w-16 ${eventCountOp ? 'border-[#5dadec] text-black' : 'border-black text-black'}`}
+                      className={`rounded-lg border bg-white px-2 py-1.5 shadow-sm outline-none focus:border-indigo-500 font-semibold text-xs w-16 ${eventCountOp ? 'border-[#5dadec] text-black' : 'border-slate-200 text-black'}`}
                     >
                       <option value="">—</option>
                       <option value="eq">=</option>
@@ -748,7 +750,7 @@ export const RecordingsList: React.FC = () => {
                         value={eventCountValue}
                         onChange={(e) => setEventCountValue(e.target.value)}
                         placeholder="0"
-                        className="bg-white border border-slate-200 shadow-sm rounded-md px-2 py-1.5 outline-none focus:border-amber-500 font-bold text-xs w-20 text-amber-700"
+                        className="rounded-md border border-slate-200 bg-white px-2 py-1.5 text-xs font-semibold text-amber-700 shadow-sm outline-none focus:border-amber-500"
                       />
                     )}
                   </>
@@ -760,7 +762,7 @@ export const RecordingsList: React.FC = () => {
                 <select
                   value={eventPropKey}
                   onChange={(e) => { setEventPropKey(e.target.value); if (!e.target.value) setEventPropValue(''); }}
-                  className={`bg-white border-2 border-black rounded-lg px-3 py-1.5 outline-none focus:border-violet-500 font-bold max-w-[180px] text-ellipsis text-xs ${eventPropKey ? 'border-[#5dadec] text-black' : 'border-black text-black'}`}
+                  className={`rounded-lg border bg-white px-3 py-1.5 shadow-sm outline-none focus:border-violet-500 font-semibold max-w-[180px] text-ellipsis text-xs ${eventPropKey ? 'border-[#5dadec] text-black' : 'border-slate-200 text-black'}`}
                   title="Event property — e.g. plan, amount"
                 >
                   <option value="">ANY</option>
@@ -776,7 +778,7 @@ export const RecordingsList: React.FC = () => {
                       value={eventPropValue}
                       onChange={(e) => setEventPropValue(e.target.value)}
                       placeholder="any value"
-                      className={`bg-white border-2 border-black rounded-lg px-2 py-1.5 outline-none focus:border-violet-500 font-bold text-xs w-28 ${eventPropValue ? 'border-[#5dadec] text-black' : 'border-black text-black placeholder:text-gray-400'}`}
+                      className={`rounded-lg border bg-white px-2 py-1.5 shadow-sm outline-none focus:border-violet-500 font-semibold text-xs w-28 ${eventPropValue ? 'border-[#5dadec] text-black' : 'border-slate-200 text-black placeholder:text-gray-400'}`}
                     />
                   </>
                 )}
@@ -795,7 +797,7 @@ export const RecordingsList: React.FC = () => {
                     setMetaKeyFilter(e.target.value);
                     setMetaValueFilter('');
                   }}
-                  className={`bg-white border-2 border-black rounded-lg px-3 py-1.5 uppercase outline-none focus:border-emerald-500 font-bold max-w-[200px] text-ellipsis text-xs ${metaKeyFilter ? 'border-[#5dadec] text-black' : 'border-black text-black'}`}
+                  className={`rounded-lg border bg-white px-3 py-1.5 uppercase shadow-sm outline-none focus:border-emerald-500 font-semibold max-w-[200px] text-ellipsis text-xs ${metaKeyFilter ? 'border-[#5dadec] text-black' : 'border-slate-200 text-black'}`}
                 >
                   <option value="">ANY KEY</option>
                   {Object.keys(availableFilters.metadata).map(key => (
@@ -807,7 +809,7 @@ export const RecordingsList: React.FC = () => {
                   value={metaValueFilter}
                   onChange={(e) => setMetaValueFilter(e.target.value)}
                   disabled={!metaKeyFilter}
-                  className={`bg-white border-2 border-black rounded-lg px-3 py-1.5 uppercase outline-none focus:border-emerald-500 font-bold max-w-[200px] text-ellipsis text-xs ${!metaKeyFilter ? 'opacity-50 cursor-not-allowed border-black' : metaValueFilter ? 'border-[#5dadec] text-black' : 'border-black text-black'}`}
+                  className={`rounded-lg border bg-white px-3 py-1.5 uppercase shadow-sm outline-none focus:border-emerald-500 font-semibold max-w-[200px] text-ellipsis text-xs ${!metaKeyFilter ? 'opacity-50 cursor-not-allowed border-slate-200' : metaValueFilter ? 'border-[#5dadec] text-black' : 'border-slate-200 text-black'}`}
                 >
                   <option value="">{metaKeyFilter ? 'ANY VALUE' : 'SELECT KEY FIRST'}</option>
                   {metaKeyFilter && (availableFilters.metadata[metaKeyFilter] || []).map(val => (
@@ -821,8 +823,168 @@ export const RecordingsList: React.FC = () => {
       </div>
 
       {/* List Content — table header sticks when scrolling */}
-      <div className="flex-1 w-full max-w-full px-4 sm:px-6 pt-4 pb-24 overflow-x-auto">
-        <div className="bg-white border-b border-gray-200 overflow-hidden w-full" style={{ boxShadow: '2px 2px 0 0 rgba(0,0,0,0.07)' }}>
+      <div className="flex-1 w-full max-w-full px-4 sm:px-6 pt-4 pb-24">
+        <div className="space-y-3 md:hidden">
+          {paginatedSessions.length === 0 && (
+            <div className="rounded-xl border border-slate-200 bg-white p-8 text-center shadow-sm">
+              <div className="mx-auto mb-4 inline-flex items-center justify-center rounded-full bg-slate-50 p-4">
+                <Smartphone className="w-8 h-8 text-slate-300" />
+              </div>
+              <h3 className="text-base font-semibold uppercase text-slate-900 mb-1">
+                {selectedProjectId ? 'No Sessions Found' : 'No Project Selected'}
+              </h3>
+              <p className="text-slate-500 text-sm">
+                {selectedProjectId
+                  ? 'Adjust your filters or search query'
+                  : 'Select or create a project to view replay data.'}
+              </p>
+            </div>
+          )}
+
+          {paginatedSessions.map((session) => {
+            const screensCount = (session as any).screensVisited?.length || 0;
+            const userId = session.userId || (session as any).anonymousDisplayName || 'Anonymous';
+            const hasSlowStart = ((session as any).appStartupTimeMs || 0) > 3000;
+            const hasSlowApi = (session.apiAvgResponseMs || 0) > 1000;
+            const hasDeadTaps = ((session as any).deadTapCount || 0) > 0;
+            const geoDisplay = formatGeoDisplay((session as any).geoLocation);
+            const hasReplay = hasSuccessfulRecording(session);
+            const effectiveStatus = (session as any).effectiveStatus || session.status;
+            const canOpenReplay = (session as any).canOpenReplay ?? hasReplay;
+            const isLiveIngest = Boolean((session as any).isLiveIngest);
+            const isBackgroundProcessing = Boolean((session as any).isBackgroundProcessing);
+            const canNavigateToSession =
+              canOpenReplay ||
+              isLiveIngest ||
+              isBackgroundProcessing ||
+              effectiveStatus === 'processing' ||
+              effectiveStatus === 'pending' ||
+              session.status === 'processing' ||
+              session.status === 'pending' ||
+              hasReplay;
+            const hasIssues = (session.crashCount || 0) > 0 ||
+              ((session as any).anrCount || 0) > 0 ||
+              ((session as any).errorCount || 0) > 0 ||
+              (session.rageTapCount || 0) > 0 ||
+              hasDeadTaps ||
+              hasSlowStart || hasSlowApi;
+
+            return (
+              <article
+                key={session.id}
+                className={`rounded-xl border border-slate-200 bg-white p-4 shadow-sm ${canNavigateToSession ? 'cursor-pointer' : ''}`}
+                onClick={() => canNavigateToSession && navigate(`${pathPrefix}/sessions/${session.id}`)}
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="flex min-w-0 items-center gap-2">
+                      <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${!canNavigateToSession ? 'bg-slate-300' : hasIssues ? 'bg-amber-500' : 'bg-emerald-500'}`} />
+                      <h3 className="truncate font-mono text-sm font-semibold text-slate-900" title={userId}>{userId}</h3>
+                    </div>
+                    <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] font-medium text-slate-500">
+                      <span>{session.deviceModel || 'Unknown Device'}</span>
+                      <span>v{session.appVersion || '?.?.?'}</span>
+                      <span>{geoDisplay.hasLocation ? geoDisplay.fullLabel : 'Location unknown'}</span>
+                    </div>
+                  </div>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (canNavigateToSession) navigate(`${pathPrefix}/sessions/${session.id}`);
+                    }}
+                    disabled={!canNavigateToSession}
+                    className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-slate-50 text-slate-700 disabled:cursor-not-allowed disabled:opacity-40"
+                    title={canNavigateToSession ? 'Open Replay' : 'Replay unavailable'}
+                  >
+                    <Play size={15} className={canNavigateToSession ? 'fill-current' : ''} />
+                  </button>
+                </div>
+
+                <div className="mt-4 grid grid-cols-3 gap-2 text-center">
+                  <div className="rounded-lg bg-slate-50 px-2 py-2">
+                    <div className="text-[10px] font-bold uppercase text-slate-400">Duration</div>
+                    <div className="mt-1 font-mono text-xs font-semibold text-slate-900">
+                      {isLiveIngest || (!canOpenReplay && isBackgroundProcessing)
+                        ? 'Live'
+                        : `${Math.floor(session.durationSeconds / 60)}:${String(session.durationSeconds % 60).padStart(2, '0')}`}
+                    </div>
+                  </div>
+                  <div className="rounded-lg bg-slate-50 px-2 py-2">
+                    <div className="text-[10px] font-bold uppercase text-slate-400">Screens</div>
+                    <div className="mt-1 font-mono text-xs font-semibold text-slate-900">{screensCount}</div>
+                  </div>
+                  <div className="rounded-lg bg-slate-50 px-2 py-2">
+                    <div className="text-[10px] font-bold uppercase text-slate-400">API</div>
+                    <div className="mt-1 font-mono text-xs font-semibold text-slate-900">{session.apiAvgResponseMs ? `${Math.round(session.apiAvgResponseMs)}ms` : '-'}</div>
+                  </div>
+                </div>
+
+                <div className="mt-3 flex flex-wrap gap-1.5">
+                  {!hasIssues && <NeoBadge variant="success" size="sm">HEALTHY</NeoBadge>}
+                  {(session.crashCount || 0) > 0 && <NeoBadge variant="danger" size="sm">CRASH</NeoBadge>}
+                  {((session as any).anrCount || 0) > 0 && <NeoBadge variant="neutral" size="sm">ANR</NeoBadge>}
+                  {((session as any).errorCount || 0) > 0 && <NeoBadge variant="neutral" size="sm">ERR</NeoBadge>}
+                  {(session.rageTapCount || 0) > 0 && <NeoBadge variant="danger" size="sm">RAGE</NeoBadge>}
+                  {hasDeadTaps && <NeoBadge variant="neutral" size="sm">DEAD</NeoBadge>}
+                  {hasSlowStart && <NeoBadge variant="neutral" size="sm">SLOW</NeoBadge>}
+                  {hasSlowApi && <NeoBadge variant="neutral" size="sm">API</NeoBadge>}
+                </div>
+              </article>
+            );
+          })}
+
+          {filteredSessions.length > 0 && (
+            <div className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+              <div className="text-center text-xs font-bold text-slate-500">
+                Showing <span className="text-slate-900">{startIndex}-{endIndex}</span> of{' '}
+                <span className="text-slate-900">{filteredSessions.length.toLocaleString()}</span> loaded
+              </div>
+
+              <div className="mt-3 flex items-center justify-center gap-1">
+                <button
+                  onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                  disabled={currentPage === 1}
+                  className="rounded-lg border border-slate-200 bg-white p-2 shadow-sm transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-30"
+                  title="Previous page"
+                >
+                  <ChevronLeft size={15} />
+                </button>
+                <span className="min-w-[7rem] px-3 py-2 text-center text-xs font-bold text-slate-700">
+                  Page {currentPage} of {totalPages || 1}
+                </span>
+                <button
+                  onClick={async () => {
+                    if (currentPage === totalPages && hasMore && !isLoadingMore) {
+                      await handleLoadMore();
+                      setCurrentPage(p => p + 1);
+                    } else if (currentPage < totalPages) {
+                      setCurrentPage(p => p + 1);
+                    }
+                  }}
+                  disabled={(currentPage >= totalPages && !hasMore) || isLoadingMore}
+                  className="rounded-lg border border-slate-200 bg-white p-2 shadow-sm transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-30"
+                  title="Next page"
+                >
+                  <ChevronRight size={15} />
+                </button>
+              </div>
+
+              {hasMore && currentPage >= totalPages && (
+                <button
+                  onClick={handleLoadMore}
+                  disabled={isLoadingMore}
+                  className="mt-3 inline-flex w-full items-center justify-center rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-bold uppercase text-slate-700 shadow-sm disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {isLoadingMore ? <Loader size={13} className="mr-2 animate-spin" /> : null}
+                  Load More
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+
+        <div className="hidden overflow-x-auto md:block">
+        <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm w-full">
           <table className="w-full table-fixed border-collapse">
             <thead>
               <tr className="bg-[#f4f4f5] border-b border-slate-200">
@@ -1239,7 +1401,7 @@ export const RecordingsList: React.FC = () => {
                     setRowsPerPage(Number(e.target.value));
                     setCurrentPage(1);
                   }}
-                  className="bg-white border-2 border-black px-2 py-1 text-xs font-bold font-mono outline-none focus:outline-none cursor-pointer"
+                  className="cursor-pointer rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs font-bold font-mono shadow-sm outline-none focus:outline-none"
                 >
                   {PAGE_SIZE_OPTIONS.map(size => (
                     <option key={size} value={size}>{size}</option>
@@ -1248,6 +1410,7 @@ export const RecordingsList: React.FC = () => {
               </div>
             </div>
           )}
+        </div>
         </div>
       </div>
     </div>

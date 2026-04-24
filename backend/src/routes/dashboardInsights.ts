@@ -851,7 +851,7 @@ router.get(
         const normalizedTimeRange = typeof timeRange === 'string' ? timeRange : undefined;
 
         // Redis caching for fast page loads
-        const cacheKey = `insights:trends:${projectIds.sort().join(',')}:${normalizedTimeRange || '30d'}:v4-time-windows`;
+        const cacheKey = `insights:trends:${projectIds.sort().join(',')}:${normalizedTimeRange || '30d'}:v5-country-dau`;
         const cached = await redis.get(cacheKey);
         if (cached) {
             res.json(JSON.parse(cached));
@@ -905,6 +905,7 @@ router.get(
             errorCount: number;
             appVersionBreakdown: Record<string, number>;
             appVersionDauBreakdown: Record<string, number>;
+            countryDauBreakdown: Record<string, number>;
             totalApiCalls: number; // NEW: Total API calls for the day
         }> = {};
 
@@ -928,6 +929,7 @@ router.get(
                     errorCount: 0,
                     appVersionBreakdown: {} as Record<string, number>,
                     appVersionDauBreakdown: {} as Record<string, number>,
+                    countryDauBreakdown: {} as Record<string, number>,
                     totalApiCalls: 0,
                 };
             }
@@ -994,6 +996,7 @@ router.get(
                     errorCount: 0,
                     appVersionBreakdown: {} as Record<string, number>,
                     appVersionDauBreakdown: {} as Record<string, number>,
+                    countryDauBreakdown: {} as Record<string, number>,
                     totalApiCalls: 0,
                 };
             }
@@ -1041,10 +1044,47 @@ router.get(
                     errorCount: 0,
                     appVersionBreakdown: {} as Record<string, number>,
                     appVersionDauBreakdown: {} as Record<string, number>,
+                    countryDauBreakdown: {} as Record<string, number>,
                     totalApiCalls: 0,
                 };
             }
             dailyMap[row.date].appVersionDauBreakdown[row.version] = Number(row.uniqueUsers) || 0;
+        }
+
+        const normalizedCountry = sql<string>`COALESCE(NULLIF(${sessions.geoCountry}, ''), 'Unknown')`;
+
+        const countryDauRows = await db
+            .select({
+                date: sessionDate,
+                country: normalizedCountry,
+                uniqueUsers: sql<number>`COUNT(DISTINCT ${sessions.deviceId})::int`,
+            })
+            .from(sessions)
+            .where(and(...versionDauConditions, sql`${sessions.geoCountry} IS NOT NULL`))
+            .groupBy(sessionDate, normalizedCountry);
+
+        for (const row of countryDauRows) {
+            if (!dailyMap[row.date]) {
+                dailyMap[row.date] = {
+                    sessions: 0,
+                    crashes: 0,
+                    rageTaps: 0,
+                    deadTaps: 0,
+                    avgUxScore: 0,
+                    count: 0,
+                    uniqueUserIds: new Set<string>(),
+                    dau: 0,
+                    avgApiResponseMs: 0,
+                    apiErrorRate: 0,
+                    avgDurationSeconds: 0,
+                    errorCount: 0,
+                    appVersionBreakdown: {} as Record<string, number>,
+                    appVersionDauBreakdown: {} as Record<string, number>,
+                    countryDauBreakdown: {} as Record<string, number>,
+                    totalApiCalls: 0,
+                };
+            }
+            dailyMap[row.date].countryDauBreakdown[row.country] = Number(row.uniqueUsers) || 0;
         }
 
         // Calculate DAU for each day
@@ -1107,6 +1147,7 @@ router.get(
                     errorCount: data.errorCount,
                     appVersionBreakdown: data.appVersionBreakdown,
                     appVersionDauBreakdown: data.appVersionDauBreakdown,
+                    countryDauBreakdown: data.countryDauBreakdown,
                     totalApiCalls: data.totalApiCalls, // Pass through
                 };
             });

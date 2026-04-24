@@ -2130,13 +2130,13 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
     };
 
     return (
-        <div className="min-h-screen bg-[radial-gradient(circle_at_top_left,_#e2e8f0_0%,_#f8fafc_35%,_#f0fdfa_100%)] bg-transparent">
-            <div className="sticky top-0 z-40 border-b-2 border-black bg-white">
-                <div className="mx-auto flex w-full max-w-[1920px] flex-col gap-4 px-4 py-4 xl:flex-row xl:items-center xl:justify-between">
+        <div className="min-h-screen bg-transparent">
+            <div className="border-b border-slate-200 bg-white md:sticky md:top-0 md:z-40">
+                <div className="mx-auto flex w-full max-w-[1920px] flex-col gap-3 px-4 py-3 xl:flex-row xl:items-center xl:justify-between">
                     <div className="flex min-w-0 items-start gap-3">
                         <button
                             onClick={handleBackClick}
-                            className="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center border-2 border-black bg-white text-slate-700 transition hover:shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]"
+                            className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-700 shadow-sm transition hover:bg-slate-50"
                             aria-label="Back to sessions"
                         >
                             <ArrowLeft className="h-4 w-4" />
@@ -2144,23 +2144,23 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
 
                         <div className="min-w-0">
                             <div className="flex flex-wrap items-center gap-2">
-                                <h1 className="truncate text-lg font-black font-mono uppercase tracking-wide text-black">Replay Workbench</h1>
-                                <span className="border-2 border-black bg-[#5dadec]/10 px-2 py-0.5 font-mono text-[10px] font-bold uppercase tracking-wide text-black">
+                                <h1 className="truncate text-base font-semibold uppercase tracking-wide text-black sm:text-lg">Replay Workbench</h1>
+                                <span className="rounded-md border border-sky-200 bg-[#5dadec]/10 px-2 py-0.5 font-mono text-[10px] font-bold uppercase tracking-wide text-black">
                                     {platform.toUpperCase()}
                                 </span>
                                 {appVersion && (
-                                    <span className="border-2 border-black bg-[#f4f4f5] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide font-mono text-black">
+                                    <span className="rounded-md border border-slate-200 bg-[#f4f4f5] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide font-mono text-black">
                                         v{appVersion}
                                     </span>
                                 )}
-                                <span className="border-2 border-black bg-[#f4f4f5] px-2 py-0.5 font-mono text-[10px] font-semibold text-black">
+                                <span className="max-w-full truncate rounded-md border border-slate-200 bg-[#f4f4f5] px-2 py-0.5 font-mono text-[10px] font-semibold text-black">
                                     {(id || '').slice(0, 20)}
                                 </span>
                                 {canCopyReplayUserId ? (
                                     <button
                                         type="button"
                                         onClick={copyReplayUserId}
-                                        className="inline-flex items-center gap-1 border-2 border-black bg-[#f4f4f5] px-2 py-0.5 text-left transition hover:bg-white hover:shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:translate-x-px active:translate-y-px active:shadow-none"
+                                        className="inline-flex min-w-0 items-center gap-1 rounded-md border border-slate-200 bg-[#f4f4f5] px-2 py-0.5 text-left transition hover:bg-white"
                                         title={`${replayUserIdLabel} — click to copy`}
                                         aria-label={`Copy user ID: ${replayUserIdLabel}`}
                                     >
@@ -2178,7 +2178,7 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
                                     </button>
                                 ) : (
                                     <span
-                                        className="inline-flex items-center gap-1 border-2 border-black bg-[#f4f4f5] px-2 py-0.5"
+                                        className="inline-flex min-w-0 items-center gap-1 rounded-md border border-slate-200 bg-[#f4f4f5] px-2 py-0.5"
                                         title={replayUserIdLabel}
                                     >
                                         <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-600">
@@ -2214,8 +2214,8 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
                             onClick={() => previousSessionId && navigate(`${pathPrefix}/sessions/${previousSessionId}`)}
                             onMouseDown={(event) => event.preventDefault()}
                             disabled={!previousSessionId}
-                            className={`flex h-9 items-center gap-1.5 border-2 px-3 text-xs font-semibold transition ${previousSessionId
-                                ? 'border-black bg-white text-slate-700 hover:shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]'
+                            className={`flex h-9 items-center gap-1.5 rounded-lg border px-3 text-xs font-semibold shadow-sm transition ${previousSessionId
+                                ? 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
                                 : 'cursor-not-allowed border-slate-200 bg-slate-100 text-slate-400'
                                 }`}
                         >
@@ -2226,25 +2226,25 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
                             onClick={() => nextSessionId && navigate(`${pathPrefix}/sessions/${nextSessionId}`)}
                             onMouseDown={(event) => event.preventDefault()}
                             disabled={!nextSessionId}
-                            className={`flex h-9 items-center gap-1.5 border-2 px-3 text-xs font-semibold transition ${nextSessionId
-                                ? 'border-black bg-white text-slate-700 hover:shadow-[2px_2px_0px_0px_rgba(0,0,0,1)]'
+                            className={`flex h-9 items-center gap-1.5 rounded-lg border px-3 text-xs font-semibold shadow-sm transition ${nextSessionId
+                                ? 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
                                 : 'cursor-not-allowed border-slate-200 bg-slate-100 text-slate-400'
                                 }`}
                         >
                             Next
                             <ChevronRight className="h-3.5 w-3.5" />
                         </button>
-                        <span className={`border-2 px-3 py-1 text-xs font-bold ${sessionRiskStyle.badge}`}>
+                        <span className={`rounded-lg border px-3 py-1 text-xs font-bold ${sessionRiskStyle.badge}`}>
                             {sessionRiskLabel}
                         </span>
                     </div>
                 </div>
             </div>
 
-            <div className="mx-auto flex w-full max-w-[1920px] flex-col gap-4 px-4 py-4">
+            <div className="mx-auto flex w-full max-w-[1920px] flex-col gap-4 px-3 py-3 sm:px-4 sm:py-4">
                 <div className="grid grid-cols-1 gap-4 xl:grid-cols-12">
-                    <section className="flex flex-col overflow-hidden border-2 border-black bg-white shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] xl:col-span-7">
-                        <div className="border-b-2 border-black bg-gradient-to-r from-slate-950 via-slate-900 to-cyan-900 px-4 py-3 text-white">
+                    <section className="flex flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm xl:col-span-7">
+                        <div className="border-b border-slate-200 bg-slate-950 px-4 py-3 text-white">
                             <div className="flex flex-wrap items-center justify-between gap-2">
                                 <div>
                                     <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-cyan-200">Replay Theater</p>
@@ -2270,7 +2270,7 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
                             </div>
                         </div>
 
-                        <div className="relative border-b-2 border-black bg-[linear-gradient(135deg,_rgba(15,23,42,0.03)_0%,_rgba(6,182,212,0.08)_100%)] px-4 py-6 sm:px-6">
+                        <div className="relative border-b border-slate-200 bg-slate-50 px-3 py-4 sm:px-6 sm:py-6">
                             <div className="mx-auto flex w-full max-w-[420px] items-center justify-center">
                                 {(isReplayExpired || replayUnavailableReason || !hasRecording) ? (
                                     <div className="flex aspect-[9/18.5] w-full max-w-[320px] flex-col items-center justify-center border-2 border-dashed border-black bg-[#f4f4f5] p-6 text-center">
@@ -2297,7 +2297,7 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
                                             <span>Frame {Math.min(currentFrameIndex + 1, screenshotFrames.length)}/{screenshotFrames.length}</span>
                                         </div>
 
-                                        <div className="relative w-[320px] max-w-[80vw] rounded-[2.8rem] border border-slate-700 bg-slate-950 p-2 shadow-[0_22px_55px_rgba(15,23,42,0.35)]">
+                                        <div className="relative w-[320px] max-w-[78vw] rounded-[2.8rem] border border-slate-700 bg-slate-950 p-2 shadow-[0_18px_40px_rgba(15,23,42,0.25)]">
                                             <div className="rounded-[2.3rem] bg-slate-900 p-1.5">
                                                 <div
                                                     className="relative overflow-hidden rounded-[2rem] bg-slate-900"
@@ -2369,7 +2369,7 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
 
                         {playbackMode === 'screenshots' ? (
                             <>
-                                <div className="border-b-2 border-black bg-white px-4 py-4 sm:px-6">
+                                <div className="border-b border-slate-200 bg-white px-3 py-3 sm:px-6 sm:py-4">
                                     <div className="flex flex-wrap items-center gap-2">
                                         <button
                                             onClick={restart}
@@ -2399,7 +2399,7 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
                                             onClick={togglePlayPause}
                                             onMouseDown={(event) => event.preventDefault()}
                                             disabled={playbackDisabled}
-                                            className={`flex h-12 w-12 items-center justify-center rounded-full border text-white shadow-sm transition ${playbackDisabled
+                                            className={`flex h-11 w-11 items-center justify-center rounded-full border text-white shadow-sm transition ${playbackDisabled
                                                 ? 'cursor-not-allowed border-slate-300 bg-slate-300 text-slate-200'
                                                 : isPlaying
                                                     ? 'border-amber-300 bg-amber-500 hover:bg-amber-600'
@@ -2422,8 +2422,8 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
                                             <SkipForward className="h-4 w-4" />
                                         </button>
 
-                                        <div className="ml-auto flex items-center gap-2">
-                                            <span className="border-2 border-black bg-[#f4f4f5] px-2 py-1 font-mono text-xs font-semibold text-black">
+                                        <div className="flex w-full flex-wrap items-center gap-2 sm:ml-auto sm:w-auto">
+                                            <span className="rounded-lg border border-slate-200 bg-[#f4f4f5] px-2 py-1 font-mono text-xs font-semibold text-black">
                                                 {formatPlaybackTime(currentPlaybackTime)} / {formatPlaybackTime(effectiveDuration)}
                                             </span>
 
@@ -2476,7 +2476,7 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
                                     </div>
                                 </div>
 
-                                <div className="bg-[#f4f4f5] px-4 py-3 sm:px-6">
+                                <div className="bg-[#f4f4f5] px-3 py-3 sm:px-6">
                                     <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
                                         <div className="flex items-center gap-4 text-[10px] font-bold uppercase tracking-wide text-black">
                                             <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full bg-blue-500" />Touches</span>
@@ -2632,32 +2632,32 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
                     </section>
 
 
-                    <section className="flex flex-col overflow-hidden border-2 border-black bg-white shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] xl:col-span-5 min-h-[580px]">
-                        <div className="flex shrink-0 border-b-2 border-black bg-white">
+                    <section className="flex min-h-[520px] flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm xl:col-span-5 xl:min-h-[580px]">
+                        <div className="flex shrink-0 overflow-x-auto border-b border-slate-200 bg-white no-scrollbar">
                             <button
                                 onClick={() => setActiveWorkbenchTab('timeline')}
-                                className={`flex flex-1 items-center justify-center gap-2 border-b-2 px-4 py-3 text-sm font-bold transition ${activeWorkbenchTab === 'timeline' ? 'border-black bg-white text-black font-mono font-bold' : 'border-transparent text-gray-500 hover:text-black font-mono hover:bg-gray-50'}`}
+                                className={`flex min-w-[7rem] flex-1 items-center justify-center gap-2 border-b-2 px-3 py-3 text-sm font-bold transition ${activeWorkbenchTab === 'timeline' ? 'border-black bg-white text-black font-mono font-bold' : 'border-transparent text-gray-500 hover:text-black font-mono hover:bg-gray-50'}`}
                             >
                                 <ListFilter className="h-4 w-4" />
                                 Timeline
                             </button>
                             <button
                                 onClick={() => setActiveWorkbenchTab('console')}
-                                className={`flex flex-1 items-center justify-center gap-2 border-b-2 px-4 py-3 text-sm font-bold transition ${activeWorkbenchTab === 'console' ? 'border-black bg-white text-black font-mono font-bold' : 'border-transparent text-gray-500 hover:text-black font-mono hover:bg-gray-50'}`}
+                                className={`flex min-w-[7rem] flex-1 items-center justify-center gap-2 border-b-2 px-3 py-3 text-sm font-bold transition ${activeWorkbenchTab === 'console' ? 'border-black bg-white text-black font-mono font-bold' : 'border-transparent text-gray-500 hover:text-black font-mono hover:bg-gray-50'}`}
                             >
                                 <Terminal className="h-4 w-4" />
                                 Console
                             </button>
                             <button
                                 onClick={() => setActiveWorkbenchTab('inspector')}
-                                className={`flex flex-1 items-center justify-center gap-2 border-b-2 px-4 py-3 text-sm font-bold transition ${activeWorkbenchTab === 'inspector' ? 'border-black bg-white text-black font-mono font-bold' : 'border-transparent text-gray-500 hover:text-black font-mono hover:bg-gray-50'}`}
+                                className={`flex min-w-[7rem] flex-1 items-center justify-center gap-2 border-b-2 px-3 py-3 text-sm font-bold transition ${activeWorkbenchTab === 'inspector' ? 'border-black bg-white text-black font-mono font-bold' : 'border-transparent text-gray-500 hover:text-black font-mono hover:bg-gray-50'}`}
                             >
                                 <Code className="h-4 w-4" />
                                 DOM
                             </button>
                             <button
                                 onClick={() => setActiveWorkbenchTab('metadata')}
-                                className={`flex flex-1 items-center justify-center gap-2 border-b-2 px-4 py-3 text-sm font-bold transition ${activeWorkbenchTab === 'metadata' ? 'border-black bg-white text-black font-mono font-bold' : 'border-transparent text-gray-500 hover:text-black font-mono hover:bg-gray-50'}`}
+                                className={`flex min-w-[7rem] flex-1 items-center justify-center gap-2 border-b-2 px-3 py-3 text-sm font-bold transition ${activeWorkbenchTab === 'metadata' ? 'border-black bg-white text-black font-mono font-bold' : 'border-transparent text-gray-500 hover:text-black font-mono hover:bg-gray-50'}`}
                             >
                                 <Database className="h-4 w-4" />
                                 Metadata
@@ -2852,32 +2852,32 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
                             {activeWorkbenchTab === 'console' && (
                                 <div className="absolute inset-0 flex flex-col bg-slate-950">
                                     <div className="border-b border-slate-700 px-4 py-3">
-                                        <div className="flex items-center justify-between gap-2">
-                                            <div>
+                                        <div className="flex items-center justify-between gap-3">
+                                            <div className="min-w-0">
                                                 <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">Runtime Console</p>
-                                                <h3 className="text-sm font-bold text-white">
+                                                <h3 className="truncate text-sm font-bold text-white">
                                                     {revealAllLogs ? 'Displaying all session logs' : 'Logs synced to playback timestamp'}
                                                 </h3>
                                             </div>
-                                            <div className="flex items-center gap-2">
+                                            <div className="flex shrink-0 items-center gap-1.5">
+                                                <span className="flex h-7 items-center rounded border border-slate-700 bg-slate-900 px-1.5 font-mono text-[10px] text-slate-300">
+                                                    {terminalVisibleRows.length}/{terminalLogRows.length}
+                                                </span>
                                                 <button
                                                     onClick={() => setRevealAllLogs(!revealAllLogs)}
-                                                    className={`flex h-8 items-center gap-1.5 border px-2 text-[11px] font-semibold transition ${revealAllLogs
+                                                    className={`flex h-7 items-center gap-1 whitespace-nowrap border px-1.5 text-[10px] font-semibold transition ${revealAllLogs
                                                         ? 'border-cyan-500 bg-cyan-600 text-white'
                                                         : 'border-slate-600 bg-slate-900 text-slate-200 hover:border-slate-400'
                                                         }`}
                                                     title={revealAllLogs ? 'Sync to playback' : 'Reveal all logs in session'}
                                                 >
-                                                    {revealAllLogs ? <Zap className="h-3.5 w-3.5" /> : <ListFilter className="h-3.5 w-3.5" />}
-                                                    {revealAllLogs ? 'SYNC TO PLAYBACK' : 'REVEAL ALL'}
+                                                    {revealAllLogs ? <Zap className="h-3 w-3" /> : <ListFilter className="h-3 w-3" />}
+                                                    {revealAllLogs ? 'SYNC' : 'ALL LOGS'}
                                                 </button>
-                                                <span className="rounded border border-slate-700 bg-slate-900 px-2 py-1 font-mono text-[10px] text-slate-300">
-                                                    {terminalVisibleRows.length}/{terminalLogRows.length}
-                                                </span>
                                                 <button
                                                     onClick={copyAllTerminalLogs}
                                                     disabled={terminalLogRows.length === 0}
-                                                    className={`flex h-8 items-center gap-1.5 border px-2 text-[11px] font-semibold transition ${terminalLogRows.length > 0
+                                                    className={`flex h-7 items-center gap-1 whitespace-nowrap border px-1.5 text-[10px] font-semibold transition ${terminalLogRows.length > 0
                                                         ? terminalCopied
                                                             ? 'border-emerald-500 bg-emerald-600 text-white'
                                                             : 'border-slate-600 bg-slate-900 text-slate-200 hover:border-slate-400'
@@ -2885,19 +2885,19 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
                                                         }`}
                                                     title="Copy all console logs (including those not yet visible at current time)"
                                                 >
-                                                    {terminalCopied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+                                                    {terminalCopied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
                                                     {terminalCopied ? 'Copied' : 'COPY'}
                                                 </button>
                                                 <button
                                                     onClick={downloadAllTerminalLogs}
                                                     disabled={terminalLogRows.length === 0}
-                                                    className={`flex h-8 items-center gap-1.5 border px-2 text-[11px] font-semibold transition ${terminalLogRows.length > 0
+                                                    className={`flex h-7 items-center gap-1 whitespace-nowrap border px-1.5 text-[10px] font-semibold transition ${terminalLogRows.length > 0
                                                         ? 'border-slate-600 bg-slate-900 text-slate-200 hover:border-slate-400'
                                                         : 'cursor-not-allowed border-slate-700 bg-slate-900 text-slate-500'
                                                         }`}
                                                     title="Download all console logs"
                                                 >
-                                                    <Download className="h-3.5 w-3.5" />
+                                                    <Download className="h-3 w-3" />
                                                     EXPORT
                                                 </button>
                                             </div>

@@ -15,11 +15,9 @@ import {
     Scripts,
     ScrollRestoration,
     isRouteErrorResponse,
-    useLocation,
     useMatches,
 } from "react-router";
 import type { Route } from "./+types/root";
-import { useEffect } from "react";
 
 import "./styles/index.css";
 import "./styles/landing.css";
@@ -84,32 +82,14 @@ export const meta: Route.MetaFunction = () => [
 
 export function Layout({ children }: { children: React.ReactNode }) {
     const runtimeEnv = getPublicRuntimeEnvSnapshot();
-    const location = useLocation();
-    const isLandingRoute = location.pathname === "/";
-
-    useEffect(() => {
-        if (!isLandingRoute || typeof window === "undefined") {
-            return;
-        }
-
-        const previousScrollRestoration = window.history.scrollRestoration;
-        window.history.scrollRestoration = "manual";
-
-        // Ensure the landing route starts at top even when browser/session tries to restore.
-        window.scrollTo(0, 0);
-        const rafId = window.requestAnimationFrame(() => {
-            window.scrollTo(0, 0);
-        });
-
-        return () => {
-            window.cancelAnimationFrame(rafId);
-            window.history.scrollRestoration = previousScrollRestoration;
-        };
-    }, [isLandingRoute]);
 
     return (
         <html lang="en">
             <head>
+                {/* Must be first — sets scrollRestoration=manual globally before the
+                    browser can restore any saved scroll position. ScrollRestoration
+                    component handles restoring scroll on non-landing routes. */}
+                <script dangerouslySetInnerHTML={{ __html: `(function(){try{window.history.scrollRestoration='manual';}catch(e){}if(window.location.pathname==='/'){window.scrollTo(0,0);}})();` }} />
                 <meta charSet="utf-8" />
                 <meta name="viewport" content="width=device-width, initial-scale=1" />
                 <Meta />
@@ -183,7 +163,12 @@ export function Layout({ children }: { children: React.ReactNode }) {
             </head>
             <body>
                 {children}
-                {!isLandingRoute && <ScrollRestoration />}
+                <ScrollRestoration
+                    getKey={(location) => {
+                        // Don't restore scroll on the landing page — always start at top
+                        return location.pathname === '/' ? 'landing-always-top' : location.key;
+                    }}
+                />
                 <Scripts />
             </body>
         </html>

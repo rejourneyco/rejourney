@@ -175,6 +175,13 @@ export const demoInsightsTrends: InsightsTrends = {
                 '2.2.8': Math.round(15 - i * 0.4 + Math.random() * 3), // Even older
                 '2.2.5': Math.round(5 + Math.random() * 2), // Long-tail users
             },
+            countryDauBreakdown: {
+                'United States': Math.round(110 + i * 1.8 + Math.random() * 16),
+                'United Kingdom': Math.round(42 + i * 0.9 + Math.random() * 8),
+                Germany: Math.round(34 + i * 0.6 + Math.random() * 7),
+                Japan: Math.round(24 + i * 0.4 + Math.random() * 5),
+                Canada: Math.round(18 + i * 0.3 + Math.random() * 4),
+            },
             totalApiCalls: Math.round(baseSessions * (15 + Math.random() * 5)),
         };
     }),

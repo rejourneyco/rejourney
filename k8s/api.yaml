@@ -63,16 +63,6 @@ spec:
               value: "info"
             - name: NODE_OPTIONS
               value: "--max-old-space-size=2048"
-            - name: RJ_DASHBOARD_PREWARM_TRACKING_ENABLED
-              value: "true"
-            - name: RJ_DASHBOARD_PREWARM_ENABLED
-              value: "false"
-            - name: RJ_DASHBOARD_PREWARM_LOOKBACK_MINUTES
-              value: "60"
-            - name: RJ_DASHBOARD_PREWARM_INTERVAL_SECONDS
-              value: "60"
-            - name: RJ_DASHBOARD_PREWARM_SCOPE_LIMIT
-              value: "12"
             - name: COOKIE_SECURE
               value: "true"
             # Database

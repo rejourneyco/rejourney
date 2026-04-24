@@ -16,8 +16,7 @@ import {
     OVERVIEW_CACHE_TTL_SECONDS,
     buildOverviewCacheKey,
     persistOverviewCachePayload,
-    recordDashboardPrewarmScopeHit,
-} from '../services/dashboardPrewarm.js';
+} from '../services/dashboardOverviewCache.js';
 import { boundedTimeRangeToDays } from '../utils/analyticsTimeRange.js';
 import { buildRetentionCohortRows } from '../services/retentionCohorts.js';
 import { generateAnonymousName } from '../utils/anonymousName.js';
@@ -962,7 +961,6 @@ router.get(
             return;
         }
 
-        await recordDashboardPrewarmScopeHit('general', scope.scopedProjectIds, scope.normalizedTimeRange, redis);
         await respondWithOverviewCache({
             cacheKey: buildOverviewCacheKey('general', scope.scopedProjectIds, scope.normalizedTimeRange),
             routeName: 'general',
@@ -1046,7 +1044,6 @@ router.get(
         const trendsRange = toApiTrendsRange(scope.normalizedTimeRange);
         const regionRange = toRegionRange(scope.normalizedTimeRange);
 
-        await recordDashboardPrewarmScopeHit('api', scope.scopedProjectIds, scope.normalizedTimeRange, redis);
         await respondWithOverviewCache({
             cacheKey: buildOverviewCacheKey('api', scope.scopedProjectIds, scope.normalizedTimeRange),
             routeName: 'api',
@@ -1118,7 +1115,6 @@ router.get(
         const trendsRange = toDevicesTrendsRange(scope.normalizedTimeRange);
         const insightsRange = toApiInsightsRange(scope.normalizedTimeRange);
 
-        await recordDashboardPrewarmScopeHit('devices', scope.scopedProjectIds, scope.normalizedTimeRange, redis);
         await respondWithOverviewCache({
             cacheKey: buildOverviewCacheKey('devices', scope.scopedProjectIds, scope.normalizedTimeRange),
             routeName: 'devices',
@@ -1168,7 +1164,6 @@ router.get(
         const scope = await resolveOverviewScope(req, { requireProjectId: true });
         const range = toApiInsightsRange(scope.normalizedTimeRange);
 
-        await recordDashboardPrewarmScopeHit('geo', scope.scopedProjectIds, scope.normalizedTimeRange, redis);
         await respondWithOverviewCache({
             cacheKey: buildOverviewCacheKey('geo', scope.scopedProjectIds, scope.normalizedTimeRange),
             routeName: 'geo',
