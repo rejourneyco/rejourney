@@ -1962,6 +1962,10 @@ export interface DashboardOverviewResponse {
   geoSummary: GeoSummary | null;
   retention: RetentionCohortsResponse;
   issues: Issue[];
+  failedSections: string[];
+}
+
+export interface DashboardHeavyResponse {
   sessions: RecordingSession[];
   failedSections: string[];
 }
@@ -2190,7 +2194,7 @@ export async function getInsightsTrends(projectId?: string, timeRange?: string):
 
 export async function getDashboardOverview(projectId?: string, timeRange?: string): Promise<DashboardOverviewResponse> {
   if (isDemoMode()) {
-    const [trends, overviewObs, deepMetrics, engagementTrends, geoSummary, retention, issuesResponse, sessionsResponse] = await Promise.all([
+    const [trends, overviewObs, deepMetrics, engagementTrends, geoSummary, retention, issuesResponse] = await Promise.all([
       getInsightsTrends(projectId, timeRange),
       getGrowthObservability(projectId, timeRange === 'all' ? undefined : timeRange, 'summary'),
       getObservabilityDeepMetrics(projectId, timeRange === 'all' ? undefined : timeRange, 'summary'),
@@ -2198,12 +2202,6 @@ export async function getDashboardOverview(projectId?: string, timeRange?: strin
       getGeoSummary(projectId, timeRange === 'all' ? undefined : timeRange),
       getRetentionCohorts(projectId, timeRange),
       getIssues(projectId || 'demo-project', timeRange || '30d'),
-      getSessionsPaginated({
-        projectId,
-        timeRange,
-        limit: 60,
-        includeTotal: false,
-      }),
     ]);
 
     return {
@@ -2214,7 +2212,6 @@ export async function getDashboardOverview(projectId?: string, timeRange?: strin
       geoSummary,
       retention,
       issues: issuesResponse.issues || [],
-      sessions: (sessionsResponse.sessions || []) as RecordingSession[],
       failedSections: [],
     };
   }
@@ -2225,6 +2222,28 @@ export async function getDashboardOverview(projectId?: string, timeRange?: strin
   const endpoint = `/api/overview/general?${params.toString()}`;
   const cacheKey = `overview:general:${projectId || 'all'}:${timeRange || 'all'}`;
   return fetchWithCache<DashboardOverviewResponse>(endpoint, {}, cacheKey, 60000);
+}
+
+export async function getDashboardOverviewHeavy(projectId?: string, timeRange?: string): Promise<DashboardHeavyResponse> {
+  if (isDemoMode()) {
+    const sessionsResponse = await getSessionsPaginated({
+      projectId,
+      timeRange,
+      limit: 30,
+      includeTotal: false,
+    });
+    return {
+      sessions: (sessionsResponse.sessions || []) as RecordingSession[],
+      failedSections: [],
+    };
+  }
+
+  const params = new URLSearchParams();
+  if (projectId) params.set('projectId', projectId);
+  if (timeRange) params.set('timeRange', timeRange);
+  const endpoint = `/api/overview/general/heavy?${params.toString()}`;
+  const cacheKey = `overview:general:heavy:${projectId || 'all'}:${timeRange || 'all'}`;
+  return fetchWithCache<DashboardHeavyResponse>(endpoint, {}, cacheKey, 60000);
 }
 
 export async function getApiOverview(projectId: string, timeRange?: string): Promise<ApiOverviewResponse> {
@@ -3828,6 +3847,7 @@ export const api = {
   getApiLatencyByLocation,
   getInsightsTrends,
   getDashboardOverview,
+  getDashboardOverviewHeavy,
   getApiOverview,
   getDevicesOverview,
   getGeoOverview,

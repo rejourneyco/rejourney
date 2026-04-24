@@ -26,11 +26,10 @@ const redis = getRedis();
 
 const RETENTION_PREVIEW_CACHE_TTL_SECONDS = 900;
 const ISSUE_PREVIEW_LIMIT = 18;
-const SESSION_PREVIEW_LIMIT = 60;
+const SESSION_PREVIEW_LIMIT = 30;
 const RETENTION_PREVIEW_ROWS = 4;
 const RETENTION_PREVIEW_WEEKS = 4;
 const OVERVIEW_RESPONSE_CACHE_CONTROL = 'private, max-age=30, stale-while-revalidate=60';
-const STABILITY_OVERVIEW_ROW_LIMIT = 2000;
 
 async function getAccessibleProjectIds(userId: string): Promise<string[]> {
     const memberships = await db
@@ -327,6 +326,72 @@ async function loadIssuePreview(projectIds: string[], timeRange?: string) {
     }));
 }
 
+async function loadUserFirstSeenMap(
+    projectIds: string[],
+    sessionRows: Array<{
+        userDisplayId: string | null;
+        anonymousDisplayId: string | null;
+        anonymousHash: string | null;
+        deviceId: string | null;
+    }>,
+): Promise<Map<string, Date>> {
+    const resultMap = new Map<string, Date>();
+
+    const userIds = [...new Set(sessionRows.filter((s) => s.userDisplayId).map((s) => s.userDisplayId!))];
+    const anonDisplayIds = [...new Set(sessionRows.filter((s) => !s.userDisplayId && s.anonymousDisplayId).map((s) => s.anonymousDisplayId!))];
+    const anonHashes = [...new Set(sessionRows.filter((s) => !s.userDisplayId && !s.anonymousDisplayId && s.anonymousHash).map((s) => s.anonymousHash!))];
+    const deviceIds = [...new Set(sessionRows.filter((s) => !s.userDisplayId && !s.anonymousDisplayId && !s.anonymousHash && s.deviceId).map((s) => s.deviceId!))];
+
+    const legs: ReturnType<typeof sql>[] = [];
+
+    if (userIds.length > 0) {
+        legs.push(sql`
+            SELECT 'user' AS kind, ${sessions.userDisplayId} AS key, min(${sessions.startedAt}) AS first_seen
+            FROM ${sessions}
+            WHERE ${inArray(sessions.projectId, projectIds)} AND ${inArray(sessions.userDisplayId, userIds)}
+            GROUP BY ${sessions.userDisplayId}
+        `);
+    }
+    if (anonDisplayIds.length > 0) {
+        legs.push(sql`
+            SELECT 'anon' AS kind, ${sessions.anonymousDisplayId} AS key, min(${sessions.startedAt}) AS first_seen
+            FROM ${sessions}
+            WHERE ${inArray(sessions.projectId, projectIds)} AND ${inArray(sessions.anonymousDisplayId, anonDisplayIds)}
+            GROUP BY ${sessions.anonymousDisplayId}
+        `);
+    }
+    if (anonHashes.length > 0) {
+        legs.push(sql`
+            SELECT 'hash' AS kind, ${sessions.anonymousHash} AS key, min(${sessions.startedAt}) AS first_seen
+            FROM ${sessions}
+            WHERE ${inArray(sessions.projectId, projectIds)} AND ${inArray(sessions.anonymousHash, anonHashes)}
+            GROUP BY ${sessions.anonymousHash}
+        `);
+    }
+    if (deviceIds.length > 0) {
+        legs.push(sql`
+            SELECT 'device' AS kind, ${sessions.deviceId} AS key, min(${sessions.startedAt}) AS first_seen
+            FROM ${sessions}
+            WHERE ${inArray(sessions.projectId, projectIds)} AND ${inArray(sessions.deviceId, deviceIds)}
+            GROUP BY ${sessions.deviceId}
+        `);
+    }
+
+    if (legs.length === 0) return resultMap;
+
+    const unionQuery = legs.reduce((acc, leg, i) => i === 0 ? leg : sql`${acc} UNION ALL ${leg}`);
+    const result = await db.execute<{ kind: string; key: string; first_seen: Date }>(unionQuery);
+    const rows: Array<{ kind: string; key: string; first_seen: Date }> = Array.isArray(result) ? result : (result as any).rows ?? [];
+
+    for (const row of rows) {
+        if (row.key) {
+            resultMap.set(`${row.kind}:${row.key}`, new Date(row.first_seen));
+        }
+    }
+
+    return resultMap;
+}
+
 async function loadSessionPreview(projectIds: string[], timeRange?: string) {
     if (projectIds.length === 0) {
         return [];
@@ -369,7 +434,31 @@ async function loadSessionPreview(projectIds: string[], timeRange?: string) {
                 isReplayExpired: sessions.isReplayExpired,
                 replayAvailable: sessions.replayAvailable,
             },
-            metrics: sessionMetrics,
+            metrics: {
+                totalEvents: sessionMetrics.totalEvents,
+                errorCount: sessionMetrics.errorCount,
+                touchCount: sessionMetrics.touchCount,
+                scrollCount: sessionMetrics.scrollCount,
+                gestureCount: sessionMetrics.gestureCount,
+                inputCount: sessionMetrics.inputCount,
+                apiSuccessCount: sessionMetrics.apiSuccessCount,
+                apiErrorCount: sessionMetrics.apiErrorCount,
+                apiTotalCount: sessionMetrics.apiTotalCount,
+                apiAvgResponseMs: sessionMetrics.apiAvgResponseMs,
+                rageTapCount: sessionMetrics.rageTapCount,
+                deadTapCount: sessionMetrics.deadTapCount,
+                screensVisited: sessionMetrics.screensVisited,
+                interactionScore: sessionMetrics.interactionScore,
+                explorationScore: sessionMetrics.explorationScore,
+                customEventCount: sessionMetrics.customEventCount,
+                crashCount: sessionMetrics.crashCount,
+                anrCount: sessionMetrics.anrCount,
+                appStartupTimeMs: sessionMetrics.appStartupTimeMs,
+                networkType: sessionMetrics.networkType,
+                cellularGeneration: sessionMetrics.cellularGeneration,
+                isConstrained: sessionMetrics.isConstrained,
+                isExpensive: sessionMetrics.isExpensive,
+            },
         })
         .from(sessions)
         .leftJoin(sessionMetrics, eq(sessions.id, sessionMetrics.sessionId))
@@ -377,7 +466,20 @@ async function loadSessionPreview(projectIds: string[], timeRange?: string) {
         .orderBy(desc(sessions.startedAt))
         .limit(SESSION_PREVIEW_LIMIT);
 
-    return rows.map(({ session, metrics }) => ({
+    const firstSeenMap = await loadUserFirstSeenMap(projectIds, rows.map((r) => r.session));
+
+    return rows.map(({ session, metrics }) => {
+        const identityKey = session.userDisplayId
+            ? `user:${session.userDisplayId}`
+            : session.anonymousDisplayId
+            ? `anon:${session.anonymousDisplayId}`
+            : session.anonymousHash
+            ? `hash:${session.anonymousHash}`
+            : session.deviceId
+            ? `device:${session.deviceId}`
+            : null;
+        const userFirstSeenAt = identityKey ? firstSeenMap.get(identityKey) : undefined;
+        return {
         id: session.id,
         projectId: session.projectId,
         startedAt: session.startedAt.toISOString(),
@@ -438,8 +540,11 @@ async function loadSessionPreview(projectIds: string[], timeRange?: string) {
         isLiveIngest: false,
         isBackgroundProcessing: false,
         canOpenReplay: Boolean(session.replayAvailable) && !session.recordingDeleted && !session.isReplayExpired,
-    }));
+        userFirstSeenAt: userFirstSeenAt?.toISOString(),
+        };
+    });
 }
+
 
 function toRatePer100(value: number, total: number): number {
     if (total <= 0) return 0;
@@ -611,6 +716,9 @@ async function loadHeatmapScreenDetail(
     };
 }
 
+const STABILITY_OVERVIEW_FP_LIMIT = 50;
+const STABILITY_OVERVIEW_DETAIL_LIMIT = 500;
+
 async function loadErrorsOverview(projectIds: string[], timeRange?: string) {
     if (projectIds.length === 0) {
         return {
@@ -626,43 +734,55 @@ async function loadErrorsOverview(projectIds: string[], timeRange?: string) {
         conditions.push(gte(jsErrors.timestamp, startedAfter));
     }
 
-    const rows = await db
+    const fpExpr = sql<string>`coalesce(${jsErrors.fingerprint}, ${jsErrors.errorName} || ':' || ${jsErrors.message})`;
+
+    // Query A: aggregate counts per fingerprint — no session join, returns ~50 rows
+    const aggregateRows = await db
         .select({
-            error: {
-                id: jsErrors.id,
-                sessionId: jsErrors.sessionId,
-                projectId: jsErrors.projectId,
-                timestamp: jsErrors.timestamp,
-                errorType: jsErrors.errorType,
-                errorName: jsErrors.errorName,
-                message: jsErrors.message,
-                stack: jsErrors.stack,
-                screenName: jsErrors.screenName,
-                deviceModel: jsErrors.deviceModel,
-                osVersion: jsErrors.osVersion,
-                appVersion: jsErrors.appVersion,
-                fingerprint: jsErrors.fingerprint,
-                status: jsErrors.status,
-                createdAt: jsErrors.createdAt,
-            },
+            fp: fpExpr,
+            errorName: jsErrors.errorName,
+            message: jsErrors.message,
+            eventCount: sql<number>`cast(count(*) as int)`,
+            firstSeen: sql<Date>`min(${jsErrors.timestamp})`,
+            lastOccurred: sql<Date>`max(${jsErrors.timestamp})`,
+            totalEvents: sql<number>`cast(count(*) as int)`,
+        })
+        .from(jsErrors)
+        .where(and(...conditions))
+        .groupBy(fpExpr, jsErrors.errorName, jsErrors.message)
+        .orderBy(desc(sql`count(*)`))
+        .limit(STABILITY_OVERVIEW_FP_LIMIT);
+
+    if (aggregateRows.length === 0) {
+        return { groups: [], summary: { issues: 0, events: 0, users: 0 }, truncated: false };
+    }
+
+    const topFps = aggregateRows.map((r) => r.fp);
+    const totalEvents = aggregateRows.reduce((sum, r) => sum + Number(r.eventCount), 0);
+
+    // Query B: detail rows for top fps only, with session join for user identity (~500 rows max)
+    const detailRows = await db
+        .select({
+            fp: fpExpr,
+            id: jsErrors.id,
+            sessionId: jsErrors.sessionId,
+            timestamp: jsErrors.timestamp,
+            deviceModel: jsErrors.deviceModel,
+            appVersion: jsErrors.appVersion,
+            stack: jsErrors.stack,
+            screenName: jsErrors.screenName,
             userDisplayId: sessions.userDisplayId,
             anonymousHash: sessions.anonymousHash,
             deviceId: sessions.deviceId,
         })
         .from(jsErrors)
         .leftJoin(sessions, eq(jsErrors.sessionId, sessions.id))
-        .where(and(...conditions))
+        .where(and(...conditions, inArray(fpExpr, topFps)))
         .orderBy(desc(jsErrors.timestamp))
-        .limit(STABILITY_OVERVIEW_ROW_LIMIT);
+        .limit(STABILITY_OVERVIEW_DETAIL_LIMIT);
 
-    type ErrorGroup = {
-        fingerprint: string;
-        errorName: string;
-        message: string;
-        count: number;
+    type ErrorDetail = {
         users: Set<string>;
-        firstSeen: Date;
-        lastOccurred: Date;
         affectedDevices: Record<string, number>;
         affectedVersions: Record<string, number>;
         screens: Set<string>;
@@ -674,97 +794,75 @@ async function loadErrorsOverview(projectIds: string[], timeRange?: string) {
             appVersion: string | null;
             stack: string | null;
             screenName: string | null;
-        };
+        } | null;
+        sampleTs: Date | null;
     };
 
-    const grouped = new Map<string, ErrorGroup>();
+    const detailMap = new Map<string, ErrorDetail>();
     const impactedUsers = new Set<string>();
 
-    for (const row of rows) {
-        const key = row.error.fingerprint || `${row.error.errorName}:${row.error.message}`;
+    for (const row of detailRows) {
         const identity = buildIdentityKey({
             userDisplayId: row.userDisplayId,
             anonymousHash: row.anonymousHash,
             deviceId: row.deviceId,
-            fallbackId: row.error.sessionId || row.error.id,
+            fallbackId: row.sessionId || row.id,
         });
         impactedUsers.add(identity);
 
-        let group = grouped.get(key);
-        if (!group) {
-            group = {
-                fingerprint: key,
-                errorName: row.error.errorName,
-                message: row.error.message,
-                count: 0,
-                users: new Set<string>(),
-                firstSeen: row.error.timestamp,
-                lastOccurred: row.error.timestamp,
-                affectedDevices: {},
-                affectedVersions: {},
-                screens: new Set<string>(),
-                sampleError: {
-                    id: row.error.id,
-                    sessionId: row.error.sessionId,
-                    timestamp: row.error.timestamp.toISOString(),
-                    deviceModel: row.error.deviceModel,
-                    appVersion: row.error.appVersion,
-                    stack: row.error.stack,
-                    screenName: row.error.screenName,
-                },
-            };
-            grouped.set(key, group);
+        let detail = detailMap.get(row.fp);
+        if (!detail) {
+            detail = { users: new Set(), affectedDevices: {}, affectedVersions: {}, screens: new Set(), sampleError: null, sampleTs: null };
+            detailMap.set(row.fp, detail);
         }
 
-        group.count += 1;
-        group.users.add(identity);
-        if (row.error.timestamp < group.firstSeen) group.firstSeen = row.error.timestamp;
-        if (row.error.timestamp > group.lastOccurred) {
-            group.lastOccurred = row.error.timestamp;
-            group.sampleError = {
-                id: row.error.id,
-                sessionId: row.error.sessionId,
-                timestamp: row.error.timestamp.toISOString(),
-                deviceModel: row.error.deviceModel,
-                appVersion: row.error.appVersion,
-                stack: row.error.stack,
-                screenName: row.error.screenName,
-            };
-        }
+        detail.users.add(identity);
+        const deviceLabel = row.deviceModel || 'Unknown';
+        const versionLabel = row.appVersion || 'Unknown';
+        detail.affectedDevices[deviceLabel] = (detail.affectedDevices[deviceLabel] || 0) + 1;
+        detail.affectedVersions[versionLabel] = (detail.affectedVersions[versionLabel] || 0) + 1;
+        if (row.screenName) detail.screens.add(row.screenName);
 
-        const deviceLabel = row.error.deviceModel || 'Unknown';
-        const versionLabel = row.error.appVersion || 'Unknown';
-        group.affectedDevices[deviceLabel] = (group.affectedDevices[deviceLabel] || 0) + 1;
-        group.affectedVersions[versionLabel] = (group.affectedVersions[versionLabel] || 0) + 1;
-        if (row.error.screenName) {
-            group.screens.add(row.error.screenName);
+        // detailRows ordered DESC timestamp — first row per fp is the most recent sample
+        if (!detail.sampleError) {
+            detail.sampleError = {
+                id: row.id,
+                sessionId: row.sessionId,
+                timestamp: new Date(row.timestamp).toISOString(),
+                deviceModel: row.deviceModel,
+                appVersion: row.appVersion,
+                stack: row.stack,
+                screenName: row.screenName,
+            };
+            detail.sampleTs = new Date(row.timestamp);
         }
     }
 
-    const groups = Array.from(grouped.values())
-        .sort((a, b) => b.lastOccurred.getTime() - a.lastOccurred.getTime())
-        .map((group) => ({
-            fingerprint: group.fingerprint,
-            errorName: group.errorName,
-            message: group.message,
-            count: group.count,
-            users: Array.from(group.users),
-            firstSeen: group.firstSeen.toISOString(),
-            lastOccurred: group.lastOccurred.toISOString(),
-            affectedDevices: group.affectedDevices,
-            affectedVersions: group.affectedVersions,
-            screens: Array.from(group.screens),
-            sampleError: group.sampleError,
-        }));
+    const groups = aggregateRows.map((agg) => {
+        const detail = detailMap.get(agg.fp);
+        return {
+            fingerprint: agg.fp,
+            errorName: agg.errorName,
+            message: agg.message,
+            count: Number(agg.eventCount),
+            users: detail ? Array.from(detail.users) : [],
+            firstSeen: new Date(agg.firstSeen).toISOString(),
+            lastOccurred: new Date(agg.lastOccurred).toISOString(),
+            affectedDevices: detail?.affectedDevices ?? {},
+            affectedVersions: detail?.affectedVersions ?? {},
+            screens: detail ? Array.from(detail.screens) : [],
+            sampleError: detail?.sampleError ?? null,
+        };
+    }).sort((a, b) => new Date(b.lastOccurred).getTime() - new Date(a.lastOccurred).getTime());
 
     return {
         groups,
         summary: {
             issues: groups.length,
-            events: rows.length,
+            events: totalEvents,
             users: impactedUsers.size,
         },
-        truncated: rows.length >= STABILITY_OVERVIEW_ROW_LIMIT,
+        truncated: aggregateRows.length >= STABILITY_OVERVIEW_FP_LIMIT,
     };
 }
 
@@ -783,112 +881,116 @@ async function loadCrashesOverview(projectIds: string[], timeRange?: string) {
         conditions.push(gte(appCrashes.timestamp, startedAfter));
     }
 
-    const rows = await db
+    const crashFpExpr = sql<string>`coalesce(${appCrashes.fingerprint}, ${appCrashes.exceptionName} || ':' || coalesce(${appCrashes.reason}, ''))`;
+
+    // Query A: aggregate counts per fingerprint — no session join, returns ~50 rows
+    const aggregateRows = await db
         .select({
-            crash: {
-                id: appCrashes.id,
-                sessionId: appCrashes.sessionId,
-                projectId: appCrashes.projectId,
-                timestamp: appCrashes.timestamp,
-                exceptionName: appCrashes.exceptionName,
-                reason: appCrashes.reason,
-                deviceMetadata: appCrashes.deviceMetadata,
-                status: appCrashes.status,
-                stackTrace: appCrashes.stackTrace,
-                fingerprint: appCrashes.fingerprint,
-            },
+            fp: crashFpExpr,
+            exceptionName: appCrashes.exceptionName,
+            eventCount: sql<number>`cast(count(*) as int)`,
+            firstSeen: sql<Date>`min(${appCrashes.timestamp})`,
+            lastOccurred: sql<Date>`max(${appCrashes.timestamp})`,
+        })
+        .from(appCrashes)
+        .where(and(...conditions))
+        .groupBy(crashFpExpr, appCrashes.exceptionName)
+        .orderBy(desc(sql`count(*)`))
+        .limit(STABILITY_OVERVIEW_FP_LIMIT);
+
+    if (aggregateRows.length === 0) {
+        return { groups: [], summary: { issues: 0, events: 0, users: 0 }, truncated: false };
+    }
+
+    const topFps = aggregateRows.map((r) => r.fp);
+    const totalEvents = aggregateRows.reduce((sum, r) => sum + Number(r.eventCount), 0);
+
+    // Query B: detail rows for top fps only, with session join for user identity (~500 rows max)
+    const detailRows = await db
+        .select({
+            fp: crashFpExpr,
+            id: appCrashes.id,
+            sessionId: appCrashes.sessionId,
+            timestamp: appCrashes.timestamp,
+            deviceMetadata: appCrashes.deviceMetadata,
             userDisplayId: sessions.userDisplayId,
             anonymousHash: sessions.anonymousHash,
             deviceId: sessions.deviceId,
         })
         .from(appCrashes)
         .leftJoin(sessions, eq(appCrashes.sessionId, sessions.id))
-        .where(and(...conditions))
+        .where(and(...conditions, inArray(crashFpExpr, topFps)))
         .orderBy(desc(appCrashes.timestamp))
-        .limit(STABILITY_OVERVIEW_ROW_LIMIT);
+        .limit(STABILITY_OVERVIEW_DETAIL_LIMIT);
 
-    type CrashGroup = {
-        key: string;
-        name: string;
+    type CrashDetail = {
         sampleCrashId: string;
         sampleSessionId: string;
-        count: number;
         users: Set<string>;
-        firstSeen: Date;
-        lastOccurred: Date;
         affectedDevices: Record<string, number>;
         affectedVersions: Record<string, number>;
+        seenSample: boolean;
     };
 
-    const grouped = new Map<string, CrashGroup>();
+    const detailMap = new Map<string, CrashDetail>();
     const impactedUsers = new Set<string>();
 
-    for (const row of rows) {
-        if (!row.crash.sessionId) continue;
-        const key = row.crash.fingerprint || `${row.crash.exceptionName}:${row.crash.reason || ''}`;
+    for (const row of detailRows) {
+        if (!row.sessionId) continue;
         const identity = buildIdentityKey({
             userDisplayId: row.userDisplayId,
             anonymousHash: row.anonymousHash,
             deviceId: row.deviceId,
-            fallbackId: row.crash.sessionId || row.crash.id,
+            fallbackId: row.sessionId || row.id,
         });
         impactedUsers.add(identity);
 
-        const deviceMetadata = (row.crash.deviceMetadata || {}) as { model?: string; deviceModel?: string; appVersion?: string };
+        const deviceMetadata = (row.deviceMetadata || {}) as { model?: string; deviceModel?: string; appVersion?: string };
         const deviceModel = deviceMetadata.model || deviceMetadata.deviceModel || 'Unknown';
         const appVersion = deviceMetadata.appVersion || 'Unknown';
-        let group = grouped.get(key);
-        if (!group) {
-            group = {
-                key,
-                name: row.crash.exceptionName || 'Crash',
-                sampleCrashId: row.crash.id,
-                sampleSessionId: row.crash.sessionId,
-                count: 0,
-                users: new Set<string>(),
-                firstSeen: row.crash.timestamp,
-                lastOccurred: row.crash.timestamp,
-                affectedDevices: {},
-                affectedVersions: {},
-            };
-            grouped.set(key, group);
+
+        let detail = detailMap.get(row.fp);
+        if (!detail) {
+            detail = { sampleCrashId: row.id, sampleSessionId: row.sessionId, users: new Set(), affectedDevices: {}, affectedVersions: {}, seenSample: false };
+            detailMap.set(row.fp, detail);
         }
 
-        group.count += 1;
-        group.users.add(identity);
-        if (row.crash.timestamp < group.firstSeen) group.firstSeen = row.crash.timestamp;
-        if (row.crash.timestamp > group.lastOccurred) {
-            group.lastOccurred = row.crash.timestamp;
-            group.sampleCrashId = row.crash.id;
-            group.sampleSessionId = row.crash.sessionId;
+        // detailRows ordered DESC timestamp — first valid row per fp is the most recent sample
+        if (!detail.seenSample) {
+            detail.sampleCrashId = row.id;
+            detail.sampleSessionId = row.sessionId;
+            detail.seenSample = true;
         }
-        group.affectedDevices[deviceModel] = (group.affectedDevices[deviceModel] || 0) + 1;
-        group.affectedVersions[appVersion] = (group.affectedVersions[appVersion] || 0) + 1;
+
+        detail.users.add(identity);
+        detail.affectedDevices[deviceModel] = (detail.affectedDevices[deviceModel] || 0) + 1;
+        detail.affectedVersions[appVersion] = (detail.affectedVersions[appVersion] || 0) + 1;
     }
 
-    const groups = Array.from(grouped.values())
-        .sort((a, b) => b.lastOccurred.getTime() - a.lastOccurred.getTime())
-        .map((group) => ({
-            id: group.key,
-            name: group.name,
-            sampleCrashId: group.sampleCrashId,
-            sampleSessionId: group.sampleSessionId,
-            count: group.count,
-            users: Array.from(group.users),
-            firstSeen: group.firstSeen.toISOString(),
-            lastOccurred: group.lastOccurred.toISOString(),
-            affectedDevices: group.affectedDevices,
-            affectedVersions: group.affectedVersions,
-        }));
+    const groups = aggregateRows.map((agg) => {
+        const detail = detailMap.get(agg.fp);
+        return {
+            id: agg.fp,
+            name: agg.exceptionName || 'Crash',
+            sampleCrashId: detail?.sampleCrashId ?? '',
+            sampleSessionId: detail?.sampleSessionId ?? '',
+            count: Number(agg.eventCount),
+            users: detail ? Array.from(detail.users) : [],
+            firstSeen: new Date(agg.firstSeen).toISOString(),
+            lastOccurred: new Date(agg.lastOccurred).toISOString(),
+            affectedDevices: detail?.affectedDevices ?? {},
+            affectedVersions: detail?.affectedVersions ?? {},
+        };
+    }).sort((a, b) => new Date(b.lastOccurred).getTime() - new Date(a.lastOccurred).getTime());
 
     return {
         groups,
         summary: {
             issues: groups.length,
-            events: rows.length,
+            events: totalEvents,
             users: impactedUsers.size,
         },
-        truncated: rows.length >= STABILITY_OVERVIEW_ROW_LIMIT,
+        truncated: aggregateRows.length >= STABILITY_OVERVIEW_FP_LIMIT,
     };
 }
 
@@ -955,7 +1057,6 @@ router.get(
                 geoSummary: null,
                 retention: { rows: [] },
                 issues: [],
-                sessions: [],
                 failedSections: [],
             });
             return;
@@ -978,7 +1079,6 @@ router.get(
                     fetchOverviewSection(scope.cookieHeader, `/api/analytics/geo-summary?${scope.obsParams.toString()}`),
                     loadRetentionPreview(scope.scopedProjectIds, scope.normalizedTimeRange),
                     loadIssuePreview(scope.scopedProjectIds, scope.normalizedTimeRange),
-                    loadSessionPreview(scope.scopedProjectIds, scope.normalizedTimeRange),
                 ]);
 
                 const failedSections: string[] = [];
@@ -990,7 +1090,6 @@ router.get(
                     geoResult,
                     retentionResult,
                     issuesResult,
-                    sessionsResult,
                 ] = sections;
 
                 const response = {
@@ -1001,7 +1100,6 @@ router.get(
                     geoSummary: geoResult.status === 'fulfilled' ? geoResult.value : null,
                     retention: retentionResult.status === 'fulfilled' ? retentionResult.value : { rows: [] },
                     issues: issuesResult.status === 'fulfilled' ? issuesResult.value : [],
-                    sessions: sessionsResult.status === 'fulfilled' ? sessionsResult.value : [],
                     failedSections,
                 };
 
@@ -1012,7 +1110,6 @@ router.get(
                 if (geoResult.status !== 'fulfilled') failedSections.push('geographic activity');
                 if (retentionResult.status !== 'fulfilled') failedSections.push('retention cohorts');
                 if (issuesResult.status !== 'fulfilled') failedSections.push('top issues');
-                if (sessionsResult.status !== 'fulfilled') failedSections.push('recommended sessions');
 
                 for (const [sectionName, result] of [
                     ['trends', trendsResult],
@@ -1022,7 +1119,6 @@ router.get(
                     ['geoSummary', geoResult],
                     ['retention', retentionResult],
                     ['issues', issuesResult],
-                    ['sessions', sessionsResult],
                 ] as const) {
                     if (result.status === 'rejected') {
                         logger.warn({ err: result.reason, sectionName, projectId: scope.normalizedProjectId, timeRange: scope.normalizedTimeRange }, '[overview] section load failed');
@@ -1030,6 +1126,45 @@ router.get(
                 }
 
                 return response;
+            },
+        });
+    }),
+);
+
+router.get(
+    '/general/heavy',
+    sessionAuth,
+    asyncHandler(async (req, res) => {
+        const scope = await resolveOverviewScope(req);
+        if (scope.scopedProjectIds.length === 0) {
+            setOverviewCacheHeaders(res);
+            res.json({ sessions: [], failedSections: [] });
+            return;
+        }
+
+        await respondWithOverviewCache({
+            cacheKey: buildOverviewCacheKey('general:heavy', scope.scopedProjectIds, scope.normalizedTimeRange),
+            routeName: 'general:heavy',
+            res,
+            logContext: {
+                projectId: scope.normalizedProjectId,
+                timeRange: scope.normalizedTimeRange,
+            },
+            build: async () => {
+                const failedSections: string[] = [];
+                const [sessionsResult] = await Promise.allSettled([
+                    loadSessionPreview(scope.scopedProjectIds, scope.normalizedTimeRange),
+                ]);
+
+                if (sessionsResult.status !== 'fulfilled') {
+                    failedSections.push('recommended sessions');
+                    logger.warn({ err: sessionsResult.reason, projectId: scope.normalizedProjectId, timeRange: scope.normalizedTimeRange }, '[overview] heavy sessions load failed');
+                }
+
+                return {
+                    sessions: sessionsResult.status === 'fulfilled' ? sessionsResult.value : [],
+                    failedSections,
+                };
             },
         });
     }),

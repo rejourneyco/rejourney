@@ -25,6 +25,7 @@ import { Link, useNavigate } from 'react-router';
 import { useSessionData } from '~/shared/providers/SessionContext';
 import {
     getDashboardOverview,
+    getDashboardOverviewHeavy,
     getGrowthObservability,
     getObservabilityDeepMetrics,
     GeoSummary,
@@ -218,6 +219,7 @@ interface TopUserRecommendation {
     latestSession: RecordingSession;
     replayCount: number;
     totalDurationSeconds: number;
+    userFirstSeenAt?: string;
 }
 
 const RECOMMENDED_SESSION_PRIORITY_STYLES: Record<RecommendedSession['priority'], string> = {
@@ -337,6 +339,7 @@ function buildTopUsers(sessions: RecordingSession[]): TopUserRecommendation[] {
                 latestSession: session,
                 replayCount: 1,
                 totalDurationSeconds: session.durationSeconds || 0,
+                userFirstSeenAt: session.userFirstSeenAt,
             });
             continue;
         }
@@ -350,6 +353,9 @@ function buildTopUsers(sessions: RecordingSession[]): TopUserRecommendation[] {
         }
         if (new Date(session.startedAt).getTime() > new Date(existing.latestSession.startedAt).getTime()) {
             existing.latestSession = session;
+        }
+        if (session.userFirstSeenAt && (!existing.userFirstSeenAt || new Date(session.userFirstSeenAt) < new Date(existing.userFirstSeenAt))) {
+            existing.userFirstSeenAt = session.userFirstSeenAt;
         }
     }
 
@@ -712,6 +718,7 @@ export const GeneralOverview: React.FC = () => {
     const { timeRange, setTimeRange } = useSharedAnalyticsTimeRange(selectedProject?.id);
 
     const [isLoading, setIsLoading] = useState(true);
+    const [isHeavyLoading, setIsHeavyLoading] = useState(true);
     const [partialError, setPartialError] = useState<string | null>(null);
     const [trends, setTrends] = useState<InsightsTrends | null>(null);
     const [overviewObs, setOverviewObs] = useState<GrowthObservability | null>(null);
@@ -761,7 +768,6 @@ export const GeneralOverview: React.FC = () => {
             setEngagementTrends(null);
             setGeoSummary(null);
             setIssues([]);
-            setSessions([]);
             setRetentionCohortRows([]);
             return;
         }
@@ -781,7 +787,6 @@ export const GeneralOverview: React.FC = () => {
                 setGeoSummary(overviewData.geoSummary || null);
                 setRetentionCohortRows(overviewData.retention?.rows || []);
                 setIssues(overviewData.issues || []);
-                setSessions((overviewData.sessions || []) as RecordingSession[]);
 
                 if (overviewData.failedSections?.length) {
                     setPartialError(`Some widgets unavailable (${overviewData.failedSections.join(', ')}).`);
@@ -798,12 +803,41 @@ export const GeneralOverview: React.FC = () => {
                 setGeoSummary(null);
                 setRetentionCohortRows([]);
                 setIssues([]);
-                setSessions([]);
                 setPartialError('General overview unavailable.');
             })
             .finally(() => {
                 if (!isCancelled) {
                     setIsLoading(false);
+                }
+            });
+
+        return () => {
+            isCancelled = true;
+        };
+    }, [selectedProject?.id, timeRange]);
+
+    useEffect(() => {
+        if (!selectedProject?.id) {
+            setIsHeavyLoading(false);
+            setSessions([]);
+            return;
+        }
+
+        let isCancelled = false;
+        setIsHeavyLoading(true);
+
+        getDashboardOverviewHeavy(selectedProject.id, timeRange)
+            .then((heavyData) => {
+                if (isCancelled) return;
+                setSessions((heavyData.sessions || []) as RecordingSession[]);
+            })
+            .catch(() => {
+                if (isCancelled) return;
+                setSessions([]);
+            })
+            .finally(() => {
+                if (!isCancelled) {
+                    setIsHeavyLoading(false);
                 }
             });
 
@@ -1336,9 +1370,8 @@ export const GeneralOverview: React.FC = () => {
             || (engagementTrends?.daily?.length ?? 0) > 0
             || (geoSummary?.countries?.length ?? 0) > 0
             || issues.length > 0
-            || sessions.length > 0
         );
-    }, [trendChartData, overviewObs, deepMetrics, engagementTrends, geoSummary, issues.length, sessions.length]);
+    }, [trendChartData, overviewObs, deepMetrics, engagementTrends, geoSummary, issues.length]);
 
     if (isLoading && selectedProject?.id) {
         return <DashboardGhostLoader variant="overview" />;
@@ -1971,11 +2004,13 @@ export const GeneralOverview: React.FC = () => {
                                     <h2 className="text-lg font-black tracking-tight text-slate-700">Top Users</h2>
                                 </div>
                                 <NeoBadge variant="info" size="sm" className="shadow-none border-sky-200">
-                                    {topUsers.length}/20 users
+                                    {isHeavyLoading ? '…' : `${topUsers.length}/20 users`}
                                 </NeoBadge>
                             </div>
 
-                            {topUsers.length === 0 ? (
+                            {isHeavyLoading ? (
+                                <div className="h-[180px] animate-pulse rounded-xl bg-slate-100" />
+                            ) : topUsers.length === 0 ? (
                                 <EmptyStateCard
                                     title="No top users yet"
                                     subtitle="Top users will appear once replay data is available in this time window."
@@ -2050,7 +2085,7 @@ export const GeneralOverview: React.FC = () => {
                                                     <div>
                                                         <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">First Appeared</div>
                                                         <div className="mt-0.5 font-semibold text-slate-800">
-                                                            {new Date(firstSession.startedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                                                            {new Date(user.userFirstSeenAt ?? firstSession.startedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
                                                         </div>
                                                     </div>
                                                     <div>
@@ -2077,7 +2112,7 @@ export const GeneralOverview: React.FC = () => {
                                                             {deviceLabel}
                                                         </div>
                                                         <div className="mt-1 text-[10px] text-slate-500">
-                                                            First seen {formatLastSeen(firstSession.startedAt)} and last seen {formatLastSeen(session.startedAt)}
+                                                            First seen {formatLastSeen(user.userFirstSeenAt ?? firstSession.startedAt)} and last seen {formatLastSeen(session.startedAt)}
                                                         </div>
                                                         <div className="mt-1.5 flex min-w-0 flex-wrap gap-1.5">
                                                             <span className="inline-flex items-center rounded border border-slate-200 bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium uppercase text-slate-600">
@@ -2124,11 +2159,13 @@ export const GeneralOverview: React.FC = () => {
                                     </p>
                                 </div>
                                 <NeoBadge variant="neutral" size="sm" className="shadow-none border-slate-200">
-                                    {recommendedSessions.length} picks
+                                    {isHeavyLoading ? '…' : `${recommendedSessions.length} picks`}
                                 </NeoBadge>
                             </div>
 
-                            {recommendedSessions.length === 0 ? (
+                            {isHeavyLoading ? (
+                                <div className="h-[200px] animate-pulse rounded-xl bg-slate-100" />
+                            ) : recommendedSessions.length === 0 ? (
                                 <EmptyStateCard
                                     title="No recommended sessions"
                                     subtitle="Sessions will appear here once replay data is available in this time window."

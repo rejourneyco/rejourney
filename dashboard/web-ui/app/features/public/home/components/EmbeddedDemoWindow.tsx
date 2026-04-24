@@ -80,7 +80,7 @@ export const EmbeddedDemoWindow: React.FC = () => {
                                     tabIndex={-1}
                                 />
                             ) : (
-                                <div className="h-[560px] sm:h-[640px] md:h-[min(78vh,880px)] md:min-h-[680px] md:max-h-[880px] flex flex-col items-center justify-center gap-8 bg-white">
+                                <div className="py-14 flex flex-col items-center justify-center gap-8 bg-white">
                                     {/* Decorative grid background */}
                                     <div
                                         className="absolute inset-0 opacity-[0.04] pointer-events-none"

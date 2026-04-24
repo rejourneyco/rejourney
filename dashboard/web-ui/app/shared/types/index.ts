@@ -108,6 +108,8 @@ export interface RecordingSession {
   canOpenReplay?: boolean;
   /** True when this row is the first-ever session for this visitor (device → anonymous → user id) in the project. */
   isFirstSession?: boolean;
+  /** All-time first session date for this user identity, regardless of the current time-range filter. */
+  userFirstSeenAt?: string;
   // Joined/Hydrated data
   networkRequests?: ApiCall[];
   events?: SessionEvent[];
