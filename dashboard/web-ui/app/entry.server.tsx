@@ -105,12 +105,15 @@ function handleBrowserRequest(
     responseHeaders: Headers,
     routerContext: EntryContext
 ) {
+    // Wait for all Suspense boundaries before flushing. This avoids emitting
+    // React's streaming markers (<!--$?--> + $RC script), which Cloudflare's
+    // JS Detections iframe injection corrupts into a visible stray "$".
     return new Promise((resolve, reject) => {
         let shellRendered = false;
         const { pipe, abort } = renderToPipeableStream(
             <ServerRouter context={routerContext} url={request.url} />,
             {
-                onShellReady() {
+                onAllReady() {
                     shellRendered = true;
                     const body = new PassThrough();
                     const stream = createReadableStreamFromReadable(body);

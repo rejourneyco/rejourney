@@ -371,7 +371,6 @@ app.get('/health/debug', async (req, res) => {
         const redisClient = getRedis();
         const workerKeys = [
             'alerts:worker:last_run',
-            'dashboardPrewarmWorker:last_run',
             'ingestWorker:last_run',
             'retentionWorker:last_run',
             'statsAggregator:last_run',

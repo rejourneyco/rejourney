@@ -1937,6 +1937,7 @@ export interface InsightsTrends {
     errorCount: number;
     appVersionBreakdown: Record<string, number>;
     appVersionDauBreakdown?: Record<string, number>;
+    countryDauBreakdown?: Record<string, number>;
     totalApiCalls: number;
   }>;
   /** Last date (YYYY-MM-DD) for which rollups are complete. Metrics exclude days after this. */

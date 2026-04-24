@@ -1,8 +1,8 @@
 /**
  * Embedded Demo Window
- * 
- * A stylish macOS-style window that embeds the full demo experience
- * directly on the landing page via iframe.
+ *
+ * A macOS-style window that embeds the full demo experience
+ * directly on the landing page via iframe, loaded on user request.
  */
 
 import React, { useState } from 'react';
@@ -10,14 +10,14 @@ import { Link } from 'react-router';
 import { ExternalLink, Maximize2, Play } from 'lucide-react';
 
 export const EmbeddedDemoWindow: React.FC = () => {
-    const [isDemoLoaded, setIsDemoLoaded] = useState(false);
+    const [shouldLoadDemo, setShouldLoadDemo] = useState(false);
 
     return (
         <section
             aria-label="Interactive Demo"
             className="w-full px-4 sm:px-6 lg:px-8 py-24 sm:py-32 border-t-2 border-black bg-slate-50"
         >
-            {/* Embed must be >1280px wide (after borders) or Tailwind `xl:` breakpoints won’t apply inside the iframe. */}
+            {/* Embed must be >1280px wide (after borders) or Tailwind `xl:` breakpoints won't apply inside the iframe. */}
             <div className="max-w-[min(100%,1600px)] mx-auto">
                 {/* Section Header */}
                 <div className="mb-16 border-b-2 border-black pb-8 text-left">
@@ -69,26 +69,54 @@ export const EmbeddedDemoWindow: React.FC = () => {
                             </div>
                         </div>
 
-                        {/* Demo Content via iframe */}
+                        {/* Demo Content */}
                         <div className="relative bg-gray-100">
-                            {isDemoLoaded ? (
+                            {shouldLoadDemo ? (
                                 <iframe
                                     src="/demo"
                                     className="w-full border-0 h-[560px] sm:h-[640px] md:h-[min(78vh,880px)] md:min-h-[680px] md:max-h-[880px]"
                                     title="Rejourney Dashboard Demo"
-                                    loading="lazy"
+                                    loading="eager"
+                                    tabIndex={-1}
                                 />
                             ) : (
-                                <div className="flex h-[170px] items-center justify-center px-6 text-center sm:h-[200px] md:h-[240px]">
-                                    <div className="max-w-xl">
+                                <div className="h-[560px] sm:h-[640px] md:h-[min(78vh,880px)] md:min-h-[680px] md:max-h-[880px] flex flex-col items-center justify-center gap-8 bg-white">
+                                    {/* Decorative grid background */}
+                                    <div
+                                        className="absolute inset-0 opacity-[0.04] pointer-events-none"
+                                        style={{ backgroundImage: 'radial-gradient(#000 1px, transparent 0)', backgroundSize: '24px 24px' }}
+                                    />
+
+                                    {/* Preview mockup */}
+                                    <div className="relative z-10 flex flex-col items-center gap-6 px-4 text-center">
+                                        <div className="flex items-center gap-3">
+                                            <div className="w-2 h-2 rounded-full bg-red-400 border border-black" />
+                                            <div className="w-2 h-2 rounded-full bg-yellow-400 border border-black" />
+                                            <div className="w-2 h-2 rounded-full bg-green-400 border border-black" />
+                                        </div>
+
+                                        <div className="space-y-2">
+                                            <p className="text-[10px] font-black uppercase tracking-[0.2em] text-[#5dadec]">
+                                                Interactive Demo
+                                            </p>
+                                            <h3 className="text-2xl sm:text-3xl font-black uppercase tracking-tighter text-black">
+                                                See it in action
+                                            </h3>
+
+                                        </div>
+
+                                        {/* Launch button */}
                                         <button
-                                            type="button"
-                                            onClick={() => setIsDemoLoaded(true)}
-                                            className="inline-flex items-center gap-2 border-2 border-[#1c4fbf] bg-[#5dadec] px-5 py-3 text-sm font-black uppercase tracking-[0.2em] text-white [image-rendering:pixelated] shadow-[0_0_0_2px_#ffffff,6px_6px_0_0_#1c4fbf] transition-all duration-150 hover:-translate-y-0.5 hover:bg-[#4c9ddd] active:translate-y-[1px] active:shadow-[0_0_0_2px_#ffffff,3px_3px_0_0_#1c4fbf]"
+                                            onClick={() => setShouldLoadDemo(true)}
+                                            className="group relative flex items-center gap-3 border-2 border-black bg-black text-white px-8 py-4 text-sm font-black uppercase tracking-widest hover:bg-[#5dadec] hover:text-black hover:border-black transition-all duration-200 shadow-[6px_6px_0px_0px_rgba(0,0,0,0.2)] hover:shadow-[6px_6px_0px_0px_rgba(93,173,236,0.4)] hover:-translate-y-0.5"
                                         >
-                                            <Play size={16} className="stroke-[2.5]" />
-                                            Load Demo
+                                            <Play size={16} className="fill-current" />
+                                            Launch Demo
                                         </button>
+
+                                        <p className="text-[10px] font-mono text-gray-400 uppercase tracking-widest">
+                                            No sign-up required
+                                        </p>
                                     </div>
                                 </div>
                             )}
@@ -98,9 +126,7 @@ export const EmbeddedDemoWindow: React.FC = () => {
 
                 {/* CTA below the window */}
                 <div className="mt-6 sm:mt-8 text-center">
-
                     <div className="flex flex-wrap justify-center gap-3">
-
                         <Link
                             to="/demo"
                             className="inline-flex items-center gap-2 border-2 border-black bg-white text-black px-5 sm:px-6 py-3 text-sm font-black uppercase tracking-widest hover:bg-gray-50 hover:translate-x-1 hover:translate-y-1 hover:shadow-none transition-all shadow-[6px_6px_0px_0px_rgba(0,0,0,1)]"

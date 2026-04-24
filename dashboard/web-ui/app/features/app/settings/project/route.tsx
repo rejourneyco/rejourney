@@ -552,21 +552,21 @@ export const ProjectSettings: React.FC<SettingsProps> = ({ projectId: propProjec
 
             {/* Recording Status */}
             <section className="space-y-4">
-              <h2 className="text-xl font-semibold uppercase tracking-tight">Observability</h2>
+              <h2 className="text-xl font-semibold uppercase tracking-tight">Remote Observability Toggles</h2>
 
               <NeoCard className="p-6">
                 <div className="flex items-start justify-between gap-6">
                   <div className="flex-1">
                     <div className="flex items-center gap-3 mb-2">
-                      <h3 className="text-lg font-bold uppercase">Rejourney Status</h3>
+                      <h3 className="text-lg font-bold uppercase">Rejourney SDK Master Switch</h3>
                       <NeoBadge variant={rejourneyEnabled ? 'success' : 'neutral'}>
                         {rejourneyEnabled ? 'Active' : 'Disabled'}
                       </NeoBadge>
                     </div>
                     <p className="text-sm text-slate-600 mb-4 font-medium">
                       {rejourneyEnabled
-                        ? 'Rejourney is enabled. The SDK will collect observability analytics for this project.'
-                        : 'Rejourney is disabled. The SDK will not initialize or send any data for this project.'}
+                        ? 'Rejourney is enabled. The SDK will initialize normally and collect observability data for this project.'
+                        : 'Rejourney is completely disabled. The SDK will not initialize, and no data will be collected or sent from the device.'}
                     </p>
                     {!rejourneyEnabled && (
                       <div className="bg-amber-50 text-amber-800 text-[10px] font-bold uppercase p-2 border border-amber-200 inline-flex items-center gap-1 tracking-wide">
@@ -594,15 +594,15 @@ export const ProjectSettings: React.FC<SettingsProps> = ({ projectId: propProjec
                 <div className="flex items-start justify-between gap-6">
                   <div className="flex-1">
                     <div className="flex items-center gap-3 mb-2">
-                      <h3 className="text-lg font-bold uppercase">Session Replay Recording</h3>
-                      <NeoBadge variant={recordingEnabled ? 'success' : 'neutral'}>
-                        {recordingEnabled ? 'Active' : 'Disabled'}
+                      <h3 className="text-lg font-bold uppercase">Observe Only Mode</h3>
+                      <NeoBadge variant={!recordingEnabled ? 'success' : 'neutral'}>
+                        {!recordingEnabled ? 'Active' : 'Disabled'}
                       </NeoBadge>
                     </div>
                     <p className="text-sm text-slate-600 mb-4 font-medium">
                       {recordingEnabled
                         ? 'Session replays will be captured and uploaded for this project.'
-                        : 'Recording is disabled. Replays will not be captured.'}
+                        : 'Observe Only Mode is active. Recording is disabled. Replays will not be captured, but each session is observed for analytics and issues.'}
                     </p>
                     {!recordingEnabled && (
                       <div className="bg-amber-50 text-amber-800 text-[10px] font-bold uppercase p-2 border border-amber-200 inline-flex items-center gap-1 tracking-wide">
