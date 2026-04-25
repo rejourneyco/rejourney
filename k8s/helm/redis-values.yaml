@@ -22,7 +22,7 @@ commonConfiguration: |-
 
 sentinel:
   enabled: true
-  quorum: 1        # single-node for now; Part 2 raises to 2
+  quorum: 2
   # Bitnami's `resourcesPreset` ("nano" by default) silently overrides `resources:` —
   # must be set to "none" for our explicit limits below to take effect.
   resourcesPreset: "none"
@@ -35,7 +35,16 @@ sentinel:
       memory: 128Mi
 
 replica:
-  replicaCount: 1  # single redis-node for now; raise once the cluster spans nodes
+  replicaCount: 2
+  affinity:
+    podAntiAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 100
+          podAffinityTerm:
+            labelSelector:
+              matchLabels:
+                app.kubernetes.io/name: redis
+            topologyKey: kubernetes.io/hostname
   configuration: |
     maxmemory 900mb
     maxmemory-policy allkeys-lru
