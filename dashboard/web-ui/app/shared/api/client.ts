@@ -306,6 +306,7 @@ export interface ApiSession {
   isLiveIngest?: boolean;
   isBackgroundProcessing?: boolean;
   canOpenReplay?: boolean;
+  isFirstSession?: boolean;
 }
 
 export interface ApiSessionSummary {
@@ -344,6 +345,7 @@ export interface ApiSessionSummary {
   isLiveIngest?: boolean;
   isBackgroundProcessing?: boolean;
   canOpenReplay?: boolean;
+  isFirstSession?: boolean;
 }
 
 export interface DashboardStats {
@@ -741,6 +743,7 @@ export function transformToRecordingSession(session: ApiSession | ApiSessionSumm
     customEventCount: (summary.customEventCount ?? metrics.customEventCount ?? 0),
     // Canonical replay availability flag derived from successful screenshot capture.
     hasSuccessfulRecording: (session as any).hasSuccessfulRecording ?? false,
+    isFirstSession: Boolean((session as any).isFirstSession),
 
     isReplayExpired: (session as any).isReplayExpired ?? false,
     // Network quality
@@ -2155,6 +2158,16 @@ export async function getFrictionHeatmap(projectId?: string, timeRange?: string)
  * API Latency by Location response type
  */
 export interface ApiLatencyByLocationResponse {
+  locations?: {
+    country: string;
+    city: string;
+    lat: number;
+    lng: number;
+    totalRequests: number;
+    avgLatencyMs: number;
+    successRate: number;
+    errorCount: number;
+  }[];
   regions: {
     country: string;
     totalRequests: number;

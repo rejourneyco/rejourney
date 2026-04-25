@@ -551,37 +551,13 @@ const TOP_USERS_LIMIT = 20;
 async function loadTopUsersPreview(projectIds: string[], timeRange?: string) {
     if (projectIds.length === 0) return [];
 
-    const conditions = [inArray(sessions.projectId, projectIds)];
     const startedAfter = buildStartedAfter(timeRange);
-    if (startedAfter) {
-        conditions.push(gte(sessions.startedAt, startedAfter));
-    }
+    const startedAfterClause = startedAfter ? sql`AND ${sessions.startedAt} >= ${startedAfter}` : sql``;
 
-    const identityExpr = sql<string>`coalesce(nullif(trim(${sessions.userDisplayId}), ''), nullif(trim(${sessions.anonymousHash}), ''), ${sessions.deviceId})`;
-
-    // Query A: aggregate stats per user — accurate counts across entire time window
-    const userStats = await db
-        .select({
-            userKey: identityExpr,
-            userDisplayId: sessions.userDisplayId,
-            anonymousHash: sessions.anonymousHash,
-            deviceId: sessions.deviceId,
-            sessionCount: sql<number>`cast(count(*) as int)`,
-            totalDurationSeconds: sql<number>`cast(sum(coalesce(${sessions.durationSeconds}, 0)) as int)`,
-        })
-        .from(sessions)
-        .where(and(...conditions, sql`${identityExpr} is not null`))
-        .groupBy(identityExpr, sessions.userDisplayId, sessions.anonymousHash, sessions.deviceId)
-        .orderBy(desc(sql`count(*)`))
-        .limit(TOP_USERS_LIMIT);
-
-    if (userStats.length === 0) return [];
-
-    const topUserKeys = userStats.map((u) => u.userKey).filter(Boolean);
-
-    // Query B: latest session per user via DISTINCT ON — gives full session context for display
-    const latestRows = await db.execute<{
+    const topRows = await db.execute<{
         user_key: string;
+        session_count: number;
+        total_duration_seconds: number | null;
         id: string;
         project_id: string;
         started_at: Date;
@@ -610,24 +586,103 @@ async function loadTopUsersPreview(projectIds: string[], timeRange?: string) {
         is_replay_expired: boolean;
         replay_available: boolean | null;
     }>(sql`
-        SELECT DISTINCT ON (${identityExpr})
-            ${identityExpr} AS user_key,
-            ${sessions.id}, ${sessions.projectId}, ${sessions.startedAt}, ${sessions.endedAt},
-            ${sessions.durationSeconds}, ${sessions.platform}, ${sessions.appVersion},
-            ${sessions.deviceModel}, ${sessions.osVersion},
-            ${sessions.userDisplayId}, ${sessions.anonymousDisplayId}, ${sessions.anonymousHash}, ${sessions.deviceId},
-            ${sessions.geoCity}, ${sessions.geoRegion}, ${sessions.geoCountry}, ${sessions.geoCountryCode},
-            ${sessions.geoLatitude}, ${sessions.geoLongitude}, ${sessions.geoTimezone},
-            ${sessions.status}, ${sessions.recordingDeleted}, ${sessions.recordingDeletedAt},
-            ${sessions.retentionDays}, ${sessions.retentionTier}, ${sessions.isReplayExpired}, ${sessions.replayAvailable}
-        FROM ${sessions}
-        WHERE ${inArray(sessions.projectId, projectIds)}
-          AND ${identityExpr} = ANY(${topUserKeys})
-        ORDER BY ${identityExpr}, ${sessions.startedAt} DESC
+        WITH filtered AS (
+            SELECT
+                ${sessions.id},
+                ${sessions.projectId},
+                ${sessions.startedAt},
+                ${sessions.endedAt},
+                ${sessions.durationSeconds},
+                ${sessions.platform},
+                ${sessions.appVersion},
+                ${sessions.deviceModel},
+                ${sessions.osVersion},
+                ${sessions.userDisplayId},
+                ${sessions.anonymousDisplayId},
+                ${sessions.anonymousHash},
+                ${sessions.deviceId},
+                ${sessions.geoCity},
+                ${sessions.geoRegion},
+                ${sessions.geoCountry},
+                ${sessions.geoCountryCode},
+                ${sessions.geoLatitude},
+                ${sessions.geoLongitude},
+                ${sessions.geoTimezone},
+                ${sessions.status},
+                ${sessions.recordingDeleted},
+                ${sessions.recordingDeletedAt},
+                ${sessions.retentionDays},
+                ${sessions.retentionTier},
+                ${sessions.isReplayExpired},
+                ${sessions.replayAvailable},
+                CASE
+                    WHEN nullif(trim(${sessions.userDisplayId}), '') IS NOT NULL THEN 'user:' || nullif(trim(${sessions.userDisplayId}), '')
+                    WHEN nullif(trim(${sessions.anonymousDisplayId}), '') IS NOT NULL THEN 'anon:' || nullif(trim(${sessions.anonymousDisplayId}), '')
+                    WHEN nullif(trim(${sessions.anonymousHash}), '') IS NOT NULL THEN 'hash:' || nullif(trim(${sessions.anonymousHash}), '')
+                    WHEN nullif(trim(${sessions.deviceId}), '') IS NOT NULL THEN 'device:' || nullif(trim(${sessions.deviceId}), '')
+                    ELSE NULL
+                END AS user_key
+            FROM ${sessions}
+            WHERE ${inArray(sessions.projectId, projectIds)}
+              ${startedAfterClause}
+        ),
+        ranked AS (
+            SELECT
+                user_key,
+                cast(count(*) as int) AS session_count,
+                cast(sum(coalesce(duration_seconds, 0)) as int) AS total_duration_seconds,
+                max(started_at) AS latest_started_at
+            FROM filtered
+            WHERE user_key IS NOT NULL
+            GROUP BY user_key
+            ORDER BY count(*) DESC, max(started_at) DESC
+            LIMIT ${TOP_USERS_LIMIT}
+        ),
+        latest AS (
+            SELECT DISTINCT ON (filtered.user_key) filtered.*
+            FROM filtered
+            JOIN ranked ON ranked.user_key = filtered.user_key
+            ORDER BY filtered.user_key, filtered.started_at DESC, filtered.id DESC
+        )
+        SELECT
+            ranked.user_key,
+            ranked.session_count,
+            ranked.total_duration_seconds,
+            latest.id,
+            latest.project_id,
+            latest.started_at,
+            latest.ended_at,
+            latest.duration_seconds,
+            latest.platform,
+            latest.app_version,
+            latest.device_model,
+            latest.os_version,
+            latest.user_display_id,
+            latest.anonymous_display_id,
+            latest.anonymous_hash,
+            latest.device_id,
+            latest.geo_city,
+            latest.geo_region,
+            latest.geo_country,
+            latest.geo_country_code,
+            latest.geo_latitude,
+            latest.geo_longitude,
+            latest.geo_timezone,
+            latest.status,
+            latest.recording_deleted,
+            latest.recording_deleted_at,
+            latest.retention_days,
+            latest.retention_tier,
+            latest.is_replay_expired,
+            latest.replay_available
+        FROM ranked
+        JOIN latest ON latest.user_key = ranked.user_key
+        ORDER BY ranked.session_count DESC, ranked.latest_started_at DESC
     `);
 
-    const latestResult: Array<{
-        user_key: string; id: string; project_id: string; started_at: Date; ended_at: Date | null;
+    const topResult: Array<{
+        user_key: string; session_count: number; total_duration_seconds: number | null;
+        id: string; project_id: string; started_at: Date; ended_at: Date | null;
         duration_seconds: number | null; platform: string | null; app_version: string | null;
         device_model: string | null; os_version: string | null; user_display_id: string | null;
         anonymous_display_id: string | null; anonymous_hash: string | null; device_id: string | null;
@@ -636,11 +691,13 @@ async function loadTopUsersPreview(projectIds: string[], timeRange?: string) {
         geo_timezone: string | null; status: string; recording_deleted: boolean;
         recording_deleted_at: Date | null; retention_days: number | null; retention_tier: string | null;
         is_replay_expired: boolean; replay_available: boolean | null;
-    }> = Array.isArray(latestRows) ? latestRows : (latestRows as any).rows ?? [];
+    }> = Array.isArray(topRows) ? topRows : (topRows as any).rows ?? [];
+
+    if (topResult.length === 0) return [];
 
     const firstSeenMap = await loadUserFirstSeenMap(
         projectIds,
-        latestResult.map((r) => ({
+        topResult.map((r) => ({
             userDisplayId: r.user_display_id,
             anonymousDisplayId: r.anonymous_display_id,
             anonymousHash: r.anonymous_hash,
@@ -648,23 +705,19 @@ async function loadTopUsersPreview(projectIds: string[], timeRange?: string) {
         })),
     );
 
-    const latestByUserKey = new Map(latestResult.map((r) => [r.user_key, r]));
+    return topResult.map((latest) => {
+        const identityKey = latest.user_display_id
+            ? `user:${latest.user_display_id}`
+            : latest.anonymous_display_id
+            ? `anon:${latest.anonymous_display_id}`
+            : latest.anonymous_hash
+            ? `hash:${latest.anonymous_hash}`
+            : `device:${latest.device_id}`;
+        const userFirstSeenAt = firstSeenMap.get(identityKey);
 
-    return userStats
-        .map((stats) => {
-            const latest = latestByUserKey.get(stats.userKey);
-            if (!latest) return null;
-
-            const identityKey = latest.user_display_id
-                ? `user:${latest.user_display_id}`
-                : latest.anonymous_hash
-                ? `hash:${latest.anonymous_hash}`
-                : `device:${latest.device_id}`;
-            const userFirstSeenAt = firstSeenMap.get(identityKey);
-
-            return {
-                sessionCount: stats.sessionCount,
-                totalDurationSeconds: stats.totalDurationSeconds ?? 0,
+        return {
+                sessionCount: latest.session_count,
+                totalDurationSeconds: latest.total_duration_seconds ?? 0,
                 userFirstSeenAt: userFirstSeenAt?.toISOString(),
                 latestSession: {
                     id: latest.id,
@@ -715,8 +768,7 @@ async function loadTopUsersPreview(projectIds: string[], timeRange?: string) {
                     customEventCount: 0, crashCount: 0, anrCount: 0,
                 },
             };
-        })
-        .filter((item): item is NonNullable<typeof item> => item !== null);
+    });
 }
 
 function toRatePer100(value: number, total: number): number {

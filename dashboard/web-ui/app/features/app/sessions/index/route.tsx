@@ -920,6 +920,14 @@ export const RecordingsList: React.FC = () => {
                 </div>
 
                 <div className="mt-3 flex flex-wrap gap-1.5">
+                  {session.isFirstSession && (
+                    <span
+                      className="inline-flex items-center rounded-md border border-emerald-800 bg-emerald-950/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-tight text-emerald-900"
+                      title="First recorded session for this visitor in this project"
+                    >
+                      NEW USER
+                    </span>
+                  )}
                   {!hasIssues && <NeoBadge variant="success" size="sm">HEALTHY</NeoBadge>}
                   {(session.crashCount || 0) > 0 && <NeoBadge variant="danger" size="sm">CRASH</NeoBadge>}
                   {((session as any).anrCount || 0) > 0 && <NeoBadge variant="neutral" size="sm">ANR</NeoBadge>}

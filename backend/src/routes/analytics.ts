@@ -1505,7 +1505,7 @@ router.get(
         const apiTotalExpr = sql`coalesce(${sessionMetrics.apiTotalCount}, 0)`;
         const weightedLatencySum = sql<number>`sum(coalesce(${sessionMetrics.apiAvgResponseMs}, 0)::numeric * coalesce(${sessionMetrics.apiTotalCount}, 0)::numeric)`;
 
-        const aggRows = await db
+        const countryAggRows = await db
             .select({
                 country: sessions.geoCountry,
                 totalRequests: sql<number>`sum(${apiTotalExpr})::bigint`,
@@ -1519,10 +1519,27 @@ router.get(
             .groupBy(sessions.geoCountry)
             .having(sql`sum(${apiTotalExpr}) > 0`);
 
+        const locationAggRows = await db
+            .select({
+                country: sessions.geoCountry,
+                city: sessions.geoCity,
+                latitude: sql<number>`min(${sessions.geoLatitude})`,
+                longitude: sql<number>`min(${sessions.geoLongitude})`,
+                totalRequests: sql<number>`sum(${apiTotalExpr})::bigint`,
+                weightedLatency: weightedLatencySum,
+                successCount: sql<number>`sum(coalesce(${sessionMetrics.apiSuccessCount}, 0))::bigint`,
+                errorCount: sql<number>`sum(coalesce(${sessionMetrics.apiErrorCount}, 0))::bigint`,
+            })
+            .from(sessions)
+            .leftJoin(sessionMetrics, eq(sessions.id, sessionMetrics.sessionId))
+            .where(and(...conditions, isNotNull(sessions.geoCity), isNotNull(sessions.geoLatitude), isNotNull(sessions.geoLongitude)))
+            .groupBy(sessions.geoCountry, sessions.geoCity)
+            .having(sql`sum(${apiTotalExpr}) > 0`);
+
         let globalTotalRequests = 0;
         let globalWeightedLatency = 0;
 
-        const regions = aggRows
+        const regions = countryAggRows
             .filter((row) => Boolean(row.country))
             .map((row) => {
                 const totalRequests = Number(row.totalRequests || 0);
@@ -1541,7 +1558,28 @@ router.get(
             })
             .sort((a, b) => b.totalRequests - a.totalRequests);
 
+        const locations = locationAggRows
+            .filter((row) => Boolean(row.country) && Boolean(row.city) && row.latitude !== null && row.longitude !== null)
+            .map((row) => {
+                const totalRequests = Number(row.totalRequests || 0);
+                const weighted = Number(row.weightedLatency || 0);
+                const successCount = Number(row.successCount || 0);
+                const errorCount = Number(row.errorCount || 0);
+                return {
+                    country: row.country as string,
+                    city: row.city as string,
+                    lat: Number(row.latitude),
+                    lng: Number(row.longitude),
+                    totalRequests,
+                    avgLatencyMs: totalRequests > 0 ? Math.round(weighted / totalRequests) : 0,
+                    successRate: totalRequests > 0 ? Math.round((successCount / totalRequests) * 100) : 0,
+                    errorCount,
+                };
+            })
+            .sort((a, b) => b.totalRequests - a.totalRequests);
+
         const result = {
+            locations,
             regions,
             summary: {
                 avgLatency: globalTotalRequests > 0

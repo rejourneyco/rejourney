@@ -125,19 +125,32 @@ export const demoApiEndpointStats: ApiEndpointStats = {
 };
 
 export const demoApiLatencyByLocation: ApiLatencyByLocationResponse = {
+    locations: [
+        { country: 'United States', city: 'New York', lat: 40.7128, lng: -74.006, totalRequests: 64214, avgLatencyMs: 134, successRate: 99, errorCount: 642 },
+        { country: 'United States', city: 'San Francisco', lat: 37.7749, lng: -122.4194, totalRequests: 38421, avgLatencyMs: 188, successRate: 98, errorCount: 769 },
+        { country: 'United Kingdom', city: 'London', lat: 51.5074, lng: -0.1278, totalRequests: 45678, avgLatencyMs: 178, successRate: 98, errorCount: 822 },
+        { country: 'Germany', city: 'Berlin', lat: 52.52, lng: 13.405, totalRequests: 34567, avgLatencyMs: 156, successRate: 99, errorCount: 484 },
+        { country: 'Japan', city: 'Tokyo', lat: 35.6762, lng: 139.6503, totalRequests: 23456, avgLatencyMs: 89, successRate: 99, errorCount: 188 },
+        { country: 'Canada', city: 'Toronto', lat: 43.6532, lng: -79.3832, totalRequests: 23456, avgLatencyMs: 189, successRate: 98, errorCount: 446 },
+        { country: 'Palestine', city: 'Turmus Ayya', lat: 32.0354, lng: 35.2856, totalRequests: 11284, avgLatencyMs: 112, successRate: 99, errorCount: 74 },
+        { country: 'Australia', city: 'Sydney', lat: -33.8688, lng: 151.2093, totalRequests: 18765, avgLatencyMs: 1280, successRate: 92, errorCount: 1426 },
+        { country: 'Brazil', city: 'São Paulo', lat: -23.5505, lng: -46.6333, totalRequests: 15678, avgLatencyMs: 720, successRate: 96, errorCount: 658 },
+        { country: 'India', city: 'Mumbai', lat: 19.076, lng: 72.8777, totalRequests: 12345, avgLatencyMs: 980, successRate: 94, errorCount: 728 },
+    ],
     regions: [
         { country: 'United States', totalRequests: 156789, avgLatencyMs: 134, successRate: 98.8, errorCount: 1881 },
         { country: 'United Kingdom', totalRequests: 45678, avgLatencyMs: 178, successRate: 98.2, errorCount: 822 },
         { country: 'Germany', totalRequests: 34567, avgLatencyMs: 156, successRate: 98.6, errorCount: 484 },
         { country: 'Japan', totalRequests: 23456, avgLatencyMs: 89, successRate: 99.2, errorCount: 188 },
         { country: 'Canada', totalRequests: 23456, avgLatencyMs: 189, successRate: 98.1, errorCount: 446 },
-        { country: 'Australia', totalRequests: 18765, avgLatencyMs: 298, successRate: 97.4, errorCount: 488 },
-        { country: 'Brazil', totalRequests: 15678, avgLatencyMs: 387, successRate: 96.8, errorCount: 502 },
-        { country: 'India', totalRequests: 12345, avgLatencyMs: 456, successRate: 95.9, errorCount: 506 },
+        { country: 'Palestine', totalRequests: 11284, avgLatencyMs: 112, successRate: 99.3, errorCount: 74 },
+        { country: 'Australia', totalRequests: 18765, avgLatencyMs: 1280, successRate: 92.4, errorCount: 1426 },
+        { country: 'Brazil', totalRequests: 15678, avgLatencyMs: 720, successRate: 95.8, errorCount: 658 },
+        { country: 'India', totalRequests: 12345, avgLatencyMs: 980, successRate: 94.1, errorCount: 728 },
     ],
     summary: {
-        avgLatency: 221,
-        totalRequests: 330734,
+        avgLatency: 262,
+        totalRequests: 342018,
     },
 };
 
@@ -401,6 +414,7 @@ export const demoGeoIssues: GeoIssuesSummary = {
         { city: 'Berlin', country: 'Germany', lat: 52.52, lng: 13.405, sessions: 654, uniqueUsers: 488, issues: { total: 123, crashes: 4, anrs: 1, errors: 45, rageTaps: 66, apiErrors: 7 }, growthRate: -1.2 },
         { city: 'Tokyo', country: 'Japan', lat: 35.6762, lng: 139.6503, sessions: 543, uniqueUsers: 401, issues: { total: 89, crashes: 3, anrs: 0, errors: 34, rageTaps: 48, apiErrors: 4 }, growthRate: 3.8 },
         { city: 'Toronto', country: 'Canada', lat: 43.6532, lng: -79.3832, sessions: 432, uniqueUsers: 319, issues: { total: 98, crashes: 4, anrs: 1, errors: 36, rageTaps: 52, apiErrors: 5 }, growthRate: 16.7 },
+        { city: 'Turmus Ayya', country: 'Palestine', lat: 32.0354, lng: 35.2856, sessions: 386, uniqueUsers: 291, issues: { total: 24, crashes: 0, anrs: 0, errors: 7, rageTaps: 13, apiErrors: 4 }, growthRate: 24.6 },
         { city: 'Sydney', country: 'Australia', lat: -33.8688, lng: 151.2093, sessions: 321, uniqueUsers: 236, issues: { total: 76, crashes: 2, anrs: 1, errors: 28, rageTaps: 42, apiErrors: 3 }, growthRate: 5.1 },
         { city: 'São Paulo', country: 'Brazil', lat: -23.5505, lng: -46.6333, sessions: 210, uniqueUsers: 161, issues: { total: 112, crashes: 8, anrs: 4, errors: 45, rageTaps: 49, apiErrors: 6 }, growthRate: 18.9 },
         { city: 'Mumbai', country: 'India', lat: 19.076, lng: 72.8777, sessions: 189, uniqueUsers: 148, issues: { total: 98, crashes: 7, anrs: 3, errors: 42, rageTaps: 38, apiErrors: 8 }, growthRate: 42.1 },
