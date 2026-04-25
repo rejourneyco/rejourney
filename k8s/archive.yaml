@@ -2335,6 +2335,15 @@ spec:
       template:
         spec:
           restartPolicy: OnFailure
+          affinity:
+            nodeAffinity:
+              preferredDuringSchedulingIgnoredDuringExecution:
+                - weight: 100
+                  preference:
+                    matchExpressions:
+                      - key: workload
+                        operator: In
+                        values: ["worker"]
           volumes:
             - name: backup-script
               configMap:
@@ -2457,6 +2466,15 @@ spec:
       template:
         spec:
           restartPolicy: OnFailure
+          affinity:
+            nodeAffinity:
+              preferredDuringSchedulingIgnoredDuringExecution:
+                - weight: 100
+                  preference:
+                    matchExpressions:
+                      - key: workload
+                        operator: In
+                        values: ["worker"]
           volumes:
             - name: backup-script
               configMap:

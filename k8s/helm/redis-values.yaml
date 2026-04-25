@@ -6,8 +6,9 @@
 #   helm upgrade redis bitnami/redis -n rejourney -f k8s/helm/redis-values.yaml
 #
 # This mirrors the current single-node production deployment after moving Redis
-# back to local storage. When we add more nodes later, we can raise the replica
-# count and quorum without changing the service names.
+# back to local storage. In Bitnami's Sentinel topology, `replica.replicaCount`
+# is the redis-node StatefulSet size. Keep it at 1 for the single-node cluster;
+# setting it to 0 scales Redis itself to zero.
 
 architecture: replication
 
@@ -34,7 +35,21 @@ sentinel:
       memory: 128Mi
 
 replica:
-  replicaCount: 0  # single-node for now; raise once the cluster spans nodes
+  replicaCount: 1  # single redis-node for now; raise once the cluster spans nodes
+  configuration: |
+    maxmemory 900mb
+    maxmemory-policy allkeys-lru
+    save 900 1
+  # In Sentinel mode the redis-node StatefulSet reads resources from the
+  # replica block, even when the single pod is acting as the master.
+  resourcesPreset: "none"
+  resources:
+    requests:
+      cpu: 300m
+      memory: 512Mi
+    limits:
+      cpu: "1500m"
+      memory: 1536Mi
 
 global:
   # Safe Phase 1 prep: changing this does not move the existing live PVC.

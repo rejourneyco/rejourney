@@ -5,7 +5,7 @@
 #
 # Helm release: redis  (namespace: rejourney)
 # Chart:        bitnami/redis  v25+
-# Install:      helm upgrade --install redis bitnami/redis -n rejourney -f k8s/redis-values.yaml
+# Install:      helm upgrade --install redis bitnami/redis -n rejourney -f k8s/helm/redis-values.yaml
 #
 # Key resources created by the chart (do NOT manage these with kubectl apply):
 #   StatefulSet:  redis-node          (master + sentinel in each pod)

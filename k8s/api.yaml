@@ -42,6 +42,15 @@ spec:
         app: api
     spec:
       terminationGracePeriodSeconds: 30
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app: api
+                topologyKey: kubernetes.io/hostname
       imagePullSecrets:
         - name: ghcr-secret
       securityContext:
@@ -325,6 +334,15 @@ spec:
         app: ingest-upload
     spec:
       terminationGracePeriodSeconds: 30
+      affinity:
+        nodeAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              preference:
+                matchExpressions:
+                  - key: workload
+                    operator: In
+                    values: ["worker"]
       imagePullSecrets:
         - name: ghcr-secret
       securityContext:

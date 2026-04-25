@@ -343,6 +343,7 @@ main() {
     --prune-allowlist=apps/v1/StatefulSet \
     --prune-allowlist=networking.k8s.io/v1/Ingress \
     --prune-allowlist=traefik.io/v1alpha1/Middleware \
+    --prune-allowlist=autoscaling/v2/HorizontalPodAutoscaler \
     --prune-allowlist=batch/v1/CronJob \
     --prune-allowlist=batch/v1/Job \
     --prune-allowlist=policy/v1/PodDisruptionBudget

@@ -25,6 +25,15 @@ spec:
         app: ingest-worker
     spec:
       terminationGracePeriodSeconds: 60
+      affinity:
+        nodeAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              preference:
+                matchExpressions:
+                  - key: workload
+                    operator: In
+                    values: ["worker"]
       imagePullSecrets:
         - name: ghcr-secret
       securityContext:
@@ -187,6 +196,15 @@ spec:
         app: replay-worker
     spec:
       terminationGracePeriodSeconds: 60
+      affinity:
+        nodeAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              preference:
+                matchExpressions:
+                  - key: workload
+                    operator: In
+                    values: ["worker"]
       imagePullSecrets:
         - name: ghcr-secret
       securityContext:
@@ -305,6 +323,15 @@ spec:
         app: session-lifecycle-worker
     spec:
       terminationGracePeriodSeconds: 60
+      affinity:
+        nodeAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              preference:
+                matchExpressions:
+                  - key: workload
+                    operator: In
+                    values: ["worker"]
       imagePullSecrets:
         - name: ghcr-secret
       securityContext:
@@ -377,6 +404,15 @@ spec:
             app: retention-worker
         spec:
           restartPolicy: OnFailure
+          affinity:
+            nodeAffinity:
+              preferredDuringSchedulingIgnoredDuringExecution:
+                - weight: 100
+                  preference:
+                    matchExpressions:
+                      - key: workload
+                        operator: In
+                        values: ["worker"]
           imagePullSecrets:
             - name: ghcr-secret
           securityContext:
@@ -509,6 +545,15 @@ spec:
       labels:
         app: alert-worker
     spec:
+      affinity:
+        nodeAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              preference:
+                matchExpressions:
+                  - key: workload
+                    operator: In
+                    values: ["worker"]
       imagePullSecrets:
         - name: ghcr-secret
       securityContext:
@@ -636,6 +681,15 @@ spec:
             app: stripe-sync-worker
         spec:
           restartPolicy: OnFailure
+          affinity:
+            nodeAffinity:
+              preferredDuringSchedulingIgnoredDuringExecution:
+                - weight: 100
+                  preference:
+                    matchExpressions:
+                      - key: workload
+                        operator: In
+                        values: ["worker"]
           imagePullSecrets:
             - name: ghcr-secret
           securityContext:
