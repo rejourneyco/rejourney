@@ -5,10 +5,10 @@
 #   helm install redis bitnami/redis -n rejourney -f k8s/helm/redis-values.yaml
 #   helm upgrade redis bitnami/redis -n rejourney -f k8s/helm/redis-values.yaml
 #
-# This mirrors the current single-node production deployment after moving Redis
-# back to local storage. In Bitnami's Sentinel topology, `replica.replicaCount`
-# is the redis-node StatefulSet size. Keep it at 1 for the single-node cluster;
-# setting it to 0 scales Redis itself to zero.
+# Bitnami Sentinel topology: `replica.replicaCount` is the redis-node StatefulSet
+# size. quorum: 1 means any single surviving Sentinel can elect a new master —
+# correct for a 2-sentinel cluster. redis-node-0 on fsn1, redis-node-1 on
+# quorum-1 (preferred anti-affinity keeps them on separate nodes).
 
 architecture: replication
 
@@ -22,7 +22,11 @@ commonConfiguration: |-
 
 sentinel:
   enabled: true
-  quorum: 2
+  # quorum: 1 is correct for a 2-sentinel cluster. quorum: 2 would require BOTH
+  # sentinels alive to agree on failover — if the master's node dies, neither
+  # sentinel can meet quorum and Redis gets stuck. With quorum: 1, any single
+  # surviving sentinel can promote a new master.
+  quorum: 1
   # Bitnami's `resourcesPreset` ("nano" by default) silently overrides `resources:` —
   # must be set to "none" for our explicit limits below to take effect.
   resourcesPreset: "none"
@@ -54,8 +58,8 @@ replica:
   resourcesPreset: "none"
   resources:
     requests:
-      cpu: 300m
-      memory: 512Mi
+      cpu: 75m
+      memory: 256Mi
     limits:
       cpu: "1500m"
       memory: 1536Mi
@@ -80,8 +84,8 @@ master:
   resourcesPreset: "none"
   resources:
     requests:
-      cpu: 300m
-      memory: 512Mi
+      cpu: 75m
+      memory: 256Mi
     limits:
       cpu: "1500m"
       memory: 1536Mi
