@@ -1,6 +1,6 @@
 # All Things Cloud
 
-Last updated: 2026-04-23
+Last updated: 2026-04-25
 
 This is the operator-facing map of production: network path, deploy flow, storage layout, monitoring, backups, and the runtime services we actually have today.
 
@@ -22,6 +22,64 @@ Related docs:
 - [postgres-backup-and-restore.md](./postgres-backup-and-restore.md)
 - sibling repo `rejourney-internal/dev_docs/`
 
+## Architecture
+
+```mermaid
+graph TD
+    subgraph Internet
+        CF[Cloudflare DNS/TLS/WAF]
+    end
+    subgraph Hetzner["Hetzner eu-central (FSN1 + HEL1)"]
+        LB[Hetzner Load Balancer\nFSN1]
+        subgraph fsn1["fsn1 — CPX42 12vCPU/24GB"]
+            TR0[Traefik replica-0]
+            API0[api ×4-12]
+            WEB0[web]
+            PG1[postgres-local-1\nCNPG primary]
+            RD0[redis-node-0\nmaster]
+            PGB0[pgbouncer]
+            MON[victoria-metrics\ngrafana · gatus]
+        end
+        subgraph worker1["worker-1 — CX43 8vCPU/16GB\n(workload=worker)"]
+            TR1[Traefik replica-1]
+            WORK[ingest-worker\nreplay-worker\nlifecycle-worker]
+            PG2[postgres-local-2\nCNPG standby]
+            PGB1[pgbouncer]
+        end
+        subgraph quorum1["quorum-1 — CX43 8vCPU/16GB\n(workload=worker, overflow)"]
+            RD1[redis-node-1\nslave]
+            PGB2[pgbouncer]
+            OVF[overflow pods\napi · workers]
+            ETCD[etcd quorum voter]
+        end
+        NET[(Hetzner\nPrivate Network\n10.0.0.x enp7s0)]
+    end
+    subgraph Storage["External Storage"]
+        S3[Hetzner S3\nlive artifacts]
+        R2[Cloudflare R2\nWAL backups\nsession backups]
+    end
+
+    CF --> LB
+    LB --> TR0
+    LB --> TR1
+    TR0 --> API0
+    TR1 --> WORK
+    API0 --> PGB0
+    WORK --> PGB1
+    OVF --> PGB2
+    PGB0 --> PG1
+    PGB1 --> PG1
+    PGB2 --> PG1
+    PG1 -- WAL stream --> PG2
+    PG1 -- WAL archive --> R2
+    API0 --> RD0
+    RD0 -- replication --> RD1
+    fsn1 --- NET
+    worker1 --- NET
+    quorum1 --- NET
+    PG1 --> S3
+```
+
 ## Deployment
 
 ```text
@@ -33,7 +91,7 @@ Related docs:
                                      │ render + kubectl apply       │ pull
                                      ▼                              ▼
                       ┌────────────────────────────────────────────────────┐
-                      │         Hetzner CPX42 k3s node (single)            │
+                      │   3-node HA k3s cluster (fsn1 + worker-1 + quorum-1) │
                       │                namespace: rejourney                │
                       └────────────────────────────────────────────────────┘
 ```
@@ -53,7 +111,22 @@ Related docs:
 
 ## K3s Details
 
-![K3s cluster runtime architecture](./assets/diagrams/k3s-cloud-setup.svg)
+The cluster is a fully HA 3-node k3s setup with embedded etcd. All three nodes are k3s server nodes (control plane participants). Flannel VXLAN is bound to the Hetzner private network interface `enp7s0` (`10.0.0.x`) on all nodes — not `eth0`. The Hetzner private network spans FSN1 and HEL1 in the `eu-central` zone.
+
+| Node | Hostname | Location | Type | Specs | Role |
+|------|----------|----------|------|-------|------|
+| fsn1 (main) | ubuntu-4gb-fsn1-1 | FSN1 | CPX42 | 12 vCPU, 24 GB RAM | Control plane + Postgres primary + Redis master + pgbouncer + API + web + monitoring |
+| worker-1 | rejourney-worker-1 | HEL1 | CX43 | 8 vCPU, 16 GB RAM | Control plane + preferred worker node (ingest/replay/lifecycle workers) + CNPG standby + pgbouncer |
+| quorum-1 | rejourney-quorum-1 | HEL1 | CX43 | 8 vCPU, 16 GB RAM | Control plane + etcd quorum + overflow worker (labeled `workload=worker`, untainted) + Redis replica + pgbouncer |
+
+**Total cluster cost: ~$71/mo** (CPX42 $43 + CX43×2 at $13.99 each)
+
+### Pod placement strategy
+
+- All worker deployments use soft `nodeAffinity` preferring `workload=worker` — both worker-1 and quorum-1 carry this label, so workers land on either and fall back to fsn1 if both are unavailable.
+- API/web use preferred `podAntiAffinity` to spread replicas across nodes.
+- Traefik runs 2 replicas with required `podAntiAffinity`, excluding quorum-1 — one replica on fsn1, one on worker-1. quorum-1 is excluded from the Hetzner LB via `node.kubernetes.io/exclude-from-external-load-balancers=true`.
+- A **Descheduler** CronJob runs every 5 minutes with `LowNodeUtilization` policy, evicting pods from nodes above 70% CPU requests and rescheduling them onto nodes below 30%.
 
 The monitoring stack also uses small local-path PVCs for `grafana-data`, `gatus-data`, and `victoria-metrics-data`.
 
@@ -131,23 +204,35 @@ The monitoring stack also uses small local-path PVCs for `grafana-data`, `gatus-
 - **Postgres**
   - CloudNativePG `Cluster` name: `postgres-local`
   - Manifest: `k8s/cnpg/postgres-cnpg.yaml`
-  - Storage: `rejourney-db-local-retain`, `40Gi`
   - Runtime services: `postgres-app-rw`, `postgres-app-r`, `postgres-app-ro`
   - Application path: app services -> `PGBOUNCER_URL` -> `pgbouncer` -> `postgres-app-rw`
   - Backup model: continuous WAL archive to Cloudflare R2 (`s3://rejourney-backup/cnpg-wal`) plus daily CNPG `ScheduledBackup` `postgres-daily-backup` from `k8s/cnpg-backups.yaml` at `03:00:00 UTC`
   - Retention policy in the cluster spec is `30d`
   - The `bootstrap.pg_basebackup` and `externalClusters` blocks remain in the manifest only because the live cluster was created during the storage cutover from an earlier source. They are not part of the normal application traffic path.
+  - **2 instances**: primary (`postgres-local-1`) on fsn1, standby (`postgres-local-2`) on worker-1
+  - Required `podAntiAffinity` — primary and standby are always on different nodes
+  - Auto-promotes standby to primary on primary failure (~30s)
+  - WAL streaming from primary to standby continuously; WAL archive to Cloudflare R2
+  - CPU: request 500m, limit 5000m; Memory: 6Gi request, 10Gi limit
+  - Storage: `rejourney-db-local-retain`, 40Gi per instance
 - **PgBouncer**
   - Image: `edoburu/pgbouncer:v1.25.1-p0`
+  - **3 replicas** with required `podAntiAffinity` — one on each node (fsn1, worker-1, quorum-1)
   - Transaction pooling
-  - `DEFAULT_POOL_SIZE=15`
-  - `MAX_CLIENT_CONN=300`
+  - `DEFAULT_POOL_SIZE=24`
+  - `MAX_CLIENT_CONN=800`
   - Upstream target: `postgres-app-rw:5432`
+  - Apps connect via ClusterIP service load-balanced across all 3 replicas
 - **Redis**
   - Bitnami Helm chart with Sentinel
   - Config source: `k8s/helm/redis-values.yaml`
-  - Storage class: `rejourney-db-local-retain`
-  - Current persistence: 8Gi master PVC
+  - `replicaCount: 2`, `sentinel.quorum: 1`
+  - `redis-node-0` (master) on fsn1, `redis-node-1` (slave) on quorum-1
+  - Preferred `podAntiAffinity` — nodes spread but not hard-pinned
+  - On master failure, 1 surviving sentinel can elect a new master (~10s)
+  - Storage class: `rejourney-db-local-retain`, 8Gi PVC per node
+  - `maxmemory: 900mb`, `maxmemory-policy: allkeys-lru`, AOF persistence enabled
+  - Modules: RediSearch + ReJSON
   - Metrics come from the Bitnami redis-exporter sidecar on `redis-metrics:9121`
 - **Live object storage**
   - Hetzner S3 stores live session artifacts
@@ -181,10 +266,44 @@ The monitoring stack also uses small local-path PVCs for `grafana-data`, `gatus-
   - `session-backup`
   - `session-backup-seed`
   - `retention-worker`
+  - `descheduler` (every 5 minutes, `LowNodeUtilization` — evicts pods from nodes >70% CPU requests onto nodes <30%)
 - CNPG scheduled backups:
   - `ScheduledBackup/postgres-daily-backup`
   - resulting `Backup` CRs in the `rejourney` namespace
 - There is no separate billing worker anymore. Billing is handled by Stripe webhooks through the API.
+
+## HPA (Autoscaling)
+
+| Deployment | Min | Max | CPU Target |
+|------------|-----|-----|------------|
+| `api` | 4 | 12 | 65% |
+| `ingest-upload` | 2 | 6 | 70% |
+| `ingest-worker` | 3 | 10 | 60% |
+| `replay-worker` | 2 | 14 | 60% |
+
+## PodDisruptionBudgets
+
+| Workload | Min Available |
+|----------|--------------|
+| `api` | 3 |
+| `web` | 1 |
+| `pgbouncer` | 1 |
+| `ingest-upload` | 1 |
+| `ingest-worker` | 1 |
+| `replay-worker` | 1 |
+
+## Failure Modes
+
+| Component | fsn1 dies | worker-1 dies | quorum-1 dies |
+|-----------|-----------|---------------|---------------|
+| k3s API | Alive (2/3 etcd quorum: worker-1 + quorum-1) | Alive (fsn1 + quorum-1) | Alive (fsn1 + worker-1) |
+| Traefik | worker-1 serves; LB routes around fsn1 | fsn1 serves; LB routes around worker-1 | Unaffected (not in LB) |
+| Postgres | CNPG promotes standby on worker-1 (~30s) | Standby gone; primary on fsn1 intact | Unaffected |
+| Redis | Sentinel on quorum-1 promotes redis-node-1 to master (~10s) | redis-node-0 (master on fsn1) intact | redis-node-0 (master) loses its slave; Sentinel on fsn1 remains |
+| pgbouncer | worker-1 + quorum-1 instances serve | fsn1 + quorum-1 instances serve | fsn1 + worker-1 instances serve |
+| Workers | Reschedule to worker-1/quorum-1 (soft affinity) | Reschedule to fsn1/quorum-1 | Reschedule to fsn1/worker-1 |
+| API/web | Reschedule to worker-1/quorum-1 | Reschedule to fsn1/quorum-1 | Reschedule to fsn1/worker-1 |
+| Data | Safe — WAL to R2; standby had all writes | Safe — primary intact | Safe |
 
 ## Retention + Backup Coordination
 
