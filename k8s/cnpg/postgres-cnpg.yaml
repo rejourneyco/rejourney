@@ -18,7 +18,12 @@ metadata:
   labels:
     app.kubernetes.io/part-of: rejourney
 spec:
-  instances: 1
+  instances: 2
+
+  affinity:
+    enablePodAntiAffinity: true
+    topologyKey: kubernetes.io/hostname
+    podAntiAffinityType: required
 
   # Must match the existing Postgres major version.
   # Current cluster runs PostgreSQL 18.1. Verify CNPG version supports PG 18
