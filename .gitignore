@@ -58,3 +58,4 @@ examples/react-native-boilerplate/.env.dev.example
 backend/src/utils/rejourney.code-workspace
 .env.selfhosted
 .config.kiro
+dev_docs/scaling-plan.md

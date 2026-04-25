@@ -779,7 +779,7 @@ export const BillingSettings: React.FC = () => {
                         {plan.videoRetentionLabel} Video Retention
                       </span>
                     </div>
-                    <p className="text-[10px] font-bold text-slate-400 mt-1 ml-4">replay media only</p>
+                    <p className="text-[10px] font-bold text-slate-400 mt-1 ml-4">replay media only/everything else retained unlimited</p>
                   </div>
 
                   {isCurrentPlan ? (
@@ -984,7 +984,7 @@ export const BillingSettings: React.FC = () => {
                         </span>
                       </div>
                     </div>
-                    <p className="text-[11px] font-bold text-slate-400 mt-2">Replay media only. Events and analytics are retained separately.</p>
+                    <p className="text-[11px] font-bold text-slate-400 mt-2">Replay media only. Everything else retained unlimited.</p>
                   </div>
 
 

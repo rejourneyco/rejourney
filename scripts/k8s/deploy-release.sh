@@ -371,6 +371,7 @@ main() {
 
   # NetData RBAC was cluster-scoped (no part-of=rejourney label) so --prune never removes it.
   log "Removing legacy NetData cluster resources if present..."
+  kubectl delete daemonset netdata -n "${NAMESPACE}" --ignore-not-found
   kubectl delete clusterrole netdata --ignore-not-found
   kubectl delete clusterrolebinding netdata --ignore-not-found
   kubectl delete serviceaccount netdata -n "${NAMESPACE}" --ignore-not-found

@@ -1,5 +1,5 @@
 # Database Admin Tools
-# pgWeb and Redis Commander — no public Ingress; access via kubectl port-forward on a Tailscale-connected machine (dev_docs/admin-tools-private-access.md)
+# pgWeb — no public Ingress; access via kubectl port-forward on a Tailscale-connected machine (dev_docs/admin-tools-private-access.md)
 
 ---
 # PGWeb Deployment
@@ -67,53 +67,3 @@ spec:
   selector:
     app: pgweb
 
----
-# Redis Commander Deployment
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: redis-commander
-  namespace: rejourney
-  labels:
-    app.kubernetes.io/part-of: rejourney
-spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app: redis-commander
-  template:
-    metadata:
-      labels:
-        app: redis-commander
-    spec:
-      containers:
-        - name: redis-commander
-          image: rediscommander/redis-commander:latest
-          ports:
-            - containerPort: 8081
-          env:
-            - name: REDIS_HOSTS
-              value: "local:redis:6379"
-          resources:
-            requests:
-              cpu: 5m
-              memory: 24Mi
-            limits:
-              cpu: 50m
-              memory: 48Mi
-
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: redis-commander
-  namespace: rejourney
-  labels:
-    app.kubernetes.io/part-of: rejourney
-spec:
-  type: ClusterIP
-  ports:
-    - port: 8081
-      targetPort: 8081
-  selector:
-    app: redis-commander
