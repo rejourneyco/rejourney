@@ -1,6 +1,5 @@
 # Pod Disruption Budgets
-# Ensures kubectl drain / node maintenance never takes down all pods of critical services simultaneously.
-# Requires at least 1 pod to remain available during voluntary disruptions.
+# Ensures node drain / voluntary disruptions never take down all pods of a service simultaneously.
 
 ---
 apiVersion: policy/v1
@@ -11,10 +10,38 @@ metadata:
   labels:
     app.kubernetes.io/part-of: rejourney
 spec:
-  minAvailable: 1
+  minAvailable: 3
   selector:
     matchLabels:
       app: api
+
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: web-pdb
+  namespace: rejourney
+  labels:
+    app.kubernetes.io/part-of: rejourney
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: web
+
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: pgbouncer-pdb
+  namespace: rejourney
+  labels:
+    app.kubernetes.io/part-of: rejourney
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: pgbouncer
 
 ---
 apiVersion: policy/v1
@@ -29,6 +56,20 @@ spec:
   selector:
     matchLabels:
       app: ingest-upload
+
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: ingest-worker-pdb
+  namespace: rejourney
+  labels:
+    app.kubernetes.io/part-of: rejourney
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: ingest-worker
 
 ---
 apiVersion: policy/v1

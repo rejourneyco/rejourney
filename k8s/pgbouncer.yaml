@@ -13,7 +13,12 @@ metadata:
     app: pgbouncer
     app.kubernetes.io/part-of: rejourney
 spec:
-  replicas: 1
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 0
+      maxUnavailable: 1
   selector:
     matchLabels:
       app: pgbouncer
@@ -22,6 +27,13 @@ spec:
       labels:
         app: pgbouncer
     spec:
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchLabels:
+                  app: pgbouncer
+              topologyKey: kubernetes.io/hostname
       containers:
         - name: pgbouncer
           image: edoburu/pgbouncer:v1.25.1-p0

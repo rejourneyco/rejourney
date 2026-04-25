@@ -81,7 +81,7 @@ spec:
     kind: Deployment
     name: replay-worker
   minReplicas: 2
-  maxReplicas: 8
+  maxReplicas: 14
   metrics:
     - type: Resource
       resource:

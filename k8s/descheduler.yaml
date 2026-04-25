@@ -1,0 +1,125 @@
+# Kubernetes Descheduler — periodically rebalances pods across nodes.
+# Runs every 5 minutes as a CronJob. Evicts pods from overloaded nodes so
+# they reschedule on nodes with free capacity, respecting affinity rules.
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: descheduler-sa
+  namespace: kube-system
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: descheduler-cr
+rules:
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["create", "update"]
+  - apiGroups: [""]
+    resources: ["nodes"]
+    verbs: ["get", "watch", "list"]
+  - apiGroups: [""]
+    resources: ["namespaces"]
+    verbs: ["get", "watch", "list"]
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "watch", "list", "delete"]
+  - apiGroups: [""]
+    resources: ["pods/eviction"]
+    verbs: ["create"]
+  - apiGroups: ["scheduling.k8s.io"]
+    resources: ["priorityclasses"]
+    verbs: ["get", "watch", "list"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: descheduler-crb
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: descheduler-cr
+subjects:
+  - kind: ServiceAccount
+    name: descheduler-sa
+    namespace: kube-system
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: descheduler-policy
+  namespace: kube-system
+data:
+  policy.yaml: |
+    apiVersion: "descheduler/v1alpha2"
+    kind: "DeschedulerPolicy"
+    profiles:
+      - name: default
+        pluginConfig:
+          - name: LowNodeUtilization
+            args:
+              thresholds:
+                cpu: 30
+                memory: 30
+                pods: 20
+              targetThresholds:
+                cpu: 70
+                memory: 70
+                pods: 80
+          - name: RemovePodsViolatingInterPodAntiAffinity
+            args: {}
+          - name: RemovePodsViolatingNodeAffinity
+            args:
+              nodeAffinityType:
+                - requiredDuringSchedulingIgnoredDuringExecution
+        plugins:
+          balance:
+            enabled:
+              - LowNodeUtilization
+          deschedule:
+            enabled:
+              - RemovePodsViolatingInterPodAntiAffinity
+              - RemovePodsViolatingNodeAffinity
+
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: descheduler
+  namespace: kube-system
+spec:
+  schedule: "*/5 * * * *"
+  concurrencyPolicy: Forbid
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          serviceAccountName: descheduler-sa
+          priorityClassName: system-cluster-critical
+          containers:
+            - name: descheduler
+              image: registry.k8s.io/descheduler/descheduler:v0.31.0
+              command:
+                - /bin/descheduler
+                - --policy-config-file=/policy-dir/policy.yaml
+                - --v=3
+              volumeMounts:
+                - name: policy-volume
+                  mountPath: /policy-dir
+              resources:
+                requests:
+                  cpu: 100m
+                  memory: 64Mi
+                limits:
+                  cpu: 500m
+                  memory: 256Mi
+          restartPolicy: Never
+          volumes:
+            - name: policy-volume
+              configMap:
+                name: descheduler-policy

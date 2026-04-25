@@ -44,7 +44,8 @@ spec:
 
   resources:
     requests:
-      cpu: "2"
+      # Standby only streams WAL; actual usage is ~300m. Keep limit high for burst.
+      cpu: "500m"
       memory: "6Gi"
     limits:
       cpu: "5"
