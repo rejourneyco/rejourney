@@ -13,7 +13,7 @@ metadata:
     app: pgbouncer
     app.kubernetes.io/part-of: rejourney
 spec:
-  replicas: 2
+  replicas: 3
   strategy:
     type: RollingUpdate
     rollingUpdate:
