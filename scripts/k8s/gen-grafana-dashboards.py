@@ -350,76 +350,161 @@ def d_overview():
 # ============================================================
 # 10 — Kubernetes
 # ============================================================
+def _pod_distribution_table(x, y):
+    """Full-width table: pod | node | CPU cores | CPU% limit | Memory | Mem% limit, sorted by CPU."""
+    def tgt(expr, ref):
+        return {"datasource": DATASOURCE, "expr": expr, "legendFormat": "",
+                "refId": ref, "instant": True, "format": "table"}
+    return {
+        "id": nid(),
+        "type": "table",
+        "title": "Pod Distribution — placement + compute (sorted by CPU)",
+        "datasource": DATASOURCE,
+        "gridPos": {"x": x, "y": y, "w": 24, "h": 14},
+        "targets": [
+            tgt('kube_pod_info{namespace="rejourney",node!=""}', "A"),
+            tgt('sum by (pod)(rate(container_cpu_usage_seconds_total{namespace="rejourney",container!="",container!="POD"}[5m]))', "B"),
+            tgt('100 * sum by (pod)(rate(container_cpu_usage_seconds_total{namespace="rejourney",container!="",container!="POD"}[5m])) / clamp_min(sum by (pod)(kube_pod_container_resource_limits{namespace="rejourney",resource="cpu"}), 0.001)', "C"),
+            tgt('sum by (pod)(container_memory_working_set_bytes{namespace="rejourney",container!="",container!="POD"})', "D"),
+            tgt('100 * sum by (pod)(container_memory_working_set_bytes{namespace="rejourney",container!="",container!="POD"}) / clamp_min(sum by (pod)(kube_pod_container_resource_limits{namespace="rejourney",resource="memory"}), 1)', "E"),
+        ],
+        "transformations": [
+            {"id": "merge"},
+            {"id": "organize", "options": {
+                "renameByName": {
+                    "pod": "Pod", "node": "Node",
+                    "Value #B": "CPU (cores)", "Value #C": "CPU % limit",
+                    "Value #D": "Memory",      "Value #E": "Mem % limit",
+                },
+                "excludeByName": {
+                    "Time": True, "__name__": True, "container": True, "endpoint": True,
+                    "host_ip": True, "instance": True, "job": True, "namespace": True,
+                    "Value #A": True, "created_by_kind": True, "created_by_name": True,
+                    "priority_class": True, "uid": True, "host_network": True,
+                },
+                "indexByName": {"Pod": 0, "Node": 1, "CPU (cores)": 2, "CPU % limit": 3, "Memory": 4, "Mem % limit": 5},
+            }},
+            {"id": "sortBy", "options": {"fields": [{"desc": True, "displayName": "CPU (cores)"}]}},
+        ],
+        "fieldConfig": {
+            "defaults": {"custom": {"align": "auto"}},
+            "overrides": [
+                {"matcher": {"id": "byName", "options": "CPU (cores)"},
+                 "properties": [{"id": "unit", "value": "none"}, {"id": "decimals", "value": 3},
+                                {"id": "custom.displayMode", "value": "color-background"},
+                                {"id": "thresholds", "value": {"mode": "absolute", "steps": [
+                                    {"color": "green", "value": None}, {"color": "orange", "value": 0.3}, {"color": "red", "value": 0.8}]}}]},
+                {"matcher": {"id": "byName", "options": "CPU % limit"},
+                 "properties": [{"id": "unit", "value": "percent"}, {"id": "decimals", "value": 1},
+                                {"id": "custom.displayMode", "value": "color-background"},
+                                {"id": "thresholds", "value": {"mode": "absolute", "steps": [
+                                    {"color": "green", "value": None}, {"color": "orange", "value": 60}, {"color": "red", "value": 85}]}}]},
+                {"matcher": {"id": "byName", "options": "Memory"},
+                 "properties": [{"id": "unit", "value": "bytes"},
+                                {"id": "custom.displayMode", "value": "color-background"},
+                                {"id": "thresholds", "value": {"mode": "absolute", "steps": [
+                                    {"color": "green", "value": None}, {"color": "orange", "value": 400*1024*1024}, {"color": "red", "value": 900*1024*1024}]}}]},
+                {"matcher": {"id": "byName", "options": "Mem % limit"},
+                 "properties": [{"id": "unit", "value": "percent"}, {"id": "decimals", "value": 1},
+                                {"id": "custom.displayMode", "value": "color-background"},
+                                {"id": "thresholds", "value": {"mode": "absolute", "steps": [
+                                    {"color": "green", "value": None}, {"color": "orange", "value": 70}, {"color": "red", "value": 90}]}}]},
+            ],
+        },
+        "options": {"showHeader": True, "footer": {"show": False},
+                    "sortBy": [{"displayName": "CPU (cores)", "desc": True}]},
+    }
+
+
 def d_kubernetes():
     reset_ids()
     panels = []
     y = 0
 
+    # ── Row 1: Per-node resource usage ──────────────────────────────────────
     panels.append(row("Nodes", y)); y += 1
-    panels.append(ts("CPU Usage % — per node",
+    panels.append(ts("CPU % — per node",
                      [('100 * (1 - avg by (node)(rate(node_cpu_seconds_total{mode="idle"}[2m])))', "{{node}}")],
                      0, y, w=12, h=8, unit="percent"))
-    panels.append(ts("Memory Usage % — per node",
+    panels.append(ts("Memory % — per node",
                      [('100 * (1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)', "{{node}}")],
                      12, y, w=12, h=8, unit="percent"))
     y += 8
-
-    panels.append(ts("Root Disk Usage % — per node",
+    panels.append(ts("Disk % — per node",
                      [('100 * (1 - node_filesystem_avail_bytes{mountpoint="/"} / node_filesystem_size_bytes{mountpoint="/"})', "{{node}}")],
-                     0, y, w=12, h=8, unit="percent"))
+                     0, y, w=8, h=8, unit="percent"))
     panels.append(ts("Load 1m — per node",
                      [('node_load1', "{{node}}")],
-                     12, y, w=12, h=8, unit="short"))
+                     8, y, w=8, h=8, unit="short"))
+    panels.append(ts("Network I/O — per node (bytes/s)",
+                     [('sum by (node)(rate(node_network_receive_bytes_total{device!~"lo|cali.*|cni.*|veth.*|flannel.*|docker.*"}[2m]))', "rx — {{node}}"),
+                      ('-sum by (node)(rate(node_network_transmit_bytes_total{device!~"lo|cali.*|cni.*|veth.*|flannel.*|docker.*"}[2m]))', "tx — {{node}}")],
+                     16, y, w=8, h=8, unit="Bps"))
     y += 8
-
-    panels.append(ts("CPU Usage by mode (cluster total)",
-                     [('sum by (mode)(rate(node_cpu_seconds_total{mode!="idle"}[2m])) / scalar(count(node_cpu_seconds_total{mode="idle"}))', "{{mode}}")],
-                     0, y, w=12, h=8, unit="percentunit", stack="normal", max_val=1))
-    panels.append(ts("Memory breakdown (cluster total)",
-                     [('node_memory_MemTotal_bytes - node_memory_MemFree_bytes - node_memory_Buffers_bytes - node_memory_Cached_bytes', "used"),
-                      ('node_memory_Buffers_bytes', "buffers"),
-                      ('node_memory_Cached_bytes', "cached"),
-                      ('node_memory_MemFree_bytes', "free")],
-                     12, y, w=12, h=8, unit="bytes", stack="normal"))
-    y += 8
-
-    panels.append(ts("Network I/O (bytes/s)",
-                     [('sum by (device)(rate(node_network_receive_bytes_total{device!~"lo|cali.*|cni.*|veth.*|docker.*"}[2m]))', "rx — {{device}}"),
-                      ('-sum by (device)(rate(node_network_transmit_bytes_total{device!~"lo|cali.*|cni.*|veth.*|docker.*"}[2m]))', "tx — {{device}}")],
+    panels.append(ts("Disk I/O — per node (bytes/s)",
+                     [('sum by (node)(rate(node_disk_read_bytes_total[2m]))', "read — {{node}}"),
+                      ('-sum by (node)(rate(node_disk_written_bytes_total[2m]))', "write — {{node}}")],
                      0, y, w=12, h=8, unit="Bps"))
-    panels.append(ts("Disk I/O (bytes/s)",
-                     [('sum by (device)(rate(node_disk_read_bytes_total[2m]))', "read — {{device}}"),
-                      ('-sum by (device)(rate(node_disk_written_bytes_total[2m]))', "write — {{device}}")],
-                     12, y, w=12, h=8, unit="Bps"))
+    panels.append(bargauge("Pods per Node — right now",
+                           'sum by (node)(kube_pod_info{namespace="rejourney",node!=""})',
+                           12, y, w=12, h=8, unit="short", legend="{{node}}"))
     y += 8
 
-    panels.append(row("Pods (rejourney namespace)", y)); y += 1
-    panels.append(ts("Pod CPU usage",
-                     [('sum by (pod)(rate(container_cpu_usage_seconds_total{namespace="rejourney",container!="",container!="POD"}[2m]))', "{{pod}}")],
-                     0, y, w=12, h=10, unit="none", decimals=3))
-    panels.append(ts("Pod Memory (working set)",
-                     [('sum by (pod)(container_memory_working_set_bytes{namespace="rejourney",container!="",container!="POD"})', "{{pod}}")],
-                     12, y, w=12, h=10, unit="bytes"))
+    # ── Row 2: Pod distribution table ───────────────────────────────────────
+    panels.append(row("Pod Distribution", y)); y += 1
+    panels.append(_pod_distribution_table(0, y))
+    y += 14
+
+    # ── Row 3: Workload averages — avg CPU/mem per deployment, not per pod ──
+    panels.append(row("Workload Averages (avg across replicas)", y)); y += 1
+    panels.append(ts("Avg CPU per workload (cores)",
+                     [('avg by (label_app)('
+                       'kube_pod_labels{namespace="rejourney",label_app!=""}'
+                       ' * on(pod) group_right(label_app) '
+                       'sum by (pod)(rate(container_cpu_usage_seconds_total{namespace="rejourney",container!="",container!="POD"}[2m]))'
+                       ')', "{{label_app}}")],
+                     0, y, w=12, h=9, unit="none", decimals=3))
+    panels.append(ts("Avg Memory per workload",
+                     [('avg by (label_app)('
+                       'kube_pod_labels{namespace="rejourney",label_app!=""}'
+                       ' * on(pod) group_right(label_app) '
+                       'sum by (pod)(container_memory_working_set_bytes{namespace="rejourney",container!="",container!="POD"})'
+                       ')', "{{label_app}}")],
+                     12, y, w=12, h=9, unit="bytes"))
+    y += 9
+
+    # ── Row 4: Pod compute rankings — instant bar gauges ────────────────────
+    panels.append(row("Pod Compute Rankings", y)); y += 1
+    panels.append(bargauge("Top 15 — CPU Cores Used",
+                           'topk(15, sum by (pod)(rate(container_cpu_usage_seconds_total{namespace="rejourney",container!="",container!="POD"}[5m])))',
+                           0, y, w=12, h=10, unit="none", legend="{{pod}}"))
+    panels.append(bargauge("Top 15 — CPU % of Limit",
+                           'topk(15, 100 * sum by (pod)(rate(container_cpu_usage_seconds_total{namespace="rejourney",container!="",container!="POD"}[5m])) / clamp_min(sum by (pod)(kube_pod_container_resource_limits{namespace="rejourney",resource="cpu"}), 0.001))',
+                           12, y, w=12, h=10, unit="percent", legend="{{pod}}"))
+    y += 10
+    panels.append(bargauge("Top 15 — Memory Used",
+                           'topk(15, sum by (pod)(container_memory_working_set_bytes{namespace="rejourney",container!="",container!="POD"}))',
+                           0, y, w=12, h=10, unit="bytes", legend="{{pod}}"))
+    panels.append(bargauge("Top 15 — Memory % of Limit",
+                           'topk(15, 100 * sum by (pod)(container_memory_working_set_bytes{namespace="rejourney",container!="",container!="POD"}) / clamp_min(sum by (pod)(kube_pod_container_resource_limits{namespace="rejourney",resource="memory"}), 1))',
+                           12, y, w=12, h=10, unit="percent", legend="{{pod}}"))
     y += 10
 
+    # ── Row 5: Pod workload share by node + restarts ─────────────────────────
+    panels.append(row("Pod Workload by Node", y)); y += 1
+    panels.append(ts("Pod CPU — stacked by node",
+                     [('sum by (node)(rate(container_cpu_usage_seconds_total{namespace="rejourney",container!="",container!="POD"}[2m]))', "{{node}}")],
+                     0, y, w=12, h=8, unit="none", decimals=2, stack="normal"))
+    panels.append(ts("Pod Memory — stacked by node",
+                     [('sum by (node)(container_memory_working_set_bytes{namespace="rejourney",container!="",container!="POD"})', "{{node}}")],
+                     12, y, w=12, h=8, unit="bytes", stack="normal"))
+    y += 8
     panels.append(ts("Pod Restarts (15m delta)",
                      [('sum by (pod)(increase(kube_pod_container_status_restarts_total{namespace="rejourney"}[15m]))', "{{pod}}")],
-                     0, y, w=12, h=8, unit="short"))
-    panels.append(table("Pod Status",
-                        [('kube_pod_info{namespace="rejourney"}', ""),
-                         ('kube_pod_status_phase{namespace="rejourney"}==1', ""),
-                         ('kube_pod_container_status_ready{namespace="rejourney"}', "")],
-                        12, y, w=12, h=8))
-    y += 8
+                     0, y, w=24, h=6, unit="short"))
+    y += 6
 
-    panels.append(ts("Pod CPU — by node",
-                     [('sum by (node)(rate(container_cpu_usage_seconds_total{namespace="rejourney",container!="",container!="POD"}[2m]))', "{{node}}")],
-                     0, y, w=12, h=8, unit="none", decimals=2))
-    panels.append(ts("Pod Memory — by node",
-                     [('sum by (node)(container_memory_working_set_bytes{namespace="rejourney",container!="",container!="POD"})', "{{node}}")],
-                     12, y, w=12, h=8, unit="bytes"))
-    y += 8
-
+    # ── Row 6: HPA ───────────────────────────────────────────────────────────
     panels.append(row("HPA (Autoscaling)", y)); y += 1
     panels.append(ts("HPA Replicas — current vs desired vs max",
                      [('kube_horizontalpodautoscaler_status_current_replicas{namespace="rejourney"}', "current — {{horizontalpodautoscaler}}"),
@@ -428,6 +513,7 @@ def d_kubernetes():
                      0, y, w=24, h=8, unit="short"))
     y += 8
 
+    # ── Row 7: PVCs ──────────────────────────────────────────────────────────
     panels.append(row("Active PVCs", y)); y += 1
     panels.append(bargauge("PVC Usage %",
                            pvc_usage_percent_series(),
