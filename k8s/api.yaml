@@ -43,6 +43,14 @@ spec:
     spec:
       terminationGracePeriodSeconds: 30
       affinity:
+        nodeAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 80
+              preference:
+                matchExpressions:
+                  - key: topology.kubernetes.io/zone
+                    operator: In
+                    values: ["fsn1-dc14"]
         podAntiAffinity:
           preferredDuringSchedulingIgnoredDuringExecution:
             - weight: 100
@@ -337,12 +345,26 @@ spec:
       affinity:
         nodeAffinity:
           preferredDuringSchedulingIgnoredDuringExecution:
-            - weight: 100
+            - weight: 80
+              preference:
+                matchExpressions:
+                  - key: topology.kubernetes.io/zone
+                    operator: In
+                    values: ["fsn1-dc14"]
+            - weight: 20
               preference:
                 matchExpressions:
                   - key: workload
                     operator: In
                     values: ["worker"]
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app: ingest-upload
+                topologyKey: kubernetes.io/hostname
       imagePullSecrets:
         - name: ghcr-secret
       securityContext:

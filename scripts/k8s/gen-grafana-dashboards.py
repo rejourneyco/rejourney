@@ -65,6 +65,9 @@ def target(expr, legend="", instant=False, ref="A"):
         "instant": instant,
     }
 
+def zero(expr):
+    return f'({expr}) OR vector(0)'
+
 def stat(title, expr, x, y, w=4, h=4, unit="short", legend="", mappings=None,
          thresholds=None, decimals=None, color_mode="value"):
     p = {
@@ -336,13 +339,13 @@ def d_overview():
     y += 8
 
     panels.append(row("Application Pipeline", y)); y += 1
-    panels.append(stat("Artifacts created (1h)", 'sum(rejourney_artifacts_created_recent_created_count)', 0, y, w=4, h=4))
-    panels.append(stat("Artifacts completed (1h)", 'sum(rejourney_artifacts_completed_recent_completed_count)', 4, y, w=4, h=4))
-    panels.append(stat("Artifacts stalled", 'sum(rejourney_artifacts_stalled_stalled_count)', 8, y, w=4, h=4,
+    panels.append(stat("Artifacts created (1h)", zero('sum(rejourney_artifacts_created_recent_created_count)'), 0, y, w=4, h=4))
+    panels.append(stat("Artifacts completed (1h)", zero('sum(rejourney_artifacts_completed_recent_completed_count)'), 4, y, w=4, h=4))
+    panels.append(stat("Artifacts stalled", zero('sum(rejourney_artifacts_stalled_stalled_count)'), 8, y, w=4, h=4,
                        thresholds={"mode": "absolute", "steps": [{"color": "green", "value": None}, {"color": "orange", "value": 1}, {"color": "red", "value": 10}]}))
-    panels.append(stat("Backup queue depth", 'sum(rejourney_session_backup_queue_queued)', 12, y, w=4, h=4))
-    panels.append(stat("Backup queue oldest age", 'max(rejourney_session_backup_queue_oldest_age_seconds)', 16, y, w=4, h=4, unit="s"))
-    panels.append(stat("Upload p95 (recent)", 'max(rejourney_artifacts_upload_latency_recent_p95_seconds)', 20, y, w=4, h=4, unit="s"))
+    panels.append(stat("Backup queue depth", zero('sum(rejourney_session_backup_queue_queued)'), 12, y, w=4, h=4))
+    panels.append(stat("Backup queue oldest age", zero('max(rejourney_session_backup_queue_oldest_age_seconds)'), 16, y, w=4, h=4, unit="s"))
+    panels.append(stat("Upload p95 (recent)", zero('max(rejourney_artifacts_upload_latency_recent_p95_seconds)'), 20, y, w=4, h=4, unit="s"))
     y += 4
 
     return dashboard("rejourney-overview", "00 — Overview", ["overview"], panels)
@@ -557,7 +560,7 @@ def d_postgres():
 
     panels.append(row("Connections", y)); y += 1
     panels.append(gauge("Connection Utilization %",
-                        '100 * pg_connections_count{server="postgres-app-rw.rejourney.svc.cluster.local:5432"} / pg_settings_max_connections{server="postgres-app-rw.rejourney.svc.cluster.local:5432"}',
+                        '100 * sum(cnpg_backends_total{namespace="rejourney",role="primary"}) / max(cnpg_pg_settings_setting{namespace="rejourney",role="primary",name="max_connections"})',
                         0, y, w=6, h=6, unit="percent"))
     panels.append(ts("Backends by state",
                      [('cnpg_backends_total{namespace="rejourney"}', "{{state}} — {{datname}}")],
@@ -606,7 +609,7 @@ def d_postgres():
     panels.append(ts("WAL files present",
                      [('cnpg_collector_pg_wal{namespace="rejourney",value="count"}', "count"),
                       ('cnpg_collector_pg_wal{namespace="rejourney",value="keep"}', "keep"),
-                      ('cnpg_collector_pg_wal{namespace="rejourney",value="ready"}', "ready")],
+                      (zero('cnpg_collector_pg_wal{namespace="rejourney",value="ready"}'), "ready")],
                      16, y, w=8, h=8, unit="short"))
     y += 8
 
@@ -623,7 +626,7 @@ def d_postgres():
     pg_cpu_limit = kube_limit_expr('postgres-local-[0-9]+', 'postgres', 'cpu')
     pg_cpu_request = kube_request_expr('postgres-local-[0-9]+', 'postgres', 'cpu')
     panels.append(gauge("CPU Usage % of Limit",
-                        f'100 * sum(rate(container_cpu_usage_seconds_total{{{pg_lbl},cpu="total"}}[2m])) / clamp_min({pg_cpu_limit}, 0.001)',
+                        f'100 * sum(rate(container_cpu_usage_seconds_total{{{pg_lbl}}}[2m])) / clamp_min({pg_cpu_limit}, 0.001)',
                         0, y, w=6, h=6, unit="percent"))
     panels.append(gauge("Memory Usage % of Limit",
                         f'100 * sum(container_memory_working_set_bytes{{{pg_lbl}}}) / clamp_min({pg_mem_limit}, 1)',
@@ -705,7 +708,7 @@ def d_redis():
                      6, y, w=12, h=6, unit="bytes"))
     panels.append(stat("Evicted keys (1h)", 'increase(redis_evicted_keys_total[1h])', 18, y, w=3, h=6,
                        thresholds={"mode": "absolute", "steps": [{"color": "green", "value": None}, {"color": "orange", "value": 1}]}))
-    panels.append(stat("Memory frag ratio", 'redis_memory_fragmentation_ratio', 21, y, w=3, h=6, decimals=2,
+    panels.append(stat("Memory frag ratio", 'redis_mem_fragmentation_ratio', 21, y, w=3, h=6, decimals=2,
                        thresholds={"mode": "absolute", "steps": [{"color": "green", "value": None}, {"color": "orange", "value": 1.5}, {"color": "red", "value": 3}]}))
     y += 6
 
@@ -759,13 +762,13 @@ def d_redis():
     rd_mem_request = kube_request_expr('redis-node-[0-9]+', 'redis', 'memory')
     rd_cpu_limit = kube_limit_expr('redis-node-[0-9]+', 'redis', 'cpu')
     panels.append(gauge("CPU Usage % of Limit",
-                        f'100 * sum(rate(container_cpu_usage_seconds_total{{{rd_lbl},cpu="total"}}[2m])) / clamp_min({rd_cpu_limit}, 0.001)',
+                        f'100 * sum(rate(container_cpu_usage_seconds_total{{{rd_lbl}}}[2m])) / clamp_min({rd_cpu_limit}, 0.001)',
                         0, y, w=6, h=6, unit="percent"))
     panels.append(gauge("Memory Usage % of Limit",
                         f'100 * sum(container_memory_working_set_bytes{{{rd_lbl}}}) / clamp_min({rd_mem_limit}, 1)',
                         6, y, w=6, h=6, unit="percent"))
     panels.append(ts("CPU cores used",
-                     [(f'sum(rate(container_cpu_usage_seconds_total{{{rd_lbl},cpu="total"}}[2m]))', "redis cpu")],
+                     [(f'sum(rate(container_cpu_usage_seconds_total{{{rd_lbl}}}[2m]))', "redis cpu")],
                      12, y, w=12, h=6, unit="short", decimals=3))
     y += 6
 
@@ -869,12 +872,12 @@ def d_application():
                        thresholds={"mode": "absolute", "steps": [{"color": "green", "value": None}, {"color": "orange", "value": 1}, {"color": "red", "value": 20}]}))
     panels.append(stat("API Restarts (15m)", 'sum(increase(kube_pod_container_status_restarts_total{namespace="rejourney",pod=~"api-.*",container="api"}[15m]))', 4, y, w=4, h=4,
                        thresholds={"mode": "absolute", "steps": [{"color": "green", "value": None}, {"color": "orange", "value": 1}, {"color": "red", "value": 4}]}))
-    panels.append(stat("API pods last OOMKilled", 'sum(max by (pod)(kube_pod_container_status_last_terminated_reason{namespace="rejourney",pod=~"api-.*",container="api",reason="OOMKilled"}))', 8, y, w=4, h=4,
+    panels.append(stat("API pods last OOMKilled", zero('sum(max by (pod)(kube_pod_container_status_last_terminated_reason{namespace="rejourney",pod=~"api-.*",container="api",reason="OOMKilled"}))'), 8, y, w=4, h=4,
                        thresholds={"mode": "absolute", "steps": [{"color": "green", "value": None}, {"color": "red", "value": 1}]}))
     panels.append(stat("API pods not ready", 'sum(1 - kube_pod_container_status_ready{namespace="rejourney",pod=~"api-.*",container="api"})', 12, y, w=4, h=4,
                        thresholds={"mode": "absolute", "steps": [{"color": "green", "value": None}, {"color": "orange", "value": 1}, {"color": "red", "value": 2}]}))
     panels.append(gauge("API CPU % of Limit",
-                        f'100 * sum(rate(container_cpu_usage_seconds_total{{{api_lbl},cpu="total"}}[2m])) / clamp_min({api_cpu_limit}, 0.001)',
+                        f'100 * sum(rate(container_cpu_usage_seconds_total{{{api_lbl}}}[2m])) / clamp_min({api_cpu_limit}, 0.001)',
                         16, y, w=4, h=4, unit="percent"))
     panels.append(gauge("API Memory % of Limit",
                         f'100 * sum(container_memory_working_set_bytes{{{api_lbl}}}) / clamp_min({api_mem_limit}, 1)',
@@ -893,110 +896,110 @@ def d_application():
 
     panels.append(row("Replay / event consistency", y)); y += 1
     panels.append(stat("Replay-ready zero-event sessions",
-                       'max(rejourney_ingest_replay_event_gap_recent_replay_ready_zero_event_sessions)',
+                       zero('max(rejourney_ingest_replay_event_gap_recent_replay_ready_zero_event_sessions)'),
                        0, y, w=4, h=4,
                        thresholds={"mode": "absolute", "steps": [{"color": "green", "value": None}, {"color": "orange", "value": 1}, {"color": "red", "value": 5}]}))
     panels.append(stat("Replay-ready waiting on events",
-                       'max(rejourney_ingest_replay_event_gap_recent_replay_ready_waiting_event_sessions)',
+                       zero('max(rejourney_ingest_replay_event_gap_recent_replay_ready_waiting_event_sessions)'),
                        4, y, w=4, h=4,
                        thresholds={"mode": "absolute", "steps": [{"color": "green", "value": None}, {"color": "orange", "value": 1}, {"color": "red", "value": 5}]}))
     panels.append(stat("Processing replay zero-event",
-                       'max(rejourney_ingest_replay_event_gap_recent_processing_replay_zero_event_sessions)',
+                       zero('max(rejourney_ingest_replay_event_gap_recent_processing_replay_zero_event_sessions)'),
                        8, y, w=4, h=4,
                        thresholds={"mode": "absolute", "steps": [{"color": "green", "value": None}, {"color": "orange", "value": 1}, {"color": "red", "value": 5}]}))
     panels.append(stat("Waiting event jobs",
-                       'max(rejourney_ingest_replay_event_gap_recent_waiting_event_jobs)',
+                       zero('max(rejourney_ingest_replay_event_gap_recent_waiting_event_jobs)'),
                        12, y, w=4, h=4,
                        thresholds={"mode": "absolute", "steps": [{"color": "green", "value": None}, {"color": "orange", "value": 10}, {"color": "red", "value": 100}]}))
     panels.append(stat("Oldest waiting event job age",
-                       'max(rejourney_ingest_replay_event_gap_recent_oldest_waiting_event_job_age_seconds)',
+                       zero('max(rejourney_ingest_replay_event_gap_recent_oldest_waiting_event_job_age_seconds)'),
                        16, y, w=4, h=4, unit="s",
                        thresholds={"mode": "absolute", "steps": [{"color": "green", "value": None}, {"color": "orange", "value": 120}, {"color": "red", "value": 600}]}))
     panels.append(stat("Events uploaded, not ready",
-                       'sum(rejourney_recording_artifacts_by_status_artifact_count{kind="events",status="uploaded"})',
+                       zero('sum(rejourney_recording_artifacts_by_status_artifact_count{kind="events",status="uploaded"})'),
                        20, y, w=4, h=4,
                        thresholds={"mode": "absolute", "steps": [{"color": "green", "value": None}, {"color": "orange", "value": 10}, {"color": "red", "value": 100}]}))
     y += 4
 
     panels.append(ts("Replay/event lag signals",
-                     [('max(rejourney_ingest_replay_event_gap_recent_replay_ready_zero_event_sessions)', "replay-ready zero-event"),
-                      ('max(rejourney_ingest_replay_event_gap_recent_replay_ready_waiting_event_sessions)', "replay-ready waiting events"),
-                      ('max(rejourney_ingest_replay_event_gap_recent_waiting_event_jobs)', "waiting event jobs"),
-                      ('sum(rejourney_recording_artifacts_by_status_artifact_count{kind="events",status="uploaded"})', "events uploaded")],
+                     [(zero('max(rejourney_ingest_replay_event_gap_recent_replay_ready_zero_event_sessions)'), "replay-ready zero-event"),
+                      (zero('max(rejourney_ingest_replay_event_gap_recent_replay_ready_waiting_event_sessions)'), "replay-ready waiting events"),
+                      (zero('max(rejourney_ingest_replay_event_gap_recent_waiting_event_jobs)'), "waiting event jobs"),
+                      (zero('sum(rejourney_recording_artifacts_by_status_artifact_count{kind="events",status="uploaded"})'), "events uploaded")],
                      0, y, w=12, h=8, unit="short"))
     panels.append(ts("Pending ingest jobs by kind",
-                     [('sum by (kind)(rejourney_ingest_jobs_by_status_job_count{status="pending"})', "pending — {{kind}}"),
-                      ('sum by (kind)(rejourney_ingest_jobs_by_status_job_count{status="processing"})', "processing — {{kind}}")],
+                     [(zero('sum by (kind)(rejourney_ingest_jobs_by_status_job_count{status="pending"})'), "pending — {{kind}}"),
+                      (zero('sum by (kind)(rejourney_ingest_jobs_by_status_job_count{status="processing"})'), "processing — {{kind}}")],
                      12, y, w=12, h=8, unit="short"))
     y += 8
 
     panels.append(ts("Replay availability over time",
-                     [('sum(rejourney_sessions_replay_availability_recent_session_count{replay_state="available"})', "replay available"),
-                      ('sum(rejourney_sessions_replay_availability_recent_session_count{replay_state="not_available"})', "replay not available")],
+                     [(zero('sum(rejourney_sessions_replay_availability_recent_session_count{replay_state="available"})'), "replay available"),
+                      (zero('sum(rejourney_sessions_replay_availability_recent_session_count{replay_state="not_available"})'), "replay not available")],
                      0, y, w=12, h=8, unit="short"))
     panels.append(ts("Replay availability by session status",
-                     [('sum by (status)(rejourney_sessions_replay_availability_recent_session_count{replay_state="available"})', "available — {{status}}"),
-                      ('sum by (status)(rejourney_sessions_replay_availability_recent_session_count{replay_state="not_available"})', "not available — {{status}}")],
+                     [(zero('sum by (status)(rejourney_sessions_replay_availability_recent_session_count{replay_state="available"})'), "available — {{status}}"),
+                      (zero('sum by (status)(rejourney_sessions_replay_availability_recent_session_count{replay_state="not_available"})'), "not available — {{status}}")],
                      12, y, w=12, h=8, unit="short"))
     y += 8
 
     panels.append(row("Artifacts pipeline", y)); y += 1
-    panels.append(stat("Created (1h)", 'sum(rejourney_artifacts_created_recent_created_count)', 0, y, w=4, h=4))
-    panels.append(stat("Completed (1h)", 'sum(rejourney_artifacts_completed_recent_completed_count)', 4, y, w=4, h=4))
-    panels.append(stat("Failed artifacts (1h)", 'sum(rejourney_artifacts_failed_recent_artifact_count)', 8, y, w=4, h=4,
+    panels.append(stat("Created (1h)", zero('sum(rejourney_artifacts_created_recent_created_count)'), 0, y, w=4, h=4))
+    panels.append(stat("Completed (1h)", zero('sum(rejourney_artifacts_completed_recent_completed_count)'), 4, y, w=4, h=4))
+    panels.append(stat("Failed artifacts (1h)", zero('sum(rejourney_artifacts_failed_recent_artifact_count)'), 8, y, w=4, h=4,
                        thresholds={"mode": "absolute", "steps": [{"color": "green", "value": None}, {"color": "orange", "value": 1}, {"color": "red", "value": 10}]}))
-    panels.append(stat("Stalled (current)", 'sum(rejourney_artifacts_stalled_stalled_count)', 12, y, w=4, h=4,
+    panels.append(stat("Stalled (current)", zero('sum(rejourney_artifacts_stalled_stalled_count)'), 12, y, w=4, h=4,
                        thresholds={"mode": "absolute", "steps": [{"color": "green", "value": None}, {"color": "orange", "value": 1}, {"color": "red", "value": 10}]}))
-    panels.append(stat("Stalled oldest age", 'max(rejourney_artifacts_stalled_oldest_age_seconds)', 16, y, w=4, h=4, unit="s"))
-    panels.append(stat("Bytes created (1h)", 'sum(rejourney_artifacts_created_recent_created_bytes)', 20, y, w=4, h=4, unit="bytes"))
+    panels.append(stat("Stalled oldest age", zero('max(rejourney_artifacts_stalled_oldest_age_seconds)'), 16, y, w=4, h=4, unit="s"))
+    panels.append(stat("Bytes created (1h)", zero('sum(rejourney_artifacts_created_recent_created_bytes)'), 20, y, w=4, h=4, unit="bytes"))
     y += 4
 
     panels.append(ts("Upload latency (recent window)",
-                     [('max(rejourney_artifacts_upload_latency_recent_p50_seconds)', "p50"),
-                      ('max(rejourney_artifacts_upload_latency_recent_p95_seconds)', "p95"),
-                      ('max(rejourney_artifacts_upload_latency_recent_p99_seconds)', "p99"),
-                      ('max(rejourney_artifacts_upload_latency_recent_max_seconds)', "max")],
+                     [(zero('max(rejourney_artifacts_upload_latency_recent_p50_seconds)'), "p50"),
+                      (zero('max(rejourney_artifacts_upload_latency_recent_p95_seconds)'), "p95"),
+                      (zero('max(rejourney_artifacts_upload_latency_recent_p99_seconds)'), "p99"),
+                      (zero('max(rejourney_artifacts_upload_latency_recent_max_seconds)'), "max")],
                      0, y, w=12, h=8, unit="s"))
     panels.append(ts("Recording artifacts by status",
-                     [('sum by (status)(rejourney_recording_artifacts_by_status_artifact_count)', "{{status}}")],
+                     [(zero('sum by (status)(rejourney_recording_artifacts_by_status_artifact_count)'), "{{status}}")],
                      12, y, w=12, h=8, unit="short"))
     y += 8
 
     panels.append(row("Ingest jobs", y)); y += 1
     panels.append(ts("Jobs by status",
-                     [('sum by (status)(rejourney_ingest_jobs_by_status_job_count)', "{{status}}")],
+                     [(zero('sum by (status)(rejourney_ingest_jobs_by_status_job_count)'), "{{status}}")],
                      0, y, w=24, h=8, unit="short"))
     y += 8
 
     panels.append(row("Session backup", y)); y += 1
-    panels.append(stat("Queue depth", 'sum(rejourney_session_backup_queue_queued)', 0, y, w=4, h=4,
+    panels.append(stat("Queue depth", zero('sum(rejourney_session_backup_queue_queued)'), 0, y, w=4, h=4,
                        thresholds={"mode": "absolute", "steps": [{"color": "green", "value": None}, {"color": "orange", "value": 100}, {"color": "red", "value": 1000}]}))
-    panels.append(stat("Oldest queue age", 'max(rejourney_session_backup_queue_oldest_age_seconds)', 4, y, w=4, h=4, unit="s"))
-    panels.append(stat("Max attempts seen", 'max(rejourney_session_backup_queue_max_attempts)', 8, y, w=4, h=4))
-    panels.append(stat("Seconds since last backup", 'max(rejourney_session_backup_recent_seconds_since_last_backup)', 12, y, w=4, h=4, unit="s",
+    panels.append(stat("Oldest queue age", zero('max(rejourney_session_backup_queue_oldest_age_seconds)'), 4, y, w=4, h=4, unit="s"))
+    panels.append(stat("Max attempts seen", zero('max(rejourney_session_backup_queue_max_attempts)'), 8, y, w=4, h=4))
+    panels.append(stat("Seconds since last backup", zero('max(rejourney_session_backup_recent_seconds_since_last_backup)'), 12, y, w=4, h=4, unit="s",
                        thresholds={"mode": "absolute", "steps": [{"color": "green", "value": None}, {"color": "orange", "value": 3600}, {"color": "red", "value": 86400}]}))
-    panels.append(stat("Sessions backed up (1h)", 'sum(rejourney_session_backup_recent_sessions_backed_up_1h)', 16, y, w=4, h=4))
-    panels.append(stat("Bytes backed up (1h)", 'sum(rejourney_session_backup_recent_bytes_backed_up_1h)', 20, y, w=4, h=4, unit="bytes"))
+    panels.append(stat("Sessions backed up (1h)", zero('sum(rejourney_session_backup_recent_sessions_backed_up_1h)'), 16, y, w=4, h=4))
+    panels.append(stat("Bytes backed up (1h)", zero('sum(rejourney_session_backup_recent_bytes_backed_up_1h)'), 20, y, w=4, h=4, unit="bytes"))
     y += 4
 
     panels.append(ts("Integrity (7d rolling)",
-                     [('max(rejourney_session_backup_integrity_recent_copied_plan_mismatch_count_7d)', "plan mismatch"),
-                      ('max(rejourney_session_backup_integrity_recent_low_quality_count_7d)', "low quality"),
-                      ('max(rejourney_session_backup_integrity_recent_manifest_missing_count_7d)', "manifest missing"),
-                      ('max(rejourney_session_backup_integrity_recent_r2_parity_mismatch_count_7d)', "r2 parity mismatch")],
+                     [(zero('max(rejourney_session_backup_integrity_recent_copied_plan_mismatch_count_7d)'), "plan mismatch"),
+                      (zero('max(rejourney_session_backup_integrity_recent_low_quality_count_7d)'), "low quality"),
+                      (zero('max(rejourney_session_backup_integrity_recent_manifest_missing_count_7d)'), "manifest missing"),
+                      (zero('max(rejourney_session_backup_integrity_recent_r2_parity_mismatch_count_7d)'), "r2 parity mismatch")],
                      0, y, w=24, h=8, unit="short"))
     y += 8
 
     panels.append(row("Retention", y)); y += 1
-    panels.append(stat("Deleted objects (24h)", 'sum(rejourney_retention_recent_summary_deleted_objects_24h)', 0, y, w=6, h=4))
-    panels.append(stat("Deleted bytes (24h)", 'sum(rejourney_retention_recent_summary_deleted_bytes_24h)', 6, y, w=6, h=4, unit="bytes"))
-    panels.append(stat("Failed purges (24h)", 'sum(rejourney_retention_recent_summary_failed_purge_entries_24h)', 12, y, w=6, h=4,
+    panels.append(stat("Deleted objects (24h)", zero('sum(rejourney_retention_recent_summary_deleted_objects_24h)'), 0, y, w=6, h=4))
+    panels.append(stat("Deleted bytes (24h)", zero('sum(rejourney_retention_recent_summary_deleted_bytes_24h)'), 6, y, w=6, h=4, unit="bytes"))
+    panels.append(stat("Failed purges (24h)", zero('sum(rejourney_retention_recent_summary_failed_purge_entries_24h)'), 12, y, w=6, h=4,
                        thresholds={"mode": "absolute", "steps": [{"color": "green", "value": None}, {"color": "red", "value": 1}]}))
-    panels.append(stat("Seconds since last purge", 'max(rejourney_retention_recent_summary_seconds_since_last_completed_purge)', 18, y, w=6, h=4, unit="s"))
+    panels.append(stat("Seconds since last purge", zero('max(rejourney_retention_recent_summary_seconds_since_last_completed_purge)'), 18, y, w=6, h=4, unit="s"))
     y += 4
 
     panels.append(ts("Retention per-endpoint (recent)",
-                     [('sum by (endpoint_url)(rejourney_retention_endpoint_activity_recent_deleted_objects)', "{{endpoint_url}}")],
+                     [(zero('sum by (endpoint_url)(rejourney_retention_endpoint_activity_recent_deleted_objects)'), "{{endpoint_url}}")],
                      0, y, w=24, h=8, unit="short"))
     y += 8
 
@@ -1055,10 +1058,10 @@ def d_storage():
 
     panels.append(row("Per-bucket / endpoint", y)); y += 1
     panels.append(ts("Deleted objects by endpoint (recent)",
-                     [('sum by (endpoint_url)(rejourney_retention_endpoint_activity_recent_deleted_objects)', "{{endpoint_url}}")],
+                     [(zero('sum by (endpoint_url)(rejourney_retention_endpoint_activity_recent_deleted_objects)'), "{{endpoint_url}}")],
                      0, y, w=12, h=8, unit="short"))
     panels.append(ts("Deleted bytes by endpoint (recent)",
-                     [('sum by (endpoint_url)(rejourney_retention_endpoint_activity_recent_deleted_bytes)', "{{endpoint_url}}")],
+                     [(zero('sum by (endpoint_url)(rejourney_retention_endpoint_activity_recent_deleted_bytes)'), "{{endpoint_url}}")],
                      12, y, w=12, h=8, unit="bytes"))
     y += 8
 
@@ -1102,7 +1105,7 @@ def d_self():
 
     panels.append(row("Pushgateway heartbeats", y)); y += 1
     panels.append(table("Pushgateway metrics",
-                        [('pushgateway_last_push_timestamp_seconds', "")],
+                        [(zero('pushgateway_last_push_timestamp_seconds'), "")],
                         0, y, w=24, h=10))
     y += 10
 

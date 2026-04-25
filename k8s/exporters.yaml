@@ -218,6 +218,7 @@ spec:
   ports:
     - port: 9100
       targetPort: 9100
+      name: metrics
   selector:
     app: node-exporter
 
@@ -440,7 +441,8 @@ spec:
         - name: kube-state-metrics
           image: registry.k8s.io/kube-state-metrics/kube-state-metrics:v2.13.0
           args:
-            - --resources=cronjobs,daemonsets,deployments,jobs,namespaces,nodes,persistentvolumeclaims,pods,replicasets,services,statefulsets
+            - --resources=cronjobs,daemonsets,deployments,horizontalpodautoscalers,jobs,namespaces,nodes,persistentvolumeclaims,pods,replicasets,services,statefulsets
+            - --metric-labels-allowlist=pods=[app],deployments=[app]
             - --port=8080
             - --telemetry-port=8081
           ports:

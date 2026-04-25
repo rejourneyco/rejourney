@@ -33,7 +33,7 @@ graph TD
         LB[Hetzner Load Balancer\nFSN1]
         subgraph fsn1["fsn1 — CPX42 12vCPU/24GB"]
             TR0[Traefik replica-0]
-            API0[api ×4-12]
+            API0[api ×4-8]
             WEB0[web]
             PG1[postgres-local-1\nCNPG primary]
             RD0[redis-node-0\nmaster]
@@ -123,10 +123,21 @@ The cluster is a fully HA 3-node k3s setup with embedded etcd. All three nodes a
 
 ### Pod placement strategy
 
-- All worker deployments use soft `nodeAffinity` preferring `workload=worker` — both worker-1 and quorum-1 carry this label, so workers land on either and fall back to fsn1 if both are unavailable.
+- API, web, ingest-upload, and session-lifecycle-worker have no hard `nodeSelector`. They use soft affinity preferring fsn1 for lower latency to the current Postgres and Redis primaries, then reschedule onto HEL1 nodes if fsn1 is unavailable.
+- Ingest-worker and replay-worker use soft `nodeAffinity` preferring `workload=worker` — both worker-1 and quorum-1 carry this label, so workers land on either and fall back to fsn1 if both are unavailable.
 - API/web use preferred `podAntiAffinity` to spread replicas across nodes.
 - Traefik runs 2 replicas with required `podAntiAffinity`, excluding quorum-1 — one replica on fsn1, one on worker-1. quorum-1 is excluded from the Hetzner LB via `node.kubernetes.io/exclude-from-external-load-balancers=true`.
 - A **Descheduler** CronJob runs every 5 minutes with `LowNodeUtilization` policy, evicting pods from nodes above 70% CPU requests and rescheduling them onto nodes below 30%.
+
+### Scale-out latency note
+
+Adding HEL1 nodes increases capacity and failure tolerance, but it does not move the writable data plane away from fsn1. Postgres primary and Redis master are normally on fsn1, so pods scheduled in HEL1 pay a cross-location hop for database/cache work. During the April 2026 scale-out, HPA also allowed more worker/API concurrency against the same single Postgres primary, which made the app slower even though there were more servers.
+
+The current mitigation is HA-safe:
+
+- PgBouncer has one replica per node and its Service uses `internalTrafficPolicy: Local`, so a pod talks to its node-local PgBouncer when that node has one instead of randomly crossing nodes before going to Postgres.
+- Hot user-facing services prefer fsn1 with soft affinity only, reducing normal-case latency without preventing failover onto HEL1.
+- HPA max replicas are capped lower than the first scale-out attempt so backlog drains do not overwhelm Postgres.
 
 The monitoring stack also uses small local-path PVCs for `grafana-data`, `gatus-data`, and `victoria-metrics-data`.
 
@@ -214,7 +225,7 @@ The monitoring stack also uses small local-path PVCs for `grafana-data`, `gatus-
   - Auto-promotes standby to primary on primary failure (~30s)
   - WAL streaming from primary to standby continuously; WAL archive to Cloudflare R2
   - CPU: request 500m, limit 5000m; Memory: 6Gi request, 10Gi limit
-  - Storage: `rejourney-db-local-retain`, 40Gi per instance
+  - Storage: `rejourney-db-local-retain`, 100Gi per instance
 - **PgBouncer**
   - Image: `edoburu/pgbouncer:v1.25.1-p0`
   - **3 replicas** with required `podAntiAffinity` — one on each node (fsn1, worker-1, quorum-1)
@@ -222,7 +233,7 @@ The monitoring stack also uses small local-path PVCs for `grafana-data`, `gatus-
   - `DEFAULT_POOL_SIZE=24`
   - `MAX_CLIENT_CONN=800`
   - Upstream target: `postgres-app-rw:5432`
-  - Apps connect via ClusterIP service load-balanced across all 3 replicas
+  - Service uses `internalTrafficPolicy: Local`; apps normally connect to the PgBouncer replica on their own node. If a node has no local ready PgBouncer endpoint, Kubernetes will not silently route that Service call to another node, so keep the DaemonSet-like 3-replica placement healthy.
 - **Redis**
   - Bitnami Helm chart with Sentinel
   - Config source: `k8s/helm/redis-values.yaml`
@@ -234,6 +245,7 @@ The monitoring stack also uses small local-path PVCs for `grafana-data`, `gatus-
   - `maxmemory: 900mb`, `maxmemory-policy: allkeys-lru`, AOF persistence enabled
   - Modules: RediSearch + ReJSON
   - Metrics come from the Bitnami redis-exporter sidecar on `redis-metrics:9121`
+  - Applications should use Sentinel discovery (`REDIS_SENTINEL_HOST=redis.rejourney.svc.cluster.local`) to find the current master. The generic `redis:6379` Service can include both master and replica endpoints in this Bitnami Sentinel topology, so it is not a safe direct-write endpoint except as a legacy fallback.
 - **Live object storage**
   - Hetzner S3 stores live session artifacts
   - Cloudflare R2 stores session backups plus CNPG WAL/base backups
@@ -276,10 +288,10 @@ The monitoring stack also uses small local-path PVCs for `grafana-data`, `gatus-
 
 | Deployment | Min | Max | CPU Target |
 |------------|-----|-----|------------|
-| `api` | 4 | 12 | 65% |
-| `ingest-upload` | 2 | 6 | 70% |
-| `ingest-worker` | 3 | 10 | 60% |
-| `replay-worker` | 2 | 14 | 60% |
+| `api` | 4 | 8 | 65% |
+| `ingest-upload` | 2 | 4 | 70% |
+| `ingest-worker` | 3 | 6 | 60% |
+| `replay-worker` | 2 | 6 | 60% |
 
 ## PodDisruptionBudgets
 

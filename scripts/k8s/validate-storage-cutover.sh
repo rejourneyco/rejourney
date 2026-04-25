@@ -41,7 +41,7 @@ require_absent "k8s/backup.yaml"
 
 require_match 'name: postgres-local' "k8s/cnpg/postgres-cnpg.yaml"
 require_match 'storageClass: rejourney-db-local-retain' "k8s/cnpg/postgres-cnpg.yaml"
-require_match 'size: 40Gi' "k8s/cnpg/postgres-cnpg.yaml"
+require_match 'size: 100Gi' "k8s/cnpg/postgres-cnpg.yaml"
 require_match 'enabled: false' "k8s/cnpg/postgres-cnpg.yaml"
 require_match 'cnpg.io/cluster: postgres-local' "k8s/postgres-service-aliases.yaml"
 require_match 'cnpg.io/podRole: instance' "k8s/postgres-service-aliases.yaml"

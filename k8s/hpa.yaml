@@ -12,7 +12,7 @@ spec:
     kind: Deployment
     name: api
   minReplicas: 4
-  maxReplicas: 12
+  maxReplicas: 8
   metrics:
     - type: Resource
       resource:
@@ -35,7 +35,7 @@ spec:
     kind: Deployment
     name: ingest-upload
   minReplicas: 2
-  maxReplicas: 6
+  maxReplicas: 4
   metrics:
     - type: Resource
       resource:
@@ -58,7 +58,7 @@ spec:
     kind: Deployment
     name: ingest-worker
   minReplicas: 3
-  maxReplicas: 10
+  maxReplicas: 6
   metrics:
     - type: Resource
       resource:
@@ -81,7 +81,7 @@ spec:
     kind: Deployment
     name: replay-worker
   minReplicas: 2
-  maxReplicas: 14
+  maxReplicas: 6
   metrics:
     - type: Resource
       resource:

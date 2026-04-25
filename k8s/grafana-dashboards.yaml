@@ -1200,7 +1200,7 @@ data:
                 "type": "prometheus",
                 "uid": "victoria-metrics"
               },
-              "expr": "sum(rejourney_artifacts_created_recent_created_count)",
+              "expr": "(sum(rejourney_artifacts_created_recent_created_count)) OR vector(0)",
               "legendFormat": "",
               "refId": "A",
               "instant": false
@@ -1256,7 +1256,7 @@ data:
                 "type": "prometheus",
                 "uid": "victoria-metrics"
               },
-              "expr": "sum(rejourney_artifacts_completed_recent_completed_count)",
+              "expr": "(sum(rejourney_artifacts_completed_recent_completed_count)) OR vector(0)",
               "legendFormat": "",
               "refId": "A",
               "instant": false
@@ -1312,7 +1312,7 @@ data:
                 "type": "prometheus",
                 "uid": "victoria-metrics"
               },
-              "expr": "sum(rejourney_artifacts_stalled_stalled_count)",
+              "expr": "(sum(rejourney_artifacts_stalled_stalled_count)) OR vector(0)",
               "legendFormat": "",
               "refId": "A",
               "instant": false
@@ -1376,7 +1376,7 @@ data:
                 "type": "prometheus",
                 "uid": "victoria-metrics"
               },
-              "expr": "sum(rejourney_session_backup_queue_queued)",
+              "expr": "(sum(rejourney_session_backup_queue_queued)) OR vector(0)",
               "legendFormat": "",
               "refId": "A",
               "instant": false
@@ -1432,7 +1432,7 @@ data:
                 "type": "prometheus",
                 "uid": "victoria-metrics"
               },
-              "expr": "max(rejourney_session_backup_queue_oldest_age_seconds)",
+              "expr": "(max(rejourney_session_backup_queue_oldest_age_seconds)) OR vector(0)",
               "legendFormat": "",
               "refId": "A",
               "instant": false
@@ -1488,7 +1488,7 @@ data:
                 "type": "prometheus",
                 "uid": "victoria-metrics"
               },
-              "expr": "max(rejourney_artifacts_upload_latency_recent_p95_seconds)",
+              "expr": "(max(rejourney_artifacts_upload_latency_recent_p95_seconds)) OR vector(0)",
               "legendFormat": "",
               "refId": "A",
               "instant": false
@@ -3972,7 +3972,7 @@ data:
                 "type": "prometheus",
                 "uid": "victoria-metrics"
               },
-              "expr": "100 * pg_connections_count{server=\"postgres-app-rw.rejourney.svc.cluster.local:5432\"} / pg_settings_max_connections{server=\"postgres-app-rw.rejourney.svc.cluster.local:5432\"}",
+              "expr": "100 * sum(cnpg_backends_total{namespace=\"rejourney\",role=\"primary\"}) / max(cnpg_pg_settings_setting{namespace=\"rejourney\",role=\"primary\",name=\"max_connections\"})",
               "legendFormat": "",
               "refId": "A",
               "instant": false
@@ -4904,7 +4904,7 @@ data:
                 "type": "prometheus",
                 "uid": "victoria-metrics"
               },
-              "expr": "cnpg_collector_pg_wal{namespace=\"rejourney\",value=\"ready\"}",
+              "expr": "(cnpg_collector_pg_wal{namespace=\"rejourney\",value=\"ready\"}) OR vector(0)",
               "legendFormat": "ready",
               "refId": "C",
               "instant": false
@@ -5078,7 +5078,7 @@ data:
                 "type": "prometheus",
                 "uid": "victoria-metrics"
               },
-              "expr": "100 * sum(rate(container_cpu_usage_seconds_total{namespace=\"rejourney\",pod=~\"postgres-local-[0-9]+\",container=\"postgres\",cpu=\"total\"}[2m])) / clamp_min(sum(kube_pod_container_resource_limits{namespace=\"rejourney\",pod=~\"postgres-local-[0-9]+\",container=\"postgres\",resource=\"cpu\"}), 0.001)",
+              "expr": "100 * sum(rate(container_cpu_usage_seconds_total{namespace=\"rejourney\",pod=~\"postgres-local-[0-9]+\",container=\"postgres\"}[2m])) / clamp_min(sum(kube_pod_container_resource_limits{namespace=\"rejourney\",pod=~\"postgres-local-[0-9]+\",container=\"postgres\",resource=\"cpu\"}), 0.001)",
               "legendFormat": "",
               "refId": "A",
               "instant": false
@@ -6714,7 +6714,7 @@ data:
                 "type": "prometheus",
                 "uid": "victoria-metrics"
               },
-              "expr": "redis_memory_fragmentation_ratio",
+              "expr": "redis_mem_fragmentation_ratio",
               "legendFormat": "",
               "refId": "A",
               "instant": false
@@ -7513,7 +7513,7 @@ data:
                 "type": "prometheus",
                 "uid": "victoria-metrics"
               },
-              "expr": "100 * sum(rate(container_cpu_usage_seconds_total{namespace=\"rejourney\",pod=~\"redis-node-[0-9]+\",container=\"redis\",cpu=\"total\"}[2m])) / clamp_min(sum(kube_pod_container_resource_limits{namespace=\"rejourney\",pod=~\"redis-node-[0-9]+\",container=\"redis\",resource=\"cpu\"}), 0.001)",
+              "expr": "100 * sum(rate(container_cpu_usage_seconds_total{namespace=\"rejourney\",pod=~\"redis-node-[0-9]+\",container=\"redis\"}[2m])) / clamp_min(sum(kube_pod_container_resource_limits{namespace=\"rejourney\",pod=~\"redis-node-[0-9]+\",container=\"redis\",resource=\"cpu\"}), 0.001)",
               "legendFormat": "",
               "refId": "A",
               "instant": false
@@ -7639,7 +7639,7 @@ data:
                 "type": "prometheus",
                 "uid": "victoria-metrics"
               },
-              "expr": "sum(rate(container_cpu_usage_seconds_total{namespace=\"rejourney\",pod=~\"redis-node-[0-9]+\",container=\"redis\",cpu=\"total\"}[2m]))",
+              "expr": "sum(rate(container_cpu_usage_seconds_total{namespace=\"rejourney\",pod=~\"redis-node-[0-9]+\",container=\"redis\"}[2m]))",
               "legendFormat": "redis cpu",
               "refId": "A",
               "instant": false
@@ -9392,7 +9392,7 @@ data:
                 "type": "prometheus",
                 "uid": "victoria-metrics"
               },
-              "expr": "sum(max by (pod)(kube_pod_container_status_last_terminated_reason{namespace=\"rejourney\",pod=~\"api-.*\",container=\"api\",reason=\"OOMKilled\"}))",
+              "expr": "(sum(max by (pod)(kube_pod_container_status_last_terminated_reason{namespace=\"rejourney\",pod=~\"api-.*\",container=\"api\",reason=\"OOMKilled\"}))) OR vector(0)",
               "legendFormat": "",
               "refId": "A",
               "instant": false
@@ -9516,7 +9516,7 @@ data:
                 "type": "prometheus",
                 "uid": "victoria-metrics"
               },
-              "expr": "100 * sum(rate(container_cpu_usage_seconds_total{namespace=\"rejourney\",pod=~\"api-.*\",container=\"api\",cpu=\"total\"}[2m])) / clamp_min(sum(kube_pod_container_resource_limits{namespace=\"rejourney\",pod=~\"api-.*\",container=\"api\",resource=\"cpu\"}), 0.001)",
+              "expr": "100 * sum(rate(container_cpu_usage_seconds_total{namespace=\"rejourney\",pod=~\"api-.*\",container=\"api\"}[2m])) / clamp_min(sum(kube_pod_container_resource_limits{namespace=\"rejourney\",pod=~\"api-.*\",container=\"api\",resource=\"cpu\"}), 0.001)",
               "legendFormat": "",
               "refId": "A",
               "instant": false
@@ -9823,7 +9823,7 @@ data:
                 "type": "prometheus",
                 "uid": "victoria-metrics"
               },
-              "expr": "max(rejourney_ingest_replay_event_gap_recent_replay_ready_zero_event_sessions)",
+              "expr": "(max(rejourney_ingest_replay_event_gap_recent_replay_ready_zero_event_sessions)) OR vector(0)",
               "legendFormat": "",
               "refId": "A",
               "instant": false
@@ -9887,7 +9887,7 @@ data:
                 "type": "prometheus",
                 "uid": "victoria-metrics"
               },
-              "expr": "max(rejourney_ingest_replay_event_gap_recent_replay_ready_waiting_event_sessions)",
+              "expr": "(max(rejourney_ingest_replay_event_gap_recent_replay_ready_waiting_event_sessions)) OR vector(0)",
               "legendFormat": "",
               "refId": "A",
               "instant": false
@@ -9951,7 +9951,7 @@ data:
                 "type": "prometheus",
                 "uid": "victoria-metrics"
               },
-              "expr": "max(rejourney_ingest_replay_event_gap_recent_processing_replay_zero_event_sessions)",
+              "expr": "(max(rejourney_ingest_replay_event_gap_recent_processing_replay_zero_event_sessions)) OR vector(0)",
               "legendFormat": "",
               "refId": "A",
               "instant": false
@@ -10015,7 +10015,7 @@ data:
                 "type": "prometheus",
                 "uid": "victoria-metrics"
               },
-              "expr": "max(rejourney_ingest_replay_event_gap_recent_waiting_event_jobs)",
+              "expr": "(max(rejourney_ingest_replay_event_gap_recent_waiting_event_jobs)) OR vector(0)",
               "legendFormat": "",
               "refId": "A",
               "instant": false
@@ -10079,7 +10079,7 @@ data:
                 "type": "prometheus",
                 "uid": "victoria-metrics"
               },
-              "expr": "max(rejourney_ingest_replay_event_gap_recent_oldest_waiting_event_job_age_seconds)",
+              "expr": "(max(rejourney_ingest_replay_event_gap_recent_oldest_waiting_event_job_age_seconds)) OR vector(0)",
               "legendFormat": "",
               "refId": "A",
               "instant": false
@@ -10143,7 +10143,7 @@ data:
                 "type": "prometheus",
                 "uid": "victoria-metrics"
               },
-              "expr": "sum(rejourney_recording_artifacts_by_status_artifact_count{kind=\"events\",status=\"uploaded\"})",
+              "expr": "(sum(rejourney_recording_artifacts_by_status_artifact_count{kind=\"events\",status=\"uploaded\"})) OR vector(0)",
               "legendFormat": "",
               "refId": "A",
               "instant": false
@@ -10207,7 +10207,7 @@ data:
                 "type": "prometheus",
                 "uid": "victoria-metrics"
               },
-              "expr": "max(rejourney_ingest_replay_event_gap_recent_replay_ready_zero_event_sessions)",
+              "expr": "(max(rejourney_ingest_replay_event_gap_recent_replay_ready_zero_event_sessions)) OR vector(0)",
               "legendFormat": "replay-ready zero-event",
               "refId": "A",
               "instant": false
@@ -10217,7 +10217,7 @@ data:
                 "type": "prometheus",
                 "uid": "victoria-metrics"
               },
-              "expr": "max(rejourney_ingest_replay_event_gap_recent_replay_ready_waiting_event_sessions)",
+              "expr": "(max(rejourney_ingest_replay_event_gap_recent_replay_ready_waiting_event_sessions)) OR vector(0)",
               "legendFormat": "replay-ready waiting events",
               "refId": "B",
               "instant": false
@@ -10227,7 +10227,7 @@ data:
                 "type": "prometheus",
                 "uid": "victoria-metrics"
               },
-              "expr": "max(rejourney_ingest_replay_event_gap_recent_waiting_event_jobs)",
+              "expr": "(max(rejourney_ingest_replay_event_gap_recent_waiting_event_jobs)) OR vector(0)",
               "legendFormat": "waiting event jobs",
               "refId": "C",
               "instant": false
@@ -10237,7 +10237,7 @@ data:
                 "type": "prometheus",
                 "uid": "victoria-metrics"
               },
-              "expr": "sum(rejourney_recording_artifacts_by_status_artifact_count{kind=\"events\",status=\"uploaded\"})",
+              "expr": "(sum(rejourney_recording_artifacts_by_status_artifact_count{kind=\"events\",status=\"uploaded\"})) OR vector(0)",
               "legendFormat": "events uploaded",
               "refId": "D",
               "instant": false
@@ -10311,7 +10311,7 @@ data:
                 "type": "prometheus",
                 "uid": "victoria-metrics"
               },
-              "expr": "sum by (kind)(rejourney_ingest_jobs_by_status_job_count{status=\"pending\"})",
+              "expr": "(sum by (kind)(rejourney_ingest_jobs_by_status_job_count{status=\"pending\"})) OR vector(0)",
               "legendFormat": "pending \u2014 {{kind}}",
               "refId": "A",
               "instant": false
@@ -10321,7 +10321,7 @@ data:
                 "type": "prometheus",
                 "uid": "victoria-metrics"
               },
-              "expr": "sum by (kind)(rejourney_ingest_jobs_by_status_job_count{status=\"processing\"})",
+              "expr": "(sum by (kind)(rejourney_ingest_jobs_by_status_job_count{status=\"processing\"})) OR vector(0)",
               "legendFormat": "processing \u2014 {{kind}}",
               "refId": "B",
               "instant": false
@@ -10395,7 +10395,7 @@ data:
                 "type": "prometheus",
                 "uid": "victoria-metrics"
               },
-              "expr": "sum(rejourney_sessions_replay_availability_recent_session_count{replay_state=\"available\"})",
+              "expr": "(sum(rejourney_sessions_replay_availability_recent_session_count{replay_state=\"available\"})) OR vector(0)",
               "legendFormat": "replay available",
               "refId": "A",
               "instant": false
@@ -10405,7 +10405,7 @@ data:
                 "type": "prometheus",
                 "uid": "victoria-metrics"
               },
-              "expr": "sum(rejourney_sessions_replay_availability_recent_session_count{replay_state=\"not_available\"})",
+              "expr": "(sum(rejourney_sessions_replay_availability_recent_session_count{replay_state=\"not_available\"})) OR vector(0)",
               "legendFormat": "replay not available",
               "refId": "B",
               "instant": false
@@ -10479,7 +10479,7 @@ data:
                 "type": "prometheus",
                 "uid": "victoria-metrics"
               },
-              "expr": "sum by (status)(rejourney_sessions_replay_availability_recent_session_count{replay_state=\"available\"})",
+              "expr": "(sum by (status)(rejourney_sessions_replay_availability_recent_session_count{replay_state=\"available\"})) OR vector(0)",
               "legendFormat": "available \u2014 {{status}}",
               "refId": "A",
               "instant": false
@@ -10489,7 +10489,7 @@ data:
                 "type": "prometheus",
                 "uid": "victoria-metrics"
               },
-              "expr": "sum by (status)(rejourney_sessions_replay_availability_recent_session_count{replay_state=\"not_available\"})",
+              "expr": "(sum by (status)(rejourney_sessions_replay_availability_recent_session_count{replay_state=\"not_available\"})) OR vector(0)",
               "legendFormat": "not available \u2014 {{status}}",
               "refId": "B",
               "instant": false
@@ -10576,7 +10576,7 @@ data:
                 "type": "prometheus",
                 "uid": "victoria-metrics"
               },
-              "expr": "sum(rejourney_artifacts_created_recent_created_count)",
+              "expr": "(sum(rejourney_artifacts_created_recent_created_count)) OR vector(0)",
               "legendFormat": "",
               "refId": "A",
               "instant": false
@@ -10632,7 +10632,7 @@ data:
                 "type": "prometheus",
                 "uid": "victoria-metrics"
               },
-              "expr": "sum(rejourney_artifacts_completed_recent_completed_count)",
+              "expr": "(sum(rejourney_artifacts_completed_recent_completed_count)) OR vector(0)",
               "legendFormat": "",
               "refId": "A",
               "instant": false
@@ -10688,7 +10688,7 @@ data:
                 "type": "prometheus",
                 "uid": "victoria-metrics"
               },
-              "expr": "sum(rejourney_artifacts_failed_recent_artifact_count)",
+              "expr": "(sum(rejourney_artifacts_failed_recent_artifact_count)) OR vector(0)",
               "legendFormat": "",
               "refId": "A",
               "instant": false
@@ -10752,7 +10752,7 @@ data:
                 "type": "prometheus",
                 "uid": "victoria-metrics"
               },
-              "expr": "sum(rejourney_artifacts_stalled_stalled_count)",
+              "expr": "(sum(rejourney_artifacts_stalled_stalled_count)) OR vector(0)",
               "legendFormat": "",
               "refId": "A",
               "instant": false
@@ -10816,7 +10816,7 @@ data:
                 "type": "prometheus",
                 "uid": "victoria-metrics"
               },
-              "expr": "max(rejourney_artifacts_stalled_oldest_age_seconds)",
+              "expr": "(max(rejourney_artifacts_stalled_oldest_age_seconds)) OR vector(0)",
               "legendFormat": "",
               "refId": "A",
               "instant": false
@@ -10872,7 +10872,7 @@ data:
                 "type": "prometheus",
                 "uid": "victoria-metrics"
               },
-              "expr": "sum(rejourney_artifacts_created_recent_created_bytes)",
+              "expr": "(sum(rejourney_artifacts_created_recent_created_bytes)) OR vector(0)",
               "legendFormat": "",
               "refId": "A",
               "instant": false
@@ -10928,7 +10928,7 @@ data:
                 "type": "prometheus",
                 "uid": "victoria-metrics"
               },
-              "expr": "max(rejourney_artifacts_upload_latency_recent_p50_seconds)",
+              "expr": "(max(rejourney_artifacts_upload_latency_recent_p50_seconds)) OR vector(0)",
               "legendFormat": "p50",
               "refId": "A",
               "instant": false
@@ -10938,7 +10938,7 @@ data:
                 "type": "prometheus",
                 "uid": "victoria-metrics"
               },
-              "expr": "max(rejourney_artifacts_upload_latency_recent_p95_seconds)",
+              "expr": "(max(rejourney_artifacts_upload_latency_recent_p95_seconds)) OR vector(0)",
               "legendFormat": "p95",
               "refId": "B",
               "instant": false
@@ -10948,7 +10948,7 @@ data:
                 "type": "prometheus",
                 "uid": "victoria-metrics"
               },
-              "expr": "max(rejourney_artifacts_upload_latency_recent_p99_seconds)",
+              "expr": "(max(rejourney_artifacts_upload_latency_recent_p99_seconds)) OR vector(0)",
               "legendFormat": "p99",
               "refId": "C",
               "instant": false
@@ -10958,7 +10958,7 @@ data:
                 "type": "prometheus",
                 "uid": "victoria-metrics"
               },
-              "expr": "max(rejourney_artifacts_upload_latency_recent_max_seconds)",
+              "expr": "(max(rejourney_artifacts_upload_latency_recent_max_seconds)) OR vector(0)",
               "legendFormat": "max",
               "refId": "D",
               "instant": false
@@ -11032,7 +11032,7 @@ data:
                 "type": "prometheus",
                 "uid": "victoria-metrics"
               },
-              "expr": "sum by (status)(rejourney_recording_artifacts_by_status_artifact_count)",
+              "expr": "(sum by (status)(rejourney_recording_artifacts_by_status_artifact_count)) OR vector(0)",
               "legendFormat": "{{status}}",
               "refId": "A",
               "instant": false
@@ -11119,7 +11119,7 @@ data:
                 "type": "prometheus",
                 "uid": "victoria-metrics"
               },
-              "expr": "sum by (status)(rejourney_ingest_jobs_by_status_job_count)",
+              "expr": "(sum by (status)(rejourney_ingest_jobs_by_status_job_count)) OR vector(0)",
               "legendFormat": "{{status}}",
               "refId": "A",
               "instant": false
@@ -11206,7 +11206,7 @@ data:
                 "type": "prometheus",
                 "uid": "victoria-metrics"
               },
-              "expr": "sum(rejourney_session_backup_queue_queued)",
+              "expr": "(sum(rejourney_session_backup_queue_queued)) OR vector(0)",
               "legendFormat": "",
               "refId": "A",
               "instant": false
@@ -11270,7 +11270,7 @@ data:
                 "type": "prometheus",
                 "uid": "victoria-metrics"
               },
-              "expr": "max(rejourney_session_backup_queue_oldest_age_seconds)",
+              "expr": "(max(rejourney_session_backup_queue_oldest_age_seconds)) OR vector(0)",
               "legendFormat": "",
               "refId": "A",
               "instant": false
@@ -11326,7 +11326,7 @@ data:
                 "type": "prometheus",
                 "uid": "victoria-metrics"
               },
-              "expr": "max(rejourney_session_backup_queue_max_attempts)",
+              "expr": "(max(rejourney_session_backup_queue_max_attempts)) OR vector(0)",
               "legendFormat": "",
               "refId": "A",
               "instant": false
@@ -11382,7 +11382,7 @@ data:
                 "type": "prometheus",
                 "uid": "victoria-metrics"
               },
-              "expr": "max(rejourney_session_backup_recent_seconds_since_last_backup)",
+              "expr": "(max(rejourney_session_backup_recent_seconds_since_last_backup)) OR vector(0)",
               "legendFormat": "",
               "refId": "A",
               "instant": false
@@ -11446,7 +11446,7 @@ data:
                 "type": "prometheus",
                 "uid": "victoria-metrics"
               },
-              "expr": "sum(rejourney_session_backup_recent_sessions_backed_up_1h)",
+              "expr": "(sum(rejourney_session_backup_recent_sessions_backed_up_1h)) OR vector(0)",
               "legendFormat": "",
               "refId": "A",
               "instant": false
@@ -11502,7 +11502,7 @@ data:
                 "type": "prometheus",
                 "uid": "victoria-metrics"
               },
-              "expr": "sum(rejourney_session_backup_recent_bytes_backed_up_1h)",
+              "expr": "(sum(rejourney_session_backup_recent_bytes_backed_up_1h)) OR vector(0)",
               "legendFormat": "",
               "refId": "A",
               "instant": false
@@ -11558,7 +11558,7 @@ data:
                 "type": "prometheus",
                 "uid": "victoria-metrics"
               },
-              "expr": "max(rejourney_session_backup_integrity_recent_copied_plan_mismatch_count_7d)",
+              "expr": "(max(rejourney_session_backup_integrity_recent_copied_plan_mismatch_count_7d)) OR vector(0)",
               "legendFormat": "plan mismatch",
               "refId": "A",
               "instant": false
@@ -11568,7 +11568,7 @@ data:
                 "type": "prometheus",
                 "uid": "victoria-metrics"
               },
-              "expr": "max(rejourney_session_backup_integrity_recent_low_quality_count_7d)",
+              "expr": "(max(rejourney_session_backup_integrity_recent_low_quality_count_7d)) OR vector(0)",
               "legendFormat": "low quality",
               "refId": "B",
               "instant": false
@@ -11578,7 +11578,7 @@ data:
                 "type": "prometheus",
                 "uid": "victoria-metrics"
               },
-              "expr": "max(rejourney_session_backup_integrity_recent_manifest_missing_count_7d)",
+              "expr": "(max(rejourney_session_backup_integrity_recent_manifest_missing_count_7d)) OR vector(0)",
               "legendFormat": "manifest missing",
               "refId": "C",
               "instant": false
@@ -11588,7 +11588,7 @@ data:
                 "type": "prometheus",
                 "uid": "victoria-metrics"
               },
-              "expr": "max(rejourney_session_backup_integrity_recent_r2_parity_mismatch_count_7d)",
+              "expr": "(max(rejourney_session_backup_integrity_recent_r2_parity_mismatch_count_7d)) OR vector(0)",
               "legendFormat": "r2 parity mismatch",
               "refId": "D",
               "instant": false
@@ -11675,7 +11675,7 @@ data:
                 "type": "prometheus",
                 "uid": "victoria-metrics"
               },
-              "expr": "sum(rejourney_retention_recent_summary_deleted_objects_24h)",
+              "expr": "(sum(rejourney_retention_recent_summary_deleted_objects_24h)) OR vector(0)",
               "legendFormat": "",
               "refId": "A",
               "instant": false
@@ -11731,7 +11731,7 @@ data:
                 "type": "prometheus",
                 "uid": "victoria-metrics"
               },
-              "expr": "sum(rejourney_retention_recent_summary_deleted_bytes_24h)",
+              "expr": "(sum(rejourney_retention_recent_summary_deleted_bytes_24h)) OR vector(0)",
               "legendFormat": "",
               "refId": "A",
               "instant": false
@@ -11787,7 +11787,7 @@ data:
                 "type": "prometheus",
                 "uid": "victoria-metrics"
               },
-              "expr": "sum(rejourney_retention_recent_summary_failed_purge_entries_24h)",
+              "expr": "(sum(rejourney_retention_recent_summary_failed_purge_entries_24h)) OR vector(0)",
               "legendFormat": "",
               "refId": "A",
               "instant": false
@@ -11847,7 +11847,7 @@ data:
                 "type": "prometheus",
                 "uid": "victoria-metrics"
               },
-              "expr": "max(rejourney_retention_recent_summary_seconds_since_last_completed_purge)",
+              "expr": "(max(rejourney_retention_recent_summary_seconds_since_last_completed_purge)) OR vector(0)",
               "legendFormat": "",
               "refId": "A",
               "instant": false
@@ -11903,7 +11903,7 @@ data:
                 "type": "prometheus",
                 "uid": "victoria-metrics"
               },
-              "expr": "sum by (endpoint_url)(rejourney_retention_endpoint_activity_recent_deleted_objects)",
+              "expr": "(sum by (endpoint_url)(rejourney_retention_endpoint_activity_recent_deleted_objects)) OR vector(0)",
               "legendFormat": "{{endpoint_url}}",
               "refId": "A",
               "instant": false
@@ -12833,7 +12833,7 @@ data:
                 "type": "prometheus",
                 "uid": "victoria-metrics"
               },
-              "expr": "sum by (endpoint_url)(rejourney_retention_endpoint_activity_recent_deleted_objects)",
+              "expr": "(sum by (endpoint_url)(rejourney_retention_endpoint_activity_recent_deleted_objects)) OR vector(0)",
               "legendFormat": "{{endpoint_url}}",
               "refId": "A",
               "instant": false
@@ -12907,7 +12907,7 @@ data:
                 "type": "prometheus",
                 "uid": "victoria-metrics"
               },
-              "expr": "sum by (endpoint_url)(rejourney_retention_endpoint_activity_recent_deleted_bytes)",
+              "expr": "(sum by (endpoint_url)(rejourney_retention_endpoint_activity_recent_deleted_bytes)) OR vector(0)",
               "legendFormat": "{{endpoint_url}}",
               "refId": "A",
               "instant": false
@@ -13719,7 +13719,7 @@ data:
                 "type": "prometheus",
                 "uid": "victoria-metrics"
               },
-              "expr": "pushgateway_last_push_timestamp_seconds",
+              "expr": "(pushgateway_last_push_timestamp_seconds) OR vector(0)",
               "legendFormat": "",
               "refId": "A",
               "instant": true,

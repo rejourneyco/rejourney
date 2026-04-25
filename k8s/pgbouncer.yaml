@@ -99,6 +99,7 @@ metadata:
     app: pgbouncer
     app.kubernetes.io/part-of: rejourney
 spec:
+  internalTrafficPolicy: Local
   selector:
     app: pgbouncer
   ports:

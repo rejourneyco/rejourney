@@ -53,7 +53,7 @@ spec:
 
   storage:
     storageClass: rejourney-db-local-retain
-    size: 40Gi
+    size: 100Gi
 
   bootstrap:
     pg_basebackup:

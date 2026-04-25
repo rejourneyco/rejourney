@@ -36,15 +36,37 @@ data:
     scrape_configs:
       # Node / VPS system metrics (CPU, RAM, disk, network)
       - job_name: node-exporter
+        kubernetes_sd_configs:
+          - role: endpoints
+            namespaces:
+              names: [rejourney]
         relabel_configs:
+          - source_labels: [__meta_kubernetes_service_name]
+            action: keep
+            regex: node-exporter
+          - source_labels: [__meta_kubernetes_endpoint_port_name]
+            action: keep
+            regex: metrics
+          - source_labels: [__meta_kubernetes_endpoint_node_name]
+            target_label: node
           - target_label: cluster
             replacement: rejourney-prod
-        static_configs:
-          - targets: ['node-exporter.rejourney.svc.cluster.local:9100']
 
       # Per-container resource usage for Kubernetes workloads
       - job_name: cadvisor
+        kubernetes_sd_configs:
+          - role: endpoints
+            namespaces:
+              names: [rejourney]
         relabel_configs:
+          - source_labels: [__meta_kubernetes_service_name]
+            action: keep
+            regex: cadvisor
+          - source_labels: [__meta_kubernetes_endpoint_port_name]
+            action: keep
+            regex: metrics
+          - source_labels: [__meta_kubernetes_endpoint_node_name]
+            target_label: node
           - target_label: cluster
             replacement: rejourney-prod
         metric_relabel_configs:
@@ -56,8 +78,6 @@ data:
             target_label: container
           - source_labels: [container_label_io_kubernetes_pod_uid]
             target_label: pod_uid
-        static_configs:
-          - targets: ['cadvisor.rejourney.svc.cluster.local:8080']
 
       # Kubernetes object state (pod status, deployment replicas, etc.)
       - job_name: kube-state-metrics

@@ -10,7 +10,7 @@ Production Postgres is now:
 
 - CNPG `Cluster`: `postgres-local`
 - Storage class: `rejourney-db-local-retain`
-- PVC size: `40Gi`
+- PVC size: `100Gi`
 - Stable app-facing service aliases:
   - `postgres-app-rw`
   - `postgres-app-r`
@@ -99,7 +99,7 @@ spec:
 
   storage:
     storageClass: rejourney-db-local-retain
-    size: 40Gi
+    size: 100Gi
 
   bootstrap:
     recovery:
