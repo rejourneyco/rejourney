@@ -355,24 +355,27 @@ def d_kubernetes():
     panels = []
     y = 0
 
-    panels.append(row("Node", y)); y += 1
-    panels.append(gauge("CPU Usage %",
-                        '(1 - avg(rate(node_cpu_seconds_total{mode="idle"}[5m]))) * 100',
-                        0, y, w=6, h=6, unit="percent"))
-    panels.append(gauge("Memory Usage %",
-                        '(1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes) * 100',
-                        6, y, w=6, h=6, unit="percent"))
-    panels.append(gauge("Root Disk Usage %",
-                        '(1 - node_filesystem_avail_bytes{mountpoint="/"} / node_filesystem_size_bytes{mountpoint="/"}) * 100',
-                        12, y, w=6, h=6, unit="percent"))
-    panels.append(stat("Load 1 / 5 / 15",
-                       'node_load1', 18, y, w=6, h=6, unit="short"))
-    y += 6
+    panels.append(row("Nodes", y)); y += 1
+    panels.append(ts("CPU Usage % — per node",
+                     [('100 * (1 - avg by (node)(rate(node_cpu_seconds_total{mode="idle"}[2m])))', "{{node}}")],
+                     0, y, w=12, h=8, unit="percent"))
+    panels.append(ts("Memory Usage % — per node",
+                     [('100 * (1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)', "{{node}}")],
+                     12, y, w=12, h=8, unit="percent"))
+    y += 8
 
-    panels.append(ts("CPU Usage by mode",
+    panels.append(ts("Root Disk Usage % — per node",
+                     [('100 * (1 - node_filesystem_avail_bytes{mountpoint="/"} / node_filesystem_size_bytes{mountpoint="/"})', "{{node}}")],
+                     0, y, w=12, h=8, unit="percent"))
+    panels.append(ts("Load 1m — per node",
+                     [('node_load1', "{{node}}")],
+                     12, y, w=12, h=8, unit="short"))
+    y += 8
+
+    panels.append(ts("CPU Usage by mode (cluster total)",
                      [('sum by (mode)(rate(node_cpu_seconds_total{mode!="idle"}[2m])) / scalar(count(node_cpu_seconds_total{mode="idle"}))', "{{mode}}")],
                      0, y, w=12, h=8, unit="percentunit", stack="normal", max_val=1))
-    panels.append(ts("Memory breakdown",
+    panels.append(ts("Memory breakdown (cluster total)",
                      [('node_memory_MemTotal_bytes - node_memory_MemFree_bytes - node_memory_Buffers_bytes - node_memory_Cached_bytes', "used"),
                       ('node_memory_Buffers_bytes', "buffers"),
                       ('node_memory_Cached_bytes', "cached"),
@@ -409,6 +412,22 @@ def d_kubernetes():
                         12, y, w=12, h=8))
     y += 8
 
+    panels.append(ts("Pod CPU — by node",
+                     [('sum by (node)(rate(container_cpu_usage_seconds_total{namespace="rejourney",container!="",container!="POD"}[2m]))', "{{node}}")],
+                     0, y, w=12, h=8, unit="none", decimals=2))
+    panels.append(ts("Pod Memory — by node",
+                     [('sum by (node)(container_memory_working_set_bytes{namespace="rejourney",container!="",container!="POD"})', "{{node}}")],
+                     12, y, w=12, h=8, unit="bytes"))
+    y += 8
+
+    panels.append(row("HPA (Autoscaling)", y)); y += 1
+    panels.append(ts("HPA Replicas — current vs desired vs max",
+                     [('kube_horizontalpodautoscaler_status_current_replicas{namespace="rejourney"}', "current — {{horizontalpodautoscaler}}"),
+                      ('kube_horizontalpodautoscaler_status_desired_replicas{namespace="rejourney"}', "desired — {{horizontalpodautoscaler}}"),
+                      ('kube_horizontalpodautoscaler_spec_max_replicas{namespace="rejourney"}', "max — {{horizontalpodautoscaler}}")],
+                     0, y, w=24, h=8, unit="short"))
+    y += 8
+
     panels.append(row("Active PVCs", y)); y += 1
     panels.append(bargauge("PVC Usage %",
                            pvc_usage_percent_series(),
@@ -435,9 +454,19 @@ def d_postgres():
                        mappings=[{"type": "value", "options": {"0": {"text": "PRIMARY", "color": "green"}, "1": {"text": "REPLICA", "color": "blue"}}}]))
     panels.append(stat("PostgreSQL Version", 'cnpg_collector_postgres_version{namespace="rejourney"}', 8, y, w=4, h=4, decimals=1))
     panels.append(stat("Uptime", 'time() - cnpg_pg_postmaster_start_time{namespace="rejourney"}', 12, y, w=4, h=4, unit="s"))
-    panels.append(stat("Streaming Replicas", 'cnpg_pg_replication_streaming_replicas{namespace="rejourney"}', 16, y, w=4, h=4))
+    panels.append(stat("Streaming Replicas", 'cnpg_pg_replication_streaming_replicas{namespace="rejourney"}', 16, y, w=4, h=4,
+                       thresholds={"mode": "absolute", "steps": [{"color": "red", "value": None}, {"color": "green", "value": 1}]}))
     panels.append(stat("Fencing", 'cnpg_collector_fencing_on{namespace="rejourney"}', 20, y, w=4, h=4,
                        mappings=[{"type": "value", "options": {"0": {"text": "OFF", "color": "green"}, "1": {"text": "FENCED", "color": "red"}}}]))
+    y += 4
+
+    panels.append(row("Replication", y)); y += 1
+    panels.append(stat("Replication Lag (bytes)",
+                       'cnpg_pg_replication_lag{namespace="rejourney"}', 0, y, w=6, h=4, unit="bytes",
+                       thresholds={"mode": "absolute", "steps": [{"color": "green", "value": None}, {"color": "orange", "value": 10485760}, {"color": "red", "value": 104857600}]}))
+    panels.append(ts("Replication Lag over time",
+                     [('cnpg_pg_replication_lag{namespace="rejourney"}', "lag bytes")],
+                     6, y, w=18, h=4, unit="bytes"))
     y += 4
 
     panels.append(row("Connections", y)); y += 1
