@@ -176,12 +176,17 @@ function getLatencyTier(latency?: number): LatencyTier {
 function getMarkerSize(activeUsers: number, maxActiveUsers: number): number {
     const safeMax = Math.max(maxActiveUsers, 1);
     const normalized = Math.sqrt(Math.max(0, activeUsers) / safeMax);
-    return Math.round(5 + normalized * 31);
+    return Math.round(12 + normalized * 26);
 }
 
 function formatLatency(value?: number): string {
     if (!value || Number.isNaN(value)) return 'N/A';
     return `${Math.round(value)}ms`;
+}
+
+function getZoomMarkerSize(baseSize: number, zoom: number): number {
+    const zoomScale = 1 + Math.max(0, zoom - 1.25) * 0.34;
+    return Math.round(Math.max(18, Math.min(56, baseSize * zoomScale)));
 }
 
 function renderLatencyFace(face: MarkerStyle['face']) {
@@ -254,6 +259,7 @@ export const Geo: React.FC = () => {
     const [isLoading, setIsLoading] = useState(true);
     const [loadError, setLoadError] = useState<string | null>(null);
     const [hoveredMarkerId, setHoveredMarkerId] = useState<string | null>(null);
+    const [mapZoom, setMapZoom] = useState(1.34);
 
     useEffect(() => {
         disableMapboxTelemetry();
@@ -465,6 +471,7 @@ export const Geo: React.FC = () => {
                             onDragStart={pauseRotationBriefly}
                             onZoomStart={pauseRotationBriefly}
                             onRotateStart={pauseRotationBriefly}
+                            onZoom={(event: any) => setMapZoom(event.viewState.zoom)}
                             onLoad={(event: any) => {
                                 mapRef.current = event.target;
                                 applyGeoMapConfig(event.target);
@@ -474,6 +481,7 @@ export const Geo: React.FC = () => {
 
                             {markers.map((marker) => {
                                 const isHovered = marker.id === hoveredMarkerId;
+                                const markerSize = getZoomMarkerSize(marker.markerSize, mapZoom);
                                 return (
                                     <Marker
                                         key={marker.id}
@@ -485,8 +493,8 @@ export const Geo: React.FC = () => {
                                             type="button"
                                             className="relative rounded-full transition-transform duration-150"
                                             style={{
-                                                width: `${marker.markerSize}px`,
-                                                height: `${marker.markerSize}px`,
+                                                width: `${markerSize}px`,
+                                                height: `${markerSize}px`,
                                                 transform: isHovered ? 'scale(1.18)' : 'scale(1)',
                                                 background: `radial-gradient(circle at 32% 28%, rgba(255,255,255,0.82) 0, ${marker.style.fill} 27%, ${marker.style.solid} 100%)`,
                                                 border: '1.5px solid rgba(8, 13, 23, 0.62)',

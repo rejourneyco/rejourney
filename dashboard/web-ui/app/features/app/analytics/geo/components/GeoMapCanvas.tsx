@@ -87,6 +87,11 @@ function formatLatency(value?: number): string {
   return `${Math.round(value)}ms`;
 }
 
+function getZoomMarkerSize(baseSize: number, zoom: number): number {
+  const zoomScale = 1 + Math.max(0, zoom - 1.25) * 0.34;
+  return Math.round(Math.max(18, Math.min(56, baseSize * zoomScale)));
+}
+
 function renderLatencyFace(face: MarkerStyle['face']) {
   const mouthStyle: React.CSSProperties =
     face === 'happy'
@@ -145,6 +150,7 @@ function renderLatencyFace(face: MarkerStyle['face']) {
 
 export const GeoMapCanvas: React.FC<{ markers: GeoMapMarker[] }> = ({ markers }) => {
   const [hoveredMarkerId, setHoveredMarkerId] = React.useState<string | null>(null);
+  const [mapZoom, setMapZoom] = React.useState(1.34);
   const mapRef = React.useRef<any>(null);
   const isHoverPausedRef = React.useRef(false);
   const isInteractionPausedRef = React.useRef(false);
@@ -237,6 +243,7 @@ export const GeoMapCanvas: React.FC<{ markers: GeoMapMarker[] }> = ({ markers })
           onDragStart={pauseRotationBriefly}
           onZoomStart={pauseRotationBriefly}
           onRotateStart={pauseRotationBriefly}
+          onZoom={(event: any) => setMapZoom(event.viewState.zoom)}
           onLoad={(event: any) => {
             mapRef.current = event.target;
             applyGeoMapConfig(event.target);
@@ -247,6 +254,7 @@ export const GeoMapCanvas: React.FC<{ markers: GeoMapMarker[] }> = ({ markers })
 
           {markers.map((marker) => {
             const isHovered = marker.id === hoveredMarkerId;
+            const markerSize = getZoomMarkerSize(marker.markerSize, mapZoom);
             return (
               <Marker
                 key={marker.id}
@@ -258,8 +266,8 @@ export const GeoMapCanvas: React.FC<{ markers: GeoMapMarker[] }> = ({ markers })
                   type="button"
                   className="relative rounded-full transition-transform duration-150"
                   style={{
-                    width: `${marker.markerSize}px`,
-                    height: `${marker.markerSize}px`,
+                    width: `${markerSize}px`,
+                    height: `${markerSize}px`,
                     transform: isHovered ? 'scale(1.18)' : 'scale(1)',
                     background: `radial-gradient(circle at 32% 28%, rgba(255,255,255,0.82) 0, ${marker.style.fill} 27%, ${marker.style.solid} 100%)`,
                     border: '1.5px solid rgba(8, 13, 23, 0.62)',
