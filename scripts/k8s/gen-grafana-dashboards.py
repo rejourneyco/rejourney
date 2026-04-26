@@ -650,19 +650,19 @@ def d_postgres():
     pg_cpu_request = kube_request_expr('postgres-local-[0-9]+', 'postgres', 'cpu')
     pg_primary_cpu_usage = (
         f'sum(rate(container_cpu_usage_seconds_total{{{pg_lbl}}}[2m]) '
-        f'* on(pod) group_left {pg_primary_filter})'
+        f'* on(pod) group_left() {pg_primary_filter})'
     )
     pg_primary_mem_usage = (
         f'sum(container_memory_working_set_bytes{{{pg_lbl}}} '
-        f'* on(pod) group_left {pg_primary_filter})'
+        f'* on(pod) group_left() {pg_primary_filter})'
     )
     pg_primary_cpu_limit = (
         f'sum(kube_pod_container_resource_limits{{namespace="rejourney",pod=~"postgres-local-[0-9]+",container="postgres",resource="cpu"}} '
-        f'* on(pod) group_left {pg_primary_filter})'
+        f'* on(pod) group_left() {pg_primary_filter})'
     )
     pg_primary_mem_limit = (
         f'sum(kube_pod_container_resource_limits{{namespace="rejourney",pod=~"postgres-local-[0-9]+",container="postgres",resource="memory"}} '
-        f'* on(pod) group_left {pg_primary_filter})'
+        f'* on(pod) group_left() {pg_primary_filter})'
     )
     panels.append(gauge("Primary CPU Usage % of Limit",
                         f'100 * {pg_primary_cpu_usage} / clamp_min({pg_primary_cpu_limit}, 0.001)',

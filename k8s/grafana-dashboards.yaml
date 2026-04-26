@@ -5142,7 +5142,7 @@ data:
                 "type": "prometheus",
                 "uid": "victoria-metrics"
               },
-              "expr": "100 * sum(rate(container_cpu_usage_seconds_total{namespace=\"rejourney\",pod=~\"postgres-local-[0-9]+\",container=\"postgres\"}[2m]) * on(pod) group_left (cnpg_pg_replication_in_recovery{namespace=\"rejourney\"} == 0)) / clamp_min(sum(kube_pod_container_resource_limits{namespace=\"rejourney\",pod=~\"postgres-local-[0-9]+\",container=\"postgres\",resource=\"cpu\"} * on(pod) group_left (cnpg_pg_replication_in_recovery{namespace=\"rejourney\"} == 0)), 0.001)",
+              "expr": "100 * sum(rate(container_cpu_usage_seconds_total{namespace=\"rejourney\",pod=~\"postgres-local-[0-9]+\",container=\"postgres\"}[2m]) * on(pod) group_left() (cnpg_pg_replication_in_recovery{namespace=\"rejourney\"} == 0)) / clamp_min(sum(kube_pod_container_resource_limits{namespace=\"rejourney\",pod=~\"postgres-local-[0-9]+\",container=\"postgres\",resource=\"cpu\"} * on(pod) group_left() (cnpg_pg_replication_in_recovery{namespace=\"rejourney\"} == 0)), 0.001)",
               "legendFormat": "",
               "refId": "A",
               "instant": false
@@ -5205,7 +5205,7 @@ data:
                 "type": "prometheus",
                 "uid": "victoria-metrics"
               },
-              "expr": "100 * sum(container_memory_working_set_bytes{namespace=\"rejourney\",pod=~\"postgres-local-[0-9]+\",container=\"postgres\"} * on(pod) group_left (cnpg_pg_replication_in_recovery{namespace=\"rejourney\"} == 0)) / clamp_min(sum(kube_pod_container_resource_limits{namespace=\"rejourney\",pod=~\"postgres-local-[0-9]+\",container=\"postgres\",resource=\"memory\"} * on(pod) group_left (cnpg_pg_replication_in_recovery{namespace=\"rejourney\"} == 0)), 1)",
+              "expr": "100 * sum(container_memory_working_set_bytes{namespace=\"rejourney\",pod=~\"postgres-local-[0-9]+\",container=\"postgres\"} * on(pod) group_left() (cnpg_pg_replication_in_recovery{namespace=\"rejourney\"} == 0)) / clamp_min(sum(kube_pod_container_resource_limits{namespace=\"rejourney\",pod=~\"postgres-local-[0-9]+\",container=\"postgres\",resource=\"memory\"} * on(pod) group_left() (cnpg_pg_replication_in_recovery{namespace=\"rejourney\"} == 0)), 1)",
               "legendFormat": "",
               "refId": "A",
               "instant": false
