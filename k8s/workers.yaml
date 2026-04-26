@@ -10,7 +10,7 @@ metadata:
   labels:
     app.kubernetes.io/part-of: rejourney
 spec:
-  replicas: 3
+  replicas: 5
   strategy:
     type: RollingUpdate
     rollingUpdate:
@@ -154,17 +154,17 @@ spec:
                   key: PUBLIC_DASHBOARD_URL
                   optional: true
             - name: RJ_INGEST_JOB_CONCURRENCY
-              value: "12"
+              value: "24"
             - name: RJ_INGEST_BATCH_SIZE
-              value: "60"
+              value: "75"
             - name: RJ_INGEST_MAX_RUNNABLE_PER_SESSION
-              value: "4"
+              value: "6"
           resources:
             requests:
-              cpu: 350m
+              cpu: 500m
               memory: 512Mi
             limits:
-              cpu: "2000m"
+              cpu: "4000m"
               memory: 1536Mi
           # No standard HTTP port, but we can check if the process is alive via command or if it has a health server
           # For now, let's assume it doesn't have a health server yet, but we can add one or use a dummy check
@@ -293,10 +293,10 @@ spec:
               value: "5"
           resources:
             requests:
-              cpu: 400m
+              cpu: 750m
               memory: 640Mi
             limits:
-              cpu: "2"
+              cpu: "3"
               memory: 1536Mi
 
 ---

@@ -32,7 +32,7 @@ spec:
 
   postgresql:
     parameters:
-      max_connections: "60"
+      max_connections: "200"
       shared_buffers: "4GB"
       effective_cache_size: "12GB"
       work_mem: "32MB"
@@ -41,6 +41,11 @@ spec:
       # when pg_stat_statements.* settings are present.
       pg_stat_statements.max: "10000"
       pg_stat_statements.track: "all"
+      # Autovacuum tuning — higher cost limit means vacuum runs faster per cycle,
+      # more workers means more tables can be cleaned concurrently.
+      # Per-table scale_factor overrides are set via ALTER TABLE in migrations.
+      autovacuum_vacuum_cost_limit: "800"
+      autovacuum_max_workers: "5"
 
   resources:
     requests:

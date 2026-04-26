@@ -836,7 +836,7 @@ data:
           ij.status,
           count(*)                     AS job_count
         FROM ingest_jobs ij
-        WHERE ij.created_at > NOW() - INTERVAL '24 hours'
+        WHERE ij.status IN ('pending', 'processing', 'dlq', 'failed')
         GROUP BY 1, 2
       metrics:
         - kind:
@@ -874,7 +874,8 @@ data:
                 AND ij.status IN ('pending', 'processing')
             ) AS oldest_waiting_event_job_at
           FROM ingest_jobs ij
-          WHERE ij.created_at > NOW() - INTERVAL '24 hours'
+          WHERE ij.status IN ('pending', 'processing')
+            AND ij.kind = 'events'
           GROUP BY ij.session_id
         )
         SELECT
