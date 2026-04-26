@@ -36,7 +36,6 @@ spec:
       shared_buffers: "4GB"
       effective_cache_size: "12GB"
       work_mem: "32MB"
-      maintenance_work_mem: "512MB"
       # CNPG automatically manages shared_preload_libraries for pg_stat_statements
       # when pg_stat_statements.* settings are present.
       pg_stat_statements.max: "10000"
@@ -46,16 +45,24 @@ spec:
       # Per-table scale_factor overrides are set via ALTER TABLE in migrations.
       autovacuum_vacuum_cost_limit: "800"
       autovacuum_max_workers: "5"
+      # Reduced from 512MB — at 5 autovacuum workers this was consuming up to
+      # 2.56GB of the 12Gi pod limit. 128MB is still plenty for vacuuming
+      # large tables; speed is controlled by cost_limit, not work_mem.
+      maintenance_work_mem: "128MB"
+      # Capped to match the 6-vCPU pod limit. 32 was pure overhead.
+      max_parallel_workers: "6"
+      max_worker_processes: "8"
 
   resources:
     requests:
-      # HA-safe uplift: reserve more baseline for primary load while still fitting
-      # worker-1 failover capacity.
       cpu: "1500m"
       memory: "8Gi"
     limits:
       cpu: "6"
-      memory: "12Gi"
+      # Raised from 12Gi — primary was at 99.4% (11.93Gi used). Node has 24Gi
+      # total at 65% utilisation so headroom exists. Combined with the
+      # maintenance_work_mem reduction this gives a real safety margin.
+      memory: "16Gi"
 
   storage:
     storageClass: rejourney-db-local-retain
