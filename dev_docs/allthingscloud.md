@@ -230,10 +230,11 @@ The monitoring stack also uses small local-path PVCs for `grafana-data`, `gatus-
   - Image: `edoburu/pgbouncer:v1.25.1-p0`
   - **3 replicas** with required `podAntiAffinity` — one on each node (fsn1, worker-1, quorum-1)
   - Transaction pooling
-  - `DEFAULT_POOL_SIZE=24`
+  - `DEFAULT_POOL_SIZE=12`
   - `MAX_CLIENT_CONN=800`
   - Upstream target: `postgres-app-rw:5432`
   - Service uses `internalTrafficPolicy: Local`; apps normally connect to the PgBouncer replica on their own node. If a node has no local ready PgBouncer endpoint, Kubernetes will not silently route that Service call to another node, so keep the DaemonSet-like 3-replica placement healthy.
+  - Connection budget rule: keep `(pgbouncer replicas * DEFAULT_POOL_SIZE)` below Postgres usable slots (`max_connections - superuser_reserved_connections`) with headroom for admin and monitoring sessions.
 - **Redis**
   - Bitnami Helm chart with Sentinel
   - Config source: `k8s/helm/redis-values.yaml`
@@ -343,6 +344,9 @@ The monitoring stack also uses small local-path PVCs for `grafana-data`, `gatus-
 
 - Apply schema changes before enabling new retention behavior:
   - `cd backend && npm run db:migrate`
+- Release deploy timeout tuning (for long-running `db-setup` migrations/bootstrap):
+  - `DB_SETUP_TIMEOUT_SECONDS` defaults to `900` in `scripts/k8s/deploy-release.sh`
+  - override per run if needed: `DB_SETUP_TIMEOUT_SECONDS=1200 bash scripts/k8s/deploy-release.sh <image-tag> <repository>`
 - Manually drain the backlog once the backup job has populated `session_backup_log`:
   - `cd backend && npm run retention:backfill:expired-artifacts`
 - Useful things to inspect during rollout:

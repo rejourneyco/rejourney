@@ -62,7 +62,7 @@ spec:
             - name: POOL_MODE
               value: transaction
             - name: DEFAULT_POOL_SIZE
-              value: "24"
+              value: "12"
             - name: MAX_CLIENT_CONN
               value: "800"
             - name: SERVER_IDLE_TIMEOUT
