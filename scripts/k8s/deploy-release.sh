@@ -264,33 +264,29 @@ cleanup_finished_pods() {
   kubectl delete pods -n "${NAMESPACE}" --field-selector=status.phase==Failed --ignore-not-found >/dev/null 2>&1 || true
 }
 
-restart_seeder_jobs() {
-  # Kill all running session-backup-seed jobs so they immediately restart with the
-  # updated ConfigMap (session-backup-script). The CronJob reschedules automatically.
-  # Without this, running pods keep using the script that was baked into their
-  # volume mount at pod start — they won't see the new ConfigMap until they restart.
-  section "Restarting Session-Backup-Seed Jobs"
-  log "Deleting active session-backup-seed jobs (will reschedule from CronJob)..."
-  kubectl get jobs -n "${NAMESPACE}" --no-headers -o custom-columns=":metadata.name" \
-    | grep "^session-backup-seed-" \
-    | xargs -r kubectl delete job -n "${NAMESPACE}" --ignore-not-found || true
+cleanup_session_backup_jobs() {
+  # Always remove session backup jobs on deploy so no old backup/seed run keeps
+  # burning resources after rollout. This intentionally targets only app-level
+  # session backup jobs, not CNPG/Postgres backup resources.
+  section "Cleaning Session-Backup Jobs"
+  log "Deleting all session-backup and session-backup-seed jobs..."
 
-  # Also clean up stuck long-running session-backup drain jobs that pre-date this
-  # deploy (older than 23h) — they're running the old script and blocking the queue.
-  log "Deleting stale session-backup drain jobs (>23h old)..."
-  local cutoff
-  cutoff="$(date -u -d '23 hours ago' +%s 2>/dev/null || date -u -v-23H +%s)"
-  kubectl get jobs -n "${NAMESPACE}" --no-headers \
-    -o custom-columns=":metadata.name,:metadata.creationTimestamp" \
-    | grep "^session-backup-[0-9]" \
-    | while read -r name ts; do
-        local ts_epoch
-        ts_epoch="$(date -u -d "${ts}" +%s 2>/dev/null || date -u -j -f "%Y-%m-%dT%H:%M:%SZ" "${ts}" +%s 2>/dev/null || echo 0)"
-        if [ "${ts_epoch}" -lt "${cutoff}" ]; then
-          log "  Deleting stale job: ${name} (created ${ts})"
-          kubectl delete job "${name}" -n "${NAMESPACE}" --ignore-not-found || true
-        fi
-      done
+  local jobs_to_delete
+  jobs_to_delete="$(
+    kubectl get jobs -n "${NAMESPACE}" --no-headers -o custom-columns=":metadata.name" \
+      | awk '/^session-backup-[0-9]/ || /^session-backup-seed-[0-9]/'
+  )"
+
+  if [ -z "${jobs_to_delete}" ]; then
+    log "No session-backup jobs found."
+    return
+  fi
+
+  while IFS= read -r job_name; do
+    [ -z "${job_name}" ] && continue
+    log "  Deleting job: ${job_name}"
+    kubectl delete job "${job_name}" -n "${NAMESPACE}" --ignore-not-found || true
+  done <<< "${jobs_to_delete}"
 }
 
 main() {
@@ -405,7 +401,7 @@ main() {
   section "Cleaning up legacy Grafana dashboards"
   python3 "${ROOT_DIR}/scripts/k8s/patch-imported-grafana-dashboards.py" "${NAMESPACE}"
 
-  restart_seeder_jobs
+  cleanup_session_backup_jobs
   cleanup_finished_pods
   log "Release applied successfully for image tag ${IMAGE_TAG}"
 }

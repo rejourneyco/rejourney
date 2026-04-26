@@ -643,15 +643,32 @@ def d_postgres():
 
     panels.append(row("Container Resources", y)); y += 1
     pg_lbl = 'namespace="rejourney",pod=~"postgres-local-[0-9]+",container="postgres"'
+    pg_primary_filter = '(cnpg_pg_replication_in_recovery{namespace="rejourney"} == 0)'
     pg_mem_limit = kube_limit_expr('postgres-local-[0-9]+', 'postgres', 'memory')
     pg_mem_request = kube_request_expr('postgres-local-[0-9]+', 'postgres', 'memory')
     pg_cpu_limit = kube_limit_expr('postgres-local-[0-9]+', 'postgres', 'cpu')
     pg_cpu_request = kube_request_expr('postgres-local-[0-9]+', 'postgres', 'cpu')
-    panels.append(gauge("CPU Usage % of Limit",
-                        f'100 * sum(rate(container_cpu_usage_seconds_total{{{pg_lbl}}}[2m])) / clamp_min({pg_cpu_limit}, 0.001)',
+    pg_primary_cpu_usage = (
+        f'sum(rate(container_cpu_usage_seconds_total{{{pg_lbl}}}[2m]) '
+        f'* on(pod) group_left {pg_primary_filter})'
+    )
+    pg_primary_mem_usage = (
+        f'sum(container_memory_working_set_bytes{{{pg_lbl}}} '
+        f'* on(pod) group_left {pg_primary_filter})'
+    )
+    pg_primary_cpu_limit = (
+        f'sum(kube_pod_container_resource_limits{{namespace="rejourney",pod=~"postgres-local-[0-9]+",container="postgres",resource="cpu"}} '
+        f'* on(pod) group_left {pg_primary_filter})'
+    )
+    pg_primary_mem_limit = (
+        f'sum(kube_pod_container_resource_limits{{namespace="rejourney",pod=~"postgres-local-[0-9]+",container="postgres",resource="memory"}} '
+        f'* on(pod) group_left {pg_primary_filter})'
+    )
+    panels.append(gauge("Primary CPU Usage % of Limit",
+                        f'100 * {pg_primary_cpu_usage} / clamp_min({pg_primary_cpu_limit}, 0.001)',
                         0, y, w=6, h=6, unit="percent"))
-    panels.append(gauge("Memory Usage % of Limit",
-                        f'100 * sum(container_memory_working_set_bytes{{{pg_lbl}}}) / clamp_min({pg_mem_limit}, 1)',
+    panels.append(gauge("Primary Memory Usage % of Limit",
+                        f'100 * {pg_primary_mem_usage} / clamp_min({pg_primary_mem_limit}, 1)',
                         6, y, w=6, h=6, unit="percent"))
     panels.append(stat("CPU Limit (declared cores)",
                        pg_cpu_limit,

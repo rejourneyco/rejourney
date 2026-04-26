@@ -2324,7 +2324,7 @@ metadata:
     app.kubernetes.io/part-of: rejourney
 spec:
   schedule: "*/10 * * * *"
-  suspend: false
+  suspend: true
   concurrencyPolicy: Forbid
   successfulJobsHistoryLimit: 3
   failedJobsHistoryLimit: 3
@@ -2455,7 +2455,7 @@ metadata:
     app.kubernetes.io/part-of: rejourney
 spec:
   schedule: "*/5 * * * *"
-  suspend: false
+  suspend: true
   concurrencyPolicy: Forbid
   successfulJobsHistoryLimit: 2
   failedJobsHistoryLimit: 3
