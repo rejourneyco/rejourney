@@ -359,7 +359,7 @@ graph LR
 | cadvisor | DaemonSet — one pod per node. |
 | kube-state-metrics | Cluster-level Kubernetes object metrics. |
 | postgres-exporter | Scrapes CNPG primary for pg_stat_statements and connection metrics. |
-| CoreDNS | 2 replicas (1 on FSN1, 1 on HEL1) via HelmChartConfig. With 1 replica (k3s default), FSN1 failure causes 30–60s cluster-wide DNS outage blocking all reconnects (fixed 2026-04-26). |
+| CoreDNS | 2 replicas (1 on FSN1, 1 on HEL1). With 1 replica (k3s default), FSN1 failure causes 30–60s cluster-wide DNS outage blocking all reconnects (fixed 2026-04-26). **Not CI-managed** — k3s controls CoreDNS via its internal addon mechanism (no HelmChart CR), so `HelmChartConfig` does not work. Replica count is set via `kubectl patch` and must be re-applied after k3s version upgrades. See `k8s/coredns-config.yaml` for the command. |
 
 ### cert-manager
 
@@ -423,4 +423,5 @@ graph LR
 5. **quorum-1 is excluded from the Hetzner LB** via `node.kubernetes.io/exclude-from-external-load-balancers: "true"`. Traefik only runs on `fsn1` and `worker-1`. Do not remove this label.
 6. **pgbouncer anti-affinity is `required`** — exactly one per node. Do NOT change to `preferred` and do NOT add `maxSurge: 1`. With 3 nodes and 3 pods, a surge pod has nowhere to go: existing running pods' `required` anti-affinity blocks any new pgbouncer from co-locating, so the surge pod stays Pending forever and the rollout deadlocks (learned from CI failure 2026-04-26). The rolling update gap is handled by `trafficDistribution: PreferClose`.
 7. **CNPG sync replication degrades to async when standby is down** — `maxSyncReplicas: 1` means postgres won't block writes if the standby is temporarily unavailable. This is intentional. During CNPG upgrades or standby restarts, you briefly lose the sync guarantee. If FSN1 crashes in that window, the last few writes may be lost.
-8. **replay-worker is saturated** (96% CPU vs 55% target, at max 6 replicas as of 2026-04-26). If replay backlog grows, this is the bottleneck.
+8. **CoreDNS replica count resets on k3s upgrades** — it's set via `kubectl patch`, not CI. After any `k3s` version upgrade, verify with `kubectl get pods -n kube-system -l k8s-app=kube-dns` and re-run the patch in `k8s/coredns-config.yaml` if it's back to 1.
+9. **replay-worker is saturated** (96% CPU vs 55% target, at max 6 replicas as of 2026-04-26). If replay backlog grows, this is the bottleneck.

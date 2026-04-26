@@ -17,20 +17,25 @@ spec:
     # Hetzner Cloud Load Balancer — provisioned automatically by Hetzner CCM
     # when it detects these annotations on the Traefik LoadBalancer Service.
     # Applied during Phase 1-C maintenance window (CCM must be installed first).
-    # Two replicas spread across fsn1 + worker-1 for app-layer HA
+    #
+    # 1 replica pinned to FSN1. With externalTrafficPolicy:Local, the Hetzner LB
+    # health check on worker-1's nodeport fails when no Traefik pod is there, so
+    # the LB naturally routes all traffic to FSN1. On FSN1 failure Traefik reschedules
+    # to HEL1 (~90s) and the LB recovers automatically — HA preserved, cross-DC
+    # ingress routing eliminated in normal operation.
     deployment:
-      replicas: 2
+      replicas: 1
 
     affinity:
-      podAntiAffinity:
+      nodeAffinity:
         preferredDuringSchedulingIgnoredDuringExecution:
           - weight: 100
-            podAffinityTerm:
-              labelSelector:
-                matchLabels:
-                  app.kubernetes.io/name: traefik
-              topologyKey: kubernetes.io/hostname
-      nodeAffinity:
+            preference:
+              matchExpressions:
+                - key: kubernetes.io/hostname
+                  operator: In
+                  values:
+                    - ubuntu-4gb-fsn1-1
         requiredDuringSchedulingIgnoredDuringExecution:
           nodeSelectorTerms:
             - matchExpressions:
