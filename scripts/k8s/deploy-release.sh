@@ -7,6 +7,7 @@ K8S_DIR="${ROOT_DIR}/k8s"
 NAMESPACE="${NAMESPACE:-rejourney}"
 CNPG_CLUSTER_NAME="${CNPG_CLUSTER_NAME:-postgres-local}"
 ALLOW_LEGACY_POSTGRES_REMOVAL="${ALLOW_LEGACY_POSTGRES_REMOVAL:-false}"
+DB_SETUP_TIMEOUT_SECONDS="${DB_SETUP_TIMEOUT_SECONDS:-900}"
 IMAGE_TAG="${1:?usage: deploy-release.sh <image-tag> [repository]}"
 REPOSITORY="${2:-rejourneyco/rejourney}"
 RENDER_DIR="$(mktemp -d "${TMPDIR:-/tmp}/rejourney-release.XXXXXX")"
@@ -160,7 +161,7 @@ wait_for_postgres() {
 wait_for_job() {
   section "Waiting For db-setup"
   local deadline
-  deadline=$(( $(date +%s) + 360 ))
+  deadline=$(( $(date +%s) + DB_SETUP_TIMEOUT_SECONDS ))
 
   while true; do
     local succeeded failed
@@ -182,7 +183,7 @@ wait_for_job() {
 
     if [ "$(date +%s)" -ge "${deadline}" ]; then
       dump_db_setup_diagnostics
-      echo "[deploy-release] db-setup timed out" >&2
+      echo "[deploy-release] db-setup timed out after ${DB_SETUP_TIMEOUT_SECONDS}s" >&2
       exit 1
     fi
 

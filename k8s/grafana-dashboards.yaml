@@ -3972,7 +3972,7 @@ data:
                 "type": "prometheus",
                 "uid": "victoria-metrics"
               },
-              "expr": "100 * sum(cnpg_backends_total{namespace=\"rejourney\",role=\"primary\"}) / max(cnpg_pg_settings_setting{namespace=\"rejourney\",role=\"primary\",name=\"max_connections\"})",
+              "expr": "100 * clamp_max(sum(cnpg_backends_total{namespace=\"rejourney\",role=\"primary\"}) / clamp_min(max(cnpg_pg_settings_setting{namespace=\"rejourney\",role=\"primary\",name=\"max_connections\"}) - max(cnpg_pg_settings_setting{namespace=\"rejourney\",role=\"primary\",name=\"superuser_reserved_connections\"}), 1), 1)",
               "legendFormat": "",
               "refId": "A",
               "instant": false
@@ -4017,6 +4017,70 @@ data:
         },
         {
           "id": 13,
+          "type": "stat",
+          "title": "Client backends / usable slots",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoria-metrics"
+          },
+          "gridPos": {
+            "x": 15,
+            "y": 11,
+            "w": 3,
+            "h": 6
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "victoria-metrics"
+              },
+              "expr": "sum(cnpg_backends_total{namespace=\"rejourney\",role=\"primary\"}) / clamp_min(max(cnpg_pg_settings_setting{namespace=\"rejourney\",role=\"primary\",name=\"max_connections\"}) - max(cnpg_pg_settings_setting{namespace=\"rejourney\",role=\"primary\",name=\"superuser_reserved_connections\"}), 1)",
+              "legendFormat": "",
+              "refId": "A",
+              "instant": false
+            }
+          ],
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "colorMode": "value",
+            "graphMode": "area",
+            "textMode": "auto",
+            "justifyMode": "auto"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "orange",
+                    "value": 0.8
+                  },
+                  {
+                    "color": "red",
+                    "value": 1
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 14,
           "type": "timeseries",
           "title": "Backends by state",
           "datasource": {
@@ -4026,7 +4090,7 @@ data:
           "gridPos": {
             "x": 6,
             "y": 11,
-            "w": 12,
+            "w": 9,
             "h": 6
           },
           "targets": [
@@ -4090,7 +4154,7 @@ data:
           }
         },
         {
-          "id": 14,
+          "id": 15,
           "type": "stat",
           "title": "Waiting backends",
           "datasource": {
@@ -4154,7 +4218,7 @@ data:
           }
         },
         {
-          "id": 15,
+          "id": 16,
           "type": "stat",
           "title": "Max tx duration",
           "datasource": {
@@ -4210,7 +4274,7 @@ data:
           }
         },
         {
-          "id": 16,
+          "id": 17,
           "type": "row",
           "title": "Throughput & Cache",
           "collapsed": false,
@@ -4223,7 +4287,7 @@ data:
           "panels": []
         },
         {
-          "id": 17,
+          "id": 18,
           "type": "timeseries",
           "title": "Transactions / sec",
           "datasource": {
@@ -4307,7 +4371,7 @@ data:
           }
         },
         {
-          "id": 18,
+          "id": 19,
           "type": "timeseries",
           "title": "Row operations / sec",
           "datasource": {
@@ -4421,7 +4485,7 @@ data:
           }
         },
         {
-          "id": 19,
+          "id": 20,
           "type": "gauge",
           "title": "Cache Hit Rate %",
           "datasource": {
@@ -4484,7 +4548,7 @@ data:
           }
         },
         {
-          "id": 20,
+          "id": 21,
           "type": "timeseries",
           "title": "Blocks read vs hit / sec",
           "datasource": {
@@ -4568,7 +4632,7 @@ data:
           }
         },
         {
-          "id": 21,
+          "id": 22,
           "type": "stat",
           "title": "Deadlocks (1h)",
           "datasource": {
@@ -4628,7 +4692,7 @@ data:
           }
         },
         {
-          "id": 22,
+          "id": 23,
           "type": "stat",
           "title": "Temp files (1h)",
           "datasource": {
@@ -4684,7 +4748,7 @@ data:
           }
         },
         {
-          "id": 23,
+          "id": 24,
           "type": "row",
           "title": "Checkpoints & WAL",
           "collapsed": false,
@@ -4697,7 +4761,7 @@ data:
           "panels": []
         },
         {
-          "id": 24,
+          "id": 25,
           "type": "timeseries",
           "title": "Checkpoints / sec",
           "datasource": {
@@ -4781,7 +4845,7 @@ data:
           }
         },
         {
-          "id": 25,
+          "id": 26,
           "type": "timeseries",
           "title": "WAL stats / sec",
           "datasource": {
@@ -4865,7 +4929,7 @@ data:
           }
         },
         {
-          "id": 26,
+          "id": 27,
           "type": "timeseries",
           "title": "WAL files present",
           "datasource": {
@@ -4959,7 +5023,7 @@ data:
           }
         },
         {
-          "id": 27,
+          "id": 28,
           "type": "row",
           "title": "Database sizes",
           "collapsed": false,
@@ -4972,7 +5036,7 @@ data:
           "panels": []
         },
         {
-          "id": 28,
+          "id": 29,
           "type": "timeseries",
           "title": "Database size (bytes)",
           "datasource": {
@@ -5046,7 +5110,7 @@ data:
           }
         },
         {
-          "id": 29,
+          "id": 30,
           "type": "row",
           "title": "Container Resources",
           "collapsed": false,
@@ -5059,7 +5123,7 @@ data:
           "panels": []
         },
         {
-          "id": 30,
+          "id": 31,
           "type": "gauge",
           "title": "CPU Usage % of Limit",
           "datasource": {
@@ -5122,7 +5186,7 @@ data:
           }
         },
         {
-          "id": 31,
+          "id": 32,
           "type": "gauge",
           "title": "Memory Usage % of Limit",
           "datasource": {
@@ -5185,7 +5249,7 @@ data:
           }
         },
         {
-          "id": 32,
+          "id": 33,
           "type": "stat",
           "title": "CPU Limit (declared cores)",
           "datasource": {
@@ -5241,7 +5305,7 @@ data:
           }
         },
         {
-          "id": 33,
+          "id": 34,
           "type": "stat",
           "title": "CPU Request (declared cores)",
           "datasource": {
@@ -5297,7 +5361,7 @@ data:
           }
         },
         {
-          "id": 34,
+          "id": 35,
           "type": "stat",
           "title": "Memory Limit (declared)",
           "datasource": {
@@ -5353,7 +5417,7 @@ data:
           }
         },
         {
-          "id": 35,
+          "id": 36,
           "type": "stat",
           "title": "Memory Request (declared)",
           "datasource": {
@@ -5409,7 +5473,7 @@ data:
           }
         },
         {
-          "id": 36,
+          "id": 37,
           "type": "timeseries",
           "title": "CPU throttling",
           "datasource": {
@@ -5483,7 +5547,7 @@ data:
           }
         },
         {
-          "id": 37,
+          "id": 38,
           "type": "timeseries",
           "title": "Memory usage",
           "datasource": {
@@ -5587,7 +5651,7 @@ data:
           }
         },
         {
-          "id": 38,
+          "id": 39,
           "type": "row",
           "title": "Backups & Local Storage",
           "collapsed": false,
@@ -5600,7 +5664,7 @@ data:
           "panels": []
         },
         {
-          "id": 39,
+          "id": 40,
           "type": "stat",
           "title": "Seconds since last archive",
           "datasource": {
@@ -5664,7 +5728,7 @@ data:
           }
         },
         {
-          "id": 40,
+          "id": 41,
           "type": "stat",
           "title": "Archive failures",
           "datasource": {
@@ -5724,7 +5788,7 @@ data:
           }
         },
         {
-          "id": 41,
+          "id": 42,
           "type": "stat",
           "title": "Last available backup age",
           "datasource": {
@@ -5788,7 +5852,7 @@ data:
           }
         },
         {
-          "id": 42,
+          "id": 43,
           "type": "stat",
           "title": "Last failed backup age",
           "datasource": {
@@ -5844,7 +5908,7 @@ data:
           }
         },
         {
-          "id": 43,
+          "id": 44,
           "type": "stat",
           "title": "Root disk free %",
           "datasource": {
@@ -5908,7 +5972,7 @@ data:
           }
         },
         {
-          "id": 44,
+          "id": 45,
           "type": "stat",
           "title": "Database PVC used",
           "datasource": {
@@ -5964,7 +6028,7 @@ data:
           }
         },
         {
-          "id": 45,
+          "id": 46,
           "type": "timeseries",
           "title": "Archiver: archived vs failed",
           "datasource": {

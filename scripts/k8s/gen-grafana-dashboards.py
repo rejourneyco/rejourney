@@ -559,12 +559,34 @@ def d_postgres():
     y += 4
 
     panels.append(row("Connections", y)); y += 1
+    connection_util_expr = (
+        '100 * clamp_max('
+        'sum(cnpg_backends_total{namespace="rejourney",role="primary"}) / '
+        'clamp_min('
+        'max(cnpg_pg_settings_setting{namespace="rejourney",role="primary",name="max_connections"}) - '
+        'max(cnpg_pg_settings_setting{namespace="rejourney",role="primary",name="superuser_reserved_connections"}), '
+        '1'
+        '), '
+        '1'
+        ')'
+    )
+    usable_slots_expr = (
+        'clamp_min('
+        'max(cnpg_pg_settings_setting{namespace="rejourney",role="primary",name="max_connections"}) - '
+        'max(cnpg_pg_settings_setting{namespace="rejourney",role="primary",name="superuser_reserved_connections"}), '
+        '1'
+        ')'
+    )
     panels.append(gauge("Connection Utilization %",
-                        '100 * sum(cnpg_backends_total{namespace="rejourney",role="primary"}) / max(cnpg_pg_settings_setting{namespace="rejourney",role="primary",name="max_connections"})',
+                        connection_util_expr,
                         0, y, w=6, h=6, unit="percent"))
+    panels.append(stat("Client backends / usable slots",
+                       f'sum(cnpg_backends_total{{namespace="rejourney",role="primary"}}) / {usable_slots_expr}',
+                       15, y, w=3, h=6, unit="short",
+                       thresholds={"mode": "absolute", "steps": [{"color": "green", "value": None}, {"color": "orange", "value": 0.8}, {"color": "red", "value": 1}]}))
     panels.append(ts("Backends by state",
                      [('cnpg_backends_total{namespace="rejourney"}', "{{state}} — {{datname}}")],
-                     6, y, w=12, h=6, unit="short"))
+                     6, y, w=9, h=6, unit="short"))
     panels.append(stat("Waiting backends", 'sum(cnpg_backends_waiting_total{namespace="rejourney"})', 18, y, w=3, h=6, unit="short",
                        thresholds={"mode": "absolute", "steps": [{"color": "green", "value": None}, {"color": "orange", "value": 5}, {"color": "red", "value": 20}]}))
     panels.append(stat("Max tx duration", 'max(cnpg_backends_max_tx_duration_seconds{namespace="rejourney"})', 21, y, w=3, h=6, unit="s"))
