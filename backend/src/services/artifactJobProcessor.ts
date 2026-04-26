@@ -184,9 +184,12 @@ export async function processArtifactJob(
 
         if (!sessionResult) {
             log.warn('Session not found, marking job as failed');
-            await db.update(ingestJobs)
-                .set({ status: 'failed', errorMsg: 'Session not found', completedAt: new Date(), updatedAt: new Date() })
-                .where(eq(ingestJobs.id, job.id));
+            await db.transaction(async (tx) => {
+                await tx.execute(sql`SET LOCAL synchronous_commit = local`);
+                await tx.update(ingestJobs)
+                    .set({ status: 'failed', errorMsg: 'Session not found', completedAt: new Date(), updatedAt: new Date() })
+                    .where(eq(ingestJobs.id, job.id));
+            });
             return false;
         }
 
@@ -232,15 +235,18 @@ export async function processArtifactJob(
         });
 
         const completedAt = new Date();
-        await db.update(recordingArtifacts)
-            .set({
-                status: 'ready',
-                readyAt: completedAt,
-                uploadCompletedAt: artifact.uploadCompletedAt ?? completedAt,
-                verifiedAt: artifact.verifiedAt ?? completedAt,
-                sizeBytes,
-            })
-            .where(eq(recordingArtifacts.id, artifactId));
+        await db.transaction(async (tx) => {
+            await tx.execute(sql`SET LOCAL synchronous_commit = local`);
+            await tx.update(recordingArtifacts)
+                .set({
+                    status: 'ready',
+                    readyAt: completedAt,
+                    uploadCompletedAt: artifact.uploadCompletedAt ?? completedAt,
+                    verifiedAt: artifact.verifiedAt ?? completedAt,
+                    sizeBytes,
+                })
+                .where(eq(recordingArtifacts.id, artifactId));
+        });
 
         await markArtifactJobDone(job.id, completedAt);
 

@@ -112,28 +112,39 @@ export async function markArtifactJobProcessing(
         workerId: string;
     },
 ): Promise<void> {
-    await db.update(ingestJobs)
-        .set({
-            status: 'processing',
-            attempts: options.attemptNumber,
-            startedAt: options.startedAt,
-            workerId: options.workerId,
-            updatedAt: options.startedAt,
-        })
-        .where(eq(ingestJobs.id, jobId));
+    // ingest_jobs status writes are idempotent: if lost on primary crash the job
+    // reverts to pending and gets reprocessed. Skip the ~25ms SyncRep RTT.
+    await db.transaction(async (tx) => {
+        await tx.execute(sql`SET LOCAL synchronous_commit = local`);
+        await tx.update(ingestJobs)
+            .set({
+                status: 'processing',
+                attempts: options.attemptNumber,
+                startedAt: options.startedAt,
+                workerId: options.workerId,
+                updatedAt: options.startedAt,
+            })
+            .where(eq(ingestJobs.id, jobId));
+    });
 }
 
 export async function markArtifactJobDone(jobId: string, completedAt: Date): Promise<void> {
-    await db.update(ingestJobs)
-        .set({ status: 'done', completedAt, updatedAt: completedAt })
-        .where(eq(ingestJobs.id, jobId));
+    await db.transaction(async (tx) => {
+        await tx.execute(sql`SET LOCAL synchronous_commit = local`);
+        await tx.update(ingestJobs)
+            .set({ status: 'done', completedAt, updatedAt: completedAt })
+            .where(eq(ingestJobs.id, jobId));
+    });
 }
 
 export async function recoverStuckArtifactJobs(): Promise<number> {
-    const result = await db.update(ingestJobs)
-        .set({ status: 'pending', updatedAt: new Date(), startedAt: null, workerId: null })
-        .where(eq(ingestJobs.status, 'processing'));
-    return (result as { rowCount?: number }).rowCount ?? 0;
+    return db.transaction(async (tx) => {
+        await tx.execute(sql`SET LOCAL synchronous_commit = local`);
+        const result = await tx.update(ingestJobs)
+            .set({ status: 'pending', updatedAt: new Date(), startedAt: null, workerId: null })
+            .where(eq(ingestJobs.status, 'processing'));
+        return (result as { rowCount?: number }).rowCount ?? 0;
+    });
 }
 
 export async function scheduleArtifactJobRetry(options: {
@@ -147,14 +158,17 @@ export async function scheduleArtifactJobRetry(options: {
     sessionId?: string | null;
 }): Promise<void> {
     if (options.attemptNumber >= options.maxAttempts) {
-        await db.update(ingestJobs)
-            .set({ status: 'dlq', errorMsg: options.errorMsg, completedAt: new Date(), updatedAt: new Date() })
-            .where(eq(ingestJobs.id, options.jobId));
-        if (options.artifactId) {
-            await db.update(recordingArtifacts)
-                .set({ status: 'failed' })
-                .where(eq(recordingArtifacts.id, options.artifactId));
-        }
+        await db.transaction(async (tx) => {
+            await tx.execute(sql`SET LOCAL synchronous_commit = local`);
+            await tx.update(ingestJobs)
+                .set({ status: 'dlq', errorMsg: options.errorMsg, completedAt: new Date(), updatedAt: new Date() })
+                .where(eq(ingestJobs.id, options.jobId));
+            if (options.artifactId) {
+                await tx.update(recordingArtifacts)
+                    .set({ status: 'failed' })
+                    .where(eq(recordingArtifacts.id, options.artifactId));
+            }
+        });
         options.log.warn(
             {
                 event: 'ingest.artifact_job_dlq',
@@ -173,9 +187,12 @@ export async function scheduleArtifactJobRetry(options: {
     }
 
     const nextRunAt = new Date(Date.now() + Math.pow(2, options.attemptNumber) * 1000);
-    await db.update(ingestJobs)
-        .set({ status: 'pending', nextRunAt, errorMsg: options.errorMsg })
-        .where(eq(ingestJobs.id, options.jobId));
+    await db.transaction(async (tx) => {
+        await tx.execute(sql`SET LOCAL synchronous_commit = local`);
+        await tx.update(ingestJobs)
+            .set({ status: 'pending', nextRunAt, errorMsg: options.errorMsg })
+            .where(eq(ingestJobs.id, options.jobId));
+    });
 
     options.log.warn(
         {

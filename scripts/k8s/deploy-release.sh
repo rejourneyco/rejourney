@@ -259,6 +259,31 @@ wait_for_daemonset() {
   fi
 }
 
+# Evict any pods for DEPLOYMENT that landed on HEL1 nodes during the rolling
+# update. After rollout completes there is no surge pressure, so the evicted
+# pod reschedules onto FSN1 (the preferred node). Pods already on FSN1 are
+# untouched. Runs wait_for_deployment again to confirm everything comes back up.
+pin_deployment_to_fsn1() {
+  local name="$1"
+  local preferred_node="ubuntu-4gb-fsn1-1"
+
+  misplaced="$(kubectl get pods -n "${NAMESPACE}" -l "app=${name}" \
+    -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.spec.nodeName}{"\n"}{end}' \
+    | grep -v "${preferred_node}" | awk '{print $1}' || true)"
+
+  if [ -z "${misplaced}" ]; then
+    log "All ${name} pods on ${preferred_node} ✓"
+    return 0
+  fi
+
+  log "Evicting ${name} pods that landed on HEL1: ${misplaced}"
+  for pod in ${misplaced}; do
+    kubectl delete pod -n "${NAMESPACE}" "${pod}" --grace-period=30
+    sleep 5
+  done
+  wait_for_deployment "${name}"
+}
+
 cleanup_finished_pods() {
   kubectl delete pods -n "${NAMESPACE}" --field-selector=status.phase==Succeeded --ignore-not-found >/dev/null 2>&1 || true
   kubectl delete pods -n "${NAMESPACE}" --field-selector=status.phase==Failed --ignore-not-found >/dev/null 2>&1 || true
@@ -389,8 +414,11 @@ main() {
 
   section "Waiting For Rollouts"
   wait_for_deployment api
+  pin_deployment_to_fsn1 api
   wait_for_deployment ingest-upload
+  pin_deployment_to_fsn1 ingest-upload
   wait_for_deployment web
+  pin_deployment_to_fsn1 web
   wait_for_deployment ingest-worker
   wait_for_deployment replay-worker
   wait_for_deployment session-lifecycle-worker

@@ -58,7 +58,7 @@ spec:
     kind: Deployment
     name: ingest-worker
   minReplicas: 5
-  maxReplicas: 6
+  maxReplicas: 12
   metrics:
     - type: Resource
       resource:
@@ -81,7 +81,7 @@ spec:
     kind: Deployment
     name: replay-worker
   minReplicas: 1
-  maxReplicas: 6
+  maxReplicas: 10
   metrics:
     - type: Resource
       resource:
