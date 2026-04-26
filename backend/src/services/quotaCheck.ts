@@ -12,7 +12,14 @@
 
 import { eq, and, sql, inArray, isNull } from 'drizzle-orm';
 import { db, teams, users, projects, projectUsage, billingNotifications, teamMembers } from '../db/client.js';
-import { getSessionLimitCacheWithLock, invalidateSessionLimitCache } from '../db/redis.js';
+import {
+    getSessionLimitCacheWithLock,
+    invalidateSessionLimitCache,
+    getBillingStatusCache,
+    setBillingStatusCache,
+    getBillingPeriodCache,
+    setBillingPeriodCache,
+} from '../db/redis.js';
 import { getTeamSubscription } from './stripeProducts.js';
 import { sendBillingWarningEmail } from './email.js';
 import {
@@ -221,22 +228,32 @@ async function fetchTeamSessionData(
 export async function checkAndEnforceSessionLimit(
     teamId: string
 ): Promise<SessionLimitCheckResult> {
-    // Get team's billing cycle anchor to determine current period
-    const [team] = await db
-        .select({
-            billingCycleAnchor: teams.billingCycleAnchor,
-            stripeCurrentPeriodStart: teams.stripeCurrentPeriodStart,
-            stripeCurrentPeriodEnd: teams.stripeCurrentPeriodEnd,
-        })
-        .from(teams)
-        .where(eq(teams.id, teamId))
-        .limit(1);
+    // Fast path: get billing period from Redis cache (1h TTL) to avoid a teams
+    // SELECT on every presign call. The period only changes once a month at
+    // billing renewal; syncTeamFromStripe invalidates this cache when it changes.
+    let currentPeriod = await getBillingPeriodCache(teamId);
 
-    const currentPeriod = getEffectiveBillingPeriod(
-        team?.billingCycleAnchor ?? null,
-        team?.stripeCurrentPeriodStart ?? null,
-        team?.stripeCurrentPeriodEnd ?? null,
-    );
+    if (!currentPeriod) {
+        // Cache miss — fetch the three period-related columns from teams
+        const [team] = await db
+            .select({
+                billingCycleAnchor: teams.billingCycleAnchor,
+                stripeCurrentPeriodStart: teams.stripeCurrentPeriodStart,
+                stripeCurrentPeriodEnd: teams.stripeCurrentPeriodEnd,
+            })
+            .from(teams)
+            .where(eq(teams.id, teamId))
+            .limit(1);
+
+        currentPeriod = getEffectiveBillingPeriod(
+            team?.billingCycleAnchor ?? null,
+            team?.stripeCurrentPeriodStart ?? null,
+            team?.stripeCurrentPeriodEnd ?? null,
+        );
+
+        // Store for next call (fire-and-forget; failure falls back to DB gracefully)
+        setBillingPeriodCache(teamId, currentPeriod).catch(() => {});
+    }
 
     // Use distributed locking to prevent cache stampede race conditions
     const sessionData = await getSessionLimitCacheWithLock(
@@ -309,12 +326,19 @@ export async function invalidateSessionCache(teamId: string): Promise<void> {
 // =============================================================================
 
 /**
- * Check billing status for a team
- * Returns whether the team can record based on payment status and session limits
+ * Check billing status for a team.
+ * Returns whether the team can record based on payment status.
+ *
+ * Caches the result in Redis for 60 s to avoid a DB hit on every presign
+ * request. Invalidated by syncTeamFromStripe when paymentFailedAt changes.
  */
 export async function checkBillingStatus(
     teamId: string
 ): Promise<{ canRecord: boolean; reason?: string }> {
+    // Fast path: Redis cache hit avoids a DB round-trip on every presign call
+    const cached = await getBillingStatusCache(teamId);
+    if (cached !== null) return cached;
+
     const [team] = await db
         .select({
             paymentFailedAt: teams.paymentFailedAt,
@@ -324,19 +348,19 @@ export async function checkBillingStatus(
         .limit(1);
 
     if (!team) {
+        // Don't cache "not found" — it's transient / shouldn't happen in production
         return { canRecord: false, reason: 'Team not found' };
     }
 
-    // Check if payment has failed
-    if (team.paymentFailedAt) {
-        return {
-            canRecord: false,
-            reason: 'Payment failed - please update your payment method'
-        };
-    }
+    const result: { canRecord: boolean; reason?: string } = team.paymentFailedAt
+        ? { canRecord: false, reason: 'Payment failed - please update your payment method' }
+        : { canRecord: true };
+
+    // Cache for 60 s; Stripe webhook path will invalidate on payment status change
+    setBillingStatusCache(teamId, result).catch(() => {});
 
     // Session-limit enforcement is handled separately via checkAndEnforceSessionLimit().
-    return { canRecord: true };
+    return result;
 }
 
 // =============================================================================

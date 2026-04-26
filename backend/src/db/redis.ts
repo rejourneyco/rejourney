@@ -408,6 +408,62 @@ export async function invalidateWorkspaceCache(
     }
 }
 
+// =============================================================================
+// Billing status cache
+//
+// checkBillingStatus() runs on every presign call for new sessions — one bare
+// SELECT paymentFailedAt per request. Cache it for 60 s; Stripe webhooks fire
+// syncTeamFromStripe which calls invalidateBillingStatusCache() so paid-failure
+// events propagate within seconds.
+// =============================================================================
+
+const BILLING_STATUS_CACHE_TTL_SECONDS = 60;
+
+export async function getBillingStatusCache(
+    teamId: string
+): Promise<{ canRecord: boolean; reason?: string } | null> {
+    const redisClient = getRedis();
+    const key = `billing:status:${teamId}`;
+    try {
+        const data = await redisClient.hgetall(key);
+        if (!data || data.canRecord === undefined) return null;
+        return {
+            canRecord: data.canRecord === '1',
+            reason: data.reason || undefined,
+        };
+    } catch (err) {
+        logRedisOperationFailed('get_billing_status_cache', err, { teamId });
+        return null;
+    }
+}
+
+export async function setBillingStatusCache(
+    teamId: string,
+    status: { canRecord: boolean; reason?: string }
+): Promise<void> {
+    const redisClient = getRedis();
+    const key = `billing:status:${teamId}`;
+    try {
+        const pipeline = redisClient.pipeline();
+        pipeline.hset(key, 'canRecord', status.canRecord ? '1' : '0');
+        if (status.reason) pipeline.hset(key, 'reason', status.reason);
+        pipeline.expire(key, BILLING_STATUS_CACHE_TTL_SECONDS);
+        await pipeline.exec();
+    } catch (err) {
+        logRedisOperationFailed('set_billing_status_cache', err, { teamId });
+    }
+}
+
+export async function invalidateBillingStatusCache(teamId: string): Promise<void> {
+    const redisClient = getRedis();
+    const key = `billing:status:${teamId}`;
+    try {
+        await redisClient.del(key);
+    } catch (err) {
+        logRedisOperationFailed('invalidate_billing_status_cache', err, { teamId });
+    }
+}
+
 /**
  * Invalidate team session limit cache (call after billing updates or session count changes)
  */
@@ -424,6 +480,176 @@ export async function invalidateSessionLimitCache(
         logger.debug({ teamId, period: currentPeriod }, 'Invalidated team session limit cache');
     } catch (err) {
         logRedisOperationFailed('invalidate_session_limit_cache', err, { teamId });
+    }
+}
+
+// =============================================================================
+// Session existence cache
+//
+// findExistingProjectSession() queries the same sessions row on every presign
+// call. A typical session uploads 50-200 chunks, each requiring a presign —
+// that's 50-200 identical PK lookups. We only need to know "does this session
+// exist for this project?" — the actual row is fetched once inside
+// ensureIngestSession. Cache a simple existence flag for 1 hour.
+// =============================================================================
+
+const SESSION_EXISTS_CACHE_TTL_SECONDS = 3600; // 1 hour
+
+function sessionExistsCacheKey(projectId: string, sessionId: string): string {
+    return `ingest:session:${projectId}:${sessionId}`;
+}
+
+export async function getSessionExistsCache(projectId: string, sessionId: string): Promise<boolean> {
+    const redisClient = getRedis();
+    try {
+        const val = await redisClient.get(sessionExistsCacheKey(projectId, sessionId));
+        return val === '1';
+    } catch (err) {
+        logRedisOperationFailed('get_session_exists_cache', err, { projectId });
+        return false;
+    }
+}
+
+export async function setSessionExistsCache(projectId: string, sessionId: string): Promise<void> {
+    const redisClient = getRedis();
+    try {
+        await redisClient.setex(sessionExistsCacheKey(projectId, sessionId), SESSION_EXISTS_CACHE_TTL_SECONDS, '1');
+    } catch (err) {
+        logRedisOperationFailed('set_session_exists_cache', err, { projectId });
+    }
+}
+
+export async function invalidateSessionExistsCache(projectId: string, sessionId: string): Promise<void> {
+    const redisClient = getRedis();
+    try {
+        await redisClient.del(sessionExistsCacheKey(projectId, sessionId));
+    } catch (err) {
+        logRedisOperationFailed('invalidate_session_exists_cache', err, { projectId });
+    }
+}
+
+// =============================================================================
+// S3 endpoint cache
+//
+// getEndpointForProject() runs a SELECT on storage_endpoints on every presign.
+// Endpoints rarely change (only when storage configuration is updated). Cache
+// per projectId for 10 minutes. No explicit invalidation needed — stale for
+// 10 min is completely safe for storage routing.
+// =============================================================================
+
+const ENDPOINT_CACHE_TTL_SECONDS = 600; // 10 minutes
+
+function endpointCacheKey(projectId: string): string {
+    return `endpoint:project:${projectId}`;
+}
+
+export async function getEndpointCache(projectId: string): Promise<Record<string, unknown> | null> {
+    const redisClient = getRedis();
+    try {
+        const raw = await redisClient.get(endpointCacheKey(projectId));
+        if (!raw) return null;
+        return JSON.parse(raw) as Record<string, unknown>;
+    } catch (err) {
+        logRedisOperationFailed('get_endpoint_cache', err, { projectId });
+        return null;
+    }
+}
+
+export async function setEndpointCache(projectId: string, endpoint: Record<string, unknown>): Promise<void> {
+    const redisClient = getRedis();
+    try {
+        await redisClient.setex(endpointCacheKey(projectId), ENDPOINT_CACHE_TTL_SECONDS, JSON.stringify(endpoint));
+    } catch (err) {
+        logRedisOperationFailed('set_endpoint_cache', err, { projectId });
+    }
+}
+
+// =============================================================================
+// Stripe subscription cache
+//
+// getTeamSubscription() makes a live Stripe API call (100-300ms) on every
+// session-limit cache miss (~every 5 min per active team). Cache the resolved
+// plan info for 5 minutes. Invalidated by syncTeamFromStripe when subscription
+// status changes (payment events, upgrades, cancellations).
+// =============================================================================
+
+const STRIPE_SUB_CACHE_TTL_SECONDS = 300; // 5 minutes
+
+function stripeSubCacheKey(teamId: string): string {
+    return `stripe:sub:${teamId}`;
+}
+
+export async function getStripeSubscriptionCache(teamId: string): Promise<Record<string, unknown> | null> {
+    const redisClient = getRedis();
+    try {
+        const raw = await redisClient.get(stripeSubCacheKey(teamId));
+        if (!raw) return null;
+        return JSON.parse(raw) as Record<string, unknown>;
+    } catch (err) {
+        logRedisOperationFailed('get_stripe_sub_cache', err, { teamId });
+        return null;
+    }
+}
+
+export async function setStripeSubscriptionCache(teamId: string, plan: Record<string, unknown>): Promise<void> {
+    const redisClient = getRedis();
+    try {
+        await redisClient.setex(stripeSubCacheKey(teamId), STRIPE_SUB_CACHE_TTL_SECONDS, JSON.stringify(plan));
+    } catch (err) {
+        logRedisOperationFailed('set_stripe_sub_cache', err, { teamId });
+    }
+}
+
+export async function invalidateStripeSubscriptionCache(teamId: string): Promise<void> {
+    const redisClient = getRedis();
+    try {
+        await redisClient.del(stripeSubCacheKey(teamId));
+    } catch (err) {
+        logRedisOperationFailed('invalidate_stripe_sub_cache', err, { teamId });
+    }
+}
+
+// =============================================================================
+// Billing period cache
+//
+// checkAndEnforceSessionLimit() SELECTs teams just to get billingCycleAnchor
+// + stripeCurrentPeriodStart/End so it can compute the billing period string
+// used as the session-limit cache key. The period only changes once a month
+// at billing renewal. Cache it for 1 hour. Invalidated by syncTeamFromStripe
+// when billing period dates change.
+// =============================================================================
+
+const BILLING_PERIOD_CACHE_TTL_SECONDS = 3600; // 1 hour
+
+function billingPeriodCacheKey(teamId: string): string {
+    return `billing:period:${teamId}`;
+}
+
+export async function getBillingPeriodCache(teamId: string): Promise<string | null> {
+    const redisClient = getRedis();
+    try {
+        return await redisClient.get(billingPeriodCacheKey(teamId));
+    } catch (err) {
+        logRedisOperationFailed('get_billing_period_cache', err, { teamId });
+        return null;
+    }
+}
+
+export async function setBillingPeriodCache(teamId: string, period: string): Promise<void> {
+    const redisClient = getRedis();
+    try {
+        await redisClient.setex(billingPeriodCacheKey(teamId), BILLING_PERIOD_CACHE_TTL_SECONDS, period);
+    } catch (err) {
+        logRedisOperationFailed('set_billing_period_cache', err, { teamId });
+    }
+}
+
+export async function invalidateBillingPeriodCache(teamId: string): Promise<void> {
+    const redisClient = getRedis();
+    try {
+        await redisClient.del(billingPeriodCacheKey(teamId));
+    } catch (err) {
+        logRedisOperationFailed('invalidate_billing_period_cache', err, { teamId });
     }
 }
 

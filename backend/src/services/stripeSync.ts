@@ -24,7 +24,7 @@ import { config } from '../config.js';
 import { logger } from '../logger.js';
 import { db, teams, projects, projectUsage, sessions } from '../db/client.js';
 import { effectiveBonusSessions } from '../utils/billing.js';
-import { invalidateSessionLimitCache } from '../db/redis.js';
+import { invalidateSessionLimitCache, invalidateBillingStatusCache, invalidateStripeSubscriptionCache, invalidateBillingPeriodCache } from '../db/redis.js';
 import { syncTeamVideoRetention, FREE_VIDEO_RETENTION_TIER } from './videoRetention.js';
 
 // =============================================================================
@@ -441,6 +441,9 @@ export async function syncTeamFromStripe(
                     : 'paymentFailedAt cleared (subscription active/trialing)'
             );
             logger.info({ teamId, stripeStatus, paymentFailedAt: newPaymentFailedAt }, 'Stripe sync: paymentFailedAt corrected');
+            // Invalidate the 60-second billing status cache so presign endpoints
+            // pick up the new payment status within one cache TTL at most.
+            invalidateBillingStatusCache(teamId).catch(() => {});
         }
 
         // --- Rebuild project_usage from sessions table (source of truth) ---
@@ -470,8 +473,11 @@ export async function syncTeamFromStripe(
         }
     });
 
-    // Invalidate Redis session cache
+    // Invalidate Redis caches — any sync run may have changed plan, period dates,
+    // or payment status, so flush everything billing-related for this team.
     await invalidateSessionLimitCache(teamId);
+    invalidateStripeSubscriptionCache(teamId).catch(() => {});
+    invalidateBillingPeriodCache(teamId).catch(() => {});
 
     return { teamId, status: 'fixed', corrections };
 }

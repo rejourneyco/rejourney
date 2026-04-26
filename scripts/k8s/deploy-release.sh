@@ -307,6 +307,13 @@ main() {
   apply_unlabeled_support_manifests
   apply_cnpg_cluster_manifest
 
+  # Wait for Postgres to finish its rolling restart (triggered by any parameter
+  # changes in postgres-cnpg.yaml) BEFORE rolling the application deployments.
+  # Previously this wait happened after the bulk apply, meaning CNPG restart +
+  # all deployment rolling restarts fired simultaneously — CPU spike → Redis
+  # Sentinel tilt → 504s. The barrier here ensures only one disruption at a time.
+  wait_for_postgres
+
   bash "${ROOT_DIR}/scripts/k8s/check-archive-sync.sh"
 
   print_migration_status "before"

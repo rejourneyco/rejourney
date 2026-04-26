@@ -140,14 +140,25 @@ let backupR2DeletionTarget: ExternalS3DeletionTarget | null | undefined;
 // =============================================================================
 
 /**
- * Get storage endpoint for a project with weighted load balancing
- * Falls back to global default if no project-specific endpoint
- * When multiple endpoints exist, uses weighted random selection based on priority
+ * Get storage endpoint for a project with weighted load balancing.
+ * Falls back to global default if no project-specific endpoint.
+ * When multiple endpoints exist, uses weighted random selection based on priority.
+ *
+ * Result is cached in Redis for 10 minutes per projectId — endpoints never
+ * change at runtime except during intentional storage reconfiguration, so
+ * stale data for up to 10 minutes is completely acceptable.
  */
 export async function getEndpointForProject(projectId: string): Promise<StorageEndpoint> {
     // Lazy import to avoid circular dependency
     const { db } = await import('./client.js');
     const { storageEndpoints } = await import('./schema.js');
+    const { getEndpointCache, setEndpointCache } = await import('./redis.js');
+
+    // Fast path: Redis cache hit
+    const cached = await getEndpointCache(projectId);
+    if (cached) {
+        return cached as unknown as StorageEndpoint;
+    }
 
     // Get all active non-shadow endpoints for this project
     let endpoints = await db
@@ -179,13 +190,19 @@ export async function getEndpointForProject(projectId: string): Promise<StorageE
 
     // Single endpoint - no load balancing needed
     if (endpoints.length === 1) {
-        return endpoints[0] as StorageEndpoint;
+        const endpoint = endpoints[0] as StorageEndpoint;
+        setEndpointCache(projectId, endpoint as unknown as Record<string, unknown>).catch(() => {});
+        return endpoint;
     }
 
-    // Multiple endpoints (k3s) - weighted random for load balancing
+    // Multiple endpoints (k3s) - weighted random for load balancing.
     // Artifacts store endpointId at creation, so worker downloads from same endpoint.
     // Self-hosted Docker / dev Docker typically have single endpoint.
+    // Note: we cache the selected endpoint so a single project consistently routes
+    // to the same endpoint within a 10-minute window — this is intentional and safe
+    // because the endpointId is stored on each artifact at creation time.
     const selected = selectWeightedRandom(endpoints as StorageEndpoint[]);
+    setEndpointCache(projectId, selected as unknown as Record<string, unknown>).catch(() => {});
     return selected;
 }
 

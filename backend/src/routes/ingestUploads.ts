@@ -3,7 +3,12 @@ import { randomBytes } from 'crypto';
 import { and, eq } from 'drizzle-orm';
 import { db, projects, sessionMetrics, sessions } from '../db/client.js';
 import { logger } from '../logger.js';
-import { getIdempotencyStatus, setIdempotencyStatus } from '../db/redis.js';
+import {
+    getIdempotencyStatus,
+    setIdempotencyStatus,
+    getSessionExistsCache,
+    setSessionExistsCache,
+} from '../db/redis.js';
 import { generateS3Key, getEndpointForProject } from '../db/s3.js';
 import { apiKeyAuth, requireScope, asyncHandler, ApiError } from '../middleware/index.js';
 import {
@@ -66,11 +71,26 @@ async function findExistingProjectSession(projectId: string, sessionId?: string 
         return null;
     }
 
+    // Fast path: Redis existence flag avoids a DB round-trip for every presign
+    // after the first. We cache "this sessionId is valid for this projectId" for
+    // 1 hour — subsequent chunks of the same session all hit Redis instead of DB.
+    const cachedExists = await getSessionExistsCache(projectId, sessionId);
+    if (cachedExists) {
+        // Return a minimal stub — callers only use this to skip billing/limit checks.
+        // ensureIngestSession will fetch (or reuse) the full row via its own logic.
+        return { id: sessionId, projectId } as any;
+    }
+
     const [session] = await db
         .select()
         .from(sessions)
         .where(and(eq(sessions.id, sessionId), eq(sessions.projectId, projectId)))
         .limit(1);
+
+    if (session) {
+        // Populate cache for all future chunks of this session (fire-and-forget)
+        setSessionExistsCache(projectId, sessionId).catch(() => {});
+    }
 
     return session ?? null;
 }
@@ -91,15 +111,6 @@ router.post(
         }
 
         const requestedSizeBytes = parseRequestedSizeBytes(data.sizeBytes);
-        const [project] = await db.select().from(projects).where(eq(projects.id, projectId)).limit(1);
-
-        if (!project) {
-            throw ApiError.notFound('Project not found');
-        }
-
-        if (!project.rejourneyEnabled) {
-            throw ApiError.forbidden('Rejourney is disabled for this project');
-        }
 
         const providedSessionId = typeof data.sessionId === 'string' && data.sessionId !== ''
             ? data.sessionId
@@ -142,24 +153,42 @@ router.post(
         }
 
         const deviceAuthId = extractDeviceIdFromUploadToken(req);
-        await enforceIngestByteBudget({
-            projectId,
-            deviceId: deviceAuthId,
-            clientIp: getRequestIp(req),
-            bytes: requestedSizeBytes,
-            endpoint: 'presign',
-        });
 
-        const existingSession = await findExistingProjectSession(projectId, providedSessionId);
+        // Run the byte-budget check, project lookup, and session lookup in parallel —
+        // all three are independent and together they were the first sequential wall
+        // of DB round-trips on this hot path.
+        const [, [project], existingSession] = await Promise.all([
+            enforceIngestByteBudget({
+                projectId,
+                deviceId: deviceAuthId,
+                clientIp: getRequestIp(req),
+                bytes: requestedSizeBytes,
+                endpoint: 'presign',
+            }),
+            db.select().from(projects).where(eq(projects.id, projectId)).limit(1),
+            findExistingProjectSession(projectId, providedSessionId),
+        ]);
+
+        if (!project) {
+            throw ApiError.notFound('Project not found');
+        }
+
+        if (!project.rejourneyEnabled) {
+            throw ApiError.forbidden('Rejourney is disabled for this project');
+        }
+
         if (!existingSession) {
-            const billingStatus = await checkBillingStatus(teamId);
+            // Billing check and session-limit check are independent — run together.
+            const [billingStatus] = await Promise.all([
+                checkBillingStatus(teamId),
+                checkAndEnforceSessionLimit(teamId),
+            ]);
             if (!billingStatus.canRecord) {
                 throw ApiError.paymentRequired(billingStatus.reason || 'Recording blocked - billing issue');
             }
-
-            await checkAndEnforceSessionLimit(teamId);
         }
 
+        // Pass the already-fetched session so ensureIngestSession skips its own SELECT.
         const { session, created: isNewSession } = await ensureIngestSession(projectId, sessionId, req, {
             userId: data.userId,
             platform: data.platform,
@@ -169,7 +198,7 @@ router.post(
             networkType: data.networkType,
             deviceId: deviceAuthId || undefined,
             sdkVersion: typeof data.sdkVersion === 'string' ? data.sdkVersion : undefined,
-        });
+        }, undefined, existingSession);
 
         assertSessionAcceptsNewIngestWork(session);
 
@@ -361,30 +390,10 @@ router.post(
             throw ApiError.badRequest('kind must be "screenshots" or "hierarchy"');
         }
 
-        const [project] = await db.select().from(projects).where(eq(projects.id, projectId)).limit(1);
-        if (!project) {
-            throw ApiError.notFound('Project not found');
-        }
-
-        if (!project.rejourneyEnabled) {
-            throw ApiError.forbidden('Rejourney is disabled for this project');
-        }
-
-        if (!project.recordingEnabled && data.kind === 'screenshots') {
-            logIngestPresignSkip({
-                route: '/api/ingest/segment/presign',
-                projectId,
-                reason: 'recording_disabled_for_project',
-                sessionId: data.sessionId,
-                kind: data.kind,
-            });
-            res.json({
-                skipUpload: true,
-                sessionId: data.sessionId,
-                reason: 'Recording disabled for project',
-            });
-            return;
-        }
+        // Project lookup runs in parallel with the idempotency Redis check below — but
+        // we need the project before we can check recordingEnabled, so kick it off early
+        // and await it after the idempotency fast-paths.
+        const projectPromise = db.select().from(projects).where(eq(projects.id, projectId)).limit(1);
 
         const idempotencyKey = req.headers['idempotency-key'] as string;
         if (idempotencyKey) {
@@ -424,35 +433,70 @@ router.post(
         }
 
         const segmentDeviceId = extractDeviceIdFromUploadToken(req);
-        await enforceIngestByteBudget({
-            projectId,
-            deviceId: segmentDeviceId,
-            clientIp: getRequestIp(req),
-            bytes: requestedSizeBytes,
-            endpoint: 'segment/presign',
-        });
 
-        const existingSession = await findExistingProjectSession(projectId, data.sessionId);
+        // Byte-budget check, project resolution, and session lookup are all independent
+        // — run them in parallel to collapse three serial round-trips into one wall-clock wait.
+        const [, [project], existingSession] = await Promise.all([
+            enforceIngestByteBudget({
+                projectId,
+                deviceId: segmentDeviceId,
+                clientIp: getRequestIp(req),
+                bytes: requestedSizeBytes,
+                endpoint: 'segment/presign',
+            }),
+            projectPromise,
+            findExistingProjectSession(projectId, data.sessionId),
+        ]);
+
+        if (!project) {
+            throw ApiError.notFound('Project not found');
+        }
+
+        if (!project.rejourneyEnabled) {
+            throw ApiError.forbidden('Rejourney is disabled for this project');
+        }
+
+        if (!project.recordingEnabled && data.kind === 'screenshots') {
+            logIngestPresignSkip({
+                route: '/api/ingest/segment/presign',
+                projectId,
+                reason: 'recording_disabled_for_project',
+                sessionId: data.sessionId,
+                kind: data.kind,
+            });
+            res.json({
+                skipUpload: true,
+                sessionId: data.sessionId,
+                reason: 'Recording disabled for project',
+            });
+            return;
+        }
+
         if (!existingSession) {
-            const billingStatus = await checkBillingStatus(teamId);
+            // Billing check and session-limit check are independent — run together.
+            const [billingStatus] = await Promise.all([
+                checkBillingStatus(teamId),
+                checkAndEnforceSessionLimit(teamId),
+            ]);
             if (!billingStatus.canRecord) {
                 throw ApiError.paymentRequired(billingStatus.reason || 'Recording blocked - billing issue');
             }
-
-            await checkAndEnforceSessionLimit(teamId);
         }
 
+        // Pass the already-fetched session so ensureIngestSession skips its own SELECT.
         let { session, created: isNewSession } = await ensureIngestSession(projectId, data.sessionId, req, {
             platform: data.platform,
             deviceModel: data.deviceModel,
             appVersion: data.appVersion,
             deviceId: segmentDeviceId || undefined,
             sdkVersion: typeof data.sdkVersion === 'string' ? data.sdkVersion : undefined,
-        });
+        }, undefined, existingSession);
 
         const startTimeInt = Math.floor(Number(data.startTime));
         const endTimeInt = data.endTime ? Math.floor(Number(data.endTime)) : null;
-        const backfilledSession = await maybeBackfillSessionStartedAt(session.id, startTimeInt);
+        // Pass the session we already have so maybeBackfillSessionStartedAt skips its SELECT
+        // when the timestamp is already correct (the common case).
+        const backfilledSession = await maybeBackfillSessionStartedAt(session.id, startTimeInt, session);
         if (backfilledSession) {
             session = backfilledSession;
         }

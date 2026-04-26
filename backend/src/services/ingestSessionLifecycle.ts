@@ -102,7 +102,22 @@ function inferSessionShape(req?: any, metadata?: IngestSessionMetadata) {
     };
 }
 
+// ---------------------------------------------------------------------------
+// Per-project retention cache (in-process, 30-minute TTL).
+//
+// A team's retentionTier only changes on plan upgrade/downgrade — for presign
+// hot-path purposes, stale data for up to 30 minutes is completely safe; the
+// tier determines how long we keep recordings, not whether we accept them.
+// ---------------------------------------------------------------------------
+type RetentionCacheEntry = { result: Awaited<ReturnType<typeof getVideoRetentionDetailsForTier>>; expiresAt: number };
+const _retentionByProject = new Map<string, RetentionCacheEntry>();
+const PROJECT_RETENTION_CACHE_TTL_MS = 30 * 60 * 1000; // 30 minutes
+
 async function resolveVideoRetention(projectId: string) {
+    const now = Date.now();
+    const cached = _retentionByProject.get(projectId);
+    if (cached && cached.expiresAt > now) return cached.result;
+
     let teamRetentionTier = FREE_VIDEO_RETENTION_TIER;
     const [projectInfo] = await db
         .select({ retentionTier: teams.retentionTier })
@@ -115,7 +130,17 @@ async function resolveVideoRetention(projectId: string) {
         teamRetentionTier = normalizeVideoRetentionTier(projectInfo.retentionTier);
     }
 
-    return getVideoRetentionDetailsForTier(teamRetentionTier);
+    const result = await getVideoRetentionDetailsForTier(teamRetentionTier);
+    _retentionByProject.set(projectId, { result, expiresAt: now + PROJECT_RETENTION_CACHE_TTL_MS });
+    return result;
+}
+
+/**
+ * Invalidate the per-process retention cache for a project.
+ * Call after a team's retention tier changes (plan upgrade/downgrade).
+ */
+export function invalidateProjectRetentionCache(projectId: string): void {
+    _retentionByProject.delete(projectId);
 }
 
 function buildMetadataUpdates(existing: any, metadata: IngestSessionMetadata | undefined, req?: any) {
@@ -199,7 +224,8 @@ export function isSessionIdFresh(sessionId: string, maxAgeMs = MATERIALIZE_MISSI
 
 export async function maybeBackfillSessionStartedAt(
     sessionId: string,
-    candidateStartedAtMs: number | null | undefined
+    candidateStartedAtMs: number | null | undefined,
+    prefetchedSession?: any
 ): Promise<any | null> {
     const candidateMs = Number(candidateStartedAtMs);
     if (!Number.isFinite(candidateMs) || candidateMs <= 0) {
@@ -207,7 +233,13 @@ export async function maybeBackfillSessionStartedAt(
     }
 
     const candidateStartedAt = new Date(candidateMs);
-    let [session] = await db.select().from(sessions).where(eq(sessions.id, sessionId)).limit(1);
+
+    // Use the pre-fetched session when available to skip a SELECT round-trip.
+    let session = prefetchedSession ?? null;
+    if (!session) {
+        let [fetched] = await db.select().from(sessions).where(eq(sessions.id, sessionId)).limit(1);
+        session = fetched ?? null;
+    }
     if (!session) {
         return null;
     }
@@ -223,8 +255,8 @@ export async function maybeBackfillSessionStartedAt(
         })
         .where(eq(sessions.id, sessionId));
 
-    [session] = await db.select().from(sessions).where(eq(sessions.id, sessionId)).limit(1);
-    return session ?? null;
+    const [updated] = await db.select().from(sessions).where(eq(sessions.id, sessionId)).limit(1);
+    return updated ?? null;
 }
 
 type LifecycleSessionResolution = {
@@ -295,9 +327,20 @@ export async function ensureIngestSession(
     sessionId: string,
     req?: any,
     metadata?: IngestSessionMetadata,
-    options?: EnsureIngestSessionOptions
+    options?: EnsureIngestSessionOptions,
+    prefetchedSession?: any
 ): Promise<{ session: any; created: boolean }> {
-    let [session] = await db.select().from(sessions).where(eq(sessions.id, sessionId)).limit(1);
+    // Use the caller's already-fetched session row to skip a DB round-trip.
+    // Only trust it if the projectId matches — guards against stale data bugs.
+    let session: any = (prefetchedSession?.id === sessionId && prefetchedSession?.projectId === projectId)
+        ? prefetchedSession
+        : null;
+
+    if (!session) {
+        let [fetched] = await db.select().from(sessions).where(eq(sessions.id, sessionId)).limit(1);
+        session = fetched ?? null;
+    }
+
     let created = false;
 
     if (!session) {
@@ -349,12 +392,17 @@ export async function ensureIngestSession(
         [session] = await db.select().from(sessions).where(eq(sessions.id, sessionId)).limit(1);
     }
 
-    try {
-        await db.insert(sessionMetrics)
-            .values({ sessionId })
-            .onConflictDoNothing();
-    } catch (err) {
-        logger.warn({ err, sessionId, projectId }, 'Failed to ensure session_metrics row');
+    // Only INSERT session_metrics when we just created the session. For existing
+    // sessions the row is guaranteed to be there already — skipping saves one
+    // round-trip on every repeat presign call (the hot path).
+    if (created) {
+        try {
+            await db.insert(sessionMetrics)
+                .values({ sessionId })
+                .onConflictDoNothing();
+        } catch (err) {
+            logger.warn({ err, sessionId, projectId }, 'Failed to ensure session_metrics row');
+        }
     }
 
     await maybeRunGeoLookup(session.id, req);

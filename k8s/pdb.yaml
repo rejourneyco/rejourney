@@ -38,7 +38,7 @@ metadata:
   labels:
     app.kubernetes.io/part-of: rejourney
 spec:
-  minAvailable: 1
+  minAvailable: 2  # 3 replicas, 1 per node — only 1 disruption at a time; blocks node drain during rolling update
   selector:
     matchLabels:
       app: pgbouncer
@@ -66,7 +66,7 @@ metadata:
   labels:
     app.kubernetes.io/part-of: rejourney
 spec:
-  minAvailable: 1
+  minAvailable: 3  # 5 min replicas (HPA) — ensures queue processing never fully stalls during disruptions
   selector:
     matchLabels:
       app: ingest-worker

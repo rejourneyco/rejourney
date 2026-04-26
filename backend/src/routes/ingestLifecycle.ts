@@ -20,7 +20,7 @@ import { hasStoredClosedTiming, resolveAuthoritativeSessionClose } from '../serv
 import { loadSuccessorSessionStartedAt } from '../services/sessionTimingQuery.js';
 import { markSessionIngestActivity, reconcileSessionState } from '../services/sessionReconciliation.js';
 import { isSessionIngestImmutable } from '../services/sessionIngestImmutability.js';
-import { getRedisDiagnosticsForLog } from '../db/redis.js';
+import { getRedisDiagnosticsForLog, invalidateSessionExistsCache } from '../db/redis.js';
 
 const router = Router();
 
@@ -187,6 +187,10 @@ router.post(
             backgroundTimeSeconds: resolvedClose.backgroundTimeSeconds,
         });
         await reconcileSessionState(session.id);
+
+        // Invalidate the session existence cache so closed sessions don't get
+        // erroneously treated as active on the next presign attempt.
+        invalidateSessionExistsCache(session.projectId, session.id).catch(() => {});
 
         log.info({
             durationSeconds: resolvedClose.durationSeconds,

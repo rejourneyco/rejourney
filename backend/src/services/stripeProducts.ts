@@ -17,6 +17,7 @@ import { config } from '../config.js';
 import { logger } from '../logger.js';
 import { db, teams, projects, projectUsage, users, teamMembers } from '../db/client.js';
 import { getTeamBillingPeriod } from '../utils/billing.js';
+import { getStripeSubscriptionCache, setStripeSubscriptionCache } from '../db/redis.js';
 import { ApiError } from '../middleware/errorHandler.js';
 import { stripeErrorLogFields } from '../utils/stripeErrorLog.js';
 import {
@@ -507,7 +508,36 @@ export function derivePlanChangePreviewState(
 /**
  * Get subscription info for a team
  */
+// ---------------------------------------------------------------------------
+// Serialization helpers for TeamSubscriptionInfo ↔ Redis (JSON doesn't
+// preserve Date objects, so we store ISO strings and rehydrate on read).
+// ---------------------------------------------------------------------------
+function serializeSubscriptionForCache(info: TeamSubscriptionInfo): Record<string, unknown> {
+    return {
+        ...info,
+        currentPeriodStart: info.currentPeriodStart?.toISOString() ?? null,
+        currentPeriodEnd: info.currentPeriodEnd?.toISOString() ?? null,
+    };
+}
+
+function deserializeSubscriptionFromCache(raw: Record<string, unknown>): TeamSubscriptionInfo {
+    return {
+        ...(raw as any),
+        currentPeriodStart: raw.currentPeriodStart ? new Date(raw.currentPeriodStart as string) : null,
+        currentPeriodEnd: raw.currentPeriodEnd ? new Date(raw.currentPeriodEnd as string) : null,
+    } as TeamSubscriptionInfo;
+}
+
 export async function getTeamSubscription(teamId: string): Promise<TeamSubscriptionInfo> {
+    // Fast path: Redis cache hit — avoids DB query + Stripe API call.
+    // We cache only "stable" subscription states (free, active, Stripe-disabled
+    // fallback). Transient states (incomplete, unpaid, canceled) are NOT cached
+    // so they propagate to the caller within one request cycle.
+    const cachedRaw = await getStripeSubscriptionCache(teamId);
+    if (cachedRaw) {
+        return deserializeSubscriptionFromCache(cachedRaw);
+    }
+
     const client = getStripe();
 
     // Get team from database
@@ -559,8 +589,9 @@ export async function getTeamSubscription(teamId: string): Promise<TeamSubscript
         scheduledPlanName: null,
     };
 
-    // If no subscription ID, return free plan
+    // If no subscription ID, return free plan (cache it — free status is stable)
     if (!team.stripeSubscriptionId) {
+        setStripeSubscriptionCache(teamId, serializeSubscriptionForCache(result)).catch(() => {});
         return result;
     }
 
@@ -591,6 +622,8 @@ export async function getTeamSubscription(teamId: string): Promise<TeamSubscript
                         periodEnd.setMonth(periodEnd.getMonth() + 1);
                         result.currentPeriodEnd = periodEnd;
                     }
+                    // Cache the Stripe-disabled fallback result (stable for 5 min)
+                    setStripeSubscriptionCache(teamId, serializeSubscriptionForCache(result)).catch(() => {});
                 }
             } catch (err) {
                 logger.warn({ err, teamId, priceId: team.stripePriceId }, 'Failed to get plan from cache when Stripe disabled');
@@ -822,6 +855,9 @@ export async function getTeamSubscription(teamId: string): Promise<TeamSubscript
             }
         }
 
+        // Cache the resolved active subscription for 5 minutes. Invalidated by
+        // syncTeamFromStripe when plan or payment status changes.
+        setStripeSubscriptionCache(teamId, serializeSubscriptionForCache(result)).catch(() => {});
         return result;
 
     } catch (err: any) {
