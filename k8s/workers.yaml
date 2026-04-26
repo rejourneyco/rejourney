@@ -25,6 +25,10 @@ spec:
         app: ingest-worker
     spec:
       terminationGracePeriodSeconds: 60
+      # Prefer worker-labeled nodes but allow spill to any node so that
+      # if worker-1 or quorum-1 goes down, pods reschedule to fsn1.
+      # topologySpreadConstraints ensures the 5+ pods spread across all
+      # available nodes (maxSkew: 1 → at most 1 extra pod per node vs min).
       affinity:
         nodeAffinity:
           preferredDuringSchedulingIgnoredDuringExecution:
@@ -34,6 +38,13 @@ spec:
                   - key: workload
                     operator: In
                     values: ["worker"]
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: ingest-worker
       imagePullSecrets:
         - name: ghcr-secret
       securityContext:
@@ -205,6 +216,13 @@ spec:
                   - key: workload
                     operator: In
                     values: ["worker"]
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: replay-worker
       imagePullSecrets:
         - name: ghcr-secret
       securityContext:

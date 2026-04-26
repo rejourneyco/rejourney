@@ -42,23 +42,19 @@ spec:
         app: api
     spec:
       terminationGracePeriodSeconds: 30
-      affinity:
-        nodeAffinity:
-          preferredDuringSchedulingIgnoredDuringExecution:
-            - weight: 80
-              preference:
-                matchExpressions:
-                  - key: topology.kubernetes.io/zone
-                    operator: In
-                    values: ["fsn1-dc14"]
-        podAntiAffinity:
-          preferredDuringSchedulingIgnoredDuringExecution:
-            - weight: 100
-              podAffinityTerm:
-                labelSelector:
-                  matchLabels:
-                    app: api
-                topologyKey: kubernetes.io/hostname
+      # Spread pods evenly across all nodes so the API survives any single
+      # node failure. maxSkew: 1 means at most 1 extra pod on any node vs
+      # the least-loaded node (e.g. 4 pods → 2-1-1 across 3 nodes).
+      # whenUnsatisfiable: DoNotSchedule enforces the spread hard — the
+      # scheduler won't stack multiple pods on one node if another node
+      # has capacity, so a node loss never takes the entire API down.
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: DoNotSchedule
+          labelSelector:
+            matchLabels:
+              app: api
       imagePullSecrets:
         - name: ghcr-secret
       securityContext:
