@@ -17,8 +17,8 @@ spec:
   strategy:
     type: RollingUpdate
     rollingUpdate:
-      maxSurge: 1        # start new pod before terminating old — no gap in local endpoint
-      maxUnavailable: 0  # never remove an existing pod until its replacement is ready
+      maxSurge: 0        # no surge: 3 pods across 3 nodes, no 4th node for a surge pod
+      maxUnavailable: 1  # one at a time; trafficDistribution:PreferClose handles the gap
   selector:
     matchLabels:
       app: pgbouncer
@@ -29,17 +29,11 @@ spec:
     spec:
       affinity:
         podAntiAffinity:
-          # preferred (not required) so the surge pod during a rolling update can
-          # temporarily co-locate on a node that already has a pgbouncer. Without
-          # this, the surge pod stays Pending forever (no 4th node) and the rollout
-          # stalls. In steady state the scheduler still places one pod per node.
-          preferredDuringSchedulingIgnoredDuringExecution:
-            - weight: 100
-              podAffinityTerm:
-                labelSelector:
-                  matchLabels:
-                    app: pgbouncer
-                topologyKey: kubernetes.io/hostname
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchLabels:
+                  app: pgbouncer
+              topologyKey: kubernetes.io/hostname
       containers:
         - name: pgbouncer
           image: edoburu/pgbouncer:v1.25.1-p0
@@ -105,7 +99,11 @@ metadata:
     app: pgbouncer
     app.kubernetes.io/part-of: rejourney
 spec:
-  internalTrafficPolicy: Local
+  # PreferClose: kube-proxy routes to the local node's pgbouncer pod when available,
+  # and automatically falls back to any pgbouncer when local is absent (e.g., during
+  # a rolling update). This replaces the previous internalTrafficPolicy:Local which
+  # gave no fallback and caused connection drops during rolling updates (k8s 1.31+ GA).
+  trafficDistribution: PreferClose
   selector:
     app: pgbouncer
   ports:
