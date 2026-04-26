@@ -44,12 +44,13 @@ spec:
 
   resources:
     requests:
-      # Standby only streams WAL; actual usage is ~300m. Keep limit high for burst.
-      cpu: "500m"
-      memory: "6Gi"
+      # HA-safe uplift: reserve more baseline for primary load while still fitting
+      # worker-1 failover capacity.
+      cpu: "1500m"
+      memory: "8Gi"
     limits:
-      cpu: "5"
-      memory: "10Gi"
+      cpu: "6"
+      memory: "12Gi"
 
   storage:
     storageClass: rejourney-db-local-retain

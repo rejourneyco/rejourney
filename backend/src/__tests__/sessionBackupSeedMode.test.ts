@@ -77,7 +77,7 @@ describe('session backup seed mode', () => {
         expect(manifest).toContain('exec node session-backup.mjs --mode=seed-queue --limit=2000');
         expect(manifest).toContain('name: SESSION_BACKUP_SEED_BATCH_SIZE');
         expect(manifest).toContain('value: "2000"');
-        expect(seedBlock).toContain('suspend: false');
+        expect(seedBlock).toContain('suspend: true');
     });
 
     it('uses explicit request timeouts and disables SDK stream retries for storage calls', () => {
