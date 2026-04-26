@@ -281,7 +281,7 @@ spec:
                   optional: true
           resources:
             requests:
-              cpu: 750m
+              cpu: 1500m
               memory: 1Gi
             limits:
               cpu: "3000m"

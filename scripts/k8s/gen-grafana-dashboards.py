@@ -516,7 +516,70 @@ def d_kubernetes():
                      0, y, w=24, h=8, unit="short"))
     y += 8
 
-    # ── Row 7: PVCs ──────────────────────────────────────────────────────────
+    # ── Row 7: Noisy Neighbor Detection ─────────────────────────────────────
+    panels.append(row("Noisy Neighbor Detection", y)); y += 1
+
+    # CPU throttling is the primary signal: a pod hitting its cgroup CPU ceiling
+    # gets CFS-throttled. High throttle rates on the API pod = slow responses.
+    panels.append(ts("CPU Throttle Rate by Pod (throttled sec/s)",
+                     [('topk(10, sum by (pod)(rate(container_cpu_cfs_throttled_seconds_total{namespace="rejourney",container!="",container!="POD"}[2m])))', "{{pod}}")],
+                     0, y, w=12, h=8, unit="s", decimals=3))
+    # Pods bursting above their CPU request are borrowing from the node's
+    # shared pool. When the node is saturated this starves well-behaved pods.
+    panels.append(ts("CPU Usage vs Request — burst ratio",
+                     [('topk(10, sum by (pod)(rate(container_cpu_usage_seconds_total{namespace="rejourney",container!="",container!="POD"}[2m])) '
+                       '/ clamp_min(sum by (pod)(kube_pod_container_resource_requests{namespace="rejourney",resource="cpu"}), 0.001))',
+                       "{{pod}}")],
+                     12, y, w=12, h=8, unit="percentunit", decimals=0))
+    y += 8
+
+    # Per-node saturation: when a node's total pod CPU usage approaches the
+    # node's allocatable cores, every pod on that node competes for cycles.
+    panels.append(ts("Node CPU Saturation — pod usage / allocatable",
+                     [('100 * sum by (node)(rate(container_cpu_usage_seconds_total{namespace="rejourney",container!="",container!="POD"}[2m])) '
+                       '/ on(node) kube_node_status_allocatable{resource="cpu"}',
+                       "{{node}}")],
+                     0, y, w=8, h=8, unit="percent"))
+    # Memory pressure: pods near their memory limit risk OOMKill and force
+    # the kernel to reclaim pages from neighbors.
+    panels.append(ts("Node Memory Saturation — pod usage / allocatable",
+                     [('100 * sum by (node)(container_memory_working_set_bytes{namespace="rejourney",container!="",container!="POD"}) '
+                       '/ on(node) kube_node_status_allocatable{resource="memory"}',
+                       "{{node}}")],
+                     8, y, w=8, h=8, unit="percent"))
+    # CFS throttle periods: how many scheduling periods were throttled.
+    # A high count means the pod is repeatedly hitting its CPU ceiling.
+    panels.append(ts("CFS Throttled Periods / sec",
+                     [('topk(10, sum by (pod)(rate(container_cpu_cfs_throttled_periods_total{namespace="rejourney",container!="",container!="POD"}[2m])) '
+                       '/ clamp_min(sum by (pod)(rate(container_cpu_cfs_periods_total{namespace="rejourney",container!="",container!="POD"}[2m])), 0.001))',
+                       "{{pod}}")],
+                     16, y, w=8, h=8, unit="percentunit"))
+    y += 8
+
+    # The smoking gun: overlay API p99 latency with the API pod's throttle
+    # rate and the node CPU saturation. If they spike together, a noisy
+    # neighbor (or the API itself) is the cause.
+    api_node_expr = (
+        'sum by (node)('
+        'kube_pod_info{namespace="rejourney",pod=~"api-.*"} '
+        '* on(pod) group_right(node) '
+        'rate(container_cpu_cfs_throttled_seconds_total{namespace="rejourney",container="api"}[2m])'
+        ')'
+    )
+    panels.append(ts("API Impact — throttle + node CPU overlay",
+                     [(api_node_expr, "api throttle on {{node}}"),
+                      ('100 * (1 - avg by (node)(rate(node_cpu_seconds_total{mode="idle"}[2m])))', "node CPU % — {{node}}")],
+                     0, y, w=12, h=8, unit="short"))
+    # Top CPU consumers on the same node as the API — identifies the neighbor.
+    panels.append(ts("Top CPU on API Node (cores)",
+                     [('topk(8, '
+                       'sum by (pod)(rate(container_cpu_usage_seconds_total{namespace="rejourney",container!="",container!="POD"}[2m])) '
+                       '* on(pod) group_left(node) kube_pod_info{namespace="rejourney",node=~"ubuntu-4gb-fsn1-1"}'
+                       ')', "{{pod}}")],
+                     12, y, w=12, h=8, unit="none", decimals=3))
+    y += 8
+
+    # ── Row 8: PVCs ──────────────────────────────────────────────────────────
     panels.append(row("Active PVCs", y)); y += 1
     panels.append(bargauge("PVC Usage %",
                            pvc_usage_percent_series(),
