@@ -44,6 +44,8 @@ spec:
         load-balancer.hetzner.cloud/location: fsn1
         load-balancer.hetzner.cloud/use-private-ip: "true"
         load-balancer.hetzner.cloud/algorithm-type: round_robin
+      spec:
+        externalTrafficPolicy: Local
 
     # Expose Prometheus metrics for VictoriaMetrics to scrape
     metrics:

@@ -17,8 +17,8 @@ spec:
   strategy:
     type: RollingUpdate
     rollingUpdate:
-      maxSurge: 0
-      maxUnavailable: 1
+      maxSurge: 1        # start new pod before terminating old — no gap in local endpoint
+      maxUnavailable: 0  # never remove an existing pod until its replacement is ready
   selector:
     matchLabels:
       app: pgbouncer
@@ -29,11 +29,17 @@ spec:
     spec:
       affinity:
         podAntiAffinity:
-          requiredDuringSchedulingIgnoredDuringExecution:
-            - labelSelector:
-                matchLabels:
-                  app: pgbouncer
-              topologyKey: kubernetes.io/hostname
+          # preferred (not required) so the surge pod during a rolling update can
+          # temporarily co-locate on a node that already has a pgbouncer. Without
+          # this, the surge pod stays Pending forever (no 4th node) and the rollout
+          # stalls. In steady state the scheduler still places one pod per node.
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app: pgbouncer
+                topologyKey: kubernetes.io/hostname
       containers:
         - name: pgbouncer
           image: edoburu/pgbouncer:v1.25.1-p0

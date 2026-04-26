@@ -20,6 +20,17 @@ metadata:
 spec:
   instances: 2
 
+  # Sync replication: primary waits for the standby (worker-1, HEL1) to confirm
+  # it has received and written WAL to its OS buffer before acking the commit.
+  # Uses remote_write (not remote_apply) to cap the added latency to ~1 RTT
+  # (~25ms FSN1→HEL1) rather than full apply time. Only write transactions are
+  # affected — reads are unchanged. Prevents data loss on hard FSN1 failure at
+  # the cost of ~25ms added to write-heavy paths (observed API p50 140ms → ~165ms).
+  # maxSyncReplicas=1 lets postgres proceed if the standby is temporarily down
+  # (e.g., during a CNPG rolling upgrade) rather than blocking all writes forever.
+  minSyncReplicas: 1
+  maxSyncReplicas: 1
+
   affinity:
     enablePodAntiAffinity: true
     topologyKey: kubernetes.io/hostname
@@ -33,6 +44,10 @@ spec:
   postgresql:
     parameters:
       max_connections: "200"
+      # remote_write: wait for standby OS buffer write, not fsync. Paired with
+      # minSyncReplicas=1 above. Faster than 'on' (no standby fsync wait) while
+      # still preventing data loss on primary crash. See minSyncReplicas comment.
+      synchronous_commit: "remote_write"
       shared_buffers: "4GB"
       effective_cache_size: "12GB"
       work_mem: "32MB"

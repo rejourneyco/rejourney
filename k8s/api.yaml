@@ -42,33 +42,22 @@ spec:
         app: api
     spec:
       terminationGracePeriodSeconds: 30
-      # Prefer the fsn1 node (same datacenter as Postgres primary) to minimise
-      # cross-DC latency on DB round-trips. Each presign call makes 3-5 DB calls;
-      # at ~30ms cross-DC overhead per round-trip that adds 90-150ms on non-fsn1
-      # pods. preferredDuringScheduling keeps HA intact — if fsn1 is full or down,
-      # pods still land on the other nodes rather than staying Pending.
-      #
-      # Combined with topologySpreadConstraints (maxSkew: 1) the typical layout at
-      # minReplicas=4 is 2 pods on fsn1 + 1 each on quorum-1/worker-1, so ~50% of
-      # traffic is zero-latency vs ~33% before this change.
+      # Strongly prefer fsn1 (same DC as Postgres primary, pgbouncer, Redis master)
+      # to avoid cross-DC latency on every DB/cache call. preferredDuring (not
+      # required) so pods can overflow to HEL1 nodes if fsn1 is full or down, keeping
+      # HA intact. topologySpreadConstraints removed — it scored against this
+      # preference and was the reason pods were landing on HEL1 in normal operation.
+      # NOTE: the affinity key must match the actual node hostname label, not the
+      # Hetzner server name ("fsn1" was wrong; "ubuntu-4gb-fsn1-1" is the real label).
       affinity:
         nodeAffinity:
           preferredDuringSchedulingIgnoredDuringExecution:
-            - weight: 80
+            - weight: 100
               preference:
                 matchExpressions:
                   - key: kubernetes.io/hostname
                     operator: In
-                    values: ["fsn1"]
-      # Spread across nodes for HA. ScheduleAnyway (not DoNotSchedule) so the
-      # scheduler can overflow when a node is full on CPU requests.
-      topologySpreadConstraints:
-        - maxSkew: 1
-          topologyKey: kubernetes.io/hostname
-          whenUnsatisfiable: ScheduleAnyway
-          labelSelector:
-            matchLabels:
-              app: api
+                    values: ["ubuntu-4gb-fsn1-1"]
       imagePullSecrets:
         - name: ghcr-secret
       securityContext:

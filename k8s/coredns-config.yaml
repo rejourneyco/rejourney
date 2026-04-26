@@ -1,0 +1,27 @@
+# CoreDNS HelmChartConfig for k3s
+# Scales CoreDNS to 2 replicas so DNS survives FSN1 going down.
+# With 1 replica on FSN1 (k3s default), a hard FSN1 failure causes 30-60s of
+# cluster-wide DNS outage while the pod reschedules — blocking all reconnects.
+# A second replica on any HEL1 node keeps DNS alive during FSN1 failover.
+#
+# Applied by: kubectl apply -f k8s/coredns-config.yaml (kube-system, needs cluster-admin)
+# The k3s HelmController picks this up and re-runs the coredns Helm chart with
+# the merged values. Existing CoreDNS pod is NOT restarted; a second pod is added.
+
+apiVersion: helm.cattle.io/v1
+kind: HelmChartConfig
+metadata:
+  name: coredns
+  namespace: kube-system
+spec:
+  valuesContent: |-
+    replicaCount: 2
+    affinity:
+      podAntiAffinity:
+        preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchLabels:
+                  app.kubernetes.io/name: coredns
+              topologyKey: kubernetes.io/hostname
