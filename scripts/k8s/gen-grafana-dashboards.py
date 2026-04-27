@@ -574,7 +574,7 @@ def d_kubernetes():
     panels.append(ts("Top CPU on API Node (cores)",
                      [('topk(8, '
                        'sum by (pod)(rate(container_cpu_usage_seconds_total{namespace="rejourney",container!="",container!="POD"}[2m])) '
-                       '* on(pod) group_left(node) kube_pod_info{namespace="rejourney",node=~"ubuntu-4gb-fsn1-1"}'
+                       '* on(pod) group_left(node) kube_pod_info{namespace="rejourney",node=~"rejourney-fsn1-1"}'
                        ')', "{{pod}}")],
                      12, y, w=12, h=8, unit="none", decimals=3))
     y += 8
