@@ -248,7 +248,6 @@ app.get('/health/ready', async (_req, res) => {
         const healthClient = new pg.Client({
             connectionString: config.DATABASE_URL,
             connectionTimeoutMillis: 2000,
-            statement_timeout: 1500,
         });
         await healthClient.connect();
         try { await healthClient.query('SELECT 1'); } finally { await healthClient.end().catch(() => {}); }
