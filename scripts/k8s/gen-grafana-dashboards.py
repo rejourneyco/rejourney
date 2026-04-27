@@ -706,7 +706,10 @@ def d_postgres():
 
     panels.append(row("Container Resources", y)); y += 1
     pg_lbl = 'namespace="rejourney",pod=~"postgres-local-[0-9]+",container="postgres"'
-    pg_primary_filter = '(cnpg_pg_replication_in_recovery{namespace="rejourney"} == 0)'
+    # group by (pod) collapses stale duplicate series (different instance IPs after pod restarts)
+    # that would otherwise cause a many-to-many join error when multiplying on(pod).
+    # role="primary" from CNPG scrape relabeling avoids matching stale no-role series.
+    pg_primary_filter = 'group by (pod) (cnpg_pg_replication_in_recovery{namespace="rejourney",role="primary"} == 0)'
     pg_mem_limit = kube_limit_expr('postgres-local-[0-9]+', 'postgres', 'memory')
     pg_mem_request = kube_request_expr('postgres-local-[0-9]+', 'postgres', 'memory')
     pg_cpu_limit = kube_limit_expr('postgres-local-[0-9]+', 'postgres', 'cpu')
