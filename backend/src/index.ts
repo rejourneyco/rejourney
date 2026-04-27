@@ -17,6 +17,7 @@ import { v4 as uuidv4 } from 'uuid';
 
 import { config, isDevelopment } from './config.js';
 import { logger } from './logger.js';
+import pg from 'pg';
 import { pool } from './db/client.js';
 import { getRedis, getRedisDiagnosticsForLog, closeRedis, initRedis } from './db/redis.js';
 import routes from './routes/index.js';
@@ -240,17 +241,17 @@ app.get('/health/ready', async (_req, res) => {
     const checks: Record<string, boolean | string> = {};
     let allHealthy = true;
 
-    // Check database — 2s covers both connect + query so the probe never hangs
+    // Check database using a fresh Client (NOT the main pool) so a hung connect
+    // can never exhaust pool slots. connectionTimeoutMillis kills it at the TCP
+    // level so there is no leaked background promise.
     try {
-        await Promise.race([
-            (async () => {
-                const client = await pool.connect();
-                try { await client.query('SELECT 1'); } finally { client.release(); }
-            })(),
-            new Promise<never>((_, reject) =>
-                setTimeout(() => reject(new Error('DB health check timeout')), 2000)
-            ),
-        ]);
+        const healthClient = new pg.Client({
+            connectionString: config.DATABASE_URL,
+            connectionTimeoutMillis: 2000,
+            statement_timeout: 1500,
+        });
+        await healthClient.connect();
+        try { await healthClient.query('SELECT 1'); } finally { await healthClient.end().catch(() => {}); }
         checks.database = true;
     } catch (error) {
         checks.database = false;
@@ -258,14 +259,9 @@ app.get('/health/ready', async (_req, res) => {
         logger.warn({ error }, 'Database health check failed');
     }
 
-    // Check Redis — 1s so a CPU-starved Redis doesn't hang the probe
+    // Check Redis — ioredis call_timeout cuts it at the client level, no leaked promise
     try {
-        await Promise.race([
-            getRedis().ping(),
-            new Promise<never>((_, reject) =>
-                setTimeout(() => reject(new Error('Redis health check timeout')), 1000)
-            ),
-        ]);
+        await getRedis().ping();
         checks.redis = true;
     } catch (error) {
         checks.redis = false;
