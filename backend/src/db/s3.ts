@@ -1282,9 +1282,23 @@ export function clearEndpointCaches(): void {
  */
 export async function checkS3Connection(): Promise<boolean> {
     try {
-        // Get the default endpoint (uses global config)
-        const endpoint = await getEndpointForProject('health-check');
-        const { client, bucket } = getS3ClientForEndpoint(endpoint);
+        // Query a global endpoint directly — avoids passing a fake UUID to getEndpointForProject
+        const { db } = await import('./client.js');
+        const { storageEndpoints } = await import('./schema.js');
+        const [globalEndpoint] = await db
+            .select()
+            .from(storageEndpoints)
+            .where(and(
+                isNull(storageEndpoints.projectId),
+                eq(storageEndpoints.active, true),
+                eq(storageEndpoints.shadow, false),
+            ))
+            .orderBy(desc(storageEndpoints.priority))
+            .limit(1);
+
+        if (!globalEndpoint) return false;
+
+        const { client, bucket } = getS3ClientForEndpoint(globalEndpoint);
 
         // Try to list objects with max 1 (lightweight health check)
         await client.send(new ListObjectsV2Command({
