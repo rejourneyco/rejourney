@@ -289,7 +289,7 @@ pin_deployment_to_fsn1() {
 
   log "Evicting ${name} pods that landed on HEL1: ${misplaced}"
   for pod in ${misplaced}; do
-    kubectl delete pod -n "${NAMESPACE}" "${pod}" --grace-period=30
+    kubectl delete pod -n "${NAMESPACE}" "${pod}" --grace-period=30 --ignore-not-found
     sleep 5
   done
   wait_for_deployment "${name}"
