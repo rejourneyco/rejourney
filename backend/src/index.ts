@@ -240,11 +240,16 @@ app.get('/health/ready', async (_req, res) => {
     const checks: Record<string, boolean | string> = {};
     let allHealthy = true;
 
-    // Check database
+    // Check database — 2s timeout so a hung pgbouncer doesn't block the probe
     try {
-        const client = await pool.connect();
-        await client.query('SELECT 1');
-        client.release();
+        const client = await Promise.race([
+            pool.connect(),
+            new Promise<never>((_, reject) =>
+                setTimeout(() => reject(new Error('DB health check timeout')), 2000)
+            ),
+        ]);
+        await (client as any).query('SELECT 1');
+        (client as any).release();
         checks.database = true;
     } catch (error) {
         checks.database = false;
@@ -252,10 +257,15 @@ app.get('/health/ready', async (_req, res) => {
         logger.warn({ error }, 'Database health check failed');
     }
 
-    // Check Redis
+    // Check Redis — 1s timeout so a starved Redis doesn't hang the probe
     try {
         const redisClient = getRedis();
-        await redisClient.ping();
+        await Promise.race([
+            redisClient.ping(),
+            new Promise<never>((_, reject) =>
+                setTimeout(() => reject(new Error('Redis health check timeout')), 1000)
+            ),
+        ]);
         checks.redis = true;
     } catch (error) {
         checks.redis = false;
