@@ -1226,7 +1226,8 @@ dashes = [
     ("60-storage", d_storage()),
     ("70-self", d_self()),
 ]
+import sys
 for name, d in dashes:
-    print(f"  {name}: {len(d['panels'])} panels")
+    print(f"  {name}: {len(d['panels'])} panels", file=sys.stderr)
 path = write_configmap(dashes)
-print(f"wrote {path}  ({sum(os.path.getsize(path) for _ in [1])} bytes)")
+print(f"wrote {path}  ({sum(os.path.getsize(path) for _ in [1])} bytes)", file=sys.stderr)

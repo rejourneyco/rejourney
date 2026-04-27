@@ -1,14 +1,3 @@
-  00-overview: 26 panels
-  10-kubernetes: 35 panels
-  20-postgres: 46 panels
-  30-redis: 28 panels
-  40-traefik: 24 panels
-  50-application: 48 panels
-  60-storage: 14 panels
-  70-self: 14 panels
-wrote /Users/mora/Desktop/Dev-mac/rejourney/k8s/grafana-dashboards.yaml  (395810 bytes)
- python3 scripts/k8s/gen-grafana-dashboards.py
-
 apiVersion: v1
 kind: ConfigMap
 metadata:
