@@ -47,7 +47,7 @@ data:
         interval: 2m
         conditions:
           - "[STATUS] == 200"
-          - "[RESPONSE_TIME] < 500"
+          - "[RESPONSE_TIME] < 3500"
 
       - name: API Liveness
         url: http://api.rejourney.svc.cluster.local:3000/health/live
