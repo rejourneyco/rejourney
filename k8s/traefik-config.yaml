@@ -32,17 +32,15 @@ spec:
           - weight: 100
             preference:
               matchExpressions:
-                - key: kubernetes.io/hostname
+                - key: rejourney.co/datacenter
                   operator: In
                   values:
-                    - ubuntu-4gb-fsn1-1
+                    - fsn1
         requiredDuringSchedulingIgnoredDuringExecution:
           nodeSelectorTerms:
             - matchExpressions:
-                - key: kubernetes.io/hostname
-                  operator: NotIn
-                  values:
-                    - rejourney-quorum-1
+                - key: node.kubernetes.io/exclude-from-external-load-balancers
+                  operator: DoesNotExist
 
     service:
       annotations:

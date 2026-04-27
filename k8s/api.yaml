@@ -45,19 +45,17 @@ spec:
       # Strongly prefer fsn1 (same DC as Postgres primary, pgbouncer, Redis master)
       # to avoid cross-DC latency on every DB/cache call. preferredDuring (not
       # required) so pods can overflow to HEL1 nodes if fsn1 is full or down, keeping
-      # HA intact. topologySpreadConstraints removed — it scored against this
-      # preference and was the reason pods were landing on HEL1 in normal operation.
-      # NOTE: the affinity key must match the actual node hostname label, not the
-      # Hetzner server name ("fsn1" was wrong; "ubuntu-4gb-fsn1-1" is the real label).
+      # HA intact. Uses rejourney.co/datacenter label so any FSN1 node qualifies —
+      # adding a second FSN1 node automatically becomes eligible without manifest changes.
       affinity:
         nodeAffinity:
           preferredDuringSchedulingIgnoredDuringExecution:
             - weight: 100
               preference:
                 matchExpressions:
-                  - key: kubernetes.io/hostname
+                  - key: rejourney.co/datacenter
                     operator: In
-                    values: ["ubuntu-4gb-fsn1-1"]
+                    values: ["fsn1"]
       imagePullSecrets:
         - name: ghcr-secret
       securityContext:

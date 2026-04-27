@@ -265,14 +265,25 @@ wait_for_daemonset() {
 # untouched. Runs wait_for_deployment again to confirm everything comes back up.
 pin_deployment_to_fsn1() {
   local name="$1"
-  local preferred_node="ubuntu-4gb-fsn1-1"
+
+  # Find pods not on a node labelled rejourney.co/datacenter=fsn1.
+  # Using the label (not a hardcoded hostname) means any FSN1 node qualifies
+  # — adding a second FSN1 node requires no change here.
+  fsn1_nodes="$(kubectl get nodes -l "rejourney.co/datacenter=fsn1" \
+    -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' || true)"
+
+  if [ -z "${fsn1_nodes}" ]; then
+    log "No nodes with rejourney.co/datacenter=fsn1 found; skipping pin check for ${name}"
+    return 0
+  fi
 
   misplaced="$(kubectl get pods -n "${NAMESPACE}" -l "app=${name}" \
     -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.spec.nodeName}{"\n"}{end}' \
-    | grep -v "${preferred_node}" | awk '{print $1}' || true)"
+    | awk -v nodes="${fsn1_nodes}" 'BEGIN{split(nodes,a); for(i in a) fsn1[a[i]]=1} !fsn1[$2]{print $1}' \
+    || true)"
 
   if [ -z "${misplaced}" ]; then
-    log "All ${name} pods on ${preferred_node} ✓"
+    log "All ${name} pods on FSN1 ✓"
     return 0
   fi
 
