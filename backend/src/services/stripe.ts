@@ -612,6 +612,28 @@ export async function handleWebhookEvent(event: Stripe.Event): Promise<void> {
     }
 }
 
+// Stripe API version 2025-11-17.clover moved current_period_start/end from the
+// subscription root onto items.data[0]. This helper reads from either location
+// so webhook handlers work across both old and new API versions.
+function extractSubscriptionPeriod(subData: any): { periodStart: Date | null; periodEnd: Date | null } {
+    const rootStart = subData.current_period_start;
+    const rootEnd = subData.current_period_end;
+
+    if (rootStart && rootEnd) {
+        return { periodStart: new Date(rootStart * 1000), periodEnd: new Date(rootEnd * 1000) };
+    }
+
+    const item = subData.items?.data?.[0];
+    if (item?.current_period_start && item?.current_period_end) {
+        return {
+            periodStart: new Date(item.current_period_start * 1000),
+            periodEnd: new Date(item.current_period_end * 1000),
+        };
+    }
+
+    return { periodStart: null, periodEnd: null };
+}
+
 async function resolveSubscriptionRetentionTier(
     subscription: Stripe.Subscription
 ): Promise<number> {
@@ -1054,7 +1076,7 @@ async function handleSubscriptionCreated(subscription: Stripe.Subscription): Pro
 
     try {
         const subData = subscription as any;
-        const newAnchor = new Date(subData.current_period_start * 1000);
+        const { periodStart: newAnchor, periodEnd: newPeriodEnd } = extractSubscriptionPeriod(subData);
         const isPaymentConfirmed = subscription.status === 'active' || subscription.status === 'trialing';
 
         const updateFields: Record<string, any> = {
@@ -1063,10 +1085,9 @@ async function handleSubscriptionCreated(subscription: Stripe.Subscription): Pro
         };
 
         if (isPaymentConfirmed) {
-            const periodEnd = new Date(subData.current_period_end * 1000);
-            updateFields.billingCycleAnchor = newAnchor;
-            updateFields.stripeCurrentPeriodStart = newAnchor;
-            updateFields.stripeCurrentPeriodEnd   = periodEnd;
+            if (newAnchor) updateFields.billingCycleAnchor = newAnchor;
+            if (newAnchor) updateFields.stripeCurrentPeriodStart = newAnchor;
+            if (newPeriodEnd) updateFields.stripeCurrentPeriodEnd = newPeriodEnd;
             updateFields.stripePriceId = subscription.items.data[0]?.price.id || null;
         }
 
@@ -1221,31 +1242,33 @@ async function handleSubscriptionUpdated(subscription: Stripe.Subscription): Pro
         return;
     }
 
-    const newPeriodStart = new Date(subData.current_period_start * 1000);
-    const newPeriodEnd   = new Date(subData.current_period_end   * 1000);
+    const { periodStart: newPeriodStart, periodEnd: newPeriodEnd } = extractSubscriptionPeriod(subData);
 
     const updateData: Record<string, any> = {
         stripePriceId: priceId || null,
-        stripeCurrentPeriodStart: newPeriodStart,
-        stripeCurrentPeriodEnd: newPeriodEnd,
         updatedAt: new Date(),
     };
+
+    if (newPeriodStart) updateData.stripeCurrentPeriodStart = newPeriodStart;
+    if (newPeriodEnd) updateData.stripeCurrentPeriodEnd = newPeriodEnd;
 
     // Sync billingCycleAnchor whenever Stripe's period start drifts >1 hour from the stored anchor.
     // This covers: new subscriptions, auto-renewals, upgrades, and scheduled downgrades executing.
     // The >1h threshold avoids spurious resets from minor timestamp rounding.
-    if (!currentTeam.billingCycleAnchor) {
-        updateData.billingCycleAnchor = newPeriodStart;
-    } else {
-        const anchorDriftMs = Math.abs(newPeriodStart.getTime() - currentTeam.billingCycleAnchor.getTime());
-        if (anchorDriftMs > 60 * 60 * 1000) {
+    if (newPeriodStart) {
+        if (!currentTeam.billingCycleAnchor) {
             updateData.billingCycleAnchor = newPeriodStart;
-            logger.warn({
-                teamId: targetTeamId,
-                oldAnchor: currentTeam.billingCycleAnchor,
-                newAnchor: newPeriodStart,
-                anchorDriftMs,
-            }, 'Billing cycle anchor synced via subscription.updated webhook');
+        } else {
+            const anchorDriftMs = Math.abs(newPeriodStart.getTime() - currentTeam.billingCycleAnchor.getTime());
+            if (anchorDriftMs > 60 * 60 * 1000) {
+                updateData.billingCycleAnchor = newPeriodStart;
+                logger.warn({
+                    teamId: targetTeamId,
+                    oldAnchor: currentTeam.billingCycleAnchor,
+                    newAnchor: newPeriodStart,
+                    anchorDriftMs,
+                }, 'Billing cycle anchor synced via subscription.updated webhook');
+            }
         }
     }
 
