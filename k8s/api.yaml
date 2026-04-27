@@ -296,8 +296,8 @@ spec:
               path: /health/ready
               port: 3000
             initialDelaySeconds: 5
-            periodSeconds: 5
-            timeoutSeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 4
             failureThreshold: 3
 
 ---
