@@ -9,7 +9,7 @@ import {
     getSessionExistsCache,
     setSessionExistsCache,
 } from '../db/redis.js';
-import { generateS3Key, getEndpointForProject } from '../db/s3.js';
+import { generateS3Key, getEndpointForSession } from '../db/s3.js';
 import { apiKeyAuth, requireScope, asyncHandler, ApiError } from '../middleware/index.js';
 import {
     ingestBatchDeviceRateLimiter,
@@ -229,7 +229,7 @@ router.post(
         const batchId = `batch_${session.id}_${data.contentType}_${data.batchNumber}_${randomBytes(4).toString('hex')}`;
         const filename = `${data.contentType}_${data.batchNumber}_${Date.now()}.json.gz`;
         const s3Key = generateS3Key(teamId, projectId, session.id, kind, filename);
-        const endpoint = await getEndpointForProject(projectId);
+        const endpoint = await getEndpointForSession(session.id, projectId);
 
         const artifact = await registerPendingArtifact({
             sessionId: session.id,
@@ -621,7 +621,7 @@ router.post(
         });
         const filename = `${startTimeInt}.${extension}`;
         const s3Key = generateS3Key(teamId, projectId, session.id, subFolder, filename);
-        const endpoint = await getEndpointForProject(projectId);
+        const endpoint = await getEndpointForSession(session.id, projectId);
 
         const preparation = await prepareReplayArtifactForUpload({
             projectId,

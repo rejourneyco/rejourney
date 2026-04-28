@@ -18,7 +18,7 @@ import {
     DeleteObjectsCommand,
 } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
-import { eq, and, isNull, desc, or } from 'drizzle-orm';
+import { eq, and, isNull, isNotNull, desc, or } from 'drizzle-orm';
 import { PassThrough, type Readable } from 'stream';
 import { pipeline } from 'stream/promises';
 import { config } from '../config.js';
@@ -222,6 +222,36 @@ function selectWeightedRandom(endpoints: StorageEndpoint[]): StorageEndpoint {
     }
 
     return endpoints[0];
+}
+
+/**
+ * Get the storage endpoint that should be used for a new artifact on a session.
+ * If the session already has artifacts, reuses their endpoint so all artifacts
+ * for a session land on the same bucket even when multiple active endpoints exist.
+ * Falls back to getEndpointForProject when the session has no artifacts yet.
+ */
+export async function getEndpointForSession(
+    sessionId: string,
+    projectId: string,
+): Promise<StorageEndpoint> {
+    const { db } = await import('./client.js');
+    const { recordingArtifacts } = await import('./schema.js');
+
+    const [existing] = await db
+        .select({ endpointId: recordingArtifacts.endpointId })
+        .from(recordingArtifacts)
+        .where(and(
+            eq(recordingArtifacts.sessionId, sessionId),
+            isNotNull(recordingArtifacts.endpointId),
+        ))
+        .limit(1);
+
+    if (existing?.endpointId) {
+        const endpoint = await getEndpointById(existing.endpointId);
+        if (endpoint) return endpoint;
+    }
+
+    return getEndpointForProject(projectId);
 }
 
 /**
@@ -886,14 +916,16 @@ export async function deleteFromS3ForProject(
 
 /**
  * Delete all assets for a project (GDPR compliance)
- * Deletes recursively under tenant/{teamId}/project/{projectId}/
+ * Deletes recursively under tenant/{teamId}/project/{projectId}/ on all known
+ * endpoints — including historical/inactive ones passed via extraEndpointIds.
  */
 export async function deleteProjectAssets(
     projectId: string,
-    teamId: string
+    teamId: string,
+    extraEndpointIds: Iterable<string | null | undefined> = [],
 ): Promise<void> {
     const prefix = `tenant/${teamId}/project/${projectId}/`;
-    await deletePrefixFromProjectStorage(projectId, prefix);
+    await deletePrefixFromProjectStorage(projectId, prefix, extraEndpointIds);
 }
 
 function ensureSafePrefix(prefix: string): string {

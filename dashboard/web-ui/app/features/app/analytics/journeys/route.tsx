@@ -5,18 +5,14 @@ import {
     Compass,
     HeartPulse,
     Route,
-    Users,
 } from 'lucide-react';
 import {
     Bar,
     BarChart,
     CartesianGrid,
-    Cell,
     ComposedChart,
     Legend,
     Line,
-    Pie,
-    PieChart,
     ReferenceLine,
     ResponsiveContainer,
     Tooltip,
@@ -34,7 +30,6 @@ import {
     getJourneysOverview,
     InsightsTrends,
     ObservabilityJourneySummary,
-    UserEngagementTrends,
 } from '~/shared/api/client';
 import { usePathPrefix } from '~/shell/routing/usePathPrefix';
 
@@ -46,13 +41,6 @@ type HappyPathStage = {
     dropoff: number;
     conversionRate: number;
     issueRatePer100: number;
-};
-
-type UserTypeMixRow = {
-    key: 'loyalists' | 'explorers' | 'casuals' | 'bouncers';
-    label: string;
-    value: number;
-    color: string;
 };
 
 type NavigationLoopRow = {
@@ -160,7 +148,6 @@ export const Journeys: React.FC = () => {
     const [timeRange, setTimeRange] = useState<TimeRange>(DEFAULT_TIME_RANGE);
     const [data, setData] = useState<ObservabilityJourneySummary | null>(null);
     const [trends, setTrends] = useState<InsightsTrends | null>(null);
-    const [userEngagementTrends, setUserEngagementTrends] = useState<UserEngagementTrends | null>(null);
     const [partialError, setPartialError] = useState<string | null>(null);
     const [isLoading, setIsLoading] = useState(true);
     const [flowHealthFilter, setFlowHealthFilter] = useState<FlowHealthFilter>('all');
@@ -172,7 +159,6 @@ export const Journeys: React.FC = () => {
         if (!selectedProject?.id) {
             setData(null);
             setTrends(null);
-            setUserEngagementTrends(null);
             setPartialError(null);
             setIsLoading(false);
             return;
@@ -187,7 +173,6 @@ export const Journeys: React.FC = () => {
                 if (isCancelled) return;
                 setData(overview.journey);
                 setTrends(overview.trends);
-                setUserEngagementTrends(overview.userEngagement);
                 setPartialError(overview.failedSections.length > 0 ? `${overview.failedSections.join(', ')} unavailable.` : null);
             })
             .catch((err) => {
@@ -195,7 +180,6 @@ export const Journeys: React.FC = () => {
                 if (!isCancelled) {
                     setData(null);
                     setTrends(null);
-                    setUserEngagementTrends(null);
                     setPartialError('Journey overview unavailable.');
                 }
             })
@@ -220,8 +204,9 @@ export const Journeys: React.FC = () => {
     }, [data]);
 
     const pathCoverageRate = useMemo(() => {
-        if (!data?.happyPathJourney || totalSessions === 0) return 0;
-        return (data.happyPathJourney.sessionCount / totalSessions) * 100;
+        if (totalSessions === 0) return 0;
+        if (data?.happyPathJourney) return (data.happyPathJourney.sessionCount / totalSessions) * 100;
+        return ((data?.healthSummary.healthy ?? 0) / totalSessions) * 100;
     }, [data, totalSessions]);
 
     const happyPathStages = useMemo<HappyPathStage[]>(() => {
@@ -265,40 +250,15 @@ export const Journeys: React.FC = () => {
     }, [data, canonicalHappyPath]);
 
     const largestLeakStage = useMemo(() => {
-        if (!happyPathStages.length) return null;
-        return [...happyPathStages].sort((a, b) => b.dropoff - a.dropoff)[0];
-    }, [happyPathStages]);
+        if (happyPathStages.length > 0) return [...happyPathStages].sort((a, b) => b.dropoff - a.dropoff)[0];
+        const topExit = data?.exitPoints?.[0];
+        if (!topExit) return null;
+        return { from: topExit.screen, to: '(exit)', dropoff: topExit.count, entrants: topExit.count, progressed: 0, conversionRate: 0, issueRatePer100: 0 };
+    }, [happyPathStages, data]);
 
-    const startPopulation = happyPathStages[0]?.entrants || 0;
+    const startPopulation = happyPathStages[0]?.entrants || totalSessions;
     const completionPopulation = happyPathStages[happyPathStages.length - 1]?.progressed || 0;
     const completionRateFromEntrants = startPopulation > 0 ? (completionPopulation / startPopulation) * 100 : 0;
-
-    const userTypeMixData = useMemo<UserTypeMixRow[]>(() => {
-        const totals = userEngagementTrends?.totals;
-        return [
-            { key: 'loyalists', label: 'Loyalists', value: Number(totals?.loyalists || 0), color: '#10b981' },
-            { key: 'explorers', label: 'Explorers', value: Number(totals?.explorers || 0), color: '#3b82f6' },
-            { key: 'casuals', label: 'Casuals', value: Number(totals?.casuals || 0), color: '#f59e0b' },
-            { key: 'bouncers', label: 'Bouncers', value: Number(totals?.bouncers || 0), color: '#ef4444' },
-        ];
-    }, [userEngagementTrends]);
-
-    const totalUserTypeMixUsers = useMemo(
-        () => userTypeMixData.reduce((sum, row) => sum + row.value, 0),
-        [userTypeMixData],
-    );
-
-    const leakageChartData = useMemo(() => {
-        if (!happyPathStages.length) return [];
-        return happyPathStages
-            .map((stage) => ({
-                stage: `${stage.from} -> ${stage.to}`,
-                dropoff: stage.dropoff,
-                issueRatePer100: Number(stage.issueRatePer100.toFixed(1)),
-            }))
-            .sort((a, b) => b.dropoff - a.dropoff)
-            .slice(0, 6);
-    }, [happyPathStages]);
 
     const sankeyTransitionEvidence = useMemo<Record<string, SankeyEvidenceSession[]>>(() => {
         if (!data) return {};
@@ -600,6 +560,8 @@ export const Journeys: React.FC = () => {
     }, [trends]);
 
     const kpiCards = useMemo<KpiCardItem[]>(() => {
+        const hasHappyPathData = Boolean(canonicalHappyPath && happyPathStages.length > 0);
+
         const sessionDelta = computePeriodDeltaFromSeries(
             (trends?.daily || []).map((day) => day.sessions),
             timeRange,
@@ -622,8 +584,12 @@ export const Journeys: React.FC = () => {
                 label: 'Path Completion',
                 value: `${pathCoverageRate.toFixed(1)}%`,
                 sortValue: pathCoverageRate,
-                info: 'Share of sessions that followed the dominant happy path.',
-                detail: `${data?.happyPathJourney?.sessionCount?.toLocaleString() || 0} sessions on dominant path`,
+                info: hasHappyPathData
+                    ? 'Share of sessions that followed the dominant happy path.'
+                    : 'Healthy session rate. Configure a funnel to enable precise path completion tracking.',
+                detail: hasHappyPathData
+                    ? `${data?.happyPathJourney?.sessionCount?.toLocaleString() || 0} sessions on dominant path`
+                    : `${formatCompact(data?.healthSummary.healthy || 0)} of ${formatCompact(totalSessions)} healthy sessions`,
                 delta: issueRateDelta
                     ? {
                         value: issueRateDelta.deltaPct,
@@ -635,11 +601,15 @@ export const Journeys: React.FC = () => {
             },
             {
                 id: 'happy-path-entrants',
-                label: 'Happy Entrants',
+                label: hasHappyPathData ? 'Happy Entrants' : 'Total Sessions',
                 value: formatCompact(startPopulation),
                 sortValue: startPopulation,
-                info: 'Sessions that reached the first stage of the configured happy path.',
-                detail: `${formatCompact(completionPopulation)} completions (${completionRateFromEntrants.toFixed(1)}%)`,
+                info: hasHappyPathData
+                    ? 'Sessions that reached the first stage of the configured happy path.'
+                    : 'Total sessions tracked in the selected period.',
+                detail: hasHappyPathData
+                    ? `${formatCompact(completionPopulation)} completions (${completionRateFromEntrants.toFixed(1)}%)`
+                    : `${formatCompact(data?.healthSummary.healthy || 0)} healthy · ${formatCompact((data?.healthSummary.degraded || 0) + (data?.healthSummary.problematic || 0))} with issues`,
                 delta: sessionDelta
                     ? {
                         value: sessionDelta.deltaPct,
@@ -652,10 +622,14 @@ export const Journeys: React.FC = () => {
             {
                 id: 'largest-leakage-step',
                 label: 'Largest Leak',
-                value: largestLeakStage ? `${largestLeakStage.from} -> ${largestLeakStage.to}` : 'N/A',
+                value: largestLeakStage ? `${largestLeakStage.from} → ${largestLeakStage.to}` : 'N/A',
                 sortValue: largestLeakStage?.dropoff ?? 0,
-                info: 'Most severe transition drop-off in the current happy path sequence.',
-                detail: largestLeakStage ? `${formatCompact(largestLeakStage.dropoff)} drop-off sessions` : 'No dominant leak',
+                info: hasHappyPathData
+                    ? 'Most severe transition drop-off in the current happy path sequence.'
+                    : 'Screen with the most app exits.',
+                detail: largestLeakStage
+                    ? `${formatCompact(largestLeakStage.dropoff)} ${hasHappyPathData ? 'drop-off sessions' : 'exits'}`
+                    : 'No exit data available',
                 delta: issueRateDelta
                     ? {
                         value: issueRateDelta.deltaPct,
@@ -682,7 +656,7 @@ export const Journeys: React.FC = () => {
                     : undefined,
             },
         ];
-    }, [pathCoverageRate, data, startPopulation, completionPopulation, completionRateFromEntrants, largestLeakStage, trends, timeRange]);
+    }, [pathCoverageRate, data, totalSessions, startPopulation, completionPopulation, completionRateFromEntrants, largestLeakStage, trends, timeRange, canonicalHappyPath, happyPathStages]);
 
     const hasData = Boolean(data && totalSessions > 0);
 
@@ -729,74 +703,6 @@ export const Journeys: React.FC = () => {
                             timeRange={timeRange}
                             storageKey="analytics-journeys"
                         />
-
-                        <section className="grid grid-cols-1 gap-6 xl:grid-cols-2">
-                            <div className="dashboard-surface p-5">
-                                <div className="mb-4 flex items-center justify-between">
-                                    <h2 className="text-lg font-semibold uppercase tracking-wide text-black">User Type Mix</h2>
-                                    <Users className="h-5 w-5 text-blue-600" />
-                                </div>
-                                <div className="h-[260px]">
-                                    <ResponsiveContainer width="100%" height="100%">
-                                        <PieChart>
-                                            <Pie
-                                                data={userTypeMixData}
-                                                dataKey="value"
-                                                nameKey="label"
-                                                innerRadius={58}
-                                                outerRadius={88}
-                                                paddingAngle={3}
-                                            >
-                                                {userTypeMixData.map((row) => (
-                                                    <Cell key={row.key} fill={row.color} />
-                                                ))}
-                                            </Pie>
-                                            <Tooltip
-                                                formatter={(value: any, name: any) => [
-                                                    formatCompact(Number(value || 0)),
-                                                    String(name || 'Users'),
-                                                ]}
-                                                contentStyle={{ padding: '8px 12px' }}
-                                            />
-                                        </PieChart>
-                                    </ResponsiveContainer>
-                                </div>
-                                <div className="mt-3 grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
-                                    {userTypeMixData.map((row) => (
-                                        <div
-                                            key={row.key}
-                                            className="flex items-center gap-2 border border-gray-200 bg-[#f4f4f5] p-2"
-                                            style={{ borderLeftWidth: 4, borderLeftColor: row.color }}
-                                        >
-                                            <div className="flex-1 text-center">
-                                                <div className="font-semibold text-slate-900">{row.label}</div>
-                                                <div className="mt-0.5 text-slate-600">
-                                                    {totalUserTypeMixUsers > 0 ? `${((row.value / totalUserTypeMixUsers) * 100).toFixed(1)}%` : '0%'}
-                                                </div>
-                                            </div>
-                                        </div>
-                                    ))}
-                                </div>
-                            </div>
-
-                            <div className="dashboard-surface p-5">
-                                <div className="mb-4 flex items-center justify-between">
-                                    <h2 className="text-lg font-semibold uppercase tracking-wide text-black">Top Leakage Stages</h2>
-                                    <AlertTriangle className="h-5 w-5 text-amber-600" />
-                                </div>
-                                <div className="h-[300px]">
-                                    <ResponsiveContainer width="100%" height="100%">
-                                        <BarChart data={leakageChartData} layout="vertical" margin={{ left: 8, right: 16, top: 6, bottom: 6 }}>
-                                            <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                                            <XAxis type="number" tick={{ fontSize: 11 }} />
-                                            <YAxis dataKey="stage" type="category" width={180} tick={{ fontSize: 11 }} />
-                                            <Tooltip />
-                                            <Bar dataKey="dropoff" name="Drop-off sessions" fill="#ef4444" radius={[4, 4, 4, 4]} />
-                                        </BarChart>
-                                    </ResponsiveContainer>
-                                </div>
-                            </div>
-                        </section>
 
                         <section className="dashboard-surface">
                             <div>

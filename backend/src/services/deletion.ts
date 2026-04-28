@@ -5,7 +5,7 @@
  * Ensures S3 assets and Postgres rows are removed deterministically.
  */
 
-import { eq } from 'drizzle-orm';
+import { eq, and, isNotNull } from 'drizzle-orm';
 import {
     db,
     projects,
@@ -14,6 +14,7 @@ import {
     projectUsage,
     storageEndpoints,
     sessions,
+    recordingArtifacts,
     teams,
     billingUsage,
 } from '../db/client.js';
@@ -59,8 +60,21 @@ export async function hardDeleteProject(target: ProjectDeletionTarget): Promise<
         .set({ revokedAt: now })
         .where(eq(apiKeys.projectId, target.id));
 
-    // Delete project files from storage (primary + shadow endpoints).
-    await deleteProjectAssets(target.id, target.teamId);
+    // Collect all endpoint IDs ever used by this project's artifacts so that
+    // GDPR deletion reaches historical/inactive buckets too, not just the
+    // currently active endpoint.
+    const artifactEndpointRows = await db
+        .selectDistinct({ endpointId: recordingArtifacts.endpointId })
+        .from(recordingArtifacts)
+        .innerJoin(sessions, eq(sessions.id, recordingArtifacts.sessionId))
+        .where(and(
+            eq(sessions.projectId, target.id),
+            isNotNull(recordingArtifacts.endpointId),
+        ));
+    const historicalEndpointIds = artifactEndpointRows.map(r => r.endpointId);
+
+    // Delete project files from storage (primary + shadow + historical endpoints).
+    await deleteProjectAssets(target.id, target.teamId, historicalEndpointIds);
 
     // Explicitly delete disconnected legacy session objects under the old
     // bare sessions/ prefix. Canonical tenant/project data is removed by

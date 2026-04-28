@@ -148,7 +148,7 @@ spec:
             - name: GF_LOG_LEVEL
               value: "warn"
             - name: GF_INSTALL_PLUGINS
-              value: ""
+              value: "marcusolsson-treemap-panel"
           ports:
             - containerPort: 3000
           volumeMounts:

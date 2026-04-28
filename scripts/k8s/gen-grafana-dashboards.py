@@ -1217,17 +1217,337 @@ def d_self():
     return dashboard("rejourney-self", "70 — VictoriaMetrics & Self", ["self", "monitoring"], panels)
 
 # ============================================================
+# 80 — Users & Growth  (teams as the primary unit)
+# ============================================================
+def d_users():
+    reset_ids()
+    panels = []
+    y = 0
+
+    # Shorthand references to the scalar metrics exposed by rejourney_platform_stats
+    def ps(col): return f"rejourney_platform_stats_{col}"
+
+    red1   = {"mode": "absolute", "steps": [{"color": "green", "value": None}, {"color": "red",    "value": 1}]}
+    green1 = {"mode": "absolute", "steps": [{"color": "green", "value": None}]}
+
+    # ── Team overview stats ────────────────────────────────────────────────
+    panels.append(row("Teams", y)); y += 1
+    panels.append(stat("Total Teams",          ps("total_teams"),               0, y, w=4, h=4, thresholds=green1))
+    panels.append(stat("Paid Teams",           ps("paid_teams"),                4, y, w=4, h=4, thresholds=green1))
+    panels.append(stat("Free Teams",
+        f'{ps("total_teams")} - {ps("paid_teams")}',                            8, y, w=4, h=4, thresholds=green1))
+    panels.append(stat("Active Teams (period)", ps("active_teams_current_period"), 12, y, w=4, h=4, thresholds=green1))
+    panels.append(stat("Payment Failures",     ps("teams_payment_failed"),     16, y, w=4, h=4,
+                       thresholds={"mode": "absolute", "steps": [
+                           {"color": "green", "value": None}, {"color": "orange", "value": 1}, {"color": "red", "value": 3}]}))
+    panels.append(stat("Total Users",          ps("total_users"),              20, y, w=4, h=4, thresholds=green1))
+    y += 4
+
+    # ── Billing period activity ─────────────────────────────────────────────
+    panels.append(row("Current billing period", y)); y += 1
+    panels.append(stat("Sessions (period)",    ps("sessions_current_period"),   0, y, w=6, h=4, thresholds=green1))
+    panels.append(stat("Storage (period)",     ps("storage_bytes_current_period"), 6, y, w=6, h=4, unit="bytes", thresholds=green1))
+    panels.append(stat("New Users (24 h)",     ps("new_users_24h"),            12, y, w=4, h=4, thresholds=green1))
+    panels.append(stat("New Users (7 d)",      ps("new_users_7d"),             16, y, w=4, h=4, thresholds=green1))
+    panels.append(stat("New Users (30 d)",     ps("new_users_30d"),            20, y, w=4, h=4, thresholds=green1))
+    y += 4
+
+    # ── Growth time series ──────────────────────────────────────────────────
+    panels.append(row("Growth over time", y)); y += 1
+    panels.append(ts(
+        "Teams — total vs paid",
+        [(ps("total_teams"), "All teams"), (ps("paid_teams"), "Paid teams")],
+        0, y, w=12, h=8, unit="short", fill=5,
+        legend_calcs=("lastNotNull", "max"),
+    ))
+    panels.append(ts(
+        "User accounts — total",
+        [(ps("total_users"), "Total users")],
+        12, y, w=12, h=8, unit="short", fill=5,
+        legend_calcs=("lastNotNull", "max"),
+    ))
+    y += 8
+
+    panels.append(ts(
+        "Signup rate — new users in rolling 24 h window",
+        [(ps("new_users_24h"), "New users (24 h)")],
+        0, y, w=12, h=8, unit="short", fill=5,
+        legend_calcs=("mean", "max"),
+    ))
+    panels.append(ts(
+        "Active teams — this billing period (running total)",
+        [(ps("active_teams_current_period"), "Active teams")],
+        12, y, w=12, h=8, unit="short", fill=5,
+        legend_calcs=("lastNotNull",),
+    ))
+    y += 8
+
+    # ── Daily signup snapshot (last 30 days) ────────────────────────────────
+    panels.append(row("Daily breakdown — last 30 days (snapshot, updates each scrape)", y)); y += 1
+
+    def _snap_bargauge(title, expr, y_, unit="short"):
+        return {
+            "id": nid(),
+            "type": "bargauge",
+            "title": title,
+            "datasource": DATASOURCE,
+            "gridPos": {"x": 0, "y": y_, "w": 24, "h": 10},
+            "targets": [{
+                "datasource": DATASOURCE,
+                "expr": expr,
+                "legendFormat": "{{day}}",
+                "refId": "A",
+                "instant": True,
+            }],
+            "options": {
+                "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": False},
+                "orientation": "horizontal",
+                "displayMode": "basic",
+                "showUnfilled": True,
+                "valueMode": "color",
+                "minVizHeight": 10,
+                "minVizWidth": 0,
+            },
+            "fieldConfig": {
+                "defaults": {
+                    "unit": unit,
+                    "min": 0,
+                    "color": {"mode": "palette-classic"},
+                    "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": None}]},
+                },
+                "overrides": [],
+            },
+        }
+
+    panels.append(_snap_bargauge(
+        "Daily signups (new user registrations per day)",
+        "rejourney_user_signups_daily_signups",
+        y,
+    ))
+    y += 10
+
+    panels.append(_snap_bargauge(
+        "Daily sessions (total platform sessions started per day)",
+        "rejourney_platform_sessions_daily_total_sessions",
+        y,
+    ))
+    y += 10
+
+    # ── Top teams table ─────────────────────────────────────────────────────
+    panels.append(row("Top teams (current billing period)", y)); y += 1
+
+    top_tbl = {
+        "id": nid(),
+        "type": "table",
+        "title": "Top 25 Teams by Sessions",
+        "datasource": DATASOURCE,
+        "gridPos": {"x": 0, "y": y, "w": 24, "h": 14},
+        "targets": [
+            {**target('rejourney_top_teams_by_sessions_sessions',      "{{team}} ({{plan}})", instant=True, ref="A"), "format": "table"},
+            {**target('rejourney_top_teams_by_sessions_storage_bytes', "",                    instant=True, ref="B"), "format": "table"},
+        ],
+        "transformations": [
+            {"id": "merge"},
+            {"id": "organize", "options": {
+                "renameByName": {
+                    "Value #A": "Sessions",
+                    "Value #B": "Storage",
+                    "team": "Team",
+                    "plan": "Plan",
+                    "Time": "",
+                },
+                "excludeByName": {"Time": True},
+                "indexByName": {"Team": 0, "Plan": 1, "Sessions": 2, "Storage": 3},
+            }},
+        ],
+        "fieldConfig": {
+            "defaults": {"custom": {"align": "auto"}},
+            "overrides": [
+                {
+                    "matcher": {"id": "byName", "options": "Sessions"},
+                    "properties": [
+                        {"id": "custom.displayMode", "value": "color-background"},
+                        {"id": "thresholds", "value": {"mode": "absolute", "steps": [
+                            {"color": "green", "value": None},
+                            {"color": "yellow", "value": 1000},
+                            {"color": "orange", "value": 5000},
+                            {"color": "red", "value": 20000},
+                        ]}},
+                    ],
+                },
+                {
+                    "matcher": {"id": "byName", "options": "Storage"},
+                    "properties": [
+                        {"id": "unit", "value": "bytes"},
+                        {"id": "custom.displayMode", "value": "color-background"},
+                        {"id": "thresholds", "value": {"mode": "absolute", "steps": [
+                            {"color": "green", "value": None},
+                            {"color": "yellow", "value": 1073741824},    # 1 GiB
+                            {"color": "orange", "value": 10737418240},   # 10 GiB
+                            {"color": "red",    "value": 53687091200},   # 50 GiB
+                        ]}},
+                    ],
+                },
+                {
+                    "matcher": {"id": "byName", "options": "Plan"},
+                    "properties": [
+                        {"id": "mappings", "value": [
+                            {"type": "value", "options": {
+                                "paid": {"text": "Paid", "color": "green", "index": 0},
+                                "free": {"text": "Free", "color": "blue",  "index": 1},
+                            }},
+                        ]},
+                        {"id": "custom.displayMode", "value": "color-text"},
+                    ],
+                },
+            ],
+        },
+        "options": {"showHeader": True, "sortBy": [{"displayName": "Sessions", "desc": True}],
+                    "footer": {"show": False}},
+    }
+    panels.append(top_tbl)
+    y += 14
+
+    return dashboard(
+        "rejourney-users",
+        "80 — Users & Growth",
+        ["users", "growth", "teams"],
+        panels,
+        refresh="60s",
+        time_from="now-30d",
+    )
+
+
+# ============================================================
+# 15 — Node Topology  (treemap: pods placed inside node boxes,
+#                      sized by resource usage, grey = idle)
+# ============================================================
+def d_node_topology():
+    reset_ids()
+    panels = []
+    y = 0
+
+    # All pods in the namespace via kube_pod_info (value=0 baseline).
+    # Active containers report real usage from cadvisor (already has a
+    # `node` label via VictoriaMetrics relabeling).  The OR union keeps
+    # idle/init pods visible as tiny grey boxes; clamp_min gives them a
+    # non-zero floor so they occupy a visible sliver of area.
+    _all_pods = (
+        'sum by (pod, node)('
+        '  kube_pod_info{namespace="rejourney"} * 0'
+        ')'
+    )
+    _cpu_active = (
+        'sum by (pod, node)('
+        '  rate(container_cpu_usage_seconds_total'
+        '{namespace="rejourney",container!="POD",container!=""}[5m])'
+        ')'
+    )
+    _mem_active = (
+        'sum by (pod, node)('
+        '  container_memory_working_set_bytes'
+        '{namespace="rejourney",container!="POD",container!=""}'
+        ')'
+    )
+
+    # Floor: 1 millicpu (0.001) so idle pods still appear as small boxes.
+    cpu_expr = f'clamp_min(({_cpu_active}) OR ({_all_pods}), 0.001)'
+    # Floor: 4 MiB so idle pods are visible alongside real consumers.
+    mem_expr = f'clamp_min(({_mem_active}) OR ({_all_pods}), 4194304)'
+
+    def _treemap(title, expr, y_, unit, steps):
+        return {
+            "id": nid(),
+            "type": "marcusolsson-treemap-panel",
+            "title": title,
+            "datasource": DATASOURCE,
+            "gridPos": {"x": 0, "y": y_, "w": 24, "h": 20},
+            "targets": [{
+                "datasource": DATASOURCE,
+                "expr": expr,
+                "legendFormat": "",
+                "refId": "A",
+                "instant": True,
+                "format": "table",
+            }],
+            "options": {
+                "tiling": "squarify",
+                "label": "all",
+                "groups": [
+                    {"fieldName": "node"},
+                    {"fieldName": "pod"},
+                ],
+            },
+            "fieldConfig": {
+                "defaults": {
+                    "unit": unit,
+                    "color": {"mode": "thresholds"},
+                    "thresholds": {
+                        "mode": "absolute",
+                        "steps": steps,
+                    },
+                    "custom": {},
+                },
+                "overrides": [],
+            },
+        }
+
+    panels.append(row("CPU — pods per node (size = CPU cores used, grey = idle)", y)); y += 1
+    panels.append(_treemap(
+        "Pod CPU by Node",
+        cpu_expr,
+        y,
+        "cores",
+        [
+            {"color": "gray",   "value": None},    # 0 / idle
+            {"color": "green",  "value": 0.01},    # >10m
+            {"color": "yellow", "value": 0.25},    # >250m
+            {"color": "orange", "value": 0.75},    # >750m
+            {"color": "red",    "value": 1.5},     # >1.5 cores
+        ],
+    ))
+    y += 20
+
+    panels.append(row("Memory — pods per node (size = working-set bytes, grey = idle)", y)); y += 1
+    panels.append(_treemap(
+        "Pod Memory by Node",
+        mem_expr,
+        y,
+        "bytes",
+        [
+            {"color": "gray",   "value": None},       # floor / idle
+            {"color": "green",  "value": 10485760},   # >10 MiB
+            {"color": "yellow", "value": 104857600},  # >100 MiB
+            {"color": "orange", "value": 314572800},  # >300 MiB
+            {"color": "red",    "value": 524288000},  # >500 MiB
+        ],
+    ))
+    y += 20
+
+    return dashboard(
+        "rejourney-node-topology",
+        "15 — Node Topology",
+        ["kubernetes", "topology"],
+        panels,
+        refresh="30s",
+        time_from="now-30m",
+    )
+
+
+# ============================================================
 # main
 # ============================================================
 dashes = [
     ("00-overview", d_overview()),
     ("10-kubernetes", d_kubernetes()),
+    ("15-node-topology", d_node_topology()),
     ("20-postgres", d_postgres()),
     ("30-redis", d_redis()),
     ("40-traefik", d_traefik()),
     ("50-application", d_application()),
     ("60-storage", d_storage()),
     ("70-self", d_self()),
+    ("80-users", d_users()),
 ]
 import sys
 for name, d in dashes:

@@ -1421,6 +1421,139 @@ data:
             usage: "GAUGE"
             description: "Worst-case presign-to-S3-confirmed latency (seconds)"
 
+    # ----------------------------------------------------------------
+    # User & growth monitoring (feeds the "80 — Users & Growth" dashboard)
+    # ----------------------------------------------------------------
+    #
+    # Performance notes:
+    #   users / teams are small tables (<1M rows) — full scans are fine.
+    #   billing_usage is tiny (one row per team per month) — fast aggregates.
+    #   rejourney_platform_sessions_daily uses app_daily_stats (rolled-up,
+    #   much cheaper than scanning sessions directly).
+
+    # Scalar platform-wide counters. No labels → low cardinality.
+    # Scraped every 30 s so VictoriaMetrics accumulates a real time-series
+    # that Grafana can plot as growth trends.
+    rejourney_platform_stats:
+      query: >
+        SELECT
+          (SELECT count(*)::bigint FROM users)                                              AS total_users,
+          (SELECT count(*)::bigint FROM users  WHERE created_at > NOW() - INTERVAL '24 hours') AS new_users_24h,
+          (SELECT count(*)::bigint FROM users  WHERE created_at > NOW() - INTERVAL '7 days')   AS new_users_7d,
+          (SELECT count(*)::bigint FROM users  WHERE created_at > NOW() - INTERVAL '30 days')  AS new_users_30d,
+          (SELECT count(*)::bigint FROM teams)                                             AS total_teams,
+          (SELECT count(*)::bigint FROM teams WHERE stripe_subscription_id IS NOT NULL)   AS paid_teams,
+          (SELECT count(*)::bigint FROM teams WHERE payment_failed_at      IS NOT NULL)   AS teams_payment_failed,
+          (SELECT COALESCE(SUM(sessions),      0)::bigint FROM billing_usage WHERE period = TO_CHAR(NOW(), 'YYYY-MM')) AS sessions_current_period,
+          (SELECT COALESCE(SUM(storage_bytes), 0)::bigint FROM billing_usage WHERE period = TO_CHAR(NOW(), 'YYYY-MM')) AS storage_bytes_current_period,
+          (SELECT count(DISTINCT team_id)::bigint FROM billing_usage WHERE period = TO_CHAR(NOW(), 'YYYY-MM') AND sessions > 0) AS active_teams_current_period
+      metrics:
+        - total_users:
+            usage: "GAUGE"
+            description: "Total registered user accounts"
+        - new_users_24h:
+            usage: "GAUGE"
+            description: "User accounts created in the last 24 hours"
+        - new_users_7d:
+            usage: "GAUGE"
+            description: "User accounts created in the last 7 days"
+        - new_users_30d:
+            usage: "GAUGE"
+            description: "User accounts created in the last 30 days"
+        - total_teams:
+            usage: "GAUGE"
+            description: "Total teams (workspaces)"
+        - paid_teams:
+            usage: "GAUGE"
+            description: "Teams with an active Stripe subscription"
+        - teams_payment_failed:
+            usage: "GAUGE"
+            description: "Teams whose most recent payment failed"
+        - sessions_current_period:
+            usage: "GAUGE"
+            description: "Total session-quota consumption across all teams this billing period"
+        - storage_bytes_current_period:
+            usage: "GAUGE"
+            description: "Total storage-quota consumption across all teams this billing period"
+        - active_teams_current_period:
+            usage: "GAUGE"
+            description: "Teams that recorded at least one session this billing period"
+
+    # Top 25 teams by session count in the current billing period.
+    # Label: team = billing_email (falls back to team UUID).
+    # Keep LIMIT tight — each row is a Prometheus series for the scrape window.
+    rejourney_top_teams_by_sessions:
+      query: >
+        SELECT
+          LEFT(COALESCE(t.billing_email, t.id::text), 80) AS team,
+          CASE WHEN t.stripe_subscription_id IS NOT NULL THEN 'paid' ELSE 'free' END AS plan,
+          COALESCE(bu.sessions,      0)::bigint AS sessions,
+          COALESCE(bu.storage_bytes, 0)::bigint AS storage_bytes
+        FROM teams t
+        LEFT JOIN billing_usage bu
+          ON bu.team_id = t.id
+         AND bu.period  = TO_CHAR(NOW(), 'YYYY-MM')
+        WHERE COALESCE(bu.sessions, 0) > 0
+        ORDER BY sessions DESC
+        LIMIT 25
+      metrics:
+        - team:
+            usage: "LABEL"
+            description: "Team billing email (or UUID fallback)"
+        - plan:
+            usage: "LABEL"
+            description: "paid or free"
+        - sessions:
+            usage: "GAUGE"
+            description: "Sessions consumed by this team in the current billing period"
+        - storage_bytes:
+            usage: "GAUGE"
+            description: "Storage bytes consumed by this team in the current billing period"
+
+    # Daily user signup snapshot — last 30 days, one row per calendar day.
+    # Exposed with a `day` label so Grafana can render it as a bar chart.
+    rejourney_user_signups_daily:
+      query: >
+        SELECT
+          TO_CHAR(DATE_TRUNC('day', created_at), 'YYYY-MM-DD') AS day,
+          count(*)::bigint AS signups
+        FROM users
+        WHERE created_at > NOW() - INTERVAL '30 days'
+        GROUP BY 1
+        ORDER BY 1 DESC
+        LIMIT 31
+      metrics:
+        - day:
+            usage: "LABEL"
+            description: "Calendar day (YYYY-MM-DD)"
+        - signups:
+            usage: "GAUGE"
+            description: "New user registrations on this day"
+
+    # Daily session totals (platform-wide) — last 30 days from the pre-rolled
+    # app_daily_stats table (much cheaper than scanning sessions directly).
+    rejourney_platform_sessions_daily:
+      query: >
+        SELECT
+          date::text AS day,
+          SUM(total_sessions)::bigint     AS total_sessions,
+          SUM(completed_sessions)::bigint AS completed_sessions
+        FROM app_daily_stats
+        WHERE date >= CURRENT_DATE - 30
+        GROUP BY date
+        ORDER BY date DESC
+        LIMIT 31
+      metrics:
+        - day:
+            usage: "LABEL"
+            description: "Calendar day (YYYY-MM-DD)"
+        - total_sessions:
+            usage: "GAUGE"
+            description: "Sessions started platform-wide on this day"
+        - completed_sessions:
+            usage: "GAUGE"
+            description: "Sessions that completed normally on this day"
+
 ---
 apiVersion: apps/v1
 kind: Deployment

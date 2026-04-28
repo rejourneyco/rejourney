@@ -28,11 +28,12 @@ metadata:
     app.kubernetes.io/part-of: rejourney
 spec:
   replicas: 4  # On the 12 vCPU / 24 GiB node, four API pods keep ingest spikes from saturating the event loop
+  minReadySeconds: 10  # Pod must stay Ready for 10s before old pods are killed — prevents premature cutover
   strategy:
     type: RollingUpdate
     rollingUpdate:
       maxUnavailable: 0  # Never take down existing pods first
-      maxSurge: 1        # Bring up new pod before taking down old
+      maxSurge: 4        # Start all new pods simultaneously; kill all old pods only after all new are stable
   selector:
     matchLabels:
       app: api
