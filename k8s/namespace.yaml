@@ -56,7 +56,8 @@ metadata:
 #   --from-literal=JWT_SECRET=<openssl rand -hex 32> \
 #   --from-literal=JWT_SIGNING_KEY=<openssl rand -hex 32> \
 #   --from-literal=INGEST_HMAC_SECRET=<openssl rand -hex 32> \
-#   --from-literal=STORAGE_ENCRYPTION_KEY=<openssl rand -hex 32>
+#   --from-literal=STORAGE_ENCRYPTION_KEY=<openssl rand -hex 32> \
+#   --from-literal=QUERY_BUILDER_KEY=<YOUR_GEMINI_API_KEY>
 #
 # 5. OAuth secrets:
 # kubectl create secret generic oauth-secret \

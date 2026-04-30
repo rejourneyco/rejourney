@@ -900,6 +900,11 @@
   min-width: 0;
 }
 
+/* Sessions replay archive — thead band tinted with dashboard brand (reads vs white rows) */
+.sessions-archive-table-header-bg {
+  background-color: #f3f4f6;
+}
+
 /* Logo-aligned blue accents for a lightweight premium feel */
 .dashboard-modern .bg-blue-600 {
   background-color: var(--dashboard-brand) !important;

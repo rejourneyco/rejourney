@@ -14,7 +14,6 @@ export const Heatmaps: React.FC = () => {
         <div className="min-h-screen bg-transparent font-sans text-slate-900 pb-12">
             <DashboardPageHeader
                 title="Interaction Heatmaps"
-                subtitle="Visualize where users tap, fail, and abandon — then jump directly to evidence replay."
                 icon={<Flame className="w-6 h-6" />}
                 iconColor="bg-rose-500"
             >

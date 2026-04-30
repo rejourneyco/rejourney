@@ -397,7 +397,12 @@ async function loadSessionPreview(projectIds: string[], timeRange?: string) {
         return [];
     }
 
-    const conditions = [inArray(sessions.projectId, projectIds)];
+    const conditions = [
+        inArray(sessions.projectId, projectIds),
+        eq(sessions.replayAvailable, true),
+        eq(sessions.recordingDeleted, false),
+        eq(sessions.isReplayExpired, false),
+    ];
     const startedAfter = buildStartedAfter(timeRange);
     if (startedAfter) {
         conditions.push(gte(sessions.startedAt, startedAfter));
@@ -625,6 +630,9 @@ async function loadTopUsersPreview(projectIds: string[], timeRange?: string) {
             FROM ${sessions}
             WHERE ${inArray(sessions.projectId, projectIds)}
               ${startedAfterClause}
+              AND ${sessions.replayAvailable} = true
+              AND ${sessions.recordingDeleted} = false
+              AND ${sessions.isReplayExpired} = false
         ),
         ranked AS (
             SELECT
@@ -812,6 +820,32 @@ type HeatmapScreenSource = {
     touchHotspots?: Array<{ x: number; y: number; intensity: number; isRageTap: boolean }>;
 };
 
+type HeatmapIterationScreen = {
+    name: string;
+    screenshotUrl: string | null;
+    touchHotspots?: Array<{ x: number; y: number; intensity: number; isRageTap: boolean }>;
+    visits: number;
+    touches: number;
+    rageTaps: number;
+    errors: number;
+    incidentRatePer100: number;
+    lastSeenAt: string | null;
+    evidenceSessionId: string | null;
+};
+
+type HeatmapIterationVersion = {
+    appVersion: string;
+    firstSeenAt: string | null;
+    lastSeenAt: string | null;
+    sessions: number;
+    screens: HeatmapIterationScreen[];
+};
+
+type HeatmapIterationSummary = {
+    overall: HeatmapIterationScreen[];
+    versions: HeatmapIterationVersion[];
+};
+
 function mergeHeatmapScreen(
     name: string,
     alltime: HeatmapScreenSource | undefined,
@@ -855,6 +889,185 @@ function mergeHeatmapScreen(
         confidence: getHeatmapConfidence(rangeVisits, touchHotspots.length),
         priority: getHeatmapPriority(rangeImpactScore, rangeEstimatedAffectedSessions),
         evidenceSessionId: rangeData?.sessionIds?.[0] ?? alltime?.sessionIds?.[0] ?? null,
+    };
+}
+
+function createHeatmapIterationScreen(name: string): HeatmapIterationScreen {
+    return {
+        name,
+        screenshotUrl: null,
+        touchHotspots: [],
+        visits: 0,
+        touches: 0,
+        rageTaps: 0,
+        errors: 0,
+        incidentRatePer100: 0,
+        lastSeenAt: null,
+        evidenceSessionId: null,
+    };
+}
+
+function updateHeatmapIterationScreen(
+    screen: HeatmapIterationScreen,
+    values: {
+        touches: number;
+        rageTaps: number;
+        errors: number;
+        startedAt: Date;
+        evidenceSessionId: string | null;
+    },
+) {
+    screen.visits += 1;
+    screen.touches += Math.max(0, values.touches);
+    screen.rageTaps += Math.max(0, values.rageTaps);
+    screen.errors += Math.max(0, values.errors);
+    screen.incidentRatePer100 = toRatePer100(screen.rageTaps + screen.errors, screen.visits);
+
+    const startedAtIso = values.startedAt.toISOString();
+    if (!screen.lastSeenAt || startedAtIso > screen.lastSeenAt) {
+        screen.lastSeenAt = startedAtIso;
+    }
+    if (!screen.evidenceSessionId && values.evidenceSessionId) {
+        screen.evidenceSessionId = values.evidenceSessionId;
+        screen.screenshotUrl = `/api/session/thumbnail/${values.evidenceSessionId}`;
+    }
+}
+
+async function loadHeatmapIterationSummary(
+    projectId: string,
+    timeRange?: string,
+): Promise<HeatmapIterationSummary> {
+    const conditions = [eq(sessions.projectId, projectId)];
+    const startedAfter = buildStartedAfter(timeRange);
+    if (startedAfter) {
+        conditions.push(gte(sessions.startedAt, startedAfter));
+    }
+
+    const rows = await db
+        .select({
+            sessionId: sessions.id,
+            appVersion: sessions.appVersion,
+            startedAt: sessions.startedAt,
+            replayAvailable: sessions.replayAvailable,
+            recordingDeleted: sessions.recordingDeleted,
+            isReplayExpired: sessions.isReplayExpired,
+            screensVisited: sessionMetrics.screensVisited,
+            touchCount: sessionMetrics.touchCount,
+            rageTapCount: sessionMetrics.rageTapCount,
+            errorCount: sessionMetrics.errorCount,
+        })
+        .from(sessions)
+        .leftJoin(sessionMetrics, eq(sessions.id, sessionMetrics.sessionId))
+        .where(and(...conditions))
+        .orderBy(desc(sessions.startedAt))
+        .limit(5000);
+
+    const overallMap = new Map<string, HeatmapIterationScreen>();
+    const versionMap = new Map<string, {
+        appVersion: string;
+        firstSeenAt: string | null;
+        lastSeenAt: string | null;
+        sessions: number;
+        screens: Map<string, HeatmapIterationScreen>;
+    }>();
+
+    for (const row of rows) {
+        const visitedScreens = Array.from(new Set((row.screensVisited || []).filter(Boolean)));
+        if (visitedScreens.length === 0) continue;
+
+        const appVersion = row.appVersion?.trim() || 'Unknown';
+        const replayReady = Boolean(row.replayAvailable) && !row.recordingDeleted && !row.isReplayExpired;
+        const evidenceSessionId = replayReady ? row.sessionId : null;
+        const perScreenTouches = Math.ceil((row.touchCount || 0) / visitedScreens.length);
+        const perScreenRageTaps = Math.ceil((row.rageTapCount || 0) / visitedScreens.length);
+        const perScreenErrors = Math.ceil((row.errorCount || 0) / visitedScreens.length);
+        const startedAtIso = row.startedAt.toISOString();
+
+        let version = versionMap.get(appVersion);
+        if (!version) {
+            version = {
+                appVersion,
+                firstSeenAt: startedAtIso,
+                lastSeenAt: startedAtIso,
+                sessions: 0,
+                screens: new Map<string, HeatmapIterationScreen>(),
+            };
+            versionMap.set(appVersion, version);
+        }
+        version.sessions += 1;
+        if (!version.firstSeenAt || startedAtIso < version.firstSeenAt) version.firstSeenAt = startedAtIso;
+        if (!version.lastSeenAt || startedAtIso > version.lastSeenAt) version.lastSeenAt = startedAtIso;
+
+        for (const screenName of visitedScreens) {
+            let overall = overallMap.get(screenName);
+            if (!overall) {
+                overall = createHeatmapIterationScreen(screenName);
+                overallMap.set(screenName, overall);
+            }
+            updateHeatmapIterationScreen(overall, {
+                touches: perScreenTouches,
+                rageTaps: perScreenRageTaps,
+                errors: perScreenErrors,
+                startedAt: row.startedAt,
+                evidenceSessionId,
+            });
+
+            let versionScreen = version.screens.get(screenName);
+            if (!versionScreen) {
+                versionScreen = createHeatmapIterationScreen(screenName);
+                version.screens.set(screenName, versionScreen);
+            }
+            updateHeatmapIterationScreen(versionScreen, {
+                touches: perScreenTouches,
+                rageTaps: perScreenRageTaps,
+                errors: perScreenErrors,
+                startedAt: row.startedAt,
+                evidenceSessionId,
+            });
+        }
+    }
+
+    const sortScreens = (items: HeatmapIterationScreen[]) => items.sort((a, b) => {
+        if (b.incidentRatePer100 !== a.incidentRatePer100) return b.incidentRatePer100 - a.incidentRatePer100;
+        return b.visits - a.visits;
+    });
+
+    return {
+        overall: sortScreens(Array.from(overallMap.values())),
+        versions: Array.from(versionMap.values())
+            .sort((a, b) => (b.lastSeenAt || '').localeCompare(a.lastSeenAt || ''))
+            .map((version) => ({
+                appVersion: version.appVersion,
+                firstSeenAt: version.firstSeenAt,
+                lastSeenAt: version.lastSeenAt,
+                sessions: version.sessions,
+                screens: sortScreens(Array.from(version.screens.values())),
+            })),
+    };
+}
+
+function applyHeatmapIterationScreenshots(
+    iteration: HeatmapIterationSummary,
+    alltimeMap: Map<string, HeatmapScreenSource>,
+    frictionMap: Map<string, HeatmapScreenSource>,
+): HeatmapIterationSummary {
+    const applyScreenshot = (screen: HeatmapIterationScreen): HeatmapIterationScreen => {
+        const fallbackSource = alltimeMap.get(screen.name) ?? frictionMap.get(screen.name);
+        const fallbackScreenshot = fallbackSource?.screenshotUrl ?? null;
+        const fallbackHotspots = fallbackSource?.touchHotspots ?? [];
+        return {
+            ...screen,
+            screenshotUrl: screen.screenshotUrl ?? fallbackScreenshot,
+            touchHotspots: screen.touchHotspots?.length ? screen.touchHotspots : fallbackHotspots,
+        };
+    };
+
+    return {
+        overall: iteration.overall.map(applyScreenshot),
+        versions: iteration.versions.map((version) => ({
+            ...version,
+            screens: version.screens.map(applyScreenshot),
+        })),
     };
 }
 
@@ -906,13 +1119,18 @@ async function loadHeatmapSummary(
     projectId: string,
     timeRange?: string,
 ) {
-    const { allTime, friction, failedSections } = await fetchHeatmapSources(cookieHeader, projectId, timeRange);
+    const [{ allTime, friction, failedSections }, rawScreenIteration] = await Promise.all([
+        fetchHeatmapSources(cookieHeader, projectId, timeRange),
+        loadHeatmapIterationSummary(projectId, timeRange),
+    ]);
     const alltimeMap = new Map<string, HeatmapScreenSource>((allTime.screens || []).map((screen) => [screen.name, screen]));
     const frictionMap = new Map<string, HeatmapScreenSource>((friction.screens || []).map((screen) => [screen.name, screen]));
+    const screenIteration = applyHeatmapIterationScreenshots(rawScreenIteration, alltimeMap, frictionMap);
     const screenNames = Array.from(new Set([...alltimeMap.keys(), ...frictionMap.keys()]));
 
     return {
-        screens: screenNames.map((name) => mergeHeatmapScreen(name, alltimeMap.get(name), frictionMap.get(name), false)),
+        screens: screenNames.map((name) => mergeHeatmapScreen(name, alltimeMap.get(name), frictionMap.get(name), true)),
+        screenIteration,
         lastUpdated: allTime.lastUpdated ?? new Date().toISOString(),
         failedSections,
     };
@@ -1614,7 +1832,7 @@ router.get(
     asyncHandler(async (req, res) => {
         const scope = await resolveOverviewScope(req, { requireProjectId: true });
         await respondWithOverviewCache({
-            cacheKey: buildOverviewCacheKey('heatmaps', scope.scopedProjectIds, scope.normalizedTimeRange),
+            cacheKey: buildOverviewCacheKey('heatmaps', scope.scopedProjectIds, scope.normalizedTimeRange, 'v4'),
             routeName: 'heatmaps',
             res,
             logContext: {

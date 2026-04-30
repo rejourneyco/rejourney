@@ -744,6 +744,9 @@ export function transformToRecordingSession(session: ApiSession | ApiSessionSumm
     // Canonical replay availability flag derived from successful screenshot capture.
     hasSuccessfulRecording: (session as any).hasSuccessfulRecording ?? false,
     isFirstSession: Boolean((session as any).isFirstSession),
+    visitorSessionNumber: (session as any).visitorSessionNumber ?? null,
+    visitorFinalSessionNumber: (session as any).visitorFinalSessionNumber ?? null,
+    checkoutStatus: (session as any).checkoutStatus ?? 'none',
 
     isReplayExpired: (session as any).isReplayExpired ?? false,
     // Network quality
@@ -805,6 +808,13 @@ export type SessionArchiveQuery = {
     | 'slow_start'
     | 'slow_api'
     | 'new_user';
+  lifecyclePreset?: 'early_user' | 'returning_user';
+  sessionWindowSize?: number;
+  conversionPreset?: 'checkout_bounced' | 'checkout_success';
+  screenName?: string;
+  screenOutcome?: 'bounced' | 'continued';
+  /** Pipe-separated ordered screen path, e.g. "HomeScreen|CheckoutScreen|ConfirmationScreen" */
+  screenPath?: string;
   metaKey?: string;
   metaValue?: string;
   eventName?: string;
@@ -819,6 +829,8 @@ export type SessionArchiveQuery = {
   sortDir?: 'asc' | 'desc';
   /** When false, server omits expensive count(*) — use getSessionsArchiveTotalCount for the total */
   includeTotal?: boolean;
+  /** When 'OR', conditions are OR'd together instead of AND'd */
+  conditionLogic?: 'OR';
 };
 
 function buildSessionArchiveQueryString(params: SessionArchiveQuery & { countOnly?: boolean }): string {
@@ -830,6 +842,12 @@ function buildSessionArchiveQueryString(params: SessionArchiveQuery & { countOnl
     platform,
     hasRecording,
     issueFilter,
+    lifecyclePreset,
+    sessionWindowSize,
+    conversionPreset,
+    screenName,
+    screenOutcome,
+    screenPath,
     metaKey,
     metaValue,
     eventName,
@@ -843,6 +861,7 @@ function buildSessionArchiveQueryString(params: SessionArchiveQuery & { countOnl
     sortDir,
     includeTotal,
     countOnly,
+    conditionLogic,
   } = params;
   const recordingFilter = hasRecording;
 
@@ -855,6 +874,12 @@ function buildSessionArchiveQueryString(params: SessionArchiveQuery & { countOnl
   if (platform) queryParams.set('platform', platform);
   if (recordingFilter) queryParams.set('hasRecording', 'true');
   if (issueFilter && issueFilter !== 'all') queryParams.set('issueFilter', issueFilter);
+  if (lifecyclePreset) queryParams.set('lifecyclePreset', lifecyclePreset);
+  if (sessionWindowSize) queryParams.set('sessionWindowSize', String(sessionWindowSize));
+  if (conversionPreset) queryParams.set('conversionPreset', conversionPreset);
+  if (screenName) queryParams.set('screenName', screenName);
+  if (screenName && screenOutcome) queryParams.set('screenOutcome', screenOutcome);
+  if (screenPath) queryParams.set('screenPath', screenPath);
   if (metaKey) queryParams.set('metaKey', metaKey);
   if (metaValue) queryParams.set('metaValue', metaValue);
   if (eventName) queryParams.set('eventName', eventName);
@@ -867,6 +892,7 @@ function buildSessionArchiveQueryString(params: SessionArchiveQuery & { countOnl
   if (sort) queryParams.set('sort', sort);
   if (sortDir) queryParams.set('sortDir', sortDir);
   if (includeTotal === false) queryParams.set('includeTotal', 'false');
+  if (conditionLogic === 'OR') queryParams.set('conditionLogic', 'OR');
 
   return queryParams.toString();
 }
@@ -1034,8 +1060,15 @@ export async function getProjects(): Promise<ApiProject[]> {
 /**
  * Get available custom events and metadata for a project
  */
-export async function getAvailableFilters(projectId: string): Promise<{ events: string[]; eventPropertyKeys: string[]; metadata: Record<string, string[]> }> {
-  return fetchJson<{ events: string[]; eventPropertyKeys: string[]; metadata: Record<string, string[]> }>(`/api/projects/${projectId}/available-filters`);
+export async function getAvailableFilters(projectId: string): Promise<{ events: string[]; eventPropertyKeys: string[]; screens: string[]; metadata: Record<string, string[]> }> {
+  return fetchJson<{ events: string[]; eventPropertyKeys: string[]; screens: string[]; metadata: Record<string, string[]> }>(`/api/projects/${projectId}/available-filters`);
+}
+
+export async function buildSessionQueryFromPrompt(projectId: string, prompt: string): Promise<{ groups: any[]; explanation: string }> {
+  return fetchJson<{ groups: any[]; explanation: string }>(`/api/projects/${projectId}/query-builder`, {
+    method: 'POST',
+    body: JSON.stringify({ prompt }),
+  });
 }
 
 /**
@@ -2037,8 +2070,35 @@ export interface HeatmapOverviewScreen {
   evidenceSessionId: string | null;
 }
 
+export interface HeatmapIterationScreen {
+  name: string;
+  screenshotUrl: string | null;
+  touchHotspots?: Array<{ x: number; y: number; intensity: number; isRageTap: boolean }>;
+  visits: number;
+  touches: number;
+  rageTaps: number;
+  errors: number;
+  incidentRatePer100: number;
+  lastSeenAt: string | null;
+  evidenceSessionId: string | null;
+}
+
+export interface HeatmapIterationVersion {
+  appVersion: string;
+  firstSeenAt: string | null;
+  lastSeenAt: string | null;
+  sessions: number;
+  screens: HeatmapIterationScreen[];
+}
+
+export interface HeatmapIterationSummary {
+  overall: HeatmapIterationScreen[];
+  versions: HeatmapIterationVersion[];
+}
+
 export interface HeatmapOverviewResponse {
   screens: HeatmapOverviewScreen[];
+  screenIteration?: HeatmapIterationSummary;
   lastUpdated: string;
   failedSections: string[];
 }
@@ -2355,7 +2415,7 @@ export async function getGeoOverview(projectId: string, timeRange?: string): Pro
   return fetchWithCache<GeoOverviewResponse>(endpoint, {}, cacheKey, ANALYTICS_BOOTSTRAP_CACHE_TTL);
 }
 
-export async function getJourneysOverview(projectId: string, timeRange?: string): Promise<JourneysOverviewResponse> {
+export async function getJourneysOverview(projectId: string, timeRange?: string, mode: 'summary' | 'full' = 'summary'): Promise<JourneysOverviewResponse> {
   if (isDemoMode()) {
     const journeyRange = timeRange === 'all' ? undefined : timeRange;
     const trendsRange = timeRange === '24h'
@@ -2367,7 +2427,7 @@ export async function getJourneysOverview(projectId: string, timeRange?: string)
           : (timeRange || '30d');
 
     const [journey, userEngagement, trends] = await Promise.all([
-      getJourneyObservability(projectId, journeyRange, 'summary'),
+      getJourneyObservability(projectId, journeyRange, mode),
       getUserEngagementTrends(projectId, journeyRange),
       getInsightsTrends(projectId, trendsRange),
     ]);
@@ -2378,6 +2438,23 @@ export async function getJourneysOverview(projectId: string, timeRange?: string)
       trends,
       failedSections: [],
     };
+  }
+
+  if (mode === 'full') {
+    const journeyRange = timeRange === 'all' ? undefined : timeRange;
+    const trendsRange = timeRange === '24h'
+      ? '7d'
+      : timeRange === '7d'
+        ? '30d'
+        : timeRange === '30d'
+          ? '90d'
+          : (timeRange || '30d');
+    const [journey, userEngagement, trends] = await Promise.all([
+      getJourneyObservability(projectId, journeyRange, 'full'),
+      getUserEngagementTrends(projectId, journeyRange),
+      getInsightsTrends(projectId, trendsRange),
+    ]);
+    return { journey, userEngagement, trends, failedSections: [] };
   }
 
   const params = new URLSearchParams({ projectId });
@@ -2438,6 +2515,21 @@ export async function getHeatmapsOverview(projectId: string, timeRange?: string)
 
     return {
       screens: Array.from(byName.values()),
+      screenIteration: {
+        overall: Array.from(byName.values()).map((screen) => ({
+          name: screen.name,
+          screenshotUrl: screen.screenshotUrl,
+          touchHotspots: screen.touchHotspots,
+          visits: screen.rangeVisits || screen.visits,
+          touches: screen.visits,
+          rageTaps: screen.rangeRageTaps || screen.rageTaps,
+          errors: screen.rangeErrors || screen.errors,
+          incidentRatePer100: screen.rangeIncidentRatePer100,
+          lastSeenAt: alltime.lastUpdated || null,
+          evidenceSessionId: screen.evidenceSessionId,
+        })),
+        versions: [],
+      },
       lastUpdated: alltime.lastUpdated,
       failedSections: [],
     };
@@ -2446,7 +2538,7 @@ export async function getHeatmapsOverview(projectId: string, timeRange?: string)
   const params = new URLSearchParams({ projectId });
   if (timeRange) params.set('timeRange', timeRange);
   const endpoint = `/api/overview/heatmaps?${params.toString()}`;
-  const cacheKey = `overview:heatmaps:${projectId}:${timeRange || 'all'}`;
+  const cacheKey = `overview:heatmaps:${projectId}:${timeRange || 'all'}:v4`;
   return fetchWithCache<HeatmapOverviewResponse>(endpoint, {}, cacheKey, ANALYTICS_BOOTSTRAP_CACHE_TTL);
 }
 

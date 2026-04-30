@@ -1434,19 +1434,32 @@ data:
     # Scalar platform-wide counters. No labels → low cardinality.
     # Scraped every 30 s so VictoriaMetrics accumulates a real time-series
     # that Grafana can plot as growth trends.
+    # Sessions / active teams use app_daily_stats (pre-rolled per project per day)
+    # rather than billing_usage (which only populates at billing cycle end).
     rejourney_platform_stats:
       query: >
         SELECT
-          (SELECT count(*)::bigint FROM users)                                              AS total_users,
+          (SELECT count(*)::bigint FROM users)                                                  AS total_users,
           (SELECT count(*)::bigint FROM users  WHERE created_at > NOW() - INTERVAL '24 hours') AS new_users_24h,
           (SELECT count(*)::bigint FROM users  WHERE created_at > NOW() - INTERVAL '7 days')   AS new_users_7d,
           (SELECT count(*)::bigint FROM users  WHERE created_at > NOW() - INTERVAL '30 days')  AS new_users_30d,
-          (SELECT count(*)::bigint FROM teams)                                             AS total_teams,
-          (SELECT count(*)::bigint FROM teams WHERE stripe_subscription_id IS NOT NULL)   AS paid_teams,
-          (SELECT count(*)::bigint FROM teams WHERE payment_failed_at      IS NOT NULL)   AS teams_payment_failed,
-          (SELECT COALESCE(SUM(sessions),      0)::bigint FROM billing_usage WHERE period = TO_CHAR(NOW(), 'YYYY-MM')) AS sessions_current_period,
-          (SELECT COALESCE(SUM(storage_bytes), 0)::bigint FROM billing_usage WHERE period = TO_CHAR(NOW(), 'YYYY-MM')) AS storage_bytes_current_period,
-          (SELECT count(DISTINCT team_id)::bigint FROM billing_usage WHERE period = TO_CHAR(NOW(), 'YYYY-MM') AND sessions > 0) AS active_teams_current_period
+          (SELECT count(*)::bigint FROM teams)                                                  AS total_teams,
+          (SELECT count(*)::bigint FROM teams WHERE stripe_subscription_id IS NOT NULL)        AS paid_teams,
+          (SELECT count(*)::bigint FROM teams WHERE payment_failed_at      IS NOT NULL)        AS teams_payment_failed,
+          (SELECT COALESCE(SUM(total_sessions), 0)::bigint
+             FROM app_daily_stats WHERE date >= CURRENT_DATE - 30)                             AS sessions_30d,
+          (SELECT COUNT(DISTINCT p.team_id)::bigint
+             FROM app_daily_stats ads
+             JOIN projects p ON p.id = ads.project_id
+             WHERE ads.date >= CURRENT_DATE - 30 AND ads.total_sessions > 0)                  AS active_teams_30d,
+          (SELECT COUNT(DISTINCT project_id)::bigint
+             FROM app_daily_stats
+             WHERE date >= CURRENT_DATE - 30 AND total_sessions > 0)                          AS active_projects_30d,
+          (SELECT COALESCE(SUM(pu.storage_bytes), 0)::bigint
+             FROM (SELECT DISTINCT ON (project_id) storage_bytes
+                   FROM project_usage
+                   WHERE period = TO_CHAR(NOW(), 'YYYY-MM')
+                   ORDER BY project_id, quota_version DESC) pu)                               AS storage_bytes_period
       metrics:
         - total_users:
             usage: "GAUGE"
@@ -1469,31 +1482,58 @@ data:
         - teams_payment_failed:
             usage: "GAUGE"
             description: "Teams whose most recent payment failed"
-        - sessions_current_period:
+        - sessions_30d:
             usage: "GAUGE"
-            description: "Total session-quota consumption across all teams this billing period"
-        - storage_bytes_current_period:
+            description: "Total sessions started across all projects in the last 30 days"
+        - active_teams_30d:
             usage: "GAUGE"
-            description: "Total storage-quota consumption across all teams this billing period"
-        - active_teams_current_period:
+            description: "Teams with at least one session in the last 30 days"
+        - active_projects_30d:
             usage: "GAUGE"
-            description: "Teams that recorded at least one session this billing period"
+            description: "Projects with at least one session in the last 30 days"
+        - storage_bytes_period:
+            usage: "GAUGE"
+            description: "Total storage bytes used across all projects this billing period (from project_usage)"
 
-    # Top 25 teams by session count in the current billing period.
+    # Top 25 teams by session volume over the last 30 days.
+    # Uses app_daily_stats (pre-aggregated) joined to projects → teams.
     # Label: team = billing_email (falls back to team UUID).
-    # Keep LIMIT tight — each row is a Prometheus series for the scrape window.
     rejourney_top_teams_by_sessions:
       query: >
+        WITH team_sessions AS (
+          SELECT p.team_id,
+                 COALESCE(SUM(ads.total_sessions), 0)::bigint AS sessions,
+                 COUNT(DISTINCT ads.project_id)::bigint        AS active_projects
+          FROM projects p
+          LEFT JOIN app_daily_stats ads
+            ON ads.project_id = p.id
+           AND ads.date >= CURRENT_DATE - 30
+          GROUP BY p.team_id
+          HAVING COALESCE(SUM(ads.total_sessions), 0) > 0
+        ),
+        team_storage AS (
+          SELECT p.team_id,
+                 COALESCE(SUM(pu.storage_bytes), 0)::bigint AS storage_bytes,
+                 COALESCE(SUM(pu.requests),       0)::bigint AS requests
+          FROM projects p
+          JOIN (
+            SELECT DISTINCT ON (project_id) project_id, storage_bytes, requests
+            FROM project_usage
+            WHERE period = TO_CHAR(NOW(), 'YYYY-MM')
+            ORDER BY project_id, quota_version DESC
+          ) pu ON pu.project_id = p.id
+          GROUP BY p.team_id
+        )
         SELECT
           LEFT(COALESCE(t.billing_email, t.id::text), 80) AS team,
           CASE WHEN t.stripe_subscription_id IS NOT NULL THEN 'paid' ELSE 'free' END AS plan,
-          COALESCE(bu.sessions,      0)::bigint AS sessions,
-          COALESCE(bu.storage_bytes, 0)::bigint AS storage_bytes
-        FROM teams t
-        LEFT JOIN billing_usage bu
-          ON bu.team_id = t.id
-         AND bu.period  = TO_CHAR(NOW(), 'YYYY-MM')
-        WHERE COALESCE(bu.sessions, 0) > 0
+          ts.sessions,
+          ts.active_projects,
+          COALESCE(tst.storage_bytes, 0) AS storage_bytes,
+          COALESCE(tst.requests,       0) AS requests
+        FROM team_sessions ts
+        JOIN teams t ON t.id = ts.team_id
+        LEFT JOIN team_storage tst ON tst.team_id = ts.team_id
         ORDER BY sessions DESC
         LIMIT 25
       metrics:
@@ -1505,10 +1545,16 @@ data:
             description: "paid or free"
         - sessions:
             usage: "GAUGE"
-            description: "Sessions consumed by this team in the current billing period"
+            description: "Sessions started by this team in the last 30 days"
+        - active_projects:
+            usage: "GAUGE"
+            description: "Number of active projects for this team in the last 30 days"
         - storage_bytes:
             usage: "GAUGE"
-            description: "Storage bytes consumed by this team in the current billing period"
+            description: "Storage bytes used by this team this billing period (project_usage)"
+        - requests:
+            usage: "GAUGE"
+            description: "API requests by this team this billing period (project_usage)"
 
     # Daily user signup snapshot — last 30 days, one row per calendar day.
     # Exposed with a `day` label so Grafana can render it as a bar chart.
