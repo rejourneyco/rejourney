@@ -1,29 +1,16 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router';
 import {
-    Activity,
-    AlertTriangle,
+    ArrowRight,
     Compass,
-    HeartPulse,
+    Play,
     Route,
 } from 'lucide-react';
-import {
-    Bar,
-    BarChart,
-    CartesianGrid,
-    ComposedChart,
-    Legend,
-    Line,
-    ReferenceLine,
-    ResponsiveContainer,
-    Tooltip,
-    XAxis,
-    YAxis,
-} from 'recharts';
 import { DataWatermarkBanner } from '~/features/app/shared/dashboard/DataWatermarkBanner';
 import { DashboardPageHeader } from '~/shared/ui/core/DashboardPageHeader';
 import { useSessionData } from '~/shared/providers/SessionContext';
 import { TimeFilter, TimeRange, DEFAULT_TIME_RANGE } from '~/shared/ui/core/TimeFilter';
-import { SankeyEvidenceSession, SankeyJourney } from '~/features/app/analytics/journeys/components/SankeyJourney';
+import { SankeyJourney, type SankeyEvidenceSession, type SankeyFlow } from '~/features/app/analytics/journeys/components/SankeyJourney';
 import { KpiCardItem, KpiCardsGrid, computePeriodDeltaFromSeries } from '~/features/app/shared/dashboard/KpiCardsGrid';
 import { DashboardGhostLoader } from '~/shared/ui/core/DashboardGhostLoader';
 import {
@@ -43,67 +30,27 @@ type HappyPathStage = {
     issueRatePer100: number;
 };
 
-type NavigationLoopRow = {
-    loop: string;
-    forwardLabel: string;
-    backwardLabel: string;
-    forwardCount: number;
-    backCount: number;
-    forwardSigned: number;
-    backSigned: number;
-    loopVolume: number;
-    totalLoopTraffic: number;
-    reciprocityPct: number;
-};
-
-type BacktrackHotspotRow = {
-    screen: string;
-    outgoing: number;
-    backtrackVolume: number;
-    backtrackRate: number;
-    dominantRouteShare: number;
-    branchCount: number;
-    visits: number;
-};
-
-type JourneyFailureSignatureRow = {
-    journeyLabel: string;
-    path: string;
-    sessions: number;
-    apiPer100: number;
-    ragePer100: number;
-    stabilityPer100: number;
-};
-
-type DailyBehaviorLoadRow = {
-    date: string;
-    sessions: number;
-    apiCallsPerSession: number;
-    errorPer100Sessions: number;
-    ragePer100Sessions: number;
-    avgDurationMin: number;
-};
-
 type FlowHealthFilter = 'all' | 'healthy' | 'degraded' | 'problematic';
-type JourneyFlow = ObservabilityJourneySummary['flows'][number];
+
+type TransitionReplayOption = {
+    id: string;
+    label: string;
+    path: string[];
+    sessionCount: number;
+    health: 'healthy' | 'degraded' | 'problematic';
+    priority: 'high' | 'medium' | 'low';
+    detail: string;
+    evidenceRows: SankeyEvidenceSession[];
+};
+
+type QueryReplaySession = SankeyEvidenceSession & {
+    matchedPaths: string[];
+};
 
 const EVIDENCE_PRIORITY_RANK: Record<'high' | 'medium' | 'low', number> = {
     high: 3,
     medium: 2,
     low: 1,
-};
-
-const toJourneyTimeRange = (value: TimeRange): string | undefined => {
-    if (value === 'all') return undefined;
-    return value;
-};
-
-const toTrendsRange = (value: TimeRange): string => {
-    if (value === '24h') return '7d';
-    if (value === '7d') return '30d';
-    if (value === '30d') return '90d';
-    if (value === '90d' || value === '180d' || value === '1y') return value;
-    return 'all';
 };
 
 const formatMs = (value: number | null | undefined): string => {
@@ -141,6 +88,51 @@ const getFlowEvidenceSignal = (flow: ObservabilityJourneySummary['flows'][number
     return 'Traffic sample';
 };
 
+const getTransitionKey = (from: string, to: string): string => `${from}→${to}`;
+
+const JOURNEY_SELECTED_TRANSITIONS_STORAGE_PREFIX = 'rejourney.analytics.journeys.selectedTransitions.';
+
+const parseStoredSelectedTransitionIds = (raw: string | null): string[] => {
+    if (!raw) return [];
+    try {
+        const parsed = JSON.parse(raw);
+        return Array.isArray(parsed)
+            ? parsed.filter((value): value is string => typeof value === 'string')
+            : [];
+    } catch {
+        return [];
+    }
+};
+
+const dedupeEvidenceRows = (rows: SankeyEvidenceSession[], limit = 18): SankeyEvidenceSession[] => {
+    const deduped = new Map<string, SankeyEvidenceSession>();
+
+    for (const row of rows) {
+        if (!row.sessionId) continue;
+        const existing = deduped.get(row.sessionId);
+        if (!existing) {
+            deduped.set(row.sessionId, row);
+            continue;
+        }
+
+        const existingRank = EVIDENCE_PRIORITY_RANK[existing.priority || 'low'];
+        const incomingRank = EVIDENCE_PRIORITY_RANK[row.priority || 'low'];
+        if (incomingRank >= existingRank) {
+            deduped.set(row.sessionId, row);
+        }
+    }
+
+    return Array.from(deduped.values())
+        .sort((a, b) => EVIDENCE_PRIORITY_RANK[b.priority || 'low'] - EVIDENCE_PRIORITY_RANK[a.priority || 'low'])
+        .slice(0, limit);
+};
+
+const getReplayHealthBadgeClass = (health: TransitionReplayOption['health']): string => {
+    if (health === 'problematic') return 'border-rose-200 bg-rose-50 text-rose-700';
+    if (health === 'degraded') return 'border-amber-200 bg-amber-50 text-amber-700';
+    return 'border-emerald-200 bg-emerald-50 text-emerald-700';
+};
+
 
 export const Journeys: React.FC = () => {
     const { selectedProject } = useSessionData();
@@ -154,6 +146,34 @@ export const Journeys: React.FC = () => {
     const [flowSearch, setFlowSearch] = useState('');
     const [minFlowCount, setMinFlowCount] = useState(0);
     const [onlyWithEvidence, setOnlyWithEvidence] = useState(false);
+    const [selectedTransitionIds, setSelectedTransitionIds] = useState<string[]>([]);
+    const [hydratedSelectedTransitionsKey, setHydratedSelectedTransitionsKey] = useState<string | null>(null);
+    const selectedTransitionsStorageKey = selectedProject?.id
+        ? `${JOURNEY_SELECTED_TRANSITIONS_STORAGE_PREFIX}${selectedProject.id}`
+        : null;
+
+    useEffect(() => {
+        if (typeof window === 'undefined') return;
+        if (!selectedTransitionsStorageKey) {
+            setSelectedTransitionIds([]);
+            setHydratedSelectedTransitionsKey(null);
+            return;
+        }
+
+        setSelectedTransitionIds(parseStoredSelectedTransitionIds(window.localStorage.getItem(selectedTransitionsStorageKey)));
+        setHydratedSelectedTransitionsKey(selectedTransitionsStorageKey);
+    }, [selectedTransitionsStorageKey]);
+
+    useEffect(() => {
+        if (typeof window === 'undefined') return;
+        if (!selectedTransitionsStorageKey || hydratedSelectedTransitionsKey !== selectedTransitionsStorageKey) return;
+
+        if (selectedTransitionIds.length > 0) {
+            window.localStorage.setItem(selectedTransitionsStorageKey, JSON.stringify(selectedTransitionIds));
+        } else {
+            window.localStorage.removeItem(selectedTransitionsStorageKey);
+        }
+    }, [hydratedSelectedTransitionsKey, selectedTransitionIds, selectedTransitionsStorageKey]);
 
     useEffect(() => {
         if (!selectedProject?.id) {
@@ -168,7 +188,7 @@ export const Journeys: React.FC = () => {
         setIsLoading(true);
         setPartialError(null);
 
-        void getJourneysOverview(selectedProject.id, timeRange)
+        void getJourneysOverview(selectedProject.id, timeRange, 'full')
             .then((overview) => {
                 if (isCancelled) return;
                 setData(overview.journey);
@@ -417,147 +437,106 @@ export const Journeys: React.FC = () => {
         [filteredSankeyFlows],
     );
 
-    const navigationLoopData = useMemo<NavigationLoopRow[]>(() => {
-        if (!data?.flows?.length) return [];
+    const transitionReplayOptions = useMemo<TransitionReplayOption[]>(() => {
+        if (!data) return [];
 
-        const edgeMap = new Map<string, JourneyFlow>();
-        for (const flow of data.flows) {
-            edgeMap.set(`${flow.from}::${flow.to}`, flow);
-        }
-
-        const visitedPairs = new Set<string>();
-        const loops: NavigationLoopRow[] = [];
-
-        for (const flow of data.flows) {
-            if (flow.from === flow.to) continue;
-
-            const pairKey = [flow.from, flow.to].sort().join('::');
-            if (visitedPairs.has(pairKey)) continue;
-            visitedPairs.add(pairKey);
-
-            const reverse = edgeMap.get(`${flow.to}::${flow.from}`);
-            if (!reverse) continue;
-
-            const loopVolume = Math.min(flow.count, reverse.count);
-            const reciprocityBase = Math.max(flow.count, reverse.count);
-            const reciprocityPct = reciprocityBase > 0
-                ? Number(((loopVolume / reciprocityBase) * 100).toFixed(1))
-                : 0;
-
-            loops.push({
-                loop: `${flow.from} <-> ${flow.to}`,
-                forwardLabel: `${flow.from} -> ${flow.to}`,
-                backwardLabel: `${flow.to} -> ${flow.from}`,
-                forwardCount: flow.count,
-                backCount: reverse.count,
-                forwardSigned: flow.count,
-                backSigned: -reverse.count,
-                loopVolume,
-                totalLoopTraffic: flow.count + reverse.count,
-                reciprocityPct,
-            });
-        }
-
-        return loops
-            .sort((a, b) => b.loopVolume - a.loopVolume || b.reciprocityPct - a.reciprocityPct)
-            .slice(0, 8);
-    }, [data]);
-
-    const maxLoopDirectionMagnitude = useMemo(() => {
-        if (!navigationLoopData.length) return 100;
-        const maxValue = navigationLoopData.reduce(
-            (max, loop) => Math.max(max, loop.forwardCount, loop.backCount),
-            0,
-        );
-        return Math.max(100, Math.ceil(maxValue * 1.12));
-    }, [navigationLoopData]);
-
-    const backtrackHotspotData = useMemo<BacktrackHotspotRow[]>(() => {
-        if (!data?.flows?.length) return [];
-
-        const edgeMap = new Map<string, JourneyFlow>();
-        const flowsBySource = new Map<string, JourneyFlow[]>();
-
-        for (const flow of data.flows) {
-            edgeMap.set(`${flow.from}::${flow.to}`, flow);
-            if (!flowsBySource.has(flow.from)) flowsBySource.set(flow.from, []);
-            flowsBySource.get(flow.from)!.push(flow);
-        }
-
-        const visitsByScreen = new Map<string, number>();
-        for (const screen of data.topScreens) {
-            visitsByScreen.set(screen.screen, screen.visits);
-        }
-        for (const screen of data.screenHealth) {
-            const current = visitsByScreen.get(screen.name) || 0;
-            visitsByScreen.set(screen.name, Math.max(current, screen.visits));
-        }
-
-        return Array.from(flowsBySource.entries())
-            .map(([screen, outgoing]) => {
-                const totalOutgoing = outgoing.reduce((sum, flow) => sum + flow.count, 0);
-                if (totalOutgoing <= 0) return null;
-
-                const maxBranchCount = outgoing.reduce((max, flow) => Math.max(max, flow.count), 0);
-                const backtrackVolume = outgoing.reduce((sum, flow) => {
-                    const reverse = edgeMap.get(`${flow.to}::${flow.from}`);
-                    if (!reverse) return sum;
-                    return sum + Math.min(flow.count, reverse.count);
-                }, 0);
-
-                return {
-                    screen,
-                    outgoing: totalOutgoing,
-                    backtrackVolume,
-                    backtrackRate: Number(((backtrackVolume / totalOutgoing) * 100).toFixed(1)),
-                    dominantRouteShare: Number(((maxBranchCount / totalOutgoing) * 100).toFixed(1)),
-                    branchCount: outgoing.length,
-                    visits: visitsByScreen.get(screen) || totalOutgoing,
-                };
-            })
-            .filter((item): item is BacktrackHotspotRow => Boolean(item))
-            .sort((a, b) => {
-                const scoreA = a.backtrackRate * Math.log10(a.outgoing + 10);
-                const scoreB = b.backtrackRate * Math.log10(b.outgoing + 10);
-                return scoreB - scoreA;
-            })
-            .slice(0, 8);
-    }, [data]);
-
-    const journeyFailureSignatureData = useMemo<JourneyFailureSignatureRow[]>(() => {
-        if (!data?.problematicJourneys?.length) return [];
-
-        return data.problematicJourneys
-            .filter((journey) => journey.sessionCount > 0)
-            .sort((a, b) => b.sessionCount - a.sessionCount)
-            .slice(0, 8)
-            .map((journey, idx) => ({
-                journeyLabel: `J${idx + 1}`,
-                path: journey.path.join(' -> '),
-                sessions: journey.sessionCount,
-                apiPer100: Number(((journey.apiErrors / journey.sessionCount) * 100).toFixed(1)),
-                ragePer100: Number(((journey.rageTaps / journey.sessionCount) * 100).toFixed(1)),
-                stabilityPer100: Number((((journey.crashes + journey.anrs) / journey.sessionCount) * 100).toFixed(1)),
-            }));
-    }, [data]);
-
-    const dailyBehaviorLoadData = useMemo<DailyBehaviorLoadRow[]>(() => {
-        if (!trends?.daily?.length) return [];
-
-        return trends.daily.map((day) => {
-            const sessions = Math.max(0, day.sessions || 0);
-            const formatDate = day.date.length >= 10 ? day.date.slice(5) : day.date;
+        return data.flows.map((flow) => {
+            const transitionKey = getTransitionKey(flow.from, flow.to);
+            const priority = getFlowEvidencePriority(flow);
+            const signal = getFlowEvidenceSignal(flow);
 
             return {
-                date: formatDate,
-                sessions,
-                apiCallsPerSession: sessions > 0 ? Number((day.totalApiCalls / sessions).toFixed(2)) : 0,
-                errorPer100Sessions: sessions > 0 ? Number(((day.errorCount / sessions) * 100).toFixed(2)) : 0,
-                ragePer100Sessions: sessions > 0 ? Number(((day.rageTaps / sessions) * 100).toFixed(2)) : 0,
-                avgDurationMin: Number(((day.avgDurationSeconds || 0) / 60).toFixed(2)),
+                id: transitionKey,
+                label: `${flow.from} → ${flow.to}`,
+                path: [flow.from, flow.to],
+                sessionCount: flow.count,
+                health: getFlowHealth(flow),
+                priority,
+                detail: signal,
+                evidenceRows: dedupeEvidenceRows([
+                    ...(flow.sampleSessionIds || []).map((sessionId) => ({
+                        sessionId,
+                        source: 'Flow sample',
+                        signal,
+                        priority,
+                    })),
+                    ...(sankeyTransitionEvidence[transitionKey] || []),
+                ]),
             };
         });
-    }, [trends]);
+    }, [data, sankeyTransitionEvidence]);
+
+    const transitionReplayOptionMap = useMemo(
+        () => new Map(transitionReplayOptions.map((option) => [option.id, option])),
+        [transitionReplayOptions],
+    );
+
+    useEffect(() => {
+        if (selectedTransitionIds.length === 0) return;
+        const available = new Set(transitionReplayOptions.map((option) => option.id));
+        const nextSelected = selectedTransitionIds.filter((id) => available.has(id));
+        if (nextSelected.length !== selectedTransitionIds.length) {
+            setSelectedTransitionIds(nextSelected);
+        }
+    }, [selectedTransitionIds, transitionReplayOptions]);
+
+    const selectedTransitionOptions = useMemo(
+        () => selectedTransitionIds
+            .map((id) => transitionReplayOptionMap.get(id))
+            .filter((option): option is TransitionReplayOption => Boolean(option)),
+        [selectedTransitionIds, transitionReplayOptionMap],
+    );
+
+    const selectedQuerySessions = useMemo<QueryReplaySession[]>(() => {
+        const sessionMap = new Map<string, QueryReplaySession>();
+
+        for (const option of selectedTransitionOptions) {
+            for (const row of option.evidenceRows) {
+                if (!row.sessionId) continue;
+                const existing = sessionMap.get(row.sessionId);
+                if (!existing) {
+                    sessionMap.set(row.sessionId, {
+                        ...row,
+                        matchedPaths: [option.label],
+                    });
+                    continue;
+                }
+
+                if (!existing.matchedPaths.includes(option.label)) {
+                    existing.matchedPaths.push(option.label);
+                }
+
+                const existingRank = EVIDENCE_PRIORITY_RANK[existing.priority || 'low'];
+                const incomingRank = EVIDENCE_PRIORITY_RANK[row.priority || 'low'];
+                if (incomingRank >= existingRank) {
+                    sessionMap.set(row.sessionId, {
+                        ...existing,
+                        source: row.source,
+                        signal: row.signal,
+                        priority: row.priority,
+                    });
+                }
+            }
+        }
+
+        return Array.from(sessionMap.values()).sort((a, b) => {
+            if (b.matchedPaths.length !== a.matchedPaths.length) return b.matchedPaths.length - a.matchedPaths.length;
+            return EVIDENCE_PRIORITY_RANK[b.priority || 'low'] - EVIDENCE_PRIORITY_RANK[a.priority || 'low'];
+        });
+    }, [selectedTransitionOptions]);
+
+    const selectedQuerySessionCount = selectedQuerySessions.length;
+    const totalReplayEvidenceSessionCount = useMemo(
+        () => new Set(transitionReplayOptions.flatMap((option) => option.evidenceRows.map((row) => row.sessionId))).size,
+        [transitionReplayOptions],
+    );
+
+    const toggleSelectedTransition = (flow: Pick<SankeyFlow, 'from' | 'to'>) => {
+        const transitionKey = getTransitionKey(flow.from, flow.to);
+        setSelectedTransitionIds((current) => current.includes(transitionKey)
+            ? current.filter((id) => id !== transitionKey)
+            : [...current, transitionKey]);
+    };
 
     const kpiCards = useMemo<KpiCardItem[]>(() => {
         const hasHappyPathData = Boolean(canonicalHappyPath && happyPathStages.length > 0);
@@ -752,7 +731,7 @@ export const Journeys: React.FC = () => {
                                             />
                                         </label>
 
-                                        <label className="flex items-end gap-2 border border-gray-200 bg-[#f4f4f5] px-3 py-2 text-xs text-slate-700">
+                                        <label className="flex items-center gap-2 self-end border border-gray-200 bg-[#f4f4f5] px-3 py-2 text-xs text-slate-700">
                                             <input
                                                 type="checkbox"
                                                 checked={onlyWithEvidence}
@@ -774,184 +753,125 @@ export const Journeys: React.FC = () => {
                                         width={1450}
                                         height={520}
                                         happyPath={canonicalHappyPath}
-                                        sessionPathPrefix={pathPrefix}
                                         transitionEvidence={sankeyTransitionEvidence}
+                                        selectedTransitionIds={selectedTransitionIds}
+                                        onFlowToggle={toggleSelectedTransition}
                                     />
                                 </div>
                             </div>
                         </section>
 
-                        <section className="grid grid-cols-1 gap-6 xl:grid-cols-2">
-                            <div className="dashboard-surface p-5">
-                                <div className="mb-4 flex items-center justify-between">
-                                    <h2 className="text-lg font-semibold uppercase tracking-wide text-black">Backtrack Loop Imbalance</h2>
-                                    <Compass className="h-5 w-5 text-indigo-600" />
-                                </div>
-                                <div className="h-[320px]">
-                                    {navigationLoopData.length > 0 ? (
-                                        <ResponsiveContainer width="100%" height="100%">
-                                            <ComposedChart data={navigationLoopData} layout="vertical" margin={{ left: 8, right: 20, top: 8, bottom: 8 }}>
-                                                <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                                                <XAxis
-                                                    type="number"
-                                                    domain={[-maxLoopDirectionMagnitude, maxLoopDirectionMagnitude]}
-                                                    tick={{ fontSize: 11 }}
-                                                    tickFormatter={(value: number) => formatCompact(Math.abs(value))}
-                                                />
-                                                <YAxis dataKey="loop" type="category" width={170} tick={{ fontSize: 11 }} />
-                                                <ReferenceLine x={0} stroke="#64748b" strokeOpacity={0.45} />
-                                                <Tooltip
-                                                    formatter={(value, name, item) => {
-                                                        if (name === 'Forward continuation') {
-                                                            return [formatCompact(Math.abs(Number(value || 0))), item?.payload?.forwardLabel || 'Forward'];
-                                                        }
-                                                        if (name === 'Return backtrack') {
-                                                            return [formatCompact(Math.abs(Number(value || 0))), item?.payload?.backwardLabel || 'Backward'];
-                                                        }
-                                                        return [value || 0, String(name)];
-                                                    }}
-                                                    labelFormatter={(_label, payload) => {
-                                                        const row = payload?.[0]?.payload as NavigationLoopRow | undefined;
-                                                        if (!row) return 'Loop';
-                                                        return `${row.loop} (${row.reciprocityPct.toFixed(1)}% reciprocity • ${formatCompact(row.totalLoopTraffic)} total transitions)`;
-                                                    }}
-                                                />
-                                                <Legend />
-                                                <Bar dataKey="backSigned" name="Return backtrack" fill="#f97316" radius={[4, 0, 0, 4]} />
-                                                <Bar dataKey="forwardSigned" name="Forward continuation" fill="#2563eb" radius={[0, 4, 4, 0]} />
-                                            </ComposedChart>
-                                        </ResponsiveContainer>
-                                    ) : (
-                                        <div className="flex h-full items-center justify-center rounded-xl border border-dashed border-slate-300 text-sm text-slate-500">
-                                            No reciprocal flow loops detected in this window.
-                                        </div>
-                                    )}
+                        <section className="dashboard-surface overflow-hidden">
+                            <div className="border-b border-slate-200 px-5 py-4">
+                                <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                                    <div>
+                                        <h2 className="text-lg font-semibold uppercase tracking-wide text-black">Selected Path Replay Query</h2>
+                                        <p className="mt-1 text-sm text-slate-500">Click one or more paths in the flow map. Blue selected paths build this replay query.</p>
+                                    </div>
+                                    <div className="flex flex-wrap items-center gap-2 text-xs font-semibold text-slate-600">
+                                        <span className="rounded-lg border border-slate-200 bg-white px-3 py-1.5">
+                                            {formatCompact(selectedTransitionOptions.length)} selected paths
+                                        </span>
+                                        <span className="rounded-lg border border-slate-200 bg-white px-3 py-1.5">
+                                            {formatCompact(selectedQuerySessionCount)} matching replays
+                                        </span>
+                                        {selectedTransitionIds.length > 0 && (
+                                            <button
+                                                type="button"
+                                                onClick={() => setSelectedTransitionIds([])}
+                                                className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-bold text-slate-700 transition hover:border-black hover:text-black"
+                                            >
+                                                Clear
+                                            </button>
+                                        )}
+                                    </div>
                                 </div>
                             </div>
 
-                            <div className="dashboard-surface p-5">
-                                <div className="mb-4 flex items-center justify-between">
-                                    <h2 className="text-lg font-semibold uppercase tracking-wide text-black">Backtrack Hotspots by Screen</h2>
-                                    <AlertTriangle className="h-5 w-5 text-amber-600" />
-                                </div>
-                                <div className="h-[320px]">
-                                    {backtrackHotspotData.length > 0 ? (
-                                        <ResponsiveContainer width="100%" height="100%">
-                                            <BarChart data={backtrackHotspotData} layout="vertical" margin={{ left: 8, right: 18, top: 8, bottom: 8 }}>
-                                                <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                                                <XAxis type="number" tick={{ fontSize: 11 }} />
-                                                <YAxis dataKey="screen" type="category" width={145} tick={{ fontSize: 11 }} />
-                                                <Tooltip
-                                                    formatter={(value, name, item) => {
-                                                        if (name === 'Backtrack rate (%)') {
-                                                            const row = item?.payload as BacktrackHotspotRow | undefined;
-                                                            return [
-                                                                `${Number(value || 0).toFixed(1)}%`,
-                                                                `Backtrack rate (${formatCompact(row?.backtrackVolume || 0)} of ${formatCompact(row?.outgoing || 0)} transitions)`,
-                                                            ];
-                                                        }
-                                                        if (name === 'Branch count') {
-                                                            const row = item?.payload as BacktrackHotspotRow | undefined;
-                                                            return [
-                                                                Number(value || 0).toFixed(0),
-                                                                `Branch count (dominant route ${row?.dominantRouteShare?.toFixed(1) || '0.0'}%)`,
-                                                            ];
-                                                        }
-                                                        return [value || 0, String(name)];
-                                                    }}
-                                                    labelFormatter={(label) => `Screen: ${label}`}
-                                                />
-                                                <Legend />
-                                                <Bar dataKey="backtrackRate" name="Backtrack rate (%)" fill="#dc2626" radius={[4, 4, 4, 4]} />
-                                                <Bar dataKey="branchCount" name="Branch count" fill="#0ea5e9" radius={[4, 4, 4, 4]} />
-                                            </BarChart>
-                                        </ResponsiveContainer>
-                                    ) : (
-                                        <div className="flex h-full items-center justify-center rounded-xl border border-dashed border-slate-300 text-sm text-slate-500">
-                                            Backtrack hotspot data is not available for this filter.
-                                        </div>
-                                    )}
-                                </div>
+                            <div className="p-5">
+                                {selectedTransitionOptions.length > 0 ? (
+                                    <div className="mb-4 flex flex-wrap gap-2">
+                                        {selectedTransitionOptions.map((option) => (
+                                            <button
+                                                key={option.id}
+                                                type="button"
+                                                onClick={() => setSelectedTransitionIds((current) => current.filter((id) => id !== option.id))}
+                                                className="inline-flex min-w-0 max-w-full items-center gap-2 rounded-lg border border-blue-300 bg-blue-50 px-3 py-2 text-left text-xs font-bold text-blue-800 transition hover:border-blue-700 hover:bg-blue-100"
+                                                title="Remove this selected path"
+                                            >
+                                                <span className="h-2 w-2 shrink-0 rounded-full bg-blue-600" />
+                                                <span className="truncate">{option.label}</span>
+                                                <span className={`shrink-0 rounded border px-1.5 py-0.5 text-[10px] uppercase ${getReplayHealthBadgeClass(option.health)}`}>
+                                                    {option.health}
+                                                </span>
+                                                <span className="shrink-0 text-blue-500">x</span>
+                                            </button>
+                                        ))}
+                                    </div>
+                                ) : (
+                                    <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-6 text-center text-sm text-slate-500">
+                                        Select one or more paths in the Sankey map to show matching replay sessions here.
+                                        {totalReplayEvidenceSessionCount > 0 && (
+                                            <span className="mt-2 block text-xs font-semibold text-slate-400">
+                                                {formatCompact(totalReplayEvidenceSessionCount)} replay sessions are available across all paths.
+                                            </span>
+                                        )}
+                                    </div>
+                                )}
+
+                                {selectedTransitionOptions.length > 0 && (
+                                    <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+                                        {selectedQuerySessions.length > 0 ? (
+                                            <div className="space-y-2">
+                                                {selectedQuerySessions.map((row) => (
+                                                    <div
+                                                        key={row.sessionId}
+                                                        className="flex min-w-0 flex-col gap-3 rounded-lg border border-slate-200 bg-white p-3 shadow-sm sm:flex-row sm:items-center sm:justify-between"
+                                                    >
+                                                        <div className="min-w-0 flex-1">
+                                                            <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+                                                                <span className="max-w-full truncate font-mono text-xs font-bold text-slate-900" title={row.sessionId}>
+                                                                    {row.sessionId}
+                                                                </span>
+                                                                <span className="rounded border border-slate-200 bg-slate-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-slate-500">
+                                                                    {row.source}
+                                                                </span>
+                                                            </div>
+                                                            <div className="mt-1 break-words text-sm text-slate-600">
+                                                                {row.signal}
+                                                            </div>
+                                                            <div className="mt-2 flex flex-wrap gap-1.5">
+                                                                {row.matchedPaths.map((pathLabel) => (
+                                                                    <span
+                                                                        key={`${row.sessionId}:${pathLabel}`}
+                                                                        className="rounded border border-blue-100 bg-blue-50 px-2 py-0.5 text-[10px] font-semibold text-blue-700"
+                                                                    >
+                                                                        {pathLabel}
+                                                                    </span>
+                                                                ))}
+                                                            </div>
+                                                        </div>
+                                                        <Link
+                                                            to={`${pathPrefix}/sessions/${row.sessionId}`}
+                                                            className="inline-flex shrink-0 items-center justify-center gap-1.5 rounded-lg border border-black bg-black px-3 py-2 text-xs font-bold text-white transition hover:-translate-y-0.5 hover:shadow-[2px_2px_0px_0px_rgba(0,0,0,0.35)] sm:self-center"
+                                                        >
+                                                            <Play className="h-3 w-3 fill-current" />
+                                                            Open Replay
+                                                            <ArrowRight className="h-3 w-3" />
+                                                        </Link>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        ) : (
+                                            <div className="flex min-h-[220px] items-center justify-center bg-white p-6 text-center text-sm text-slate-500">
+                                                The selected paths do not have replay evidence in this time range.
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
                             </div>
                         </section>
 
-                        <section className="grid grid-cols-1 gap-6 xl:grid-cols-2">
-                            <div className="dashboard-surface p-5">
-                                <div className="mb-4 flex items-center justify-between">
-                                    <h2 className="text-lg font-semibold uppercase tracking-wide text-black">Failure Signatures by Journey Cluster</h2>
-                                    <HeartPulse className="h-5 w-5 text-rose-600" />
-                                </div>
-                                <div className="h-[320px]">
-                                    {journeyFailureSignatureData.length > 0 ? (
-                                        <ResponsiveContainer width="100%" height="100%">
-                                            <BarChart data={journeyFailureSignatureData} margin={{ left: 0, right: 18, top: 8, bottom: 20 }}>
-                                                <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                                                <XAxis dataKey="journeyLabel" tick={{ fontSize: 11 }} />
-                                                <YAxis tick={{ fontSize: 11 }} />
-                                                <Tooltip
-                                                    formatter={(value, name, item) => {
-                                                        if (name === 'API errors /100 sessions') return [Number(value || 0).toFixed(1), 'API errors /100 sessions'];
-                                                        if (name === 'Rage taps /100 sessions') return [Number(value || 0).toFixed(1), 'Rage taps /100 sessions'];
-                                                        if (name === 'Crashes+ANRs /100 sessions') return [Number(value || 0).toFixed(1), 'Crashes+ANRs /100 sessions'];
-                                                        return [value || 0, String(name)];
-                                                    }}
-                                                    labelFormatter={(_label, payload) => {
-                                                        const row = payload?.[0]?.payload as JourneyFailureSignatureRow | undefined;
-                                                        return row?.path || 'Journey cluster';
-                                                    }}
-                                                />
-                                                <Legend />
-                                                <Bar dataKey="apiPer100" stackId="signature" name="API errors /100 sessions" fill="#2563eb" radius={[4, 4, 0, 0]} />
-                                                <Bar dataKey="ragePer100" stackId="signature" name="Rage taps /100 sessions" fill="#f97316" />
-                                                <Bar dataKey="stabilityPer100" stackId="signature" name="Crashes+ANRs /100 sessions" fill="#ef4444" radius={[0, 0, 4, 4]} />
-                                            </BarChart>
-                                        </ResponsiveContainer>
-                                    ) : (
-                                        <div className="flex h-full items-center justify-center rounded-xl border border-dashed border-slate-300 text-sm text-slate-500">
-                                            No problematic journey clusters for this period.
-                                        </div>
-                                    )}
-                                </div>
-                            </div>
-
-                            <div className="dashboard-surface p-5">
-                                <div className="mb-4 flex items-center justify-between">
-                                    <h2 className="text-lg font-semibold uppercase tracking-wide text-black">Daily Interaction Load</h2>
-                                    <Activity className="h-5 w-5 text-blue-600" />
-                                </div>
-                                <div className="h-[320px]">
-                                    {dailyBehaviorLoadData.length > 0 ? (
-                                        <ResponsiveContainer width="100%" height="100%">
-                                            <ComposedChart data={dailyBehaviorLoadData} margin={{ left: 0, right: 12, top: 10, bottom: 8 }}>
-                                                <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                                                <XAxis dataKey="date" tick={{ fontSize: 10 }} minTickGap={18} />
-                                                <YAxis yAxisId="left" tick={{ fontSize: 11 }} />
-                                                <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 11 }} />
-                                                <Tooltip
-                                                    formatter={(value, name) => {
-                                                        if (name === 'Sessions') return [formatCompact(Number(value || 0)), 'Sessions'];
-                                                        if (name === 'API calls / session') return [Number(value || 0).toFixed(2), 'API calls / session'];
-                                                        if (name === 'Errors /100 sessions') return [Number(value || 0).toFixed(2), 'Errors /100 sessions'];
-                                                        if (name === 'Rage taps /100 sessions') return [Number(value || 0).toFixed(2), 'Rage taps /100 sessions'];
-                                                        return [Number(value || 0).toFixed(2), 'Avg duration (min)'];
-                                                    }}
-                                                />
-                                                <Legend />
-                                                <Bar yAxisId="left" dataKey="sessions" name="Sessions" fill="#0ea5e9" radius={[4, 4, 0, 0]} />
-                                                <Line yAxisId="right" type="monotone" dataKey="apiCallsPerSession" name="API calls / session" stroke="#2563eb" strokeWidth={2} dot={false} />
-                                                <Line yAxisId="right" type="monotone" dataKey="errorPer100Sessions" name="Errors /100 sessions" stroke="#ef4444" strokeWidth={2} dot={false} />
-                                                <Line yAxisId="right" type="monotone" dataKey="ragePer100Sessions" name="Rage taps /100 sessions" stroke="#f97316" strokeWidth={2} dot={false} />
-                                                <Line yAxisId="right" type="monotone" dataKey="avgDurationMin" name="Avg duration (min)" stroke="#0f766e" strokeWidth={2} dot={false} />
-                                            </ComposedChart>
-                                        </ResponsiveContainer>
-                                    ) : (
-                                        <div className="flex h-full items-center justify-center rounded-xl border border-dashed border-slate-300 text-sm text-slate-500">
-                                            Daily behavior trend data is unavailable for this range.
-                                        </div>
-                                    )}
-                                </div>
-                            </div>
-                        </section>
                     </>
                 )}
             </div>

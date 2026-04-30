@@ -1,25 +1,17 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Link } from 'react-router';
-import {
-    ArrowRight,
-    Bug,
-    ChevronLeft,
-    ChevronRight,
-    Flame,
-    LogOut,
-    MousePointer2,
-    ShieldAlert,
-} from 'lucide-react';
+import { MousePointer2 } from 'lucide-react';
 import { useSessionData } from '~/shared/providers/SessionContext';
 import { useDemoMode } from '~/shared/providers/DemoModeContext';
 import {
     getHeatmapsOverview,
     getHeatmapScreenOverview,
     type AlltimeHeatmapScreen,
+    type HeatmapIterationScreen,
+    type HeatmapIterationSummary,
+    type HeatmapIterationVersion,
 } from '~/shared/api/client';
 import { API_BASE_URL, getCsrfToken } from '~/shared/config/appConfig';
 import { TimeRange } from '~/shared/ui/core/TimeFilter';
-import { usePathPrefix } from '~/shell/routing/usePathPrefix';
 
 const TOUCH_HEATMAP_DEBUG_PREFIX = '[TouchHeatmapDebug]';
 
@@ -45,7 +37,7 @@ function isHeicContentType(contentType: string): boolean {
 function drawTouchHeatmap(
     canvas: HTMLCanvasElement,
     container: HTMLElement,
-    touchHotspots: Array<{ x: number; y: number; intensity: number; isRageTap: boolean }>
+    touchHotspots: HeatmapHotspot[]
 ): void {
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
@@ -153,10 +145,17 @@ function drawTouchHeatmap(
     ctx.drawImage(offscreen, 0, 0, width, height);
 }
 
-type SortMode = 'impact' | 'affected' | 'volume' | 'risk';
+type HeatmapHotspot = { x: number; y: number; intensity: number; isRageTap: boolean };
 type SignalType = 'rage_taps' | 'errors' | 'exits' | 'mixed';
 type ConfidenceType = 'high' | 'medium' | 'low';
 type PriorityType = 'critical' | 'high' | 'watch';
+
+interface PreviewHeatmapScreen {
+    name: string;
+    screenshotUrl: string | null;
+    touchHotspots?: HeatmapHotspot[];
+    evidenceSessionId?: string | null;
+}
 
 interface EnrichedHeatmapScreen extends AlltimeHeatmapScreen {
     rangeVisits: number;
@@ -175,55 +174,52 @@ interface EnrichedHeatmapScreen extends AlltimeHeatmapScreen {
     evidenceSessionId: string | null;
 }
 
+type VersionHeatmapScreen = HeatmapIterationScreen & {
+    touchHotspots?: HeatmapHotspot[];
+};
+
+type VersionHeatmapGroup = Omit<HeatmapIterationVersion, 'screens'> & {
+    screens: VersionHeatmapScreen[];
+};
+
 function getInsightsRangeFromTimeFilter(timeRange: TimeRange): string {
     if (timeRange === 'all') return 'all';
     return timeRange;
 }
 
-function formatCompact(value: number): string {
-    if (!Number.isFinite(value)) return '0';
-    if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`;
-    if (value >= 1_000) return `${(value / 1_000).toFixed(1)}k`;
-    return value.toLocaleString();
+function compareVersionLabels(a: string, b: string): number {
+    const normalize = (value: string) => value.trim().toLowerCase();
+    const aNormalized = normalize(a);
+    const bNormalized = normalize(b);
+    if (aNormalized === 'unknown') return bNormalized === 'unknown' ? 0 : 1;
+    if (bNormalized === 'unknown') return -1;
+
+    const toParts = (value: string) => (value.match(/\d+|[a-z]+/gi) || [value]).map((part) => {
+        const numeric = Number(part);
+        return Number.isFinite(numeric) && /^\d+$/.test(part) ? numeric : part.toLowerCase();
+    });
+
+    const aParts = toParts(aNormalized);
+    const bParts = toParts(bNormalized);
+    const length = Math.max(aParts.length, bParts.length);
+
+    for (let index = 0; index < length; index += 1) {
+        const left = aParts[index] ?? 0;
+        const right = bParts[index] ?? 0;
+        if (left === right) continue;
+        if (typeof left === 'number' && typeof right === 'number') return left - right;
+        return String(left).localeCompare(String(right), undefined, { numeric: true });
+    }
+
+    return aNormalized.localeCompare(bNormalized, undefined, { numeric: true });
 }
 
-function toRatePer100(value: number, total: number): number {
-    if (total <= 0) return 0;
-    return Number(((value / total) * 100).toFixed(1));
-}
-
-function getPrimarySignal(rageRate: number, errorRate: number, exitRate: number): SignalType {
-    const ordered = [
-        { key: 'rage_taps' as const, value: rageRate },
-        { key: 'errors' as const, value: errorRate },
-        { key: 'exits' as const, value: exitRate },
-    ].sort((a, b) => b.value - a.value);
-
-    if (!ordered[0] || ordered[0].value <= 0) return 'mixed';
-    if ((ordered[0].value - ordered[1].value) < 2) return 'mixed';
-    return ordered[0].key;
-}
-
-function getPriority(impactScore: number, affectedSessions: number): PriorityType {
-    if (impactScore >= 45 || affectedSessions >= 120) return 'critical';
-    if (impactScore >= 20 || affectedSessions >= 40) return 'high';
-    return 'watch';
-}
-
-function getHotspotZoneLabel(x: number, y: number): string {
-    const vertical = y < 0.33 ? 'Top' : y > 0.66 ? 'Bottom' : 'Middle';
-    const horizontal = x < 0.33 ? 'Left' : x > 0.66 ? 'Right' : 'Center';
-    return `${vertical} ${horizontal}`;
-}
-
-const sortOptions: Array<{ value: SortMode; label: string }> = [
-    { value: 'impact', label: 'Impact' },
-    { value: 'affected', label: 'Affected' },
-    { value: 'risk', label: 'Risk Rate' },
-    { value: 'volume', label: 'Volume' },
-];
-
-const HeatmapPreview: React.FC<{ screen: EnrichedHeatmapScreen; compact?: boolean }> = ({ screen, compact = false }) => {
+const HeatmapPreview: React.FC<{
+    screen: PreviewHeatmapScreen;
+    compact?: boolean;
+    tile?: boolean;
+    showLegend?: boolean;
+}> = ({ screen, compact = false, tile = false, showLegend = true }) => {
     const [blobUrl, setBlobUrl] = useState<string | null>(null);
     const [imageLoaded, setImageLoaded] = useState(false);
     const [loadError, setLoadError] = useState<string | null>(null);
@@ -470,10 +466,18 @@ const HeatmapPreview: React.FC<{ screen: EnrichedHeatmapScreen; compact?: boolea
         [screen.touchHotspots],
     );
 
+    const widthClass = tile ? (compact ? 'w-[148px]' : 'w-[184px]') : `mx-auto w-full ${compact ? 'max-w-[310px]' : 'max-w-[360px]'}`;
+    const frameClass = tile
+        ? 'rounded-[24px] border border-slate-700 bg-slate-900 p-2 shadow-lg'
+        : 'rounded-[32px] border border-slate-700 bg-slate-900 p-3 shadow-2xl';
+    const screenClass = tile
+        ? 'relative aspect-[9/19] overflow-hidden rounded-[18px] bg-slate-800'
+        : 'relative aspect-[9/19] overflow-hidden rounded-[24px] bg-slate-800';
+
     return (
-        <div className={`mx-auto w-full ${compact ? 'max-w-[310px]' : 'max-w-[360px]'}`}>
-            <div className="rounded-[32px] border border-slate-700 bg-slate-900 p-3 shadow-2xl">
-                <div ref={containerRef} className="relative aspect-[9/19] overflow-hidden rounded-[24px] bg-slate-800">
+        <div className={`${widthClass} shrink-0`}>
+            <div className={frameClass}>
+                <div ref={containerRef} className={screenClass}>
                     {blobUrl ? (
                         <img
                             src={blobUrl}
@@ -535,14 +539,44 @@ const HeatmapPreview: React.FC<{ screen: EnrichedHeatmapScreen; compact?: boolea
                 </div>
             </div>
 
-            <div className="mt-3 flex items-center justify-between text-[11px] font-medium text-slate-500">
-                <span>Low intensity</span>
-                <div className="mx-2 h-1.5 flex-1 rounded-full bg-gradient-to-r from-emerald-400 via-amber-400 to-rose-500" />
-                <span>High intensity</span>
-            </div>
+            {showLegend && (
+                <div className="mt-3 flex items-center justify-between text-[11px] font-medium text-slate-500">
+                    <span>Low intensity</span>
+                    <div className="mx-2 h-1.5 flex-1 rounded-full bg-gradient-to-r from-emerald-400 via-amber-400 to-rose-500" />
+                    <span>High intensity</span>
+                </div>
+            )}
         </div>
     );
 };
+
+const HeatmapTile: React.FC<{
+    screen: PreviewHeatmapScreen;
+    visitsLabel?: string;
+    incidentLabel?: string;
+    compact?: boolean;
+    detailLabel?: string;
+}> = ({ screen, visitsLabel, incidentLabel, compact = false, detailLabel }) => (
+    <article className={`dashboard-surface shrink-0 border-2 border-black bg-white p-3 shadow-neo-sm ${compact ? 'w-[178px]' : 'w-[220px]'}`}>
+        <div className="mb-2 min-h-[46px]">
+            <h3 className="truncate text-sm font-black uppercase tracking-wide text-black" title={screen.name}>
+                {screen.name}
+            </h3>
+            {detailLabel ? (
+                <p className="mt-1 truncate text-[11px] font-mono text-slate-500" title={detailLabel}>
+                    {detailLabel}
+                </p>
+            ) : null}
+        </div>
+        <HeatmapPreview screen={screen} compact={compact} tile showLegend={false} />
+        {(visitsLabel || incidentLabel) ? (
+            <div className="mt-2 flex items-center justify-between gap-2 text-[11px] font-mono">
+                {visitsLabel ? <span className="truncate text-slate-500">{visitsLabel}</span> : <span />}
+                {incidentLabel ? <span className="shrink-0 font-black text-rose-600">{incidentLabel}</span> : null}
+            </div>
+        ) : null}
+    </article>
+);
 
 interface TouchHeatmapSectionProps {
     timeRange?: TimeRange;
@@ -557,100 +591,214 @@ export const TouchHeatmapSection: React.FC<TouchHeatmapSectionProps> = ({
 }) => {
     const { selectedProject } = useSessionData();
     const { isDemoMode } = useDemoMode();
-    const pathPrefix = usePathPrefix();
 
     const [screens, setScreens] = useState<EnrichedHeatmapScreen[]>([]);
+    const [screenIteration, setScreenIteration] = useState<HeatmapIterationSummary | null>(null);
     const [isLoading, setIsLoading] = useState(true);
     const [lastUpdated, setLastUpdated] = useState('');
     const [partialError, setPartialError] = useState<string | null>(null);
-    const [sortMode, setSortMode] = useState<SortMode>('impact');
-    const [selectedScreenName, setSelectedScreenName] = useState<string | null>(null);
-    const [isScreenDetailLoading, setIsScreenDetailLoading] = useState(false);
 
     useEffect(() => {
         if (isDemoMode) {
             const demoScreens: EnrichedHeatmapScreen[] = [
                 {
                     name: 'HomeScreen',
-                    visits: 4820, rageTaps: 142, errors: 38, exitRate: 12.4, frictionScore: 34,
-                    screenshotUrl: null, sessionIds: [], touchHotspots: [
+                    visits: 4820,
+                    rageTaps: 142,
+                    errors: 38,
+                    exitRate: 12.4,
+                    frictionScore: 34,
+                    screenshotUrl: null,
+                    sessionIds: [],
+                    touchHotspots: [
                         { x: 0.5, y: 0.3, intensity: 0.9, isRageTap: false },
                         { x: 0.3, y: 0.6, intensity: 0.7, isRageTap: true },
                         { x: 0.7, y: 0.5, intensity: 0.5, isRageTap: false },
                         { x: 0.5, y: 0.8, intensity: 0.4, isRageTap: false },
                     ],
-                    rangeVisits: 1240, rangeRageTaps: 48, rangeErrors: 12, rangeExitRate: 12.4,
-                    rangeFrictionScore: 34, rangeImpactScore: 52, rangeRageTapRatePer100: 3.9,
-                    rangeErrorRatePer100: 1.0, rangeIncidentRatePer100: 4.9,
-                    rangeEstimatedAffectedSessions: 61, primarySignal: 'rage_taps',
-                    confidence: 'high', priority: 'critical', evidenceSessionId: null,
+                    rangeVisits: 1240,
+                    rangeRageTaps: 48,
+                    rangeErrors: 12,
+                    rangeExitRate: 12.4,
+                    rangeFrictionScore: 34,
+                    rangeImpactScore: 52,
+                    rangeRageTapRatePer100: 3.9,
+                    rangeErrorRatePer100: 1.0,
+                    rangeIncidentRatePer100: 4.9,
+                    rangeEstimatedAffectedSessions: 61,
+                    primarySignal: 'rage_taps',
+                    confidence: 'high',
+                    priority: 'critical',
+                    evidenceSessionId: null,
                 },
                 {
                     name: 'CheckoutScreen',
-                    visits: 2100, rageTaps: 89, errors: 55, exitRate: 28.1, frictionScore: 58,
-                    screenshotUrl: null, sessionIds: [], touchHotspots: [
+                    visits: 2100,
+                    rageTaps: 89,
+                    errors: 55,
+                    exitRate: 28.1,
+                    frictionScore: 58,
+                    screenshotUrl: null,
+                    sessionIds: [],
+                    touchHotspots: [
                         { x: 0.5, y: 0.7, intensity: 0.95, isRageTap: true },
                         { x: 0.5, y: 0.5, intensity: 0.6, isRageTap: false },
                         { x: 0.2, y: 0.4, intensity: 0.3, isRageTap: false },
                     ],
-                    rangeVisits: 540, rangeRageTaps: 22, rangeErrors: 14, rangeExitRate: 28.1,
-                    rangeFrictionScore: 58, rangeImpactScore: 71, rangeRageTapRatePer100: 4.1,
-                    rangeErrorRatePer100: 2.6, rangeIncidentRatePer100: 6.7,
-                    rangeEstimatedAffectedSessions: 36, primarySignal: 'exits',
-                    confidence: 'high', priority: 'critical', evidenceSessionId: null,
+                    rangeVisits: 540,
+                    rangeRageTaps: 22,
+                    rangeErrors: 14,
+                    rangeExitRate: 28.1,
+                    rangeFrictionScore: 58,
+                    rangeImpactScore: 71,
+                    rangeRageTapRatePer100: 4.1,
+                    rangeErrorRatePer100: 2.6,
+                    rangeIncidentRatePer100: 6.7,
+                    rangeEstimatedAffectedSessions: 36,
+                    primarySignal: 'exits',
+                    confidence: 'high',
+                    priority: 'critical',
+                    evidenceSessionId: null,
                 },
                 {
                     name: 'ProfileScreen',
-                    visits: 1850, rageTaps: 21, errors: 8, exitRate: 6.2, frictionScore: 12,
-                    screenshotUrl: null, sessionIds: [], touchHotspots: [
+                    visits: 1850,
+                    rageTaps: 21,
+                    errors: 8,
+                    exitRate: 6.2,
+                    frictionScore: 12,
+                    screenshotUrl: null,
+                    sessionIds: [],
+                    touchHotspots: [
                         { x: 0.5, y: 0.2, intensity: 0.6, isRageTap: false },
                         { x: 0.5, y: 0.5, intensity: 0.4, isRageTap: false },
                     ],
-                    rangeVisits: 480, rangeRageTaps: 5, rangeErrors: 2, rangeExitRate: 6.2,
-                    rangeFrictionScore: 12, rangeImpactScore: 18, rangeRageTapRatePer100: 1.0,
-                    rangeErrorRatePer100: 0.4, rangeIncidentRatePer100: 1.4,
-                    rangeEstimatedAffectedSessions: 7, primarySignal: 'mixed',
-                    confidence: 'medium', priority: 'watch', evidenceSessionId: null,
+                    rangeVisits: 480,
+                    rangeRageTaps: 5,
+                    rangeErrors: 2,
+                    rangeExitRate: 6.2,
+                    rangeFrictionScore: 12,
+                    rangeImpactScore: 18,
+                    rangeRageTapRatePer100: 1.0,
+                    rangeErrorRatePer100: 0.4,
+                    rangeIncidentRatePer100: 1.4,
+                    rangeEstimatedAffectedSessions: 7,
+                    primarySignal: 'mixed',
+                    confidence: 'medium',
+                    priority: 'watch',
+                    evidenceSessionId: null,
                 },
                 {
                     name: 'OnboardingScreen',
-                    visits: 3200, rageTaps: 64, errors: 29, exitRate: 41.5, frictionScore: 67,
-                    screenshotUrl: null, sessionIds: [], touchHotspots: [
+                    visits: 3200,
+                    rageTaps: 64,
+                    errors: 29,
+                    exitRate: 41.5,
+                    frictionScore: 67,
+                    screenshotUrl: null,
+                    sessionIds: [],
+                    touchHotspots: [
                         { x: 0.5, y: 0.85, intensity: 0.88, isRageTap: true },
                         { x: 0.5, y: 0.6, intensity: 0.5, isRageTap: false },
                         { x: 0.8, y: 0.3, intensity: 0.3, isRageTap: false },
                     ],
-                    rangeVisits: 820, rangeRageTaps: 16, rangeErrors: 7, rangeExitRate: 41.5,
-                    rangeFrictionScore: 67, rangeImpactScore: 63, rangeRageTapRatePer100: 2.0,
-                    rangeErrorRatePer100: 0.9, rangeIncidentRatePer100: 2.9,
-                    rangeEstimatedAffectedSessions: 24, primarySignal: 'exits',
-                    confidence: 'high', priority: 'critical', evidenceSessionId: null,
+                    rangeVisits: 820,
+                    rangeRageTaps: 16,
+                    rangeErrors: 7,
+                    rangeExitRate: 41.5,
+                    rangeFrictionScore: 67,
+                    rangeImpactScore: 63,
+                    rangeRageTapRatePer100: 2.0,
+                    rangeErrorRatePer100: 0.9,
+                    rangeIncidentRatePer100: 2.9,
+                    rangeEstimatedAffectedSessions: 24,
+                    primarySignal: 'exits',
+                    confidence: 'high',
+                    priority: 'critical',
+                    evidenceSessionId: null,
                 },
                 {
                     name: 'SearchScreen',
-                    visits: 980, rageTaps: 12, errors: 4, exitRate: 8.3, frictionScore: 9,
-                    screenshotUrl: null, sessionIds: [], touchHotspots: [
+                    visits: 980,
+                    rageTaps: 12,
+                    errors: 4,
+                    exitRate: 8.3,
+                    frictionScore: 9,
+                    screenshotUrl: null,
+                    sessionIds: [],
+                    touchHotspots: [
                         { x: 0.5, y: 0.15, intensity: 0.7, isRageTap: false },
                         { x: 0.5, y: 0.4, intensity: 0.3, isRageTap: false },
                     ],
-                    rangeVisits: 250, rangeRageTaps: 3, rangeErrors: 1, rangeExitRate: 8.3,
-                    rangeFrictionScore: 9, rangeImpactScore: 11, rangeRageTapRatePer100: 1.2,
-                    rangeErrorRatePer100: 0.4, rangeIncidentRatePer100: 1.6,
-                    rangeEstimatedAffectedSessions: 4, primarySignal: 'mixed',
-                    confidence: 'medium', priority: 'watch', evidenceSessionId: null,
+                    rangeVisits: 250,
+                    rangeRageTaps: 3,
+                    rangeErrors: 1,
+                    rangeExitRate: 8.3,
+                    rangeFrictionScore: 9,
+                    rangeImpactScore: 11,
+                    rangeRageTapRatePer100: 1.2,
+                    rangeErrorRatePer100: 0.4,
+                    rangeIncidentRatePer100: 1.6,
+                    rangeEstimatedAffectedSessions: 4,
+                    primarySignal: 'mixed',
+                    confidence: 'medium',
+                    priority: 'watch',
+                    evidenceSessionId: null,
                 },
             ];
+
+            const demoVersion = (appVersion: string, offset: number): VersionHeatmapGroup => ({
+                appVersion,
+                firstSeenAt: null,
+                lastSeenAt: null,
+                sessions: Math.max(12, 48 - offset * 8),
+                screens: demoScreens.map((screen) => ({
+                    name: screen.name,
+                    screenshotUrl: screen.screenshotUrl,
+                    visits: Math.max(1, Math.round(screen.rangeVisits * (0.68 + offset * 0.16))),
+                    touches: Math.max(1, Math.round(screen.visits * (0.55 + offset * 0.1))),
+                    rageTaps: Math.max(0, Math.round(screen.rangeRageTaps * (1.2 - offset * 0.18))),
+                    errors: Math.max(0, Math.round(screen.rangeErrors * (1.1 - offset * 0.12))),
+                    incidentRatePer100: Math.max(0.4, Number((screen.rangeIncidentRatePer100 * (1.15 - offset * 0.18)).toFixed(1))),
+                    lastSeenAt: null,
+                    evidenceSessionId: screen.evidenceSessionId,
+                    touchHotspots: (screen.touchHotspots || []).map((spot) => ({
+                        ...spot,
+                        x: Math.max(0.08, Math.min(0.92, spot.x + (offset - 1) * 0.05)),
+                        y: Math.max(0.08, Math.min(0.92, spot.y + (offset - 1) * 0.03)),
+                        intensity: Math.max(0.2, Math.min(1, spot.intensity * (1.08 - offset * 0.08))),
+                    })),
+                })),
+            });
+
             setScreens(demoScreens);
+            setScreenIteration({
+                overall: demoScreens.map((screen) => ({
+                    name: screen.name,
+                    screenshotUrl: screen.screenshotUrl,
+                    visits: screen.rangeVisits,
+                    touches: screen.visits,
+                    rageTaps: screen.rangeRageTaps,
+                    errors: screen.rangeErrors,
+                    incidentRatePer100: screen.rangeIncidentRatePer100,
+                    lastSeenAt: null,
+                    evidenceSessionId: screen.evidenceSessionId,
+                    touchHotspots: screen.touchHotspots,
+                })),
+                versions: [demoVersion('1.2.0', 0), demoVersion('1.3.0', 1), demoVersion('1.4.0', 2)],
+            });
+            setLastUpdated(new Date().toISOString());
+            setPartialError(null);
             setIsLoading(false);
             return;
         }
 
         if (!selectedProject?.id) {
             setScreens([]);
+            setScreenIteration(null);
             setIsLoading(false);
             setLastUpdated('');
             setPartialError(null);
-            setSelectedScreenName(null);
             return;
         }
 
@@ -661,38 +809,58 @@ export const TouchHeatmapSection: React.FC<TouchHeatmapSectionProps> = ({
         const range = getInsightsRangeFromTimeFilter(timeRange);
 
         getHeatmapsOverview(selectedProject.id, range)
-            .then((overview) => {
+            .then(async (overview) => {
                 if (cancelled) return;
 
-                heatmapDebug('Touch heatmap summary fetched', {
+                heatmapDebug('Touch heatmap overview fetched', {
                     projectId: selectedProject.id,
                     timeRange,
                     normalizedRange: range,
                     screenCount: overview.screens.length,
+                    versionCount: overview.screenIteration?.versions.length ?? 0,
                     failedSections: overview.failedSections,
                 });
 
-                const mergedScreens = (overview.screens || [])
+                let mergedScreens = (overview.screens || [])
                     .filter((screen) => (
                         screen.rangeVisits > 0
                         || screen.rangeRageTaps > 0
                         || screen.rangeErrors > 0
                         || screen.rangeExitRate > 0
+                        || (screen.touchHotspots?.length ?? 0) > 0
                     )) as EnrichedHeatmapScreen[];
 
-                heatmapDebug('Touch heatmap screens prepared', {
-                    projectId: selectedProject.id,
-                    mergedScreenCount: mergedScreens.length,
-                    sampleScreens: mergedScreens.slice(0, 10).map((screen) => ({
-                        name: screen.name,
-                        screenshotUrl: screen.screenshotUrl,
-                        evidenceSessionId: screen.evidenceSessionId,
-                        hotspotCount: screen.touchHotspots.length,
-                        rangeVisits: screen.rangeVisits,
-                    })),
-                });
+                const screensNeedingHotspots = mergedScreens.filter((screen) => (screen.touchHotspots?.length ?? 0) === 0);
+                if (screensNeedingHotspots.length > 0) {
+                    const results = await Promise.allSettled(
+                        screensNeedingHotspots.map((screen) => (
+                            getHeatmapScreenOverview(selectedProject.id, screen.name, range)
+                        )),
+                    );
+                    if (cancelled) return;
+
+                    const detailByName = new Map<string, EnrichedHeatmapScreen>();
+                    for (const result of results) {
+                        if (result.status !== 'fulfilled' || !result.value.screen) continue;
+                        detailByName.set(result.value.screen.name, result.value.screen as EnrichedHeatmapScreen);
+                    }
+                    if (detailByName.size > 0) {
+                        mergedScreens = mergedScreens.map((screen) => {
+                            const detail = detailByName.get(screen.name);
+                            if (!detail) return screen;
+                            return {
+                                ...screen,
+                                ...detail,
+                                touchHotspots: detail.touchHotspots?.length ? detail.touchHotspots : screen.touchHotspots,
+                                screenshotUrl: detail.screenshotUrl ?? screen.screenshotUrl,
+                                evidenceSessionId: detail.evidenceSessionId ?? screen.evidenceSessionId,
+                            };
+                        });
+                    }
+                }
 
                 setScreens(mergedScreens);
+                setScreenIteration(overview.screenIteration || null);
                 setLastUpdated(overview.lastUpdated || '');
 
                 if (overview.failedSections.length > 0) {
@@ -709,6 +877,7 @@ export const TouchHeatmapSection: React.FC<TouchHeatmapSectionProps> = ({
                     timeRange,
                     error,
                 });
+                if (!cancelled) setPartialError('Heatmap data unavailable.');
             })
             .finally(() => {
                 if (!cancelled) setIsLoading(false);
@@ -719,200 +888,79 @@ export const TouchHeatmapSection: React.FC<TouchHeatmapSectionProps> = ({
         };
     }, [selectedProject?.id, timeRange, isDemoMode]);
 
-    const sortedScreens = useMemo(() => {
-        const copied = [...screens];
-        switch (sortMode) {
-            case 'affected':
-                return copied.sort((a, b) => b.rangeEstimatedAffectedSessions - a.rangeEstimatedAffectedSessions);
-            case 'volume':
-                return copied.sort((a, b) => b.rangeVisits - a.rangeVisits);
-            case 'risk':
-                return copied.sort((a, b) => (b.rangeIncidentRatePer100 + b.rangeExitRate * 0.6) - (a.rangeIncidentRatePer100 + a.rangeExitRate * 0.6));
-            case 'impact':
-            default:
-                return copied.sort((a, b) => b.rangeImpactScore - a.rangeImpactScore);
+    const sortedScreens = useMemo(() => (
+        [...screens].sort((a, b) => {
+            if (b.rangeImpactScore !== a.rangeImpactScore) return b.rangeImpactScore - a.rangeImpactScore;
+            return b.rangeVisits - a.rangeVisits;
+        })
+    ), [screens]);
+
+    const screenByName = useMemo(() => {
+        const map = new Map<string, EnrichedHeatmapScreen>();
+        for (const screen of sortedScreens) {
+            map.set(screen.name, screen);
         }
-    }, [screens, sortMode]);
+        return map;
+    }, [sortedScreens]);
 
-    useEffect(() => {
-        if (!sortedScreens.length) {
-            setSelectedScreenName(null);
-            return;
+    const iterationScreenByName = useMemo(() => {
+        const map = new Map<string, VersionHeatmapScreen>();
+        for (const screen of screenIteration?.overall || []) {
+            map.set(screen.name, screen as VersionHeatmapScreen);
         }
-        if (!selectedScreenName || !sortedScreens.some((screen) => screen.name === selectedScreenName)) {
-            setSelectedScreenName(sortedScreens[0].name);
-        }
-    }, [sortedScreens, selectedScreenName]);
+        return map;
+    }, [screenIteration?.overall]);
 
-    const selectedScreen = useMemo(
-        () => sortedScreens.find((screen) => screen.name === selectedScreenName) || sortedScreens[0] || null,
-        [sortedScreens, selectedScreenName],
-    );
-
-    useEffect(() => {
-        if (isDemoMode || !selectedProject?.id || !selectedScreenName) return;
-
-        let cancelled = false;
-        setIsScreenDetailLoading(true);
-
-        void getHeatmapScreenOverview(selectedProject.id, selectedScreenName, getInsightsRangeFromTimeFilter(timeRange))
-            .then((response) => {
-                if (cancelled || !response.screen) return;
-                setScreens((prev) => prev.map((screen) => (
-                    screen.name === selectedScreenName
-                        ? { ...screen, ...response.screen } as EnrichedHeatmapScreen
-                        : screen
-                )));
-                if (response.failedSections.length > 0) {
-                    setPartialError(`Some heatmap sources are unavailable (${response.failedSections.join(', ')}).`);
-                }
-            })
-            .catch((error) => {
-                if (!cancelled) {
-                    console.error(`${TOUCH_HEATMAP_DEBUG_PREFIX} Failed to load selected screen detail`, {
-                        projectId: selectedProject.id,
-                        selectedScreenName,
-                        error,
-                    });
-                    setPartialError((prev) => prev || 'Selected heatmap detail unavailable.');
-                }
-            })
-            .finally(() => {
-                if (!cancelled) setIsScreenDetailLoading(false);
-            });
-
-        return () => {
-            cancelled = true;
+    const versionGroups = useMemo<VersionHeatmapGroup[]>(() => {
+        const hydrateScreen = (screen: VersionHeatmapScreen): VersionHeatmapScreen => {
+            const fallback = screenByName.get(screen.name);
+            const iterationFallback = iterationScreenByName.get(screen.name);
+            return {
+                ...screen,
+                screenshotUrl: screen.screenshotUrl ?? iterationFallback?.screenshotUrl ?? fallback?.screenshotUrl ?? null,
+                evidenceSessionId: screen.evidenceSessionId ?? iterationFallback?.evidenceSessionId ?? fallback?.evidenceSessionId ?? null,
+                touchHotspots: screen.touchHotspots?.length
+                    ? screen.touchHotspots
+                    : iterationFallback?.touchHotspots?.length
+                        ? iterationFallback.touchHotspots
+                        : fallback?.touchHotspots ?? [],
+            };
         };
-    }, [selectedProject?.id, selectedScreenName, timeRange, isDemoMode]);
 
-    const selectedIndex = useMemo(
-        () => selectedScreen ? sortedScreens.findIndex((screen) => screen.name === selectedScreen.name) : -1,
-        [sortedScreens, selectedScreen],
-    );
+        const groups = (screenIteration?.versions || [])
+            .filter((version) => version.screens.length > 0)
+            .map((version) => ({
+                ...version,
+                screens: version.screens.map((screen) => hydrateScreen(screen as VersionHeatmapScreen)),
+            }))
+            .sort((a, b) => compareVersionLabels(a.appVersion, b.appVersion));
 
-    const summary = useMemo(() => {
-        const totals = screens.reduce((acc, screen) => {
-            acc.allTimeTouches += screen.visits;
-            acc.rangeVisits += screen.rangeVisits;
-            acc.affectedSessions += screen.rangeEstimatedAffectedSessions;
-            acc.incidentRate += screen.rangeIncidentRatePer100;
-            acc.impact += screen.rangeImpactScore;
-            if (screen.priority === 'critical') acc.criticalScreens += 1;
-            return acc;
-        }, {
-            allTimeTouches: 0,
-            rangeVisits: 0,
-            affectedSessions: 0,
-            incidentRate: 0,
-            impact: 0,
-            criticalScreens: 0,
-        });
+        if (groups.length > 0) return groups;
 
-        return {
-            ...totals,
-            avgIncidentRate: screens.length > 0 ? totals.incidentRate / screens.length : 0,
-            avgImpact: screens.length > 0 ? totals.impact / screens.length : 0,
-        };
-    }, [screens]);
+        return [{
+            appVersion: 'All versions',
+            firstSeenAt: null,
+            lastSeenAt: lastUpdated || null,
+            sessions: sortedScreens.reduce((sum, screen) => sum + screen.rangeVisits, 0),
+            screens: sortedScreens.map((screen) => ({
+                name: screen.name,
+                screenshotUrl: screen.screenshotUrl,
+                visits: screen.rangeVisits,
+                touches: screen.visits,
+                rageTaps: screen.rangeRageTaps,
+                errors: screen.rangeErrors,
+                incidentRatePer100: screen.rangeIncidentRatePer100,
+                lastSeenAt: lastUpdated || null,
+                evidenceSessionId: screen.evidenceSessionId,
+                touchHotspots: screen.touchHotspots || [],
+            })),
+        }];
+    }, [iterationScreenByName, lastUpdated, screenByName, screenIteration?.versions, sortedScreens]);
 
-    const selectedSignalBars = useMemo(() => {
-        if (!selectedScreen) return [];
-        return [
-            {
-                key: 'rage',
-                label: 'Rage tap rate',
-                value: selectedScreen.rangeRageTapRatePer100,
-                unit: '/100',
-                barClass: 'bg-rose-500',
-                textClass: 'text-rose-700',
-                icon: Flame,
-            },
-            {
-                key: 'errors',
-                label: 'Error rate',
-                value: selectedScreen.rangeErrorRatePer100,
-                unit: '/100',
-                barClass: 'bg-amber-500',
-                textClass: 'text-amber-700',
-                icon: Bug,
-            },
-            {
-                key: 'exit',
-                label: 'Exit rate',
-                value: selectedScreen.rangeExitRate,
-                unit: '%',
-                barClass: 'bg-blue-500',
-                textClass: 'text-blue-700',
-                icon: LogOut,
-            },
-            {
-                key: 'incident',
-                label: 'Combined incident',
-                value: selectedScreen.rangeIncidentRatePer100,
-                unit: '/100',
-                barClass: 'bg-violet-500',
-                textClass: 'text-violet-700',
-                icon: ShieldAlert,
-            },
-        ];
-    }, [selectedScreen]);
-
-    const maxSignalValue = useMemo(() => {
-        if (!selectedSignalBars.length) return 1;
-        return Math.max(1, ...selectedSignalBars.map((bar) => bar.value));
-    }, [selectedSignalBars]);
-
-    const hotspotZones = useMemo(() => {
-        if (!selectedScreen) return [];
-        return [...(selectedScreen.touchHotspots || [])]
-            .sort((a, b) => b.intensity - a.intensity)
-            .slice(0, 5)
-            .map((spot, index) => ({
-                id: `${spot.x}-${spot.y}-${index}`,
-                zone: getHotspotZoneLabel(spot.x, spot.y),
-                intensity: Math.round(spot.intensity * 100),
-                isRageTap: spot.isRageTap,
-            }));
-    }, [selectedScreen]);
-
-    const selectedSignalMix = useMemo(() => {
-        if (!selectedScreen) return [];
-        const base = [
-            { key: 'rage', label: 'Rage', value: selectedScreen.rangeRageTapRatePer100 },
-            { key: 'errors', label: 'Errors', value: selectedScreen.rangeErrorRatePer100 },
-            { key: 'exits', label: 'Exits', value: selectedScreen.rangeExitRate },
-        ];
-        const total = base.reduce((sum, item) => sum + item.value, 0);
-        return base.map((item) => ({
-            ...item,
-            share: total > 0 ? Number(((item.value / total) * 100).toFixed(1)) : 0,
-        }));
-    }, [selectedScreen]);
-
-    const priorityChipClass = selectedScreen?.priority === 'critical'
-        ? 'bg-rose-100 text-rose-700'
-        : selectedScreen?.priority === 'high'
-            ? 'bg-amber-100 text-amber-700'
-            : 'bg-slate-200 text-slate-700';
-
-    const confidenceChipClass = selectedScreen?.confidence === 'high'
-        ? 'bg-emerald-100 text-emerald-700'
-        : selectedScreen?.confidence === 'medium'
-            ? 'bg-amber-100 text-amber-700'
-            : 'bg-slate-200 text-slate-700';
-
-    const moveSelection = (direction: -1 | 1) => {
-        if (selectedIndex < 0) return;
-        const nextIndex = selectedIndex + direction;
-        if (nextIndex < 0 || nextIndex >= sortedScreens.length) return;
-        setSelectedScreenName(sortedScreens[nextIndex].name);
-    };
-
-    if (!selectedProject?.id) {
+    if (!selectedProject?.id && !isDemoMode) {
         return (
             <section className={`dashboard-surface p-6 shadow-sm ${className}`.trim()}>
-                <p className="text-sm text-slate-500">Select a project to view touch heatmap intelligence.</p>
+                <p className="text-sm text-slate-500">Select a project to view touch heatmaps.</p>
             </section>
         );
     }
@@ -922,14 +970,14 @@ export const TouchHeatmapSection: React.FC<TouchHeatmapSectionProps> = ({
             <section className={`dashboard-surface p-6 shadow-sm ${className}`.trim()}>
                 <div className="flex items-center gap-3 text-sm text-slate-600">
                     <MousePointer2 className="h-4 w-4 animate-pulse text-blue-600" />
-                    Building interaction heatmaps and friction overlays...
+                    Building interaction heatmaps...
                 </div>
-                <div className="mt-4 h-64 animate-pulse dashboard-inner-surface" />
+                <div className="mt-4 h-72 animate-pulse dashboard-inner-surface" />
             </section>
         );
     }
 
-    if (!screens.length || !selectedScreen) {
+    if (!sortedScreens.length) {
         return (
             <section className={`dashboard-surface p-6 shadow-sm ${className}`.trim()}>
                 <div className={`flex flex-col items-center justify-center border-2 border-dashed border-black bg-[#f4f4f5] text-center ${compact ? 'min-h-[180px]' : 'min-h-[220px]'}`}>
@@ -946,254 +994,29 @@ export const TouchHeatmapSection: React.FC<TouchHeatmapSectionProps> = ({
 
     return (
         <section className={`dashboard-surface shadow-sm ${className}`.trim()}>
-            <div className={`${compact ? 'space-y-4 p-4' : 'space-y-5 p-5'}`}>
-                <div className="flex flex-col gap-3 border-b border-slate-200 pb-4 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
-                    {compact ? (
-                        <div className="min-w-0">
-                            <h2 className="text-base font-semibold uppercase tracking-wide text-black">Interaction Heatmaps</h2>
-                            <p className="mt-1 text-sm text-slate-500">Prioritize high-friction screens with replay evidence.</p>
+            <div className={`overflow-y-auto ${compact ? 'max-h-[70vh] space-y-7 p-4' : 'max-h-[calc(100vh-220px)] space-y-9 p-5'}`}>
+                {versionGroups.map((version, versionIndex) => (
+                    <div key={`${version.appVersion}-${versionIndex}`} className="space-y-4">
+                        <div className="flex items-center gap-3">
+                            <div className="border-t-2 border-dashed border-black/70 flex-1" />
+                            <div className="shrink-0 border-2 border-black bg-white px-3 py-1 text-xs font-black uppercase tracking-wide text-black">
+                                VERSION: {version.appVersion}
+                            </div>
+                            <div className="border-t-2 border-dashed border-black/70 flex-1" />
                         </div>
-                    ) : null}
-                    <div className={`flex flex-wrap items-center gap-2 ${compact ? '' : 'sm:justify-end'}`}>
-                        {sortOptions.map((option) => (
-                            <button
-                                key={option.value}
-                                onClick={() => setSortMode(option.value)}
-                                className={`rounded-xl border px-3 py-1.5 text-xs font-semibold transition-all ${sortMode === option.value
-                                    ? 'border-2 border-black bg-black text-white'
-                                    : 'border-2 border-transparent text-gray-500 hover:border-black hover:text-black'
-                                    }`}
-                            >
-                                {option.label}
-                            </button>
-                        ))}
-                        {lastUpdated ? (
-                            <span className="text-xs text-slate-500 sm:ml-1">
-                                Updated {new Date(lastUpdated).toLocaleString()}
-                            </span>
-                        ) : null}
-                    </div>
-                </div>
-                {partialError ? (
-                    <div className="border-2 border-black bg-amber-50 px-3 py-2 text-xs text-amber-900">
-                        {partialError}
-                    </div>
-                ) : null}
-                <div
-                    className={`grid grid-cols-1 gap-4 ${compact ? 'sm:grid-cols-2 xl:grid-cols-4' : 'sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5'}`}
-                >
-                    <div className="dashboard-surface min-w-0 bg-white px-4 py-3 border-2 border-black shadow-neo-sm transition-all hover:-translate-y-1 hover:shadow-neo rounded-none">
-                        <div className="break-words text-[10px] font-black uppercase tracking-widest text-slate-600">Tracked screens</div>
-                        <div className="mt-2 break-words text-2xl font-black tracking-tight text-black sm:text-3xl">{screens.length}</div>
-                    </div>
-                    {!compact && (
-                        <div className="dashboard-surface min-w-0 bg-white px-4 py-3 border-2 border-black shadow-neo-sm transition-all hover:-translate-y-1 hover:shadow-neo rounded-none">
-                            <div className="break-words text-[10px] font-black uppercase tracking-widest text-slate-600">All-time touches</div>
-                            <div className="mt-2 break-words text-2xl font-black tracking-tight text-black sm:text-3xl">{formatCompact(summary.allTimeTouches)}</div>
-                        </div>
-                    )}
-                    <div className="dashboard-surface min-w-0 bg-white px-4 py-3 border-2 border-black shadow-neo-sm transition-all hover:-translate-y-1 hover:shadow-neo rounded-none">
-                        <div className="break-words text-[10px] font-black uppercase tracking-widest text-slate-600">{timeRange} visits</div>
-                        <div className="mt-2 break-words text-2xl font-black tracking-tight text-black sm:text-3xl">{formatCompact(summary.rangeVisits)}</div>
-                    </div>
-                    <div className="dashboard-surface min-w-0 bg-white px-4 py-3 border-2 border-black shadow-neo-sm transition-all hover:-translate-y-1 hover:shadow-neo rounded-none">
-                        <div className="break-words text-[10px] font-black uppercase tracking-widest text-slate-600">Affected sessions</div>
-                        <div className="mt-2 break-words text-2xl font-black tracking-tight text-rose-600 sm:text-3xl">{formatCompact(summary.affectedSessions)}</div>
-                    </div>
-                    <div className="dashboard-surface min-w-0 bg-white px-4 py-3 border-2 border-black shadow-neo-sm transition-all hover:-translate-y-1 hover:shadow-neo rounded-none">
-                        <div className="break-words text-[10px] font-black uppercase tracking-widest text-slate-600">Critical screens</div>
-                        <div className="mt-2 break-words text-2xl font-black tracking-tight text-amber-700 sm:text-3xl">{summary.criticalScreens}</div>
-                    </div>
-                </div>
-
-                <div className={`grid grid-cols-1 items-stretch ${compact ? 'gap-5 xl:grid-cols-[230px_minmax(0,1fr)]' : 'gap-6 xl:grid-cols-[280px_minmax(0,1fr)_320px]'}`}>
-                    <div className={`flex h-full min-h-0 flex-col dashboard-inner-surface ${compact ? 'p-3' : 'p-4'}`}>
-                        <div className={`mb-3 flex items-center justify-between ${compact ? 'px-1' : 'px-2'} text-xs font-mono font-semibold uppercase tracking-wide text-gray-500`}>Screen ranking</div>
-                        <div className="relative flex-1 overflow-hidden dashboard-inner-surface">
-                            <div className="h-full space-y-2 overflow-y-auto p-2 pr-1">
-                                {sortedScreens.map((screen) => {
-                                    const isSelected = selectedScreen.name === screen.name;
-                                    return (
-                                        <button
-                                            key={screen.name}
-                                            onClick={() => setSelectedScreenName(screen.name)}
-                                            className={`w-full rounded-xl border px-3 py-2 text-left transition ${isSelected
-                                                ? 'border-2 border-black bg-black text-white'
-                                                : 'dashboard-surface text-black hover:bg-[#f4f4f5]'
-                                                }`}
-                                        >
-                                            <div className="flex items-center justify-between gap-2">
-                                                <span className="truncate text-sm font-semibold">{screen.name}</span>
-                                                <span className={`text-xs font-semibold ${isSelected ? 'text-slate-100' : 'text-slate-500'}`}>
-                                                    {screen.rangeIncidentRatePer100.toFixed(1)}/100
-                                                </span>
-                                            </div>
-                                            <div className={`mt-2 h-1.5 overflow-hidden rounded-full ${isSelected ? 'bg-white/30' : 'bg-gray-200'}`}>
-                                                <div
-                                                    className={isSelected ? 'h-full bg-[#34d399]' : 'h-full bg-black'}
-                                                    style={{ width: `${Math.min(100, Math.max(6, screen.rangeIncidentRatePer100 * 8))}%` }}
-                                                />
-                                            </div>
-                                            <div className={`mt-2 flex items-center justify-between text-[11px] ${isSelected ? 'text-slate-200' : 'text-slate-500'}`}>
-                                                <span>{formatCompact(screen.rangeVisits)} visits</span>
-                                                <span>{screen.rangeIncidentRatePer100.toFixed(1)}/100</span>
-                                            </div>
-                                        </button>
-                                    );
-                                })}
+                        <div className="overflow-x-auto pb-2">
+                            <div className="flex min-w-max gap-4">
+                                {version.screens.map((screen) => (
+                                    <HeatmapTile
+                                        key={`${version.appVersion}-${screen.name}`}
+                                        screen={screen}
+                                        compact={compact}
+                                    />
+                                ))}
                             </div>
                         </div>
                     </div>
-
-                    <div className={`dashboard-inner-surface ${compact ? 'p-3.5' : 'p-4'}`}>
-                        <div className="mb-3 flex items-center justify-between gap-3">
-                            <div>
-                                <h3 className={`${compact ? 'text-sm' : 'text-base'} font-semibold uppercase tracking-wide text-black`}>{selectedScreen.name}</h3>
-                                <p className="text-xs font-mono text-gray-500">Primary signal: {selectedScreen.primarySignal.replace('_', ' ')}</p>
-                            </div>
-                            <div className="flex items-center gap-2">
-                                {isScreenDetailLoading && (
-                                    <span className="dashboard-surface px-2 py-0.5 text-[11px] font-mono font-semibold uppercase text-gray-500">
-                                        Refreshing
-                                    </span>
-                                )}
-                                <span className={`border-2 border-black px-2 py-0.5 text-xs font-mono font-semibold uppercase ${priorityChipClass}`}>{selectedScreen.priority}</span>
-                                <span className={`border-2 border-black px-2 py-0.5 text-xs font-mono font-semibold uppercase ${confidenceChipClass}`}>{selectedScreen.confidence}</span>
-                            </div>
-                        </div>
-
-                        <div className="mb-4 flex items-center justify-end gap-2">
-                            <button
-                                onClick={() => moveSelection(-1)}
-                                disabled={selectedIndex <= 0}
-                                className="dashboard-surface p-1.5 text-black hover:shadow-sm disabled:cursor-not-allowed disabled:opacity-40 transition-all"
-                                aria-label="Previous screen"
-                            >
-                                <ChevronLeft className="h-4 w-4" />
-                            </button>
-                            <button
-                                onClick={() => moveSelection(1)}
-                                disabled={selectedIndex < 0 || selectedIndex >= sortedScreens.length - 1}
-                                className="dashboard-surface p-1.5 text-black hover:shadow-sm disabled:cursor-not-allowed disabled:opacity-40 transition-all"
-                                aria-label="Next screen"
-                            >
-                                <ChevronRight className="h-4 w-4" />
-                            </button>
-                        </div>
-
-                        <HeatmapPreview screen={selectedScreen} compact={compact} />
-
-                        {compact && (
-                            <>
-                                <div className="mt-3 grid grid-cols-2 gap-2">
-                                    <div className="dashboard-surface px-2.5 py-2">
-                                        <div className="text-[10px] font-mono uppercase tracking-wide text-gray-500">Issue rate</div>
-                                        <div className="mt-0.5 text-sm font-black font-mono text-black">{selectedScreen.rangeIncidentRatePer100.toFixed(1)}/100</div>
-                                    </div>
-                                    <div className="dashboard-surface px-2.5 py-2">
-                                        <div className="text-[10px] font-mono uppercase tracking-wide text-gray-500">Rage taps</div>
-                                        <div className="mt-0.5 text-sm font-black font-mono text-[#ef4444]">{selectedScreen.rangeRageTapRatePer100.toFixed(1)}/100</div>
-                                    </div>
-                                    <div className="dashboard-surface px-2.5 py-2">
-                                        <div className="text-[10px] font-mono uppercase tracking-wide text-gray-500">{timeRange} visits</div>
-                                        <div className="mt-0.5 text-sm font-black font-mono text-black">{formatCompact(selectedScreen.rangeVisits)}</div>
-                                    </div>
-                                    <div className="dashboard-surface px-2.5 py-2">
-                                        <div className="text-[10px] font-mono uppercase tracking-wide text-gray-500">All-time touches</div>
-                                        <div className="mt-0.5 text-sm font-black font-mono text-black">{formatCompact(selectedScreen.visits)}</div>
-                                    </div>
-                                </div>
-
-                                {selectedScreen.evidenceSessionId && (
-                                    <Link
-                                        to={`${pathPrefix}/sessions/${selectedScreen.evidenceSessionId}`}
-                                        className="mt-3 inline-flex items-center gap-1 text-xs font-mono font-semibold text-[#5dadec] hover:text-black"
-                                    >
-                                        Open evidence replay <ArrowRight className="h-3.5 w-3.5" />
-                                    </Link>
-                                )}
-                            </>
-                        )}
-                    </div>
-
-                    {!compact && (
-                        <div className="dashboard-surface p-4">
-                            <div className="mb-3 grid grid-cols-2 gap-2">
-                                <div className="dashboard-inner-surface p-2.5">
-                                    <div className="text-[11px] font-mono uppercase tracking-wide text-gray-500">Issue rate</div>
-                                    <div className="mt-1 text-xl font-black font-mono text-black">{selectedScreen.rangeIncidentRatePer100.toFixed(1)}/100</div>
-                                </div>
-                                <div className="dashboard-inner-surface p-2.5">
-                                    <div className="text-[11px] font-mono uppercase tracking-wide text-gray-500">Rage taps</div>
-                                    <div className="mt-1 text-xl font-black font-mono text-[#ef4444]">{selectedScreen.rangeRageTapRatePer100.toFixed(1)}/100</div>
-                                </div>
-                                <div className="dashboard-inner-surface p-2.5">
-                                    <div className="text-[11px] font-mono uppercase tracking-wide text-gray-500">{timeRange} visits</div>
-                                    <div className="mt-1 text-xl font-black font-mono text-black">{formatCompact(selectedScreen.rangeVisits)}</div>
-                                </div>
-                                <div className="dashboard-inner-surface p-2.5">
-                                    <div className="text-[11px] font-mono uppercase tracking-wide text-gray-500">All-time touches</div>
-                                    <div className="mt-1 text-xl font-black font-mono text-black">{formatCompact(selectedScreen.visits)}</div>
-                                </div>
-                            </div>
-
-                            <div className="mb-4 space-y-2">
-                                {selectedSignalBars.map((bar) => {
-                                    const width = (bar.value / maxSignalValue) * 100;
-                                    const Icon = bar.icon;
-                                    return (
-                                        <div key={bar.key}>
-                                            <div className="mb-1 flex items-center justify-between text-xs">
-                                                <span className="flex items-center gap-1 text-black"><Icon className="h-3.5 w-3.5" />{bar.label}</span>
-                                                <span className={`font-semibold ${bar.textClass}`}>{bar.value.toFixed(1)}{bar.unit}</span>
-                                            </div>
-                                            <div className="h-1.5 overflow-hidden rounded-full bg-gray-200">
-                                                <div className={`h-full ${bar.barClass}`} style={{ width: `${Math.max(4, width)}%` }} />
-                                            </div>
-                                        </div>
-                                    );
-                                })}
-                            </div>
-
-                            <div className="dashboard-inner-surface p-3">
-                                <div className="text-xs font-mono font-semibold uppercase tracking-wide text-gray-500">Top friction zones</div>
-                                <div className="mt-2 space-y-2">
-                                    {hotspotZones.map((zone) => (
-                                        <div key={zone.id} className="flex items-center justify-between text-xs">
-                                            <span className="text-black">{zone.zone}</span>
-                                            <span className={`px-2 py-0.5 font-mono font-semibold ${zone.isRageTap ? 'border-2 border-[#ef4444] bg-white text-[#ef4444]' : 'border-2 border-[#34d399] bg-white text-[#34d399]'}`}>
-                                                {zone.intensity}% {zone.isRageTap ? 'rage' : 'touch'}
-                                            </span>
-                                        </div>
-                                    ))}
-                                    {hotspotZones.length === 0 && (
-                                        <p className="text-xs text-gray-500">No hotspot clusters identified for this screen.</p>
-                                    )}
-                                </div>
-                            </div>
-                            <div className="mt-3 dashboard-inner-surface p-3">
-                                <div className="text-xs font-mono font-semibold uppercase tracking-wide text-gray-500">Signal distribution</div>
-                                <div className="mt-2 grid grid-cols-3 gap-2">
-                                    {selectedSignalMix.map((item) => (
-                                        <div key={item.key} className="dashboard-surface px-2 py-1.5 text-center">
-                                            <div className="text-[10px] font-mono uppercase tracking-wide text-gray-500">{item.label}</div>
-                                            <div className="mt-0.5 text-sm font-black font-mono text-black">{item.share.toFixed(1)}%</div>
-                                        </div>
-                                    ))}
-                                </div>
-                            </div>
-
-                            {selectedScreen.evidenceSessionId && (
-                                <Link
-                                    to={`${pathPrefix}/sessions/${selectedScreen.evidenceSessionId}`}
-                                    className="mt-3 inline-flex items-center gap-1 text-xs font-mono font-semibold text-[#5dadec] hover:text-black"
-                                >
-                                    Open evidence replay <ArrowRight className="h-3.5 w-3.5" />
-                                </Link>
-                            )}
-                        </div>
-                    )}
-                </div>
+                ))}
             </div>
         </section>
     );

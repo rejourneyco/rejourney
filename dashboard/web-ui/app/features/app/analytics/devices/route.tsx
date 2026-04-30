@@ -27,7 +27,6 @@ import {
     InsightsTrends,
     ObservabilityDeepMetrics,
 } from '~/shared/api/client';
-import { DataWatermarkBanner } from '~/features/app/shared/dashboard/DataWatermarkBanner';
 import { DashboardPageHeader } from '~/shared/ui/core/DashboardPageHeader';
 import { TimeFilter, TimeRange, DEFAULT_TIME_RANGE } from '~/shared/ui/core/TimeFilter';
 import { KpiCardItem, KpiCardsGrid, computePeriodDeltaFromSeries } from '~/features/app/shared/dashboard/KpiCardsGrid';
@@ -389,7 +388,6 @@ export const Devices: React.FC = () => {
                 iconColor="bg-indigo-500"
             >
                 <div className="flex min-w-0 max-w-full flex-wrap items-center gap-3">
-                    <DataWatermarkBanner dataCompleteThrough={trends?.dataCompleteThrough} />
                     <TimeFilter value={timeRange} onChange={setTimeRange} />
                 </div>
             </DashboardPageHeader>

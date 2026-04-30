@@ -26,8 +26,6 @@ import { useSessionData } from '~/shared/providers/SessionContext';
 import {
     getDashboardOverview,
     getDashboardOverviewHeavy,
-    getGrowthObservability,
-    getObservabilityDeepMetrics,
     GeoSummary,
     GrowthObservability,
     InsightsTrends,
@@ -36,9 +34,8 @@ import {
     TopUserEntry,
     UserEngagementTrends,
 } from '~/shared/api/client';
-import { DataWatermarkBanner } from '~/features/app/shared/dashboard/DataWatermarkBanner';
 import { DashboardPageHeader } from '~/shared/ui/core/DashboardPageHeader';
-import { TimeFilter, TimeRange } from '~/shared/ui/core/TimeFilter';
+import { TimeFilter } from '~/shared/ui/core/TimeFilter';
 import { usePathPrefix } from '~/shell/routing/usePathPrefix';
 import { useSharedAnalyticsTimeRange } from '~/shared/hooks/useSharedAnalyticsTimeRange';
 import { formatGeoDisplay } from '~/shared/lib/geoDisplay';
@@ -46,12 +43,6 @@ import { NeoBadge } from '~/shared/ui/core/neo/NeoBadge';
 import { MiniSessionCard } from '~/shared/ui/core/MiniSessionCard';
 import { Issue, RecordingSession } from '~/shared/types';
 import { DashboardGhostLoader } from '~/shared/ui/core/DashboardGhostLoader';
-import { Button } from '~/shared/ui/core/Button';
-
-const toObservabilityRange = (value: TimeRange): string | undefined => {
-    if (value === 'all') return undefined;
-    return value;
-};
 
 const toUtcDateKey = (value: string): string | null => {
     const date = new Date(value);
@@ -322,8 +313,8 @@ function truncateUserLabel(value: string): string {
 function buildTopUsers(sessions: RecordingSession[]): TopUserRecommendation[] {
     if (sessions.length === 0) return [];
 
-    const replayReady = sessions.filter((s) => hasSuccessfulRecording(s) && !s.isReplayExpired);
-    const pool = replayReady.length > 0 ? replayReady : sessions;
+    const pool = sessions.filter((s) => hasSuccessfulRecording(s) && !s.isReplayExpired);
+    if (pool.length === 0) return [];
     const groups = new Map<string, TopUserRecommendation>();
 
     for (const session of pool) {
@@ -371,8 +362,8 @@ function buildTopUsers(sessions: RecordingSession[]): TopUserRecommendation[] {
 function buildRecommendedSessions(sessions: RecordingSession[]): RecommendedSession[] {
     if (sessions.length === 0) return [];
 
-    const replayReady = sessions.filter((s) => hasSuccessfulRecording(s) && !s.isReplayExpired);
-    const pool = replayReady.length > 0 ? replayReady : sessions;
+    const pool = sessions.filter((s) => hasSuccessfulRecording(s) && !s.isReplayExpired);
+    if (pool.length === 0) return [];
 
     const picks: RecommendedSession[] = [];
     const usedIds = new Set<string>();
@@ -732,33 +723,8 @@ export const GeneralOverview: React.FC = () => {
     const [retentionCohortRows, setRetentionCohortRows] = useState<RetentionCohortRow[]>([]);
     const [topIssuesPage, setTopIssuesPage] = useState(0);
     const [copiedTopUserKey, setCopiedTopUserKey] = useState<string | null>(null);
-    const [extendedInsightsLoading, setExtendedInsightsLoading] = useState(false);
-    const [extendedInsightsLoaded, setExtendedInsightsLoaded] = useState(false);
 
     const TOP_ISSUES_PAGE_SIZE = 5;
-
-    useEffect(() => {
-        setExtendedInsightsLoaded(false);
-    }, [selectedProject?.id, timeRange]);
-
-    const loadExtendedInsights = useCallback(async () => {
-        if (!selectedProject?.id || extendedInsightsLoaded) return;
-        const obsRange = toObservabilityRange(timeRange);
-        setExtendedInsightsLoading(true);
-        try {
-            const [fullObs, fullDeep] = await Promise.all([
-                getGrowthObservability(selectedProject.id, obsRange, 'full'),
-                getObservabilityDeepMetrics(selectedProject.id, obsRange, 'full'),
-            ]);
-            setOverviewObs(fullObs);
-            setDeepMetrics(fullDeep);
-            setExtendedInsightsLoaded(true);
-        } catch {
-            /* keep rollup-backed summary */
-        } finally {
-            setExtendedInsightsLoading(false);
-        }
-    }, [selectedProject?.id, timeRange, extendedInsightsLoaded]);
 
     useEffect(() => {
         if (!selectedProject?.id) {
@@ -1232,7 +1198,38 @@ export const GeneralOverview: React.FC = () => {
     const momentumCards = useMemo<MomentumCard[]>(() => {
         if (!trendComparison) return [];
 
-        const cards: MomentumCard[] = [
+        const qualityCard: MomentumCard = healthShift
+            ? {
+                label: 'Degraded Sessions',
+                value: `${healthShift.currentRate.toFixed(1)}%`,
+                delta: healthShift.deltaPts === null ? 'No prior window' : `${formatSigned(healthShift.deltaPts)} pts`,
+                positiveIsGood: false,
+                deltaValue: healthShift.deltaPts,
+            }
+            : deepMetrics?.reliability?.degradedSessionRate !== undefined
+                ? {
+                    label: 'Degraded Sessions',
+                    value: `${deepMetrics.reliability.degradedSessionRate.toFixed(1)}%`,
+                    delta: 'Current window',
+                    positiveIsGood: false,
+                    deltaValue: null,
+                }
+                : {
+                    label: 'API Error Rate',
+                    value: `${trendComparison.current.apiErrorRate.toFixed(2)}%`,
+                    delta: trendComparison.apiErrorDeltaPts === null ? 'No prior window' : `${formatSigned(trendComparison.apiErrorDeltaPts)} pts`,
+                    positiveIsGood: false,
+                    deltaValue: trendComparison.apiErrorDeltaPts,
+                };
+
+        return [
+            {
+                label: 'Active Users',
+                value: formatCompact(Math.round(trendComparison.current.avgDau)),
+                delta: trendComparison.dauDeltaPct === null ? 'No prior window' : `${formatSigned(trendComparison.dauDeltaPct)}%`,
+                positiveIsGood: true,
+                deltaValue: trendComparison.dauDeltaPct,
+            },
             {
                 label: 'Session Volume',
                 value: formatCompact(trendComparison.current.sessions),
@@ -1241,61 +1238,14 @@ export const GeneralOverview: React.FC = () => {
                 deltaValue: trendComparison.sessionDeltaPct,
             },
             {
-                label: 'DAU Momentum',
-                value: formatCompact(Math.round(trendComparison.current.avgDau)),
-                delta: trendComparison.dauDeltaPct === null ? 'No prior window' : `${formatSigned(trendComparison.dauDeltaPct)}%`,
-                positiveIsGood: true,
-                deltaValue: trendComparison.dauDeltaPct,
-            },
-            {
-                label: 'Avg Session Time',
-                value: formatDuration(trendComparison.current.avgDurationSeconds),
-                delta: trendComparison.durationDeltaPct === null ? 'No prior window' : `${formatSigned(trendComparison.durationDeltaPct)}%`,
-                positiveIsGood: true,
-                deltaValue: trendComparison.durationDeltaPct,
-            },
-            {
-                label: 'Retention (DAU/MAU)',
+                label: 'Retention',
                 value: `${trendComparison.current.avgRetention.toFixed(1)}%`,
                 delta: trendComparison.retentionDeltaPts === null ? 'No prior window' : `${formatSigned(trendComparison.retentionDeltaPts)} pts`,
                 positiveIsGood: true,
                 deltaValue: trendComparison.retentionDeltaPts,
             },
-            {
-                label: 'Crash Rate',
-                value: `${trendComparison.current.crashRate.toFixed(2)}%`,
-                delta: trendComparison.crashRateDeltaPts === null ? 'No prior window' : `${formatSigned(trendComparison.crashRateDeltaPts)} pts`,
-                positiveIsGood: false,
-                deltaValue: trendComparison.crashRateDeltaPts,
-            },
-            {
-                label: 'API Error Rate',
-                value: `${trendComparison.current.apiErrorRate.toFixed(2)}%`,
-                delta: trendComparison.apiErrorDeltaPts === null ? 'No prior window' : `${formatSigned(trendComparison.apiErrorDeltaPts)} pts`,
-                positiveIsGood: false,
-                deltaValue: trendComparison.apiErrorDeltaPts,
-            },
+            qualityCard,
         ];
-
-        if (healthShift) {
-            cards.push({
-                label: 'Degraded Session Share',
-                value: `${healthShift.currentRate.toFixed(1)}%`,
-                delta: healthShift.deltaPts === null ? 'No prior window' : `${formatSigned(healthShift.deltaPts)} pts`,
-                positiveIsGood: false,
-                deltaValue: healthShift.deltaPts,
-            });
-        } else if (deepMetrics?.reliability?.degradedSessionRate !== undefined) {
-            cards.push({
-                label: 'Degraded Session Share',
-                value: `${deepMetrics.reliability.degradedSessionRate.toFixed(1)}%`,
-                delta: 'Current window',
-                positiveIsGood: false,
-                deltaValue: null,
-            });
-        }
-
-        return cards;
     }, [trendComparison, healthShift, deepMetrics]);
 
     const customEvents = useMemo(() => {
@@ -1407,23 +1357,7 @@ export const GeneralOverview: React.FC = () => {
                 iconColor="bg-[#5dadec]"
             >
                 <div className="flex min-w-0 max-w-full flex-wrap items-center gap-3">
-                    <DataWatermarkBanner dataCompleteThrough={trends?.dataCompleteThrough} />
                     <TimeFilter value={timeRange} onChange={setTimeRange} />
-                    {selectedProject?.id && (
-                        <Button
-                            type="button"
-                            variant="secondary"
-                            size="sm"
-                            onClick={loadExtendedInsights}
-                            disabled={extendedInsightsLoading || extendedInsightsLoaded}
-                        >
-                            {extendedInsightsLoading
-                                ? 'Loading…'
-                                : extendedInsightsLoaded
-                                    ? 'Extended insights loaded'
-                                    : 'Load extended insights'}
-                        </Button>
-                    )}
                 </div>
             </DashboardPageHeader>
 
@@ -1845,25 +1779,6 @@ export const GeneralOverview: React.FC = () => {
                             </GA4Card>
 
                             <GA4Card title="Regional user reach">
-                                <div className="mb-4 grid grid-cols-1 gap-3 text-xs sm:grid-cols-3">
-                                    <div className="dashboard-inner-surface p-3 sm:col-span-1">
-                                        <div className="text-[10px] font-black uppercase tracking-widest text-slate-500">Active markets</div>
-                                        <div className="mt-2 text-3xl font-black text-black tracking-tight leading-none">{formatCompact(countryUsersByRegion.activeCountries)}</div>
-                                        <div className="mt-1 text-[10px] font-bold text-slate-600">Countries with tracked users</div>
-                                    </div>
-                                    <div className="dashboard-inner-surface p-3 sm:col-span-2">
-                                        <div className="text-[10px] font-black uppercase tracking-widest text-slate-500">Top user region</div>
-                                        <div className="mt-2 truncate text-2xl font-black text-black tracking-tight leading-none" title={countryUsersByRegion.topCountry || 'No region'}>
-                                            {countryUsersByRegion.topCountry || 'No region'}
-                                        </div>
-                                        <div className="mt-1 text-[10px] font-bold text-slate-600">
-                                            {countryUsersByRegion.topCountryShare === null
-                                                ? 'No geographic user activity in this filter'
-                                                : `${countryUsersByRegion.topCountryShare.toFixed(1)}% of daily active user-days`}
-                                        </div>
-                                    </div>
-                                </div>
-
                                 {countryUsersByRegion.countryKeys.length > 0 ? (
                                     <>
                                         <div className="h-[220px]">

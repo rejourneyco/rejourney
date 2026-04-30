@@ -127,6 +127,18 @@ spec:
                 secretKeyRef:
                   name: app-secret
                   key: STORAGE_ENCRYPTION_KEY
+            - name: QUERY_BUILDER_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: app-secret
+                  key: QUERY_BUILDER_KEY
+                  optional: true
+            - name: QUERY_BUILDER_MODEL
+              valueFrom:
+                secretKeyRef:
+                  name: app-secret
+                  key: QUERY_BUILDER_MODEL
+                  optional: true
             - name: GITHUB_CLIENT_ID
               valueFrom:
                 secretKeyRef:

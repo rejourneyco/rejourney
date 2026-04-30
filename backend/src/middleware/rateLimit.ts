@@ -169,6 +169,27 @@ export const dashboardStatsRateLimiter = rateLimit({
     message: 'Too many stats requests. Please wait before refreshing.',
 });
 
+export const queryBuilderUserRateLimiter = rateLimit({
+    ...rateLimits.dashboard.queryBuilderUser,
+    keyGenerator: (req) => `rate:query-builder:user:${req.user?.id || req.ip || 'unknown'}`,
+    failOpen: false,
+    message: 'Too many AI query requests. Please wait before generating more queries.',
+});
+
+export const queryBuilderProjectRateLimiter = rateLimit({
+    ...rateLimits.dashboard.queryBuilderProject,
+    keyGenerator: (req) => `rate:query-builder:project:${req.params.id || req.params.projectId || 'unknown'}`,
+    failOpen: false,
+    message: 'This project has reached its daily AI query-builder limit.',
+});
+
+export const queryBuilderIpRateLimiter = rateLimit({
+    ...rateLimits.dashboard.queryBuilderIp,
+    keyGenerator: (req) => `rate:query-builder:ip:${req.ip || 'unknown'}`,
+    failOpen: false,
+    message: 'Too many AI query requests from this network. Please try again later.',
+});
+
 // Keep ingest project buckets split by route family so hot replay traffic does
 // not cannibalize other ingest paths.
 export const ingestAuthProjectRateLimiter = rateLimit({

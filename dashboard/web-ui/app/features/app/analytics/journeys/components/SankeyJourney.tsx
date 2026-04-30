@@ -1,5 +1,4 @@
 import React, { useMemo, useState } from 'react';
-import { Link } from 'react-router';
 
 export interface SankeyFlow {
     from: string;
@@ -49,9 +48,10 @@ interface SankeyJourneyProps {
     width?: number;
     height?: number;
     happyPath?: string[] | null;
-    sessionPathPrefix?: string;
     transitionEvidence?: Record<string, SankeyEvidenceSession[]>;
     maxEvidenceRows?: number;
+    selectedTransitionIds?: string[];
+    onFlowToggle?: (flow: SankeyFlow) => void;
 }
 
 const PRIORITY_RANK: Record<'high' | 'medium' | 'low', number> = {
@@ -102,13 +102,13 @@ export const SankeyJourney: React.FC<SankeyJourneyProps> = ({
     width: propWidth,
     height = 500,
     happyPath,
-    sessionPathPrefix,
     transitionEvidence = {},
     maxEvidenceRows = 8,
+    selectedTransitionIds = [],
+    onFlowToggle,
 }) => {
     const [hoveredLinkId, setHoveredLinkId] = useState<string | null>(null);
     const [hoveredNode, setHoveredNode] = useState<string | null>(null);
-    const [selectedLinkId, setSelectedLinkId] = useState<string | null>(null);
 
     const happyTransitionSet = useMemo(() => {
         const transitions = new Set<string>();
@@ -121,6 +121,18 @@ export const SankeyJourney: React.FC<SankeyJourneyProps> = ({
     }, [happyPath]);
 
     const happyNodeSet = useMemo(() => new Set(happyPath || []), [happyPath]);
+
+    const selectedTransitionSet = useMemo(() => new Set(selectedTransitionIds), [selectedTransitionIds]);
+
+    const selectedNodeSet = useMemo(() => {
+        const nodes = new Set<string>();
+        for (const transitionId of selectedTransitionIds) {
+            const [from, to] = transitionId.split('→');
+            if (from) nodes.add(from);
+            if (to) nodes.add(to);
+        }
+        return nodes;
+    }, [selectedTransitionIds]);
 
     const { nodes, links, nodeLookup, calculatedWidth } = useMemo(() => {
         if (flows.length === 0) return { nodes: [], links: [], nodeLookup: new Map<string, SankeyNode>(), calculatedWidth: propWidth || 1200 };
@@ -287,7 +299,10 @@ export const SankeyJourney: React.FC<SankeyJourneyProps> = ({
     const maxLevel = Math.max(...nodes.map((node) => node.level), 1);
     const levelSpacing = maxLevel > 0 ? (calculatedWidth - padding * 2 - nodeWidth) / maxLevel : 0;
 
-    const getLinkColor = (link: SankeyLink, isHovered: boolean) => {
+    const getLinkColor = (link: SankeyLink, isHovered: boolean, isSelected: boolean) => {
+        if (isSelected) {
+            return isHovered ? 'rgba(29, 78, 216, 0.96)' : 'rgba(37, 99, 235, 0.84)';
+        }
         const transitionKey = `${link.source}→${link.target}`;
         if (happyTransitionSet.has(transitionKey)) {
             return isHovered ? 'rgba(34, 197, 94, 0.95)' : 'rgba(34, 197, 94, 0.72)';
@@ -304,11 +319,8 @@ export const SankeyJourney: React.FC<SankeyJourneyProps> = ({
         return isHovered ? 'rgba(37, 99, 235, 0.72)' : 'rgba(37, 99, 235, 0.24)';
     };
 
-    const selectedLink = selectedLinkId ? links.find((link) => link.id === selectedLinkId) || null : null;
     const hoveredLink = hoveredLinkId ? links.find((link) => link.id === hoveredLinkId) || null : null;
-    const activeLink = selectedLink || hoveredLink;
-    const hasPinnedDetails = Boolean(selectedLink);
-    const activeEvidenceRows = activeLink ? evidenceByLink.get(activeLink.id) || [] : [];
+    const activeLink = hoveredLink;
 
     const sourceLevel = activeLink ? nodeLookup.get(activeLink.source)?.level || 0 : 0;
     const targetLevel = activeLink ? nodeLookup.get(activeLink.target)?.level || 0 : 0;
@@ -317,7 +329,7 @@ export const SankeyJourney: React.FC<SankeyJourneyProps> = ({
     const rawTopPct = activeLink ? ((activeLink.ySource + activeLink.yTarget) / 2 / height) * 100 : 50;
     const popupTopPct = Math.max(10, Math.min(88, rawTopPct));
 
-    const canLinkToReplays = Boolean(sessionPathPrefix);
+    const hasSelectedPaths = selectedTransitionSet.size > 0;
 
     return (
         <div className="relative border-2 border-black bg-white shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] overflow-hidden">
@@ -326,13 +338,14 @@ export const SankeyJourney: React.FC<SankeyJourneyProps> = ({
                     Flow map by transition volume
                 </div>
                 <div className="text-xs text-slate-500">
-                    Green links represent your configured happy path. Click any path for evidence sessions.
+                    {hasSelectedPaths
+                        ? `${selectedTransitionSet.size} selected path${selectedTransitionSet.size === 1 ? '' : 's'}. Click a blue path again to remove it.`
+                        : 'Click paths to select them and build a replay query below.'}
                 </div>
             </div>
 
             <div
                 className="relative overflow-x-auto p-4"
-                onClick={() => setSelectedLinkId(null)}
             >
                 <div className="absolute inset-0 pointer-events-none opacity-25" style={{
                     backgroundImage: 'linear-gradient(to right, rgba(148,163,184,0.16) 1px, transparent 1px), linear-gradient(to bottom, rgba(148,163,184,0.16) 1px, transparent 1px)',
@@ -350,24 +363,25 @@ export const SankeyJourney: React.FC<SankeyJourneyProps> = ({
                             const cp1x = xStart + (xEnd - xStart) * 0.42;
                             const cp2x = xEnd - (xEnd - xStart) * 0.42;
 
-                            const isSelected = selectedLinkId === link.id;
-                            const isHovered = hoveredLinkId === link.id || hoveredNode === link.source || hoveredNode === link.target || isSelected;
-                            const isOther = (hoveredLinkId || hoveredNode || selectedLinkId) && !isHovered;
+                            const isSelected = selectedTransitionSet.has(link.id);
+                            const isHovered = hoveredLinkId === link.id;
+                            const hasActiveFocus = Boolean(hoveredLinkId || hasSelectedPaths);
+                            const isOther = hasActiveFocus && !isHovered;
 
                             return (
                                 <path
                                     key={link.id}
                                     d={`M ${xStart} ${link.ySource} C ${cp1x} ${link.ySource}, ${cp2x} ${link.yTarget}, ${xEnd} ${link.yTarget}`}
                                     fill="none"
-                                    stroke={getLinkColor(link, isHovered)}
-                                    strokeWidth={isHovered ? link.thickness + 2 : link.thickness}
+                                    stroke={getLinkColor(link, isHovered, isSelected)}
+                                    strokeWidth={isSelected ? Math.max(link.thickness + 4, 7) : isHovered ? link.thickness + 2 : link.thickness}
                                     strokeLinecap="round"
-                                    opacity={isOther ? 0.18 : 1}
+                                    opacity={isOther && !isSelected ? 0.12 : 1}
                                     onMouseEnter={() => setHoveredLinkId(link.id)}
                                     onMouseLeave={() => setHoveredLinkId(null)}
                                     onClick={(event) => {
                                         event.stopPropagation();
-                                        setSelectedLinkId((current) => (current === link.id ? null : link.id));
+                                        onFlowToggle?.(link.data);
                                     }}
                                     className="cursor-pointer"
                                     style={{
@@ -383,8 +397,9 @@ export const SankeyJourney: React.FC<SankeyJourneyProps> = ({
                         {nodes.map((node) => {
                             const x = padding + node.level * levelSpacing;
                             const transitionHover = activeLink && (activeLink.source === node.id || activeLink.target === node.id);
-                            const isHovered = hoveredNode === node.id || Boolean(transitionHover);
-                            const isOther = (hoveredLinkId || hoveredNode || selectedLinkId) && !isHovered;
+                            const isSelectedNode = selectedNodeSet.has(node.id);
+                            const isHovered = hoveredNode === node.id || Boolean(transitionHover) || isSelectedNode;
+                            const isOther = (hoveredLinkId || hasSelectedPaths) && !isHovered;
                             const isHappyNode = happyNodeSet.has(node.id);
 
                             return (
@@ -400,10 +415,10 @@ export const SankeyJourney: React.FC<SankeyJourneyProps> = ({
                                         width={nodeWidth}
                                         height={node.height}
                                         rx="8"
-                                        fill={isHappyNode ? (isHovered ? '#ecfdf3' : '#f0fdf4') : (isHovered ? '#ffffff' : '#f8fafc')}
-                                        stroke={isHappyNode ? (isHovered ? '#16a34a' : '#86efac') : (isHovered ? '#2563eb' : '#cbd5e1')}
+                                        fill={isSelectedNode ? '#eff6ff' : isHappyNode ? (isHovered ? '#ecfdf3' : '#f0fdf4') : (isHovered ? '#ffffff' : '#f8fafc')}
+                                        stroke={isSelectedNode ? '#2563eb' : isHappyNode ? (isHovered ? '#16a34a' : '#86efac') : (isHovered ? '#2563eb' : '#cbd5e1')}
                                         strokeWidth={isHovered ? 2 : 1.2}
-                                        opacity={isOther ? 0.42 : 1}
+                                        opacity={isOther ? 0.3 : 1}
                                         style={{
                                             filter: isHovered ? 'drop-shadow(0 6px 8px rgba(15,23,42,0.12))' : 'none',
                                             transition: 'opacity 180ms ease, stroke 180ms ease, stroke-width 180ms ease, filter 180ms ease, fill 180ms ease',
@@ -430,7 +445,7 @@ export const SankeyJourney: React.FC<SankeyJourneyProps> = ({
 
                 {activeLink && (
                         <div
-                            className={`absolute bg-white border-2 border-black p-3 text-xs z-20 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] ${hasPinnedDetails ? 'pointer-events-auto w-[420px]' : 'pointer-events-none w-[260px]'}`}
+                            className="pointer-events-none absolute z-20 w-[260px] border-2 border-black bg-white p-3 text-xs shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]"
                             style={{
                                 left: `calc(${popupLeftPct}% + 42px)`,
                                 top: `${popupTopPct}%`,
@@ -444,15 +459,6 @@ export const SankeyJourney: React.FC<SankeyJourneyProps> = ({
                                     <div className="font-semibold text-slate-800 mb-0.5">{formatCompact(activeLink.value)} sessions</div>
                                     <div className="text-slate-600">{activeLink.source} → {activeLink.target}</div>
                                 </div>
-                                {hasPinnedDetails && (
-                                    <button
-                                        type="button"
-                                        className="rounded border border-slate-200 px-1.5 py-0.5 text-[10px] font-semibold text-slate-600 hover:bg-slate-50"
-                                        onClick={() => setSelectedLinkId(null)}
-                                    >
-                                        Close
-                                    </button>
-                                )}
                             </div>
 
                             <div className="mt-2 grid grid-cols-2 gap-1.5 text-[10px]">
@@ -470,55 +476,9 @@ export const SankeyJourney: React.FC<SankeyJourneyProps> = ({
                                 </div>
                             </div>
 
-                            {!hasPinnedDetails && (
-                                <div className="mt-2 text-[10px] text-slate-500">
-                                    Click this path to inspect a compact evidence table with replay sessions.
-                                </div>
-                            )}
-
-                            {hasPinnedDetails && (
-                                <div className="mt-2">
-                                    <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-slate-500">Evidence Sessions</div>
-                                    <div className="max-h-44 overflow-y-auto rounded border border-slate-200">
-                                        <table className="w-full text-[10px]">
-                                            <thead className="sticky top-0 bg-slate-50 text-slate-600">
-                                                <tr>
-                                                    <th className="px-2 py-1 text-left font-semibold">Session</th>
-                                                    <th className="px-2 py-1 text-left font-semibold">Source</th>
-                                                    <th className="px-2 py-1 text-left font-semibold">Signal</th>
-                                                    <th className="px-2 py-1 text-right font-semibold">Replay</th>
-                                                </tr>
-                                            </thead>
-                                            <tbody>
-                                                {activeEvidenceRows.map((row) => (
-                                                    <tr key={row.sessionId} className="border-t border-slate-100">
-                                                        <td className="px-2 py-1.5 font-medium text-slate-700">{row.sessionId}</td>
-                                                        <td className="px-2 py-1.5 text-slate-600">{row.source}</td>
-                                                        <td className="px-2 py-1.5 text-slate-600">{row.signal}</td>
-                                                        <td className="px-2 py-1.5 text-right">
-                                                            {canLinkToReplays ? (
-                                                                <Link
-                                                                    to={`${sessionPathPrefix}/sessions/${row.sessionId}`}
-                                                                    className="font-semibold text-blue-700 hover:text-blue-800"
-                                                                >
-                                                                    Watch
-                                                                </Link>
-                                                            ) : (
-                                                                <span className="text-slate-400">N/A</span>
-                                                            )}
-                                                        </td>
-                                                    </tr>
-                                                ))}
-                                            </tbody>
-                                        </table>
-                                    </div>
-                                    {activeEvidenceRows.length === 0 && (
-                                        <div className="mt-2 rounded border border-dashed border-slate-300 bg-slate-50 px-2 py-1.5 text-[10px] text-slate-500">
-                                            No evidence sessions are available for this transition yet.
-                                        </div>
-                                    )}
-                                </div>
-                            )}
+                            <div className="mt-2 text-[10px] text-slate-500">
+                                Click to {selectedTransitionSet.has(activeLink.id) ? 'remove this path from' : 'add this path to'} the replay query.
+                            </div>
                         </div>
                     )}
             </div>

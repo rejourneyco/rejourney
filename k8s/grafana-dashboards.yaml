@@ -3977,16 +3977,11 @@ data:
             }
           ],
           "options": {
-            "tiling": "squarify",
-            "label": "all",
-            "groups": [
-              {
-                "fieldName": "node"
-              },
-              {
-                "fieldName": "pod"
-              }
-            ]
+            "tiling": "treemapSquarify",
+            "textField": "pod",
+            "sizeField": "Value",
+            "groupByField": "node",
+            "colorByField": "Value"
           },
           "fieldConfig": {
             "defaults": {
@@ -4065,16 +4060,11 @@ data:
             }
           ],
           "options": {
-            "tiling": "squarify",
-            "label": "all",
-            "groups": [
-              {
-                "fieldName": "node"
-              },
-              {
-                "fieldName": "pod"
-              }
-            ]
+            "tiling": "treemapSquarify",
+            "textField": "pod",
+            "sizeField": "Value",
+            "groupByField": "node",
+            "colorByField": "Value"
           },
           "fieldConfig": {
             "defaults": {
@@ -14599,7 +14589,7 @@ data:
       "version": 1,
       "refresh": "60s",
       "time": {
-        "from": "now-30d",
+        "from": "now-3h",
         "to": "now"
       },
       "timepicker": {
@@ -14649,7 +14639,7 @@ data:
               "expr": "rejourney_platform_stats_total_teams",
               "legendFormat": "",
               "refId": "A",
-              "instant": false
+              "instant": true
             }
           ],
           "options": {
@@ -14705,7 +14695,7 @@ data:
               "expr": "rejourney_platform_stats_paid_teams",
               "legendFormat": "",
               "refId": "A",
-              "instant": false
+              "instant": true
             }
           ],
           "options": {
@@ -14761,7 +14751,7 @@ data:
               "expr": "rejourney_platform_stats_total_teams - rejourney_platform_stats_paid_teams",
               "legendFormat": "",
               "refId": "A",
-              "instant": false
+              "instant": true
             }
           ],
           "options": {
@@ -14797,7 +14787,7 @@ data:
         {
           "id": 5,
           "type": "stat",
-          "title": "Active Teams (period)",
+          "title": "Active Teams (30d)",
           "datasource": {
             "type": "prometheus",
             "uid": "victoria-metrics"
@@ -14814,10 +14804,10 @@ data:
                 "type": "prometheus",
                 "uid": "victoria-metrics"
               },
-              "expr": "rejourney_platform_stats_active_teams_current_period",
+              "expr": "rejourney_platform_stats_active_teams_30d",
               "legendFormat": "",
               "refId": "A",
-              "instant": false
+              "instant": true
             }
           ],
           "options": {
@@ -14853,7 +14843,7 @@ data:
         {
           "id": 6,
           "type": "stat",
-          "title": "Payment Failures",
+          "title": "Active Projects (30d)",
           "datasource": {
             "type": "prometheus",
             "uid": "victoria-metrics"
@@ -14870,10 +14860,66 @@ data:
                 "type": "prometheus",
                 "uid": "victoria-metrics"
               },
+              "expr": "rejourney_platform_stats_active_projects_30d",
+              "legendFormat": "",
+              "refId": "A",
+              "instant": true
+            }
+          ],
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "colorMode": "value",
+            "graphMode": "area",
+            "textMode": "auto",
+            "justifyMode": "auto"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 7,
+          "type": "stat",
+          "title": "Payment Failures",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoria-metrics"
+          },
+          "gridPos": {
+            "x": 20,
+            "y": 1,
+            "w": 4,
+            "h": 4
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "victoria-metrics"
+              },
               "expr": "rejourney_platform_stats_teams_payment_failed",
               "legendFormat": "",
               "refId": "A",
-              "instant": false
+              "instant": true
             }
           ],
           "options": {
@@ -14915,65 +14961,9 @@ data:
           }
         },
         {
-          "id": 7,
-          "type": "stat",
-          "title": "Total Users",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "victoria-metrics"
-          },
-          "gridPos": {
-            "x": 20,
-            "y": 1,
-            "w": 4,
-            "h": 4
-          },
-          "targets": [
-            {
-              "datasource": {
-                "type": "prometheus",
-                "uid": "victoria-metrics"
-              },
-              "expr": "rejourney_platform_stats_total_users",
-              "legendFormat": "",
-              "refId": "A",
-              "instant": false
-            }
-          ],
-          "options": {
-            "reduceOptions": {
-              "calcs": [
-                "lastNotNull"
-              ],
-              "fields": "",
-              "values": false
-            },
-            "colorMode": "value",
-            "graphMode": "area",
-            "textMode": "auto",
-            "justifyMode": "auto"
-          },
-          "fieldConfig": {
-            "defaults": {
-              "unit": "short",
-              "mappings": [],
-              "thresholds": {
-                "mode": "absolute",
-                "steps": [
-                  {
-                    "color": "green",
-                    "value": null
-                  }
-                ]
-              }
-            },
-            "overrides": []
-          }
-        },
-        {
           "id": 8,
           "type": "row",
-          "title": "Current billing period",
+          "title": "Platform \u2014 last 30 days",
           "collapsed": false,
           "gridPos": {
             "x": 0,
@@ -14986,7 +14976,7 @@ data:
         {
           "id": 9,
           "type": "stat",
-          "title": "Sessions (period)",
+          "title": "Sessions (30d)",
           "datasource": {
             "type": "prometheus",
             "uid": "victoria-metrics"
@@ -15003,10 +14993,10 @@ data:
                 "type": "prometheus",
                 "uid": "victoria-metrics"
               },
-              "expr": "rejourney_platform_stats_sessions_current_period",
+              "expr": "rejourney_platform_stats_sessions_30d",
               "legendFormat": "",
               "refId": "A",
-              "instant": false
+              "instant": true
             }
           ],
           "options": {
@@ -15059,10 +15049,10 @@ data:
                 "type": "prometheus",
                 "uid": "victoria-metrics"
               },
-              "expr": "rejourney_platform_stats_storage_bytes_current_period",
+              "expr": "rejourney_platform_stats_storage_bytes_period",
               "legendFormat": "",
               "refId": "A",
-              "instant": false
+              "instant": true
             }
           ],
           "options": {
@@ -15098,7 +15088,7 @@ data:
         {
           "id": 11,
           "type": "stat",
-          "title": "New Users (24 h)",
+          "title": "Total Users",
           "datasource": {
             "type": "prometheus",
             "uid": "victoria-metrics"
@@ -15115,10 +15105,10 @@ data:
                 "type": "prometheus",
                 "uid": "victoria-metrics"
               },
-              "expr": "rejourney_platform_stats_new_users_24h",
+              "expr": "rejourney_platform_stats_total_users",
               "legendFormat": "",
               "refId": "A",
-              "instant": false
+              "instant": true
             }
           ],
           "options": {
@@ -15154,7 +15144,7 @@ data:
         {
           "id": 12,
           "type": "stat",
-          "title": "New Users (7 d)",
+          "title": "New Users (24 h)",
           "datasource": {
             "type": "prometheus",
             "uid": "victoria-metrics"
@@ -15171,10 +15161,10 @@ data:
                 "type": "prometheus",
                 "uid": "victoria-metrics"
               },
-              "expr": "rejourney_platform_stats_new_users_7d",
+              "expr": "rejourney_platform_stats_new_users_24h",
               "legendFormat": "",
               "refId": "A",
-              "instant": false
+              "instant": true
             }
           ],
           "options": {
@@ -15210,7 +15200,7 @@ data:
         {
           "id": 13,
           "type": "stat",
-          "title": "New Users (30 d)",
+          "title": "New Users (7 d)",
           "datasource": {
             "type": "prometheus",
             "uid": "victoria-metrics"
@@ -15227,10 +15217,10 @@ data:
                 "type": "prometheus",
                 "uid": "victoria-metrics"
               },
-              "expr": "rejourney_platform_stats_new_users_30d",
+              "expr": "rejourney_platform_stats_new_users_7d",
               "legendFormat": "",
               "refId": "A",
-              "instant": false
+              "instant": true
             }
           ],
           "options": {
@@ -15362,7 +15352,7 @@ data:
         {
           "id": 16,
           "type": "timeseries",
-          "title": "User accounts \u2014 total",
+          "title": "Signup rate \u2014 new users in rolling windows",
           "datasource": {
             "type": "prometheus",
             "uid": "victoria-metrics"
@@ -15379,9 +15369,29 @@ data:
                 "type": "prometheus",
                 "uid": "victoria-metrics"
               },
-              "expr": "rejourney_platform_stats_total_users",
-              "legendFormat": "Total users",
+              "expr": "rejourney_platform_stats_new_users_24h",
+              "legendFormat": "24 h",
               "refId": "A",
+              "instant": false
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "victoria-metrics"
+              },
+              "expr": "rejourney_platform_stats_new_users_7d",
+              "legendFormat": "7 d",
+              "refId": "B",
+              "instant": false
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "victoria-metrics"
+              },
+              "expr": "rejourney_platform_stats_new_users_30d",
+              "legendFormat": "30 d",
+              "refId": "C",
               "instant": false
             }
           ],
@@ -15392,7 +15402,7 @@ data:
                 "drawStyle": "line",
                 "lineInterpolation": "smooth",
                 "lineWidth": 2,
-                "fillOpacity": 5,
+                "fillOpacity": 0,
                 "gradientMode": "opacity",
                 "showPoints": "never",
                 "pointSize": 5,
@@ -15422,8 +15432,7 @@ data:
               "displayMode": "table",
               "placement": "bottom",
               "calcs": [
-                "lastNotNull",
-                "max"
+                "lastNotNull"
               ]
             },
             "tooltip": {
@@ -15434,236 +15443,30 @@ data:
         },
         {
           "id": 17,
-          "type": "timeseries",
-          "title": "Signup rate \u2014 new users in rolling 24 h window",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "victoria-metrics"
-          },
-          "gridPos": {
-            "x": 0,
-            "y": 19,
-            "w": 12,
-            "h": 8
-          },
-          "targets": [
-            {
-              "datasource": {
-                "type": "prometheus",
-                "uid": "victoria-metrics"
-              },
-              "expr": "rejourney_platform_stats_new_users_24h",
-              "legendFormat": "New users (24 h)",
-              "refId": "A",
-              "instant": false
-            }
-          ],
-          "fieldConfig": {
-            "defaults": {
-              "unit": "short",
-              "custom": {
-                "drawStyle": "line",
-                "lineInterpolation": "smooth",
-                "lineWidth": 2,
-                "fillOpacity": 5,
-                "gradientMode": "opacity",
-                "showPoints": "never",
-                "pointSize": 5,
-                "stacking": {
-                  "mode": "none",
-                  "group": "A"
-                },
-                "axisPlacement": "auto",
-                "axisLabel": "",
-                "scaleDistribution": {
-                  "type": "linear"
-                },
-                "hideFrom": {
-                  "tooltip": false,
-                  "viz": false,
-                  "legend": false
-                },
-                "thresholdsStyle": {
-                  "mode": "off"
-                }
-              }
-            },
-            "overrides": []
-          },
-          "options": {
-            "legend": {
-              "displayMode": "table",
-              "placement": "bottom",
-              "calcs": [
-                "mean",
-                "max"
-              ]
-            },
-            "tooltip": {
-              "mode": "multi",
-              "sort": "desc"
-            }
-          }
-        },
-        {
-          "id": 18,
-          "type": "timeseries",
-          "title": "Active teams \u2014 this billing period (running total)",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "victoria-metrics"
-          },
-          "gridPos": {
-            "x": 12,
-            "y": 19,
-            "w": 12,
-            "h": 8
-          },
-          "targets": [
-            {
-              "datasource": {
-                "type": "prometheus",
-                "uid": "victoria-metrics"
-              },
-              "expr": "rejourney_platform_stats_active_teams_current_period",
-              "legendFormat": "Active teams",
-              "refId": "A",
-              "instant": false
-            }
-          ],
-          "fieldConfig": {
-            "defaults": {
-              "unit": "short",
-              "custom": {
-                "drawStyle": "line",
-                "lineInterpolation": "smooth",
-                "lineWidth": 2,
-                "fillOpacity": 5,
-                "gradientMode": "opacity",
-                "showPoints": "never",
-                "pointSize": 5,
-                "stacking": {
-                  "mode": "none",
-                  "group": "A"
-                },
-                "axisPlacement": "auto",
-                "axisLabel": "",
-                "scaleDistribution": {
-                  "type": "linear"
-                },
-                "hideFrom": {
-                  "tooltip": false,
-                  "viz": false,
-                  "legend": false
-                },
-                "thresholdsStyle": {
-                  "mode": "off"
-                }
-              }
-            },
-            "overrides": []
-          },
-          "options": {
-            "legend": {
-              "displayMode": "table",
-              "placement": "bottom",
-              "calcs": [
-                "lastNotNull"
-              ]
-            },
-            "tooltip": {
-              "mode": "multi",
-              "sort": "desc"
-            }
-          }
-        },
-        {
-          "id": 19,
           "type": "row",
-          "title": "Daily breakdown \u2014 last 30 days (snapshot, updates each scrape)",
+          "title": "Daily breakdown \u2014 last 30 days (snapshot, refreshes each scrape)",
           "collapsed": false,
           "gridPos": {
             "x": 0,
-            "y": 27,
+            "y": 19,
             "w": 24,
             "h": 1
           },
           "panels": []
         },
         {
-          "id": 20,
+          "id": 18,
           "type": "bargauge",
-          "title": "Daily signups (new user registrations per day)",
+          "title": "Sessions per day (platform-wide)",
           "datasource": {
             "type": "prometheus",
             "uid": "victoria-metrics"
           },
           "gridPos": {
             "x": 0,
-            "y": 28,
+            "y": 20,
             "w": 24,
-            "h": 10
-          },
-          "targets": [
-            {
-              "datasource": {
-                "type": "prometheus",
-                "uid": "victoria-metrics"
-              },
-              "expr": "rejourney_user_signups_daily_signups",
-              "legendFormat": "{{day}}",
-              "refId": "A",
-              "instant": true
-            }
-          ],
-          "options": {
-            "reduceOptions": {
-              "calcs": [
-                "lastNotNull"
-              ],
-              "fields": "",
-              "values": false
-            },
-            "orientation": "horizontal",
-            "displayMode": "basic",
-            "showUnfilled": true,
-            "valueMode": "color",
-            "minVizHeight": 10,
-            "minVizWidth": 0
-          },
-          "fieldConfig": {
-            "defaults": {
-              "unit": "short",
-              "min": 0,
-              "color": {
-                "mode": "palette-classic"
-              },
-              "thresholds": {
-                "mode": "absolute",
-                "steps": [
-                  {
-                    "color": "green",
-                    "value": null
-                  }
-                ]
-              }
-            },
-            "overrides": []
-          }
-        },
-        {
-          "id": 21,
-          "type": "bargauge",
-          "title": "Daily sessions (total platform sessions started per day)",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "victoria-metrics"
-          },
-          "gridPos": {
-            "x": 0,
-            "y": 38,
-            "w": 24,
-            "h": 10
+            "h": 12
           },
           "targets": [
             {
@@ -15713,31 +15516,92 @@ data:
           }
         },
         {
-          "id": 22,
-          "type": "row",
-          "title": "Top teams (current billing period)",
-          "collapsed": false,
-          "gridPos": {
-            "x": 0,
-            "y": 48,
-            "w": 24,
-            "h": 1
-          },
-          "panels": []
-        },
-        {
-          "id": 23,
-          "type": "table",
-          "title": "Top 25 Teams by Sessions",
+          "id": 19,
+          "type": "bargauge",
+          "title": "New user signups per day",
           "datasource": {
             "type": "prometheus",
             "uid": "victoria-metrics"
           },
           "gridPos": {
             "x": 0,
-            "y": 49,
+            "y": 32,
             "w": 24,
-            "h": 14
+            "h": 12
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "victoria-metrics"
+              },
+              "expr": "rejourney_user_signups_daily_signups",
+              "legendFormat": "{{day}}",
+              "refId": "A",
+              "instant": true
+            }
+          ],
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "orientation": "horizontal",
+            "displayMode": "basic",
+            "showUnfilled": true,
+            "valueMode": "color",
+            "minVizHeight": 10,
+            "minVizWidth": 0
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "min": 0,
+              "color": {
+                "mode": "palette-classic"
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 20,
+          "type": "row",
+          "title": "Top 25 teams \u2014 last 30 days by sessions",
+          "collapsed": false,
+          "gridPos": {
+            "x": 0,
+            "y": 44,
+            "w": 24,
+            "h": 1
+          },
+          "panels": []
+        },
+        {
+          "id": 21,
+          "type": "table",
+          "title": "Top Teams",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoria-metrics"
+          },
+          "gridPos": {
+            "x": 0,
+            "y": 45,
+            "w": 24,
+            "h": 16
           },
           "targets": [
             {
@@ -15746,8 +15610,19 @@ data:
                 "uid": "victoria-metrics"
               },
               "expr": "rejourney_top_teams_by_sessions_sessions",
-              "legendFormat": "{{team}} ({{plan}})",
+              "legendFormat": "{{team}}",
               "refId": "A",
+              "instant": true,
+              "format": "table"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "victoria-metrics"
+              },
+              "expr": "rejourney_top_teams_by_sessions_active_projects",
+              "legendFormat": "",
+              "refId": "B",
               "instant": true,
               "format": "table"
             },
@@ -15758,7 +15633,18 @@ data:
               },
               "expr": "rejourney_top_teams_by_sessions_storage_bytes",
               "legendFormat": "",
-              "refId": "B",
+              "refId": "C",
+              "instant": true,
+              "format": "table"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "victoria-metrics"
+              },
+              "expr": "rejourney_top_teams_by_sessions_requests",
+              "legendFormat": "",
+              "refId": "D",
               "instant": true,
               "format": "table"
             }
@@ -15771,11 +15657,12 @@ data:
               "id": "organize",
               "options": {
                 "renameByName": {
-                  "Value #A": "Sessions",
-                  "Value #B": "Storage",
+                  "Value #A": "Sessions (30d)",
+                  "Value #B": "Projects",
+                  "Value #C": "Storage",
+                  "Value #D": "Requests",
                   "team": "Team",
-                  "plan": "Plan",
-                  "Time": ""
+                  "plan": "Plan"
                 },
                 "excludeByName": {
                   "Time": true
@@ -15783,8 +15670,10 @@ data:
                 "indexByName": {
                   "Team": 0,
                   "Plan": 1,
-                  "Sessions": 2,
-                  "Storage": 3
+                  "Sessions (30d)": 2,
+                  "Projects": 3,
+                  "Storage": 4,
+                  "Requests": 5
                 }
               }
             }
@@ -15799,7 +15688,7 @@ data:
               {
                 "matcher": {
                   "id": "byName",
-                  "options": "Sessions"
+                  "options": "Sessions (30d)"
                 },
                 "properties": [
                   {
@@ -15817,15 +15706,15 @@ data:
                         },
                         {
                           "color": "yellow",
-                          "value": 1000
+                          "value": 10000
                         },
                         {
                           "color": "orange",
-                          "value": 5000
+                          "value": 50000
                         },
                         {
                           "color": "red",
-                          "value": 20000
+                          "value": 200000
                         }
                       ]
                     }
@@ -15910,7 +15799,7 @@ data:
             "showHeader": true,
             "sortBy": [
               {
-                "displayName": "Sessions",
+                "displayName": "Sessions (30d)",
                 "desc": true
               }
             ],

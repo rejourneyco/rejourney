@@ -69,14 +69,14 @@ def zero(expr):
     return f'({expr}) OR vector(0)'
 
 def stat(title, expr, x, y, w=4, h=4, unit="short", legend="", mappings=None,
-         thresholds=None, decimals=None, color_mode="value"):
+         thresholds=None, decimals=None, color_mode="value", instant=False):
     p = {
         "id": nid(),
         "type": "stat",
         "title": title,
         "datasource": DATASOURCE,
         "gridPos": {"x": x, "y": y, "w": w, "h": h},
-        "targets": [target(expr, legend)],
+        "targets": [target(expr, legend, instant=instant)],
         "options": {
             "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": False},
             "colorMode": color_mode,
@@ -1232,27 +1232,27 @@ def d_users():
 
     # ── Team overview stats ────────────────────────────────────────────────
     panels.append(row("Teams", y)); y += 1
-    panels.append(stat("Total Teams",          ps("total_teams"),               0, y, w=4, h=4, thresholds=green1))
-    panels.append(stat("Paid Teams",           ps("paid_teams"),                4, y, w=4, h=4, thresholds=green1))
+    panels.append(stat("Total Teams",     ps("total_teams"),               0, y, w=4, h=4, thresholds=green1, instant=True))
+    panels.append(stat("Paid Teams",      ps("paid_teams"),                4, y, w=4, h=4, thresholds=green1, instant=True))
     panels.append(stat("Free Teams",
-        f'{ps("total_teams")} - {ps("paid_teams")}',                            8, y, w=4, h=4, thresholds=green1))
-    panels.append(stat("Active Teams (period)", ps("active_teams_current_period"), 12, y, w=4, h=4, thresholds=green1))
-    panels.append(stat("Payment Failures",     ps("teams_payment_failed"),     16, y, w=4, h=4,
+        f'{ps("total_teams")} - {ps("paid_teams")}',                       8, y, w=4, h=4, thresholds=green1, instant=True))
+    panels.append(stat("Active Teams (30d)", ps("active_teams_30d"),      12, y, w=4, h=4, thresholds=green1, instant=True))
+    panels.append(stat("Active Projects (30d)", ps("active_projects_30d"), 16, y, w=4, h=4, thresholds=green1, instant=True))
+    panels.append(stat("Payment Failures", ps("teams_payment_failed"),    20, y, w=4, h=4,
                        thresholds={"mode": "absolute", "steps": [
-                           {"color": "green", "value": None}, {"color": "orange", "value": 1}, {"color": "red", "value": 3}]}))
-    panels.append(stat("Total Users",          ps("total_users"),              20, y, w=4, h=4, thresholds=green1))
+                           {"color": "green", "value": None}, {"color": "orange", "value": 1}, {"color": "red", "value": 3}]}, instant=True))
     y += 4
 
-    # ── Billing period activity ─────────────────────────────────────────────
-    panels.append(row("Current billing period", y)); y += 1
-    panels.append(stat("Sessions (period)",    ps("sessions_current_period"),   0, y, w=6, h=4, thresholds=green1))
-    panels.append(stat("Storage (period)",     ps("storage_bytes_current_period"), 6, y, w=6, h=4, unit="bytes", thresholds=green1))
-    panels.append(stat("New Users (24 h)",     ps("new_users_24h"),            12, y, w=4, h=4, thresholds=green1))
-    panels.append(stat("New Users (7 d)",      ps("new_users_7d"),             16, y, w=4, h=4, thresholds=green1))
-    panels.append(stat("New Users (30 d)",     ps("new_users_30d"),            20, y, w=4, h=4, thresholds=green1))
+    # ── Platform activity ───────────────────────────────────────────────────
+    panels.append(row("Platform — last 30 days", y)); y += 1
+    panels.append(stat("Sessions (30d)",     ps("sessions_30d"),           0, y, w=6, h=4, thresholds=green1, instant=True))
+    panels.append(stat("Storage (period)",   ps("storage_bytes_period"),   6, y, w=6, h=4, unit="bytes", thresholds=green1, instant=True))
+    panels.append(stat("Total Users",        ps("total_users"),           12, y, w=4, h=4, thresholds=green1, instant=True))
+    panels.append(stat("New Users (24 h)",   ps("new_users_24h"),         16, y, w=4, h=4, thresholds=green1, instant=True))
+    panels.append(stat("New Users (7 d)",    ps("new_users_7d"),          20, y, w=4, h=4, thresholds=green1, instant=True))
     y += 4
 
-    # ── Growth time series ──────────────────────────────────────────────────
+    # ── Growth time series (accumulates value over time) ───────────────────
     panels.append(row("Growth over time", y)); y += 1
     panels.append(ts(
         "Teams — total vs paid",
@@ -1261,29 +1261,15 @@ def d_users():
         legend_calcs=("lastNotNull", "max"),
     ))
     panels.append(ts(
-        "User accounts — total",
-        [(ps("total_users"), "Total users")],
-        12, y, w=12, h=8, unit="short", fill=5,
-        legend_calcs=("lastNotNull", "max"),
-    ))
-    y += 8
-
-    panels.append(ts(
-        "Signup rate — new users in rolling 24 h window",
-        [(ps("new_users_24h"), "New users (24 h)")],
-        0, y, w=12, h=8, unit="short", fill=5,
-        legend_calcs=("mean", "max"),
-    ))
-    panels.append(ts(
-        "Active teams — this billing period (running total)",
-        [(ps("active_teams_current_period"), "Active teams")],
-        12, y, w=12, h=8, unit="short", fill=5,
+        "Signup rate — new users in rolling windows",
+        [(ps("new_users_24h"), "24 h"), (ps("new_users_7d"), "7 d"), (ps("new_users_30d"), "30 d")],
+        12, y, w=12, h=8, unit="short", fill=0,
         legend_calcs=("lastNotNull",),
     ))
     y += 8
 
-    # ── Daily signup snapshot (last 30 days) ────────────────────────────────
-    panels.append(row("Daily breakdown — last 30 days (snapshot, updates each scrape)", y)); y += 1
+    # ── Daily breakdown snapshots ───────────────────────────────────────────
+    panels.append(row("Daily breakdown — last 30 days (snapshot, refreshes each scrape)", y)); y += 1
 
     def _snap_bargauge(title, expr, y_, unit="short"):
         return {
@@ -1291,7 +1277,7 @@ def d_users():
             "type": "bargauge",
             "title": title,
             "datasource": DATASOURCE,
-            "gridPos": {"x": 0, "y": y_, "w": 24, "h": 10},
+            "gridPos": {"x": 0, "y": y_, "w": 24, "h": 12},
             "targets": [{
                 "datasource": DATASOURCE,
                 "expr": expr,
@@ -1320,58 +1306,61 @@ def d_users():
         }
 
     panels.append(_snap_bargauge(
-        "Daily signups (new user registrations per day)",
-        "rejourney_user_signups_daily_signups",
-        y,
-    ))
-    y += 10
-
-    panels.append(_snap_bargauge(
-        "Daily sessions (total platform sessions started per day)",
+        "Sessions per day (platform-wide)",
         "rejourney_platform_sessions_daily_total_sessions",
         y,
     ))
-    y += 10
+    y += 12
+
+    panels.append(_snap_bargauge(
+        "New user signups per day",
+        "rejourney_user_signups_daily_signups",
+        y,
+    ))
+    y += 12
 
     # ── Top teams table ─────────────────────────────────────────────────────
-    panels.append(row("Top teams (current billing period)", y)); y += 1
+    panels.append(row("Top 25 teams — last 30 days by sessions", y)); y += 1
 
     top_tbl = {
         "id": nid(),
         "type": "table",
-        "title": "Top 25 Teams by Sessions",
+        "title": "Top Teams",
         "datasource": DATASOURCE,
-        "gridPos": {"x": 0, "y": y, "w": 24, "h": 14},
+        "gridPos": {"x": 0, "y": y, "w": 24, "h": 16},
         "targets": [
-            {**target('rejourney_top_teams_by_sessions_sessions',      "{{team}} ({{plan}})", instant=True, ref="A"), "format": "table"},
-            {**target('rejourney_top_teams_by_sessions_storage_bytes', "",                    instant=True, ref="B"), "format": "table"},
+            {**target("rejourney_top_teams_by_sessions_sessions",        "{{team}}", instant=True, ref="A"), "format": "table"},
+            {**target("rejourney_top_teams_by_sessions_active_projects", "",         instant=True, ref="B"), "format": "table"},
+            {**target("rejourney_top_teams_by_sessions_storage_bytes",   "",         instant=True, ref="C"), "format": "table"},
+            {**target("rejourney_top_teams_by_sessions_requests",        "",         instant=True, ref="D"), "format": "table"},
         ],
         "transformations": [
             {"id": "merge"},
             {"id": "organize", "options": {
                 "renameByName": {
-                    "Value #A": "Sessions",
-                    "Value #B": "Storage",
+                    "Value #A": "Sessions (30d)",
+                    "Value #B": "Projects",
+                    "Value #C": "Storage",
+                    "Value #D": "Requests",
                     "team": "Team",
                     "plan": "Plan",
-                    "Time": "",
                 },
                 "excludeByName": {"Time": True},
-                "indexByName": {"Team": 0, "Plan": 1, "Sessions": 2, "Storage": 3},
+                "indexByName": {"Team": 0, "Plan": 1, "Sessions (30d)": 2, "Projects": 3, "Storage": 4, "Requests": 5},
             }},
         ],
         "fieldConfig": {
             "defaults": {"custom": {"align": "auto"}},
             "overrides": [
                 {
-                    "matcher": {"id": "byName", "options": "Sessions"},
+                    "matcher": {"id": "byName", "options": "Sessions (30d)"},
                     "properties": [
                         {"id": "custom.displayMode", "value": "color-background"},
                         {"id": "thresholds", "value": {"mode": "absolute", "steps": [
-                            {"color": "green", "value": None},
-                            {"color": "yellow", "value": 1000},
-                            {"color": "orange", "value": 5000},
-                            {"color": "red", "value": 20000},
+                            {"color": "green",  "value": None},
+                            {"color": "yellow", "value": 10000},
+                            {"color": "orange", "value": 50000},
+                            {"color": "red",    "value": 200000},
                         ]}},
                     ],
                 },
@@ -1381,32 +1370,33 @@ def d_users():
                         {"id": "unit", "value": "bytes"},
                         {"id": "custom.displayMode", "value": "color-background"},
                         {"id": "thresholds", "value": {"mode": "absolute", "steps": [
-                            {"color": "green", "value": None},
-                            {"color": "yellow", "value": 1073741824},    # 1 GiB
-                            {"color": "orange", "value": 10737418240},   # 10 GiB
-                            {"color": "red",    "value": 53687091200},   # 50 GiB
+                            {"color": "green",  "value": None},
+                            {"color": "yellow", "value": 1073741824},   # 1 GiB
+                            {"color": "orange", "value": 10737418240},  # 10 GiB
+                            {"color": "red",    "value": 53687091200},  # 50 GiB
                         ]}},
                     ],
                 },
                 {
                     "matcher": {"id": "byName", "options": "Plan"},
                     "properties": [
-                        {"id": "mappings", "value": [
-                            {"type": "value", "options": {
-                                "paid": {"text": "Paid", "color": "green", "index": 0},
-                                "free": {"text": "Free", "color": "blue",  "index": 1},
-                            }},
-                        ]},
+                        {"id": "mappings", "value": [{"type": "value", "options": {
+                            "paid": {"text": "Paid", "color": "green", "index": 0},
+                            "free": {"text": "Free", "color": "blue",  "index": 1},
+                        }}]},
                         {"id": "custom.displayMode", "value": "color-text"},
                     ],
                 },
             ],
         },
-        "options": {"showHeader": True, "sortBy": [{"displayName": "Sessions", "desc": True}],
-                    "footer": {"show": False}},
+        "options": {
+            "showHeader": True,
+            "sortBy": [{"displayName": "Sessions (30d)", "desc": True}],
+            "footer": {"show": False},
+        },
     }
     panels.append(top_tbl)
-    y += 14
+    y += 16
 
     return dashboard(
         "rejourney-users",
@@ -1414,7 +1404,7 @@ def d_users():
         ["users", "growth", "teams"],
         panels,
         refresh="60s",
-        time_from="now-30d",
+        time_from="now-3h",
     )
 
 
@@ -1471,12 +1461,11 @@ def d_node_topology():
                 "format": "table",
             }],
             "options": {
-                "tiling": "squarify",
-                "label": "all",
-                "groups": [
-                    {"fieldName": "node"},
-                    {"fieldName": "pod"},
-                ],
+                "tiling": "treemapSquarify",
+                "textField": "pod",
+                "sizeField": "Value",
+                "groupByField": "node",
+                "colorByField": "Value",
             },
             "fieldConfig": {
                 "defaults": {

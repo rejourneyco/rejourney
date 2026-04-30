@@ -211,7 +211,7 @@ export function SessionDataProvider({
       console.error('Failed to fetch projects:', err);
       setProjectsLoading(false);
       setProjectsReady(true);
-      setProjectsError('Unable to load projects right now. Existing project data is still available.');
+      setProjectsError('Network Error. Please Reconnect.');
     }
   }, [applyProjectsForTeam, currentTeam?.id, demoMode.isDemoMode, isAuthenticated]);
 

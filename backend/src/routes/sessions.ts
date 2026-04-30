@@ -7,7 +7,7 @@
 import { Buffer } from 'node:buffer';
 
 import { Router } from 'express';
-import { eq, and, inArray, gte, lt, isNull, desc, asc, sql, getTableColumns } from 'drizzle-orm';
+import { eq, and, or, inArray, gte, lt, isNull, desc, asc, sql, getTableColumns, type SQL } from 'drizzle-orm';
 
 import { db, sessions, sessionMetrics, recordingArtifacts, projects, teamMembers, crashes, anrs, errors } from '../db/client.js';
 import { gunzipSync } from 'zlib';
@@ -169,6 +169,15 @@ function buildSessionArchiveBaseConditions(
         eventPropKey?: string;
         eventPropValue?: string;
         issueFilter?: string;
+        lifecyclePreset?: string;
+        sessionWindowSize?: string;
+        conversionPreset?: string;
+        screenName?: string;
+        screenOutcome?: string;
+        /** Pipe-separated ordered screen path, e.g. "HomeScreen|CheckoutScreen|ConfirmationScreen" */
+        screenPath?: string;
+        /** When 'OR', filter conditions are combined with OR instead of AND */
+        conditionLogic?: string;
         /** Case-insensitive substring match across id, user display, device, model, anonymous fields */
         q?: string;
     },
@@ -189,24 +198,33 @@ function buildSessionArchiveBaseConditions(
         eventPropKey,
         eventPropValue,
         issueFilter,
+        lifecyclePreset,
+        sessionWindowSize,
+        conversionPreset,
+        screenName,
+        screenOutcome,
+        screenPath,
+        conditionLogic,
         q,
     } = filters;
 
     const startedAfter = getTimeRangeFilter(timeRange);
-    const baseConditions = [
+    // Access-control and static conditions — always AND'd regardless of conditionLogic
+    const baseConditions: (SQL | undefined)[] = [
         projectId ? eq(sessions.projectId, projectId) : inArray(sessions.projectId, accessibleProjectIds),
     ];
+    // User-defined filter conditions — combined with AND or OR per conditionLogic
+    const userFilterConditions: (SQL | undefined)[] = [];
 
     if (date) {
         const startOfDay = new Date(`${date}T00:00:00.000Z`);
         const endOfDay = new Date(`${date}T23:59:59.999Z`);
-        baseConditions.push(gte(sessions.startedAt, startOfDay));
-        baseConditions.push(lt(sessions.startedAt, endOfDay));
+        userFilterConditions.push(and(gte(sessions.startedAt, startOfDay), lt(sessions.startedAt, endOfDay)));
     } else if (startedAfter) {
-        baseConditions.push(gte(sessions.startedAt, startedAfter));
+        userFilterConditions.push(gte(sessions.startedAt, startedAfter));
     }
 
-    if (platform) baseConditions.push(eq(sessions.platform, platform));
+    if (platform) userFilterConditions.push(eq(sessions.platform, platform));
     if (status) baseConditions.push(eq(sessions.status, status));
 
     const recordingFilter = hasRecording;
@@ -221,9 +239,9 @@ function buildSessionArchiveBaseConditions(
             else if (metaValue === 'false') parsedValue = false;
             else if (!isNaN(Number(metaValue))) parsedValue = Number(metaValue);
 
-            baseConditions.push(sql`${sessions.metadata} @> ${JSON.stringify({ [metaKey]: parsedValue })}::jsonb`);
+            userFilterConditions.push(sql`${sessions.metadata} @> ${JSON.stringify({ [metaKey]: parsedValue })}::jsonb`);
         } else {
-            baseConditions.push(sql`${sessions.metadata} ? ${metaKey}`);
+            userFilterConditions.push(sql`${sessions.metadata} ? ${metaKey}`);
         }
     }
 
@@ -233,15 +251,15 @@ function buildSessionArchiveBaseConditions(
             if (eventPropValue === 'true') parsedPropValue = true;
             else if (eventPropValue === 'false') parsedPropValue = false;
             else if (!isNaN(Number(eventPropValue))) parsedPropValue = Number(eventPropValue);
-            baseConditions.push(sql`${sessions.events} @> ${JSON.stringify([{ name: eventName, properties: { [eventPropKey]: parsedPropValue } }])}::jsonb`);
+            userFilterConditions.push(sql`${sessions.events} @> ${JSON.stringify([{ name: eventName, properties: { [eventPropKey]: parsedPropValue } }])}::jsonb`);
         } else if (eventPropKey) {
-            baseConditions.push(sql`EXISTS (
+            userFilterConditions.push(sql`EXISTS (
                 SELECT 1 FROM jsonb_array_elements(${sessions.events}) AS elem
                 WHERE elem->>'name' = ${eventName}
                 AND elem->'properties' ? ${eventPropKey}
             )`);
         } else {
-            baseConditions.push(sql`${sessions.events} @> ${JSON.stringify([{ name: eventName }])}::jsonb`);
+            userFilterConditions.push(sql`${sessions.events} @> ${JSON.stringify([{ name: eventName }])}::jsonb`);
         }
     } else if (eventPropKey) {
         if (eventPropValue !== undefined && eventPropValue !== '') {
@@ -249,12 +267,12 @@ function buildSessionArchiveBaseConditions(
             if (eventPropValue === 'true') parsedPropValue = true;
             else if (eventPropValue === 'false') parsedPropValue = false;
             else if (!isNaN(Number(eventPropValue))) parsedPropValue = Number(eventPropValue);
-            baseConditions.push(sql`EXISTS (
+            userFilterConditions.push(sql`EXISTS (
                 SELECT 1 FROM jsonb_array_elements(${sessions.events}) AS elem
                 WHERE elem->'properties' @> ${JSON.stringify({ [eventPropKey]: parsedPropValue })}::jsonb
             )`);
         } else {
-            baseConditions.push(sql`EXISTS (
+            userFilterConditions.push(sql`EXISTS (
                 SELECT 1 FROM jsonb_array_elements(${sessions.events}) AS elem
                 WHERE elem->'properties' ? ${eventPropKey}
             )`);
@@ -274,23 +292,173 @@ function buildSessionArchiveBaseConditions(
             default: return null;
         }
     })();
-    if (eventCountCondition) baseConditions.push(eventCountCondition);
+    if (eventCountCondition) userFilterConditions.push(eventCountCondition);
 
     const normalizedIssueFilter = normalizeSessionArchiveIssueFilter(issueFilter);
     const issueFilterCondition = getSessionArchiveIssueFilterCondition(normalizedIssueFilter);
-    if (issueFilterCondition) baseConditions.push(issueFilterCondition);
+    if (issueFilterCondition) userFilterConditions.push(issueFilterCondition);
 
+    const normalizedWindowSize = Math.min(25, Math.max(1, parseInt(sessionWindowSize || '5', 10) || 5));
+    const visitorIdentity = sql`coalesce(${sessions.deviceId}, ${sessions.anonymousHash}, ${sessions.userDisplayId})`;
+    if (lifecyclePreset === 'early_user') {
+        userFilterConditions.push(sql`
+            ${visitorIdentity} is not null
+            and (
+                select count(*) from sessions earlier
+                where earlier.project_id = ${sessions.projectId}
+                  and coalesce(earlier.device_id, earlier.anonymous_hash, earlier.user_display_id) = ${visitorIdentity}
+                  and (
+                    earlier.started_at < ${sessions.startedAt}
+                    or (earlier.started_at = ${sessions.startedAt} and earlier.id <= ${sessions.id})
+                  )
+                ) <= ${normalizedWindowSize}
+        `);
+    } else if (lifecyclePreset === 'returning_user') {
+        userFilterConditions.push(sql`
+            ${visitorIdentity} is not null
+            and (
+                select count(*) from sessions earlier
+                where earlier.project_id = ${sessions.projectId}
+                  and coalesce(earlier.device_id, earlier.anonymous_hash, earlier.user_display_id) = ${visitorIdentity}
+                  and (
+                    earlier.started_at < ${sessions.startedAt}
+                    or (earlier.started_at = ${sessions.startedAt} and earlier.id <= ${sessions.id})
+                  )
+            ) > ${normalizedWindowSize}
+        `);
+    }
+
+    const checkoutEnteredCondition = sql`(
+        ${sessions.events} @> ${JSON.stringify([{ name: 'checkout_started' }])}::jsonb
+        or ${sessions.events} @> ${JSON.stringify([{ name: 'checkout_viewed' }])}::jsonb
+        or ${sessions.events} @> ${JSON.stringify([{ name: 'cart_checkout_tapped' }])}::jsonb
+        or exists (
+            select 1 from unnest(coalesce(${sessionMetrics.screensVisited}, ARRAY[]::text[])) as screen_name
+            where lower(screen_name) like '%checkout%'
+        )
+    )`;
+    const checkoutSuccessCondition = sql`(
+        ${sessions.events} @> ${JSON.stringify([{ name: 'checkout_success' }])}::jsonb
+        or ${sessions.events} @> ${JSON.stringify([{ name: 'purchase_completed' }])}::jsonb
+        or ${sessions.events} @> ${JSON.stringify([{ name: 'order_completed' }])}::jsonb
+        or exists (
+            select 1 from unnest(coalesce(${sessionMetrics.screensVisited}, ARRAY[]::text[])) as screen_name
+            where lower(screen_name) like '%confirmation%'
+               or lower(screen_name) like '%success%'
+               or lower(screen_name) like '%receipt%'
+               or lower(screen_name) like '%order complete%'
+        )
+    )`;
+    if (conversionPreset === 'checkout_bounced') {
+        userFilterConditions.push(and(checkoutEnteredCondition, sql`not ${checkoutSuccessCondition}`));
+    } else if (conversionPreset === 'checkout_success') {
+        userFilterConditions.push(and(checkoutEnteredCondition, checkoutSuccessCondition));
+    }
+
+    const normalizedScreenName = typeof screenName === 'string' ? screenName.trim() : '';
+    if (normalizedScreenName) {
+        const screenVisitedCondition = sql`exists (
+            select 1 from unnest(coalesce(${sessionMetrics.screensVisited}, ARRAY[]::text[])) as screen_name
+            where lower(screen_name) = lower(${normalizedScreenName})
+        )`;
+        const finalScreenSql = sql`lower(coalesce((coalesce(${sessionMetrics.screensVisited}, ARRAY[]::text[]))[cardinality(coalesce(${sessionMetrics.screensVisited}, ARRAY[]::text[]))], ''))`;
+        if (screenOutcome === 'bounced') {
+            userFilterConditions.push(and(screenVisitedCondition, sql`${finalScreenSql} = lower(${normalizedScreenName})`));
+        } else if (screenOutcome === 'continued') {
+            userFilterConditions.push(and(screenVisitedCondition, sql`${finalScreenSql} <> lower(${normalizedScreenName})`));
+        } else {
+            userFilterConditions.push(screenVisitedCondition);
+        }
+    }
+
+    // Ordered screen path: steps must appear in sequence within screensVisited
+    const screenPathSteps = typeof screenPath === 'string'
+        ? screenPath.split('|').map((s) => s.trim()).filter(Boolean)
+        : [];
+    if (screenPathSteps.length >= 2) {
+        const nullChecks = screenPathSteps.map((step) =>
+            sql`MIN(t.idx) FILTER (WHERE lower(t.s) = lower(${step})) IS NOT NULL`
+        );
+        const orderChecks = screenPathSteps.slice(0, -1).map((step, i) => {
+            const nextStep = screenPathSteps[i + 1];
+            return sql`MIN(t.idx) FILTER (WHERE lower(t.s) = lower(${step})) < MIN(t.idx) FILTER (WHERE lower(t.s) = lower(${nextStep}))`;
+        });
+        const allChecks = sql.join([...nullChecks, ...orderChecks], sql` AND `);
+        userFilterConditions.push(sql`(
+            SELECT CASE WHEN ${allChecks} THEN true ELSE false END
+            FROM unnest(COALESCE(${sessionMetrics.screensVisited}, ARRAY[]::text[])) WITH ORDINALITY AS t(s, idx)
+        )`);
+    }
+
+    // Text search from the search bar is always AND'd (not part of the query builder)
     const textSearch = typeof q === 'string' ? buildArchiveTextSearchCondition(q) : null;
     if (textSearch) baseConditions.push(textSearch);
+
+    // Combine user filter conditions with AND or OR depending on conditionLogic
+    if (userFilterConditions.length > 0) {
+        const filterClause = conditionLogic === 'OR'
+            ? or(...userFilterConditions)
+            : and(...userFilterConditions);
+        if (filterClause) baseConditions.push(filterClause);
+    }
 
     return {
         baseConditions,
         needsMetricsJoin: Boolean(
             eventCountCondition
             || sessionArchiveIssueFilterUsesMetrics(normalizedIssueFilter)
+            || conversionPreset === 'checkout_bounced'
+            || conversionPreset === 'checkout_success'
+            || Boolean(normalizedScreenName)
+            || screenPathSteps.length >= 2
         ),
     };
 }
+
+const archiveVisitorSessionNumberSql = sql<number>`(
+    select count(*)::int from sessions ranked
+    where ranked.project_id = ${sessions.projectId}
+      and coalesce(ranked.device_id, ranked.anonymous_hash, ranked.user_display_id) is not null
+      and coalesce(ranked.device_id, ranked.anonymous_hash, ranked.user_display_id) = coalesce(${sessions.deviceId}, ${sessions.anonymousHash}, ${sessions.userDisplayId})
+      and (
+        ranked.started_at < ${sessions.startedAt}
+        or (ranked.started_at = ${sessions.startedAt} and ranked.id <= ${sessions.id})
+      )
+)`.as('visitorSessionNumber');
+
+const archiveVisitorFinalSessionNumberSql = sql<number>`(
+    select count(*)::int from sessions ranked
+    where ranked.project_id = ${sessions.projectId}
+      and coalesce(ranked.device_id, ranked.anonymous_hash, ranked.user_display_id) is not null
+      and coalesce(ranked.device_id, ranked.anonymous_hash, ranked.user_display_id) = coalesce(${sessions.deviceId}, ${sessions.anonymousHash}, ${sessions.userDisplayId})
+      and (
+        ranked.started_at > ${sessions.startedAt}
+        or (ranked.started_at = ${sessions.startedAt} and ranked.id >= ${sessions.id})
+      )
+)`.as('visitorFinalSessionNumber');
+
+const archiveCheckoutEnteredSql = sql<boolean>`(
+    ${sessions.events} @> ${JSON.stringify([{ name: 'checkout_started' }])}::jsonb
+    or ${sessions.events} @> ${JSON.stringify([{ name: 'checkout_viewed' }])}::jsonb
+    or ${sessions.events} @> ${JSON.stringify([{ name: 'cart_checkout_tapped' }])}::jsonb
+    or exists (
+        select 1 from unnest(coalesce(${sessionMetrics.screensVisited}, ARRAY[]::text[])) as screen_name
+        where lower(screen_name) like '%checkout%'
+    )
+)`.as('checkoutEntered');
+
+const archiveCheckoutSucceededSql = sql<boolean>`(
+    ${sessions.events} @> ${JSON.stringify([{ name: 'checkout_success' }])}::jsonb
+    or ${sessions.events} @> ${JSON.stringify([{ name: 'purchase_completed' }])}::jsonb
+    or ${sessions.events} @> ${JSON.stringify([{ name: 'order_completed' }])}::jsonb
+    or exists (
+        select 1 from unnest(coalesce(${sessionMetrics.screensVisited}, ARRAY[]::text[])) as screen_name
+        where lower(screen_name) like '%confirmation%'
+           or lower(screen_name) like '%success%'
+           or lower(screen_name) like '%receipt%'
+           or lower(screen_name) like '%order complete%'
+    )
+)`.as('checkoutSucceeded');
 
 const DETAIL_FETCH_CONCURRENCY = Number(process.env.RJ_REPLAY_DETAIL_FETCH_CONCURRENCY ?? 6);
 const frameModeFromEnv = (process.env.RJ_REPLAY_FRAME_URL_MODE || 'proxy').toLowerCase();
@@ -1113,6 +1281,13 @@ router.get(
             eventPropKey,
             eventPropValue,
             issueFilter,
+            lifecyclePreset,
+            sessionWindowSize,
+            conversionPreset,
+            screenName,
+            screenOutcome,
+            screenPath,
+            conditionLogic,
             q,
             sort: sortRaw,
             sortDir: sortDirRaw,
@@ -1165,6 +1340,13 @@ router.get(
                 eventPropKey,
                 eventPropValue,
                 issueFilter,
+                lifecyclePreset,
+                sessionWindowSize,
+                conversionPreset,
+                screenName,
+                screenOutcome,
+                screenPath,
+                conditionLogic,
                 q: typeof q === 'string' ? q : undefined,
             },
             accessibleProjectIds
@@ -1251,6 +1433,13 @@ router.get(
             eventPropKey,
             eventPropValue,
             issueFilter,
+            lifecyclePreset,
+            sessionWindowSize,
+            conversionPreset,
+            screenName,
+            screenOutcome,
+            screenPath,
+            conditionLogic,
             q,
             sort: sortRaw,
             sortDir: sortDirRaw,
@@ -1304,6 +1493,13 @@ router.get(
                 eventPropKey,
                 eventPropValue,
                 issueFilter,
+                lifecyclePreset,
+                sessionWindowSize,
+                conversionPreset,
+                screenName,
+                screenOutcome,
+                screenPath,
+                conditionLogic,
                 q: typeof q === 'string' ? q : undefined,
             },
             accessibleProjectIds
@@ -1353,6 +1549,10 @@ router.get(
                 metrics: sessionMetrics,
                 latestReplayArtifactEndMs: archiveListLatestReplayEndMsSql,
                 hasNewerSessionOnVisitor: archiveListHasNewerVisitorSessionSql,
+                visitorSessionNumber: archiveVisitorSessionNumberSql,
+                visitorFinalSessionNumber: archiveVisitorFinalSessionNumberSql,
+                checkoutEntered: archiveCheckoutEnteredSql,
+                checkoutSucceeded: archiveCheckoutSucceededSql,
                 archiveSortKey: sortExpr.as('archive_sort_key'),
             })
             .from(sessions)
@@ -1391,7 +1591,7 @@ router.get(
 
         // Transform to API format
         const sessionsData = resultSessions.map(
-            ({ session: s, metrics: m, latestReplayArtifactEndMs, hasNewerSessionOnVisitor }) => {
+            ({ session: s, metrics: m, latestReplayArtifactEndMs, hasNewerSessionOnVisitor, visitorSessionNumber, visitorFinalSessionNumber, checkoutEntered, checkoutSucceeded }) => {
             const durationSec = durationSecondsForDisplay({
                 ...s,
                 latestReplayEndMs: latestReplayArtifactEndMs,
@@ -1478,6 +1678,9 @@ router.get(
                 recordingDeletedAt: s.recordingDeletedAt?.toISOString() ?? null,
                 isReplayExpired: s.isReplayExpired,
                 hasSuccessfulRecording: successfulRecording,
+                visitorSessionNumber: visitorSessionNumber || null,
+                visitorFinalSessionNumber: visitorFinalSessionNumber || null,
+                checkoutStatus: checkoutSucceeded ? 'success' : checkoutEntered ? 'bounced' : 'none',
                 // Stats
                 stats: {
                     duration: String(durationSec),

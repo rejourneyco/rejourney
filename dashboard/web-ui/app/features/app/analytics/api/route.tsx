@@ -36,7 +36,6 @@ import {
     ObservabilityDeepMetrics,
     RegionPerformance,
 } from '~/shared/api/client';
-import { DataWatermarkBanner } from '~/features/app/shared/dashboard/DataWatermarkBanner';
 import { DashboardPageHeader } from '~/shared/ui/core/DashboardPageHeader';
 import { TimeFilter, TimeRange, DEFAULT_TIME_RANGE } from '~/shared/ui/core/TimeFilter';
 import { KpiCardItem, KpiCardsGrid, computePeriodDeltaFromSeries } from '~/features/app/shared/dashboard/KpiCardsGrid';
@@ -305,6 +304,13 @@ const splitEndpointLabel = (endpoint: string): { method: string | null; path: st
     return { method: match[1], path: match[2] };
 };
 
+const parseExcludedEndpointTerms = (value: string): string[] => value
+    .split(/[,\n]+/)
+    .map((term) => term.trim().toLowerCase())
+    .filter(Boolean);
+
+const serializeExcludedEndpointTerms = (terms: string[]): string => terms.join(', ');
+
 const getFailRateToneClass = (failRate: number): string => {
     if (failRate >= 5) return 'text-rose-700';
     if (failRate >= 2) return 'text-amber-700';
@@ -433,25 +439,10 @@ export const ApiAnalytics: React.FC = () => {
         }
     }, [endpointFilterPersistenceKey]);
 
-    useEffect(() => {
-        if (typeof window === 'undefined') return;
-        if (!endpointFilterPersistenceKey) return;
-        if (hydratedFilterPreferenceKey !== endpointFilterPersistenceKey) return;
-
-        const payload: ApiEndpointFilterPreferences = {
-            excludedEndpointQuery,
-            selectedFailureCodes,
-        };
-        window.localStorage.setItem(endpointFilterPersistenceKey, JSON.stringify(payload));
-    }, [endpointFilterPersistenceKey, excludedEndpointQuery, hydratedFilterPreferenceKey, selectedFailureCodes]);
-
     const hasData = Boolean(endpointStats && deepMetrics);
     const selectedFailureCodeKey = selectedFailureCodes.join('|');
     const excludedEndpointTerms = useMemo(
-        () => excludedEndpointQuery
-            .split(/[,\n]+/)
-            .map((value) => value.trim().toLowerCase())
-            .filter(Boolean),
+        () => parseExcludedEndpointTerms(excludedEndpointQuery),
         [excludedEndpointQuery],
     );
     const excludedEndpointKey = excludedEndpointTerms.join('|');
@@ -486,6 +477,10 @@ export const ApiAnalytics: React.FC = () => {
             .map(([code, total]) => ({ code, total }))
             .sort((a, b) => compareStatusCodes(a.code, b.code));
     }, [includedEndpoints]);
+    const availableFailureCodeValues = useMemo(
+        () => availableFailureCodes.map(({ code }) => code),
+        [availableFailureCodes],
+    );
 
     const serverFailureCodes = useMemo(
         () => availableFailureCodes
@@ -525,11 +520,40 @@ export const ApiAnalytics: React.FC = () => {
     const has400FailureCode = availableFailureCodes.some(({ code }) => code === '400');
     const matchesSelectedFailureCodes = (codes: string[]) =>
         selectedFailureCodes.length === codes.length && codes.every((code) => selectedFailureCodeSet.has(code));
+    const isDefaultFailureCodeSelection = availableFailureCodeValues.length > 0 && matchesSelectedFailureCodes(availableFailureCodeValues);
+
+    useEffect(() => {
+        if (typeof window === 'undefined') return;
+        if (!endpointFilterPersistenceKey) return;
+        if (hydratedFilterPreferenceKey !== endpointFilterPersistenceKey) return;
+        if (!endpointStats) return;
+
+        const payload: ApiEndpointFilterPreferences = {};
+        if (excludedEndpointQuery.trim()) {
+            payload.excludedEndpointQuery = excludedEndpointQuery;
+        }
+        if (!isDefaultFailureCodeSelection) {
+            payload.selectedFailureCodes = selectedFailureCodes;
+        }
+
+        if (payload.excludedEndpointQuery || payload.selectedFailureCodes) {
+            window.localStorage.setItem(endpointFilterPersistenceKey, JSON.stringify(payload));
+        } else {
+            window.localStorage.removeItem(endpointFilterPersistenceKey);
+        }
+    }, [
+        endpointFilterPersistenceKey,
+        endpointStats,
+        excludedEndpointQuery,
+        hydratedFilterPreferenceKey,
+        isDefaultFailureCodeSelection,
+        selectedFailureCodes,
+    ]);
 
     const failureCodeSummary = useMemo(() => {
         if (!availableFailureCodes.length) return 'No captured codes';
         if (!selectedFailureCodes.length) return 'Nothing selected';
-        if (matchesSelectedFailureCodes(availableFailureCodes.map(({ code }) => code))) return 'All captured codes';
+        if (isDefaultFailureCodeSelection) return 'All captured codes';
         if (matchesSelectedFailureCodes(serverFailureCodes)) return '5xx only';
         if (has400FailureCode && matchesSelectedFailureCodes(non400FailureCodes)) return 'Ignoring 400';
 
@@ -543,6 +567,19 @@ export const ApiAnalytics: React.FC = () => {
         selectedFailureCodes,
         serverFailureCodes,
     ]);
+    const updateExcludedEndpointTerms = (updater: (current: string[]) => string[]) => {
+        setExcludedEndpointQuery((currentQuery) => {
+            const nextTerms = updater(parseExcludedEndpointTerms(currentQuery));
+            return serializeExcludedEndpointTerms(Array.from(new Set(nextTerms)));
+        });
+    };
+    const removeExcludedEndpointTerm = (termToRemove: string) => {
+        updateExcludedEndpointTerms((current) => current.filter((term) => term !== termToRemove));
+    };
+    const clearEndpointHotspotFilters = () => {
+        setSelectedFailureCodes(availableFailureCodes.map(({ code }) => code));
+        setExcludedEndpointQuery('');
+    };
 
     const endpointRisks = useMemo<EndpointRisk[]>(() => {
         if (!includedEndpoints.length) return [];
@@ -953,7 +990,6 @@ export const ApiAnalytics: React.FC = () => {
                 iconColor="bg-emerald-500"
             >
                 <div className="flex min-w-0 max-w-full flex-wrap items-center gap-3">
-                    <DataWatermarkBanner dataCompleteThrough={trends?.dataCompleteThrough} />
                     <TimeFilter value={timeRange} onChange={setTimeRange} />
                 </div>
             </DashboardPageHeader>
@@ -1036,10 +1072,10 @@ export const ApiAnalytics: React.FC = () => {
                                     </span>
                                 </div>
 
-                                <div className="bg-[#f4f4f5] border border-gray-200 p-3">
+                                <div className="dashboard-inner-surface border border-slate-200 p-3">
                                     <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-                                        <div className="flex flex-wrap items-center gap-2">
-                                            <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">Failure codes</span>
+                                        <div className="flex flex-wrap items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">
+                                            <span>Failure codes</span>
                                             <span className="dashboard-inner-surface text-black font-mono px-2.5 py-1 text-xs font-medium sm:hidden">
                                                 {failureCodeSummary}
                                             </span>
@@ -1047,6 +1083,7 @@ export const ApiAnalytics: React.FC = () => {
                                         <div className="flex flex-wrap gap-2">
                                             <button
                                                 type="button"
+                                                aria-label="Show all failure codes"
                                                 onClick={() => setSelectedFailureCodes(availableFailureCodes.map(({ code }) => code))}
                                                 className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition ${
                                                     matchesSelectedFailureCodes(availableFailureCodes.map(({ code }) => code)) && availableFailureCodes.length > 0
@@ -1058,6 +1095,7 @@ export const ApiAnalytics: React.FC = () => {
                                             </button>
                                             <button
                                                 type="button"
+                                                aria-label="Show only 5xx failure codes"
                                                 onClick={() => setSelectedFailureCodes(serverFailureCodes)}
                                                 disabled={serverFailureCodes.length === 0}
                                                 className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition ${
@@ -1071,6 +1109,7 @@ export const ApiAnalytics: React.FC = () => {
                                             {has400FailureCode && (
                                                 <button
                                                     type="button"
+                                                    aria-label="Hide 400 failure code"
                                                     onClick={() => setSelectedFailureCodes(non400FailureCodes)}
                                                     className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition ${
                                                         matchesSelectedFailureCodes(non400FailureCodes)
@@ -1081,6 +1120,13 @@ export const ApiAnalytics: React.FC = () => {
                                                     No 400
                                                 </button>
                                             )}
+                                            <button
+                                                type="button"
+                                                onClick={clearEndpointHotspotFilters}
+                                                className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 transition hover:border-slate-300 hover:bg-slate-100"
+                                            >
+                                                Reset
+                                            </button>
                                         </div>
                                     </div>
 
@@ -1102,7 +1148,7 @@ export const ApiAnalytics: React.FC = () => {
                                                                     .filter((optionCode) => next.has(optionCode));
                                                             });
                                                         }}
-                                                        className={`inline-flex items-center gap-2 rounded-xl border px-2.5 py-1.5 text-xs font-medium transition ${
+                                                        className={`inline-flex items-center gap-2 rounded-lg border px-2.5 py-1.5 text-xs font-medium transition ${
                                                             selected
                                                                 ? 'border-emerald-900 bg-emerald-900 text-white'
                                                                 : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-100'
@@ -1120,12 +1166,26 @@ export const ApiAnalytics: React.FC = () => {
 
                                     <div className="mt-3 flex flex-col gap-2 lg:flex-row lg:items-center">
                                         <div className="min-w-0 flex-1">
+                                            <p className="mb-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">
+                                                Exclude endpoints
+                                            </p>
                                             <input
                                                 value={excludedEndpointQuery}
                                                 onChange={(event) => setExcludedEndpointQuery(event.target.value)}
-                                                placeholder="Exclude endpoints: /images, /health, POST /auth (comma separated)"
+                                                onBlur={() => {
+                                                    setExcludedEndpointQuery((current) => serializeExcludedEndpointTerms(parseExcludedEndpointTerms(current)));
+                                                }}
+                                                onKeyDown={(event) => {
+                                                    if (event.key !== 'Enter' && event.key !== ',') return;
+                                                    event.preventDefault();
+                                                    setExcludedEndpointQuery((current) => serializeExcludedEndpointTerms(parseExcludedEndpointTerms(current)));
+                                                }}
+                                                placeholder="Type a path fragment (example: /health), then press Enter"
                                                 className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
                                             />
+                                            <p className="mt-1 text-xs text-slate-500">
+                                                Matches are case-insensitive and apply to method + path labels.
+                                            </p>
                                         </div>
                                         {excludedEndpointTerms.length > 0 && (
                                             <button
@@ -1141,12 +1201,15 @@ export const ApiAnalytics: React.FC = () => {
                                     {excludedEndpointTerms.length > 0 && (
                                         <div className="mt-2 flex flex-wrap gap-1.5">
                                             {excludedEndpointTerms.map((term) => (
-                                                <span
+                                                <button
                                                     key={term}
-                                                    className="inline-flex items-center rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[11px] font-medium text-emerald-800"
+                                                    type="button"
+                                                    onClick={() => removeExcludedEndpointTerm(term)}
+                                                    className="inline-flex items-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[11px] font-medium text-emerald-800 transition hover:border-emerald-300 hover:bg-emerald-100"
                                                 >
-                                                    {term}
-                                                </span>
+                                                    <span>{term}</span>
+                                                    <span className="text-emerald-700">x</span>
+                                                </button>
                                             ))}
                                         </div>
                                     )}

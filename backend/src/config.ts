@@ -113,6 +113,10 @@ const envSchema = z.object({
     STRIPE_SECRET_KEY: z.string().optional(),
     STRIPE_WEBHOOK_SECRET: z.string().optional(),
 
+    // AI query builder (optional)
+    QUERY_BUILDER_KEY: z.string().optional(),
+    QUERY_BUILDER_MODEL: z.string().default('gemini-3.1-flash-lite-preview'),
+
     // URLs
     PUBLIC_DASHBOARD_URL: z.string().optional(),
     PUBLIC_API_URL: z.string().optional(),
@@ -190,6 +194,9 @@ export const rateLimits = {
         perUser: { windowMs: 60_000, max: 1200 },
         perProject: { windowMs: 60_000, max: 2400 },
         stats: { windowMs: 120_000, max: 80 },
+        queryBuilderUser: { windowMs: 60 * 60_000, max: 100 },
+        queryBuilderProject: { windowMs: 24 * 60 * 60_000, max: 1000 },
+        queryBuilderIp: { windowMs: 60 * 60_000, max: 300 },
     },
     // Auth/OTP
     auth: {

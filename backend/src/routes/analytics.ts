@@ -2915,6 +2915,9 @@ router.get(
             .select({
                 id: sessions.id,
                 durationSeconds: sessions.durationSeconds,
+                replayAvailable: sessions.replayAvailable,
+                recordingDeleted: sessions.recordingDeleted,
+                isReplayExpired: sessions.isReplayExpired,
                 screensVisited: sessionMetrics.screensVisited,
                 crashCount: sessionMetrics.crashCount,
                 anrCount: sessionMetrics.anrCount,
@@ -3020,7 +3023,7 @@ router.get(
             const apiTotal = Number(s.apiTotalCount || 0);
             const apiLatency = Number(s.apiAvgResponseMs || 0);
             const duration = Number(s.durationSeconds || 0);
-            const hasReplay = Number(s.screenshotSegmentCount || 0) > 0;
+            const hasReplay = Boolean(s.replayAvailable) && !s.recordingDeleted && !s.isReplayExpired;
             const hasError = crashes > 0 || anrs > 0 || apiErrors > 0;
 
             // Time to failure metrics

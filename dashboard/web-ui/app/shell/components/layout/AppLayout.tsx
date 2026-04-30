@@ -180,7 +180,7 @@ export const ProjectLayout: React.FC<AppLayoutProps> = ({ children, pathPrefix =
           </div>
         )}
         {!isWarehouseRoute && projectsError && (
-          <div className="mx-6 mt-4 border-2 border-black bg-red-100 shadow-neo-sm px-4 py-3 font-bold uppercase tracking-wider text-sm text-red-900">
+          <div className="mx-6 mt-4 border-2 border-amber-500 bg-amber-100 shadow-neo-sm px-4 py-3 font-bold uppercase tracking-wider text-sm text-amber-900">
             {projectsError}
           </div>
         )}

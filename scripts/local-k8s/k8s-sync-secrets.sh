@@ -99,6 +99,12 @@ fi
 if [ -n "${DASHBOARD_ORIGIN:-}" ]; then
     APP_SECRET_ARGS+=(--from-literal=DASHBOARD_ORIGIN="$DASHBOARD_ORIGIN")
 fi
+if [ -n "${QUERY_BUILDER_KEY:-}" ]; then
+    APP_SECRET_ARGS+=(--from-literal=QUERY_BUILDER_KEY="$QUERY_BUILDER_KEY")
+fi
+if [ -n "${QUERY_BUILDER_MODEL:-}" ]; then
+    APP_SECRET_ARGS+=(--from-literal=QUERY_BUILDER_MODEL="$QUERY_BUILDER_MODEL")
+fi
 
 create_or_update_secret app-secret "${APP_SECRET_ARGS[@]}"
 

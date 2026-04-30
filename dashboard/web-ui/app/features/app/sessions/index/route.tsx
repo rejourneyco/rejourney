@@ -3,19 +3,15 @@ import { useNavigate } from 'react-router';
 import { usePathPrefix } from '~/shell/routing/usePathPrefix';
 import {
   Search,
-  AlertTriangle,
   Smartphone,
-  AlertOctagon,
   ChevronUp,
   ChevronDown,
   Layers,
-  Zap,
   Download,
   ChevronLeft,
   ChevronRight,
   ChevronsLeft,
   ChevronsRight,
-  Clock,
   Copy,
   Check,
   Play,
@@ -26,17 +22,14 @@ import {
   Filter,
   Loader,
   Gauge,
-  Timer,
-  MousePointerClick,
+  User,
   Database,
   X,
-  UserPlus,
 } from 'lucide-react';
 import { DashboardPageHeader } from '~/shared/ui/core/DashboardPageHeader';
-import { TimeFilter, TimeRange, DEFAULT_TIME_RANGE, TIME_RANGE_OPTIONS } from '~/shared/ui/core/TimeFilter';
 import { NeoBadge } from '~/shared/ui/core/neo/NeoBadge';
 import { NeoButton } from '~/shared/ui/core/neo/NeoButton';
-import { NeoCard } from '~/shared/ui/core/neo/NeoCard';
+
 import {
   getSessionsArchiveTotalCount,
   getSessionsPaginated,
@@ -48,13 +41,20 @@ import { useSessionData } from '~/shared/providers/SessionContext';
 import { useSafeTeam } from '~/shared/providers/TeamContext';
 import { formatGeoDisplay } from '~/shared/lib/geoDisplay';
 import { DashboardGhostLoader } from '~/shared/ui/core/DashboardGhostLoader';
+import { matchesSessionArchiveIssueFilter } from './sessionArchiveFilters';
+import { QueryBuilder } from './QueryBuilder';
 import {
-  matchesSessionArchiveIssueFilter,
-  SESSION_ARCHIVE_ISSUE_FILTER_OPTIONS,
-  type SessionArchiveIssueFilter,
-} from './sessionArchiveFilters';
+  type QueryGroup,
+  type IssueCondition,
+  generateGroupId,
+  groupsToArchiveQuery,
+  groupsBuildHumanSummary,
+  getConditionShortLabel,
+} from './queryBuilderTypes';
 
 const PAGE_SIZE_OPTIONS = [25, 50, 100, 200, 300] as const;
+const QUERY_GROUPS_STORAGE_PREFIX = 'rejourney:session-archive:query-groups:v1';
+const QUERY_BUILDER_UPDATE_STICKER_SEEN_KEY = 'rejourney:session-archive:query-builder-update-sticker-seen:v1';
 
 type SortKey = 'date' | 'duration' | 'apiResponse' | 'startup' | 'screens' | 'apiSuccess' | 'apiError' | 'crashes' | 'anrs' | 'errors' | 'rage' | 'network';
 type SortDirection = 'asc' | 'desc';
@@ -86,37 +86,66 @@ const NetworkIcon: React.FC<{ type: string | undefined }> = ({ type }) => {
   return <Globe className="w-3 h-3" />;
 };
 
-const ISSUE_FILTER_ICONS: Record<SessionArchiveIssueFilter, React.ComponentType<{ className?: string }>> = {
-  all: Layers,
-  crashes: AlertOctagon,
-  errors: AlertTriangle,
-  anrs: Clock,
-  rage: Zap,
-  dead_taps: MousePointerClick,
-  slow_start: Timer,
-  slow_api: Gauge,
-  new_user: UserPlus,
-};
 
 const hasSuccessfulRecording = (session: any): boolean =>
   Boolean(session?.hasSuccessfulRecording ?? ((session?.stats?.screenshotSegmentCount ?? 0) > 0));
 
-const formatArchiveScopeLabel = (timeRange: TimeRange, dateFilter: string): string => {
-  if (dateFilter) {
-    const parsedDate = new Date(`${dateFilter}T00:00:00.000Z`);
-    if (!Number.isNaN(parsedDate.getTime())) {
-      return new Intl.DateTimeFormat('en-US', {
-        month: 'short',
-        day: 'numeric',
-        year: 'numeric',
-        timeZone: 'UTC',
-      }).format(parsedDate);
-    }
-    return dateFilter;
-  }
+const createEmptyQueryGroups = (): QueryGroup[] => [{ id: generateGroupId(), conditions: [] }];
 
-  return TIME_RANGE_OPTIONS.find((option) => option.value === timeRange)?.label ?? timeRange;
-};
+function getQueryGroupsStorageKey(projectId: string): string {
+  return `${QUERY_GROUPS_STORAGE_PREFIX}:${projectId}`;
+}
+
+function readStoredQueryGroups(projectId: string): QueryGroup[] | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const raw = window.localStorage.getItem(getQueryGroupsStorageKey(projectId));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return null;
+    const groups = parsed.filter((group): group is QueryGroup =>
+      Boolean(group) &&
+      typeof group.id === 'string' &&
+      Array.isArray(group.conditions)
+    );
+    return groups.length > 0 ? groups : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeStoredQueryGroups(projectId: string, groups: QueryGroup[]): void {
+  if (typeof window === 'undefined') return;
+  const hasConditions = groups.some((group) => group.conditions.length > 0);
+  try {
+    const key = getQueryGroupsStorageKey(projectId);
+    if (hasConditions) {
+      window.localStorage.setItem(key, JSON.stringify(groups));
+    } else {
+      window.localStorage.removeItem(key);
+    }
+  } catch {
+    // Storage can fail in private mode or under quota; the query still works in memory.
+  }
+}
+
+function readQueryBuilderUpdateStickerSeen(): boolean {
+  if (typeof window === 'undefined') return false;
+  try {
+    return window.localStorage.getItem(QUERY_BUILDER_UPDATE_STICKER_SEEN_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
+function markQueryBuilderUpdateStickerSeen(): void {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.setItem(QUERY_BUILDER_UPDATE_STICKER_SEEN_KEY, '1');
+  } catch {
+    // Storage can fail in private mode; hiding it for the current view is still enough.
+  }
+}
 
 export const RecordingsList: React.FC = () => {
   const navigate = useNavigate();
@@ -135,21 +164,13 @@ export const RecordingsList: React.FC = () => {
   const [debouncedSearchQuery, setDebouncedSearchQuery] = useState('');
   const [rowsPerPage, setRowsPerPage] = useState(50);
 
-  // Advanced Filters
-  const [availableFilters, setAvailableFilters] = useState<{ events: string[]; eventPropertyKeys: string[]; metadata: Record<string, string[]> }>({ events: [], eventPropertyKeys: [], metadata: {} });
-  const [eventNameFilter, setEventNameFilter] = useState('');
-  const [metaKeyFilter, setMetaKeyFilter] = useState('');
-  const [metaValueFilter, setMetaValueFilter] = useState('');
-  const [eventCountOp, setEventCountOp] = useState('');
-  const [eventCountValue, setEventCountValue] = useState('');
-  const [eventPropKey, setEventPropKey] = useState('');
-  const [eventPropValue, setEventPropValue] = useState('');
-
-  const [dateFilter, setDateFilter] = useState('');
-  const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
-
-  const [filter, setFilter] = useState<SessionArchiveIssueFilter>('all');
-  const [timeRange, setTimeRange] = useState<TimeRange>(DEFAULT_TIME_RANGE);
+  // Query builder
+  const [availableFilters, setAvailableFilters] = useState<{ events: string[]; eventPropertyKeys: string[]; screens: string[]; metadata: Record<string, string[]> }>({ events: [], eventPropertyKeys: [], screens: [], metadata: {} });
+  const [isLoadingFilters, setIsLoadingFilters] = useState(false);
+  const [queryGroups, setQueryGroups] = useState<QueryGroup[]>(() => createEmptyQueryGroups());
+  const [queryGroupsProjectId, setQueryGroupsProjectId] = useState<string | null>(null);
+  const [showQueryBuilder, setShowQueryBuilder] = useState(false);
+  const [hasSeenQueryBuilderUpdateSticker, setHasSeenQueryBuilderUpdateSticker] = useState(() => readQueryBuilderUpdateStickerSeen());
   const [sortConfigs, setSortConfigs] = useState<SortConfig[]>([{ key: 'date', direction: 'desc' }]);
   const [currentPage, setCurrentPage] = useState(1);
   const [copiedId, setCopiedId] = useState<string | null>(null);
@@ -168,11 +189,20 @@ export const RecordingsList: React.FC = () => {
   const selectedProjectTeamId = selectedProject?.teamId;
   const isProjectFromCurrentTeam = !selectedProjectId || !currentTeam?.id || selectedProjectTeamId === currentTeam.id;
 
+  // Use refs to avoid stale closures
+  const queryGroupsRef = useRef(queryGroups);
+  useEffect(() => { queryGroupsRef.current = queryGroups; }, [queryGroups]);
+
   // Fetch sessions with pagination
   const fetchSessions = useCallback(async (cursor?: string | null, requestId: number = activeRequestIdRef.current) => {
+    const groups = queryGroupsRef.current;
+    const allConds = groups.flatMap((g) => g.conditions);
+    const issueCondition = allConds.find((c) => c.type === 'issue') as IssueCondition | undefined;
+    const issueFilter = issueCondition?.issueFilter ?? 'all';
+
     // Demo mode: use static demo sessions
     if (isDemoMode) {
-      const demoFilteredSessions = demoSessions.filter((session) => hasSuccessfulRecording(session) && matchesSessionArchiveIssueFilter(session, filter));
+      const demoFilteredSessions = demoSessions.filter((session) => hasSuccessfulRecording(session) && matchesSessionArchiveIssueFilter(session, issueFilter));
       if (requestId !== activeRequestIdRef.current) return;
       setSessions(demoFilteredSessions);
       setNextCursor(null);
@@ -219,25 +249,17 @@ export const RecordingsList: React.FC = () => {
       }
 
       const qLive = debouncedSearchQuery.trim() || undefined;
+      const filterParams = groupsToArchiveQuery(groups);
       const archiveQuery = {
         cursor,
         limit: rowsPerPage,
-        timeRange: timeRange === 'all' ? undefined : timeRange,
-        date: dateFilter ? dateFilter : undefined,
         projectId: selectedProjectId,
         hasRecording: true as const,
-        issueFilter: filter,
-        metaKey: metaKeyFilter ? metaKeyFilter : undefined,
-        metaValue: metaValueFilter ? metaValueFilter : undefined,
-        eventName: eventNameFilter ? eventNameFilter : undefined,
-        eventCountOp: eventCountOp ? eventCountOp : undefined,
-        eventCountValue: eventCountValue ? eventCountValue : undefined,
-        eventPropKey: eventPropKey ? eventPropKey : undefined,
-        eventPropValue: eventPropValue ? eventPropValue : undefined,
         q: qLive,
         sort: primarySortKey as SessionArchiveSortKey,
         sortDir: primarySortDir,
         includeTotal: false as const,
+        ...filterParams,
       };
 
       const result = await getSessionsPaginated(archiveQuery);
@@ -248,23 +270,14 @@ export const RecordingsList: React.FC = () => {
         // Append to existing sessions
         setSessions(prev => [...prev, ...result.sessions]);
       } else {
-        // Replace all sessions; total count runs as a follow-up (same filters, avoids slow count(*) blocking first paint)
+        // Replace all sessions; total count runs as a follow-up (avoids slow count(*) blocking first paint)
         setSessions(result.sessions);
         void getSessionsArchiveTotalCount({
-          timeRange: archiveQuery.timeRange,
-          date: archiveQuery.date,
           projectId: selectedProjectId!,
           hasRecording: true,
-          issueFilter: archiveQuery.issueFilter,
-          metaKey: archiveQuery.metaKey,
-          metaValue: archiveQuery.metaValue,
-          eventName: archiveQuery.eventName,
-          eventCountOp: archiveQuery.eventCountOp,
-          eventCountValue: archiveQuery.eventCountValue,
-          eventPropKey: archiveQuery.eventPropKey,
-          eventPropValue: archiveQuery.eventPropValue,
-          q: archiveQuery.q,
-        }).then((n) => {
+          q: qLive,
+          ...filterParams,
+        } as any).then((n) => {
           if (requestId !== activeRequestIdRef.current) return;
           setTotalCount(n);
         }).catch(() => {
@@ -287,29 +300,20 @@ export const RecordingsList: React.FC = () => {
     }
   }, [
     sessions.length,
-    timeRange,
     isDemoMode,
     demoSessions,
     selectedProjectId,
     isContextLoading,
     isProjectFromCurrentTeam,
-    filter,
-    metaKeyFilter,
-    metaValueFilter,
-    eventNameFilter,
     rowsPerPage,
-    dateFilter,
-    eventCountOp,
-    eventCountValue,
-    eventPropKey,
-    eventPropValue,
     debouncedSearchQuery,
     primarySortKey,
     primarySortDir,
   ]);
 
-  // Initial fetch and refetch when time range or project changes (live: include debounced search + primary sort for server round-trip)
-  const fetchScopeKeyBase = `${timeRange}:${dateFilter}:${currentTeam?.id || 'no-team'}:${selectedProjectId || 'no-project'}:${isContextLoading ? 'loading' : 'ready'}:${projects.length}:${isProjectFromCurrentTeam ? 'valid' : 'invalid'}:${filter}:${metaKeyFilter}:${metaValueFilter}:${eventNameFilter}:${rowsPerPage}:${eventCountOp}:${eventCountValue}:${eventPropKey}:${eventPropValue}`;
+  // Trigger refetch when filters or project change
+  const conditionsKey = queryGroups.map((g) => g.conditions.map((c) => JSON.stringify(c)).join(',')).join('|');
+  const fetchScopeKeyBase = `all:${currentTeam?.id || 'no-team'}:${selectedProjectId || 'no-project'}:${isContextLoading ? 'loading' : 'ready'}:${projects.length}:${isProjectFromCurrentTeam ? 'valid' : 'invalid'}:${rowsPerPage}:${conditionsKey}`;
   const fetchScopeKey = isDemoMode
     ? `demo:${fetchScopeKeyBase}`
     : `live:${fetchScopeKeyBase}:${debouncedSearchQuery}:${primarySortKey}:${primarySortDir}`;
@@ -325,52 +329,61 @@ export const RecordingsList: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fetchScopeKey]);
 
-  // Reset advanced-filter dropdown data when project/team changes (loaded lazily when panel opens — JSONB scans are expensive)
+  // Reset query conditions and available filters when project/team changes
   const prevProjectIdRef = useRef<string | undefined>(undefined);
-  const advancedFiltersFetchedRef = useRef<string | null>(null);
+  const availableFiltersFetchedRef = useRef<string | null>(null);
   useEffect(() => {
     if (!selectedProjectId || !isProjectFromCurrentTeam) {
-      setAvailableFilters({ events: [], eventPropertyKeys: [], metadata: {} });
-      setEventNameFilter('');
-      setMetaKeyFilter('');
-      setMetaValueFilter('');
+      setAvailableFilters({ events: [], eventPropertyKeys: [], screens: [], metadata: {} });
+      setQueryGroups(createEmptyQueryGroups());
+      setQueryGroupsProjectId(null);
       prevProjectIdRef.current = undefined;
       return;
     }
     const projectChanged = prevProjectIdRef.current !== selectedProjectId;
     prevProjectIdRef.current = selectedProjectId;
     if (projectChanged) {
-      setEventNameFilter('');
-      setMetaKeyFilter('');
-      setMetaValueFilter('');
-      setAvailableFilters({ events: [], eventPropertyKeys: [], metadata: {} });
-      advancedFiltersFetchedRef.current = null;
+      const storedGroups = readStoredQueryGroups(selectedProjectId);
+      setQueryGroups(storedGroups ?? createEmptyQueryGroups());
+      setQueryGroupsProjectId(selectedProjectId);
+      setAvailableFilters({ events: [], eventPropertyKeys: [], screens: [], metadata: {} });
+      availableFiltersFetchedRef.current = null;
     }
   }, [selectedProjectId, isProjectFromCurrentTeam]);
 
   useEffect(() => {
-    if (isDemoMode || !showAdvancedFilters || !selectedProjectId || !isProjectFromCurrentTeam) {
+    if (!selectedProjectId || !isProjectFromCurrentTeam) return;
+    if (queryGroupsProjectId !== selectedProjectId) return;
+    writeStoredQueryGroups(selectedProjectId, queryGroups);
+  }, [selectedProjectId, queryGroupsProjectId, isProjectFromCurrentTeam, queryGroups]);
+
+  // Lazy-load available filter options when query builder panel opens
+  useEffect(() => {
+    if (isDemoMode || !showQueryBuilder || !selectedProjectId || !isProjectFromCurrentTeam) {
       return;
     }
-    if (advancedFiltersFetchedRef.current === selectedProjectId) {
+    if (availableFiltersFetchedRef.current === selectedProjectId) {
       return;
     }
-    advancedFiltersFetchedRef.current = selectedProjectId;
+    availableFiltersFetchedRef.current = selectedProjectId;
+    setIsLoadingFilters(true);
     let cancelled = false;
     getAvailableFilters(selectedProjectId)
       .then((data) => {
         if (!cancelled) {
           setAvailableFilters(data);
+          setIsLoadingFilters(false);
         }
       })
       .catch((err) => {
         if (!cancelled) {
           console.error('Failed to load available filters:', err);
-          setAvailableFilters({ events: [], eventPropertyKeys: [], metadata: {} });
+          setAvailableFilters({ events: [], eventPropertyKeys: [], screens: [], metadata: {} });
+          setIsLoadingFilters(false);
         }
       });
     return () => { cancelled = true; };
-  }, [isDemoMode, showAdvancedFilters, selectedProjectId, isProjectFromCurrentTeam]);
+  }, [isDemoMode, showQueryBuilder, selectedProjectId, isProjectFromCurrentTeam]);
 
   const handleLoadMore = useCallback(async () => {
     if (nextCursor && !isLoadingMore) {
@@ -458,17 +471,7 @@ export const RecordingsList: React.FC = () => {
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [
-    searchQuery,
-    debouncedSearchQuery,
-    filter,
-    sortConfigs,
-    dateFilter,
-    eventCountOp,
-    eventCountValue,
-    eventPropKey,
-    eventPropValue,
-  ]);
+  }, [searchQuery, debouncedSearchQuery, sortConfigs, conditionsKey]);
 
   const totalPages = Math.ceil(filteredSessions.length / rowsPerPage);
   const paginatedSessions = useMemo(() => {
@@ -479,10 +482,9 @@ export const RecordingsList: React.FC = () => {
   // Computed display values
   const startIndex = (currentPage - 1) * rowsPerPage + 1;
   const endIndex = Math.min(currentPage * rowsPerPage, filteredSessions.length);
-  const hasActiveFilters = searchQuery || filter !== 'all' || eventNameFilter || metaKeyFilter || dateFilter || eventCountOp || eventPropKey;
-  const advancedFilterCount = (eventNameFilter ? 1 : 0) + (metaKeyFilter ? 1 : 0) + (eventCountOp ? 1 : 0) + (eventPropKey ? 1 : 0);
-  const archiveScopeLabel = formatArchiveScopeLabel(timeRange, dateFilter);
-  const archiveCountLabel = `${totalCount === null ? '…' : totalCount.toLocaleString()} total replays · ${archiveScopeLabel}${isRefreshing ? ' · refreshing…' : ''}`;
+  const totalConditions = queryGroups.reduce((n, g) => n + g.conditions.length, 0);
+  const hasActiveFilters = !!(searchQuery || totalConditions > 0);
+  const archiveCountLabel = `${totalCount === null ? '…' : totalCount.toLocaleString()} total replays${isRefreshing ? ' · refreshing…' : ''}`;
 
   const handleSort = (key: SortKey, multiSort: boolean) => {
     const allowMultiColumn = isDemoMode && multiSort;
@@ -541,6 +543,22 @@ export const RecordingsList: React.FC = () => {
     setExpandedSessionId(expandedSessionId === sessionId ? null : sessionId);
   };
 
+  const clearQueryGroups = useCallback(() => {
+    setQueryGroups(createEmptyQueryGroups());
+    setQueryGroupsProjectId(selectedProjectId ?? null);
+    if (selectedProjectId) {
+      writeStoredQueryGroups(selectedProjectId, createEmptyQueryGroups());
+    }
+  }, [selectedProjectId]);
+
+  const handleQueryButtonClick = useCallback(() => {
+    if (!hasSeenQueryBuilderUpdateSticker) {
+      setHasSeenQueryBuilderUpdateSticker(true);
+      markQueryBuilderUpdateStickerSeen();
+    }
+    setShowQueryBuilder((value) => !value);
+  }, [hasSeenQueryBuilderUpdateSticker]);
+
   if (isLoading && sessions.length === 0 && (selectedProjectId || isContextLoading)) {
     return <DashboardGhostLoader variant="list" />;
   }
@@ -555,22 +573,15 @@ export const RecordingsList: React.FC = () => {
           icon={<Layers className="w-6 h-6" />}
           iconColor="bg-sky-50"
         >
-          <TimeFilter value={timeRange} onChange={setTimeRange} />
           <button
             onClick={() => {
               const params = new URLSearchParams();
-              if (timeRange && timeRange !== 'all') params.append('timeRange', timeRange);
               if (selectedProjectId) params.append('projectId', selectedProjectId);
-              if (dateFilter) params.append('date', dateFilter);
               params.append('hasRecording', 'true');
-              if (filter !== 'all') params.append('issueFilter', filter);
-              if (metaKeyFilter) params.append('metaKey', metaKeyFilter);
-              if (metaValueFilter) params.append('metaValue', metaValueFilter);
-              if (eventNameFilter) params.append('eventName', eventNameFilter);
-              if (eventCountOp) params.append('eventCountOp', eventCountOp);
-              if (eventCountValue) params.append('eventCountValue', eventCountValue);
-              if (eventPropKey) params.append('eventPropKey', eventPropKey);
-              if (eventPropValue) params.append('eventPropValue', eventPropValue);
+              const filterParams = groupsToArchiveQuery(queryGroups);
+              Object.entries(filterParams).forEach(([k, v]) => {
+                if (v !== undefined && v !== null) params.append(k, String(v));
+              });
               const qExport = debouncedSearchQuery.trim();
               if (qExport) params.append('q', qExport);
               params.append('sort', primarySortKey);
@@ -598,27 +609,24 @@ export const RecordingsList: React.FC = () => {
               />
             </div>
 
-            <div className="flex min-w-0 items-center gap-2">
-              <input
-                type="date"
-                value={dateFilter}
-                onChange={(e) => setDateFilter(e.target.value)}
-                className={`min-w-0 flex-1 rounded-lg border px-3 py-2 text-xs font-semibold outline-none shadow-sm sm:max-w-[150px] ${dateFilter ? 'border-[#5dadec] text-black' : 'border-slate-200 text-gray-500'}`}
-                title="Filter by specific date"
-              />
-
+            <div className="flex items-center gap-2">
               <button
-                onClick={() => setShowAdvancedFilters(!showAdvancedFilters)}
-                className={`flex items-center gap-1.5 rounded-lg border px-3 py-2 text-xs font-bold uppercase shadow-sm transition-colors whitespace-nowrap ${showAdvancedFilters || advancedFilterCount > 0
+                onClick={handleQueryButtonClick}
+                className={`relative flex flex-1 items-center justify-center gap-1.5 rounded-lg border px-3 py-2 text-xs font-bold uppercase shadow-sm transition-colors whitespace-nowrap sm:flex-initial ${showQueryBuilder || totalConditions > 0
                   ? 'bg-[#5dadec]/10 border-[#5dadec] text-black'
                   : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
                   }`}
               >
                 <Filter className="w-3.5 h-3.5" />
-                Filters
-                {advancedFilterCount > 0 && (
+                Query
+                {totalConditions > 0 && (
                   <span className="ml-1 rounded bg-slate-900 px-1.5 py-0.5 text-[9px] font-bold text-white leading-none">
-                    {advancedFilterCount}
+                    {totalConditions}
+                  </span>
+                )}
+                {!hasSeenQueryBuilderUpdateSticker && (
+                  <span className="absolute -right-2 -top-2 rotate-12 rounded bg-blue-500 px-1.5 py-0.5 text-[9px] font-black uppercase tracking-wider text-white shadow-sm ring-2 ring-white">
+                    Update
                   </span>
                 )}
               </button>
@@ -628,16 +636,8 @@ export const RecordingsList: React.FC = () => {
               <button
                 onClick={() => {
                   setSearchQuery('');
-                  setFilter('all');
-                  setEventNameFilter('');
-                  setMetaKeyFilter('');
-                  setMetaValueFilter('');
-                  setDateFilter('');
-                  setEventCountOp('');
-                  setEventCountValue('');
-                  setEventPropKey('');
-                  setEventPropValue('');
-                  setShowAdvancedFilters(false);
+                  clearQueryGroups();
+                  setShowQueryBuilder(false);
                 }}
                 className="flex items-center justify-center gap-1 rounded-lg border border-red-200 bg-red-50 px-2.5 py-2 text-[#ef4444] shadow-sm transition-colors hover:bg-red-100 font-bold uppercase text-[10px] sm:justify-start"
                 title="Clear all filters"
@@ -646,177 +646,49 @@ export const RecordingsList: React.FC = () => {
               </button>
             )}
           </div>
+        </div>
 
-          {/* Active Filter Summary Pills */}
-          {advancedFilterCount > 0 && !showAdvancedFilters && (
-            <div className="flex items-center gap-2 mt-2 max-w-[1800px] mx-auto overflow-x-auto no-scrollbar">
-              <span className="text-[10px] text-slate-400 font-semibold uppercase">Active:</span>
-              {eventNameFilter && (
-                <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-[#f4f4f5] border border-gray-300 text-[10px] font-bold text-black uppercase">
-                  Event: {eventNameFilter}
-                  <X className="w-2.5 h-2.5 cursor-pointer hover:text-red-500" onClick={() => setEventNameFilter('')} />
-                </span>
-              )}
-              {eventPropKey && (
-                <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-[#f4f4f5] border border-gray-300 text-[10px] font-bold text-black uppercase">
-                  Prop: {eventPropKey}{eventPropValue ? ` = ${eventPropValue}` : ''}
-                  <X className="w-2.5 h-2.5 cursor-pointer hover:text-red-500" onClick={() => { setEventPropKey(''); setEventPropValue(''); }} />
-                </span>
-              )}
-              {metaKeyFilter && (
-                <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-[#f4f4f5] border border-gray-300 text-[10px] font-bold text-black uppercase">
-                  {metaKeyFilter}{metaValueFilter ? ` = ${metaValueFilter}` : ''}
-                  <X className="w-2.5 h-2.5 cursor-pointer hover:text-red-500" onClick={() => { setMetaKeyFilter(''); setMetaValueFilter(''); }} />
-                </span>
-              )}
-              {eventCountOp && (
-                <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-[#f4f4f5] border border-gray-300 text-[10px] font-bold text-black uppercase">
-                  Events {eventCountOp === 'eq' ? '=' : eventCountOp === 'gt' ? '>' : eventCountOp === 'lt' ? '<' : eventCountOp === 'gte' ? '≥' : '≤'} {eventCountValue}
-                  <X className="w-2.5 h-2.5 cursor-pointer hover:text-red-500" onClick={() => { setEventCountOp(''); setEventCountValue(''); }} />
-                </span>
-              )}
+        {/* Query Builder Panel */}
+        {showQueryBuilder && (
+          <div className="bg-white border-b border-slate-200 px-4 py-4 sm:px-6">
+            <div className="max-w-[1800px] mx-auto">
+              <QueryBuilder
+                groups={queryGroups}
+                onGroupsChange={setQueryGroups}
+                onClearQueries={clearQueryGroups}
+                availableFilters={availableFilters}
+                isLoadingFilters={isLoadingFilters}
+                projectId={selectedProjectId}
+              />
             </div>
-          )}
-        </div>
-
-        {/* Issue Filter Pills */}
-        <div className="bg-white border-b border-gray-200 px-4 py-2 sm:px-6 overflow-x-auto no-scrollbar">
-          <div className="flex items-center gap-2 max-w-[1800px] mx-auto">
-            {SESSION_ARCHIVE_ISSUE_FILTER_OPTIONS.map((f) => {
-              const Icon = ISSUE_FILTER_ICONS[f.id];
-              const isActive = filter === f.id;
-              return (
-                <button
-                  key={f.id}
-                  onClick={() => setFilter(f.id)}
-                  className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 font-bold text-[10px] uppercase border transition-colors whitespace-nowrap shadow-sm
-                    ${isActive
-                    ? f.id === 'new_user'
-                      ? 'bg-emerald-100 text-emerald-950 border-emerald-300'
-                      : 'bg-slate-900 text-white border-slate-900'
-                    : f.id === 'new_user'
-                      ? 'bg-white border-slate-200 text-slate-700 hover:bg-emerald-50'
-                      : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'}`}
-                >
-                  <Icon className="w-3 h-3" />
-                  {f.label}
-                </button>
-              );
-            })}
           </div>
-        </div>
+        )}
 
-        {/* Advanced Filters Panel — below issue pills, no overlap */}
-        {showAdvancedFilters && (
-          <div className="bg-white border-b border-gray-200 px-4 py-4 sm:px-6">
-            <div className="max-w-[1800px] mx-auto space-y-3">
-              {/* Events Section — event name required; count & property optional */}
-              <div className="flex flex-wrap items-center gap-3">
-                <span className="text-[10px] font-bold text-indigo-500 uppercase tracking-wider w-20 shrink-0">🏷️ Events</span>
-                <span className="text-[10px] text-slate-400">Event name</span>
-                <div className="w-px h-5 bg-slate-200 mx-1" />
-                <select
-                  value={eventNameFilter}
-                  onChange={(e) => setEventNameFilter(e.target.value)}
-                  className={`rounded-lg border bg-white px-3 py-1.5 uppercase shadow-sm outline-none focus:border-indigo-500 font-semibold max-w-[200px] text-ellipsis text-xs ${eventNameFilter ? 'border-[#5dadec] text-black' : 'border-slate-200 text-black'}`}
-                  title="Event name — e.g. purchase_completed"
-                >
-                  <option value="">ALL EVENTS</option>
-                  {availableFilters.events.map(event => (
-                    <option key={event} value={event}>{event}</option>
+        {/* Compact summary bar when panel is closed but conditions are active */}
+        {!showQueryBuilder && totalConditions > 0 && (
+          <div className="bg-white border-b border-slate-100 px-4 py-2 sm:px-6">
+            <div className="flex items-center gap-1.5 max-w-[1800px] mx-auto overflow-x-auto no-scrollbar">
+              <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest shrink-0">WHERE</span>
+              {queryGroups.map((group, gi) => (
+                <React.Fragment key={group.id}>
+                  {gi > 0 && <span className="text-[9px] font-black text-violet-400 shrink-0">OR</span>}
+                  {group.conditions.map((cond, idx) => (
+                    <React.Fragment key={cond.id}>
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-slate-100 border border-slate-200 rounded text-[10px] font-bold text-slate-700 shrink-0 whitespace-nowrap">
+                        {getConditionShortLabel(cond)}
+                        <X
+                          className="w-2.5 h-2.5 cursor-pointer hover:text-red-500 transition-colors"
+                          onClick={() => setQueryGroups((prev) => prev.map((g) => g.id === group.id ? { ...g, conditions: g.conditions.filter((c) => c.id !== cond.id) } : g))}
+                        />
+                      </span>
+                      {idx < group.conditions.length - 1 && <span className="text-[9px] font-black text-slate-300 shrink-0">AND</span>}
+                    </React.Fragment>
                   ))}
-                </select>
-
-                {eventNameFilter && (
-                  <>
-                    <div className="w-px h-5 bg-slate-200 mx-1" />
-                    <span className="text-[10px] text-slate-400">Count <span className="text-slate-300">(optional)</span></span>
-                    <select
-                      value={eventCountOp}
-                      onChange={(e) => { setEventCountOp(e.target.value); if (!e.target.value) setEventCountValue(''); }}
-                      className={`rounded-lg border bg-white px-2 py-1.5 shadow-sm outline-none focus:border-indigo-500 font-semibold text-xs w-16 ${eventCountOp ? 'border-[#5dadec] text-black' : 'border-slate-200 text-black'}`}
-                    >
-                      <option value="">—</option>
-                      <option value="eq">=</option>
-                      <option value="gt">&gt;</option>
-                      <option value="lt">&lt;</option>
-                      <option value="gte">≥</option>
-                      <option value="lte">≤</option>
-                    </select>
-                    {eventCountOp && (
-                      <input
-                        type="number"
-                        min="0"
-                        value={eventCountValue}
-                        onChange={(e) => setEventCountValue(e.target.value)}
-                        placeholder="0"
-                        className="rounded-md border border-slate-200 bg-white px-2 py-1.5 text-xs font-semibold text-amber-700 shadow-sm outline-none focus:border-amber-500"
-                      />
-                    )}
-                  </>
-                )}
-
-                <div className="w-px h-5 bg-slate-200 mx-1" />
-
-                <span className="text-[10px] text-slate-400">Property <span className="text-slate-300">(optional)</span></span>
-                <select
-                  value={eventPropKey}
-                  onChange={(e) => { setEventPropKey(e.target.value); if (!e.target.value) setEventPropValue(''); }}
-                  className={`rounded-lg border bg-white px-3 py-1.5 shadow-sm outline-none focus:border-violet-500 font-semibold max-w-[180px] text-ellipsis text-xs ${eventPropKey ? 'border-[#5dadec] text-black' : 'border-slate-200 text-black'}`}
-                  title="Event property — e.g. plan, amount"
-                >
-                  <option value="">ANY</option>
-                  {availableFilters.eventPropertyKeys.map(key => (
-                    <option key={key} value={key}>{key}</option>
-                  ))}
-                </select>
-                {eventPropKey && (
-                  <>
-                    <span className="text-[10px] text-slate-400">=</span>
-                    <input
-                      type="text"
-                      value={eventPropValue}
-                      onChange={(e) => setEventPropValue(e.target.value)}
-                      placeholder="any value"
-                      className={`rounded-lg border bg-white px-2 py-1.5 shadow-sm outline-none focus:border-violet-500 font-semibold text-xs w-28 ${eventPropValue ? 'border-[#5dadec] text-black' : 'border-slate-200 text-black placeholder:text-gray-400'}`}
-                    />
-                  </>
-                )}
-              </div>
-
-              <div className="border-t border-slate-100" />
-
-              {/* Metadata Section */}
-              <div className="flex flex-wrap items-center gap-3">
-                <span className="text-[10px] font-bold text-emerald-600 uppercase tracking-wider w-20 shrink-0">📋 Metadata</span>
-                <span className="text-[10px] text-slate-400">Key-value pairs set by your app</span>
-                <div className="w-px h-5 bg-slate-200 mx-1" />
-                <select
-                  value={metaKeyFilter}
-                  onChange={(e) => {
-                    setMetaKeyFilter(e.target.value);
-                    setMetaValueFilter('');
-                  }}
-                  className={`rounded-lg border bg-white px-3 py-1.5 uppercase shadow-sm outline-none focus:border-emerald-500 font-semibold max-w-[200px] text-ellipsis text-xs ${metaKeyFilter ? 'border-[#5dadec] text-black' : 'border-slate-200 text-black'}`}
-                >
-                  <option value="">ANY KEY</option>
-                  {Object.keys(availableFilters.metadata).map(key => (
-                    <option key={key} value={key}>{key}</option>
-                  ))}
-                </select>
-
-                <select
-                  value={metaValueFilter}
-                  onChange={(e) => setMetaValueFilter(e.target.value)}
-                  disabled={!metaKeyFilter}
-                  className={`rounded-lg border bg-white px-3 py-1.5 uppercase shadow-sm outline-none focus:border-emerald-500 font-semibold max-w-[200px] text-ellipsis text-xs ${!metaKeyFilter ? 'opacity-50 cursor-not-allowed border-slate-200' : metaValueFilter ? 'border-[#5dadec] text-black' : 'border-slate-200 text-black'}`}
-                >
-                  <option value="">{metaKeyFilter ? 'ANY VALUE' : 'SELECT KEY FIRST'}</option>
-                  {metaKeyFilter && (availableFilters.metadata[metaKeyFilter] || []).map(val => (
-                    <option key={val} value={val}>{val}</option>
-                  ))}
-                </select>
-              </div>
+                </React.Fragment>
+              ))}
+              <button onClick={() => setShowQueryBuilder(true)} className="text-[10px] font-bold text-[#5dadec] hover:underline shrink-0 whitespace-nowrap">
+                Edit
+              </button>
             </div>
           </div>
         )}
@@ -900,22 +772,22 @@ export const RecordingsList: React.FC = () => {
                   </button>
                 </div>
 
-                <div className="mt-4 grid grid-cols-3 gap-2 text-center">
+                <div className="mt-4 grid grid-cols-2 gap-2 text-center xs:grid-cols-3">
                   <div className="rounded-lg bg-slate-50 px-2 py-2">
-                    <div className="text-[10px] font-bold uppercase text-slate-400">Duration</div>
-                    <div className="mt-1 font-mono text-xs font-semibold text-slate-900">
+                    <div className="text-[9px] font-bold uppercase text-slate-400">Duration</div>
+                    <div className="mt-1 font-mono text-[11px] font-semibold text-slate-900">
                       {isLiveIngest || (!canOpenReplay && isBackgroundProcessing)
                         ? 'Live'
                         : `${Math.floor(session.durationSeconds / 60)}:${String(session.durationSeconds % 60).padStart(2, '0')}`}
                     </div>
                   </div>
                   <div className="rounded-lg bg-slate-50 px-2 py-2">
-                    <div className="text-[10px] font-bold uppercase text-slate-400">Screens</div>
-                    <div className="mt-1 font-mono text-xs font-semibold text-slate-900">{screensCount}</div>
+                    <div className="text-[9px] font-bold uppercase text-slate-400">Screens</div>
+                    <div className="mt-1 font-mono text-[11px] font-semibold text-slate-900">{screensCount}</div>
                   </div>
-                  <div className="rounded-lg bg-slate-50 px-2 py-2">
-                    <div className="text-[10px] font-bold uppercase text-slate-400">API</div>
-                    <div className="mt-1 font-mono text-xs font-semibold text-slate-900">{session.apiAvgResponseMs ? `${Math.round(session.apiAvgResponseMs)}ms` : '-'}</div>
+                  <div className="col-span-2 rounded-lg bg-slate-50 px-2 py-2 xs:col-span-1">
+                    <div className="text-[9px] font-bold uppercase text-slate-400">Avg API</div>
+                    <div className="mt-1 font-mono text-[11px] font-semibold text-slate-900">{session.apiAvgResponseMs ? `${Math.round(session.apiAvgResponseMs)}ms` : '-'}</div>
                   </div>
                 </div>
 
@@ -1235,87 +1107,222 @@ export const RecordingsList: React.FC = () => {
                   {isExpanded && (
                     <tr>
                       <td colSpan={11} className="bg-[#f4f4f5] border-b border-gray-200 p-0 align-top">
-                        <div className="px-6 sm:px-8 pb-5 pt-2">
-                      <NeoCard variant="flat" className="p-4 bg-white border border-gray-200" style={{ boxShadow: '2px 2px 0 0 rgba(0,0,0,0.07)' }}>
-                        <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-                          {/* Performance Stats */}
-                          <div className="space-y-2">
-                            <h4 className="font-semibold text-slate-900 uppercase tracking-wider text-[10px] border-b border-gray-300 pb-1">Performance</h4>
+                        <div className="px-5 sm:px-7 pb-5 pt-3 space-y-3">
 
-                            <div className="flex justify-between items-center pb-1">
-                              <span className="text-slate-600 font-bold text-xs uppercase">Startup</span>
-                              <span className={`font-mono font-bold ${((session as any).appStartupTimeMs || 0) > 2000 ? 'text-red-600' : 'text-emerald-600'}`}>
-                                {((session as any).appStartupTimeMs || 0).toFixed(0)}ms
-                              </span>
-                            </div>
-                            <div className="flex justify-between items-center pb-1">
-                              <span className="text-slate-600 font-bold text-xs uppercase">API Latency</span>
-                              <span className="font-mono font-bold text-slate-900">{(session.apiAvgResponseMs || 0).toFixed(0)}ms</span>
-                            </div>
-                          </div>
+                          {/* ── Top stats strip ── */}
+                          <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
 
-                          {/* Network & Device */}
-                          <div className="space-y-2">
-                            <h4 className="font-semibold text-slate-900 uppercase tracking-wider text-[10px] border-b border-gray-300 pb-1">Environment</h4>
+                            {/* ── User Info (leftmost) ── */}
+                            {(() => {
+                              // visitorSessionNumber = ordinal of THIS session for this visitor (1 = first ever)
+                              // visitorFinalSessionNumber = total lifetime sessions recorded for this visitor
+                              const sessionNum: number | null = (session as any).visitorSessionNumber ?? null;
+                              const totalSessions: number | null = (session as any).visitorFinalSessionNumber ?? null;
+                              const interactionScore: number = (session as any).interactionScore ?? 50;
+                              const isNew = Boolean(session.isFirstSession);
 
-                            <div className="flex justify-between items-center pb-1">
-                              <span className="text-slate-600 font-bold text-xs uppercase">Network</span>
-                              <div className="flex items-center gap-1.5 font-bold text-slate-900 uppercase text-xs">
-                                <NetworkIcon type={networkType} />
-                                <span>{networkType || 'Unknown'}</span>
+                              // Tier is based on sessionNum (ordinal) — more sessions = more loyal user
+                              const getTier = (n: number | null): { label: string; color: string; bg: string } => {
+                                if (n === null || n <= 0) return { label: '—', color: 'text-slate-400', bg: 'bg-slate-50' };
+                                if (n === 1 || isNew)    return { label: '🌱 New', color: 'text-emerald-700', bg: 'bg-emerald-50' };
+                                if (n >= 50) return { label: '👑 Top 1%', color: 'text-violet-700', bg: 'bg-violet-50' };
+                                if (n >= 20) return { label: '🔥 Top 5%', color: 'text-indigo-700', bg: 'bg-indigo-50' };
+                                if (n >= 10) return { label: '⭐ Top 15%', color: 'text-sky-700', bg: 'bg-sky-50' };
+                                if (n >= 5)  return { label: '↩ Regular', color: 'text-amber-700', bg: 'bg-amber-50' };
+                                return { label: '↩ Returning', color: 'text-slate-700', bg: 'bg-slate-100' };
+                              };
+                              const tier = getTier(sessionNum);
+
+                              // Only show /total if the number makes sense (must be >= current session ordinal)
+                              const showTotal = totalSessions !== null && sessionNum !== null && totalSessions >= sessionNum;
+
+                              return (
+                                <div className="bg-white border border-gray-200 rounded-lg p-3 col-span-2 md:col-span-1" style={{ boxShadow: '1px 1px 0 0 rgba(0,0,0,0.06)' }}>
+                                  <div className="flex items-center gap-1 text-[9px] font-bold uppercase tracking-widest text-slate-400 mb-2">
+                                    <User className="w-3 h-3" /> User
+                                  </div>
+                                  <div className="space-y-1.5">
+                                    {/* Loyalty tier */}
+                                    <div className="flex justify-between items-center">
+                                      <span className="text-[10px] text-slate-500 font-semibold uppercase">Loyalty</span>
+                                      <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${tier.color} ${tier.bg}`}>
+                                        {tier.label}
+                                      </span>
+                                    </div>
+                                    {/* Session ordinal */}
+                                    <div className="flex justify-between items-center">
+                                      <span className="text-[10px] text-slate-500 font-semibold uppercase">Session #</span>
+                                      <span className="font-mono text-xs font-bold text-slate-800 bg-slate-50 px-1.5 py-0.5 rounded">
+                                        {sessionNum !== null && sessionNum > 0 ? sessionNum : '—'}
+                                        {showTotal ? ` of ${totalSessions}` : ''}
+                                      </span>
+                                    </div>
+                                    {/* Engagement score */}
+                                    <div className="flex justify-between items-center">
+                                      <span className="text-[10px] text-slate-500 font-semibold uppercase">Engagement</span>
+                                      <span className={`font-mono text-xs font-bold px-1.5 py-0.5 rounded ${interactionScore >= 70 ? 'text-emerald-700 bg-emerald-50' : interactionScore >= 40 ? 'text-amber-700 bg-amber-50' : 'text-red-700 bg-red-50'}`}>
+                                        {interactionScore}/100
+                                      </span>
+                                    </div>
+                                  </div>
+                                </div>
+                              );
+                            })()}
+
+                            {/* Performance */}
+                            <div className="bg-white border border-gray-200 rounded-lg p-3" style={{ boxShadow: '1px 1px 0 0 rgba(0,0,0,0.06)' }}>
+                              <div className="flex items-center gap-1 text-[9px] font-bold uppercase tracking-widest text-slate-400 mb-2"><Gauge className="w-3 h-3" /> Performance</div>
+                              <div className="space-y-1.5">
+                                <div className="flex justify-between items-center">
+                                  <span className="text-[10px] text-slate-500 font-semibold uppercase">Startup</span>
+                                  <span className={`font-mono text-xs font-bold px-1.5 py-0.5 rounded ${((session as any).appStartupTimeMs || 0) > 2000 ? 'text-red-700 bg-red-50' : 'text-emerald-700 bg-emerald-50'}`}>
+                                    {((session as any).appStartupTimeMs || 0).toFixed(0)}ms
+                                  </span>
+                                </div>
+                                <div className="flex justify-between items-center">
+                                  <span className="text-[10px] text-slate-500 font-semibold uppercase">API Avg</span>
+                                  <span className={`font-mono text-xs font-bold px-1.5 py-0.5 rounded ${(session.apiAvgResponseMs || 0) > 1000 ? 'text-amber-700 bg-amber-50' : 'text-slate-800 bg-slate-50'}`}>
+                                    {(session.apiAvgResponseMs || 0).toFixed(0)}ms
+                                  </span>
+                                </div>
+                                <div className="flex justify-between items-center">
+                                  <span className="text-[10px] text-slate-500 font-semibold uppercase">Duration</span>
+                                  <span className="font-mono text-xs font-bold text-slate-800 bg-slate-50 px-1.5 py-0.5 rounded">
+                                    {Math.floor(session.durationSeconds / 60)}:{String(session.durationSeconds % 60).padStart(2, '0')}
+                                  </span>
+                                </div>
                               </div>
                             </div>
-                            <div className="flex justify-between items-center pb-1">
-                              <span className="text-slate-600 font-bold text-xs uppercase">OS Version</span>
-                              <span className="font-bold text-slate-900 text-xs">{session.osVersion || 'Unknown'}</span>
+
+                            {/* Environment */}
+                            <div className="bg-white border border-gray-200 rounded-lg p-3" style={{ boxShadow: '1px 1px 0 0 rgba(0,0,0,0.06)' }}>
+                              <div className="text-[9px] font-bold uppercase tracking-widest text-slate-400 mb-2">🌐 Environment</div>
+                              <div className="space-y-1.5">
+                                <div className="flex justify-between items-center gap-1">
+                                  <span className="text-[10px] text-slate-500 font-semibold uppercase shrink-0">Network</span>
+                                  <div className="flex items-center gap-1 font-bold text-slate-800 uppercase text-[10px] min-w-0">
+                                    <NetworkIcon type={networkType} />
+                                    <span className="truncate">{networkType || 'Unknown'}</span>
+                                  </div>
+                                </div>
+                                <div className="flex justify-between items-center gap-1">
+                                  <span className="text-[10px] text-slate-500 font-semibold uppercase shrink-0">OS</span>
+                                  <span className="font-bold text-slate-800 text-[10px] truncate max-w-[110px] text-right">{session.osVersion || '—'}</span>
+                                </div>
+                                <div className="flex justify-between items-center gap-1">
+                                  <span className="text-[10px] text-slate-500 font-semibold uppercase shrink-0">Location</span>
+                                  <span className="font-bold text-slate-800 text-[10px] truncate max-w-[110px] text-right">
+                                    {geoDisplay.hasLocation ? `${geoDisplay.flagEmoji} ${geoDisplay.cityLabel || geoDisplay.countryLabel}` : '—'}
+                                  </span>
+                                </div>
+                              </div>
                             </div>
-                            <div className="flex justify-between items-center pb-1 gap-2">
-                              <span className="text-slate-600 font-bold text-xs uppercase">Location</span>
-                              <span className="font-bold text-slate-900 text-xs truncate max-w-[140px] text-right">
-                                {geoDisplay.flagEmoji} {geoDisplay.fullLabel}
-                              </span>
+
+                            {/* API — compact inline */}
+                            <div className="bg-white border border-gray-200 rounded-lg p-3" style={{ boxShadow: '1px 1px 0 0 rgba(0,0,0,0.06)' }}>
+                              <div className="text-[9px] font-bold uppercase tracking-widest text-slate-400 mb-2">📡 API Calls</div>
+                              <div className="space-y-1.5">
+                                <div className="flex justify-between items-center">
+                                  <span className="text-[10px] text-slate-500 font-semibold uppercase">OK</span>
+                                  <span className="font-mono text-xs font-bold text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded">{session.apiSuccessCount || 0}</span>
+                                </div>
+                                <div className="flex justify-between items-center">
+                                  <span className="text-[10px] text-slate-500 font-semibold uppercase">Errors</span>
+                                  <span className={`font-mono text-xs font-bold px-1.5 py-0.5 rounded ${(session.apiErrorCount || 0) > 0 ? 'text-red-700 bg-red-50' : 'text-slate-500 bg-slate-50'}`}>{session.apiErrorCount || 0}</span>
+                                </div>
+                                <div className="flex justify-between items-center">
+                                  <span className="text-[10px] text-slate-500 font-semibold uppercase">Avg Lat.</span>
+                                  <span className={`font-mono text-xs font-bold px-1.5 py-0.5 rounded ${(session.apiAvgResponseMs || 0) > 1000 ? 'text-amber-700 bg-amber-50' : 'text-slate-800 bg-slate-50'}`}>
+                                    {(session.apiAvgResponseMs || 0).toFixed(0)}ms
+                                  </span>
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Replay — compact */}
+                            <div className="bg-white border border-gray-200 rounded-lg p-3 flex flex-col gap-2" style={{ boxShadow: '1px 1px 0 0 rgba(0,0,0,0.06)' }}>
+                              <div className="text-[9px] font-bold uppercase tracking-widest text-slate-400">🎬 Replay</div>
+                              <NeoButton
+                                variant="primary"
+                                size="sm"
+                                onClick={() => !isReplayBlocked && navigate(`${pathPrefix}/sessions/${session.id}`)}
+                                className={`w-full justify-center ${isReplayBlocked ? 'opacity-50 cursor-not-allowed' : ''}`}
+                                disabled={isReplayBlocked}
+                              >
+                                {isReplayBlocked ? (
+                                  <><Loader size={12} className="animate-spin mr-2" /> Unavailable</>
+                                ) : isLiveIngest ? (
+                                  <><Play size={12} fill="currentColor" className="mr-2" /> Live Replay</>
+                                ) : (
+                                  <><Play size={12} fill="currentColor" className="mr-2" /> Open Replay</>
+                                )}
+                              </NeoButton>
+                              <div className="text-[9px] text-slate-400 font-medium text-center leading-tight">
+                                {screensCount} screen{screensCount !== 1 ? 's' : ''}&nbsp;·&nbsp;{Math.floor(session.durationSeconds / 60)}m {session.durationSeconds % 60}s
+                              </div>
                             </div>
                           </div>
 
-                          {/* API Reliability */}
-                          <div className="space-y-2">
-                            <h4 className="font-semibold text-slate-900 uppercase tracking-wider text-[10px] border-b border-gray-300 pb-1">API</h4>
-                            <div className="flex gap-2">
-                              <div className="flex-1 bg-white border border-[#34d399] p-2 text-center rounded-sm">
-                                <div className="text-[#34d399] font-semibold font-mono text-lg leading-none">{session.apiSuccessCount || 0}</div>
-                                <div className="text-[9px] uppercase font-bold text-[#34d399]">Success</div>
-                              </div>
-                              <div className="flex-1 bg-white border border-[#ef4444] p-2 text-center rounded-sm">
-                                <div className="text-[#ef4444] font-semibold font-mono text-lg leading-none">{session.apiErrorCount || 0}</div>
-                                <div className="text-[9px] uppercase font-bold text-[#ef4444]">Failed</div>
-                              </div>
-                            </div>
-                          </div>
+                          {/* ── Page Journey ── */}
+                          {(() => {
+                            const screens: string[] = (session as any).screensVisited || [];
+                            if (screens.length === 0) return null;
+                            return (
+                              <div className="bg-white border border-gray-200 rounded-lg p-3" style={{ boxShadow: '1px 1px 0 0 rgba(0,0,0,0.06)' }}>
+                                <div className="flex items-center justify-between mb-2.5">
+                                  <div className="text-[9px] font-bold uppercase tracking-widest text-slate-400">🗺️ Page Journey</div>
+                                  <div className="text-[9px] font-semibold text-slate-400 uppercase">{screens.length} screen{screens.length !== 1 ? 's' : ''} visited</div>
+                                </div>
+                                <div className="overflow-x-auto no-scrollbar pb-1 pt-3">
+                                  <div className="flex items-center gap-0 min-w-max">
+                                    {screens.map((screen, idx) => {
+                                      const isEntry = idx === 0;
+                                      const isExit = idx === screens.length - 1;
+                                      return (
+                                        <React.Fragment key={`${screen}-${idx}`}>
+                                          {/* Screen pill */}
+                                          <div className="flex flex-col items-center gap-0.5">
+                                            <div
+                                              className={`relative flex items-center gap-1 px-2.5 py-1.5 rounded-md text-[10px] font-bold border transition-all
+                                                ${isEntry
+                                                  ? 'bg-emerald-50 border-emerald-300 text-emerald-800'
+                                                  : isExit
+                                                  ? 'bg-amber-50 border-amber-300 text-amber-800'
+                                                  : 'bg-slate-50 border-slate-200 text-slate-700'
+                                                }`}
+                                            >
+                                              <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${isEntry ? 'bg-emerald-500' : isExit ? 'bg-amber-500' : 'bg-slate-300'}`} />
+                                              <span className="whitespace-nowrap max-w-[120px] truncate">{screen}</span>
+                                              {/* step number badge */}
+                                              <span className={`absolute -top-2 -right-1.5 text-[8px] font-bold px-1 py-0 rounded-full leading-4 min-w-[16px] text-center
+                                                ${isEntry ? 'bg-emerald-500 text-white' : isExit ? 'bg-amber-500 text-white' : 'bg-slate-200 text-slate-600'}`}>
+                                                {idx + 1}
+                                              </span>
+                                            </div>
+                                            <span className={`text-[8px] font-bold uppercase tracking-wider
+                                              ${isEntry ? 'text-emerald-600' : isExit ? 'text-amber-600' : 'text-transparent'}`}>
+                                              {isEntry ? 'Entry' : isExit ? 'Exit' : 'ー'}
+                                            </span>
+                                          </div>
 
-                          {/* Actions */}
-                          <div className="flex flex-col justify-start">
-                            <NeoButton
-                              variant="primary"
-                              size="sm"
-                              onClick={() => !isReplayBlocked && navigate(`${pathPrefix}/sessions/${session.id}`)}
-                              className={`w-full justify-center ${isReplayBlocked ? 'opacity-50 cursor-not-allowed' : ''}`}
-                              disabled={isReplayBlocked}
-                            >
-                              {isReplayBlocked ? (
-                                <><Loader size={12} className="animate-spin mr-2" /> Unavailable</>
-                              ) : !canOpenReplay ? (
-                                <><Play size={12} fill="currentColor" className="mr-2" /> Open session</>
-                              ) : isLiveIngest ? (
-                                <><Play size={12} fill="currentColor" className="mr-2" /> Open Live Replay</>
-                              ) : isBackgroundProcessing ? (
-                                <><Play size={12} fill="currentColor" className="mr-2" /> Open session</>
-                              ) : (
-                                <><Play size={12} fill="currentColor" className="mr-2" /> Open Replay</>
-                              )}
-                            </NeoButton>
-                          </div>
-                        </div>
-                      </NeoCard>
+                                          {/* Arrow connector (not after last) */}
+                                          {idx < screens.length - 1 && (
+                                            <div className="flex items-center px-1 mb-4 shrink-0">
+                                              <div className="w-5 h-px bg-slate-300" />
+                                              <svg width="6" height="8" viewBox="0 0 6 8" fill="none" className="text-slate-400">
+                                                <path d="M1 1L5 4L1 7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                                              </svg>
+                                            </div>
+                                          )}
+                                        </React.Fragment>
+                                      );
+                                    })}
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })()}
+
                         </div>
                       </td>
                     </tr>
@@ -1337,7 +1344,7 @@ export const RecordingsList: React.FC = () => {
                   {totalCount !== null && totalCount > filteredSessions.length && (
                     <span className="text-slate-400">
                       {' '}
-                      ({totalCount.toLocaleString()} matching in {archiveScopeLabel} — load more for the rest)
+                      ({totalCount.toLocaleString()} total matching — load more for the rest)
                     </span>
                   )}
                 </span>
