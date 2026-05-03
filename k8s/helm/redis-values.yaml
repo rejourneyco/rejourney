@@ -51,8 +51,9 @@ replica:
                 app.kubernetes.io/name: redis
             topologyKey: kubernetes.io/hostname
   configuration: |
-    maxmemory 900mb
-    maxmemory-policy allkeys-lru
+    # BullMQ stores durable queue/job state in Redis. Never evict queue keys.
+    maxmemory 2gb
+    maxmemory-policy noeviction
     save 900 1
   # In Sentinel mode the redis-node StatefulSet reads resources from the
   # replica block, even when the single pod is acting as the master.
@@ -60,10 +61,10 @@ replica:
   resources:
     requests:
       cpu: 75m
-      memory: 256Mi
+      memory: 512Mi
     limits:
       cpu: "1500m"
-      memory: 1536Mi
+      memory: 3Gi
 
 global:
   # Safe Phase 1 prep: changing this does not move the existing live PVC.
@@ -75,8 +76,9 @@ master:
   persistence:
     size: 8Gi
   configuration: |
-    maxmemory 900mb
-    maxmemory-policy allkeys-lru
+    # BullMQ stores durable queue/job state in Redis. Never evict queue keys.
+    maxmemory 2gb
+    maxmemory-policy noeviction
     save 900 1
   # See sentinel.resourcesPreset note above — same override applies here.
   # Node now has 12 CPU / 24 GiB. Redis is still far from its ceiling in prod,
@@ -86,10 +88,10 @@ master:
   resources:
     requests:
       cpu: 75m
-      memory: 256Mi
+      memory: 512Mi
     limits:
       cpu: "1500m"
-      memory: 1536Mi
+      memory: 3Gi
 
 auth:
   existingSecret: redis-secret

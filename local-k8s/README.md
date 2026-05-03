@@ -44,6 +44,7 @@ topology we expect in production:
 - `ingest-upload`
 - `ingest-worker`
 - `replay-worker`
+- `session-lifecycle-worker`
 - `retention-worker`
 - `alert-worker`
 - `db-setup`
@@ -104,16 +105,25 @@ Reset the local namespace once, then rerun:
 npm run ci:local:fast
 ```
 
-## Production Note
+## Production Notes
 
-The legacy replay cleanup migration now prefers safe deploys over immediate
+**Replay column cleanup:** The legacy replay cleanup migration prefers safe deploys over immediate
 physical column removal. If production is under load and the `sessions` table
 is busy, the migration may be recorded without dropping the old
 `replay_promoted*` columns. That is expected and safe because the application no
-longer depends on those columns.
+longer depends on those columns. See `dev_docs/legacythingstoclean.md` for the
+drop procedure.
 
-If you still want to remove the columns physically, do it during a quiet manual
-maintenance window after checking for long-running `sessions` queries.
+**BullMQ / Redis `noeviction`:** Workers use BullMQ queues backed by Redis. The local
+Redis (`local-k8s/redis.yaml`) is configured with `maxmemory-policy: noeviction`.
+Do not change this to `allkeys-lru` or any other eviction policy — BullMQ job
+records are silently evicted under memory pressure, causing artifacts to get stuck
+in `uploaded` status permanently (the worker never sees the job).
+
+**`session-lifecycle-worker` needs Redis:** This worker runs `queueRecoverableArtifacts`
+which re-enqueues BullMQ jobs for any `uploaded` artifacts that lost their job
+(e.g. after a Redis restart). It must have `REDIS_URL` in its env — see
+`local-k8s/workers.yaml`.
 
 ## Notes
 
