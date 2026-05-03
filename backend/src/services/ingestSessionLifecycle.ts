@@ -1,5 +1,5 @@
 import { eq, sql } from 'drizzle-orm';
-import { db, ingestJobs, projects, sessions, sessionMetrics, teams } from '../db/client.js';
+import { db, projects, recordingArtifacts, sessions, sessionMetrics, teams } from '../db/client.js';
 import { logger } from '../logger.js';
 import { ApiError } from '../middleware/index.js';
 import { getRequestIp } from '../utils/requestIp.js';
@@ -417,17 +417,17 @@ export async function repairMissingSessionsFromIngestJobs(
     const limit = Math.max(1, Math.min(options.limit ?? 100, 1000));
     const result = await db.execute(sql`
         select
-            ij.session_id as "sessionId",
-            ij.project_id::text as "projectId",
-            min(ij.created_at) as "firstSeenAt",
-            max(ij.created_at) as "lastSeenAt"
-        from ${ingestJobs} ij
-        left join ${sessions} s on s.id = ij.session_id
-        where ij.session_id is not null
+            ra.session_id as "sessionId",
+            ra.project_id::text as "projectId",
+            min(ra.created_at) as "firstSeenAt",
+            max(ra.created_at) as "lastSeenAt"
+        from ${recordingArtifacts} ra
+        left join ${sessions} s on s.id = ra.session_id
+        where ra.session_id is not null
           and s.id is null
-          and ij.created_at >= ${since}
-        group by ij.session_id, ij.project_id
-        order by max(ij.created_at) desc, ij.session_id desc
+          and ra.created_at >= ${since}
+        group by ra.session_id, ra.project_id
+        order by max(ra.created_at) desc, ra.session_id desc
         limit ${limit}
     `);
 

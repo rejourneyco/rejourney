@@ -1,19 +1,35 @@
-import { and, eq, or, sql } from 'drizzle-orm';
-import { db, ingestJobs, projects, recordingArtifacts, sessionMetrics, sessions } from '../db/client.js';
+import { eq, sql } from 'drizzle-orm';
+import { db, projects, recordingArtifacts, sessionMetrics, sessions } from '../db/client.js';
 import { downloadFromS3ForArtifact, getObjectSizeBytesForArtifact } from '../db/s3.js';
 import { logger } from '../logger.js';
 import { ensureHierarchyArtifactCompressed } from './hierarchyArtifactCompression.js';
 import { processEventsArtifact } from './ingestEventArtifactProcessor.js';
 import { processAnrsArtifact, processCrashesArtifact } from './ingestFaultArtifactProcessors.js';
-import { sanitizeIngestErrorMessage } from './ingestProtocol.js';
-import { type ArtifactJobRecord, type ArtifactQueueConfig, markArtifactJobDone, markArtifactJobProcessing, scheduleArtifactJobRetry } from './ingestQueue.js';
 import { processRecoveredReplayArtifact } from './ingestReplayArtifactProcessor.js';
 import { runArtifactCompletionEffects } from './artifactCompletionEffects.js';
 import { reconcileSessionState } from './sessionReconciliation.js';
+import type { ArtifactJobData, Job } from './artifactBullQueue.js';
+
+// ─── Job context type ─────────────────────────────────────────────────────────
+
+/**
+ * Lightweight job descriptor passed into the processor context.
+ * Previously this was typeof ingestJobs.$inferSelect; now it's the BullMQ job data
+ * plus the fields that sub-processors need (kind, sessionId).
+ */
+export type ArtifactJobContext = {
+    id: string;           // BullMQ job ID
+    artifactId: string;
+    sessionId: string;
+    kind: string;
+    s3ObjectKey: string;
+    endpointId: string | null;
+    attemptsMade: number;
+};
 
 type ArtifactProcessorContext = {
     artifact: typeof recordingArtifacts.$inferSelect;
-    job: ArtifactJobRecord;
+    job: ArtifactJobContext;
     log: any;
     metrics: typeof sessionMetrics.$inferSelect | null;
     projectId: string;
@@ -65,7 +81,7 @@ export const artifactProcessors: Record<string, ArtifactProcessor> = {
         const data = await downloadFromS3ForArtifact(context.projectId, context.s3Key, context.artifact.endpointId);
         if (!data) throw new Error('Artifact payload missing from S3 for screenshots');
         await processRecoveredReplayArtifact({
-            artifactId: context.job.artifactId ?? undefined,
+            artifactId: context.job.artifactId,
             data,
             expectedFrameCount: context.artifact.frameCount,
             job: context.job,
@@ -79,8 +95,8 @@ export const artifactProcessors: Record<string, ArtifactProcessor> = {
             projectId: context.projectId,
             s3Key: context.s3Key,
             endpointId: context.artifact.endpointId,
-            artifactId: context.job.artifactId ?? undefined,
-            sessionId: context.job.sessionId ?? undefined,
+            artifactId: context.job.artifactId,
+            sessionId: context.job.sessionId,
         });
         const sizeBytes = repairResult.sizeBytes == null
             ? await loadArtifactObjectSize(context)
@@ -88,7 +104,7 @@ export const artifactProcessors: Record<string, ArtifactProcessor> = {
         const data = await downloadFromS3ForArtifact(context.projectId, context.s3Key, context.artifact.endpointId);
         if (!data) throw new Error('Artifact payload missing from S3 for hierarchy');
         await processRecoveredReplayArtifact({
-            artifactId: context.job.artifactId ?? undefined,
+            artifactId: context.job.artifactId,
             data,
             expectedFrameCount: context.artifact.frameCount,
             job: context.job,
@@ -112,179 +128,176 @@ export async function runArtifactProcessorByKind(
     if (!processor) {
         throw new Error(`Unsupported artifact kind: ${kind}`);
     }
-
     return processor(context);
 }
 
-async function countPendingSessionJobs(sessionId: string): Promise<number> {
-    const [pendingResult] = await db
-        .select({ count: sql<number>`count(*)` })
-        .from(ingestJobs)
-        .where(
-            and(
-                eq(ingestJobs.sessionId, sessionId),
-                or(
-                    eq(ingestJobs.status, 'pending'),
-                    eq(ingestJobs.status, 'processing'),
-                ),
-            ),
-        );
+// ─── BullMQ-native processor entry point ─────────────────────────────────────
 
-    return Number(pendingResult?.count ?? 0);
-}
+/**
+ * Process one artifact job dispatched from a BullMQ Worker.
+ *
+ * BullMQ handles the job lifecycle automatically:
+ *   - Moving the job to "active" when this function is entered
+ *   - Marking it "completed" when this function resolves
+ *   - Scheduling a retry (with exponential backoff) when this function throws
+ *   - Moving to "failed" queue after all attempts are exhausted
+ *
+ * We therefore do NOT update ingest_jobs here.  All Postgres writes go to
+ * recording_artifacts and the session/metrics tables, exactly as before.
+ */
+export async function processArtifactJobFromBullMQ(
+    bullJob: Job<ArtifactJobData>,
+    config: { workerId: string; maxAttempts: number },
+): Promise<void> {
+    const { artifactId, sessionId, s3ObjectKey, kind, endpointId } = bullJob.data;
+    const attemptsMade = bullJob.attemptsMade ?? 0;  // 0-indexed; first attempt = 0
 
-export async function processArtifactJob(
-    job: ArtifactJobRecord,
-    config: Pick<ArtifactQueueConfig, 'maxAttempts' | 'workerId'>,
-): Promise<boolean> {
-    const attemptNumber = Number(job.attempts || 0) + 1;
+    // Build a context object shaped like the old ArtifactJobContext so all
+    // sub-processors (ingestEventArtifactProcessor, etc.) work without changes.
+    const jobCtx: ArtifactJobContext = {
+        id: bullJob.id ?? artifactId,
+        artifactId,
+        sessionId,
+        kind,
+        s3ObjectKey,
+        endpointId: endpointId ?? null,
+        attemptsMade,
+    };
+
     const log = logger.child({
-        jobId: job.id,
-        sessionId: job.sessionId,
-        artifactId: job.artifactId,
-        kind: job.kind,
-        attemptNumber,
+        jobId: jobCtx.id,
+        sessionId,
+        artifactId,
+        kind,
+        attemptNumber: attemptsMade + 1,
         maxAttempts: config.maxAttempts,
+        workerId: config.workerId,
     });
 
-    try {
-        log.debug('Processing artifact job');
-        const startedAt = new Date();
-        const sessionId = job.sessionId;
-        const artifactId = job.artifactId;
-        const s3Key = job.payloadRef;
+    // Validate required fields before touching DB
+    if (!sessionId) throw new Error('Artifact job missing sessionId');
+    if (!artifactId) throw new Error('Artifact job missing artifactId');
+    if (!s3ObjectKey) throw new Error('Artifact job missing s3ObjectKey');
 
-        if (!sessionId) {
-            throw new Error('Artifact job missing sessionId');
-        }
-        if (!artifactId) {
-            throw new Error('Artifact job missing artifactId');
-        }
-        if (!s3Key) {
-            throw new Error('Artifact job missing payloadRef');
-        }
+    const [sessionResult] = await db
+        .select({
+            session: sessions,
+            project: projects,
+            metrics: sessionMetrics,
+        })
+        .from(sessions)
+        .leftJoin(projects, eq(sessions.projectId, projects.id))
+        .leftJoin(sessionMetrics, eq(sessions.id, sessionMetrics.sessionId))
+        .where(eq(sessions.id, sessionId))
+        .limit(1);
 
-        await markArtifactJobProcessing(job.id, {
-            attemptNumber,
-            startedAt,
-            workerId: config.workerId,
-        });
+    if (!sessionResult) {
+        // Session deleted — nothing to process; let BullMQ mark completed
+        log.warn('Session not found, skipping artifact job');
+        return;
+    }
 
-        const [sessionResult] = await db
-            .select({
-                session: sessions,
-                project: projects,
-                metrics: sessionMetrics,
-            })
-            .from(sessions)
-            .leftJoin(projects, eq(sessions.projectId, projects.id))
-            .leftJoin(sessionMetrics, eq(sessions.id, sessionMetrics.sessionId))
-            .where(eq(sessions.id, sessionId))
-            .limit(1);
+    const { session, project, metrics } = sessionResult;
+    const projectId = project?.id || session.projectId;
 
-        if (!sessionResult) {
-            log.warn('Session not found, marking job as failed');
-            await db.transaction(async (tx) => {
-                await tx.execute(sql`SET LOCAL synchronous_commit = local`);
-                await tx.update(ingestJobs)
-                    .set({ status: 'failed', errorMsg: 'Session not found', completedAt: new Date(), updatedAt: new Date() })
-                    .where(eq(ingestJobs.id, job.id));
-            });
-            return false;
-        }
+    const [artifact] = await db
+        .select()
+        .from(recordingArtifacts)
+        .where(eq(recordingArtifacts.id, artifactId))
+        .limit(1);
 
-        const { session, project, metrics } = sessionResult;
-        const projectId = project?.id || session.projectId;
+    if (!artifact) {
+        throw new Error('Artifact not found');
+    }
 
-        const [artifact] = await db
-            .select()
-            .from(recordingArtifacts)
-            .where(eq(recordingArtifacts.id, artifactId))
-            .limit(1);
+    const artifactLog = log.child({
+        projectId,
+        s3Key: s3ObjectKey,
+        endpointId: endpointId ?? null,
+    });
 
-        if (!artifact) {
-            throw new Error('Artifact not found');
-        }
-
-        const artifactLog = log.child({
-            projectId,
-            s3Key,
-            endpointId: artifact.endpointId ?? null,
-        });
-
-        if (artifact.status === 'ready') {
-            await markArtifactJobDone(job.id, new Date());
-            const reconcileResult = await reconcileSessionState(session.id);
-            await runArtifactCompletionEffects({
-                kind: job.kind,
-                replayAvailable: Boolean(reconcileResult?.replayAvailable),
-                sessionId: session.id,
-            });
-            artifactLog.info('Artifact already ready; marked job done without reprocessing');
-            return true;
-        }
-
-        const { sizeBytes } = await runArtifactProcessorByKind(job.kind, {
-            artifact,
-            job,
-            log: artifactLog,
-            metrics,
-            projectId,
-            s3Key,
-            session,
-        });
-
-        const completedAt = new Date();
-        await db.transaction(async (tx) => {
-            await tx.execute(sql`SET LOCAL synchronous_commit = local`);
-            await tx.update(recordingArtifacts)
-                .set({
-                    status: 'ready',
-                    readyAt: completedAt,
-                    uploadCompletedAt: artifact.uploadCompletedAt ?? completedAt,
-                    verifiedAt: artifact.verifiedAt ?? completedAt,
-                    sizeBytes,
-                })
-                .where(eq(recordingArtifacts.id, artifactId));
-        });
-
-        await markArtifactJobDone(job.id, completedAt);
-
-        const pendingJobsRemaining = await countPendingSessionJobs(session.id);
+    // If the artifact is already in ready state, just run completion effects.
+    if (artifact.status === 'ready') {
         const reconcileResult = await reconcileSessionState(session.id);
         await runArtifactCompletionEffects({
-            kind: job.kind,
+            kind,
             replayAvailable: Boolean(reconcileResult?.replayAvailable),
             sessionId: session.id,
         });
+        artifactLog.info('Artifact already ready; running completion effects without reprocessing');
+        return;
+    }
 
-        artifactLog.info({
+    // Run the kind-specific processor — throws on failure, BullMQ retries
+    const { sizeBytes } = await runArtifactProcessorByKind(kind, {
+        artifact,
+        job: jobCtx,
+        log: artifactLog,
+        metrics,
+        projectId,
+        s3Key: s3ObjectKey,
+        session,
+    });
+
+    const completedAt = new Date();
+
+    // Mark artifact as ready in Postgres (skip SyncRep wait — idempotent on replay)
+    await db.transaction(async (tx) => {
+        await tx.execute(sql`SET LOCAL synchronous_commit = local`);
+        await tx.update(recordingArtifacts)
+            .set({
+                status: 'ready',
+                readyAt: completedAt,
+                uploadCompletedAt: artifact.uploadCompletedAt ?? completedAt,
+                verifiedAt: artifact.verifiedAt ?? completedAt,
+                sizeBytes,
+            })
+            .where(eq(recordingArtifacts.id, artifactId));
+    });
+
+    // On final failure (all attempts exhausted), also mark artifact as failed.
+    // We check this AFTER processing succeeds (this branch is never reached on fail),
+    // but handle the DLQ case via the 'failed' worker event in startArtifactWorker.ts.
+    // The artifact stays "uploaded" until retry succeeds or we mark it failed via
+    // the markArtifactFailedAfterExhausted helper below.
+
+    const reconcileResult = await reconcileSessionState(session.id);
+    await runArtifactCompletionEffects({
+        kind,
+        replayAvailable: Boolean(reconcileResult?.replayAvailable),
+        sessionId: session.id,
+    });
+
+    artifactLog.info(
+        {
             event: 'artifact.processed',
-            replayArtifact: job.kind === 'screenshots' || job.kind === 'hierarchy',
+            replayArtifact: kind === 'screenshots' || kind === 'hierarchy',
             actualObjectSize: sizeBytes,
-            pendingJobsRemaining,
-        }, 'artifact.processed');
-        return true;
+        },
+        'artifact.processed',
+    );
+
+    // BullMQ marks job completed on normal return — no explicit call needed.
+}
+
+/**
+ * Called from the BullMQ 'failed' event (in startArtifactWorker.ts) once
+ * a job has exhausted all retry attempts.  Marks the recording_artifact row
+ * as 'failed' so the session lifecycle worker won't keep trying to recover it.
+ */
+export async function markArtifactFailedAfterExhausted(
+    artifactId: string,
+    errMsg: string,
+): Promise<void> {
+    try {
+        await db.update(recordingArtifacts)
+            .set({ status: 'failed' })
+            .where(eq(recordingArtifacts.id, artifactId));
+        logger.warn(
+            { event: 'artifact.exhausted', artifactId, errMsg: errMsg.slice(0, 400) },
+            'artifact.exhausted',
+        );
     } catch (err) {
-        log.error({ err }, 'Artifact job processing failed');
-
-        const errorMsg = sanitizeIngestErrorMessage(err);
-        await scheduleArtifactJobRetry({
-            artifactId: job.artifactId,
-            attemptNumber,
-            errorMsg,
-            jobId: job.id,
-            log,
-            maxAttempts: config.maxAttempts,
-            kind: job.kind,
-            sessionId: job.sessionId,
-        });
-        if (job.sessionId) {
-            await reconcileSessionState(job.sessionId).catch((reconcileErr) => {
-                logger.warn({ err: reconcileErr, sessionId: job.sessionId }, 'Failed to reconcile session after artifact failure');
-            });
-        }
-
-        return false;
+        logger.error({ err, artifactId }, 'Failed to mark artifact as failed after job exhausted');
     }
 }

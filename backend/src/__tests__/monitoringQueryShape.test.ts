@@ -10,14 +10,16 @@ function readWorkspaceFile(relativePathFromTestFile: string): string {
 }
 
 describe('monitoring query shape', () => {
-    it('uses non-terminal ingest job aggregation instead of full-table count filters', () => {
+    it('uses BullMQ queue counts instead of full-table ingest_jobs scan', () => {
         const source = readWorkspaceFile('../services/monitoring.ts');
 
-        expect(source).toContain("WHERE status IN ('pending', 'processing', 'dlq', 'failed')");
-        expect(source).toContain('GROUP BY status, kind, is_due');
+        // Must use BullMQ queue count helpers — not a full-table ingest_jobs query
+        expect(source).toContain('getIngestQueueCounts');
+        expect(source).toContain('getReplayQueueCounts');
         expect(source).toContain("recording_artifacts_pending_stalled_idx");
+        // Must NOT query ingest_jobs for job counts (causes full-table seq scan)
+        expect(source).not.toContain("FROM ingest_jobs");
         expect(source).not.toContain("COUNT(*) FILTER (WHERE status = 'pending')");
-        expect(source).not.toContain("COUNT(*) FILTER (WHERE status = 'processing')");
     });
 
     it('declares the monitoring-focused indexes in schema', () => {

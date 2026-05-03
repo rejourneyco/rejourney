@@ -20,7 +20,6 @@ const REJOURNEY_ENABLED = true;
 if (REJOURNEY_ENABLED) {
   const { Rejourney, initRejourney, startRejourney } = require('@rejourneyco/react-native');
   initRejourney('rj_02dc583c8036d165cc855419688f14b3', {
-    observeOnly: true,
     apiUrl: API_URL,
     debug: true,
   });

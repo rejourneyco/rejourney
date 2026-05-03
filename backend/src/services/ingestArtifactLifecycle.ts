@@ -1,15 +1,19 @@
-import { and, eq, inArray, isNull, lte, or, sql } from 'drizzle-orm';
-import { db, ingestJobs, recordingArtifacts, sessions } from '../db/client.js';
+import { and, eq, inArray, isNull, lte, sql } from 'drizzle-orm';
+import { db, recordingArtifacts, sessions } from '../db/client.js';
 import { getObjectSizeBytesForArtifact } from '../db/s3.js';
 import { logger } from '../logger.js';
 import {
     ABANDONED_ARTIFACT_TTL_MS,
     REPLAY_PENDING_ARTIFACT_GRACE_MS,
-    STALE_PROCESSING_JOB_TTL_MS,
 } from './ingestUploadRelay.js';
 import { markSessionIngestActivity } from './sessionReconciliation.js';
 import { assertSessionAcceptsNewIngestWork, isSessionIngestImmutable } from './sessionIngestImmutability.js';
 import { ApiError } from '../middleware/errorHandler.js';
+import {
+    enqueueArtifactJob,
+    removeArtifactJobIfQueued,
+    type ArtifactJobData,
+} from './artifactBullQueue.js';
 
 type PendingArtifactParams = {
     sessionId: string;
@@ -67,84 +71,54 @@ async function touchSessionForArtifactMutation(
         await markSessionIngestActivity(session.id, { at });
         return;
     }
-
     await markSessionIngestActivity(session.id, { at, reopen: true });
 }
 
-async function ensureArtifactProcessingJob(artifact: any): Promise<QueueArtifactJobResult> {
-    const replay = isReplayArtifactKind(artifact.kind);
-    const [existingJob] = await db.select().from(ingestJobs)
-        .where(eq(ingestJobs.artifactId, artifact.id))
-        .limit(1);
+// ─── BullMQ enqueue helpers ───────────────────────────────────────────────────
 
-    if (!existingJob) {
-        await db.insert(ingestJobs).values({
-            projectId: artifact.projectId,
-            sessionId: artifact.sessionId,
-            artifactId: artifact.id,
-            kind: artifact.kind,
-            payloadRef: artifact.s3ObjectKey,
-            status: 'pending',
-        });
-        if (replay) {
-            logger.info({
-                event: 'ingest.replay_ingest_job_created',
-                projectId: artifact.projectId,
-                sessionId: artifact.sessionId,
-                artifactId: artifact.id,
-                kind: artifact.kind,
-                artifactRowStatus: artifact.status,
-            }, 'ingest.replay_ingest_job_created');
-        }
-        return { queued: true, alreadyCompleted: false };
-    }
+/**
+ * Build the job data payload from an artifact row + projectId.
+ */
+function buildArtifactJobData(artifact: any, projectId: string): ArtifactJobData {
+    return {
+        artifactId: artifact.id,
+        sessionId: artifact.sessionId,
+        projectId,
+        kind: artifact.kind,
+        s3ObjectKey: artifact.s3ObjectKey,
+        endpointId: artifact.endpointId ?? null,
+    };
+}
 
-    if (existingJob.status === 'done' && artifact.status === 'ready') {
-        if (replay) {
-            logger.info({
-                event: 'ingest.replay_ingest_job_ensure',
-                outcome: 'noop_done_and_ready',
-                projectId: artifact.projectId,
-                sessionId: artifact.sessionId,
-                artifactId: artifact.id,
-                kind: artifact.kind,
-                jobId: existingJob.id,
-            }, 'ingest.replay_ingest_job_ensure');
-        }
+/**
+ * Ensure a BullMQ processing job exists for this artifact.
+ *
+ * Uses jobId = `artifact:{artifactId}` deduplication — safe to call multiple
+ * times; BullMQ won't create a duplicate while a live job exists.
+ */
+async function ensureArtifactProcessingJob(artifact: any, projectId: string): Promise<QueueArtifactJobResult> {
+    // artifact.status === 'ready' means processing is already done
+    if (artifact.status === 'ready') {
         return { queued: false, alreadyCompleted: true };
     }
 
-    if (existingJob.status === 'pending' || existingJob.status === 'processing') {
-        return { queued: false, alreadyCompleted: false };
-    }
+    const enqueued = await enqueueArtifactJob(buildArtifactJobData(artifact, projectId));
 
-    await db.update(ingestJobs)
-        .set({
-            status: 'pending',
-            nextRunAt: null,
-            errorMsg: null,
-            startedAt: null,
-            completedAt: null,
-            workerId: null,
-            updatedAt: new Date(),
-        })
-        .where(eq(ingestJobs.id, existingJob.id));
-
-    if (replay) {
+    const isReplay = isReplayArtifactKind(artifact.kind);
+    if (enqueued && isReplay) {
         logger.info({
-            event: 'ingest.replay_ingest_job_requeued',
-            projectId: artifact.projectId,
+            event: 'ingest.replay_ingest_job_created',
+            projectId,
             sessionId: artifact.sessionId,
             artifactId: artifact.id,
             kind: artifact.kind,
-            jobId: existingJob.id,
-            previousJobStatus: existingJob.status,
-            artifactRowStatus: artifact.status,
-        }, 'ingest.replay_ingest_job_requeued');
+        }, 'ingest.replay_ingest_job_created');
     }
 
-    return { queued: true, alreadyCompleted: false };
+    return { queued: enqueued, alreadyCompleted: false };
 }
+
+// ─── Internal DB helpers ──────────────────────────────────────────────────────
 
 async function getArtifactWithSessionByUploadId(projectId: string, clientUploadId: string) {
     const [artifactResult] = await db.select({
@@ -191,6 +165,8 @@ function buildArtifactRetryUpdate(params: PendingArtifactParams) {
         frameCount: params.frameCount ?? null,
     } as const;
 }
+
+// ─── Public lifecycle functions ───────────────────────────────────────────────
 
 export async function prepareReplayArtifactForUpload(
     params: PendingArtifactParams & { projectId: string }
@@ -375,11 +351,10 @@ export async function markArtifactUploadStored(params: {
 
     const jobState = nextStatus === 'ready'
         ? { queued: false, alreadyCompleted: true }
-        : await ensureArtifactProcessingJob({
-            ...artifact,
-            projectId: session.projectId,
-            status: nextStatus,
-        });
+        : await ensureArtifactProcessingJob(
+            { ...artifact, status: nextStatus, endpointId: resolvedEndpointId },
+            session.projectId,
+        );
 
     logger.info({
         event: 'artifact.upload_stored',
@@ -414,37 +389,19 @@ export async function markArtifactUploadInterrupted(params: {
     const artifactResult = await getArtifactWithSessionById(params.artifactId);
     if (!artifactResult) {
         logger.warn({ artifactId: params.artifactId, reason: params.reason }, 'artifact.upload_interrupt_missing');
-        return {
-            ignored: true,
-        };
+        return { ignored: true };
     }
 
     const { artifact, session } = artifactResult;
     const now = new Date();
     const nextStatus = artifact.uploadCompletedAt ? 'failed' : 'abandoned';
-    const errorMsg = params.errorMsg ?? 'Upload interrupted before relay storage';
 
     await db.update(recordingArtifacts)
-        .set({
-            status: nextStatus,
-            readyAt: null,
-            verifiedAt: null,
-        })
+        .set({ status: nextStatus, readyAt: null, verifiedAt: null })
         .where(eq(recordingArtifacts.id, artifact.id));
 
-    await db.update(ingestJobs)
-        .set({
-            status: 'failed',
-            errorMsg,
-            completedAt: now,
-            startedAt: null,
-            workerId: null,
-            updatedAt: now,
-        })
-        .where(and(
-            eq(ingestJobs.artifactId, artifact.id),
-            sql`${ingestJobs.status} in ('pending', 'processing')`,
-        ));
+    // Remove the BullMQ job if it's still waiting (not yet active)
+    await removeArtifactJobIfQueued(artifact.id, artifact.kind);
 
     if (!isSessionIngestImmutable(session)) {
         await touchSessionForArtifactMutation(session, now);
@@ -456,7 +413,7 @@ export async function markArtifactUploadInterrupted(params: {
         kind: artifact.kind,
         clientUploadId: artifact.clientUploadId,
         reason: params.reason,
-        errorMsg,
+        errorMsg: params.errorMsg ?? 'Upload interrupted before relay storage',
     }, 'artifact.upload_interrupted');
 
     return {
@@ -492,18 +449,16 @@ export async function completeArtifactUpload(params: CompleteArtifactParams) {
 
     if (params.frameCount !== undefined && params.frameCount !== null) {
         await db.update(recordingArtifacts)
-            .set({
-                frameCount: params.frameCount,
-            })
+            .set({ frameCount: params.frameCount })
             .where(eq(recordingArtifacts.id, artifact.id));
     }
 
     let jobState: QueueArtifactJobResult = { queued: false, alreadyCompleted: false };
     if (artifact.status === 'uploaded') {
-        jobState = await ensureArtifactProcessingJob({
-            ...artifact,
-            projectId: session.projectId,
-        });
+        jobState = await ensureArtifactProcessingJob(
+            { ...artifact, projectId: session.projectId },
+            session.projectId,
+        );
     } else if (artifact.status === 'ready') {
         jobState = { queued: false, alreadyCompleted: true };
     }
@@ -548,30 +503,22 @@ export async function completeArtifactUpload(params: CompleteArtifactParams) {
 }
 
 export async function queueRecoverableArtifacts(limit = 100): Promise<number> {
+    // Find uploaded artifacts with no active BullMQ job.
+    // We simply call enqueueArtifactJob for each — BullMQ's jobId deduplication
+    // makes this safe to call even when a job already exists.
     const rows = await db.select({
         artifact: recordingArtifacts,
         projectId: sessions.projectId,
-        jobStatus: ingestJobs.status,
     })
         .from(recordingArtifacts)
         .innerJoin(sessions, eq(recordingArtifacts.sessionId, sessions.id))
-        .leftJoin(ingestJobs, eq(ingestJobs.artifactId, recordingArtifacts.id))
-        .where(and(
-            eq(recordingArtifacts.status, 'uploaded'),
-            or(
-                isNull(ingestJobs.id),
-                sql`${ingestJobs.status} in ('failed', 'dlq', 'done')`
-            ),
-        ))
+        .where(eq(recordingArtifacts.status, 'uploaded'))
         .limit(limit);
 
     let queued = 0;
     for (const row of rows) {
-        const jobState = await ensureArtifactProcessingJob({
-            ...row.artifact,
-            projectId: row.projectId,
-        });
-        if (jobState.queued) {
+        const enqueued = await enqueueArtifactJob(buildArtifactJobData(row.artifact, row.projectId));
+        if (enqueued) {
             queued += 1;
             logger.info({
                 event: 'artifact.queued',
@@ -579,7 +526,6 @@ export async function queueRecoverableArtifacts(limit = 100): Promise<number> {
                 sessionId: row.artifact.sessionId,
                 artifactId: row.artifact.id,
                 kind: row.artifact.kind,
-                previousJobStatus: row.jobStatus ?? null,
             }, 'artifact.queued');
         }
     }
@@ -631,11 +577,9 @@ export async function recoverStalePendingReplayArtifacts(limit = 100): Promise<S
 
         await markSessionIngestActivity(row.artifact.sessionId, { at: recoveredAt });
 
-        const jobState = await ensureArtifactProcessingJob({
-            ...row.artifact,
-            projectId: row.projectId,
-            status: 'uploaded',
-        });
+        const enqueued = await enqueueArtifactJob(
+            buildArtifactJobData({ ...row.artifact, status: 'uploaded' }, row.projectId),
+        );
 
         recovered += 1;
         logger.info({
@@ -647,15 +591,11 @@ export async function recoverStalePendingReplayArtifacts(limit = 100): Promise<S
             s3ObjectKey: row.artifact.s3ObjectKey,
             endpointId: row.artifact.endpointId ?? null,
             sizeBytes,
-            queued: jobState.queued,
-            alreadyCompleted: jobState.alreadyCompleted,
+            queued: enqueued,
         }, 'artifact.recovered_from_storage');
     }
 
-    return {
-        checked: rows.length,
-        recovered,
-    };
+    return { checked: rows.length, recovered };
 }
 
 export async function abandonExpiredPendingArtifacts(limit = 100): Promise<number> {
@@ -673,10 +613,10 @@ export async function abandonExpiredPendingArtifacts(limit = 100): Promise<numbe
             eq(recordingArtifacts.status, 'pending'),
             isNull(recordingArtifacts.uploadCompletedAt),
             lte(recordingArtifacts.createdAt, cutoff),
-            or(
-                sql`${recordingArtifacts.kind} not in ('screenshots', 'hierarchy')`,
-                lte(recordingArtifacts.createdAt, replayGraceCutoff),
-            ),
+            sql`(
+                ${recordingArtifacts.kind} NOT IN ('screenshots', 'hierarchy')
+                OR ${recordingArtifacts.createdAt} <= ${replayGraceCutoff}
+            )`,
         ))
         .limit(limit);
 
@@ -684,28 +624,17 @@ export async function abandonExpiredPendingArtifacts(limit = 100): Promise<numbe
         return 0;
     }
 
-    const now = new Date();
     const ids = rows.map((row) => row.id);
 
     await db.update(recordingArtifacts)
         .set({ status: 'abandoned' })
         .where(inArray(recordingArtifacts.id, ids));
 
-    await db.update(ingestJobs)
-        .set({
-            status: 'failed',
-            errorMsg: 'Upload abandoned before relay receipt',
-            completedAt: now,
-            startedAt: null,
-            workerId: null,
-            updatedAt: now,
-        })
-        .where(and(
-            inArray(ingestJobs.artifactId, ids),
-            sql`${ingestJobs.status} in ('pending', 'processing')`,
-        ));
-
+    // Remove any waiting BullMQ jobs for these artifacts (pending artifacts
+    // shouldn't have jobs yet, but guard in case of race)
     for (const row of rows) {
+        await removeArtifactJobIfQueued(row.id, row.kind);
+
         const replayArtifact = isReplayArtifactKind(row.kind);
         logger.warn(
             {
@@ -724,49 +653,14 @@ export async function abandonExpiredPendingArtifacts(limit = 100): Promise<numbe
     return rows.length;
 }
 
-export async function requeueStaleProcessingJobs(limit = 100): Promise<number> {
-    const cutoff = new Date(Date.now() - STALE_PROCESSING_JOB_TTL_MS);
-    const rows = await db.select({
-        id: ingestJobs.id,
-        artifactId: ingestJobs.artifactId,
-        sessionId: ingestJobs.sessionId,
-        kind: ingestJobs.kind,
-        workerId: ingestJobs.workerId,
-        startedAt: ingestJobs.startedAt,
-    })
-        .from(ingestJobs)
-        .where(and(
-            eq(ingestJobs.status, 'processing'),
-            lte(ingestJobs.startedAt, cutoff),
-        ))
-        .limit(limit);
-
-    for (const row of rows) {
-        await db.update(ingestJobs)
-            .set({
-                status: 'pending',
-                nextRunAt: null,
-                startedAt: null,
-                workerId: null,
-                updatedAt: new Date(),
-            })
-            .where(eq(ingestJobs.id, row.id));
-
-        const replayArtifact = isReplayArtifactKind(row.kind);
-        logger.warn(
-            {
-                event: 'artifact.job_stale_requeued',
-                replayArtifact,
-                jobId: row.id,
-                artifactId: row.artifactId,
-                sessionId: row.sessionId,
-                kind: row.kind,
-                workerId: row.workerId,
-                startedAt: row.startedAt,
-            },
-            replayArtifact ? 'ingest.replay_job_stale_requeued' : 'artifact.retry',
-        );
-    }
-
-    return rows.length;
+/**
+ * requeueStaleProcessingJobs is no longer needed.
+ * BullMQ handles stalled job recovery automatically via the stalledInterval /
+ * maxStalledCount Worker options.  This function is kept as a no-op so callers
+ * (sessionLifecycleWorker) don't need an immediate follow-up change.
+ *
+ * @deprecated Remove after BullMQ migration is fully confirmed stable.
+ */
+export async function requeueStaleProcessingJobs(_limit = 100): Promise<number> {
+    return 0;
 }

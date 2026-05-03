@@ -8,6 +8,8 @@ const mocks = vi.hoisted(() => ({
     lte: vi.fn((...args) => ({ args })),
     or: vi.fn((...args) => ({ args })),
     sql: vi.fn((strings: TemplateStringsArray, ...values: unknown[]) => ({ strings, values })),
+    enqueueArtifactJob: vi.fn(async () => true),
+    removeArtifactJobIfQueued: vi.fn(async () => undefined),
     db: {
         select: vi.fn(),
         insert: vi.fn(),
@@ -64,6 +66,13 @@ vi.mock('../logger.js', () => ({
 
 vi.mock('../db/s3.js', () => ({
     getObjectSizeBytesForArtifact: mocks.getObjectSizeBytesForArtifact,
+}));
+
+vi.mock('../services/artifactBullQueue.js', () => ({
+    enqueueArtifactJob: mocks.enqueueArtifactJob,
+    removeArtifactJobIfQueued: mocks.removeArtifactJobIfQueued,
+    getIngestQueueCounts: vi.fn(async () => ({ waiting: 0, delayed: 0, active: 0, failed: 0 })),
+    getReplayQueueCounts: vi.fn(async () => ({ waiting: 0, delayed: 0, active: 0, failed: 0 })),
 }));
 
 import {
@@ -342,15 +351,10 @@ describe('ingestArtifactLifecycle', () => {
             artifactId: 'artifact_pending',
             status: 'abandoned',
         });
-        expect(updateCalls).toHaveLength(2);
+        expect(updateCalls).toHaveLength(1);
         expect(updateCalls[0]?.table).toBe(mocks.recordingArtifacts);
         expect(updateCalls[0]?.payload).toMatchObject({
             status: 'abandoned',
-        });
-        expect(updateCalls[1]?.table).toBe(mocks.ingestJobs);
-        expect(updateCalls[1]?.payload).toMatchObject({
-            status: 'failed',
-            errorMsg: 'Error: aborted',
         });
         expect(mocks.markSessionIngestActivity).toHaveBeenCalledWith(
             'session_1',
@@ -480,7 +484,7 @@ describe('ingestArtifactLifecycle', () => {
             'session_1',
             expect.objectContaining({ at: expect.any(Date) }),
         );
-        expect(mocks.db.insert).toHaveBeenCalledWith(mocks.ingestJobs);
+        expect(mocks.enqueueArtifactJob).toHaveBeenCalled();
     });
 
     it('leaves stale pending replay artifacts recoverable when the storage object is still missing', async () => {

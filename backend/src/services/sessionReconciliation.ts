@@ -1,5 +1,5 @@
 import { eq, sql } from 'drizzle-orm';
-import { db, ingestJobs, projects, recordingArtifacts, sessionMetrics, sessions } from '../db/client.js';
+import { db, projects, recordingArtifacts, sessionMetrics, sessions } from '../db/client.js';
 import { logger } from '../logger.js';
 import { updateDeviceUsage } from './recording.js';
 import { enqueueSessionBackupCandidate } from './sessionBackupQueue.js';
@@ -238,13 +238,6 @@ export async function reconcileDueSessions(batchSize = 500, maxBatches = 20): Pr
                         where ra.session_id = s.id
                           and ra.kind in ('screenshots', 'hierarchy')
                           and ra.status in ('pending', 'uploaded')
-                    )
-                    and not exists (
-                        select 1 from ${ingestJobs} ij
-                        inner join ${recordingArtifacts} ra on ra.id = ij.artifact_id
-                        where ij.session_id = s.id
-                          and ij.status in ('pending', 'processing')
-                          and ra.kind in ('screenshots', 'hierarchy')
                     )
                     and exists (
                         select 1 from ${recordingArtifacts} ra
