@@ -62,14 +62,6 @@ interface WorkerHealthMetrics {
     metrics?: Record<string, number | string>;
 }
 
-type QueueHealthJobRow = {
-    status: string;
-    kind: string | null;
-    is_due: boolean;
-    job_count: number | string;
-    oldest_created: Date | string | null;
-};
-
 function getPushgatewayUrl(): string | null {
     return process.env.PUSHGATEWAY_URL ?? null;
 }
@@ -201,54 +193,31 @@ export async function checkQueueHealth(): Promise<QueueHealth> {
         const staleReplayArtifactCutoffSeconds = Math.floor(ABANDONED_ARTIFACT_TTL_MS / 1000);
         const replayGraceSeconds = Math.floor(REPLAY_PENDING_ARTIFACT_GRACE_MS / 1000);
 
-        // Query only non-terminal rows — uses ingest_jobs_monitoring_idx.
-        // Returns ≤ ~30 rows grouped by (status, kind, is_due) instead of scanning 8.4M rows.
-        const jobsResult = await db.execute(sql`
-            SELECT
-                status,
-                kind,
-                (next_run_at IS NULL OR next_run_at <= NOW()) AS is_due,
-                COUNT(*)::int                                  AS job_count,
-                MIN(created_at)                                AS oldest_created
-            FROM ingest_jobs
-            WHERE status IN ('pending', 'processing', 'dlq', 'failed')
-            GROUP BY status, kind, is_due
-        `);
+        // Query BullMQ queue counts instead of ingest_jobs table.
+        const { getIngestQueueCounts, getReplayQueueCounts } = await import('./artifactBullQueue.js');
+        const [ingestCounts, replayCounts] = await Promise.all([
+            getIngestQueueCounts(),
+            getReplayQueueCounts(),
+        ]);
 
-        const rawJobRows = ((((jobsResult as unknown) as { rows?: QueueHealthJobRow[] }).rows) ?? []);
-        const jobRows: QueueHealthJobRow[] = rawJobRows.map((row) => ({
-            ...row,
-            is_due: Boolean(row.is_due),
-        }));
-
-        const sumCount = (rows: QueueHealthJobRow[]): number =>
-            rows.reduce((acc: number, row: QueueHealthJobRow) => acc + Number(row.job_count), 0);
-
-        const oldestAgeSeconds = (rows: QueueHealthJobRow[]): number | null => {
-            const dates = rows
-                .map((row: QueueHealthJobRow) => row.oldest_created)
-                .map((value: Date | string | null) => value == null ? null : new Date(value))
-                .filter((value: Date | null): value is Date => value != null && !Number.isNaN(value.getTime()));
-            if (dates.length === 0) return null;
-            const oldest = new Date(Math.min(...dates.map((date: Date) => date.getTime())));
-            return (Date.now() - oldest.getTime()) / 1000;
-        };
-
-        const pendingDue = jobRows.filter((row: QueueHealthJobRow) => row.status === 'pending' && row.is_due);
-        const replayPendingDue = pendingDue.filter(
-            (row: QueueHealthJobRow) => row.kind === 'screenshots' || row.kind === 'hierarchy',
-        );
-
-        const pendingJobs     = sumCount(pendingDue);
-        const processingJobs  = sumCount(jobRows.filter(r => r.status === 'processing'));
-        const dlqJobs         = sumCount(jobRows.filter(r => r.status === 'dlq'));
-        const failedJobs      = sumCount(jobRows.filter(r => r.status === 'failed'));
-        const oldestPendingAge = oldestAgeSeconds(pendingDue);
-        const oldestReplayPendingAge = oldestAgeSeconds(replayPendingDue);
+        // BullMQ states → logical queue health mapping:
+        //   waiting + delayed  → "pending" (ready or scheduled)
+        //   active             → "processing"
+        //   failed             → "dlq / failed" (all retries exhausted)
+        const pendingJobs    = ingestCounts.waiting + ingestCounts.delayed;
+        const processingJobs = ingestCounts.active + replayCounts.active;
+        const dlqJobs        = ingestCounts.failed + replayCounts.failed;
+        const failedJobs     = dlqJobs; // same concept in BullMQ — exhausted jobs
         const replayPendingByKind = {
-            screenshots: sumCount(pendingDue.filter((row: QueueHealthJobRow) => row.kind === 'screenshots')),
-            hierarchy: sumCount(pendingDue.filter((row: QueueHealthJobRow) => row.kind === 'hierarchy')),
+            // All replay-queue waiting jobs are screenshots or hierarchy — we
+            // report half each as an approximation (exact split requires job scan).
+            screenshots: Math.ceil((replayCounts.waiting + replayCounts.delayed) / 2),
+            hierarchy:   Math.floor((replayCounts.waiting + replayCounts.delayed) / 2),
         };
+        // Oldest-pending-age is not cheaply available from BullMQ getJobCounts;
+        // set to null to avoid a full job scan on every heartbeat.
+        const oldestPendingAge: number | null = null;
+        const oldestReplayPendingAge: number | null = null;
 
         // Stale replay artifacts: uses recording_artifacts_pending_stalled_idx
         const staleResult = await db.execute(sql`

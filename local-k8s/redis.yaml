@@ -55,7 +55,7 @@ spec:
             - --maxmemory
             - "256mb"
             - --maxmemory-policy
-            - allkeys-lru
+            - noeviction
           ports:
             - containerPort: 6379
           resources:

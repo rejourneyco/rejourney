@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm';
-import { db, ingestJobs, recordingArtifacts, sessions } from '../db/client.js';
+import { db, recordingArtifacts, sessions } from '../db/client.js';
 
 /** Inactivity window before fail-safe session finalization (no ingest touches). */
 export const SESSION_LIVE_INGEST_WINDOW_MS = 60_000;
@@ -101,9 +101,9 @@ export async function loadSessionWorkAggregate(sessionId: string): Promise<Sessi
             ), 0) as "openArtifactCount",
             coalesce((
                 select count(*)::int
-                from ${ingestJobs} ij
-                where ij.session_id = s.id
-                  and ij.status in ('pending', 'processing')
+                from ${recordingArtifacts} ra
+                where ra.session_id = s.id
+                  and ra.status = 'uploaded'
             ), 0) as "activeJobCount",
             coalesce((
                 select count(*)::int
@@ -114,11 +114,10 @@ export async function loadSessionWorkAggregate(sessionId: string): Promise<Sessi
             ), 0) as "openReplayArtifactCount",
             coalesce((
                 select count(*)::int
-                from ${ingestJobs} ij
-                inner join ${recordingArtifacts} ra on ra.id = ij.artifact_id
-                where ij.session_id = s.id
-                  and ij.status in ('pending', 'processing')
+                from ${recordingArtifacts} ra
+                where ra.session_id = s.id
                   and ra.kind in ('screenshots', 'hierarchy')
+                  and ra.status = 'uploaded'
             ), 0) as "activeReplayJobCount",
             (
                 select max(ra.end_time)
