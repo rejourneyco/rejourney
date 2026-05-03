@@ -1,6 +1,6 @@
 # Ingest + Session Recording Lifecycle (Visual)
 
-Last updated: 2026-04-23
+Last updated: 2026-05-02
 
 This doc is the ingest/runtime view: package start, upload lanes, relay, workers, Redis, and Postgres session state.
 
@@ -10,8 +10,8 @@ Shortest correct mental model:
 
 - The package usually creates a client-side `session_{timestamp}_{uuid}` ID and uploads under that ID.
 - The first successful presign materializes the session row and counts billing once.
-- Postgres is the source of truth for session lifecycle, artifact lifecycle, metrics, jobs, and usage.
-- Redis is only the helper plane for cache, idempotency, and rate/limit coordination.
+- Postgres is the source of truth for session lifecycle, artifact lifecycle, metrics, and usage.
+- Redis is the job queue plane (BullMQ artifact queues) and the helper plane for cache, idempotency, and rate/limit coordination.
 - Replay becomes visible when at least one screenshot artifact reaches `ready`.
 - `/api/ingest/session/end` is a strong hint, but the backend must still work if the SDK never calls it.
 - The backend decides "live vs closed" from `ended_at`, `last_ingest_activity_at`, pending replay work, and newer-session rollover; not from a single client callback.
@@ -161,17 +161,19 @@ Relevant routes:
      ▼                                                      ▼
 ┌──────────────┐                                   ┌──────────────────────────┐
 │ upload relay │──────────────────────────────────▶│ artifact = uploaded      │
-└────┬─────────┘                                   │ ingest_jobs queued       │
+└────┬─────────┘                                   │ BullMQ job enqueued      │
      │                                             └─────────────┬────────────┘
      │ /batch/complete or /segment/complete                      │
      ▼                                                           ▼
-┌──────────────┐                                   ┌──────────────────────────┐
-│ ingest route │──────────────────────────────────▶│ same ingest_jobs table;  │
-│ merge metrics│                                   │ workers claim by kind     │
-└──────────────┘                                   └─────────────┬────────────┘
-                                                                 ▼
+┌──────────────┐                               ┌────────────────────────────────────┐
+│ ingest route │                               │ Redis (BullMQ)                     │
+│ merge metrics│                               │  rj-ingest-artifacts (events/...)  │
+└──────────────┘                               │  rj-replay-artifacts (screens/...) │
+                                               └────────────────┬───────────────────┘
+                                                                │ event-driven consume
+                                                                ▼
               ┌──────────────────────────────────────────────────────────────────┐
-              │ Artifact workers (two deployments; see workerDefinitions.ts)    │
+              │ Artifact workers (BullMQ Workers; two deployments)              │
               │  ┌──────────────────────────┐    ┌──────────────────────────────┐│
               │  │ ingest-artifact worker   │    │ replay-artifact worker       ││
               │  │ events, crashes, ANRs    │    │ screenshots, hierarchy       ││
@@ -190,51 +192,54 @@ Artifact state machine
 pending   -> uploaded -> ready
 pending   -> abandoned
 uploaded  -> failed
-failed    -> uploaded    (recoverable retry path)
+failed    -> uploaded    (recoverable retry path via queueRecoverableArtifacts)
 ```
 
 ```text
 ┌──────────────────────────────────────────────────────────────────────────────┐
 │ Session-lifecycle worker (sessionLifecycleWorker.ts)                        │
-│ Poll ~500ms; session sweep interval 10s between runs of:                    │
+│ Session sweep interval: 10s between sweep runs                              │
 │                                                                              │
 │ Each sweep (at most every 10s):                                             │
 │   reconcileDueSessions (batched)                                            │
 │   abandon expired pending artifacts (> 10m)                                 │
-│   requeue stale processing jobs (> 5m)                                      │
-│   queueRecoverableArtifacts (uploaded but missing a usable job)             │
+│   queueRecoverableArtifacts (uploaded but no active BullMQ job)             │
+│                                                                              │
+│ Stalled job recovery: BullMQ detects stalled workers automatically          │
+│   (stalledInterval = 30s, maxStalledCount = 3). No Postgres sweep needed.  │
 └──────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ```text
 ┌──────────────────────────────────────────────────────────────────────────────┐
-│ Artifact workers (startArtifactWorker.ts -> poll ~500ms per deployment)     │
+│ Artifact workers (BullMQ Workers; one Worker instance per deployment)       │
 │                                                                              │
-│ Startup: recoverStuckArtifactJobs() -> stuck processing jobs to pending     │
-│ Each tick: selectRunnableArtifactJobs (filtered by worker kind allowlist)   │
-│            -> processArtifactJob -> reconcileSessionState() as needed       │
+│ Concurrency: ingest-worker=24, replay-worker=10 (env-configurable)          │
+│ On job: processArtifactJob -> reconcileSessionState() as needed             │
+│ On fail: exponential backoff, up to 5 attempts                              │
+│ On stall: BullMQ auto re-queues (no manual sweep needed)                    │
 └──────────────────────────────────────────────────────────────────────────────┘
 ```
 
 Important worker nuance:
 
-- **ingest-artifact worker** ([`ingestArtifactWorker.ts`](/Users/mora/Desktop/Dev-mac/rejourney/backend/src/worker/ingestArtifactWorker.ts)) drains `events`, `crashes`, and `anrs`.
-- **replay-artifact worker** ([`replayArtifactWorker.ts`](/Users/mora/Desktop/Dev-mac/rejourney/backend/src/worker/replayArtifactWorker.ts)) drains `screenshots` and `hierarchy`.
+- **ingest-artifact worker** ([`ingestArtifactWorker.ts`](/Users/mora/Desktop/Dev-mac/rejourney/backend/src/worker/ingestArtifactWorker.ts)) consumes from `rj-ingest-artifacts`: `events`, `crashes`, and `anrs`.
+- **replay-artifact worker** ([`replayArtifactWorker.ts`](/Users/mora/Desktop/Dev-mac/rejourney/backend/src/worker/replayArtifactWorker.ts)) consumes from `rj-replay-artifacts`: `screenshots` and `hierarchy`.
 - **session-lifecycle worker** ([`sessionLifecycleWorker.ts`](/Users/mora/Desktop/Dev-mac/rejourney/backend/src/worker/sessionLifecycleWorker.ts)) runs periodic sweeps only; it does not process artifact bytes itself.
 - `events` artifacts update session metadata, `session_metrics`, and downstream analytics side effects.
 - `crashes` and `anrs` artifacts create issue rows and increment crash/ANR counters.
 - `screenshots` and `hierarchy` mostly affect replay availability and final session presentation.
+- BullMQ job deduplication uses `jobId = artifact-{artifactId}`. A duplicate enqueue while a job is active/waiting returns without creating a second job.
 - The heavy full-table artifact lifecycle backfill is manual by default. Normal worker startup skips it unless `INGEST_ENABLE_STARTUP_BACKFILL=true`.
 - Manual backfill command: `cd backend && npm run db:backfill:artifact-lifecycle`
 
 Relevant files:
 
 - [`backend/src/routes/ingestUploadRelay.ts`](/Users/mora/Desktop/Dev-mac/rejourney/backend/src/routes/ingestUploadRelay.ts)
+- [`backend/src/services/artifactBullQueue.ts`](/Users/mora/Desktop/Dev-mac/rejourney/backend/src/services/artifactBullQueue.ts)
 - [`backend/src/worker/ingestArtifactWorker.ts`](/Users/mora/Desktop/Dev-mac/rejourney/backend/src/worker/ingestArtifactWorker.ts)
 - [`backend/src/worker/replayArtifactWorker.ts`](/Users/mora/Desktop/Dev-mac/rejourney/backend/src/worker/replayArtifactWorker.ts)
 - [`backend/src/worker/sessionLifecycleWorker.ts`](/Users/mora/Desktop/Dev-mac/rejourney/backend/src/worker/sessionLifecycleWorker.ts)
-- [`backend/src/worker/workerDefinitions.ts`](/Users/mora/Desktop/Dev-mac/rejourney/backend/src/worker/workerDefinitions.ts)
-- [`backend/src/worker/startArtifactWorker.ts`](/Users/mora/Desktop/Dev-mac/rejourney/backend/src/worker/startArtifactWorker.ts)
 - [`backend/src/services/artifactJobProcessor.ts`](/Users/mora/Desktop/Dev-mac/rejourney/backend/src/services/artifactJobProcessor.ts)
 - [`backend/src/services/ingestArtifactLifecycle.ts`](/Users/mora/Desktop/Dev-mac/rejourney/backend/src/services/ingestArtifactLifecycle.ts)
 
@@ -326,14 +331,18 @@ Relevant files:
 
 ```text
 ┌──────────────────────────────────────┐      ┌──────────────────────────────────────┐
-│ Redis (runtime helper plane)         │      │ Postgres (source of truth)           │
+│ Redis (job queue + helper plane)     │      │ Postgres (source of truth)           │
 │                                      │      │                                      │
-│ sdk:config:*                         │      │ sessions                             │
-│ ingest:idempotency:*                 │      │ session_metrics                      │
-│ sessions:{teamId}:{period}           │      │ recording_artifacts                  │
-│ session_lock:{teamId}:{period}       │      │ ingest_jobs                          │
-│ upload:token:{projectId}:{deviceId}  │      │ project_usage                        │
-│ rate-limit helpers                   │      │ device_usage                         │
+│ BullMQ queues:                       │      │ sessions                             │
+│   rj-ingest-artifacts                │      │ session_metrics                      │
+│   rj-replay-artifacts                │      │ recording_artifacts                  │
+│                                      │      │ project_usage                        │
+│ sdk:config:*                         │      │ device_usage                         │
+│ ingest:idempotency:*                 │      │                                      │
+│ sessions:{teamId}:{period}           │      │                                      │
+│ session_lock:{teamId}:{period}       │      │                                      │
+│ upload:token:{projectId}:{deviceId}  │      │                                      │
+│ rate-limit helpers                   │      │                                      │
 └──────────────────────────────────────┘      └──────────────────────────────────────┘
 ```
 
@@ -341,13 +350,17 @@ Relevant files:
 ┌──────────────────────────────────────────────────────────────────────────────┐
 │ Practical consequence                                                       │
 │                                                                              │
-│ If Redis is slow or unavailable, ingest can often degrade and keep working. │
+│ If Redis is slow or unavailable:                                            │
+│   - New artifact jobs cannot be enqueued (uploads complete but no BullMQ   │
+│     job). The session-lifecycle worker's queueRecoverableArtifacts() sweep  │
+│     will re-enqueue uploaded-but-jobless artifacts when Redis recovers.     │
 │ If Postgres is wrong, the session lifecycle is wrong.                       │
 └──────────────────────────────────────────────────────────────────────────────┘
 ```
 
 Redis owns:
 
+- artifact job queues (BullMQ): `rj-ingest-artifacts`, `rj-replay-artifacts`
 - SDK config cache
 - ingest idempotency markers
 - session-limit cache plus distributed lock
@@ -360,8 +373,7 @@ Postgres owns:
 - lifecycle fields like `status`, `started_at`, `ended_at`, `last_ingest_activity_at`
 - playable duration and background duration
 - replay availability and replay counters
-- artifact state
-- worker job state
+- artifact state (`recording_artifacts.status`)
 - metrics and derived analytics counters
 - project/device usage counters
 
@@ -406,7 +418,11 @@ Session ID materialization window      6h
 Live ingest idle threshold             60s
 Session-lifecycle sweep interval       10s
 Pending artifact abandonment           10m
-Stale processing job retry window      5m
+BullMQ stalled job detection           30s  (stalledInterval; auto re-queued)
+BullMQ max stall retries               3    (maxStalledCount; then marked failed)
+BullMQ job retry attempts              5    (exponential backoff, base 1s)
+BullMQ completed job retention         1h
+BullMQ failed job retention            7d   (DLQ window)
 Upload relay token TTL                 1h
 SDK background rollover threshold      60s
 SDK rollover grace window              2s
@@ -481,9 +497,7 @@ This is the critical rule that keeps "background for >60s, then reopen app" from
 - [`backend/src/services/sessionPresentationState.ts`](/Users/mora/Desktop/Dev-mac/rejourney/backend/src/services/sessionPresentationState.ts)
 - [`backend/src/services/sessionIngestImmutability.ts`](/Users/mora/Desktop/Dev-mac/rejourney/backend/src/services/sessionIngestImmutability.ts)
 - [`backend/src/services/artifactJobProcessor.ts`](/Users/mora/Desktop/Dev-mac/rejourney/backend/src/services/artifactJobProcessor.ts)
-- [`backend/src/worker/workerDefinitions.ts`](/Users/mora/Desktop/Dev-mac/rejourney/backend/src/worker/workerDefinitions.ts)
-- [`backend/src/worker/startArtifactWorker.ts`](/Users/mora/Desktop/Dev-mac/rejourney/backend/src/worker/startArtifactWorker.ts)
+- [`backend/src/services/artifactBullQueue.ts`](/Users/mora/Desktop/Dev-mac/rejourney/backend/src/services/artifactBullQueue.ts)
 - [`backend/src/worker/ingestArtifactWorker.ts`](/Users/mora/Desktop/Dev-mac/rejourney/backend/src/worker/ingestArtifactWorker.ts)
 - [`backend/src/worker/replayArtifactWorker.ts`](/Users/mora/Desktop/Dev-mac/rejourney/backend/src/worker/replayArtifactWorker.ts)
 - [`backend/src/worker/sessionLifecycleWorker.ts`](/Users/mora/Desktop/Dev-mac/rejourney/backend/src/worker/sessionLifecycleWorker.ts)
-- [`backend/src/worker/ingestWorker.ts`](/Users/mora/Desktop/Dev-mac/rejourney/backend/src/worker/ingestWorker.ts)
