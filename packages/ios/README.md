@@ -10,7 +10,7 @@ Add this repository URL in Xcode:
 https://github.com/rejourney/rejourney.git
 ```
 
-Select the `Rejourney` package product and choose a version tag (e.g. `v0.1.0`).
+Select the `Rejourney` package product and choose a version tag (e.g. `v0.1.1`).
 
 SwiftPM resolves packages from Git tags — there is no npm publish step or registry account. New versions are tagged automatically by CI when `packages/ios/VERSION` is bumped (see [Releasing a new version](#releasing-a-new-version) below).
 
