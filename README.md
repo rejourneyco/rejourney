@@ -7,7 +7,7 @@
   <img src="https://rejourney.co/images/session-replay-preview.png" alt="Rejourney Session Replay" width="100%" />
 
   <p>
-    <strong>Lightweight session replay and observability for React Native</strong>
+    <strong>Lightweight session replay and observability for Mobile Apps</strong>
     <br />
     Mobile-first focus with pixel-perfect video capture and real-time incident detection.
   </p>
