@@ -18,7 +18,7 @@
 │         Events Lane          │             │   Screenshots Segment Lane   │
 │                              │             │                              │
 │ POST /api/ingest/presign     │             │ POST /api/ingest/segment/presign
-│ PUT  presigned S3 URL        │             │ PUT  presigned S3 URL        │
+│ PUT  upload relay URL        │             │ PUT  upload relay URL        │
 │ POST /api/ingest/batch/complete           │ POST /api/ingest/segment/complete
 └──────────────┬───────────────┘             └──────────────┬───────────────┘
                │                                            │

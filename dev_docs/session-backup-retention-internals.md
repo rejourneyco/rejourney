@@ -61,7 +61,6 @@ Important tables:
 
 - `sessions`
 - `recording_artifacts`
-- `ingest_jobs`
 - `session_metrics`
 - `session_backup_queue`
 - `session_backup_log`
@@ -117,7 +116,6 @@ The empty-session predicate in [`sessionRetentionEligibility.ts`](/Users/mora/De
 A session is considered empty only if all of these are true:
 
 - no `recording_artifacts`
-- no `ingest_jobs`
 - `replay_available = false`
 - `replay_segment_count = 0`
 - `replay_storage_bytes = 0`
@@ -355,7 +353,6 @@ That path is implemented in [`repairExpiredSessionArtifactsBatch()`](/Users/mora
 - canonical storage objects under:
   - `tenant/{teamId}/project/{projectId}/sessions/{sessionId}/`
 - `recording_artifacts` rows
-- `ingest_jobs` rows
 - screenshot/hierarchy counters in `session_metrics`
 - replay/cache state on the `sessions` row
 - Redis cache entries for frames, hierarchy, timelines, and session-core views
@@ -402,7 +399,6 @@ That happens in [`hardDeleteProject()`](/Users/mora/Desktop/Dev-mac/rejourney/ba
 - marks project deleted
 - revokes API keys
 - deletes project storage
-- deletes `ingest_jobs`
 - deletes `project_usage`
 - deletes `storage_endpoints`
 - deletes `sessions`

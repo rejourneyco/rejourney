@@ -25,7 +25,7 @@ MP4 upload is not currently wired up end-to-end — only screenshot mode is supp
 
 ## 3. `ingest_jobs` table (BullMQ migration complete — 2026-05-02)
 
-**Background:** Artifact job dispatch was migrated from a Postgres poll loop (`ingest_jobs` table) to BullMQ Redis queues (`rj-ingest-artifacts`, `rj-replay-artifacts`). As of 2026-05-02, the `ingest_jobs` table is no longer written to by any application code. Existing rows are historical only.
+**Background:** Artifact job dispatch was migrated from a Postgres poll loop (`ingest_jobs` table) to BullMQ Redis queues (`rj-artifact-flush`, `rj-ingest-artifacts`, `rj-replay-artifacts`). As of 2026-05-02, the `ingest_jobs` table is no longer written to by any application code. Existing rows are historical only.
 
 **Current state:**
 - ~19.7M `done` rows, ~48K `failed`, ~4K `dlq` — all historical
@@ -40,13 +40,4 @@ MP4 upload is not currently wired up end-to-end — only screenshot mode is supp
 4. Write a Drizzle migration: `DROP TABLE ingest_jobs;`
 5. Run `npm run db:generate` and deploy
 
-**Also remove at the same time:**
-- `backend/src/worker/workerDefinitions.ts` — the old poll-worker factory (unused after BullMQ)
-- `backend/src/worker/startArtifactWorker.ts` — the old poll-based worker starter (unused after BullMQ)
-- Any remaining `ingest_jobs` references in `session-backup-retention-internals.md` (retention logic still references old table in docs; code already queries `recording_artifacts` directly)
-
----
-
-## 4. Old monitoring references to `ingest_jobs`
-
-`dev_docs/session-backup-retention-internals.md` still mentions `ingest_jobs` rows as part of the retention/purge flow. Confirm the retention worker actually queries the right tables after `ingest_jobs` is dropped, then update that doc.
+Do not remove `backend/src/worker/workerDefinitions.ts` or `backend/src/worker/startArtifactWorker.ts`; those files are still the active BullMQ worker definitions and starter.

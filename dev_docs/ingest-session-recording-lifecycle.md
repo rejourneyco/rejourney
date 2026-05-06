@@ -1,6 +1,6 @@
 # Ingest + Session Recording Lifecycle (Visual)
 
-Last updated: 2026-05-02
+Last updated: 2026-05-06
 
 This doc is the ingest/runtime view: package start, upload lanes, relay, workers, Redis, and Postgres session state.
 
@@ -11,10 +11,10 @@ Shortest correct mental model:
 - The package usually creates a client-side `session_{timestamp}_{uuid}` ID and uploads under that ID.
 - The first successful presign materializes the session row and counts billing once.
 - Postgres is the source of truth for session lifecycle, artifact lifecycle, metrics, and usage.
-- Redis is the job queue plane (BullMQ artifact queues) and the helper plane for cache, idempotency, and rate/limit coordination.
+- Redis is the write-ahead buffer + job queue plane: tiny relay uploads land in `artifact:buf:{artifactId}` first, then BullMQ workers flush them to S3 and process them.
 - Replay becomes visible when at least one screenshot artifact reaches `ready`.
 - `/api/ingest/session/end` is a strong hint, but the backend must still work if the SDK never calls it.
-- The backend decides "live vs closed" from `ended_at`, `last_ingest_activity_at`, pending replay work, and newer-session rollover; not from a single client callback.
+- The backend decides "live vs closed" from `ended_at`, `last_ingest_activity_at`, open replay work (`pending`, `buffered`, or `uploaded`), and newer-session rollover; not from a single client callback.
 - A session stops presenting as live ingest after 60 seconds without ingest touches, or immediately once `ended_at` is set.
 - Late uploads may still arrive after close. They can finish artifact processing, but they must not clear `ended_at`, must not clear `duration_seconds`, and must not make the old row look live again.
 - Hard ingest stops are intentionally narrow: `failed`, `deleted`, `recording_deleted`, or `is_replay_expired`.
@@ -156,19 +156,26 @@ Relevant routes:
 │ Package  │─────────────────────────────────▶│ recording_artifacts          │
 │ / SDK    │◀─────────────────────────────────│ status = pending             │
 └────┬─────┘        relay URL returned        └──────────────┬───────────────┘
-     │                                                      │
+     │                                                       │
      │ PUT /upload/artifacts/:artifactId                    │
-     ▼                                                      ▼
-┌──────────────┐                                   ┌──────────────────────────┐
-│ upload relay │──────────────────────────────────▶│ artifact = uploaded      │
-└────┬─────────┘                                   │ BullMQ job enqueued      │
-     │                                             └─────────────┬────────────┘
-     │ /batch/complete or /segment/complete                      │
-     ▼                                                           ▼
-┌──────────────┐                               ┌────────────────────────────────────┐
-│ ingest route │                               │ Redis (BullMQ)                     │
-│ merge metrics│                               │  rj-ingest-artifacts (events/...)  │
-└──────────────┘                               │  rj-replay-artifacts (screens/...) │
+     ▼                                                       ▼
+┌──────────────┐    collect body + Redis SET EX 30m  ┌────────────────────────┐
+│ upload relay │────────────────────────────────────▶│ artifact:buf:{id}      │
+└────┬─────────┘                                      │ status = buffered      │
+     │ 204 after Redis buffer + DB status             └──────────┬─────────────┘
+     │                                                           │ enqueue
+     │ /batch/complete or /segment/complete                      ▼
+     ▼                                                ┌────────────────────────┐
+┌──────────────┐                                      │ rj-artifact-flush      │
+│ ingest route │                                      │ ingest-worker flushes  │
+│ merge metrics│                                      │ buffer to selected S3  │
+└──────────────┘                                      └──────────┬─────────────┘
+                                                                 │ mark uploaded
+                                                                 ▼
+                                               ┌────────────────────────────────────┐
+                                               │ Redis (BullMQ)                     │
+                                               │  rj-ingest-artifacts (events/...)  │
+                                               │  rj-replay-artifacts (screens/...) │
                                                └────────────────┬───────────────────┘
                                                                 │ event-driven consume
                                                                 ▼
@@ -189,10 +196,12 @@ Relevant routes:
 ```text
 Artifact state machine
 
-pending   -> uploaded -> ready
+pending   -> buffered -> uploaded -> ready
 pending   -> abandoned
-uploaded  -> failed
-failed    -> uploaded    (recoverable retry path via queueRecoverableArtifacts)
+buffered  -> failed       (Redis buffer expired/lost, or flush retries exhausted)
+uploaded  -> failed       (processing retries exhausted)
+abandoned -> pending      (SDK retries same clientUploadId)
+failed    -> pending      (SDK retries same clientUploadId)
 ```
 
 ```text
@@ -201,9 +210,9 @@ failed    -> uploaded    (recoverable retry path via queueRecoverableArtifacts)
 │ Session sweep interval: 10s between sweep runs                              │
 │                                                                              │
 │ Each sweep (at most every 10s):                                             │
-│   reconcileDueSessions (batched)                                            │
 │   abandon expired pending artifacts (> 10m)                                 │
-│   queueRecoverableArtifacts (uploaded but no active BullMQ job)             │
+│   queueRecoverableArtifacts (uploaded artifacts + buffered flush jobs)      │
+│   reconcileDueSessions (batched)                                            │
 │                                                                              │
 │ Stalled job recovery: BullMQ detects stalled workers automatically          │
 │   (stalledInterval = 30s, maxStalledCount = 3). No Postgres sweep needed.  │
@@ -212,11 +221,13 @@ failed    -> uploaded    (recoverable retry path via queueRecoverableArtifacts)
 
 ```text
 ┌──────────────────────────────────────────────────────────────────────────────┐
-│ Artifact workers (BullMQ Workers; one Worker instance per deployment)       │
+│ Artifact workers (BullMQ Workers)                                           │
 │                                                                              │
-│ Concurrency: ingest-worker=24, replay-worker=10 (env-configurable)          │
+│ ingest-worker consumes rj-ingest-artifacts and hosts rj-artifact-flush      │
+│ replay-worker consumes rj-replay-artifacts                                  │
 │ On job: processArtifactJob -> reconcileSessionState() as needed             │
 │ On fail: exponential backoff, up to 5 attempts                              │
+│ Flush jobs: 8 attempts, exponential backoff starting at 500ms               │
 │ On stall: BullMQ auto re-queues (no manual sweep needed)                    │
 └──────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -224,12 +235,14 @@ failed    -> uploaded    (recoverable retry path via queueRecoverableArtifacts)
 Important worker nuance:
 
 - **ingest-artifact worker** ([`ingestArtifactWorker.ts`](/Users/mora/Desktop/Dev-mac/rejourney/backend/src/worker/ingestArtifactWorker.ts)) consumes from `rj-ingest-artifacts`: `events`, `crashes`, and `anrs`.
+- The same ingest-worker process also runs the `rj-artifact-flush` worker. It reads `artifact:buf:{artifactId}`, writes the bytes to the selected S3 endpoint, calls `markArtifactUploadStored()` to enqueue normal processing, then deletes the Redis buffer.
 - **replay-artifact worker** ([`replayArtifactWorker.ts`](/Users/mora/Desktop/Dev-mac/rejourney/backend/src/worker/replayArtifactWorker.ts)) consumes from `rj-replay-artifacts`: `screenshots` and `hierarchy`.
 - **session-lifecycle worker** ([`sessionLifecycleWorker.ts`](/Users/mora/Desktop/Dev-mac/rejourney/backend/src/worker/sessionLifecycleWorker.ts)) runs periodic sweeps only; it does not process artifact bytes itself.
 - `events` artifacts update session metadata, `session_metrics`, and downstream analytics side effects.
 - `crashes` and `anrs` artifacts create issue rows and increment crash/ANR counters.
 - `screenshots` and `hierarchy` mostly affect replay availability and final session presentation.
 - BullMQ job deduplication uses `jobId = artifact-{artifactId}`. A duplicate enqueue while a job is active/waiting returns without creating a second job.
+- Flush job deduplication uses `jobId = flush-{artifactId}`. If the Redis buffer is missing after TTL expiry or Redis loss, the flush worker marks the artifact failed instead of crashing or pretending S3 has the bytes.
 - The heavy full-table artifact lifecycle backfill is manual by default. Normal worker startup skips it unless `INGEST_ENABLE_STARTUP_BACKFILL=true`.
 - Manual backfill command: `cd backend && npm run db:backfill:artifact-lifecycle`
 
@@ -237,6 +250,7 @@ Relevant files:
 
 - [`backend/src/routes/ingestUploadRelay.ts`](/Users/mora/Desktop/Dev-mac/rejourney/backend/src/routes/ingestUploadRelay.ts)
 - [`backend/src/services/artifactBullQueue.ts`](/Users/mora/Desktop/Dev-mac/rejourney/backend/src/services/artifactBullQueue.ts)
+- [`backend/src/services/artifactFlushJobProcessor.ts`](/Users/mora/Desktop/Dev-mac/rejourney/backend/src/services/artifactFlushJobProcessor.ts)
 - [`backend/src/worker/ingestArtifactWorker.ts`](/Users/mora/Desktop/Dev-mac/rejourney/backend/src/worker/ingestArtifactWorker.ts)
 - [`backend/src/worker/replayArtifactWorker.ts`](/Users/mora/Desktop/Dev-mac/rejourney/backend/src/worker/replayArtifactWorker.ts)
 - [`backend/src/worker/sessionLifecycleWorker.ts`](/Users/mora/Desktop/Dev-mac/rejourney/backend/src/worker/sessionLifecycleWorker.ts)
@@ -257,7 +271,8 @@ Relevant files:
 │   - ended_at present => not live ingest                                     │
 │   - newer visitor session => old row is not live ingest                     │
 │   - last_ingest_activity_at older than 60s => not live ingest               │
-│   - pending replay work blocks final ready state                            │
+│   - open replay work blocks final ready state                               │
+│     (pending, buffered, or uploaded)                                        │
 │                                                                              │
 │ shouldFinalize?                                                             │
 │   yes -> status = ready                                                     │
@@ -304,7 +319,7 @@ Important reconciliation rules:
 - Later `/session/end` calls for an already-closed row return success while preserving the stored close timing instead of recomputing a smaller duration.
 - Late artifact uploads still update artifact rows and jobs, but on already-closed sessions they only touch activity; they do not reopen the session clock.
 - A newer session for the same visitor suppresses the LIVE badge on the older row.
-- Only pending replay work blocks final ready state. Non-replay ingest work may still complete after the session is already presented as `ready`.
+- Only open replay work blocks final ready state (`pending`, `buffered`, or `uploaded`). Non-replay ingest work may still complete after the session is already presented as `ready`.
 - If `closeAnchorAtMs` ends the session earlier than the later reported `/session/end` time, the backend trims the post-close background tail before computing playable duration. This prevents an older session from collapsing when the app resumes long after backgrounding.
 
 Canonical lifecycle fields in Postgres:
@@ -335,8 +350,9 @@ Relevant files:
 │                                      │      │                                      │
 │ BullMQ queues:                       │      │ sessions                             │
 │   rj-ingest-artifacts                │      │ session_metrics                      │
-│   rj-replay-artifacts                │      │ recording_artifacts                  │
-│                                      │      │ project_usage                        │
+│   rj-artifact-flush                  │      │ recording_artifacts                  │
+│   rj-replay-artifacts                │      │ project_usage                        │
+│ artifact:buf:{artifactId}            │      │                                      │
 │ sdk:config:*                         │      │ device_usage                         │
 │ ingest:idempotency:*                 │      │                                      │
 │ sessions:{teamId}:{period}           │      │                                      │
@@ -351,16 +367,19 @@ Relevant files:
 │ Practical consequence                                                       │
 │                                                                              │
 │ If Redis is slow or unavailable:                                            │
-│   - New artifact jobs cannot be enqueued (uploads complete but no BullMQ   │
-│     job). The session-lifecycle worker's queueRecoverableArtifacts() sweep  │
-│     will re-enqueue uploaded-but-jobless artifacts when Redis recovers.     │
+│   - Relay uploads cannot be safely ACKed until bytes are buffered, so the  │
+│     relay returns a storage/buffer error instead of losing SDK bytes.       │
+│   - If the worker crashes after ACK, queueRecoverableArtifacts() re-enqueues│
+│     buffered flush jobs and uploaded processing jobs when Redis recovers.   │
+│   - If artifact:buf expires before flush, the artifact becomes failed.      │
 │ If Postgres is wrong, the session lifecycle is wrong.                       │
 └──────────────────────────────────────────────────────────────────────────────┘
 ```
 
 Redis owns:
 
-- artifact job queues (BullMQ): `rj-ingest-artifacts`, `rj-replay-artifacts`
+- artifact write-ahead buffers: `artifact:buf:{artifactId}` with 30-minute TTL
+- artifact job queues (BullMQ): `rj-artifact-flush`, `rj-ingest-artifacts`, `rj-replay-artifacts`
 - SDK config cache
 - ingest idempotency markers
 - session-limit cache plus distributed lock
@@ -418,9 +437,11 @@ Session ID materialization window      6h
 Live ingest idle threshold             60s
 Session-lifecycle sweep interval       10s
 Pending artifact abandonment           10m
+Redis artifact buffer TTL              30m
 BullMQ stalled job detection           30s  (stalledInterval; auto re-queued)
 BullMQ max stall retries               3    (maxStalledCount; then marked failed)
 BullMQ job retry attempts              5    (exponential backoff, base 1s)
+BullMQ flush job retry attempts        8    (exponential backoff, base 500ms)
 BullMQ completed job retention         1h
 BullMQ failed job retention            7d   (DLQ window)
 Upload relay token TTL                 1h

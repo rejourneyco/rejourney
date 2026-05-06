@@ -1,6 +1,6 @@
 # All Things Cloud
 
-Last updated: 2026-05-02
+Last updated: 2026-05-06
 
 Operator-facing map of production: traffic path, pod placement, storage, HA failover, and the reasoning behind every architectural decision.
 
@@ -194,14 +194,15 @@ See [Compute Scaling Plan](#compute-scaling-plan) for the exact steps.
 - **Preferred HEL1, weight 100.** Fall back to FSN1 only when HEL1 is full.
 - HPA: `ingest-worker` 5–12, `replay-worker` 1–10.
 - IO-bound, not CPU-bound — HPA undershoots during queue spikes (workers sit at 30–40% CPU while waiting on S3 round-trips). If the queue grows: manually scale and patch the HPA max first.
-- Workers are **event-driven via BullMQ** — no SQL polling. Two queues backed by the Redis Sentinel cluster: `rj-ingest-artifacts` (events, crashes, anrs) and `rj-replay-artifacts` (screenshots, hierarchy). Workers block on the queue and consume jobs as they arrive.
+- Workers are **event-driven via BullMQ** — no SQL polling. Three queues are backed by the Redis Sentinel cluster: `rj-artifact-flush` (Redis buffered relay uploads waiting for S3), `rj-ingest-artifacts` (events, crashes, anrs), and `rj-replay-artifacts` (screenshots, hierarchy). Workers block on the queue and consume jobs as they arrive.
 - BullMQ deduplication uses `jobId = artifact-{artifactId}`. Stalled jobs (worker died mid-process) are automatically re-queued after `stalledInterval = 30s`, up to `maxStalledCount = 3`.
 - Retry policy: 5 attempts, exponential backoff starting at 1s. Failed jobs are kept in the failed set for 7 days (DLQ window). Completed jobs retained 1h for observability.
-- Queue depth monitoring: `LLEN rj-ingest-artifacts:wait` and `LLEN rj-replay-artifacts:wait` in Redis. Both should be near zero in steady state.
+- Queue depth monitoring: `LLEN bull:rj-artifact-flush:wait`, `LLEN bull:rj-ingest-artifacts:wait`, and `LLEN bull:rj-replay-artifacts:wait` in Redis. All should be near zero in steady state.
 
 ### `ingest-upload`
 
-- HPA: min 1, max 2. S3-only writes, no DB affinity needed.
+- HPA: min 1, max 2.
+- Upload relay path: collect tiny artifact bodies, write `artifact:buf:{artifactId}` to Redis with a 30-minute TTL, mark `recording_artifacts.status='buffered'`, enqueue `rj-artifact-flush`, and return 204. S3 latency is moved out of the SDK request path.
 
 ### `alert-worker`, `session-lifecycle-worker`
 
@@ -275,7 +276,7 @@ See [Compute Scaling Plan](#compute-scaling-plan) for the exact steps.
 |---|---|
 | FSN1 API pods | Reschedule to HEL1. Slower until postgres/Redis failover completes (~30s). |
 | CNPG primary | `postgres-local-2` auto-promotes. `postgres-app-rw` selector follows new primary. pgbouncer on HEL1 reconnects to local primary. |
-| In-flight writes at crash | No data loss — `remote_write` means every committed write was already buffered on standby. BullMQ jobs that were active at crash time are detected as stalled after `stalledInterval = 30s` and automatically re-queued. Artifact processing is idempotent — safe to reprocess. |
+| In-flight writes at crash | Postgres writes: no data loss — `remote_write` means every committed write was already buffered on standby. BullMQ jobs that were active at crash time are detected as stalled after `stalledInterval = 30s` and automatically re-queued. Relay uploads already ACKed to the SDK depend on the Redis `artifact:buf:{artifactId}` key surviving until flush; buffered flush jobs are recoverable while that 30-minute key exists. Artifact processing is idempotent — safe to reprocess. |
 | Redis master | Sentinel elects new master within seconds. |
 | Traefik | Reschedules to `worker-1` (~90s). LB detects `worker-1` nodeport healthy and resumes routing. |
 | CoreDNS | Second replica on HEL1 keeps DNS alive. |
@@ -316,7 +317,7 @@ See [Compute Scaling Plan](#compute-scaling-plan) for the exact steps.
 
 7. **CNPG sync replication degrades to async when standby is down.** `maxSyncReplicas: 1` — intentional. You briefly lose the sync guarantee during CNPG upgrades.
 
-8. **HPA undershoots for IO-bound workers.** `ingest-worker` and `replay-worker` stay at 30–40% CPU while waiting on S3 and DB. If the BullMQ queue grows, HPA won't fire — CPU is the wrong signal. Monitor queue depth: `LLEN rj-ingest-artifacts:wait` and `LLEN rj-replay-artifacts:wait` in Redis. If either is non-zero and growing, manually scale: `kubectl scale deployment ingest-worker --replicas=12`, patch HPA max first.
+8. **HPA undershoots for IO-bound workers.** `ingest-worker` and `replay-worker` stay at 30–40% CPU while waiting on S3 and DB. If the BullMQ queue grows, HPA won't fire — CPU is the wrong signal. Monitor queue depth: `LLEN bull:rj-artifact-flush:wait`, `LLEN bull:rj-ingest-artifacts:wait`, and `LLEN bull:rj-replay-artifacts:wait` in Redis. If any are non-zero and growing, manually scale: `kubectl scale deployment ingest-worker --replicas=12`, patch HPA max first.
 
 9. **After rolling updates, check API pod placement.** `preferred` affinity lets pods land on HEL1 during FSN1 surge. CI auto-corrects via `pin_deployment_to_fsn1`. If you see slow API after a deploy: `kubectl get pods -n rejourney -l app=api -o wide`.
 

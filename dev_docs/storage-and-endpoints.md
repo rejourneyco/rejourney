@@ -267,7 +267,7 @@ Rejourney supports **multiple S3 endpoints** per project with **weighted load ba
 
 **Deployment modes:**
 - **Self-hosted Docker / dev Docker:** Typically a single S3 endpoint (MinIO or external). No load balancing.
-- **K3s (production):** May use multiple storage endpoints with weighted load balancing. Each artifact stores `endpoint_id` at upload so the ingest worker downloads from the same endpoint.
+- **K3s (production):** May use multiple storage endpoints with weighted load balancing. Each artifact stores `endpoint_id` at presign time; the upload relay and ingest workers use that same endpoint for S3 writes and reads.
 
 ---
 
@@ -276,7 +276,7 @@ Rejourney supports **multiple S3 endpoints** per project with **weighted load ba
 ```
 Flow Index:
 ┌──────────────────────────────────────────────────────────────────────────────┐
-│ [S1] SDK Uploads → [S2] Presign API → [S3] Endpoint Resolution → [S4] S3   │
+│ [S1] SDK Uploads → [S2] Relay URL API → [S3] Endpoint Resolution → [S4] S3 │
 │                                             ↓ (parallel)                     │
 │ [S5] Shadow Uploads (fire-and-forget, async)                                │
 │                                                                              │
@@ -289,7 +289,7 @@ Flow Index:
 
 ## [S1] SDK Upload Flow
 
-Mobile SDKs request presigned URLs from the API:
+Mobile SDKs request upload relay URLs from the API. The relay buffers the tiny artifact body in Redis first, ACKs the SDK, then a worker flushes the bytes to S3 asynchronously.
 
 ```
 SDK (React Native / Mobile)
@@ -298,36 +298,50 @@ SDK (React Native / Mobile)
     ↓
     API validates billing + quotas
     ↓
-    Returns presigned S3 upload URL
+    Returns PUT /upload/artifacts/:artifactId relay URL
     ↓
-    SDK uploads directly to S3
+    SDK uploads bytes to ingest-upload relay
+    ↓
+    Relay writes artifact:buf:{artifactId} in Redis, status=buffered, returns 204
+    ↓
+    rj-artifact-flush worker writes Redis buffer to selected S3 endpoint
     ↓
     SDK calls POST /api/ingest/batch/complete (idempotent)
     ↓
-    API records artifact metadata + shadow copies queued
+    Artifact processing workers read from S3 and mark artifacts ready
 ```
 
-Key endpoint: [POST /api/ingest/presign](backend/src/routes/ingest.ts#L72)
+Key endpoints:
+
+- [`POST /api/ingest/presign`](/Users/mora/Desktop/Dev-mac/rejourney/backend/src/routes/ingestUploads.ts)
+- [`POST /api/ingest/segment/presign`](/Users/mora/Desktop/Dev-mac/rejourney/backend/src/routes/ingestUploads.ts)
+- [`PUT /upload/artifacts/:artifactId`](/Users/mora/Desktop/Dev-mac/rejourney/backend/src/routes/ingestUploadRelay.ts)
 
 ---
 
-## [S2] Presign API
+## [S2] Relay URL API
 
-The `/api/ingest/presign` endpoint generates a signed URL using the project's designated endpoint.
+The `/api/ingest/presign` and `/api/ingest/segment/presign` endpoints choose the endpoint, create the `recording_artifacts` row, and return an authenticated upload relay URL.
 
 ```typescript
 // Simplified flow
-const endpoint = await getEndpointForProject(projectId);
-const signedUrl = await getSignedUploadUrl(
+const endpoint = await getEndpointForSession(sessionId, projectId);
+const artifact = await registerPendingArtifact({
+    endpointId: endpoint.id,
+    s3ObjectKey,
+    sessionId,
+    kind,
+});
+const relayUrl = buildArtifactUploadRelayUrl({
+    artifactId: artifact.id,
     projectId,
-    key,
-    contentType,
-    3600 // 1 hour expiry
-);
-return { url: signedUrl, endpointId: endpoint.id };
+    sessionId,
+    kind,
+});
+return { presignedUrl: relayUrl, endpointId: endpoint.id };
 ```
 
-**Important:** The `endpointId` is stored on the `recording_artifacts` row when the artifact is created. The ingest worker uses this to download from the **same endpoint** the SDK uploaded to. This enables weighted load balancing in k3s (multiple endpoints) without NoSuchKey errors.
+**Important:** The `endpointId` is stored on the `recording_artifacts` row when the artifact is created. The relay flush worker writes to that endpoint, and the ingest/replay workers later download from that same endpoint. This enables weighted load balancing in k3s (multiple endpoints) without NoSuchKey errors.
 
 ---
 
@@ -428,7 +442,7 @@ function selectWeightedRandom(endpoints: StorageEndpoint[]): StorageEndpoint {
 
 ### Artifact Endpoint Pinning (K3s Load Balancing)
 
-When multiple endpoints exist, the API selects one at random for each presign. The chosen `endpointId` is stored on `recording_artifacts.endpoint_id`. The ingest worker reads this and downloads from that specific endpoint via `downloadFromS3ForArtifact()`. Legacy artifacts (created before this column existed) have `endpoint_id = null`; the worker falls back to `getEndpointForProject()` for those.
+When multiple endpoints exist, the API selects one at random for each new session and reuses it for later artifacts in that session. The chosen `endpointId` is stored on `recording_artifacts.endpoint_id`. The relay flush worker writes to that endpoint via `uploadBytesToS3ForArtifact()`, and the ingest worker downloads from it via `downloadFromS3ForArtifact()`. Legacy artifacts (created before this column existed) have `endpoint_id = null`; the worker falls back to `getEndpointForProject()` for those.
 
 ```sql
 -- recording_artifacts.endpoint_id (nullable)
@@ -807,17 +821,16 @@ Result: A global shadow endpoint with priority 10 will receive copies of all rec
 
 ## Integration Points
 
-### Ingest Flow ([POST /api/ingest/batch/complete](backend/src/routes/ingest.ts))
+### Ingest Flow ([POST /api/ingest/presign](/Users/mora/Desktop/Dev-mac/rejourney/backend/src/routes/ingestUploads.ts) + relay)
 
 ```typescript
 1. Validate idempotency (Redis)
 2. Create/fetch session record
-3. Call uploadToS3(projectId, key, body, ...)
-   └─ Returns { success, endpointId, error? }
-4. Store endpointId in recording_artifacts table
-5. Update session_metrics
-6. Fire-and-forget shadow uploads
-7. Return 200 OK
+3. Resolve endpoint and store endpointId in recording_artifacts
+4. Return PUT /upload/artifacts/:artifactId relay URL
+5. Relay buffers bytes in Redis as artifact:buf:{artifactId}, status=buffered
+6. rj-artifact-flush writes bytes to S3 and marks status=uploaded
+7. Normal artifact BullMQ queues process from S3 and mark status=ready
 ```
 
 ### Download Flow ([GET /api/sessions/{id}/artifacts](backend/src/routes/sessions.ts))
