@@ -177,7 +177,12 @@ export function TeamProvider({
     startTransition(() => {
       setTeams(normalizedInitialTeams);
       setCurrentTeamState(bootstrappedTeam);
-      setTeamMembers([]);
+      // Only clear members when the team actually changed — clearing unconditionally
+      // races with the member-loading useEffect: if the fetch completes before this
+      // transition runs it wipes the data and the effect never re-fires (same team ID).
+      if (bootstrappedTeam?.id !== currentTeamIdRef.current) {
+        setTeamMembers([]);
+      }
       setError(null);
       setIsLoading(false);
     });

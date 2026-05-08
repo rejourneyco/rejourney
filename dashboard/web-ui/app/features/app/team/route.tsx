@@ -160,7 +160,7 @@ export const TeamSettings: React.FC = () => {
       const result = await addTeamMember(currentTeam.id, newMemberEmail, newMemberRole);
       if (result.invitation) {
         setMemberSuccess(result.message || 'Invitation sent! The user will receive an email.');
-        await loadInvitations();
+        await Promise.all([loadInvitations(), refreshMembers()]);
       } else if (result.member) {
         await refreshMembers();
         setMemberSuccess('Member added successfully!');
