@@ -299,27 +299,19 @@ export async function backfillArtifactDrivenLifecycleState(): Promise<void> {
         with replay as (
             select
                 ra.session_id,
-                bool_or(ra.kind = 'screenshots' and ra.status = 'ready') as has_replay,
-                max(case when ra.kind = 'screenshots' and ra.status = 'ready' then coalesce(ra.ready_at, ra.verified_at, ra.upload_completed_at, ra.created_at) end) as available_at
+                bool_or(ra.kind = 'screenshots' and ra.status = 'ready') as has_replay
             from ${recordingArtifacts} ra
             group by ra.session_id
         )
         update ${sessions} s
-        set
-            replay_available = coalesce(replay.has_replay, false),
-            replay_available_at = case
-                when coalesce(replay.has_replay, false) then coalesce(s.replay_available_at, replay.available_at)
-                else null
-            end
+        set replay_available = coalesce(replay.has_replay, false)
         from replay
         where s.id = replay.session_id
     `);
 
     await db.execute(sql`
         update ${sessions} s
-        set
-            replay_available = false,
-            replay_available_at = null
+        set replay_available = false
         where not exists (
             select 1
             from ${recordingArtifacts} ra

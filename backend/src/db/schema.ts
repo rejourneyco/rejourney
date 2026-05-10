@@ -324,9 +324,6 @@ export const sessions = pgTable(
         explicitEndedAt: timestamp('explicit_ended_at'),
         finalizedAt: timestamp('finalized_at'),
         lastIngestActivityAt: timestamp('last_ingest_activity_at').defaultNow().notNull(),
-        lastClientEventAt: timestamp('last_client_event_at'),
-        lastClientForegroundAt: timestamp('last_client_foreground_at'),
-        lastClientBackgroundAt: timestamp('last_client_background_at'),
         durationSeconds: integer('duration_seconds'),
         backgroundTimeSeconds: integer('background_time_seconds').default(0),
         status: varchar('status', { length: 20 }).default('pending').notNull(),
@@ -339,9 +336,8 @@ export const sessions = pgTable(
         recordingDeletedAt: timestamp('recording_deleted_at'),
         isReplayExpired: boolean('is_replay_expired').default(false).notNull(),
 
-        // Canonical replay availability fields used by the ingest lifecycle
+        // Canonical replay availability flag used by the ingest lifecycle
         replayAvailable: boolean('replay_available').default(false).notNull(),
-        replayAvailableAt: timestamp('replay_available_at'),
 
         // Geo location
         geoCity: varchar('geo_city', { length: 100 }),
