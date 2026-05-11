@@ -927,22 +927,30 @@
     max-height: 100%;
   }
 
+  .replay-device-shell {
+    container-type: size;
+    height: 100%;
+    min-height: 0;
+  }
+
   .replay-device-frame {
-    width: clamp(190px, 26dvh, 292px);
+    flex: 0 0 auto;
+    max-height: 100%;
+    width: min(clamp(220px, 42cqw, 430px), max(96px, var(--replay-device-fit-width, 430px)));
   }
 
   .replay-device-placeholder {
-    max-width: clamp(190px, 26dvh, 292px) !important;
+    max-width: min(clamp(220px, 42cqw, 430px), max(96px, var(--replay-device-fit-width, 430px))) !important;
   }
 }
 
 @media (min-width: 1280px) and (max-height: 860px) {
   .replay-device-frame {
-    width: clamp(180px, 24dvh, 254px);
+    width: min(clamp(190px, 40cqw, 380px), max(88px, var(--replay-device-fit-width, 380px)));
   }
 
   .replay-device-placeholder {
-    max-width: clamp(180px, 24dvh, 254px) !important;
+    max-width: min(clamp(190px, 40cqw, 380px), max(88px, var(--replay-device-fit-width, 380px))) !important;
   }
 
   .replay-workbench-tabs button {
@@ -1041,11 +1049,11 @@
   }
 
   .replay-device-frame {
-    width: min(230px, 62vw);
+    width: min(300px, 74vw);
   }
 
   .replay-device-placeholder {
-    max-width: min(230px, 62vw) !important;
+    max-width: min(300px, 74vw) !important;
   }
 
   .replay-controls-primary {
@@ -1082,11 +1090,11 @@
 
 @media (max-width: 420px) {
   .replay-device-frame {
-    width: min(210px, 58vw);
+    width: min(280px, 78vw);
   }
 
   .replay-device-placeholder {
-    max-width: min(210px, 58vw) !important;
+    max-width: min(280px, 78vw) !important;
   }
 
   .replay-workbench-tabs button {

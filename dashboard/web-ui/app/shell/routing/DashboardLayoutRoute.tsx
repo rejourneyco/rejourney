@@ -14,7 +14,7 @@ import { useAuth } from "~/shared/providers/AuthContext";
 import { SessionDataProvider } from "~/shared/providers/SessionContext";
 import { TabProvider } from "~/shared/providers/TabContext";
 import { ErrorBoundary } from "~/shared/ui/core/ErrorBoundary";
-import { loadDashboardShellBootstrap } from "~/shell/server/dashboardBootstrap";
+import { BootstrapTransientError, loadDashboardShellBootstrap } from "~/shell/server/dashboardBootstrap";
 
 export const meta: Route.MetaFunction = () => [
     // Authenticated app; crawlers without a session get redirected to /login.
@@ -22,7 +22,23 @@ export const meta: Route.MetaFunction = () => [
 ];
 
 export async function loader({ request }: Route.LoaderArgs) {
-    const bootstrap = await loadDashboardShellBootstrap(request);
+    let bootstrap: Awaited<ReturnType<typeof loadDashboardShellBootstrap>>;
+    try {
+        bootstrap = await loadDashboardShellBootstrap(request);
+    } catch (error) {
+        // Transient upstream failure (rolling deploy, brief DB blip). Do NOT
+        // redirect to /login — the user's session cookie is still valid and
+        // bouncing them looks like a forced logout. Render an error boundary;
+        // the client retries and recovers within seconds.
+        if (error instanceof BootstrapTransientError) {
+            throw new Response("Service temporarily unavailable", {
+                status: 503,
+                headers: { "Retry-After": "2" },
+            });
+        }
+        throw error;
+    }
+
     if (bootstrap) {
         return bootstrap;
     }

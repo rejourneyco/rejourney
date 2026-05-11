@@ -25,6 +25,20 @@ interface ApiProjectsResponse {
   projects?: ApiProject[];
 }
 
+// Thrown when the upstream API is temporarily unreachable (5xx, fetch failure,
+// timeout). Distinct from a 401/403 which means the user is genuinely logged
+// out. The dashboard loader catches this and renders an error boundary instead
+// of bouncing to /login — bouncing valid sessions on a 30-second deploy blip
+// looks like a forced logout to the user.
+export class BootstrapTransientError extends Error {
+  readonly status: number;
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = "BootstrapTransientError";
+    this.status = status;
+  }
+}
+
 function normalizeTeamsResponse(payload: unknown): ApiTeam[] {
   if (Array.isArray(payload)) {
     return payload;
@@ -35,6 +49,13 @@ function normalizeTeamsResponse(payload: unknown): ApiTeam[] {
   }
 
   return [];
+}
+
+const BOOTSTRAP_FETCH_TIMEOUT_MS = 4000;
+const BOOTSTRAP_RETRY_DELAY_MS = 600;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 async function fetchBootstrapJson(request: Request, path: string): Promise<Response> {
@@ -49,34 +70,61 @@ async function fetchBootstrapJson(request: Request, path: string): Promise<Respo
 
   headers.set("accept", "application/json");
 
-  return fetch(url.toString(), {
-    headers,
-    cache: "no-store",
-  });
+  // One retry with short backoff smooths over rolling-deploy windows where the
+  // Service briefly has no Ready endpoints (Traefik 502/503 for ~1s).
+  let lastError: unknown = null;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), BOOTSTRAP_FETCH_TIMEOUT_MS);
+    try {
+      const response = await fetch(url.toString(), {
+        headers,
+        cache: "no-store",
+        signal: controller.signal,
+      });
+      clearTimeout(timeout);
+      if (response.status >= 500 && response.status <= 599 && attempt === 0) {
+        await sleep(BOOTSTRAP_RETRY_DELAY_MS);
+        continue;
+      }
+      return response;
+    } catch (error) {
+      clearTimeout(timeout);
+      lastError = error;
+      if (attempt === 0) {
+        await sleep(BOOTSTRAP_RETRY_DELAY_MS);
+        continue;
+      }
+    }
+  }
+  throw new BootstrapTransientError(
+    `Upstream API unreachable for ${path}: ${String(lastError)}`,
+    503,
+  );
 }
 
 async function fetchCurrentUser(request: Request): Promise<User | null> {
-  try {
-    const response = await fetchBootstrapJson(request, "/api/auth/me");
-    if (response.status === 401 || response.status === 403) {
-      return null;
-    }
-
-    if (!response.ok) {
-      throw new Error(`Failed to load auth bootstrap: ${response.status}`);
-    }
-
-    const payload = (await response.json()) as ApiAuthResponse;
-    const userData = payload.user || payload;
-    if (!userData) {
-      return null;
-    }
-
-    return normalizeAuthUser(userData);
-  } catch (error) {
-    console.error("Failed to load current user for dashboard shell:", error);
+  const response = await fetchBootstrapJson(request, "/api/auth/me");
+  if (response.status === 401 || response.status === 403) {
     return null;
   }
+
+  if (!response.ok) {
+    // 5xx after retry — surface as transient so the loader can render an
+    // error boundary instead of treating the user as logged out.
+    throw new BootstrapTransientError(
+      `Failed to load auth bootstrap: ${response.status}`,
+      response.status,
+    );
+  }
+
+  const payload = (await response.json()) as ApiAuthResponse;
+  const userData = payload.user || payload;
+  if (!userData) {
+    return null;
+  }
+
+  return normalizeAuthUser(userData);
 }
 
 async function fetchTeams(request: Request): Promise<ApiTeam[]> {
@@ -87,11 +135,14 @@ async function fetchTeams(request: Request): Promise<ApiTeam[]> {
     }
 
     if (!response.ok) {
-      throw new Error(`Failed to load team bootstrap: ${response.status}`);
+      console.error(`Failed to load team bootstrap: ${response.status}`);
+      return [];
     }
 
     return normalizeTeamsResponse(await response.json());
   } catch (error) {
+    // Teams/projects are not auth-critical — degrade gracefully rather than
+    // 503-ing the whole shell. The client-side fetchers will retry.
     console.error("Failed to load teams for dashboard shell:", error);
     return [];
   }
@@ -117,7 +168,8 @@ async function fetchProjects(request: Request): Promise<ApiProject[]> {
     }
 
     if (!response.ok) {
-      throw new Error(`Failed to load projects bootstrap: ${response.status}`);
+      console.error(`Failed to load projects bootstrap: ${response.status}`);
+      return [];
     }
 
     return normalizeProjectsResponse(await response.json());

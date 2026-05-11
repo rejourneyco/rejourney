@@ -34,7 +34,7 @@ spec:
     apiVersion: apps/v1
     kind: Deployment
     name: ingest-upload
-  minReplicas: 1
+  minReplicas: 2
   maxReplicas: 2
   metrics:
     - type: Resource

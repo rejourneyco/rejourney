@@ -36,6 +36,20 @@ import { safeEncrypt } from '../services/crypto.js';
 
 const isDev = process.env.NODE_ENV !== 'production';
 
+function maskValue(value: string | undefined | null, visible = 4): string {
+    if (!value) return '[not set]';
+    if (value.length <= visible * 2) return '[redacted]';
+    return `${value.slice(0, visible)}...${value.slice(-visible)}`;
+}
+
+function displayHost(value: string): string {
+    try {
+        return new URL(value).hostname;
+    } catch {
+        return maskValue(value);
+    }
+}
+
 async function main() {
     console.log('🌱 Seeding database...');
 
@@ -125,8 +139,8 @@ async function main() {
                 ...endpointData,
             }).onConflictDoNothing();
             console.log('✅ Default storage endpoint seeded');
-            console.log(`   Endpoint: ${s3Endpoint}`);
-            console.log(`   Bucket: ${s3Bucket}`);
+            console.log(`   Endpoint: ${displayHost(s3Endpoint)}`);
+            console.log(`   Bucket: ${maskValue(s3Bucket)}`);
         } else {
             // Update existing if env vars changed
             await db.update(storageEndpoints)
@@ -135,7 +149,7 @@ async function main() {
             console.log('✅ Default storage endpoint updated');
         }
         if (s3AccessKeyId) {
-            console.log(`   Access Key ID: ${s3AccessKeyId}`);
+            console.log(`   Access Key ID: ${maskValue(s3AccessKeyId)}`);
         }
         if (encryptedKeyRef) {
             console.log(`   Secret Key: ✓ Encrypted and stored`);
@@ -230,7 +244,7 @@ async function main() {
 
             console.log('✅ Test user, team, project, and alert settings created');
             console.log(`   Email: ${testEmail}`);
-            console.log(`   API Key: ${apiKeyValue}`);
+            console.log(`   API Key: ${maskValue(apiKeyValue, 6)}`);
             console.log('   (Send OTP to login or use the API key for ingest)');
         } else {
             // Ensure existing test user has alert settings for their projects

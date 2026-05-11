@@ -22,6 +22,7 @@ const app = express();
 const PORT = process.env.PORT || 8080;
 const API_URL = process.env.API_URL || 'http://api:3000';
 const isProduction = process.env.NODE_ENV === 'production';
+let isShuttingDown = false;
 const MARKETING_LOCALE_PATH_PATTERN = /^\/(?:ar|es|tr|pt-br|de|fr|hi|id|ja|ko|zh-cn)$/;
 const EDGE_CACHEABLE_HTML_PATTERNS = [
   /^\/$/,
@@ -102,6 +103,15 @@ if (isProduction) {
 // Parse cookies so we can forward them properly
 app.use(cookieParser());
 
+app.get('/health', (_req, res) => {
+  if (isShuttingDown) {
+    res.status(503).json({ status: 'draining', service: 'web', timestamp: new Date().toISOString() });
+    return;
+  }
+
+  res.json({ status: 'ok', service: 'web', timestamp: new Date().toISOString() });
+});
+
 // Proxy /api/* requests to the backend API server
 app.use('/api', createProxyMiddleware({
   target: API_URL,
@@ -175,10 +185,29 @@ app.all(
   })
 );
 
-app.listen(PORT, '0.0.0.0', () => {
+const server = app.listen(PORT, '0.0.0.0', () => {
   // Only log in development
   if (process.env.NODE_ENV !== 'production') {
     console.log(`[server] http://localhost:${PORT}`);
     console.log(`[server] Proxying /api/* to ${API_URL}`);
   }
 });
+
+function shutdown(signal) {
+  if (isShuttingDown) return;
+  isShuttingDown = true;
+
+  const forceExitTimer = setTimeout(() => {
+    process.exit(1);
+  }, 25_000);
+  forceExitTimer.unref?.();
+
+  server.close((err) => {
+    clearTimeout(forceExitTimer);
+    process.exit(err ? 1 : 0);
+  });
+  server.closeIdleConnections?.();
+}
+
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT', () => shutdown('SIGINT'));

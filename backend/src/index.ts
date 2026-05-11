@@ -9,6 +9,7 @@
  */
 
 import { createRequire } from 'module';
+import type { Server } from 'node:http';
 import express, { Request, Response } from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
@@ -32,6 +33,8 @@ const require = createRequire(import.meta.url);
 const pinoHttp = require('pino-http');
 
 const app = express();
+let isShuttingDown = false;
+let server: Server | undefined;
 
 app.set('trust proxy', 1);
 // Disable X-Powered-By header (security best practice)
@@ -238,6 +241,17 @@ app.get('/health/queue', async (_req, res) => {
  * Checks all critical dependencies: database, Redis, and S3
  */
 app.get('/health/ready', async (_req, res) => {
+    if (isShuttingDown) {
+        res.status(503).json({
+            status: 'draining',
+            checks: {
+                shutdown: true,
+            },
+            timestamp: new Date().toISOString(),
+        });
+        return;
+    }
+
     const checks: Record<string, boolean | string> = {};
     let allHealthy = true;
 
@@ -425,19 +439,47 @@ app.use('/api', routes);
 app.use(notFoundHandler);
 app.use(errorHandler);
 
-let isShuttingDown = false;
+function closeHttpServer(activeServer: Server): Promise<void> {
+    return new Promise((resolve, reject) => {
+        activeServer.close((error?: Error) => {
+            if (error) {
+                reject(error);
+                return;
+            }
+            resolve();
+        });
+        activeServer.closeIdleConnections?.();
+    });
+}
 
 async function shutdown(signal: string) {
     if (isShuttingDown) return;
     isShuttingDown = true;
 
     logger.info({ signal }, 'Shutting down gracefully...');
-    stopStatsAggregationJob();
-    stopAlertWorker();
-    await closeRedis();
-    await pool.end();
-    logger.info('Shutdown complete');
-    process.exit(0);
+    const forceExitTimer = setTimeout(() => {
+        logger.error({ signal }, 'Graceful shutdown timed out; forcing exit');
+        process.exit(1);
+    }, 25_000);
+
+    try {
+        stopStatsAggregationJob();
+        stopAlertWorker();
+        clearInterval(apiHeartbeatInterval);
+        clearTimeout(initialApiHeartbeatTimeout);
+        if (server) {
+            await closeHttpServer(server);
+        }
+        await closeRedis();
+        await pool.end();
+        clearTimeout(forceExitTimer);
+        logger.info('Shutdown complete');
+        process.exit(0);
+    } catch (err) {
+        clearTimeout(forceExitTimer);
+        logger.error({ err, signal }, 'Graceful shutdown failed');
+        process.exit(1);
+    }
 }
 
 process.on('SIGTERM', () => shutdown('SIGTERM'));
@@ -469,11 +511,11 @@ async function sendApiHeartbeat(): Promise<void> {
 }
 
 // Send heartbeat every minute
-setInterval(sendApiHeartbeat, API_HEARTBEAT_INTERVAL_MS);
+const apiHeartbeatInterval = setInterval(sendApiHeartbeat, API_HEARTBEAT_INTERVAL_MS);
 // Send initial heartbeat after 10 seconds
-setTimeout(sendApiHeartbeat, 10_000);
+const initialApiHeartbeatTimeout = setTimeout(sendApiHeartbeat, 10_000);
 
-app.listen(PORT, () => {
+server = app.listen(PORT, () => {
     logger.info({ port: PORT, env: config.NODE_ENV }, '🚀 Rejourney API server started');
     // Start the stats aggregation cron job
     startStatsAggregationJob();

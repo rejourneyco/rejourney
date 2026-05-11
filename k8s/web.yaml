@@ -28,6 +28,7 @@ metadata:
     app.kubernetes.io/part-of: rejourney
 spec:
   replicas: 2
+  minReadySeconds: 10
   strategy:
     type: RollingUpdate
     rollingUpdate:
@@ -41,6 +42,7 @@ spec:
       labels:
         app: web
     spec:
+      terminationGracePeriodSeconds: 30
       affinity:
         nodeAffinity:
           preferredDuringSchedulingIgnoredDuringExecution:
@@ -70,6 +72,10 @@ spec:
           imagePullPolicy: Always
           ports:
             - containerPort: 8080
+          lifecycle:
+            preStop:
+              exec:
+                command: ["/bin/sh", "-c", "sleep 10"]
           env:
             - name: NODE_ENV
               value: "production"
@@ -100,13 +106,13 @@ spec:
               memory: 1Gi
           livenessProbe:
             httpGet:
-              path: /
+              path: /health
               port: 8080
             initialDelaySeconds: 10
             periodSeconds: 15
           readinessProbe:
             httpGet:
-              path: /
+              path: /health
               port: 8080
             initialDelaySeconds: 5
             periodSeconds: 10

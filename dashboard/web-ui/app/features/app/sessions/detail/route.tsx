@@ -2628,7 +2628,12 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
                                         )}
                                     </div>
                                 ) : (
-                                    <div className="relative flex w-full justify-center">
+                                    <div
+                                        className="replay-device-shell relative flex w-full justify-center xl:h-full xl:min-h-0 xl:items-center"
+                                        style={{
+                                            '--replay-device-fit-width': `calc(${(deviceWidth / Math.max(1, deviceHeight)) * 100}cqh - 0.875rem)`,
+                                        } as React.CSSProperties}
+                                    >
                                         <div className="replay-device-frame relative overflow-hidden rounded-[2rem] border border-slate-950 bg-[#070b14] p-1.5 shadow-[0_18px_45px_rgba(15,23,42,0.18)]">
                                             <div className="rounded-[1.75rem] bg-slate-900 p-1">
                                                 <div

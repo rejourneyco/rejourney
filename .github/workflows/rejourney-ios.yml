@@ -5,6 +5,9 @@ on:
   pull_request:
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   ios-swift-package:
 
@@ -89,6 +92,7 @@ jobs:
           VERSION: ${{ steps.version_check.outputs.version }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          echo "::add-mask::$GH_TOKEN"
           TAG="v${VERSION}"
 
           if git ls-remote --tags origin "refs/tags/$TAG" | grep -q "$TAG"; then

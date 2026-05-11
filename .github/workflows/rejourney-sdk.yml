@@ -7,6 +7,9 @@ on:
     branches: [main]
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   # ------------------------------------------------------------------
   # SDK JOBS
@@ -237,6 +240,7 @@ jobs:
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
+          echo "::add-mask::$NODE_AUTH_TOKEN"
           PACKAGE_NAME=$(jq -r .name package.json)
           CURRENT_VERSION=$(jq -r .version package.json)
           echo "Package: $PACKAGE_NAME"
@@ -291,6 +295,7 @@ jobs:
           VERSION: ${{ steps.version_check.outputs.version }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          echo "::add-mask::$GH_TOKEN"
           TAG="react-native/v${VERSION}"
 
           if git ls-remote --tags origin "refs/tags/$TAG" | grep -q "$TAG"; then

@@ -29,6 +29,16 @@ section() {
   echo "[deploy-release] =================================================="
 }
 
+redact_ci_output() {
+  sed -E \
+    -e 's#(postgres(ql)?://)[^[:space:]]+#\1[REDACTED]#g' \
+    -e 's#(redis://)[^[:space:]]+#\1[REDACTED]#g' \
+    -e 's#(rj_(live|test)_[A-Za-z0-9._=-]+)#rj_[REDACTED]#g' \
+    -e 's#(sk_live_|sk_test_|rk_live_|rk_test_|whsec_)[A-Za-z0-9._-]+#[REDACTED]#g' \
+    -e 's#(AKIA|ASIA)[A-Z0-9]{16}#[REDACTED]#g' \
+    -e 's#([A-Za-z0-9/+=]{40,})#[REDACTED-LONG-TOKEN]#g'
+}
+
 dump_db_setup_diagnostics() {
   kubectl describe job db-setup -n "${NAMESPACE}" || true
 
@@ -40,9 +50,9 @@ dump_db_setup_diagnostics() {
   job_pods="$(kubectl get pods -n "${NAMESPACE}" -l job-name=db-setup -o name 2>/dev/null || true)"
   for pod in ${job_pods}; do
     echo "[deploy-release] --- Logs from ${pod} (current attempt) ---"
-    kubectl logs "${pod}" -n "${NAMESPACE}" -c setup --tail=200 2>&1 || true
+    (kubectl logs "${pod}" -n "${NAMESPACE}" -c setup --tail=200 2>&1 || true) | redact_ci_output
     echo "[deploy-release] --- Logs from ${pod} (previous attempt) ---"
-    kubectl logs "${pod}" -n "${NAMESPACE}" -c setup --tail=200 --previous 2>&1 || true
+    (kubectl logs "${pod}" -n "${NAMESPACE}" -c setup --tail=200 --previous 2>&1 || true) | redact_ci_output
   done
 }
 
@@ -93,7 +103,7 @@ ensure_grafana_secret() {
   kubectl create secret generic grafana-secret \
     --namespace "${NAMESPACE}" \
     --from-literal=admin-password="${pass}"
-  log "grafana-secret created. Retrieve password: kubectl get secret grafana-secret -n ${NAMESPACE} -o jsonpath='{.data.admin-password}' | base64 -d"
+  log "grafana-secret created."
 }
 
 ensure_cert_manager() {
@@ -105,6 +115,13 @@ ensure_cert_manager() {
   kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.16.2/cert-manager.yaml
   log "Waiting for cert-manager to be ready..."
   kubectl wait --for=condition=Available deployment/cert-manager-webhook -n cert-manager --timeout=300s
+}
+
+protect_helm_managed_resources() {
+  # The Redis Service is Helm-owned. If an older live object still carries the
+  # rejourney prune label, strip it before the prune pass so Redis never
+  # disappears and gets restored after the fact.
+  kubectl label svc redis -n "${NAMESPACE}" "app.kubernetes.io/part-of-" 2>/dev/null || true
 }
 
 apply_unlabeled_support_manifests() {
@@ -169,6 +186,26 @@ wait_for_postgres() {
     echo "[deploy-release] PostgreSQL did not become ready" >&2
     exit 1
   fi
+}
+
+apply_db_setup_job() {
+  section "Applying db-setup Job"
+  local db_setup_manifest="${RENDER_DIR}/db-setup.yaml"
+
+  if [ ! -f "${db_setup_manifest}" ]; then
+    echo "[deploy-release] ERROR: ${db_setup_manifest} not found" >&2
+    exit 1
+  fi
+
+  kubectl apply -f "${db_setup_manifest}"
+}
+
+apply_data_plane_manifests() {
+  section "Applying Data Plane Manifests"
+
+  kubectl apply -f "${RENDER_DIR}/pdb.yaml"
+  kubectl apply -f "${RENDER_DIR}/pgbouncer.yaml"
+  wait_for_deployment pgbouncer
 }
 
 wait_for_job() {
@@ -258,6 +295,36 @@ wait_for_deployment() {
     dump_workload_diagnostics deployment "${name}"
     exit 1
   fi
+}
+
+wait_for_deployment_ready_replicas() {
+  local name="$1"
+  local timeout="${2:-300}"
+  local deadline
+  deadline=$(( $(date +%s) + timeout ))
+
+  while true; do
+    local desired ready available
+    desired="$(kubectl get deployment "${name}" -n "${NAMESPACE}" -o jsonpath='{.spec.replicas}' 2>/dev/null || echo "0")"
+    ready="$(kubectl get deployment "${name}" -n "${NAMESPACE}" -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo "0")"
+    available="$(kubectl get deployment "${name}" -n "${NAMESPACE}" -o jsonpath='{.status.availableReplicas}' 2>/dev/null || echo "0")"
+
+    desired="${desired:-0}"
+    ready="${ready:-0}"
+    available="${available:-0}"
+
+    if [ "${ready}" -ge "${desired}" ] && [ "${available}" -ge "${desired}" ]; then
+      return 0
+    fi
+
+    if [ "$(date +%s)" -ge "${deadline}" ]; then
+      dump_workload_diagnostics deployment "${name}"
+      echo "[deploy-release] ${name} did not return to ${desired}/${desired} ready replicas" >&2
+      exit 1
+    fi
+
+    sleep 5
+  done
 }
 
 wait_for_daemonset() {
@@ -412,9 +479,50 @@ pin_deployment_to_fsn1() {
   log "Evicting ${name} pods that landed on HEL1: ${misplaced}"
   for pod in ${misplaced}; do
     kubectl delete pod -n "${NAMESPACE}" "${pod}" --grace-period=30 --ignore-not-found
-    sleep 5
+    wait_for_deployment "${name}"
+    wait_for_deployment_ready_replicas "${name}"
   done
   wait_for_deployment "${name}"
+  wait_for_deployment_ready_replicas "${name}"
+}
+
+postgres_primary_node() {
+  kubectl get pod -n "${NAMESPACE}" \
+    -l "cnpg.io/cluster=${CNPG_CLUSTER_NAME},cnpg.io/instanceRole=primary" \
+    -o jsonpath='{.items[0].spec.nodeName}' 2>/dev/null || true
+}
+
+# API latency depends on API pods running on the same node as the current CNPG
+# primary. The Deployment has a hard podAffinity for new pods; this post-rollout
+# check corrects any older pods that were already running elsewhere.
+pin_deployment_to_postgres_primary() {
+  local name="$1"
+  local primary_node
+  primary_node="$(postgres_primary_node)"
+
+  if [ -z "${primary_node}" ]; then
+    echo "[deploy-release] ERROR: no CNPG primary node found; cannot pin ${name}" >&2
+    exit 1
+  fi
+
+  misplaced="$(kubectl get pods -n "${NAMESPACE}" -l "app=${name}" \
+    -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.spec.nodeName}{"\n"}{end}' \
+    | awk -v node="${primary_node}" '$2 != node {print $1}' \
+    || true)"
+
+  if [ -z "${misplaced}" ]; then
+    log "All ${name} pods colocated with Postgres primary on ${primary_node} ✓"
+    return 0
+  fi
+
+  log "Evicting ${name} pods not on Postgres primary node ${primary_node}: ${misplaced}"
+  for pod in ${misplaced}; do
+    kubectl delete pod -n "${NAMESPACE}" "${pod}" --grace-period=30 --ignore-not-found
+    wait_for_deployment "${name}"
+    wait_for_deployment_ready_replicas "${name}"
+  done
+  wait_for_deployment "${name}"
+  wait_for_deployment_ready_replicas "${name}"
 }
 
 cleanup_finished_pods() {
@@ -482,10 +590,21 @@ main() {
 
   print_migration_status "before"
 
+  # Roll shared data-plane app dependencies before migrations and before the
+  # customer-facing Deployments move. CNPG is handled separately above; Redis is
+  # Helm-owned and protected from prune below.
+  apply_data_plane_manifests
+
   section "Resetting db-setup Job"
   log "Deleting old db-setup job..."
   kubectl delete job db-setup -n "${NAMESPACE}" --ignore-not-found --wait=true --timeout=120s || true
   kubectl delete pods -n "${NAMESPACE}" -l job-name=db-setup --ignore-not-found --wait=true --timeout=60s || true
+
+  # Run migrations/bootstrap before applying app Deployments. This keeps API/web
+  # pods on the old version until the schema is ready for the new version.
+  apply_db_setup_job
+  wait_for_job
+  print_migration_status "after db-setup"
 
   # ── Grafana dashboards ConfigMap (server-side apply) ────────────────────
   # The grafana-dashboards ConfigMap is ~290KB, which exceeds client-side
@@ -501,11 +620,13 @@ main() {
   fi
 
   section "Applying Rendered Manifests"
+  protect_helm_managed_resources
   log "Applying rendered manifests..."
   kubectl apply -f "${RENDER_DIR}/" \
     --prune \
     -l app.kubernetes.io/part-of=rejourney \
     --prune-allowlist=core/v1/ConfigMap \
+    --prune-allowlist=core/v1/ServiceAccount \
     --prune-allowlist=core/v1/Service \
     --prune-allowlist=apps/v1/Deployment \
     --prune-allowlist=apps/v1/StatefulSet \
@@ -514,7 +635,9 @@ main() {
     --prune-allowlist=autoscaling/v2/HorizontalPodAutoscaler \
     --prune-allowlist=batch/v1/CronJob \
     --prune-allowlist=batch/v1/Job \
-    --prune-allowlist=policy/v1/PodDisruptionBudget
+    --prune-allowlist=policy/v1/PodDisruptionBudget \
+    --prune-allowlist=rbac.authorization.k8s.io/v1/Role \
+    --prune-allowlist=rbac.authorization.k8s.io/v1/RoleBinding
 
   # ── Helm-managed resources guard ─────────────────────────────────────────
   # The kubectl apply --prune above can delete resources that were previously
@@ -547,15 +670,13 @@ main() {
 
   wait_for_postgres
   wait_for_deployment pgbouncer
-  wait_for_job
   remove_legacy_postgres
-  print_migration_status "after"
 
   section "Waiting For Rollouts"
   # Critical user-facing services: 600s to absorb any residual image-pull delay
   # after the pre-pull step (e.g. a node was temporarily unavailable during pre-pull).
   wait_for_deployment api            600s
-  pin_deployment_to_fsn1 api
+  pin_deployment_to_postgres_primary api
   wait_for_deployment ingest-upload  600s
   pin_deployment_to_fsn1 ingest-upload
   wait_for_deployment web            600s

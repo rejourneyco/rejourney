@@ -1,0 +1,178 @@
+# API/Postgres colocation guard
+# Keeps API pods on the same Kubernetes node as the current CNPG primary.
+# Kubernetes podAffinity is scheduling-only; this CronJob handles later primary
+# failovers by evicting one misplaced API pod at a time after the Deployment is healthy.
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: api-postgres-colocator
+  namespace: rejourney
+  labels:
+    app: api-postgres-colocator
+    app.kubernetes.io/part-of: rejourney
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: api-postgres-colocator
+  namespace: rejourney
+  labels:
+    app: api-postgres-colocator
+    app.kubernetes.io/part-of: rejourney
+rules:
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["pods/eviction"]
+    verbs: ["create"]
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get", "list", "watch"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: api-postgres-colocator
+  namespace: rejourney
+  labels:
+    app: api-postgres-colocator
+    app.kubernetes.io/part-of: rejourney
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: api-postgres-colocator
+subjects:
+  - kind: ServiceAccount
+    name: api-postgres-colocator
+    namespace: rejourney
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: api-postgres-colocator
+  namespace: rejourney
+  labels:
+    app: api-postgres-colocator
+    app.kubernetes.io/part-of: rejourney
+data:
+  colocate.sh: |
+    #!/bin/sh
+    set -eu
+
+    namespace="${NAMESPACE:-rejourney}"
+    deployment="${API_DEPLOYMENT:-api}"
+    cnpg_cluster="${CNPG_CLUSTER_NAME:-postgres-local}"
+
+    log() {
+      echo "[api-postgres-colocator] $1"
+    }
+
+    primary_node="$(
+      kubectl get pods -n "${namespace}" \
+        -l "cnpg.io/cluster=${cnpg_cluster},cnpg.io/instanceRole=primary" \
+        -o jsonpath='{.items[0].spec.nodeName}' 2>/dev/null || true
+    )"
+
+    if [ -z "${primary_node}" ]; then
+      log "No CNPG primary pod found; leaving API pods untouched."
+      exit 1
+    fi
+
+    desired="$(kubectl get deployment "${deployment}" -n "${namespace}" -o jsonpath='{.spec.replicas}' 2>/dev/null || echo 0)"
+    ready="$(kubectl get deployment "${deployment}" -n "${namespace}" -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo 0)"
+    available="$(kubectl get deployment "${deployment}" -n "${namespace}" -o jsonpath='{.status.availableReplicas}' 2>/dev/null || echo 0)"
+
+    desired="${desired:-0}"
+    ready="${ready:-0}"
+    available="${available:-0}"
+
+    if [ "${desired}" -eq 0 ]; then
+      log "API deployment is scaled to zero; nothing to colocate."
+      exit 0
+    fi
+
+    if [ "${ready}" -lt "${desired}" ] || [ "${available}" -lt "${desired}" ]; then
+      log "API deployment is not fully healthy (${ready}/${desired} ready, ${available}/${desired} available); deferring."
+      exit 0
+    fi
+
+    misplaced_pod="$(
+      kubectl get pods -n "${namespace}" -l "app=${deployment}" \
+        -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.spec.nodeName}{"\t"}{range .status.conditions[?(@.type=="Ready")]}{.status}{end}{"\n"}{end}' \
+        | awk -v node="${primary_node}" '$2 != node && $3 == "True" {print $1; exit}'
+    )"
+
+    if [ -z "${misplaced_pod}" ]; then
+      log "All API pods are colocated with Postgres primary on ${primary_node}."
+      exit 0
+    fi
+
+    log "Evicting ${misplaced_pod}; Postgres primary is on ${primary_node}."
+    kubectl create -n "${namespace}" -f - <<EOF
+    apiVersion: policy/v1
+    kind: Eviction
+    metadata:
+      name: ${misplaced_pod}
+      namespace: ${namespace}
+    deleteOptions:
+      gracePeriodSeconds: 30
+    EOF
+
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: api-postgres-colocator
+  namespace: rejourney
+  labels:
+    app: api-postgres-colocator
+    app.kubernetes.io/part-of: rejourney
+spec:
+  schedule: "* * * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      template:
+        metadata:
+          labels:
+            app: api-postgres-colocator
+        spec:
+          serviceAccountName: api-postgres-colocator
+          restartPolicy: Never
+          containers:
+            - name: colocator
+              image: bitnami/kubectl:1.31.4
+              imagePullPolicy: IfNotPresent
+              command: ["/bin/sh", "/scripts/colocate.sh"]
+              env:
+                - name: NAMESPACE
+                  value: rejourney
+                - name: API_DEPLOYMENT
+                  value: api
+                - name: CNPG_CLUSTER_NAME
+                  value: postgres-local
+              resources:
+                requests:
+                  cpu: 10m
+                  memory: 32Mi
+                limits:
+                  cpu: 100m
+                  memory: 128Mi
+              volumeMounts:
+                - name: script
+                  mountPath: /scripts
+                  readOnly: true
+          volumes:
+            - name: script
+              configMap:
+                name: api-postgres-colocator
+                defaultMode: 0555

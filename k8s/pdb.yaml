@@ -10,7 +10,7 @@ metadata:
   labels:
     app.kubernetes.io/part-of: rejourney
 spec:
-  minAvailable: 3
+  maxUnavailable: 1
   selector:
     matchLabels:
       app: api

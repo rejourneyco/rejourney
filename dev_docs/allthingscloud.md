@@ -133,7 +133,7 @@ graph LR
     subgraph fsn1_1["rejourney-fsn1-1 · existing"]
         direction TB
         TR1["Traefik replica-1"]
-        API1["api ×half\nHPA"]
+        API1["api ×all\nHPA · colocated with primary"]
         PG1F["postgres-local-1\nCNPG primary"]
         RD0F["redis-node-0"]
         PGB0F["pgbouncer"]
@@ -143,7 +143,6 @@ graph LR
     subgraph fsn1_2["rejourney-fsn1-2 · NEW CPX41 or CX32"]
         direction TB
         TR2["Traefik replica-2"]
-        API2["api ×half\nHPA"]
         PGB3["pgbouncer (new replica-3)"]
     end
 
@@ -184,10 +183,12 @@ See [Compute Scaling Plan](#compute-scaling-plan) for the exact steps.
 
 ### API
 
-- **Preferred FSN1, weight 100** (`rejourney.co/datacenter=fsn1`). Preferred (not required) so pods fall back to HEL1 if FSN1 is down.
+- **Required pod affinity to the current CNPG primary hostname** (`cnpg.io/cluster=postgres-local`, `cnpg.io/instanceRole=primary`). API response time regresses sharply when serial DB calls cross nodes/DCs, so new API pods must schedule on the same node as the writable Postgres pod.
+- **Preferred FSN1, weight 100** (`rejourney.co/datacenter=fsn1`). This is secondary to primary-node colocation and preserves normal placement while `postgres-local-1` is primary.
 - **No `topologySpreadConstraints`** — tested: `maxSkew:1 ScheduleAnyway` overrides a weight-80 preference and spreads pods to HEL1, causing 6–11s p50.
 - **HPA: min 3, max 6, target 65% CPU.** Min 3 fits entirely on FSN1 in normal operation.
-- **Post-deploy pin check** in CI (`pin_deployment_to_fsn1` in `scripts/k8s/deploy-release.sh`): after every rollout, evicts any API pods that landed on HEL1 and waits for FSN1 rescheduling. Prevents silent latency regressions after rolling updates during FSN1 surge.
+- **Continuous colocation guard** (`api-postgres-colocator` CronJob): every minute, checks the CNPG primary node and evicts at most one healthy API pod if it is not colocated. It only acts when the API Deployment is fully ready and uses the Eviction API, so the API PDB keeps one-at-a-time movement.
+- **Post-deploy colocation check** in CI (`pin_deployment_to_postgres_primary` in `scripts/k8s/deploy-release.sh`): after every rollout, evicts any API pods not on the CNPG primary node one at a time and waits for replacements. This fixes rollout-time drift immediately; the CronJob handles later CNPG primary movement.
 
 ### `ingest-worker`, `replay-worker`
 
@@ -319,7 +320,7 @@ See [Compute Scaling Plan](#compute-scaling-plan) for the exact steps.
 
 8. **HPA undershoots for IO-bound workers.** `ingest-worker` and `replay-worker` stay at 30–40% CPU while waiting on S3 and DB. If the BullMQ queue grows, HPA won't fire — CPU is the wrong signal. Monitor queue depth: `LLEN bull:rj-artifact-flush:wait`, `LLEN bull:rj-ingest-artifacts:wait`, and `LLEN bull:rj-replay-artifacts:wait` in Redis. If any are non-zero and growing, manually scale: `kubectl scale deployment ingest-worker --replicas=12`, patch HPA max first.
 
-9. **After rolling updates, check API pod placement.** `preferred` affinity lets pods land on HEL1 during FSN1 surge. CI auto-corrects via `pin_deployment_to_fsn1`. If you see slow API after a deploy: `kubectl get pods -n rejourney -l app=api -o wide`.
+9. **API/Postgres colocation is enforced twice.** API has required pod affinity to the current CNPG primary, CI auto-corrects via `pin_deployment_to_postgres_primary`, and the `api-postgres-colocator` CronJob handles later failovers. If you see slow API: compare `kubectl get pods -n rejourney -l app=api -o wide` with `kubectl get pods -n rejourney -l cnpg.io/cluster=postgres-local,cnpg.io/instanceRole=primary -o wide`, then inspect `kubectl get jobs -n rejourney -l app=api-postgres-colocator`.
 
 10. **SyncRep is the write throughput ceiling.** Every committed write waits ~25ms for standby ACK. For any new write-heavy path that becomes slow: check `pg_stat_activity WHERE wait_event = 'SyncRep'` first, then add `SET LOCAL synchronous_commit = local` if the path is safe to skip (idempotent retries are acceptable). The BullMQ migration eliminated the former hottest path (`ingest_jobs` INSERT/UPDATE churn) — artifact job dispatch now goes through Redis, and only the `recording_artifacts` status update remains in Postgres.
 
@@ -344,7 +345,7 @@ kubectl label node <new-node> rejourney.co/datacenter=fsn1
 
 ### Step 1 — add second FSN1 node
 
-Recommended type: **CPX41** (16 vCPU, 32 GB, ~€33/mo) or **CX32** (8 vCPU, 32 GB, ~€19/mo). Add in FSN1 only. After the node joins:
+Recommended type: **CPX41** (16 vCPU, 32 GB, ~€33/mo) or **CX32** (8 vCPU, 32 GB, ~€19/mo). Add in FSN1 only. With strict API/Postgres-primary colocation, this node is immediate ingress/pgbouncer/general headroom; API pods only use it if the CNPG primary can also run there. After the node joins:
 ```bash
 kubectl label node <new-node> rejourney.co/datacenter=fsn1
 # Remove LB exclusion label if present:
@@ -362,6 +363,7 @@ pgbouncer requires one replica per node. With 4 nodes, set replicas = 4 and rais
 minReplicas: 3   # unchanged
 maxReplicas: 8   # was 6
 ```
+Only raise this if the Postgres primary node has CPU/memory headroom, or after adding a CNPG instance/primary path on the new FSN1 node. API pods are required to colocate with the writable Postgres pod.
 
 ### Step 4 — run 2 Traefik replicas across both FSN1 nodes
 

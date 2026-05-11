@@ -1,0 +1,126 @@
+---
+# Database setup job - runs migrations then seeds config.
+# Applied and waited before app Deployments roll so schema is ready first.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: db-setup
+  namespace: rejourney
+  labels:
+    app.kubernetes.io/part-of: rejourney
+spec:
+  ttlSecondsAfterFinished: 86400
+  backoffLimit: 3
+  template:
+    spec:
+      imagePullSecrets:
+        - name: ghcr-secret
+      restartPolicy: OnFailure
+      # Wait for postgres to be ready before starting migration.
+      initContainers:
+        - name: wait-postgres
+          image: postgres:18-alpine
+          command:
+            - /bin/sh
+            - -c
+            - |
+              echo "Waiting for PostgreSQL to be ready..."
+              until pg_isready -h postgres-app-rw -p 5432 -U rejourney; do
+                echo "PostgreSQL not ready, waiting 5s..."
+                sleep 5
+              done
+              echo "PostgreSQL is ready!"
+          env:
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: POSTGRES_PASSWORD
+        - name: enable-pg-stat-statements
+          image: postgres:18-alpine
+          command:
+            - /bin/sh
+            - -c
+            - |
+              echo "Ensuring pg_stat_statements extension is installed..."
+              until PGPASSWORD="$POSTGRES_PASSWORD" psql -h postgres-app-rw -p 5432 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "CREATE EXTENSION IF NOT EXISTS pg_stat_statements;" >/dev/null; do
+                echo "pg_stat_statements not ready yet, waiting 5s..."
+                sleep 5
+              done
+              echo "pg_stat_statements ready."
+          env:
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: POSTGRES_USER
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: POSTGRES_PASSWORD
+            - name: POSTGRES_DB
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: POSTGRES_DB
+      containers:
+        - name: setup
+          image: ghcr.io/rejourneyco/rejourney/migration:latest
+          # Run migrate, conditionally seed only brand-new databases, bootstrap
+          # system rows. NOTE: syncStorageEndpoint.ts is intentionally NOT in
+          # the chain; storage_endpoints is operator-managed.
+          command: ["/bin/sh", "-c"]
+          args:
+            - >-
+              node --import tsx scripts/applyDatabaseSchema.ts
+              && node --import tsx scripts/seedIfDatabaseEmpty.ts
+              && node --import tsx scripts/bootstrapSystemData.ts
+          env:
+            - name: NODE_ENV
+              value: production
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: PGBOUNCER_URL
+            - name: S3_ENDPOINT
+              valueFrom:
+                secretKeyRef:
+                  name: s3-secret
+                  key: S3_ENDPOINT
+            - name: S3_BUCKET
+              valueFrom:
+                secretKeyRef:
+                  name: s3-secret
+                  key: S3_BUCKET
+            - name: S3_REGION
+              valueFrom:
+                secretKeyRef:
+                  name: s3-secret
+                  key: S3_REGION
+            - name: S3_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: s3-secret
+                  key: S3_ACCESS_KEY_ID
+            - name: S3_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: s3-secret
+                  key: S3_SECRET_ACCESS_KEY
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: app-secret
+                  key: JWT_SECRET
+            - name: INGEST_HMAC_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: app-secret
+                  key: INGEST_HMAC_SECRET
+            - name: STORAGE_ENCRYPTION_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: app-secret
+                  key: STORAGE_ENCRYPTION_KEY

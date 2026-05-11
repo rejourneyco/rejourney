@@ -14,6 +14,7 @@ const require = createRequire(import.meta.url);
 const pinoHttp = require('pino-http');
 
 const app = express();
+let isShuttingDown = false;
 
 app.set('trust proxy', 1);
 app.disable('x-powered-by');
@@ -44,6 +45,15 @@ app.use(pinoHttp({
 }));
 
 app.get('/health', async (_req, res) => {
+    if (isShuttingDown) {
+        res.status(503).json({
+            status: 'draining',
+            service: 'ingest-upload',
+            timestamp: new Date().toISOString(),
+        });
+        return;
+    }
+
     try {
         const client = await pool.connect();
         await client.query('SELECT 1');
@@ -82,14 +92,13 @@ async function start() {
             logger.info({ port: config.PORT }, 'Ingest upload relay listening');
         });
 
-        let shuttingDown = false;
         const shutdown = async (signal: string, exitCode = 0) => {
-            if (shuttingDown) return;
-            shuttingDown = true;
+            if (isShuttingDown) return;
+            isShuttingDown = true;
             logger.info({ signal }, 'Ingest upload relay shutting down');
             const forceExitTimer = setTimeout(() => {
                 process.exit(exitCode);
-            }, 10_000);
+            }, 25_000);
 
             server.close(async () => {
                 try {

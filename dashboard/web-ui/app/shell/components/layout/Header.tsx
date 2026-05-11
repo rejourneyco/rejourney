@@ -10,6 +10,8 @@ export const Header: React.FC = () => {
   const location = useLocation();
   const locale = getMarketingLocaleFromPathname(location.pathname);
   const copy = getMarketingHomeCopy(location.pathname).header;
+  const publicNavLinkClass = "text-base font-bold uppercase tracking-wide hover:underline decoration-2 underline-offset-4 decoration-slate-900 text-slate-900 font-mono";
+  const mobileNavLinkClass = "inline-flex shrink-0 items-center gap-1.5 border border-slate-300 bg-white px-3 py-1.5 font-mono text-[11px] font-black uppercase text-slate-900 shadow-sm transition hover:border-black hover:bg-[#ecfeff]";
 
   return (
     <header aria-label={copy.ariaLabel} className="sticky top-0 z-50 border-b border-slate-200 bg-white/80 backdrop-blur-md">
@@ -24,19 +26,19 @@ export const Header: React.FC = () => {
         <nav className="hidden items-center gap-5 lg:flex xl:gap-8">
           <Link
             to="/engineering"
-            className="text-base font-bold uppercase tracking-wide hover:underline decoration-2 underline-offset-4 decoration-slate-900 text-slate-900 font-mono"
+            className={publicNavLinkClass}
           >
             {copy.engineering}
           </Link>
           <Link
             to="/docs/reactnative/overview"
-            className="text-base font-bold uppercase tracking-wide hover:underline decoration-2 underline-offset-4 decoration-slate-900 text-slate-900 font-mono"
+            className={publicNavLinkClass}
           >
             {copy.docs}
           </Link>
           <Link
             to="/pricing"
-            className="text-base font-bold uppercase tracking-wide hover:underline decoration-2 underline-offset-4 decoration-slate-900 text-slate-900 font-mono"
+            className={publicNavLinkClass}
           >
             {copy.pricing}
           </Link>
@@ -44,7 +46,7 @@ export const Header: React.FC = () => {
             href="https://github.com/rejourneyco/rejourney"
             target="_blank"
             rel="noopener noreferrer"
-            className="inline-flex items-center gap-2 text-base font-bold uppercase tracking-wide hover:underline decoration-2 underline-offset-4 decoration-slate-900 text-slate-900 font-mono"
+            className={`inline-flex items-center gap-2 ${publicNavLinkClass}`}
           >
             <ExternalLink className="w-5 h-5" />
             {copy.github}
@@ -64,6 +66,31 @@ export const Header: React.FC = () => {
           </Link>
         </div>
       </div>
+      <nav className="border-t border-slate-200 bg-white/90 lg:hidden" aria-label={`${copy.ariaLabel} mobile links`}>
+        <div className="no-scrollbar mx-auto flex w-full max-w-7xl gap-2 overflow-x-auto px-4 py-2 sm:px-6">
+          <Link to="/engineering" className={mobileNavLinkClass}>
+            {copy.engineering}
+          </Link>
+          <Link to="/docs/reactnative/overview" className={mobileNavLinkClass}>
+            {copy.docs}
+          </Link>
+          <Link to="/pricing" className={mobileNavLinkClass}>
+            {copy.pricing}
+          </Link>
+          <Link to="/docs/selfhosted" className={mobileNavLinkClass}>
+            {copy.selfHosted}
+          </Link>
+          <a
+            href="https://github.com/rejourneyco/rejourney"
+            target="_blank"
+            rel="noopener noreferrer"
+            className={mobileNavLinkClass}
+          >
+            <ExternalLink className="h-3.5 w-3.5" />
+            {copy.github}
+          </a>
+        </div>
+      </nav>
     </header>
   );
 };

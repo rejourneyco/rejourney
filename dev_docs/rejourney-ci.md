@@ -117,15 +117,16 @@ Primary workflow file:
 │ 3. Apply the CNPG postgres-local Cluster manifest                           │
 │ 4. Verify archive.yaml matches session-backup.mjs                           │
 │ 5. Print current drizzle migration status                                   │
-│ 6. Delete old db-setup job                                                  │
-│ 7. Server-side apply grafana-dashboards ConfigMap                           │
-│ 8. kubectl apply rendered manifests with prune                              │
-│ 9. Reconcile the Helm-managed redis Service label/restore guard             │
-│ 10. Wait for Postgres                                                       │
-│ 11. Wait for db-setup success                                               │
-│ 12. Print migration status again                                            │
-│ 13. Wait for Deployments plus cadvisor/node-exporter                        │
-│ 14. Cleanup imported dashboards / restart seed jobs / clean finished pods   │
+│ 6. Apply/wait pgbouncer and PDB data-plane manifests                        │
+│ 7. Delete old db-setup job                                                  │
+│ 8. Apply db-setup by itself and wait for migration/bootstrap success        │
+│ 9. Print migration status again                                             │
+│ 10. Server-side apply grafana-dashboards ConfigMap                          │
+│ 11. kubectl apply rendered manifests with prune                             │
+│ 12. Reconcile the Helm-managed redis Service label/restore guard            │
+│ 13. Wait for Deployments, then colocate API with the CNPG primary           │
+│ 14. Wait for cadvisor/node-exporter                                         │
+│ 15. Cleanup imported dashboards / restart seed jobs / clean finished pods   │
 └──────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -251,6 +252,9 @@ Relevant files:
 │                                                                              │
 │ GitHub deploy fails red on remote script errors                             │
 │ db-setup waits fail fast on job failure and dump diagnostics                │
+│ db-setup diagnostics are redacted before they enter GitHub Actions logs     │
+│ CI runs scripts/ci/check-secret-hygiene.sh to block obvious leak patterns   │
+│ VPS git remotes are tokenless public HTTPS URLs; CI tokens are not stored   │
 │ archive.yaml must match session-backup.mjs before deploy                    │
 │ local legacy push-era DBs are blocked by the compatibility guard            │
 │ hot-table replay cleanup migration avoids wedging production traffic         │
