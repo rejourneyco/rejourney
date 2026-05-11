@@ -117,74 +117,74 @@ interface RenderedNetwork {
 
 const GESTURE_STYLES: Record<GestureKind, GestureStyle> = {
   tap: {
-    accent: '#06b6d4',
-    soft: 'rgba(6, 182, 212, 0.28)',
-    faint: 'rgba(6, 182, 212, 0.14)',
-    light: '#a5f3fc',
-    shadow: 'rgba(8, 145, 178, 0.34)',
+    accent: '#0891b2',
+    soft: 'rgba(8, 145, 178, 0.38)',
+    faint: 'rgba(8, 145, 178, 0.2)',
+    light: '#67e8f9',
+    shadow: 'rgba(8, 47, 73, 0.34)',
   },
   longPress: {
-    accent: '#0ea5e9',
-    soft: 'rgba(14, 165, 233, 0.3)',
-    faint: 'rgba(14, 165, 233, 0.14)',
-    light: '#bae6fd',
-    shadow: 'rgba(2, 132, 199, 0.32)',
+    accent: '#2563eb',
+    soft: 'rgba(37, 99, 235, 0.34)',
+    faint: 'rgba(37, 99, 235, 0.18)',
+    light: '#93c5fd',
+    shadow: 'rgba(30, 64, 175, 0.32)',
   },
   deadTap: {
-    accent: '#94a3b8',
-    soft: 'rgba(148, 163, 184, 0.22)',
-    faint: 'rgba(15, 23, 42, 0.12)',
-    light: '#e2e8f0',
-    shadow: 'rgba(15, 23, 42, 0.22)',
+    accent: '#64748b',
+    soft: 'rgba(100, 116, 139, 0.3)',
+    faint: 'rgba(100, 116, 139, 0.16)',
+    light: '#cbd5e1',
+    shadow: 'rgba(15, 23, 42, 0.24)',
   },
   rageTap: {
-    accent: '#f43f5e',
-    soft: 'rgba(244, 63, 94, 0.32)',
-    faint: 'rgba(244, 63, 94, 0.16)',
-    light: '#fecdd3',
-    shadow: 'rgba(190, 18, 60, 0.36)',
+    accent: '#e11d48',
+    soft: 'rgba(225, 29, 72, 0.36)',
+    faint: 'rgba(225, 29, 72, 0.18)',
+    light: '#fb7185',
+    shadow: 'rgba(159, 18, 57, 0.36)',
   },
   scroll: {
-    accent: '#f9a8d4',
-    soft: 'rgba(249, 168, 212, 0.28)',
-    faint: 'rgba(249, 168, 212, 0.13)',
-    light: '#f9a8d4',
-    shadow: 'rgba(190, 24, 93, 0.32)',
+    accent: '#d97706',
+    soft: 'rgba(217, 119, 6, 0.36)',
+    faint: 'rgba(217, 119, 6, 0.18)',
+    light: '#fbbf24',
+    shadow: 'rgba(146, 64, 14, 0.34)',
   },
   swipe: {
-    accent: '#10b981',
-    soft: 'rgba(16, 185, 129, 0.28)',
-    faint: 'rgba(16, 185, 129, 0.13)',
-    light: '#a7f3d0',
-    shadow: 'rgba(5, 150, 105, 0.32)',
+    accent: '#059669',
+    soft: 'rgba(5, 150, 105, 0.34)',
+    faint: 'rgba(5, 150, 105, 0.17)',
+    light: '#34d399',
+    shadow: 'rgba(4, 120, 87, 0.32)',
   },
   pan: {
-    accent: '#8b5cf6',
-    soft: 'rgba(139, 92, 246, 0.3)',
-    faint: 'rgba(139, 92, 246, 0.14)',
-    light: '#ddd6fe',
-    shadow: 'rgba(109, 40, 217, 0.34)',
+    accent: '#7c3aed',
+    soft: 'rgba(124, 58, 237, 0.34)',
+    faint: 'rgba(124, 58, 237, 0.17)',
+    light: '#a78bfa',
+    shadow: 'rgba(91, 33, 182, 0.34)',
   },
   pinch: {
-    accent: '#14b8a6',
-    soft: 'rgba(20, 184, 166, 0.28)',
-    faint: 'rgba(20, 184, 166, 0.13)',
-    light: '#99f6e4',
-    shadow: 'rgba(13, 148, 136, 0.3)',
+    accent: '#0d9488',
+    soft: 'rgba(13, 148, 136, 0.34)',
+    faint: 'rgba(13, 148, 136, 0.17)',
+    light: '#5eead4',
+    shadow: 'rgba(15, 118, 110, 0.3)',
   },
   rotate: {
-    accent: '#ec4899',
-    soft: 'rgba(236, 72, 153, 0.28)',
-    faint: 'rgba(236, 72, 153, 0.13)',
-    light: '#fbcfe8',
-    shadow: 'rgba(219, 39, 119, 0.32)',
+    accent: '#db2777',
+    soft: 'rgba(219, 39, 119, 0.34)',
+    faint: 'rgba(219, 39, 119, 0.17)',
+    light: '#f472b6',
+    shadow: 'rgba(157, 23, 77, 0.32)',
   },
   unknown: {
-    accent: '#64748b',
-    soft: 'rgba(100, 116, 139, 0.24)',
-    faint: 'rgba(100, 116, 139, 0.12)',
-    light: '#cbd5e1',
-    shadow: 'rgba(51, 65, 85, 0.24)',
+    accent: '#475569',
+    soft: 'rgba(71, 85, 105, 0.3)',
+    faint: 'rgba(71, 85, 105, 0.16)',
+    light: '#94a3b8',
+    shadow: 'rgba(15, 23, 42, 0.24)',
   },
 };
 
@@ -370,8 +370,8 @@ export const TouchOverlay: React.FC<TouchOverlayProps> = ({
           progress,
           force: clamp((point.force || event.maxForce || 0.35) + 0.35, 0.35, 1),
           opacity: kind === 'longPress'
-            ? clamp(1 - progress * 0.55, 0, 1)
-            : clamp(1 - progress, 0, 1),
+            ? clamp(1 - progress * 0.45, 0, 1)
+            : clamp(1 - progress * 0.72, 0, 1),
           rotate: (seed % 18) - 9,
         });
       });
@@ -456,7 +456,7 @@ export const TouchOverlay: React.FC<TouchOverlayProps> = ({
         distance,
         dx,
         dy,
-        strokeWidth: group.kind === 'scroll' ? 6 : group.kind === 'swipe' ? 5 : 4.5,
+        strokeWidth: group.kind === 'scroll' ? 9 : group.kind === 'swipe' ? 8 : 7,
       });
     });
 
@@ -525,30 +525,11 @@ export const TouchOverlay: React.FC<TouchOverlayProps> = ({
                 <feMergeNode in="SourceGraphic" />
               </feMerge>
             </filter>
-            {motionTrails.map((trail) => {
-              const style = GESTURE_STYLES[trail.kind];
-              return (
-                <linearGradient
-                  key={`${trail.id}-gradient`}
-                  id={`${overlayId}-${trail.id}-gradient`}
-                  gradientUnits="userSpaceOnUse"
-                  x1={trail.tail.x}
-                  y1={trail.tail.y}
-                  x2={trail.head.x}
-                  y2={trail.head.y}
-                >
-                  <stop offset="0%" stopColor={style.accent} stopOpacity="0" />
-                  <stop offset="58%" stopColor={style.accent} stopOpacity="0.42" />
-                  <stop offset="100%" stopColor={style.light} stopOpacity="0.96" />
-                </linearGradient>
-              );
-            })}
           </defs>
 
           {motionTrails.map((trail) => {
             const style = GESTURE_STYLES[trail.kind];
             const pathD = buildSmoothPath(trail.points);
-            const gradientId = `${overlayId}-${trail.id}-gradient`;
             const needsArrow = (trail.kind === 'swipe' || trail.kind === 'pan') && trail.distance > 18;
             const isScroll = trail.kind === 'scroll';
             const isPan = trail.kind === 'pan';
@@ -562,7 +543,7 @@ export const TouchOverlay: React.FC<TouchOverlayProps> = ({
                   strokeWidth={trail.strokeWidth + 8}
                   strokeLinecap="round"
                   strokeLinejoin="round"
-                  opacity={trail.opacity * 0.34}
+                  opacity={trail.opacity * 0.46}
                   filter={`url(#${trailFilterId})`}
                 />
                 {isScroll && (
@@ -575,7 +556,7 @@ export const TouchOverlay: React.FC<TouchOverlayProps> = ({
                       strokeLinecap="round"
                       strokeLinejoin="round"
                       strokeDasharray="2 18"
-                      opacity={trail.opacity * 0.5}
+                      opacity={trail.opacity * 0.58}
                     />
                     <path
                       d={pathD}
@@ -585,14 +566,14 @@ export const TouchOverlay: React.FC<TouchOverlayProps> = ({
                       strokeLinecap="round"
                       strokeLinejoin="round"
                       strokeDasharray="16 12"
-                      opacity={trail.opacity * 0.42}
+                      opacity={trail.opacity * 0.54}
                     />
                   </>
                 )}
                 <path
                   d={pathD}
                   fill="none"
-                  stroke={`url(#${gradientId})`}
+                  stroke={style.accent}
                   strokeWidth={trail.strokeWidth}
                   strokeLinecap="round"
                   strokeLinejoin="round"
@@ -606,7 +587,7 @@ export const TouchOverlay: React.FC<TouchOverlayProps> = ({
                   strokeWidth={Math.max(1.5, trail.strokeWidth * 0.38)}
                   strokeLinecap="round"
                   strokeLinejoin="round"
-                  opacity={trail.opacity * 0.76}
+                  opacity={trail.opacity * 0.58}
                 />
                 {needsArrow && (
                   <polygon
@@ -619,9 +600,9 @@ export const TouchOverlay: React.FC<TouchOverlayProps> = ({
                 <circle
                   cx={trail.head.x}
                   cy={trail.head.y}
-                  r={isScroll ? 7.2 : isPan ? 8.2 : 6.6}
+                  r={isScroll ? 9.4 : isPan ? 9.8 : 8.8}
                   fill={style.accent}
-                  opacity={trail.opacity * 0.92}
+                  opacity={trail.opacity}
                   filter={`url(#${trailFilterId})`}
                 />
                 <circle
@@ -645,7 +626,7 @@ export const TouchOverlay: React.FC<TouchOverlayProps> = ({
         const coreScale = press.kind === 'longPress'
           ? 0.92 + Math.sin(press.progress * Math.PI) * 0.08
           : 1 - press.progress * 0.18;
-        const coreSize = press.kind === 'rageTap' ? 24 : press.kind === 'deadTap' ? 23 : 20 + press.force * 4;
+        const coreSize = press.kind === 'rageTap' ? 30 : press.kind === 'deadTap' ? 28 : 24 + press.force * 5;
 
         if (press.kind === 'deadTap') {
           return (
@@ -655,32 +636,32 @@ export const TouchOverlay: React.FC<TouchOverlayProps> = ({
                 style={{
                   left: `${xPercent}%`,
                   top: `${yPercent}%`,
-                  width: 34,
-                  height: 34,
+                  width: 42,
+                  height: 42,
                   borderColor: style.accent,
                   backgroundColor: style.faint,
-                  opacity: press.opacity * 0.82,
+                  opacity: press.opacity * 0.9,
                   transform: `translate(-50%, -50%) scale(${0.95 + press.progress * 0.2})`,
-                  boxShadow: `0 8px 22px ${style.shadow}`,
+                  boxShadow: `0 10px 26px ${style.shadow}`,
                 }}
               />
               <div
-                className="absolute h-[2px] w-7 rounded-full"
+                className="absolute h-[2px] w-9 rounded-full"
                 style={{
                   left: `${xPercent}%`,
                   top: `${yPercent}%`,
                   backgroundColor: style.light,
-                  opacity: press.opacity * 0.78,
+                  opacity: press.opacity * 0.86,
                   transform: 'translate(-50%, -50%) rotate(45deg)',
                 }}
               />
               <div
-                className="absolute h-[2px] w-7 rounded-full"
+                className="absolute h-[2px] w-9 rounded-full"
                 style={{
                   left: `${xPercent}%`,
                   top: `${yPercent}%`,
                   backgroundColor: style.light,
-                  opacity: press.opacity * 0.78,
+                  opacity: press.opacity * 0.86,
                   transform: 'translate(-50%, -50%) rotate(-45deg)',
                 }}
               />
@@ -695,13 +676,13 @@ export const TouchOverlay: React.FC<TouchOverlayProps> = ({
               style={{
                 left: `${xPercent}%`,
                 top: `${yPercent}%`,
-                width: press.kind === 'rageTap' ? 58 : press.kind === 'longPress' ? 54 : 46,
-                height: press.kind === 'rageTap' ? 58 : press.kind === 'longPress' ? 54 : 46,
+                width: press.kind === 'rageTap' ? 66 : press.kind === 'longPress' ? 62 : 56,
+                height: press.kind === 'rageTap' ? 66 : press.kind === 'longPress' ? 62 : 56,
                 borderColor: style.light,
                 backgroundColor: style.faint,
-                opacity: (1 - press.progress) * (press.kind === 'rageTap' ? 0.78 : 0.48),
+                opacity: (1 - press.progress) * (press.kind === 'rageTap' ? 0.86 : 0.58),
                 transform: `translate(-50%, -50%) scale(${rippleScale})`,
-                boxShadow: `0 0 24px ${style.shadow}`,
+                boxShadow: `0 0 28px ${style.shadow}`,
               }}
             />
             {press.kind === 'rageTap' && (
@@ -710,10 +691,10 @@ export const TouchOverlay: React.FC<TouchOverlayProps> = ({
                 style={{
                   left: `${xPercent}%`,
                   top: `${yPercent}%`,
-                  width: 42,
-                  height: 42,
+                  width: 50,
+                  height: 50,
                   borderColor: style.accent,
-                  opacity: Math.max(0, 0.74 - press.progress * 0.45),
+                  opacity: Math.max(0, 0.82 - press.progress * 0.45),
                   transform: `translate(-50%, -50%) scale(${1 + press.progress * 0.65})`,
                 }}
               />
@@ -723,10 +704,10 @@ export const TouchOverlay: React.FC<TouchOverlayProps> = ({
               style={{
                 left: `${xPercent}%`,
                 top: `${yPercent}%`,
-                width: coreSize + 10,
-                height: coreSize + 8,
+                width: coreSize + 14,
+                height: coreSize + 12,
                 backgroundColor: style.shadow,
-                opacity: press.opacity * 0.65,
+                opacity: press.opacity * 0.72,
                 transform: `translate(-50%, -42%) scale(${coreScale})`,
               }}
             />
@@ -737,10 +718,10 @@ export const TouchOverlay: React.FC<TouchOverlayProps> = ({
                 top: `${yPercent}%`,
                 width: coreSize,
                 height: coreSize * 0.88,
-                background: `radial-gradient(circle at 35% 28%, rgba(255,255,255,0.98), ${style.light} 26%, ${style.accent} 72%)`,
+                backgroundColor: style.accent,
                 opacity: press.opacity,
                 transform: `translate(-50%, -50%) rotate(${press.rotate}deg) scale(${coreScale})`,
-                boxShadow: `0 10px 24px ${style.shadow}, inset 0 -3px 6px rgba(15,23,42,0.2)`,
+                boxShadow: `0 10px 26px ${style.shadow}, inset 0 0 0 2px rgba(255,255,255,0.54)`,
                 animation: press.kind === 'longPress' ? 'replay-fingertip-breathe 0.9s ease-in-out infinite' : undefined,
               }}
             />

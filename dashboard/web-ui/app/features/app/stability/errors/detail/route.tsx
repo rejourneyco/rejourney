@@ -161,7 +161,7 @@ export const ErrorDetail: React.FC<{ errorId?: string; projectId?: string }> = (
           title="Error Root Cause"
           subtitle="Deep runtime error analysis"
           icon={<Bug className="h-5 w-5" />}
-          iconColor="bg-rose-50"
+          iconColor="bg-[#fce7f3]"
         />
         <div className="mx-auto w-full max-w-[960px] px-6 pt-8">
           <NeoCard variant="flat" className="p-8 text-center">
@@ -182,7 +182,7 @@ export const ErrorDetail: React.FC<{ errorId?: string; projectId?: string }> = (
         title="Error Root Cause"
         subtitle="Trace exception origins, component context, and replay evidence"
         icon={<Bug className="h-5 w-5" />}
-        iconColor="bg-rose-50"
+        iconColor="bg-[#fce7f3]"
       >
         <NeoButton
           variant="secondary"

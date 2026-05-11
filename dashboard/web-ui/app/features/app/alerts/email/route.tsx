@@ -377,7 +377,7 @@ export const AlertEmails: React.FC = () => {
                 title="Alert Settings"
                 subtitle="Configure real-time notifications for critical events"
                 icon={<Mail className="w-6 h-6" />}
-                iconColor="bg-red-500"
+                iconColor="bg-[#fee2e2]"
             >
                 <div className="hidden items-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-3 py-1 lg:flex">
                     <div className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.6)]" />

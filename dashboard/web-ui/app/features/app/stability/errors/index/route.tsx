@@ -142,7 +142,7 @@ export const ErrorsList: React.FC = () => {
         title="Errors Database"
         subtitle="Unified collection of all exceptions and runtime failures"
         icon={<Bug className="h-5 w-5" />}
-        iconColor="bg-rose-50"
+        iconColor="bg-[#fce7f3]"
       >
         <TimeFilter value={timeRange} onChange={setTimeRange} />
       </DashboardPageHeader>

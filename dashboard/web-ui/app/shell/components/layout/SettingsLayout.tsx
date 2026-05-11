@@ -17,7 +17,7 @@ export const SettingsLayout: React.FC<SettingsLayoutProps> = ({
     description,
     headerAction,
     icon = <Settings className="w-6 h-6" />,
-    iconColor = 'bg-slate-200',
+    iconColor = 'bg-[#f4f4f5]',
 }) => (
     <div className="flex min-h-screen flex-col bg-transparent font-sans text-slate-900">
         <DashboardPageHeader title={title} subtitle={description} icon={icon} iconColor={iconColor}>

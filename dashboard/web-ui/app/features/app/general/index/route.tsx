@@ -642,7 +642,7 @@ const IssueSparkline: React.FC<{ dailyEvents?: Record<string, number>; color: st
 
 const EmptyStateCard: React.FC<{ title: string; subtitle: string }> = ({ title, subtitle }) => (
     <div className="border-2 border-dashed border-black bg-[#f8fafc] px-6 py-10 text-center shadow-neo-sm">
-        <p className="text-sm font-black uppercase text-black">{title}</p>
+        <p className="text-sm font-extrabold text-black">{title}</p>
         <p className="mx-auto mt-2 max-w-sm text-xs font-semibold text-slate-600">{subtitle}</p>
     </div>
 );
@@ -655,10 +655,10 @@ const GA4Card: React.FC<{
     accentClassName?: string;
 }> = ({ title, action, children, className = '', accentClassName = 'bg-[#67e8f9]' }) => (
     <div className={`flex h-full min-w-0 flex-col border-2 border-black bg-white shadow-neo transition-all hover:-translate-y-0.5 hover:shadow-neo-lg ${className}`}>
-        <div className={`h-2 border-b-2 border-black ${accentClassName}`} />
-        <div className="flex min-h-0 flex-1 flex-col p-4 sm:p-5">
-            <div className="mb-4 flex flex-wrap items-start justify-between gap-2 border-b-2 border-black pb-3">
-                <h3 className="min-w-0 break-words text-sm font-black uppercase text-black">{title}</h3>
+        <div className={`h-1.5 border-b-2 border-black ${accentClassName}`} />
+        <div className="flex min-h-0 flex-1 flex-col p-3.5 sm:p-4">
+            <div className="mb-3 flex flex-wrap items-start justify-between gap-2 border-b-2 border-black pb-2.5">
+                <h3 className="min-w-0 break-words text-sm font-extrabold text-black">{title}</h3>
                 {action ? <div className="flex flex-wrap items-center gap-1.5">{action}</div> : null}
             </div>
             <div className="flex min-w-0 flex-1 flex-col overflow-hidden">{children}</div>
@@ -1387,17 +1387,17 @@ export const GeneralOverview: React.FC = () => {
         <div className="min-h-screen bg-[#f8fafc] bg-[linear-gradient(90deg,rgba(0,0,0,0.045)_1px,transparent_1px),linear-gradient(rgba(0,0,0,0.045)_1px,transparent_1px)] bg-[length:28px_28px] pb-12 font-sans text-slate-900">
             <DashboardPageHeader
                 title="General"
-                icon={<MessageSquareWarning className="w-6 h-6" />}
-                iconColor="bg-[#5dadec]"
+                icon={<MessageSquareWarning className="h-5 w-5" />}
+                iconColor="bg-[#cffafe]"
             >
-                <div className="flex min-w-0 max-w-full flex-wrap items-center gap-3">
+                <div className="flex min-w-0 max-w-full flex-wrap items-center gap-2">
                     <TimeFilter value={timeRange} onChange={setTimeRange} />
                 </div>
             </DashboardPageHeader>
 
-            <div className="mx-auto w-full max-w-[1600px] space-y-8 px-4 py-6 sm:px-6">
+            <div className="mx-auto w-full max-w-[1600px] space-y-5 px-3 py-4 sm:space-y-6 sm:px-5 sm:py-5">
                 {!selectedProject?.id && (
-                    <div className="border-2 border-black bg-[#f9a8d4] p-5 text-sm font-black uppercase text-black shadow-neo">
+                    <div className="border-2 border-black bg-[#f9a8d4] p-4 text-sm font-extrabold text-black shadow-neo">
                         Select a project to view general diagnostics.
                     </div>
                 )}
@@ -1410,24 +1410,24 @@ export const GeneralOverview: React.FC = () => {
 
                 {!isLoading && selectedProject?.id && !hasData && (
                     <div className="overflow-hidden border-2 border-black bg-white shadow-neo-lg">
-                        <div className="border-b-2 border-black bg-[#86efac] px-5 py-4 sm:px-6">
-                            <div className="flex flex-wrap items-center gap-2 text-[11px] font-black uppercase text-black">
+                        <div className="border-b-2 border-black bg-[#86efac] px-4 py-4 sm:px-5">
+                            <div className="flex flex-wrap items-center gap-2 text-[11px] font-extrabold uppercase text-black">
                                 <Info className="h-4 w-4 shrink-0" aria-hidden />
                                 New project setup
                             </div>
-                            <h3 className="mt-2 text-xl font-black uppercase text-black">No analytics yet - connect your app first</h3>
+                            <h3 className="mt-2 text-lg font-extrabold text-black">No analytics yet - connect your app first</h3>
                             <p className="mt-2 max-w-3xl text-sm font-semibold text-slate-700">
                                 Once your first build sends data, this General dashboard will populate automatically.
                                 Use these shortcuts to finish setup for either React Native or Swift.
                             </p>
                         </div>
 
-                        <div className="grid gap-4 p-5 sm:grid-cols-2 sm:p-6">
+                        <div className="grid gap-3 p-4 sm:grid-cols-2 sm:p-5">
                             <button
                                 type="button"
                                 onClick={handleCopyProjectKey}
                                 disabled={!selectedProject.publicKey}
-                                className="flex items-center justify-center gap-2 border-2 border-black bg-[#86efac] px-4 py-3 text-xs font-black uppercase text-black shadow-neo-sm transition-all hover:-translate-y-0.5 hover:bg-[#4ade80] hover:shadow-neo disabled:cursor-not-allowed disabled:opacity-60"
+                                className="flex items-center justify-center gap-2 border-2 border-black bg-[#86efac] px-4 py-2.5 text-xs font-extrabold text-black shadow-neo-sm transition-all hover:-translate-y-0.5 hover:bg-[#4ade80] hover:shadow-neo disabled:cursor-not-allowed disabled:opacity-60"
                             >
                                 <Copy className="h-4 w-4" />
                                 {copiedPublicKey ? 'Public key copied' : 'Copy public key'}
@@ -1436,7 +1436,7 @@ export const GeneralOverview: React.FC = () => {
                             <button
                                 type="button"
                                 onClick={handleCopyIntegrationPrompt}
-                                className="flex items-center justify-center gap-2 border-2 border-black bg-[#60a5fa] px-4 py-3 text-xs font-black uppercase text-black shadow-neo-sm transition-all hover:-translate-y-0.5 hover:bg-[#3b82f6] hover:shadow-neo"
+                                className="flex items-center justify-center gap-2 border-2 border-black bg-[#60a5fa] px-4 py-2.5 text-xs font-extrabold text-black shadow-neo-sm transition-all hover:-translate-y-0.5 hover:bg-[#3b82f6] hover:shadow-neo"
                             >
                                 <BookOpen className="h-4 w-4" />
                                 {copiedDocsPrompt ? 'AI prompt copied' : 'Copy AI docs prompt'}
@@ -1446,7 +1446,7 @@ export const GeneralOverview: React.FC = () => {
                                 href="/docs/reactnative/overview"
                                 target="_blank"
                                 rel="noreferrer"
-                                className="flex items-center justify-center gap-2 border-2 border-black bg-[#f9a8d4] px-4 py-3 text-xs font-black uppercase text-black shadow-neo-sm transition-all hover:-translate-y-0.5 hover:bg-[#f472b6] hover:shadow-neo"
+                                className="flex items-center justify-center gap-2 border-2 border-black bg-[#f9a8d4] px-4 py-2.5 text-xs font-extrabold text-black shadow-neo-sm transition-all hover:-translate-y-0.5 hover:bg-[#f472b6] hover:shadow-neo"
                             >
                                 <ExternalLink className="h-4 w-4" />
                                 View React Native docs
@@ -1456,7 +1456,7 @@ export const GeneralOverview: React.FC = () => {
                                 href="/docs/swift/overview"
                                 target="_blank"
                                 rel="noreferrer"
-                                className="flex items-center justify-center gap-2 border-2 border-black bg-[#c4b5fd] px-4 py-3 text-xs font-black uppercase text-black shadow-neo-sm transition-all hover:-translate-y-0.5 hover:bg-[#a78bfa] hover:shadow-neo"
+                                className="flex items-center justify-center gap-2 border-2 border-black bg-[#c4b5fd] px-4 py-2.5 text-xs font-extrabold text-black shadow-neo-sm transition-all hover:-translate-y-0.5 hover:bg-[#a78bfa] hover:shadow-neo"
                             >
                                 <ExternalLink className="h-4 w-4" />
                                 View Swift docs
@@ -1469,7 +1469,7 @@ export const GeneralOverview: React.FC = () => {
                     <>
                         {momentumCards.length > 0 && (
                             <section>
-                                <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+                                <div className="grid grid-cols-2 gap-2 sm:gap-3 lg:grid-cols-4">
                                     {momentumCards.map((card, index) => {
                                         const deltaClass = card.deltaValue === null || card.deltaValue === 0
                                             ? 'text-slate-600'
@@ -1478,11 +1478,11 @@ export const GeneralOverview: React.FC = () => {
                                                 : 'text-rose-700';
 
                                         return (
-                                            <div key={card.label} className="min-w-0 border-2 border-black bg-white p-4 shadow-neo transition-all hover:-translate-y-1 hover:shadow-neo-lg">
-                                                <div className="mb-3 h-2 border-2 border-black" style={{ backgroundColor: RETRO_CARD_ACCENTS[index % RETRO_CARD_ACCENTS.length] }} />
-                                                <div className="break-words text-[10px] font-black uppercase text-slate-700">{card.label}</div>
-                                                <div className="mt-2 break-words text-3xl font-black text-black sm:text-4xl">{card.value}</div>
-                                                <div className={`mt-2 inline-flex border-2 border-black bg-white px-2 py-1 text-xs font-black uppercase shadow-neo-sm ${deltaClass}`}>
+                                            <div key={card.label} className="min-w-0 border-2 border-black bg-white p-2.5 shadow-neo transition-all hover:-translate-y-0.5 hover:shadow-neo-lg sm:p-4">
+                                                <div className="mb-2 h-1 border-2 border-black sm:mb-2.5 sm:h-1.5" style={{ backgroundColor: RETRO_CARD_ACCENTS[index % RETRO_CARD_ACCENTS.length] }} />
+                                                <div className="dashboard-label break-words text-slate-700">{card.label}</div>
+                                                <div className="mt-1.5 break-words text-[1.35rem] font-extrabold leading-none text-black sm:mt-2 sm:text-3xl">{card.value}</div>
+                                                <div className={`mt-1.5 inline-flex border-2 border-black bg-white px-1.5 py-0.5 text-[10px] font-bold uppercase shadow-neo-sm sm:mt-2 sm:px-2 sm:py-1 sm:text-[11px] ${deltaClass}`}>
                                                     {card.delta}
                                                 </div>
                                             </div>
@@ -1492,25 +1492,25 @@ export const GeneralOverview: React.FC = () => {
                             </section>
                         )}
 
-                        <div className="soft-border-scope space-y-6">
-                            <div className="grid grid-cols-1 gap-6 xl:grid-cols-12">
+                        <div className="soft-border-scope space-y-4 sm:space-y-5">
+                            <div className="grid grid-cols-1 gap-4 xl:grid-cols-12">
                                 <GA4Card title="User activity over time" className="xl:col-span-5" accentClassName="bg-[#67e8f9]">
-                                <div className="mb-4 grid grid-cols-2 gap-3 text-left">
+                                <div className="mb-3 grid grid-cols-2 gap-3 text-left">
                                     <div>
-                                        <span className="text-[9px] font-black uppercase text-slate-500">LATEST DAU</span>
-                                        <div className="text-3xl font-black text-black">{formatCompact(activitySummary.latestDau)}</div>
+                                        <span className="dashboard-label">Latest DAU</span>
+                                        <div className="dashboard-value-lg">{formatCompact(activitySummary.latestDau)}</div>
                                     </div>
                                     <div>
-                                        <span className="text-[9px] font-black uppercase text-slate-500">AVG DAU</span>
-                                        <div className="text-2xl font-black text-slate-700">{formatCompact(activitySummary.avgDau)}</div>
+                                        <span className="dashboard-label">Avg DAU</span>
+                                        <div className="dashboard-value-md">{formatCompact(activitySummary.avgDau)}</div>
                                     </div>
                                     <div>
-                                        <span className="text-[9px] font-black uppercase text-slate-500">PEAK MAU</span>
-                                        <div className="text-2xl font-black text-slate-700">{formatCompact(activitySummary.peakMau)}</div>
+                                        <span className="dashboard-label">Peak MAU</span>
+                                        <div className="dashboard-value-md">{formatCompact(activitySummary.peakMau)}</div>
                                     </div>
                                     <div>
-                                        <span className="text-[9px] font-black uppercase text-slate-500">LATEST SESSIONS</span>
-                                        <div className="text-2xl font-black text-slate-700">{formatCompact(activitySummary.latestSessions)}</div>
+                                        <span className="dashboard-label">Latest sessions</span>
+                                        <div className="dashboard-value-md">{formatCompact(activitySummary.latestSessions)}</div>
                                     </div>
                                 </div>
                                 <div className="h-[130px]">
@@ -1529,8 +1529,8 @@ export const GeneralOverview: React.FC = () => {
 
                                 <GA4Card title="Active users snapshot" className="xl:col-span-3" accentClassName="bg-[#86efac]">
                                 <div className="mt-1 text-center">
-                                    <div className="text-4xl font-black text-black">{formatCompact(activitySummary.latestDau)}</div>
-                                    <div className="mt-2 text-[10px] font-black uppercase text-slate-500">LATEST DAILY ACTIVE USERS</div>
+                                    <div className="text-3xl font-extrabold leading-none text-black">{formatCompact(activitySummary.latestDau)}</div>
+                                    <div className="dashboard-label mt-2">Latest daily active users</div>
                                     <div className="mt-1 text-[11px] font-bold text-slate-500">Estimated {formatCompact(activeUsersPerMinute)} users/min</div>
                                 </div>
 
@@ -1549,14 +1549,14 @@ export const GeneralOverview: React.FC = () => {
                                 </div>
 
                                 <div className="mt-3 border-t border-slate-100 pt-3">
-                                    <div className="mb-2 flex justify-between text-[10px] font-black uppercase text-slate-400">
+                                    <div className="mb-2 flex justify-between text-[10px] font-bold uppercase text-slate-400">
                                         <span>TOP COUNTRIES</span>
                                         <span>SESSIONS</span>
                                     </div>
                                     {topCountries.length > 0 ? topCountries.map((country) => (
                                         <div key={country.country} className="flex justify-between text-xs font-bold text-slate-700 py-0.5">
                                             <span>{country.country}</span>
-                                            <span className="font-black text-black">{formatCompact(country.count)}</span>
+                                            <span className="font-extrabold text-black">{formatCompact(country.count)}</span>
                                         </div>
                                     )) : (
                                         <div className="text-[10px] font-bold text-slate-400">No geographic activity available for this filter.</div>
@@ -1564,7 +1564,7 @@ export const GeneralOverview: React.FC = () => {
                                 </div>
 
                                 <div className="mt-3 text-right">
-                                    <Link to={`${pathPrefix}/analytics/geo`} className="text-[10px] font-black uppercase text-[#2563eb] transition-colors hover:text-black">
+                                    <Link to={`${pathPrefix}/analytics/geo`} className="text-[11px] font-bold text-[#2563eb] transition-colors hover:text-black">
                                         View geographic activity →
                                     </Link>
                                 </div>
@@ -1607,35 +1607,35 @@ export const GeneralOverview: React.FC = () => {
                                 )}
 
                                 <div className="mt-2 text-right">
-                                    <Link to={`${pathPrefix}/analytics/devices`} className="text-[10px] font-black uppercase text-[#2563eb] transition-colors hover:text-black">
+                                    <Link to={`${pathPrefix}/analytics/devices`} className="text-[11px] font-bold text-[#2563eb] transition-colors hover:text-black">
                                         View app versions →
                                     </Link>
                                 </div>
                                 </GA4Card>
 
                                 <GA4Card title="User engagement mix" className="xl:col-span-12" accentClassName="bg-[#67e8f9]">
-                                <div className="mb-4 grid grid-cols-2 gap-3 text-left">
+                                <div className="mb-3 grid grid-cols-2 gap-3 text-left">
                                     <div>
-                                        <span className="text-[9px] font-black uppercase text-slate-500">Latest tracked users</span>
-                                        <div className="text-3xl font-black text-black">
+                                        <span className="dashboard-label">Latest tracked users</span>
+                                        <div className="dashboard-value-lg">
                                             {latestEngagementMix ? formatCompact(latestEngagementMix.total) : '0'}
                                         </div>
                                     </div>
                                     <div>
-                                        <span className="text-[9px] font-black uppercase text-slate-500">Engaged share</span>
-                                        <div className="text-2xl font-black text-slate-700">
+                                        <span className="dashboard-label">Engaged share</span>
+                                        <div className="dashboard-value-md">
                                             {latestEngagementMix ? `${latestEngagementMix.engagedShare.toFixed(1)}%` : 'N/A'}
                                         </div>
                                     </div>
                                     <div>
-                                        <span className="text-[9px] font-black uppercase text-slate-500">Loyalists</span>
-                                        <div className="text-2xl font-black text-slate-700">
+                                        <span className="dashboard-label">Loyalists</span>
+                                        <div className="dashboard-value-md">
                                             {latestEngagementMix ? formatCompact(latestEngagementMix.loyalists) : '0'}
                                         </div>
                                     </div>
                                     <div>
-                                        <span className="text-[9px] font-black uppercase text-slate-500">Bouncers</span>
-                                        <div className="text-2xl font-black text-slate-700">
+                                        <span className="dashboard-label">Bouncers</span>
+                                        <div className="dashboard-value-md">
                                             {latestEngagementMix ? formatCompact(latestEngagementMix.bouncers) : '0'}
                                         </div>
                                     </div>
@@ -1682,7 +1682,7 @@ export const GeneralOverview: React.FC = () => {
                                         </div>
 
                                         <div className="mt-2 text-right">
-                                            <Link to={`${pathPrefix}/analytics/journeys`} className="text-[10px] font-black uppercase text-[#2563eb] transition-colors hover:text-black">
+                                            <Link to={`${pathPrefix}/analytics/journeys`} className="text-[11px] font-bold text-[#2563eb] transition-colors hover:text-black">
                                                 View journey analytics →
                                             </Link>
                                         </div>
@@ -1695,7 +1695,7 @@ export const GeneralOverview: React.FC = () => {
                                 </GA4Card>
                             </div>
 
-                            <div className="grid grid-cols-1 gap-6 xl:grid-cols-12">
+                            <div className="grid grid-cols-1 gap-4 xl:grid-cols-12">
                             <GA4Card title="App stability overview" className="xl:col-span-4" accentClassName="bg-[#f9a8d4]">
                                 <div className="-mx-1 overflow-x-auto px-1">
                                     <table className="mt-1 min-w-[360px] w-full text-xs">
@@ -1740,11 +1740,11 @@ export const GeneralOverview: React.FC = () => {
                             <GA4Card title="Average engagement time per active user" className="xl:col-span-4" accentClassName="bg-[#67e8f9]">
                                 <div className="mb-4 flex flex-wrap items-baseline gap-x-6 gap-y-3">
                                     <div>
-                                        <div className="text-3xl font-black text-black">{avgEngagementTime}</div>
+                                        <div className="dashboard-value-lg">{avgEngagementTime}</div>
                                     </div>
                                     <div>
-                                        <span className="text-[9px] font-black uppercase text-slate-500">Engaged user share</span>
-                                        <div className="text-2xl font-black text-slate-700">
+                                        <span className="dashboard-label">Engaged user share</span>
+                                        <div className="dashboard-value-md">
                                             {engagedUserShare === null ? 'N/A' : `${engagedUserShare.toFixed(1)}%`}
                                         </div>
                                     </div>
@@ -1835,7 +1835,7 @@ export const GeneralOverview: React.FC = () => {
                             </GA4Card>
                             </div>
 
-                            <div className="grid grid-cols-1 gap-6 xl:grid-cols-12">
+                            <div className="grid grid-cols-1 gap-4 xl:grid-cols-12">
                             <GA4Card title="Custom Events" className="xl:col-span-5" accentClassName="bg-[#f9a8d4]">
                                 {customEvents.length > 0 ? (
                                     <div className="space-y-2 max-h-[300px] overflow-y-auto pr-2">
@@ -1912,7 +1912,7 @@ export const GeneralOverview: React.FC = () => {
 
                             <section className="space-y-4">
                             <div className="flex flex-wrap items-center justify-between gap-3">
-                                <h2 className="border-2 border-black bg-[#fb7185] px-4 py-2 text-lg font-black uppercase text-black shadow-neo-sm">Top Issues</h2>
+                                <h2 className="border-2 border-black bg-[#fb7185] px-3 py-1.5 text-base font-extrabold text-black shadow-neo-sm">Top Issues</h2>
                                 <div className="flex flex-wrap items-center gap-2">
                                     {topIssuesTotalPages > 1 && (
                                         <div className="flex items-center gap-1">
@@ -1960,12 +1960,12 @@ export const GeneralOverview: React.FC = () => {
                                                     key={issue.id}
                                                     className="flex flex-col gap-3 px-5 py-3.5 transition-colors hover:bg-[#f8fafc] md:flex-row md:items-center"
                                                 >
-                                                    <NeoBadge variant={ISSUE_TYPE_BADGE_VARIANT[issue.issueType] || 'neutral'} size="sm" className="rounded-none border-black font-black uppercase shadow-neo-sm">
+                                                    <NeoBadge variant={ISSUE_TYPE_BADGE_VARIANT[issue.issueType] || 'neutral'} size="sm" className="rounded-none border-black font-bold uppercase shadow-neo-sm">
                                                         {issue.issueType.replace('_', ' ')}
                                                     </NeoBadge>
 
                                                     <div className="min-w-0 flex-1">
-                                                        <div className="truncate text-sm font-black uppercase text-black">
+                                                        <div className="truncate text-sm font-extrabold text-black">
                                                             {issue.title}
                                                         </div>
                                                         <div className="truncate text-[11px] text-slate-500 mt-0.5">
@@ -1995,14 +1995,14 @@ export const GeneralOverview: React.FC = () => {
                                                     <div className="flex w-full flex-wrap items-center gap-2 shrink-0 md:w-auto">
                                                         <Link
                                                             to={`${pathPrefix}/general/${issue.id}`}
-                                                            className="border-2 border-black bg-white px-2.5 py-1 text-[10px] font-black uppercase text-black shadow-neo-sm transition hover:-translate-y-0.5 hover:bg-[#ecfeff] hover:shadow-neo"
+                                                            className="border-2 border-black bg-white px-2.5 py-1 text-[11px] font-bold text-black shadow-neo-sm transition hover:-translate-y-0.5 hover:bg-[#ecfeff] hover:shadow-neo"
                                                         >
                                                             View
                                                         </Link>
                                                         {issue.sampleSessionId && (
                                                             <Link
                                                                 to={`${pathPrefix}/sessions/${issue.sampleSessionId}`}
-                                                                className="border-2 border-black bg-[#67e8f9] px-2.5 py-1 text-[10px] font-black uppercase text-black shadow-neo-sm transition hover:-translate-y-0.5 hover:bg-[#22d3ee] hover:shadow-neo"
+                                                                className="border-2 border-black bg-[#67e8f9] px-2.5 py-1 text-[11px] font-bold text-black shadow-neo-sm transition hover:-translate-y-0.5 hover:bg-[#22d3ee] hover:shadow-neo"
                                                             >
                                                                 Replay
                                                             </Link>
@@ -2019,7 +2019,7 @@ export const GeneralOverview: React.FC = () => {
                             <section className="space-y-4">
                             <div className="flex flex-wrap items-center justify-between gap-3">
                                 <div>
-                                    <h2 className="border-2 border-black bg-[#86efac] px-4 py-2 text-lg font-black uppercase text-black shadow-neo-sm">Top Users</h2>
+                                    <h2 className="border-2 border-black bg-[#86efac] px-3 py-1.5 text-base font-extrabold text-black shadow-neo-sm">Top Users</h2>
                                 </div>
                                 <NeoBadge variant="info" size="sm" className="rounded-none border-black bg-white text-black shadow-neo-sm">
                                     {isHeavyLoading ? '…' : `${topUsers.length}/20 users`}
@@ -2082,7 +2082,7 @@ export const GeneralOverview: React.FC = () => {
                                                     <button
                                                         type="button"
                                                         onClick={() => navigate(`${pathPrefix}/sessions/${session.id}`)}
-                                                        className="inline-flex items-center gap-1.5 border-2 border-black bg-black px-3 py-2 text-[10px] font-black uppercase text-white shadow-neo-sm transition-all hover:-translate-y-0.5 hover:bg-slate-800 hover:shadow-neo active:translate-y-0"
+                                                        className="inline-flex items-center gap-1.5 border-2 border-black bg-black px-3 py-2 text-[11px] font-bold text-white shadow-neo-sm transition-all hover:-translate-y-0.5 hover:bg-slate-800 hover:shadow-neo active:translate-y-0"
                                                     >
                                                         Open latest
                                                         <ChevronRight size={13} className="shrink-0" />
@@ -2127,7 +2127,7 @@ export const GeneralOverview: React.FC = () => {
 
                                                 <div className="mt-3 flex flex-col gap-3 border-t-2 border-black pt-3 sm:flex-row sm:items-start sm:justify-between">
                                                     <div className="min-w-0 flex-1">
-                                                        <div className="truncate text-[10px] font-black uppercase text-[#2563eb]" title={deviceLabel}>
+                                                        <div className="truncate text-[11px] font-bold text-[#2563eb]" title={deviceLabel}>
                                                             {deviceLabel}
                                                         </div>
                                                         <div className="mt-1 text-[10px] text-slate-500">
@@ -2172,7 +2172,7 @@ export const GeneralOverview: React.FC = () => {
                             <section className="space-y-4">
                             <div className="flex flex-wrap items-center justify-between gap-3">
                                 <div>
-                                    <h2 className="border-2 border-black bg-[#67e8f9] px-4 py-2 text-lg font-black uppercase text-black shadow-neo-sm">Recommended Sessions</h2>
+                                    <h2 className="border-2 border-black bg-[#67e8f9] px-3 py-1.5 text-base font-extrabold text-black shadow-neo-sm">Recommended Sessions</h2>
                                     <p className="mt-2 text-xs font-semibold text-slate-600">
                                         Mixed user segments: new, returning, anonymous, platform-specific, and risk-heavy journeys.
                                     </p>
@@ -2210,7 +2210,7 @@ export const GeneralOverview: React.FC = () => {
                                                         <div className="flex flex-wrap items-start justify-between gap-2">
                                                             <div className="min-w-0">
                                                                 <span
-                                                                    className={`inline-flex items-center border-2 border-black px-2 py-1 text-[10px] font-black uppercase shadow-neo-sm ${RECOMMENDED_SESSION_PRIORITY_STYLES[rec.priority]}`}
+                                                                    className={`inline-flex items-center border-2 border-black px-2 py-1 text-[10px] font-bold uppercase shadow-neo-sm ${RECOMMENDED_SESSION_PRIORITY_STYLES[rec.priority]}`}
                                                                 >
                                                                     {rec.category}
                                                                 </span>
@@ -2236,7 +2236,7 @@ export const GeneralOverview: React.FC = () => {
                                                             <button
                                                                 type="button"
                                                                 onClick={() => navigate(`${pathPrefix}/sessions/${rec.session.id}`)}
-                                                                className="inline-flex items-center gap-1.5 border-2 border-black bg-black px-3 py-2 text-[10px] font-black uppercase text-white shadow-neo-sm transition-all hover:-translate-y-0.5 hover:bg-slate-800 hover:shadow-neo active:translate-y-0"
+                                                                className="inline-flex items-center gap-1.5 border-2 border-black bg-black px-3 py-2 text-[11px] font-bold text-white shadow-neo-sm transition-all hover:-translate-y-0.5 hover:bg-slate-800 hover:shadow-neo active:translate-y-0"
                                                             >
                                                                 Open
                                                                 <ChevronRight size={13} className="shrink-0" />
@@ -2265,7 +2265,7 @@ export const GeneralOverview: React.FC = () => {
                                                         <div className="mt-3 flex flex-col gap-3 border-t-2 border-black pt-3 sm:flex-row sm:items-start sm:justify-between">
                                                             <div className="min-w-0 flex-1">
                                                                 <div
-                                                                    className="truncate text-[10px] font-black uppercase text-[#2563eb] hover:underline"
+                                                                    className="truncate text-[11px] font-bold text-[#2563eb] hover:underline"
                                                                     title={rec.session.deviceModel}
                                                                 >
                                                                     {formatDeviceModel(rec.session.deviceModel, 'Unknown device')}

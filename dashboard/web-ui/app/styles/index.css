@@ -35,8 +35,8 @@
     --ring: 205 70% 63%;
 
     --radius: 0.75rem;
-    --font-sans: 'Nunito Sans', 'Avenir Next', Avenir, 'Segoe UI', system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
-    --font-mono: var(--font-sans);
+    --font-sans: 'Inter', 'Avenir Next', Avenir, 'Segoe UI', system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+    --font-mono: 'JetBrains Mono', 'SFMono-Regular', Consolas, 'Liberation Mono', 'Courier New', monospace;
 
     /* Dashboard surface tokens */
     --dashboard-canvas: #f8fafc;
@@ -45,12 +45,19 @@
     --dashboard-surface-muted: #f8fafc;
     --dashboard-border: #000000;
     --dashboard-border-strong: #000000;
+    --dashboard-chrome-border: #d7dee8;
+    --dashboard-chrome-border-strong: #cbd5e1;
+    --dashboard-chrome-bg: #fbfdff;
+    --dashboard-chrome-muted-bg: #f8fafc;
+    --dashboard-chrome-shadow: 0 1px 2px rgba(15, 23, 42, 0.07);
+    --dashboard-chrome-hover-shadow: 0 7px 16px rgba(15, 23, 42, 0.11);
     --dashboard-shadow-sm: 2px 2px 0 rgba(0, 0, 0, 1);
     --dashboard-shadow-md: 4px 4px 0 rgba(0, 0, 0, 1);
     --dashboard-shadow-lg: 8px 8px 0 rgba(0, 0, 0, 1);
     --dashboard-text-strong: #0f172a;
     --dashboard-text-body: #334155;
     --dashboard-text-muted: #64748b;
+    --dashboard-font: var(--font-sans);
     --dashboard-brand: #5dadec;
     --dashboard-brand-strong: #2563eb;
     --dashboard-accent-rose: #f9a8d4;
@@ -578,6 +585,65 @@
   color: var(--dashboard-text-strong);
 }
 
+.dashboard-modern {
+  font-family: var(--dashboard-font);
+  font-size: 0.8125rem;
+  line-height: 1.45;
+}
+
+.dashboard-modern :where(h1, h2, h3, h4, h5, h6) {
+  letter-spacing: 0 !important;
+  line-height: 1.18;
+}
+
+.dashboard-modern :where(p, li, td, th, button, a, input, select, textarea, span, div) {
+  letter-spacing: 0;
+}
+
+.dashboard-modern :where(.font-black) {
+  font-weight: 800;
+}
+
+.dashboard-modern :where(.tracking-tighter, .tracking-tight, .tracking-wide, .tracking-wider, .tracking-widest) {
+  letter-spacing: 0 !important;
+}
+
+.dashboard-modern :where(.dashboard-label) {
+  color: var(--dashboard-text-muted);
+  font-size: 0.6875rem;
+  font-weight: 750;
+  line-height: 1.2;
+  text-transform: uppercase;
+}
+
+.dashboard-modern :where(.dashboard-value-lg) {
+  color: #020617;
+  font-size: 1.625rem;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.dashboard-modern :where(.dashboard-value-md) {
+  color: #334155;
+  font-size: 1.25rem;
+  font-weight: 800;
+  line-height: 1.05;
+}
+
+@media (min-width: 640px) {
+  .dashboard-modern {
+    font-size: 0.875rem;
+  }
+
+  .dashboard-modern :where(.dashboard-value-lg) {
+    font-size: 2rem;
+  }
+
+  .dashboard-modern :where(.dashboard-value-md) {
+    font-size: 1.375rem;
+  }
+}
+
 .dashboard-content {
   background-color: var(--dashboard-canvas) !important;
   background-image:
@@ -595,10 +661,10 @@
 
 /* Tier 1 — Sidebar: retro dashboard rail, visually separated from content */
 .dashboard-sidebar {
-  border-right: 2px solid var(--dashboard-border-strong);
-  background: #f8fafc !important;
+  border-right: 1px solid var(--dashboard-chrome-border);
+  background: var(--dashboard-chrome-muted-bg) !important;
   color: var(--dashboard-text-strong) !important;
-  box-shadow: 2px 0 0 rgba(0, 0, 0, 1);
+  box-shadow: 1px 0 0 rgba(148, 163, 184, 0.35);
 }
 
 .dashboard-sidebar a {
@@ -607,9 +673,99 @@
 
 /* Tier 1 — TopBar: cool anchor bar */
 .dashboard-topbar {
-  border-bottom: 2px solid var(--dashboard-border-strong) !important;
-  background: #f8fafc !important;
+  border-bottom: 1px solid var(--dashboard-chrome-border) !important;
+  background: var(--dashboard-chrome-bg) !important;
   backdrop-filter: none;
+  box-shadow: 0 1px 0 rgba(148, 163, 184, 0.2);
+}
+
+.dashboard-tabbar {
+  border-bottom: 1px solid var(--dashboard-chrome-border) !important;
+  background: var(--dashboard-chrome-bg) !important;
+}
+
+.dashboard-page-header {
+  border-bottom: 1px solid var(--dashboard-chrome-border) !important;
+  background: rgba(251, 253, 255, 0.94) !important;
+  box-shadow: inset 0 -1px 0 rgba(148, 163, 184, 0.12);
+}
+
+.dashboard-page-header .dashboard-page-header-mark {
+  --dashboard-page-header-accent: var(--dashboard-brand);
+  display: inline-flex;
+  width: 1.5rem;
+  height: 1.5rem;
+  align-items: center;
+  justify-content: center;
+  color: var(--dashboard-page-header-accent);
+  opacity: 0.78;
+}
+
+.dashboard-page-header .dashboard-page-header-mark svg {
+  width: 1rem !important;
+  height: 1rem !important;
+  color: currentColor;
+  stroke-width: 2.35;
+}
+
+.dashboard-topbar :where(.border-black),
+.dashboard-sidebar :where(.border-black),
+.dashboard-tabbar :where(.border-black),
+.dashboard-page-header :where(.border-black) {
+  border-color: var(--dashboard-chrome-border-strong) !important;
+}
+
+.dashboard-topbar :where(.border-2),
+.dashboard-sidebar :where(.border-2),
+.dashboard-tabbar :where(.border-2),
+.dashboard-page-header :where(.border-2) {
+  border-width: 1px !important;
+}
+
+.dashboard-topbar :where(.border-t-2),
+.dashboard-sidebar :where(.border-t-2),
+.dashboard-tabbar :where(.border-t-2),
+.dashboard-page-header :where(.border-t-2) {
+  border-top-width: 1px !important;
+}
+
+.dashboard-topbar :where(.border-r-2),
+.dashboard-sidebar :where(.border-r-2),
+.dashboard-tabbar :where(.border-r-2),
+.dashboard-page-header :where(.border-r-2) {
+  border-right-width: 1px !important;
+}
+
+.dashboard-topbar :where(.border-b-2),
+.dashboard-sidebar :where(.border-b-2),
+.dashboard-tabbar :where(.border-b-2),
+.dashboard-page-header :where(.border-b-2) {
+  border-bottom-width: 1px !important;
+}
+
+.dashboard-topbar :where(.border-l-2),
+.dashboard-sidebar :where(.border-l-2),
+.dashboard-tabbar :where(.border-l-2),
+.dashboard-page-header :where(.border-l-2) {
+  border-left-width: 1px !important;
+}
+
+.dashboard-topbar :where(.shadow-neo-sm, .shadow-neo, .shadow-neo-lg, [class*="shadow-[1px"], [class*="shadow-[2px"], [class*="shadow-[4px"], [class*="shadow-[8px"]),
+.dashboard-sidebar :where(.shadow-neo-sm, .shadow-neo, .shadow-neo-lg, [class*="shadow-[1px"], [class*="shadow-[2px"], [class*="shadow-[4px"], [class*="shadow-[8px"]),
+.dashboard-tabbar :where(.shadow-neo-sm, .shadow-neo, .shadow-neo-lg, [class*="shadow-[1px"], [class*="shadow-[2px"], [class*="shadow-[4px"], [class*="shadow-[8px"]),
+.dashboard-page-header :where(.shadow-neo-sm, .shadow-neo, .shadow-neo-lg, [class*="shadow-[1px"], [class*="shadow-[2px"], [class*="shadow-[4px"], [class*="shadow-[8px"]) {
+  box-shadow: var(--dashboard-chrome-shadow) !important;
+}
+
+.dashboard-topbar :where(.hover\:shadow-neo-sm:hover, .hover\:shadow-neo:hover, .hover\:shadow-neo-lg:hover),
+.dashboard-sidebar :where(.hover\:shadow-neo-sm:hover, .hover\:shadow-neo:hover, .hover\:shadow-neo-lg:hover),
+.dashboard-tabbar :where(.hover\:shadow-neo-sm:hover, .hover\:shadow-neo:hover, .hover\:shadow-neo-lg:hover),
+.dashboard-page-header :where(.hover\:shadow-neo-sm:hover, .hover\:shadow-neo:hover, .hover\:shadow-neo-lg:hover) {
+  box-shadow: var(--dashboard-chrome-hover-shadow) !important;
+}
+
+.dashboard-sidebar :where(.dashboard-nav-item:not(:hover):not([aria-current="page"])) {
+  box-shadow: none !important;
 }
 
 /* Tier 2 — Standard card surface */
@@ -706,7 +862,7 @@
   transition: all 0.18s ease;
 }
 
-.dashboard-modern .dashboard-nav-item:hover {
+.dashboard-modern .dashboard-nav-item:not([aria-current="page"]):hover {
   background: #ecfeff;
   color: var(--dashboard-text-strong);
 }
@@ -756,6 +912,43 @@
 .replay-device-frame {
   width: min(300px, 74vw);
   max-width: 100%;
+}
+
+@media (min-width: 1280px) {
+  .replay-workbench-page,
+  .replay-workbench-main,
+  .replay-workbench-grid,
+  .replay-theater-section,
+  .replay-side-panel {
+    min-height: 0;
+  }
+
+  .replay-theater-stage > div {
+    max-height: 100%;
+  }
+
+  .replay-device-frame {
+    width: clamp(190px, 26dvh, 292px);
+  }
+
+  .replay-device-placeholder {
+    max-width: clamp(190px, 26dvh, 292px) !important;
+  }
+}
+
+@media (min-width: 1280px) and (max-height: 860px) {
+  .replay-device-frame {
+    width: clamp(180px, 24dvh, 254px);
+  }
+
+  .replay-device-placeholder {
+    max-width: clamp(180px, 24dvh, 254px) !important;
+  }
+
+  .replay-workbench-tabs button {
+    padding-top: 0.625rem !important;
+    padding-bottom: 0.625rem !important;
+  }
 }
 
 .clarity-consent-banner {

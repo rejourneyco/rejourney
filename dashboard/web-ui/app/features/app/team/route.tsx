@@ -304,7 +304,7 @@ export const TeamSettings: React.FC = () => {
 
   if (!currentTeam) {
     return (
-      <SettingsLayout title="Team" description="Select a team to manage" icon={<Users className="w-6 h-6" />} iconColor="bg-indigo-500">
+      <SettingsLayout title="Team" description="Select a team to manage" icon={<Users className="w-6 h-6" />} iconColor="bg-[#f4f4f5]">
         <div className="p-12 text-center border-2 border-dashed border-slate-300 bg-slate-50">
           <Building className="w-12 h-12 text-slate-300 mx-auto mb-3" />
           <h2 className="text-lg font-bold text-slate-900 mb-1">No Team Selected</h2>
@@ -319,7 +319,7 @@ export const TeamSettings: React.FC = () => {
       title="Team"
       description={`Manage members for ${currentTeam.name}`}
       icon={<Users className="w-6 h-6" />}
-      iconColor="bg-indigo-500"
+      iconColor="bg-[#f4f4f5]"
     >
       {/* Team Information */}
       <section className="space-y-4">

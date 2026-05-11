@@ -21,7 +21,7 @@ interface TimeFilterProps {
 
 export const TimeFilter: React.FC<TimeFilterProps> = ({ value, onChange, className = '' }) => {
     return (
-        <div className={`min-w-0 max-w-full p-0.5 ${className}`.trim()}>
+        <div className={`min-w-0 max-w-full ${className}`.trim()}>
             <div className="max-w-full overflow-x-auto overflow-y-hidden border-2 border-black bg-white shadow-neo-sm no-scrollbar">
                 <div className="inline-flex min-w-max items-center overflow-hidden">
                 {TIME_RANGE_OPTIONS.map((option, index) => (
@@ -30,7 +30,7 @@ export const TimeFilter: React.FC<TimeFilterProps> = ({ value, onChange, classNa
                         type="button"
                         onClick={() => onChange(option.value)}
                         aria-pressed={value === option.value}
-                        className={`shrink-0 px-3 py-1 text-[10px] font-black uppercase transition-colors 
+                        className={`shrink-0 px-2.5 py-1.5 text-[11px] font-semibold uppercase leading-none transition-colors 
                         ${value === option.value
                                 ? 'bg-black text-white'
                                 : 'bg-white text-slate-700 hover:bg-[#ecfeff]'

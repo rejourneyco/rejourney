@@ -648,7 +648,7 @@ export const Journeys: React.FC = () => {
             <DashboardPageHeader
                 title="User Journeys"
                 icon={<Route className="w-6 h-6" />}
-                iconColor="bg-fuchsia-500"
+                iconColor="bg-[#fce7f3]"
             >
                 <div className="flex min-w-0 max-w-full flex-wrap items-center gap-3">
                     <DataWatermarkBanner dataCompleteThrough={trends?.dataCompleteThrough} />

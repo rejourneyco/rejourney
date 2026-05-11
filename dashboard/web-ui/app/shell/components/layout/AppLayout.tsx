@@ -131,7 +131,7 @@ export const ProjectLayout: React.FC<AppLayoutProps> = ({ children, pathPrefix =
   return (
     <div className="dashboard-modern dashboard-shell flex h-dvh min-h-screen min-w-0 font-sans text-black antialiased selection:bg-[#67e8f9] selection:text-black">
       {!isWarehouseRoute && (
-        <div className="z-20 w-0 shrink-0 overflow-visible border-r-2 border-black bg-[#f8fafc] shadow-[2px_0_0_0_rgba(0,0,0,1)] md:w-auto md:shrink-0">
+        <div className="z-20 w-0 shrink-0 overflow-visible bg-[#f8fafc] md:w-auto md:shrink-0">
           <Sidebar
             currentProject={selectedProject}
             onProjectChange={handleProjectChange}
@@ -149,7 +149,7 @@ export const ProjectLayout: React.FC<AppLayoutProps> = ({ children, pathPrefix =
       <div key={routeScopeKey} className="relative flex min-w-0 flex-1 flex-col overflow-hidden bg-[#f8fafc]">
         {!isWarehouseRoute && <TopBar currentProject={selectedProject} />}
         {!isWarehouseRoute && projectsError && (
-          <div className="mx-6 mt-4 border-2 border-black bg-[#f9a8d4] shadow-neo-sm px-4 py-3 font-black uppercase text-sm text-black">
+          <div className="mx-4 mt-4 border-2 border-black bg-[#f9a8d4] px-4 py-3 text-sm font-extrabold text-black shadow-neo-sm sm:mx-6">
             {projectsError}
           </div>
         )}
@@ -159,18 +159,18 @@ export const ProjectLayout: React.FC<AppLayoutProps> = ({ children, pathPrefix =
         >
           {isWarehouseRoute ? children : hasNoTeam ? (
             <div className="mx-auto flex h-full w-full max-w-4xl items-center justify-center p-4 sm:p-8">
-              <div className="w-full bg-white border-2 border-black p-6 shadow-neo sm:p-10">
+              <div className="w-full border-2 border-black bg-white p-5 shadow-neo sm:p-8">
                 <div className="mb-4 inline-flex h-12 w-12 items-center justify-center border-2 border-black bg-[#67e8f9] text-black shadow-neo-sm">
                   <Layers3 className="h-6 w-6 stroke-[3]" />
                 </div>
-                <h2 className="text-2xl font-black uppercase text-black">Create a team to start</h2>
+                <h2 className="text-xl font-extrabold text-black">Create a team to start</h2>
                 <p className="mt-3 text-base font-medium text-slate-600">
                   Teams hold your projects, members, and billing. Once a team exists, you can add a project and data will appear here.
                 </p>
                 <div className="mt-8 flex flex-wrap gap-4">
                   <button
                     onClick={openCreateTeamModal}
-                    className="inline-flex items-center gap-2 border-2 border-black bg-black px-6 py-3 text-sm font-black uppercase text-white shadow-neo-sm hover:-translate-y-0.5 hover:shadow-neo transition-all"
+                    className="inline-flex items-center gap-2 border-2 border-black bg-black px-5 py-2.5 text-sm font-bold text-white shadow-neo-sm transition-all hover:-translate-y-0.5 hover:shadow-neo"
                   >
                     Create Team
                   </button>
@@ -179,25 +179,25 @@ export const ProjectLayout: React.FC<AppLayoutProps> = ({ children, pathPrefix =
             </div>
           ) : shouldShowNoProjectState ? (
             <div className="mx-auto flex h-full w-full max-w-4xl items-center justify-center p-4 sm:p-8">
-              <div className="w-full bg-white border-2 border-black p-6 shadow-neo sm:p-10">
+              <div className="w-full border-2 border-black bg-white p-5 shadow-neo sm:p-8">
                 <div className="mb-4 inline-flex h-12 w-12 items-center justify-center border-2 border-black bg-[#86efac] text-black shadow-neo-sm">
                   <FolderPlus className="h-6 w-6 stroke-[3]" />
                 </div>
-                <h2 className="text-2xl font-black uppercase text-black">Empty Team Workspace</h2>
+                <h2 className="text-xl font-extrabold text-black">Empty Team Workspace</h2>
                 <p className="mt-3 text-base font-medium text-slate-600">
                   You can create a project now, or continue managing your team and come back later.
                 </p>
                 <div className="mt-8 flex flex-wrap gap-4">
                   <button
                     onClick={openCreateProjectModal}
-                    className="inline-flex items-center gap-2 border-2 border-black bg-[#67e8f9] px-6 py-3 text-sm font-black uppercase text-black shadow-neo-sm hover:-translate-y-0.5 hover:shadow-neo transition-all"
+                    className="inline-flex items-center gap-2 border-2 border-black bg-[#67e8f9] px-5 py-2.5 text-sm font-bold text-black shadow-neo-sm transition-all hover:-translate-y-0.5 hover:shadow-neo"
                   >
                     <FolderPlus className="h-4 w-4 stroke-[3]" />
                     Create Project
                   </button>
                   <button
                     onClick={() => navigate(`${pathPrefix}/team`)}
-                    className="inline-flex items-center gap-2 border-2 border-black bg-white px-6 py-3 text-sm font-black uppercase text-black shadow-neo-sm hover:-translate-y-0.5 hover:shadow-neo transition-all"
+                    className="inline-flex items-center gap-2 border-2 border-black bg-white px-5 py-2.5 text-sm font-bold text-black shadow-neo-sm transition-all hover:-translate-y-0.5 hover:shadow-neo"
                   >
                     Team Settings
                   </button>

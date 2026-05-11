@@ -936,10 +936,10 @@ const englishHomeCopy: MarketingHomeCopy = {
     sdkSize: "13.2 kB",
   },
   narrative: {
-    loopEyebrow: "The mobile insight loop",
-    loopHeadingLines: ["Stop guessing", "why users", "leave."],
+    loopEyebrow: "Issue to milestone journey",
+    loopHeadingLines: ["Identify issues.", "Measure the milestone."],
     loopIntro:
-      "Rejourney is arranged around the way teams actually make product decisions: watch what happened, understand the pattern, and act before the next release repeats it.",
+      "Follow a problem from end user to replay evidence. Ship the fix. Then watch the result.",
     tableStep: "Step",
     tableCatches: "What Rejourney catches",
     tableNext: "What the team does next",

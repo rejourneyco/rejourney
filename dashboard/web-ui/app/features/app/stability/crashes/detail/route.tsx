@@ -129,7 +129,7 @@ export const CrashDetail: React.FC<{ crashId?: string; projectId?: string }> = (
           title="Crash Root Cause"
           subtitle="Deep crash analysis"
           icon={<Bug className="h-5 w-5" />}
-          iconColor="bg-rose-50"
+          iconColor="bg-[#ffe4e6]"
         />
         <div className="mx-auto w-full max-w-[960px] px-6 pt-8">
           <NeoCard variant="flat" className="p-8 text-center">
@@ -150,7 +150,7 @@ export const CrashDetail: React.FC<{ crashId?: string; projectId?: string }> = (
         title="Crash Root Cause"
         subtitle="Analyze stack frames, release context, and replay evidence"
         icon={<Bug className="h-5 w-5" />}
-        iconColor="bg-rose-50"
+        iconColor="bg-[#ffe4e6]"
       >
         <NeoButton
           variant="secondary"

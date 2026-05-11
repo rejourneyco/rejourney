@@ -409,6 +409,26 @@ const CafeClientApp: React.FC = () => (
 
 type HeroCopy = MarketingLocale['hero'];
 
+const renderHeadlineWithProtectedPunctuation = (text: string) => {
+    const match = text.match(/^([\s\S]*?)(\S+)([.!?])$/);
+
+    if (!match) {
+        return text;
+    }
+
+    const [, prefix, finalWord, punctuation] = match;
+
+    return (
+        <>
+            {prefix}
+            <span className="whitespace-nowrap">
+                {finalWord}
+                <span className="inline-block w-0">{punctuation}</span>
+            </span>
+        </>
+    );
+};
+
 export const Hero: React.FC<{ copy: HeroCopy; homeCopy: MarketingHomeCopy['hero']; dir?: 'ltr' | 'rtl' }> = ({ copy, homeCopy, dir = 'ltr' }) => {
     const isRtl = dir === 'rtl';
     const alignClass = dir === 'rtl' ? 'text-right' : 'text-left';
@@ -417,7 +437,7 @@ export const Hero: React.FC<{ copy: HeroCopy; homeCopy: MarketingHomeCopy['hero'
         : 'block max-w-full break-words text-[2.65rem] font-black uppercase leading-[0.92] tracking-tight min-[380px]:text-5xl sm:text-6xl md:text-7xl lg:text-8xl';
     const headlineSecondaryClass = isRtl
         ? 'mt-2 block max-w-full break-words font-mono text-[2rem] font-black leading-[1.18] tracking-normal text-[#5dadec] min-[380px]:text-[2.3rem] sm:mt-3 sm:text-[3rem] md:text-[3.7rem] lg:mt-4 lg:text-[4.1rem] xl:text-[4.55rem] 2xl:text-[5rem]'
-        : 'mt-3 block max-w-full break-words font-mono text-3xl font-black uppercase leading-[0.96] tracking-[0.06em] text-[#5dadec] min-[380px]:text-4xl sm:mt-3 sm:text-5xl sm:tracking-[0.1em] md:text-6xl lg:mt-4 lg:text-7xl';
+        : 'mt-3 block max-w-full break-words font-mono text-3xl font-black uppercase leading-[0.96] tracking-normal text-[#5dadec] min-[380px]:text-4xl sm:mt-3 sm:text-5xl md:text-6xl lg:mt-4 lg:text-7xl';
 
     return (
         <section
@@ -442,10 +462,10 @@ export const Hero: React.FC<{ copy: HeroCopy; homeCopy: MarketingHomeCopy['hero'
 
                         <h1 className="max-w-4xl text-black">
                             <span className={headlinePrimaryClass}>
-                                {copy.headlinePrimary}
+                                {renderHeadlineWithProtectedPunctuation(copy.headlinePrimary)}
                             </span>
                             <span className={headlineSecondaryClass}>
-                                {copy.headlineSecondary}
+                                {renderHeadlineWithProtectedPunctuation(copy.headlineSecondary)}
                             </span>
                         </h1>
 

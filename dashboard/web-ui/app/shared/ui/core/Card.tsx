@@ -33,7 +33,7 @@ export const Card: React.FC<CardProps> = ({
     <div className={`dashboard-panel ${variantStyles[variant]} overflow-hidden ${className}`} {...props}>
       {(title || headerAction) && (
         <div className={`px-5 py-3 flex justify-between items-center ${headerStyles[variant]}`}>
-          {title && <h3 className="text-xs font-black uppercase tracking-widest text-black">{title}</h3>}
+          {title && <h3 className="text-xs font-extrabold text-black">{title}</h3>}
           {headerAction && <div>{headerAction}</div>}
         </div>
       )}

@@ -572,7 +572,7 @@ export const RecordingsList: React.FC = () => {
           title="Replays"
           subtitle={selectedProjectId ? archiveCountLabel : 'Browse, filter & replay user sessions'}
           icon={<Layers className="w-6 h-6" />}
-          iconColor="bg-[#67e8f9]"
+          iconColor="bg-[#cffafe]"
         >
           <button
             onClick={() => {

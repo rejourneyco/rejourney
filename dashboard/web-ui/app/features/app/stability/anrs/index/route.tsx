@@ -142,7 +142,7 @@ export const ANRsList: React.FC = () => {
         title="ANRs Database"
         subtitle="Unified collection of App Not Responding events"
         icon={<Clock className="h-5 w-5" />}
-        iconColor="bg-violet-50"
+        iconColor="bg-[#ede9fe]"
       >
         <TimeFilter value={timeRange} onChange={setTimeRange} />
       </DashboardPageHeader>

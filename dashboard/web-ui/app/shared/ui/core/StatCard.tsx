@@ -25,22 +25,22 @@ export const StatCard: React.FC<StatCardProps> = ({
     color = 'blue'
 }) => {
     return (
-        <div className="group relative h-full border-2 border-black bg-white p-5 shadow-neo-sm transition-all hover:-translate-y-1 hover:shadow-neo">
+        <div className="group relative h-full border-2 border-black bg-white p-4 shadow-neo-sm transition-all hover:-translate-y-1 hover:shadow-neo sm:p-5">
             {/* Subtle background wash on hover matching their brand */}
             <div className="pointer-events-none absolute inset-0 z-0 overflow-hidden bg-[#5dadec]/5 transition-transform duration-500 ease-out transform -translate-x-full group-hover:translate-x-0" />
             
             <div className="relative z-10">
                 <div className="flex items-start justify-between mb-4">
-                    <div className="text-xs font-black uppercase tracking-widest text-slate-800">{title}</div>
+                    <div className="dashboard-label text-slate-700">{title}</div>
                     {icon && <div className="text-black border-2 border-black bg-white shadow-neo-sm p-1.5 group-hover:bg-[#5dadec] group-hover:shadow-none transition-all">{icon}</div>}
                 </div>
 
                 <div className="flex items-end gap-3 mb-1">
-                    <div className="text-3xl font-black tracking-tight text-black">
+                    <div className="dashboard-value-lg">
                         {value}
                     </div>
                     {subValue && (
-                        <div className="text-sm font-bold text-slate-500 font-mono tracking-tighter mb-1 uppercase">
+                        <div className="mb-1 text-sm font-semibold uppercase text-slate-500">
                             {subValue}
                         </div>
                     )}
@@ -54,14 +54,14 @@ export const StatCard: React.FC<StatCardProps> = ({
                                     (trend.value > 0 === (trend.positiveIsGood ?? true)) ? 'success' : 'error'
                             }
                             size="sm"
-                            className="font-bold uppercase tracking-wider rounded-none border-2 border-black shadow-neo-sm"
+                            className="rounded-none border-2 border-black font-semibold uppercase shadow-neo-sm"
                         >
                             {trend.value > 0 ? <ArrowUpRight className="w-3 h-3 flex-shrink-0" /> :
                                 trend.value < 0 ? <ArrowDownRight className="w-3 h-3 flex-shrink-0" /> :
                                     <Minus className="w-3 h-3 flex-shrink-0" />}
                             {Math.abs(trend.value)}%
                         </Badge>
-                        <span className="text-[10px] font-black uppercase tracking-widest text-slate-500">
+                        <span className="dashboard-label">
                             {trend.label}
                         </span>
                     </div>

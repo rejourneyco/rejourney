@@ -356,7 +356,7 @@ export const TabBar: React.FC<TabBarProps> = ({ pathPrefix = '', group = 'primar
 
     return (
         <div
-            className="flex min-w-0 items-end border-b-2 border-black bg-[#f8fafc]"
+            className="dashboard-tabbar flex min-w-0 items-end border-b border-slate-200 bg-[#fbfdff]"
             onClick={() => setContextMenu(null)}
             onDragOver={(e) => e.preventDefault()}
             onDrop={(e) => {
@@ -416,7 +416,7 @@ export const TabBar: React.FC<TabBarProps> = ({ pathPrefix = '', group = 'primar
                                         className={`h-3.5 w-3.5 shrink-0 ${isActive ? 'stroke-[2.8]' : 'stroke-[2.3]'}`}
                                         style={{ color: theme.accent }}
                                     />
-                                    <div className={`truncate text-xs uppercase ${isActive ? 'font-black text-slate-900' : 'font-bold'}`}>
+                                    <div className={`truncate text-xs ${isActive ? 'font-extrabold text-slate-900' : 'font-semibold'}`}>
                                         {tab.title}
                                     </div>
                                 </div>
@@ -439,7 +439,7 @@ export const TabBar: React.FC<TabBarProps> = ({ pathPrefix = '', group = 'primar
                         );
                     })}
                     {groupTabs.length === 0 && (
-                        <div className="px-4 py-2 text-xs font-black uppercase text-slate-500">No open tabs</div>
+                        <div className="px-4 py-2 text-xs font-semibold text-slate-500">No open tabs</div>
                     )}
                     {group === 'primary' && (
                         <button

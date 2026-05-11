@@ -89,12 +89,15 @@ interface NetworkRequest {
 interface FullSession {
     id: string;
     userId: string;
+    platform?: string;
+    appVersion?: string;
     hasRecording?: boolean;
     /** 'screenshots' | 'none' - determines playback mode */
     playbackMode?: 'screenshots' | 'none';
     deviceInfo: {
         model?: string;
         systemName?: string;
+        os?: string;
         systemVersion?: string;
         screenWidth?: number;
         screenHeight?: number;
@@ -2005,15 +2008,35 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
         return Array.from(buckets.values()).sort((a, b) => a.sourceIndex - b.sourceIndex);
     }, [durationSeconds, filteredActivity, replayBaseTime]);
 
-    // Auto-scrolling of the activity list is intentionally disabled so the main
-    // page scroll remains stable while the replay is playing. The active event
-    // is still highlighted via styling, but we no longer change scrollTop
-    // programmatically here.
+    // Keep the activity stream synced with playback. Only scroll the inner
+    // timeline pane so the main replay layout stays stable.
     useEffect(() => {
         if (activeWorkbenchTab !== 'timeline') return;
         if (activeActivityIndex < 0) return;
-        // no-op
-    }, [activeWorkbenchTab, activeActivityIndex]);
+        const viewport = activityViewportRef.current;
+        if (!viewport) return;
+
+        const activeRow = viewport.querySelector<HTMLElement>(`[data-activity-index="${activeActivityIndex}"]`);
+        if (!activeRow) return;
+
+        const viewportRect = viewport.getBoundingClientRect();
+        const rowRect = activeRow.getBoundingClientRect();
+        const topBuffer = 56;
+        const bottomBuffer = 72;
+        const isAbove = rowRect.top < viewportRect.top + topBuffer;
+        const isBelow = rowRect.bottom > viewportRect.bottom - bottomBuffer;
+
+        if (!isAbove && !isBelow) return;
+
+        const rowTopWithinViewport = rowRect.top - viewportRect.top + viewport.scrollTop;
+        const rowCenter = rowTopWithinViewport + rowRect.height / 2;
+        const targetScrollTop = Math.max(0, rowCenter - viewport.clientHeight / 2);
+
+        viewport.scrollTo({
+            top: targetScrollTop,
+            behavior: isPlaying ? 'smooth' : 'auto',
+        });
+    }, [activeWorkbenchTab, activeActivityIndex, isPlaying]);
 
     // ========================================================================
     // EARLY RETURNS (after all hooks)
@@ -2054,8 +2077,14 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
 
     const rawDeviceModel = fullSession?.deviceInfo?.model || session?.deviceModel || 'Unknown';
     const deviceModel = formatDeviceModel(rawDeviceModel, 'Unknown');
-    const platform = fullSession?.deviceInfo?.systemName?.toLowerCase() || session?.platform?.toLowerCase() || 'unknown';
-    const appVersion = fullSession?.deviceInfo?.appVersion || session?.appVersion || '';
+    const platform = (
+        fullSession?.platform ||
+        fullSession?.deviceInfo?.systemName ||
+        fullSession?.deviceInfo?.os ||
+        session?.platform ||
+        'unknown'
+    ).toLowerCase();
+    const appVersion = fullSession?.appVersion || fullSession?.deviceInfo?.appVersion || session?.appVersion || '';
     const geoLocation = fullSession?.geoLocation || fullSession?.geoInfo || session?.geoLocation || null;
     const geoDisplay = formatGeoDisplay(geoLocation);
     const sessionLocationWithFlag = `${geoDisplay.flagEmoji} ${geoDisplay.fullLabel}`;
@@ -2414,9 +2443,9 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
     };
 
     return (
-        <div className="replay-workbench-page min-h-screen bg-[#f8fafc]">
-            <div className="replay-workbench-header border-b-2 border-black bg-[#f8fafc] md:sticky md:top-0 md:z-40">
-                <div className="mx-auto flex w-full max-w-[1920px] flex-col gap-3 px-3 py-3 sm:px-4 xl:flex-row xl:items-center xl:justify-between">
+        <div className="replay-workbench-page flex min-h-screen flex-col bg-[#f8fafc] xl:h-full xl:min-h-0 xl:overflow-hidden">
+            <div className="replay-workbench-header border-b-2 border-black bg-[#f8fafc] md:sticky md:top-0 md:z-40 xl:shrink-0">
+                <div className="mx-auto flex w-full max-w-[1920px] flex-col gap-3 px-3 py-3 sm:px-4 xl:flex-row xl:items-center xl:justify-between xl:gap-2 xl:py-2">
                     <div className="flex w-full min-w-0 flex-1 items-start gap-3">
                         <button
                             onClick={handleBackClick}
@@ -2544,9 +2573,9 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
                 </div>
             </div>
 
-            <div className="replay-workbench-main mx-auto flex w-full max-w-[1920px] flex-col gap-4 px-3 py-3 sm:px-4 sm:py-4">
-                <div className="replay-workbench-grid grid grid-cols-1 gap-4 xl:grid-cols-12">
-                    <section className="replay-theater-section flex min-w-0 max-w-full flex-col overflow-hidden border border-black bg-white shadow-neo-sm xl:col-span-7">
+            <div className="replay-workbench-main mx-auto flex w-full max-w-[1920px] flex-col gap-4 px-3 py-3 sm:px-4 sm:py-4 xl:min-h-0 xl:flex-1 xl:gap-3 xl:overflow-hidden xl:py-3">
+                <div className="replay-workbench-grid grid grid-cols-1 gap-4 xl:min-h-0 xl:flex-1 xl:grid-cols-12 xl:gap-3">
+                    <section className="replay-theater-section flex min-w-0 max-w-full flex-col overflow-hidden border border-black bg-white shadow-neo-sm xl:col-span-7 xl:h-full xl:min-h-0">
                         <div className="border-b border-black bg-white px-3 py-2.5 text-black sm:px-4">
                             <div className="flex flex-wrap items-center justify-between gap-2">
                                 <div className="flex min-w-0 items-center gap-2">
@@ -2578,8 +2607,8 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
                             </div>
                         </div>
 
-                        <div className="replay-theater-stage relative border-b border-black bg-white px-3 py-5 sm:px-5 sm:py-7">
-                            <div className="mx-auto flex w-full max-w-[360px] items-center justify-center">
+                        <div className="replay-theater-stage relative border-b border-black bg-white px-3 py-5 sm:px-5 sm:py-7 xl:flex xl:min-h-0 xl:flex-1 xl:items-center xl:justify-center xl:overflow-hidden xl:px-4 xl:py-3">
+                            <div className="mx-auto flex w-full max-w-[360px] items-center justify-center xl:h-full xl:min-h-0 xl:max-w-none">
                                 {(isReplayExpired || replayUnavailableReason || !hasRecording) ? (
                                     <div className="replay-device-placeholder flex aspect-[9/18.5] w-full max-w-[320px] flex-col items-center justify-center border-2 border-dashed border-black bg-white p-6 text-center shadow-neo-sm">
                                         <VideoOff className="h-10 w-10 text-slate-400" />
@@ -2674,8 +2703,8 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
 
                         {playbackMode === 'screenshots' ? (
                             <>
-                                <div className="border-b-2 border-black bg-white px-3 py-3 sm:px-6 sm:py-4">
-                                    <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                                <div className="border-b-2 border-black bg-white px-3 py-3 sm:px-6 sm:py-4 xl:shrink-0 xl:px-4 xl:py-2">
+                                    <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between xl:gap-2">
                                         {/* Primary Controls */}
                                         <div className="replay-controls-primary flex items-center justify-center gap-2 sm:justify-start">
                                             <button
@@ -2785,8 +2814,8 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
                                     </div>
                                 </div>
 
-                                <div className="bg-[#f8fafc] px-3 py-3 sm:px-6">
-                                    <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                                <div className="bg-[#f8fafc] px-3 py-3 sm:px-6 xl:shrink-0 xl:px-4 xl:py-2">
+                                    <div className="mb-2 flex flex-wrap items-center justify-between gap-2 xl:mb-1">
                                         <div className="flex items-center gap-4 text-[10px] font-black uppercase text-black">
                                             <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 border border-black bg-[#67e8f9]" />Touches</span>
                                             <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 border border-black bg-[#86efac]" />API</span>
@@ -2797,7 +2826,7 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
                                         </span>
                                     </div>
 
-                                    <svg viewBox="0 0 1000 50" preserveAspectRatio="none" className="h-11 w-full">
+                                    <svg viewBox="0 0 1000 50" preserveAspectRatio="none" className="h-11 w-full xl:h-7">
                                         <defs>
                                             <linearGradient id="touchGradNew" x1="0%" y1="0%" x2="0%" y2="100%">
                                                 <stop offset="0%" stopColor="#3b82f6" stopOpacity="0.35" />
@@ -2870,7 +2899,7 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
 
                                     <div
                                         ref={progressRef}
-                                        className="group relative mt-1 h-10 cursor-pointer touch-none"
+                                        className="group relative mt-1 h-10 cursor-pointer touch-none xl:h-7"
                                         onMouseDown={handleProgressMouseDown}
                                         onTouchStart={handleProgressTouchStart}
                                     >
@@ -2947,7 +2976,7 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
                     </section>
 
 
-                    <section className="replay-side-panel flex min-h-[400px] flex-col overflow-hidden border-2 border-black bg-white shadow-neo xl:col-span-5 xl:min-h-[580px]">
+                    <section className="replay-side-panel flex min-h-[400px] flex-col overflow-hidden border-2 border-black bg-white shadow-neo xl:col-span-5 xl:h-full xl:min-h-0">
                         <div className="replay-workbench-tabs dashboard-mobile-scroll flex shrink-0 overflow-x-auto border-b-2 border-black bg-[#f8fafc] no-scrollbar">
                             <button
                                 onClick={() => setActiveWorkbenchTab('timeline')}
@@ -3110,7 +3139,7 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
                                                         data-activity-index={index}
                                                         onClick={() => handleSeekToTime(seekTime)}
                                                         className={`block w-full border-b border-black/10 px-3 py-2 text-left transition ${isHighlighted
-                                                            ? 'border-l-4 border-black bg-[#ecfeff]'
+                                                            ? 'border-l-4 border-black bg-[#ecfeff] shadow-[inset_0_0_0_1px_rgba(103,232,249,0.55)]'
                                                             : 'hover:bg-[#f8fafc]'
                                                             }`}
                                                     >

@@ -156,7 +156,7 @@ export const CrashesList: React.FC = () => {
         title="Crashes Database"
         subtitle="Unified collection of critical failures and exceptions"
         icon={<Bug className="h-5 w-5" />}
-        iconColor="bg-rose-50"
+        iconColor="bg-[#ffe4e6]"
       >
         <TimeFilter value={timeRange} onChange={setTimeRange} />
       </DashboardPageHeader>

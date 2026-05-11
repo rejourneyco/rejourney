@@ -381,7 +381,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 setShowAppSelector(false);
                 setIsMobileOpen(false);
               }}
-              className={`mb-3 flex w-full items-center justify-between border-2 px-3 py-2 text-[11px] font-black uppercase transition-all ${isWarehouseActive
+              className={`mb-3 flex w-full items-center justify-between border-2 px-3 py-2 text-[11px] font-extrabold transition-all ${isWarehouseActive
                 ? 'border-black bg-black text-white shadow-neo-sm'
                 : 'border-black bg-white text-black shadow-neo-sm hover:-translate-y-0.5 hover:bg-[#ecfeff] hover:shadow-neo'
                 }`}
@@ -402,10 +402,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 setShowTeamSelector(!showTeamSelector);
                 setShowAppSelector(false);
               }}
-              className={`w-full flex bg-white border-2 border-black hover:-translate-y-0.5 hover:bg-[#ecfeff] hover:shadow-neo-sm text-black transition-all text-sm font-black ${collapsedDesktop ? 'justify-center px-2 py-2.5' : 'items-center justify-between px-3 py-2'}`}
+              className={`w-full flex bg-white border-2 border-black hover:-translate-y-0.5 hover:bg-[#ecfeff] hover:shadow-neo-sm text-black transition-all text-sm font-semibold ${collapsedDesktop ? 'justify-center px-2 py-2.5' : 'items-center justify-between px-3 py-2'}`}
             >
               <div className={`flex min-w-0 items-center overflow-hidden ${collapsedDesktop ? '' : 'gap-2'}`}>
-                <div className="w-5 h-5 bg-[#67e8f9] border border-black flex items-center justify-center text-black font-black text-xs shrink-0">
+                <div className="w-5 h-5 bg-[#67e8f9] border border-black flex items-center justify-center text-black font-bold text-xs shrink-0">
                   {currentTeam?.name?.[0] || 'R'}
                 </div>
                 {!collapsedDesktop && (
@@ -419,7 +419,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
             {showTeamSelector && (
               <div className={`absolute top-full mt-2 bg-white border-2 border-black shadow-neo z-50 animate-in fade-in zoom-in-95 duration-100 ${collapsedDesktop ? 'left-0 w-64' : 'left-0 right-0'}`}>
-                <div className="border-b-2 border-black bg-[#f8fafc] px-3 py-2 text-xs font-black text-black uppercase">
+                <div className="border-b-2 border-black bg-[#f8fafc] px-3 py-2 text-xs font-bold text-black">
                   Switch Team
                 </div>
                 <div className="max-h-[200px] overflow-y-auto custom-scrollbar">
@@ -437,7 +437,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                         setIsMobileOpen(false);
                         navigate(p('/general'));
                       }}
-                      className={`w-full text-left px-3 py-2 text-sm font-bold hover:bg-[#ecfeff] flex items-center justify-between gap-2 group border-b border-black/10 last:border-0 ${currentTeam?.id === team.id ? 'bg-[#67e8f9] text-black font-black' : 'text-black'}`}
+                      className={`w-full text-left px-3 py-2 text-sm font-semibold hover:bg-[#ecfeff] flex items-center justify-between gap-2 group border-b border-black/10 last:border-0 ${currentTeam?.id === team.id ? 'bg-[#67e8f9] text-black font-extrabold' : 'text-black'}`}
                     >
                       <span className="truncate">
                         {team.name || `Team ${team.id.slice(0, 8)}...`}
@@ -454,7 +454,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                       setNewTeamName('');
                       setShowCreateTeamModal(true);
                     }}
-                    className="w-full text-left px-3 py-1.5 text-xs text-black hover:bg-[#ecfeff] font-black uppercase flex items-center gap-2"
+                    className="w-full text-left px-3 py-1.5 text-xs text-black hover:bg-[#ecfeff] font-bold flex items-center gap-2"
                   >
                     <Plus className="w-3 h-3" /> Create Team
                   </button>
@@ -477,12 +477,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
               className={`w-full flex bg-white border-2 border-black transition-all text-sm ${loading ? 'cursor-wait opacity-80' : 'hover:-translate-y-0.5 hover:bg-[#ecfeff] hover:shadow-neo-sm'} ${showAppSelector ? 'bg-[#ecfeff] shadow-neo-sm' : 'shadow-neo-sm'} ${collapsedDesktop ? 'justify-center px-2 py-2.5' : 'items-center justify-between px-3 py-2'}`}
             >
               {collapsedDesktop ? (
-                <span className="flex h-6 w-6 items-center justify-center border border-black bg-[#86efac] text-[11px] font-black text-black">
+                <span className="flex h-6 w-6 items-center justify-center border border-black bg-[#86efac] text-[11px] font-bold text-black">
                   {(currentProject?.name || 'P').slice(0, 1).toUpperCase()}
                 </span>
               ) : (
                 <>
-                  <span className="min-w-0 truncate font-black text-black">
+                  <span className="min-w-0 truncate font-semibold text-black">
                     {loading ? 'Loading projects...' : (currentProject?.name || 'Select Project')}
                   </span>
                   <ChevronDown className="w-4 h-4 text-black shrink-0" />
@@ -492,7 +492,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
             {showAppSelector && (
               <div className={`absolute top-full mt-2 bg-white border-2 border-black shadow-neo z-50 animate-in fade-in zoom-in-95 duration-100 ${collapsedDesktop ? 'left-0 w-64' : 'left-0 right-0'}`}>
-                <div className="border-b-2 border-black bg-[#f8fafc] px-3 py-2 text-xs font-black text-black uppercase">
+                <div className="border-b-2 border-black bg-[#f8fafc] px-3 py-2 text-xs font-bold text-black">
                   Projects
                 </div>
                 <div className="max-h-[300px] overflow-y-auto custom-scrollbar">
@@ -511,7 +511,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                           setShowAppSelector(false);
                           setIsMobileOpen(false);
                         }}
-                        className={`w-full text-left px-3 py-2 text-sm font-bold flex items-center justify-between gap-2 border-b border-black/10 last:border-0 ${currentProject?.id === project.id ? 'bg-[#67e8f9] text-black font-black' : 'text-black hover:bg-[#ecfeff]'
+                        className={`w-full text-left px-3 py-2 text-sm font-semibold flex items-center justify-between gap-2 border-b border-black/10 last:border-0 ${currentProject?.id === project.id ? 'bg-[#67e8f9] text-black font-extrabold' : 'text-black hover:bg-[#ecfeff]'
                           }`}
                       >
                         <span className="truncate">{project.name}</span>
@@ -530,7 +530,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                       setShowAppSelector(false);
                       setShowAddAppModal(true);
                     }}
-                    className="w-full text-left px-3 py-1.5 text-xs text-black hover:bg-[#ecfeff] font-black uppercase flex items-center gap-2"
+                    className="w-full text-left px-3 py-1.5 text-xs text-black hover:bg-[#ecfeff] font-bold flex items-center gap-2"
                   >
                     <Plus className="w-3 h-3" /> New Project
                   </button>
@@ -541,12 +541,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </div>
 
         {/* Navigation */}
-        <div className={`flex-1 overflow-y-auto space-y-7 custom-scrollbar ${collapsedDesktop ? 'px-2 py-3' : 'px-4 py-4'}`}>
+        <div className={`flex-1 overflow-y-auto space-y-6 custom-scrollbar ${collapsedDesktop ? 'px-2 py-3' : 'px-4 py-4'}`}>
           {navSections.map((section) => (
             section.items.length > 0 && (
               <div key={section.section} className="space-y-2">
                 {!collapsedDesktop && (
-                  <div className="px-2 pb-1 mb-1 text-[10px] font-black text-slate-500 uppercase">
+                  <div className="mb-1 px-2 pb-1 text-[11px] font-bold uppercase text-slate-500">
                     {section.section}
                   </div>
                 )}
@@ -555,20 +555,21 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     <Link
                       key={item.path}
                       to={item.path}
+                      aria-current={isActive(item.path) ? 'page' : undefined}
                       title={collapsedDesktop ? item.label : undefined}
                       onClick={() => setIsMobileOpen(false)}
                       onMouseEnter={() => prefetchPath(item.path)}
                       onFocus={() => prefetchPath(item.path)}
                       className={`
-                        dashboard-nav-item flex items-center text-[0.8rem] font-black uppercase transition-all border-2
+                        dashboard-nav-item flex items-center text-[0.83rem] font-semibold transition-colors border-2
                         ${collapsedDesktop ? 'justify-center px-2 py-2.5' : 'gap-3 px-3 py-2.5'}
                         ${isActive(item.path)
-                          ? 'border-black bg-black text-white shadow-neo-sm translate-x-1 -translate-y-0.5'
-                          : 'border-transparent text-gray-700 hover:border-black hover:bg-[#ecfeff] hover:text-black hover:shadow-neo-sm hover:translate-x-1 hover:-translate-y-0.5'
+                          ? 'border-black bg-black text-white shadow-neo-sm'
+                          : 'border-transparent text-slate-700 hover:border-slate-300 hover:bg-[#ecfeff] hover:text-slate-950 hover:shadow-neo-sm'
                         }
                       `}
                     >
-                      <item.icon className={`w-4 h-4 shrink-0 ${isActive(item.path) ? 'text-white' : 'text-current'}`} strokeWidth={2.5} />
+                      <item.icon className="w-4 h-4 shrink-0 text-current" strokeWidth={2.5} />
                       {!collapsedDesktop && <span>{item.label}</span>}
                     </Link>
                   ))}

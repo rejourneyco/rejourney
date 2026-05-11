@@ -123,7 +123,7 @@ export const ANRDetail: React.FC<{ anrId?: string; projectId?: string }> = ({
           title="ANR Root Cause"
           subtitle="Deep ANR analysis"
           icon={<Clock className="h-5 w-5" />}
-          iconColor="bg-violet-50"
+          iconColor="bg-[#ede9fe]"
         />
         <div className="mx-auto w-full max-w-[960px] px-6 pt-8">
           <NeoCard variant="flat" className="p-8 text-center">
@@ -144,7 +144,7 @@ export const ANRDetail: React.FC<{ anrId?: string; projectId?: string }> = ({
         title="ANR Root Cause"
         subtitle="Inspect main-thread freeze signatures and replay context"
         icon={<Clock className="h-5 w-5" />}
-        iconColor="bg-violet-50"
+        iconColor="bg-[#ede9fe]"
       >
         <NeoButton
           variant="secondary"

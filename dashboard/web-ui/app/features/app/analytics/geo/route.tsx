@@ -420,7 +420,7 @@ export const Geo: React.FC = () => {
                 <DashboardPageHeader
                     title="Geographic Analysis"
                     icon={<Globe className="w-6 h-6" />}
-                    iconColor="bg-sky-600"
+                    iconColor="bg-[#dbeafe]"
                 >
                     <TimeFilter value={timeRange} onChange={setTimeRange} />
                 </DashboardPageHeader>

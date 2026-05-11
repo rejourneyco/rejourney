@@ -508,7 +508,7 @@ export const Devices: React.FC = () => {
                 title="Devices"
                 subtitle="Business behavior and technical friction by device model."
                 icon={<Smartphone className="h-6 w-6" />}
-                iconColor="bg-[#67e8f9]"
+                iconColor="bg-[#e0e7ff]"
             >
                 <div className="flex min-w-0 max-w-full flex-wrap items-center gap-3">
                     <TimeFilter value={timeRange} onChange={setTimeRange} />

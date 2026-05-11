@@ -15,7 +15,7 @@ export const Heatmaps: React.FC = () => {
             <DashboardPageHeader
                 title="Heatmaps"
                 icon={<MousePointer2 className="w-6 h-6" />}
-                iconColor="bg-[#67e8f9]"
+                iconColor="bg-[#fce7f3]"
             >
                 <TimeFilter value={timeRange} onChange={setTimeRange} />
             </DashboardPageHeader>

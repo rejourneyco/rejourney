@@ -388,7 +388,7 @@ export const ProjectSettings: React.FC<SettingsProps> = ({ projectId: propProjec
         title="Project Settings"
         subtitle={`Configure ${project.name}`}
         icon={<Settings className="w-6 h-6" />}
-        iconColor="bg-slate-200"
+        iconColor="bg-[#f4f4f5]"
       >
         {!canEdit ? <NeoBadge variant="warning">View Only</NeoBadge> : null}
       </DashboardPageHeader>

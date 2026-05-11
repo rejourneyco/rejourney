@@ -987,7 +987,7 @@ export const ApiAnalytics: React.FC = () => {
             <DashboardPageHeader
                 title="API Reliability & Performance"
                 icon={<Activity className="w-6 h-6" />}
-                iconColor="bg-emerald-500"
+                iconColor="bg-[#d1fae5]"
             >
                 <div className="flex min-w-0 max-w-full flex-wrap items-center gap-3">
                     <TimeFilter value={timeRange} onChange={setTimeRange} />
