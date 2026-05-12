@@ -157,7 +157,7 @@ spec:
                 - name: NAMESPACE
                   value: rejourney
                 - name: API_DEPLOYMENT
-                  value: api
+                  value: api-ingest
                 - name: CNPG_CLUSTER_NAME
                   value: postgres-local
               resources:

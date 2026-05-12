@@ -1,5 +1,14 @@
 /**
  * Drizzle ORM Database Client
+ *
+ * Exposes two Drizzle instances:
+ *   - `db`     — primary (read/write). Always points at DATABASE_URL.
+ *   - `dbRead` — read-only path. Points at DATABASE_URL_READ if set, else
+ *                falls back to `db`. Used by dashboard analytics queries to
+ *                offload heavy aggregations onto the standby. Writes via
+ *                `dbRead` will fail at the Postgres standby with
+ *                "cannot execute INSERT in a read-only transaction" — which
+ *                is the desired guardrail.
  */
 
 import { drizzle } from 'drizzle-orm/node-postgres';
@@ -10,7 +19,13 @@ import * as schema from './schema.js';
 
 const { Pool } = pg;
 
-// Create PostgreSQL connection pool
+const drizzleLogger = isDevelopment ? {
+    logQuery: (query: string, params: unknown[]) => {
+        logger.debug({ query, params }, 'Database query');
+    },
+} : undefined;
+
+// Primary (read/write) connection pool.
 const pool = new Pool({
     connectionString: config.DATABASE_URL,
     max: parseInt(process.env.DB_POOL_MAX ?? '50'),
@@ -18,21 +33,39 @@ const pool = new Pool({
     connectionTimeoutMillis: 5000,
 });
 
-// Log pool errors
 pool.on('error', (err) => {
     logger.error({ err }, 'Unexpected error on idle database client');
 });
 
-// Create Drizzle instance with schema for relational queries
 export const db = drizzle({
     client: pool,
     schema,
-    logger: isDevelopment ? {
-        logQuery: (query: string, params: unknown[]) => {
-            logger.debug({ query, params }, 'Database query');
-        },
-    } : undefined,
+    logger: drizzleLogger,
 });
+
+// Read-replica connection pool. Created only when DATABASE_URL_READ is set
+// (api-dashboard pods); otherwise dbRead aliases db so all existing call sites
+// keep working unchanged.
+let readPool: pg.Pool | null = null;
+
+if (config.DATABASE_URL_READ && config.DATABASE_URL_READ !== config.DATABASE_URL) {
+    readPool = new Pool({
+        connectionString: config.DATABASE_URL_READ,
+        max: parseInt(process.env.DB_POOL_MAX_READ ?? process.env.DB_POOL_MAX ?? '30'),
+        idleTimeoutMillis: 30000,
+        connectionTimeoutMillis: 5000,
+    });
+
+    readPool.on('error', (err) => {
+        logger.error({ err }, 'Unexpected error on idle read-replica database client');
+    });
+
+    logger.info('Read-replica pool configured (dbRead targets DATABASE_URL_READ)');
+}
+
+export const dbRead = readPool
+    ? drizzle({ client: readPool, schema, logger: drizzleLogger })
+    : db;
 
 // Export pool for direct access when needed (e.g., raw queries, health checks)
 export { pool };

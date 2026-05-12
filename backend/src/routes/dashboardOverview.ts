@@ -7,7 +7,7 @@
 
 import { Router } from 'express';
 import { and, desc, eq, gte, inArray, isNull, sql } from 'drizzle-orm';
-import { db, issues, projects, sessionMetrics, sessions, teamMembers, errors as jsErrors, crashes as appCrashes } from '../db/client.js';
+import { db, dbRead, issues, projects, sessionMetrics, sessions, teamMembers, errors as jsErrors, crashes as appCrashes } from '../db/client.js';
 import { getRedis } from '../db/redis.js';
 import { logger } from '../logger.js';
 import { sessionAuth, asyncHandler, ApiError } from '../middleware/index.js';
@@ -380,7 +380,7 @@ async function loadUserFirstSeenMap(
     if (legs.length === 0) return resultMap;
 
     const unionQuery = legs.reduce((acc, leg, i) => i === 0 ? leg : sql`${acc} UNION ALL ${leg}`);
-    const result = await db.execute<{ kind: string; key: string; first_seen: Date }>(unionQuery);
+    const result = await dbRead.execute<{ kind: string; key: string; first_seen: Date }>(unionQuery);
     const rows: Array<{ kind: string; key: string; first_seen: Date }> = Array.isArray(result) ? result : (result as any).rows ?? [];
 
     for (const row of rows) {
@@ -559,7 +559,7 @@ async function loadTopUsersPreview(projectIds: string[], timeRange?: string) {
     const startedAfter = buildStartedAfter(timeRange);
     const startedAfterClause = startedAfter ? sql`AND ${sessions.startedAt} >= ${startedAfter}` : sql``;
 
-    const topRows = await db.execute<{
+    const topRows = await dbRead.execute<{
         user_key: string;
         session_count: number;
         total_duration_seconds: number | null;

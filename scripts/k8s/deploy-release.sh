@@ -206,6 +206,7 @@ apply_data_plane_manifests() {
   kubectl apply -f "${RENDER_DIR}/pdb.yaml"
   kubectl apply -f "${RENDER_DIR}/pgbouncer.yaml"
   wait_for_deployment pgbouncer
+  wait_for_deployment pgbouncer-ro
 }
 
 wait_for_job() {
@@ -670,13 +671,15 @@ main() {
 
   wait_for_postgres
   wait_for_deployment pgbouncer
+  wait_for_deployment pgbouncer-ro
   remove_legacy_postgres
 
   section "Waiting For Rollouts"
   # Critical user-facing services: 600s to absorb any residual image-pull delay
   # after the pre-pull step (e.g. a node was temporarily unavailable during pre-pull).
-  wait_for_deployment api            600s
-  pin_deployment_to_postgres_primary api
+  wait_for_deployment api-ingest     600s
+  pin_deployment_to_postgres_primary api-ingest
+  wait_for_deployment api-dashboard  600s
   wait_for_deployment ingest-upload  600s
   pin_deployment_to_fsn1 ingest-upload
   wait_for_deployment web            600s

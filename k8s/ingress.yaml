@@ -224,8 +224,8 @@ spec:
                   number: 80
 
 ---
-# Dedicated ingest ingress on api.rejourney.co so high-frequency ingest routes
-# use the relaxed ingest edge bucket instead of the generic API limiter.
+# Dedicated ingest ingress on api.rejourney.co so high-frequency SDK ingest
+# traffic goes to the api-ingest deployment (colocated with Postgres primary).
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
@@ -253,19 +253,20 @@ spec:
             pathType: Prefix
             backend:
               service:
-                name: api
+                name: api-ingest
                 port:
                   number: 3000
           - path: /api/sdk/config
             pathType: Exact
             backend:
               service:
-                name: api
+                name: api-ingest
                 port:
                   number: 3000
 
 ---
-# Separate Ingress for general API traffic with stricter rate limiting
+# General API/dashboard traffic. Routes to api-dashboard pods which run on HEL1
+# near the Postgres read replica. No SDK traffic competes for the event loop.
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
@@ -286,7 +287,7 @@ spec:
         - api.rejourney.co
       secretName: rejourney-api-tls
   rules:
-    # API endpoints
+    # Dashboard + general API endpoints
     - host: api.rejourney.co
       http:
         paths:
@@ -294,7 +295,7 @@ spec:
             pathType: Prefix
             backend:
               service:
-                name: api
+                name: api-dashboard
                 port:
                   number: 3000
 
@@ -334,7 +335,7 @@ spec:
             pathType: Prefix
             backend:
               service:
-                name: api
+                name: api-ingest
                 port:
                   number: 3000
 
@@ -363,7 +364,7 @@ spec:
             pathType: Prefix
             backend:
               service:
-                name: api
+                name: api-dashboard
                 port:
                   number: 3000
     - host: ingest.rejourney.co
@@ -373,7 +374,7 @@ spec:
             pathType: Prefix
             backend:
               service:
-                name: api
+                name: api-ingest
                 port:
                   number: 3000
     - host: rejourney.co

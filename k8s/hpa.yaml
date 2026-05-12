@@ -2,7 +2,7 @@
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:
-  name: api
+  name: api-ingest
   namespace: rejourney
   labels:
     app.kubernetes.io/part-of: rejourney
@@ -10,7 +10,7 @@ spec:
   scaleTargetRef:
     apiVersion: apps/v1
     kind: Deployment
-    name: api
+    name: api-ingest
   minReplicas: 3
   maxReplicas: 6
   metrics:
@@ -20,6 +20,32 @@ spec:
         target:
           type: Utilization
           averageUtilization: 65
+
+---
+# Dashboard pods scale on CPU too but with a higher target — these pods do
+# few CPU-bound things; we want them to scale primarily on event-loop pressure
+# (which CPU is a fair proxy for) rather than on sustained low utilization.
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: api-dashboard
+  namespace: rejourney
+  labels:
+    app.kubernetes.io/part-of: rejourney
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: api-dashboard
+  minReplicas: 2
+  maxReplicas: 5
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 60
 
 ---
 apiVersion: autoscaling/v2

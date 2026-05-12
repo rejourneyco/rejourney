@@ -65,6 +65,10 @@ const envSchema = z.object({
 
     // Database
     DATABASE_URL: z.string(),
+    // Optional read-replica connection. When set, `dbRead` in db/client.ts uses
+    // this; otherwise it falls back to DATABASE_URL. api-dashboard pods set this
+    // to the pgbouncer-ro pool fronting the Postgres standby.
+    DATABASE_URL_READ: z.string().optional(),
 
     // Redis
     REDIS_URL: z.string().default('redis://localhost:6379/0'),

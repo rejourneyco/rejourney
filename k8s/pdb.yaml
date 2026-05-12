@@ -5,7 +5,7 @@
 apiVersion: policy/v1
 kind: PodDisruptionBudget
 metadata:
-  name: api-pdb
+  name: api-ingest-pdb
   namespace: rejourney
   labels:
     app.kubernetes.io/part-of: rejourney
@@ -13,7 +13,21 @@ spec:
   maxUnavailable: 1
   selector:
     matchLabels:
-      app: api
+      app: api-ingest
+
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: api-dashboard-pdb
+  namespace: rejourney
+  labels:
+    app.kubernetes.io/part-of: rejourney
+spec:
+  maxUnavailable: 1
+  selector:
+    matchLabels:
+      app: api-dashboard
 
 ---
 apiVersion: policy/v1
@@ -42,6 +56,20 @@ spec:
   selector:
     matchLabels:
       app: pgbouncer
+
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: pgbouncer-ro-pdb
+  namespace: rejourney
+  labels:
+    app.kubernetes.io/part-of: rejourney
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: pgbouncer-ro
 
 ---
 apiVersion: policy/v1

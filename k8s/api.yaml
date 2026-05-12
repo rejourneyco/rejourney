@@ -1,14 +1,22 @@
-# API Service Deployment for Rejourney
-# Main backend API handling auth, dashboard, and ingest endpoints
+# API Service Deployments for Rejourney
+# Split into two deployments to isolate workloads:
+#   - api-ingest:    SDK ingest traffic only. Colocated with Postgres primary on FSN1.
+#                    /api/ingest/*, /api/sdk/config — high volume, write-heavy.
+#   - api-dashboard: Operator dashboard + everything else. Prefers HEL1 next to the
+#                    read replica. Read-heavy, latency-sensitive, low volume.
+# Both deployments run the same image and same code; routing at the ingress
+# decides which pod handles which path.
 
 ---
+# Backward-compat alias Service. Anything internal that still says `api:3000`
+# (gatus, cluster DNS, monitoring) keeps working and points at api-ingest.
 apiVersion: v1
 kind: Service
 metadata:
   name: api
   namespace: rejourney
   labels:
-    app: api
+    app: api-ingest
     app.kubernetes.io/part-of: rejourney
 spec:
   type: ClusterIP
@@ -16,18 +24,52 @@ spec:
     - port: 3000
       targetPort: 3000
   selector:
-    app: api
+    app: api-ingest
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: api-ingest
+  namespace: rejourney
+  labels:
+    app: api-ingest
+    app.kubernetes.io/part-of: rejourney
+spec:
+  type: ClusterIP
+  ports:
+    - port: 3000
+      targetPort: 3000
+  selector:
+    app: api-ingest
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: api-dashboard
+  namespace: rejourney
+  labels:
+    app: api-dashboard
+    app.kubernetes.io/part-of: rejourney
+spec:
+  type: ClusterIP
+  ports:
+    - port: 3000
+      targetPort: 3000
+  selector:
+    app: api-dashboard
 
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: api
+  name: api-ingest
   namespace: rejourney
   labels:
     app.kubernetes.io/part-of: rejourney
 spec:
-  # Replica count here is the HPA floor (minReplicas=3 in hpa.yaml).
+  # Replica count here is the HPA floor (minReplicas in hpa.yaml).
   # HPA will scale above this under load; setting it here keeps the manifest
   # declarative and avoids drift if HPA is temporarily absent.
   replicas: 3
@@ -47,15 +89,15 @@ spec:
       maxSurge: 3
   selector:
     matchLabels:
-      app: api
+      app: api-ingest
   template:
     metadata:
       labels:
-        app: api
+        app: api-ingest
     spec:
       terminationGracePeriodSeconds: 30
-      # API latency depends on being colocated with the current Postgres primary.
-      # The hard podAffinity keeps new API pods on the same hostname as the CNPG
+      # Ingest latency depends on being colocated with the current Postgres primary.
+      # The hard podAffinity keeps new ingest pods on the same hostname as the CNPG
       # primary, while the FSN1 preference preserves the normal placement when
       # postgres-local-1 is primary.
       affinity:
@@ -317,6 +359,326 @@ spec:
             limits:
               cpu: "3000m"
               memory: 3Gi
+          livenessProbe:
+            httpGet:
+              path: /health/live
+              port: 3000
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: 3000
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 4
+            failureThreshold: 3
+
+---
+# Dashboard API deployment. Serves operator UI + everything that isn't SDK ingest.
+# Runs on HEL1 next to the Postgres read replica (postgres-local-2). Dashboard
+# queries are heavy reads — DATABASE_URL_READ points at pgbouncer-ro to keep
+# the analytics path off the primary. Writes still go through DATABASE_URL
+# (pgbouncer → primary, 25ms cross-DC, fine for the rare login/settings save).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api-dashboard
+  namespace: rejourney
+  labels:
+    app.kubernetes.io/part-of: rejourney
+spec:
+  replicas: 2
+  minReadySeconds: 10
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 2
+  selector:
+    matchLabels:
+      app: api-dashboard
+  template:
+    metadata:
+      labels:
+        app: api-dashboard
+    spec:
+      terminationGracePeriodSeconds: 30
+      affinity:
+        # Prefer HEL1: dashboard reads from the standby on HEL1, so local-DC
+        # latency wins here. Soft preference so pods still schedule on FSN1
+        # if HEL1 is unavailable.
+        nodeAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              preference:
+                matchExpressions:
+                  - key: rejourney.co/datacenter
+                    operator: In
+                    values: ["hel1"]
+        # Spread the two replicas across hosts so a single-node loss doesn't
+        # take both dashboard pods down.
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app: api-dashboard
+                topologyKey: kubernetes.io/hostname
+      imagePullSecrets:
+        - name: ghcr-secret
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+      containers:
+        - name: api
+          image: ghcr.io/rejourneyco/rejourney/api:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 3000
+          lifecycle:
+            preStop:
+              exec:
+                command: ["/bin/sh", "-c", "sleep 10"]
+          env:
+            - name: NODE_ENV
+              value: production
+            - name: PORT
+              value: "3000"
+            - name: LOG_LEVEL
+              value: "info"
+            - name: NODE_OPTIONS
+              value: "--max-old-space-size=2048"
+            - name: DB_POOL_MAX
+              value: "20"
+            - name: COOKIE_SECURE
+              value: "true"
+            - name: RJ_API_ROLE
+              value: "dashboard"
+            # Primary connection (writes: login, settings save, etc.)
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: PGBOUNCER_URL
+            # POSTGRES_* must be defined BEFORE DATABASE_URL_READ — Kubernetes
+            # $(VAR) interpolation only resolves vars that appear earlier in the
+            # env list of the same container.
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: POSTGRES_USER
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: POSTGRES_PASSWORD
+            - name: POSTGRES_DB
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: POSTGRES_DB
+            # Read replica connection (dashboard analytics aggregations).
+            # Falls back to DATABASE_URL in code if unset.
+            - name: DATABASE_URL_READ
+              value: "postgresql://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@pgbouncer-ro:5432/$(POSTGRES_DB)"
+            - name: REDIS_URL
+              valueFrom:
+                secretKeyRef:
+                  name: redis-secret
+                  key: REDIS_URL
+            - name: REDIS_SENTINEL_HOST
+              value: "redis.rejourney.svc.cluster.local"
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: redis-secret
+                  key: REDIS_PASSWORD
+                  optional: true
+            - name: S3_ENDPOINT
+              valueFrom:
+                secretKeyRef:
+                  name: s3-secret
+                  key: S3_ENDPOINT
+            - name: S3_PUBLIC_ENDPOINT
+              valueFrom:
+                secretKeyRef:
+                  name: s3-secret
+                  key: S3_PUBLIC_ENDPOINT
+            - name: S3_BUCKET
+              valueFrom:
+                secretKeyRef:
+                  name: s3-secret
+                  key: S3_BUCKET
+            - name: S3_REGION
+              valueFrom:
+                secretKeyRef:
+                  name: s3-secret
+                  key: S3_REGION
+            - name: S3_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: s3-secret
+                  key: S3_ACCESS_KEY_ID
+            - name: S3_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: s3-secret
+                  key: S3_SECRET_ACCESS_KEY
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: app-secret
+                  key: JWT_SECRET
+            - name: JWT_SIGNING_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: app-secret
+                  key: JWT_SIGNING_KEY
+            - name: INGEST_HMAC_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: app-secret
+                  key: INGEST_HMAC_SECRET
+            - name: STORAGE_ENCRYPTION_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: app-secret
+                  key: STORAGE_ENCRYPTION_KEY
+            - name: QUERY_BUILDER_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: app-secret
+                  key: QUERY_BUILDER_KEY
+                  optional: true
+            - name: QUERY_BUILDER_MODEL
+              valueFrom:
+                secretKeyRef:
+                  name: app-secret
+                  key: QUERY_BUILDER_MODEL
+                  optional: true
+            - name: GITHUB_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: oauth-secret
+                  key: GITHUB_CLIENT_ID
+                  optional: true
+            - name: GITHUB_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: oauth-secret
+                  key: GITHUB_CLIENT_SECRET
+                  optional: true
+            - name: OAUTH_REDIRECT_BASE
+              valueFrom:
+                secretKeyRef:
+                  name: oauth-secret
+                  key: OAUTH_REDIRECT_BASE
+                  optional: true
+            - name: STRIPE_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: stripe-secret
+                  key: STRIPE_SECRET_KEY
+                  optional: true
+            - name: STRIPE_WEBHOOK_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: stripe-secret
+                  key: STRIPE_WEBHOOK_SECRET
+                  optional: true
+            - name: TURNSTILE_SITE_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: turnstile-secret
+                  key: TURNSTILE_SITE_KEY
+                  optional: true
+            - name: TURNSTILE_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: turnstile-secret
+                  key: TURNSTILE_SECRET_KEY
+                  optional: true
+            - name: SMTP_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: smtp-secret
+                  key: SMTP_HOST
+                  optional: true
+            - name: SMTP_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: smtp-secret
+                  key: SMTP_PORT
+                  optional: true
+            - name: SMTP_USER
+              valueFrom:
+                secretKeyRef:
+                  name: smtp-secret
+                  key: SMTP_USER
+                  optional: true
+            - name: SMTP_PASS
+              valueFrom:
+                secretKeyRef:
+                  name: smtp-secret
+                  key: SMTP_PASS
+                  optional: true
+            - name: SMTP_FROM
+              valueFrom:
+                secretKeyRef:
+                  name: smtp-secret
+                  key: SMTP_FROM
+                  optional: true
+            - name: SMTP_SECURE
+              valueFrom:
+                secretKeyRef:
+                  name: smtp-secret
+                  key: SMTP_SECURE
+                  optional: true
+            - name: PUBLIC_DASHBOARD_URL
+              valueFrom:
+                secretKeyRef:
+                  name: app-secret
+                  key: PUBLIC_DASHBOARD_URL
+                  optional: true
+            - name: PUBLIC_API_URL
+              valueFrom:
+                secretKeyRef:
+                  name: app-secret
+                  key: PUBLIC_API_URL
+                  optional: true
+            - name: PUBLIC_INGEST_URL
+              valueFrom:
+                secretKeyRef:
+                  name: app-secret
+                  key: PUBLIC_INGEST_URL
+                  optional: true
+            - name: DASHBOARD_ORIGIN
+              valueFrom:
+                secretKeyRef:
+                  name: app-secret
+                  key: DASHBOARD_ORIGIN
+                  optional: true
+            - name: PUSHGATEWAY_URL
+              value: "http://pushgateway.rejourney.svc.cluster.local:9091"
+            - name: DEBUG_HEALTH_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: monitoring-tokens
+                  key: debug-token
+                  optional: true
+          resources:
+            requests:
+              cpu: 500m
+              memory: 768Mi
+            limits:
+              cpu: "2000m"
+              memory: 2Gi
           livenessProbe:
             httpGet:
               path: /health/live

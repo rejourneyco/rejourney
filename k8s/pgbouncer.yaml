@@ -109,3 +109,121 @@ spec:
   ports:
     - port: 5432
       targetPort: 5432
+
+---
+# Read-only pgbouncer pool fronting the Postgres standby (postgres-app-ro).
+# Used by api-dashboard pods via DATABASE_URL_READ to keep heavy analytics
+# aggregations off the primary. The dashboard runs on HEL1 next to the
+# standby, so reads through this pool are local-DC (no 25ms penalty).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pgbouncer-ro
+  namespace: rejourney
+  labels:
+    app: pgbouncer-ro
+    app.kubernetes.io/part-of: rejourney
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: pgbouncer-ro
+  template:
+    metadata:
+      labels:
+        app: pgbouncer-ro
+    spec:
+      affinity:
+        # Sit next to the standby on HEL1 — the dashboard pods are there too.
+        nodeAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              preference:
+                matchExpressions:
+                  - key: rejourney.co/datacenter
+                    operator: In
+                    values: ["hel1"]
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app: pgbouncer-ro
+                topologyKey: kubernetes.io/hostname
+      containers:
+        - name: pgbouncer
+          image: edoburu/pgbouncer:v1.25.1-p0
+          ports:
+            - containerPort: 5432
+          env:
+            - name: DB_HOST
+              value: postgres-app-ro
+            - name: DB_PORT
+              value: "5432"
+            - name: DB_NAME
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: POSTGRES_DB
+            - name: DB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: POSTGRES_USER
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: POSTGRES_PASSWORD
+            - name: POOL_MODE
+              value: transaction
+            - name: DEFAULT_POOL_SIZE
+              value: "30"
+            - name: MAX_CLIENT_CONN
+              value: "400"
+            - name: SERVER_IDLE_TIMEOUT
+              value: "120"
+            - name: AUTH_TYPE
+              value: scram-sha-256
+            - name: IGNORE_STARTUP_PARAMETERS
+              value: extra_float_digits
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          readinessProbe:
+            tcpSocket:
+              port: 5432
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: 5432
+            initialDelaySeconds: 15
+            periodSeconds: 20
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: pgbouncer-ro
+  namespace: rejourney
+  labels:
+    app: pgbouncer-ro
+    app.kubernetes.io/part-of: rejourney
+spec:
+  trafficDistribution: PreferClose
+  selector:
+    app: pgbouncer-ro
+  ports:
+    - port: 5432
+      targetPort: 5432
