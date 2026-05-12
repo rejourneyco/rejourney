@@ -56,9 +56,12 @@ export async function markSessionIngestActivity(sessionId: string, options: Touc
         update.durationSeconds = null;
     }
 
-    await db.update(sessions)
-        .set(update)
-        .where(eq(sessions.id, sessionId));
+    await db.transaction(async (tx) => {
+        await tx.execute(sql`SET LOCAL synchronous_commit = local`);
+        await tx.update(sessions)
+            .set(update)
+            .where(eq(sessions.id, sessionId));
+    });
 }
 
 export async function reconcileSessionState(sessionId: string, now = new Date()): Promise<ReconcileSessionResult | null> {
@@ -168,17 +171,19 @@ export async function reconcileSessionState(sessionId: string, now = new Date())
         sessionUpdate.status = 'processing';
     }
 
-    await db.update(sessions)
-        .set(sessionUpdate)
-        .where(eq(sessions.id, sessionId));
-
-    await db.update(sessionMetrics)
-        .set({
-            screenshotSegmentCount: readyScreenshotCount,
-            screenshotTotalBytes: readyScreenshotBytes,
-            hierarchySnapshotCount: readyHierarchyCount,
-        })
-        .where(eq(sessionMetrics.sessionId, sessionId));
+    await db.transaction(async (tx) => {
+        await tx.execute(sql`SET LOCAL synchronous_commit = local`);
+        await tx.update(sessions)
+            .set(sessionUpdate)
+            .where(eq(sessions.id, sessionId));
+        await tx.update(sessionMetrics)
+            .set({
+                screenshotSegmentCount: readyScreenshotCount,
+                screenshotTotalBytes: readyScreenshotBytes,
+                hierarchySnapshotCount: readyHierarchyCount,
+            })
+            .where(eq(sessionMetrics.sessionId, sessionId));
+    });
 
     let backupQueued = false;
     if (shouldFinalize) {
