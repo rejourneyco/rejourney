@@ -8,6 +8,7 @@
  */
 
 import { useLocation } from 'react-router';
+import { isPublicRoutePath } from '~/shared/lib/publicRoutePaths';
 
 export function usePathPrefix(): string {
     const location = useLocation();
@@ -33,10 +34,7 @@ export function usePrefixedNavigate() {
             return path;
         }
         // Don't prefix public routes
-        if (path === '/' || path.startsWith('/login') || path.startsWith('/docs') ||
-            path.startsWith('/pricing') || path.startsWith('/terms') ||
-            path.startsWith('/privacy') || path.startsWith('/engineering') ||
-            path.startsWith('/invite')) {
+        if (isPublicRoutePath(path)) {
             return path;
         }
         return `${prefix}${path}`;

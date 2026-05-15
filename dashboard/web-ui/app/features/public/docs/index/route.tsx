@@ -4,25 +4,47 @@
  */
 
 import type { Route } from "./+types/route";
-import { DocsLayout } from "~/shared/docs/DocsLayout";
-import { DocsSidebar } from "~/shared/docs/DocsSidebar";
-import { DocsTableOfContents } from "~/shared/docs/DocsTableOfContents";
-import { MarkdownContent } from "~/shared/docs/MarkdownContent";
-import { extractTOCFromMarkdown } from "~/shared/lib/markdownTOC";
+import { redirect } from "react-router";
+import { getContentLocaleCopy } from "~/shared/lib/contentLocalization";
+import {
+    getLocalizedAlternateLinksForPath,
+    getLocalizedPublicPath,
+    getLocalizedPublicUrl,
+    getMarketingLocaleFromPathname,
+    getMarketingLocaleRedirectPath,
+    MARKETING_LOCALE_VARY_HEADER,
+} from "~/shared/lib/internationalMarketing";
 
 export const meta: Route.MetaFunction = ({ location }) => {
-    const title = "Mobile SDK Documentation - Rejourney";
-    const description = "Rejourney documentation for mobile apps, including React Native, Swift iOS, Expo, self-hosting, and architecture guides.";
+    const locale = getMarketingLocaleFromPathname(location.pathname);
+    const copy = getContentLocaleCopy(locale);
+    const title = copy.docsIndexTitle;
+    const description = copy.docsIndexDescription;
     const domain = "https://rejourney.co";
-    const canonicalUrl = `${domain}${location.pathname}`;
+    const canonicalUrl = getLocalizedPublicUrl(locale, "/docs");
+    const alternateLinks = getLocalizedAlternateLinksForPath("/docs").map((alternate) => ({
+        tagName: "link",
+        rel: "alternate",
+        hrefLang: alternate.hrefLang,
+        href: alternate.href,
+    }));
+    const alternateOgLocales = getLocalizedAlternateLinksForPath("/docs")
+        .filter((alternate) => alternate.hrefLang !== "x-default" && alternate.hrefLang !== locale.languageTag)
+        .map((alternate) => ({
+            property: "og:locale:alternate",
+            content: getMarketingLocaleFromPathname(new URL(alternate.href).pathname).ogLocale,
+        }));
 
     return [
         { title },
         { name: "description", content: description },
         { name: "robots", content: "index, follow" },
+        { httpEquiv: "Content-Language", content: locale.languageTag },
         { tagName: "link", rel: "canonical", href: canonicalUrl },
+        ...alternateLinks,
         // OpenGraph
-        { property: "og:locale", content: "en_US" },
+        { property: "og:locale", content: locale.ogLocale },
+        ...alternateOgLocales,
         { property: "og:title", content: title },
         { property: "og:description", content: description },
         { property: "og:url", content: canonicalUrl },
@@ -36,10 +58,19 @@ export const meta: Route.MetaFunction = ({ location }) => {
     ];
 };
 
-import { redirect } from "react-router";
+export async function loader({ request }: Route.LoaderArgs) {
+    const localeRedirectPath = getMarketingLocaleRedirectPath(request);
+    if (localeRedirectPath) {
+        return redirect(localeRedirectPath, {
+            status: 302,
+            headers: {
+                Vary: MARKETING_LOCALE_VARY_HEADER,
+            },
+        });
+    }
 
-export async function loader() {
-    return redirect("/docs/reactnative/overview");
+    const locale = getMarketingLocaleFromPathname(new URL(request.url).pathname);
+    return redirect(getLocalizedPublicPath(locale, "/docs/reactnative/overview"));
 }
 
 export default function Docs() {

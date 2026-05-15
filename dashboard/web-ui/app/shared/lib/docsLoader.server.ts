@@ -9,6 +9,7 @@ import { readFileSync, existsSync } from 'fs';
 import { join, dirname, resolve } from 'path';
 import { fileURLToPath } from 'url';
 import { DOCS_MAP, type DocMetadata } from './docsConfig';
+import type { MarketingLocaleCode } from './internationalMarketing';
 
 // Get the directory of this file
 const __filename = fileURLToPath(import.meta.url);
@@ -44,10 +45,16 @@ const DOCS_ROOT = getDocsRoot();
 // Re-export DocMetadata for convenience
 export type { DocMetadata };
 
+export type LoadedDocContent = {
+    content: string;
+    localeCode: MarketingLocaleCode;
+    usedFallback: boolean;
+};
+
 /**
  * Load markdown content from the docs folder
  */
-export function loadDocContent(docPath: string): string | null {
+export function loadLocalizedDocContent(docPath: string, localeCode: MarketingLocaleCode = "en"): LoadedDocContent | null {
     try {
         const docInfo = DOCS_MAP[docPath];
         if (!docInfo) {
@@ -55,7 +62,9 @@ export function loadDocContent(docPath: string): string | null {
             return null;
         }
 
-        const filePath = join(DOCS_ROOT, docInfo.file);
+        const localizedFilePath = join(DOCS_ROOT, 'i18n', localeCode, docInfo.file);
+        const hasLocalizedContent = localeCode !== "en" && existsSync(localizedFilePath);
+        const filePath = hasLocalizedContent ? localizedFilePath : join(DOCS_ROOT, docInfo.file);
         console.log(`[docsLoader] Loading doc "${docPath}" from: ${filePath} (DOCS_ROOT: ${DOCS_ROOT})`);
         
         if (!existsSync(filePath)) {
@@ -64,11 +73,19 @@ export function loadDocContent(docPath: string): string | null {
         }
         
         const content = readFileSync(filePath, 'utf-8');
-        return content;
+        return {
+            content,
+            localeCode: hasLocalizedContent ? localeCode : "en",
+            usedFallback: !hasLocalizedContent && localeCode !== "en",
+        };
     } catch (error) {
         console.error(`[docsLoader] Failed to load doc "${docPath}" from ${DOCS_ROOT}:`, error);
         return null;
     }
+}
+
+export function loadDocContent(docPath: string, localeCode: MarketingLocaleCode = "en"): string | null {
+    return loadLocalizedDocContent(docPath, localeCode)?.content ?? null;
 }
 
 /**

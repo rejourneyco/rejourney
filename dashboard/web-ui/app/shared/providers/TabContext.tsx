@@ -6,6 +6,7 @@ import { useSafeTeam } from './TeamContext';
 import { useDemoMode } from './DemoModeContext';
 import { getWorkspace, saveWorkspace, WorkspaceTab } from '~/shared/api/client';
 import { isUuid } from '~/shared/lib/ids';
+import { isPublicRoutePath } from '~/shared/lib/publicRoutePaths';
 
 export interface Tab {
     id: string;
@@ -315,10 +316,7 @@ export const TabProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
         // If we can't normalize and it looks like a dashboard route, add prefix
         if (legacyNormalizedPath.startsWith('/') && !legacyNormalizedPath.startsWith('/dashboard') && !legacyNormalizedPath.startsWith('/demo') &&
-            !legacyNormalizedPath.startsWith('/login') && !legacyNormalizedPath.startsWith('/docs') &&
-            !legacyNormalizedPath.startsWith('/pricing') && !legacyNormalizedPath.startsWith('/terms') &&
-            !legacyNormalizedPath.startsWith('/privacy') && !legacyNormalizedPath.startsWith('/engineering') &&
-            !legacyNormalizedPath.startsWith('/invite') && legacyNormalizedPath !== '/') {
+            !isPublicRoutePath(legacyNormalizedPath)) {
             return `${prefix}${legacyNormalizedPath}`;
         }
 
@@ -515,10 +513,7 @@ export const TabProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                             });
 
                             // Only navigate if we're not on a public page
-                            const isPublicPage = location.pathname === '/' ||
-                                location.pathname.startsWith('/docs') ||
-                                location.pathname === '/terms-of-service' ||
-                                location.pathname === '/privacy-policy';
+                            const isPublicPage = isPublicRoutePath(location.pathname);
 
                             // Verify the normalized path is valid before navigating
                             const tabInfo = TabRegistry.getTabInfo(activeTab.path);

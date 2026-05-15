@@ -8,6 +8,7 @@
  * See LICENSE-SSPL for full terms.
  */
 
+import { useEffect } from "react";
 import {
     Links,
     Meta,
@@ -25,6 +26,7 @@ import "./styles/landing.css";
 import { getPublicRuntimeEnvSnapshot } from "./shared/config/runtimeEnv";
 import {
     MARKETING_AVAILABLE_LANGUAGES,
+    getLocalizedPublicUrl,
     getMarketingHomeCopy,
     getMarketingLocaleFromPathname,
 } from "./shared/lib/internationalMarketing";
@@ -95,6 +97,11 @@ export function Layout({ children }: { children: React.ReactNode }) {
     const locale = getMarketingLocaleFromPathname(location.pathname);
     const copy = getMarketingHomeCopy(locale);
 
+    useEffect(() => {
+        document.documentElement.lang = locale.languageTag;
+        document.documentElement.dir = locale.dir;
+    }, [locale.dir, locale.languageTag]);
+
     return (
         <html lang={locale.languageTag} dir={locale.dir}>
             <head>
@@ -158,10 +165,10 @@ export function Layout({ children }: { children: React.ReactNode }) {
                                     "name": "Sitelinks",
                                     "inLanguage": locale.languageTag,
                                     "itemListElement": [
-                                        { "@type": "SiteNavigationElement", "position": 1, "name": copy.header.docs, "url": "https://rejourney.co/docs/reactnative/overview" },
-                                        { "@type": "SiteNavigationElement", "position": 2, "name": copy.header.engineering, "url": "https://rejourney.co/engineering" },
-                                        { "@type": "SiteNavigationElement", "position": 3, "name": copy.header.pricing, "url": "https://rejourney.co/pricing" },
-                                        { "@type": "SiteNavigationElement", "position": 4, "name": copy.header.selfHosted, "url": "https://rejourney.co/docs/selfhosted" },
+                                        { "@type": "SiteNavigationElement", "position": 1, "name": copy.header.docs, "url": getLocalizedPublicUrl(locale, "/docs/reactnative/overview") },
+                                        { "@type": "SiteNavigationElement", "position": 2, "name": copy.header.engineering, "url": getLocalizedPublicUrl(locale, "/engineering") },
+                                        { "@type": "SiteNavigationElement", "position": 3, "name": copy.header.pricing, "url": getLocalizedPublicUrl(locale, "/pricing") },
+                                        { "@type": "SiteNavigationElement", "position": 4, "name": copy.header.selfHosted, "url": getLocalizedPublicUrl(locale, "/docs/selfhosted") },
                                         { "@type": "SiteNavigationElement", "position": 5, "name": copy.header.login, "url": "https://rejourney.co/login" }
                                     ]
                                 }

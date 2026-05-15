@@ -3,6 +3,7 @@ import { cn } from "~/shared/lib/cn";
 import { ChevronDown, ChevronRight, Hash } from "lucide-react";
 import { useState, useEffect } from "react";
 import { getAllDocs } from "~/shared/lib/docsConfig";
+import { getLocalizedPublicPath, getMarketingLocaleFromPathname, stripMarketingLocaleFromPathname } from "~/shared/lib/internationalMarketing";
 
 type NavLink = { label: string; href: string; isRoute?: boolean };
 type NavSection = { title: string; links: NavLink[] };
@@ -11,7 +12,7 @@ type NavCategory = { category: string; sections: NavSection[] };
 // Get markdown-based docs
 const markdownDocs = getAllDocs();
 const selfhostedDocs = markdownDocs.filter(doc => doc.category === 'Self-Hosting');
-const devDocs = markdownDocs.filter(doc => doc.category === 'Development');
+const communityDocs = markdownDocs.filter(doc => doc.category === 'Community' || doc.category === 'Development');
 const archDocs = markdownDocs.filter(doc => doc.category === 'Architecture');
 const swiftDocs = markdownDocs.filter(doc => doc.category === 'Swift (iOS)');
 
@@ -66,12 +67,12 @@ const NAVIGATION: NavCategory[] = [
         ]
     }] : []),
     // Add Development category if there are dev docs
-    ...(devDocs.length > 0 ? [{
-        category: "Development",
+    ...(communityDocs.length > 0 ? [{
+        category: "Community",
         sections: [
             {
                 title: "Contributing",
-                links: devDocs.map(doc => ({
+                links: communityDocs.map(doc => ({
                     label: doc.title,
                     href: `/docs/${doc.path}`,
                     isRoute: true,
@@ -97,7 +98,8 @@ const NAVIGATION: NavCategory[] = [
 
 export function DocsSidebar({ className }: { className?: string }) {
     const location = useLocation();
-    const [expandedCategories, setExpandedCategories] = useState<string[]>(["React Native", "Swift (iOS)", "Self-Hosting", "Development", "Architecture"]);
+    const locale = getMarketingLocaleFromPathname(location.pathname);
+    const [expandedCategories, setExpandedCategories] = useState<string[]>(["React Native", "Swift (iOS)", "Self-Hosting", "Community", "Architecture"]);
     const [activeHash, setActiveHash] = useState<string>("");
 
     // Scroll Spy implementation
@@ -142,12 +144,13 @@ export function DocsSidebar({ className }: { className?: string }) {
     }, [location.hash]);
 
     const isActive = (href: string, isRoute?: boolean) => {
-        const pathname = location.pathname;
+        const pathname = stripMarketingLocaleFromPathname(location.pathname).pathname;
+        const localizedHref = stripMarketingLocaleFromPathname(href.split("#")[0]).pathname + (href.includes("#") ? `#${href.split("#")[1]}` : "");
 
         if (isRoute) {
             // Fix: remove trailing slashes for comparison
             const normalizedPath = pathname.endsWith('/') ? pathname.slice(0, -1) : pathname;
-            const normalizedHref = href.endsWith('/') ? href.slice(0, -1) : href;
+            const normalizedHref = localizedHref.endsWith('/') ? localizedHref.slice(0, -1) : localizedHref;
 
             // Exact match for /docs (Overview) - ONLY if it's exactly /docs with no hash
             if (normalizedHref === '/docs') {
@@ -165,7 +168,7 @@ export function DocsSidebar({ className }: { className?: string }) {
         } else {
             // For hash links - check if we're on the right page and hash matches
             if (href.includes('#')) {
-                const [path, hash] = href.split('#');
+                const [path, hash] = localizedHref.split('#');
                 // Must be on the correct page
                 // Fix: remove trailing slashes for comparison
                 const normalizedPath = pathname.endsWith('/') ? pathname.slice(0, -1) : pathname;
@@ -233,11 +236,13 @@ export function DocsSidebar({ className }: { className?: string }) {
                                                         : "text-gray-600 hover:text-black hover:bg-gray-200 hover:border-gray-300"
                                                 );
 
+                                                const localizedHref = getLocalizedPublicPath(locale, link.href);
+
                                                 if (link.isRoute) {
                                                     return (
                                                         <Link
                                                             key={link.href}
-                                                            to={link.href}
+                                                            to={localizedHref}
                                                             className={className}
                                                         >
                                                             {LinkContent}
@@ -247,13 +252,13 @@ export function DocsSidebar({ className }: { className?: string }) {
                                                     return (
                                                         <a
                                                             key={link.href}
-                                                            href={link.href}
+                                                            href={localizedHref}
                                                             className={className}
                                                             onClick={(e) => {
                                                                 // If on same page, smooth scroll
-                                                                if (location.pathname === link.href.split('#')[0]) {
+                                                                if (location.pathname === localizedHref.split('#')[0]) {
                                                                     e.preventDefault();
-                                                                    const hash = link.href.split('#')[1];
+                                                                    const hash = localizedHref.split('#')[1];
                                                                     const el = document.getElementById(hash);
                                                                     if (el) {
                                                                         el.scrollIntoView({ behavior: 'smooth' });

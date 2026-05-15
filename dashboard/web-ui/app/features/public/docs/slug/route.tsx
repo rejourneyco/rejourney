@@ -4,10 +4,20 @@
  */
 
 import type { Route } from "./+types/route";
+import { redirect } from "react-router";
 import { DocsLayout } from "~/shared/docs/DocsLayout";
 import { DocsSidebar } from "~/shared/docs/DocsSidebar";
 import { MarkdownContent } from "~/shared/docs/MarkdownContent";
 import { getDocMetadata } from "~/shared/lib/docsConfig";
+import { getContentLocaleCopy, getLocalizedDocMetadata } from "~/shared/lib/contentLocalization";
+import {
+    getLocalizedAlternateLinksForPath,
+    getLocalizedPublicUrl,
+    getMarketingLocaleFromPathname,
+    getMarketingLocaleRedirectPath,
+    MARKETING_LOCALE_VARY_HEADER,
+    MARKETING_LOCALES,
+} from "~/shared/lib/internationalMarketing";
 
 function getSlugFromParams(params: any): string {
     // Route is configured as /docs/* so React Router provides the splat param as "*"
@@ -18,27 +28,45 @@ function getSlugFromParams(params: any): string {
 
 export const meta: Route.MetaFunction = ({ params, location }) => {
     const slug = getSlugFromParams(params as any);
+    const locale = getMarketingLocaleFromPathname(location.pathname);
     const metadata = getDocMetadata(slug);
     const domain = "https://rejourney.co";
-    const canonicalUrl = `${domain}${location.pathname}`;
+    const canonicalPath = `/docs/${slug}`;
+    const canonicalUrl = getLocalizedPublicUrl(locale, canonicalPath);
+    const copy = getContentLocaleCopy(locale);
+    const alternateLinks = getLocalizedAlternateLinksForPath(canonicalPath).map((alternate) => ({
+        tagName: "link",
+        rel: "alternate",
+        hrefLang: alternate.hrefLang,
+        href: alternate.href,
+    }));
+    const alternateOgLocales = getLocalizedAlternateLinksForPath(canonicalPath)
+        .filter((alternate) => alternate.hrefLang !== "x-default" && alternate.hrefLang !== locale.languageTag)
+        .map((alternate) => ({
+            property: "og:locale:alternate",
+            content: getMarketingLocaleFromPathname(new URL(alternate.href).pathname).ogLocale,
+        }));
 
     if (!metadata) {
-        return [{ title: "Documentation Not Found - Rejourney" }];
+        return [{ title: copy.documentationNotFoundTitle }];
     }
 
-    const title = `${metadata.title} - Rejourney Documentation`;
-    const description = metadata.description
-        ?? `${metadata.title} documentation for Rejourney's open-source mobile observability platform.`;
-    const keywords = metadata.keywords?.join(", ");
+    const localizedMetadata = getLocalizedDocMetadata(metadata, locale);
+    const title = `${localizedMetadata.title} - ${copy.docsTitleSuffix}`;
+    const description = localizedMetadata.description ?? copy.docDefaultDescription(localizedMetadata.title);
+    const keywords = localizedMetadata.keywords?.join(", ");
 
     return [
         { title },
         { name: "description", content: description },
         ...(keywords ? [{ name: "keywords", content: keywords }] : []),
         { name: "robots", content: "index, follow, max-image-preview:large, max-snippet:-1" },
+        { httpEquiv: "Content-Language", content: locale.languageTag },
         { tagName: "link", rel: "canonical", href: canonicalUrl },
+        ...alternateLinks,
         // OpenGraph
-        { property: "og:locale", content: "en_US" },
+        { property: "og:locale", content: locale.ogLocale },
+        ...alternateOgLocales,
         { property: "og:title", content: title },
         { property: "og:description", content: description },
         { property: "og:url", content: canonicalUrl },
@@ -53,31 +81,48 @@ export const meta: Route.MetaFunction = ({ params, location }) => {
     ];
 };
 
-export async function loader({ params }: Route.LoaderArgs) {
-    const { loadDocContent, getDocMetadata } = await import("~/shared/lib/docsLoader.server");
+export async function loader({ params, request }: Route.LoaderArgs) {
+    const localeRedirectPath = getMarketingLocaleRedirectPath(request);
+    if (localeRedirectPath) {
+        throw redirect(localeRedirectPath, {
+            status: 302,
+            headers: {
+                Vary: MARKETING_LOCALE_VARY_HEADER,
+            },
+        });
+    }
+
+    const { loadLocalizedDocContent, getDocMetadata } = await import("~/shared/lib/docsLoader.server");
     const slug = getSlugFromParams(params as any);
-    const content = loadDocContent(slug);
+    const localeCode = getMarketingLocaleFromPathname(new URL(request.url).pathname).code;
+    const loadedDoc = loadLocalizedDocContent(slug, localeCode);
     const metadata = getDocMetadata(slug);
 
-    if (!content || !metadata) {
+    if (!loadedDoc || !metadata) {
         throw new Response("Documentation not found", { status: 404 });
     }
 
     return {
-        content,
+        content: loadedDoc.content,
         metadata,
+        localeCode,
+        contentLocaleCode: loadedDoc.localeCode,
     };
 }
 
 export default function DocPage({ loaderData }: Route.ComponentProps) {
-    const { content, metadata } = loaderData;
+    const { content, metadata, localeCode, contentLocaleCode } = loaderData;
+    const locale = MARKETING_LOCALES[localeCode] ?? MARKETING_LOCALES.en;
+    const contentLocale = MARKETING_LOCALES[contentLocaleCode] ?? MARKETING_LOCALES.en;
+    const copy = getContentLocaleCopy(locale);
+    const localizedMetadata = metadata ? getLocalizedDocMetadata(metadata, locale) : null;
 
-    if (!metadata) {
+    if (!localizedMetadata) {
         return (
             <DocsLayout sidebar={<DocsSidebar />}>
                 <div className="text-center py-12">
-                    <h1 className="text-2xl font-bold text-black mb-4">Documentation Not Found</h1>
-                    <p className="text-gray-600">The requested documentation page could not be found.</p>
+                    <h1 className="text-2xl font-bold text-black mb-4">{copy.documentationNotFoundHeading}</h1>
+                    <p className="text-gray-600">{copy.documentationNotFoundCopy}</p>
                 </div>
             </DocsLayout>
         );
@@ -86,6 +131,8 @@ export default function DocPage({ loaderData }: Route.ComponentProps) {
     return (
         <DocsLayout
             sidebar={<DocsSidebar />}
+            contentDir={contentLocale.dir}
+            contentLang={contentLocale.languageTag}
         >
             <script
                 type="application/ld+json"
@@ -95,37 +142,37 @@ export default function DocPage({ loaderData }: Route.ComponentProps) {
                         "@graph": [
                             {
                                 "@type": "TechArticle",
-                                "headline": metadata.title,
-                                "description": metadata.description ?? `${metadata.title} documentation for Rejourney.`,
-                                "inLanguage": "en-US",
-                                "category": metadata.category,
-                                "keywords": metadata.keywords,
+                                "headline": localizedMetadata.title,
+                                "description": localizedMetadata.description ?? copy.docDefaultDescription(localizedMetadata.title),
+                                "inLanguage": locale.languageTag,
+                                "category": localizedMetadata.category,
+                                "keywords": localizedMetadata.keywords,
                                 "mainEntityOfPage": {
                                     "@type": "WebPage",
-                                    "@id": `https://rejourney.co/docs/${metadata.path}`
+                                    "@id": getLocalizedPublicUrl(locale, `/docs/${localizedMetadata.path}`)
                                 },
                                 "publisher": {
                                     "@type": "Organization",
                                     "name": "Rejourney",
-                                    "inLanguage": "en-US",
+                                    "inLanguage": locale.languageTag,
                                     "logo": "https://rejourney.co/rejourneyIcon-removebg-preview.png"
                                 }
                             },
                             {
                                 "@type": "BreadcrumbList",
-                                "inLanguage": "en-US",
+                                "inLanguage": locale.languageTag,
                                 "itemListElement": [
                                     {
                                         "@type": "ListItem",
                                         "position": 1,
-                                        "name": "Docs",
-                                        "item": "https://rejourney.co/docs/reactnative/overview"
+                                        "name": copy.docsBreadcrumb,
+                                        "item": getLocalizedPublicUrl(locale, "/docs/reactnative/overview")
                                     },
                                     {
                                         "@type": "ListItem",
                                         "position": 2,
-                                        "name": metadata.title,
-                                        "item": `https://rejourney.co/docs/${metadata.path}`
+                                        "name": localizedMetadata.title,
+                                        "item": getLocalizedPublicUrl(locale, `/docs/${localizedMetadata.path}`)
                                     }
                                 ]
                             }
@@ -134,13 +181,13 @@ export default function DocPage({ loaderData }: Route.ComponentProps) {
                 }}
             />
             <header className="mb-12">
-                {metadata.category && (
+                {localizedMetadata.category && (
                     <p className="text-sm text-gray-500 uppercase tracking-wide mb-2">
-                        {metadata.category}
+                        {localizedMetadata.category}
                     </p>
                 )}
                 <h1 className="text-3xl font-bold text-black mb-3">
-                    {metadata.title}
+                    {localizedMetadata.title}
                 </h1>
             </header>
 

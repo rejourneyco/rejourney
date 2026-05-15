@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
-import { Link } from 'react-router';
+import { Link, useLocation } from 'react-router';
 import { ArrowRight, Check, ChevronDown, Copy, Github } from 'lucide-react';
 import { api, type BillingPlan } from '~/shared/api/client';
 import { useToast } from '~/shared/providers/ToastContext';
+import { getContentLocaleCopy } from '~/shared/lib/contentLocalization';
+import { getMarketingLocaleFromPathname } from '~/shared/lib/internationalMarketing';
 
 type PricingPlan = BillingPlan & {
     interval?: 'month' | 'year';
@@ -16,24 +18,6 @@ const FALLBACK_PLANS: PricingPlan[] = [
 ];
 
 const PLAN_ORDER = ['free', 'starter', 'growth', 'pro'];
-
-const PLAN_DESCRIPTIONS: Record<string, string> = {
-    free: 'For early projects and production validation.',
-    starter: 'For apps starting to see regular traffic.',
-    growth: 'For growing teams with heavier replay volume.',
-    pro: 'For high-traffic apps and mature mobile teams.',
-};
-
-const SHARED_FEATURES = [
-    'Session Replays Every Session',
-    'Crashes/ANRS/Errors',
-    'Growth Analytics',
-    'Geographic Analytics',
-    'Journey Analytics',
-    'Heat Maps',
-    'Unlimited Analytics/Events',
-    'Unlimited Data Retention (except replays)',
-];
 
 const VOLUME_PRESETS = [
     { label: '5k', sessions: 5000 },
@@ -53,7 +37,7 @@ const sessionsToSlider = (sessions: number) =>
 const DEFAULT_CALCULATOR_SESSIONS = 25000;
 const DEFAULT_CALCULATOR_SLIDER_VALUE = sessionsToSlider(DEFAULT_CALCULATOR_SESSIONS);
 
-const formatInteger = (value: number) => new Intl.NumberFormat('en-US').format(value);
+const formatInteger = (value: number, languageTag = 'en-US') => new Intl.NumberFormat(languageTag).format(value);
 
 const formatShortInteger = (value: number) => {
     if (value >= 1000000) return `${Number((value / 1000000).toFixed(1))}m`;
@@ -113,6 +97,9 @@ const PlanCheck: React.FC<{ children: React.ReactNode }> = ({ children }) => (
 
 export const PricingTable: React.FC = () => {
     const { showToast } = useToast();
+    const location = useLocation();
+    const locale = getMarketingLocaleFromPathname(location.pathname);
+    const copy = getContentLocaleCopy(locale).pricing;
     const [availablePlans, setAvailablePlans] = useState<PricingPlan[]>([]);
     const [sliderValue, setSliderValue] = useState(DEFAULT_CALCULATOR_SLIDER_VALUE);
     const [calculatorOpen, setCalculatorOpen] = useState(true);
@@ -159,7 +146,7 @@ export const PricingTable: React.FC = () => {
         try {
             await navigator.clipboard.writeText('contact@rejourney.co');
             setContactCopied(true);
-            showToast('Email copied to clipboard.');
+            showToast(copy.emailCopiedToast);
         } catch {
             setContactCopied(true);
             showToast('Email: contact@rejourney.co');
@@ -178,17 +165,17 @@ export const PricingTable: React.FC = () => {
                         <div>
 
                             <h1 className="break-words text-5xl font-black uppercase leading-none tracking-normal text-slate-950 min-[380px]:text-6xl sm:text-7xl lg:text-8xl">
-                                Pricing
+                                {copy.heading}
                             </h1>
                             <p className="mt-5 max-w-3xl text-base font-semibold leading-7 text-slate-600 sm:text-lg">
-                                Fixed monthly plans for mobile session replay and analytics. Choose by session volume; the core feature set stays included.
+                                {copy.intro}
                             </p>
                         </div>
 
                         <div className="grid gap-3 sm:grid-cols-2 lg:relative lg:block lg:min-h-[220px]">
                             <div className="border-2 border-black bg-[#fef08a] p-4 text-black shadow-neo-sm lg:absolute lg:right-0 lg:top-0 lg:w-72 lg:rotate-[3deg]">
-                                <p className="font-mono text-[10px] font-black uppercase">Contact devs</p>
-                                <h2 className="mt-3 text-xl font-black uppercase leading-tight min-[380px]:text-2xl">Need a new feature?</h2>
+                                <p className="font-mono text-[10px] font-black uppercase">{copy.contactEyebrow}</p>
+                                <h2 className="mt-3 text-xl font-black uppercase leading-tight min-[380px]:text-2xl">{copy.contactHeading}</h2>
                             </div>
                             <button
                                 type="button"
@@ -201,7 +188,7 @@ export const PricingTable: React.FC = () => {
                                 aria-live="polite"
                             >
                                 {contactCopied ? <Check className="h-4 w-4" aria-hidden /> : <Copy className="h-4 w-4" aria-hidden />}
-                                {contactCopied ? 'Copied' : 'contact@rejourney.co'}
+                                {contactCopied ? copy.copied : copy.contactEmail}
                             </button>
                         </div>
                     </div>
@@ -210,10 +197,10 @@ export const PricingTable: React.FC = () => {
                 <div className="relative z-10 grid border-2 border-t-0 border-black bg-white shadow-neo-sm lg:grid-cols-4 lg:divide-x-2 lg:divide-black">
                     {plans.map((plan) => {
                         const planName = normalizePlanName(plan);
-                        const description = PLAN_DESCRIPTIONS[planName] ?? 'For mobile teams building with Rejourney.';
+                        const description = copy.planDescriptions[planName] ?? copy.planDescriptions.fallback;
                         const isFeatured = planName === 'growth';
                         const isFree = plan.priceCents === 0;
-                        const priceSuffix = isFree ? '' : plan.interval === 'year' ? ' per year' : ' per month';
+                        const priceSuffix = isFree ? '' : plan.interval === 'year' ? ` ${copy.perYear}` : ` ${copy.perMonth}`;
 
                         return (
                             <article
@@ -225,7 +212,7 @@ export const PricingTable: React.FC = () => {
                                         <h2 className="text-3xl font-black uppercase leading-tight text-slate-950 sm:text-4xl">{plan.displayName}</h2>
                                         {isFeatured && (
                                             <span className="border-2 border-black bg-[#5dadec] px-3 py-1 font-mono text-[10px] font-black uppercase text-black shadow-neo-sm">
-                                                Popular
+                                                {copy.popular}
                                             </span>
                                         )}
                                     </div>
@@ -239,9 +226,9 @@ export const PricingTable: React.FC = () => {
                                 </div>
 
                                 <ul className="space-y-5 border-t-2 border-black pt-8">
-                                    <PlanCheck>{formatInteger(plan.sessionLimit)} sessions per month</PlanCheck>
-                                    <PlanCheck>{plan.videoRetentionLabel} replay retention</PlanCheck>
-                                    {SHARED_FEATURES.map((feature) => (
+                                    <PlanCheck>{copy.sessionsPerMonth(formatInteger(plan.sessionLimit, locale.languageTag))}</PlanCheck>
+                                    <PlanCheck>{copy.replayRetention(plan.videoRetentionLabel)}</PlanCheck>
+                                    {copy.sharedFeatures.map((feature) => (
                                         <PlanCheck key={feature}>{feature}</PlanCheck>
                                     ))}
                                 </ul>
@@ -255,7 +242,7 @@ export const PricingTable: React.FC = () => {
                                                 : 'bg-white text-slate-950 shadow-neo-sm hover:-translate-x-0.5 hover:-translate-y-0.5 hover:bg-[#ecfeff] hover:shadow-neo'
                                         }`}
                                     >
-                                        {isFree ? 'Start free' : 'Get started'}
+                                        {isFree ? copy.startFree : copy.getStarted}
                                         <ArrowRight className="h-4 w-4" aria-hidden />
                                     </Link>
                                 </div>
@@ -267,10 +254,10 @@ export const PricingTable: React.FC = () => {
                 <div className="relative z-10 overflow-hidden border-x-2 border-b-2 border-black bg-[#f8fafc] px-5 py-10 shadow-neo-sm sm:px-8 md:flex md:items-center md:justify-between md:gap-8">
                     <div className="absolute -right-8 -top-8 h-20 w-32 rotate-[6deg] border-2 border-black bg-[#86efac] shadow-neo-sm" aria-hidden />
                     <div className="relative max-w-2xl">
-                        <p className="font-mono text-[10px] font-black uppercase text-slate-500">Enterprise</p>
-                        <h2 className="mt-3 text-2xl font-black uppercase leading-tight text-slate-950 sm:text-3xl">Need more than {formatShortInteger(350000)} monthly sessions?</h2>
+                        <p className="font-mono text-[10px] font-black uppercase text-slate-500">{copy.enterpriseEyebrow}</p>
+                        <h2 className="mt-3 text-2xl font-black uppercase leading-tight text-slate-950 sm:text-3xl">{copy.enterpriseHeading(formatShortInteger(350000))}</h2>
                         <p className="mt-4 text-[15px] font-semibold leading-7 text-slate-600">
-                            Custom session volume, custom replay retention, and high performance storage buckets.
+                            {copy.enterpriseCopy}
                         </p>
                     </div>
                     <div className="relative mt-7 shrink-0 md:mt-0">
@@ -285,7 +272,7 @@ export const PricingTable: React.FC = () => {
                             aria-live="polite"
                         >
                             {contactCopied ? <Check className="h-4 w-4" aria-hidden /> : <Copy className="h-4 w-4" aria-hidden />}
-                            {contactCopied ? 'Copied' : 'Contact'}
+                            {contactCopied ? copy.copied : copy.contact}
                         </button>
                     </div>
                 </div>
@@ -297,8 +284,8 @@ export const PricingTable: React.FC = () => {
                         className="flex w-full items-center justify-between gap-5 border-2 border-black bg-white px-5 py-4 text-left shadow-neo-sm transition-all hover:-translate-x-0.5 hover:-translate-y-0.5 hover:bg-[#ecfeff] hover:shadow-neo"
                     >
                         <span>
-                            <span className="block text-base font-black uppercase text-slate-950">Usage cost comparison</span>
-                            <span className="mt-1 block text-sm font-semibold text-slate-500">Rejourney fixed pricing vs usage-based session replay pricing.</span>
+                            <span className="block text-base font-black uppercase text-slate-950">{copy.comparisonTitle}</span>
+                            <span className="mt-1 block text-sm font-semibold text-slate-500">{copy.comparisonSubtitle}</span>
                         </span>
                         <ChevronDown className={`h-5 w-5 shrink-0 text-slate-500 transition ${calculatorOpen ? 'rotate-180' : ''}`} aria-hidden />
                     </button>
@@ -307,8 +294,8 @@ export const PricingTable: React.FC = () => {
                         <div className="grid gap-8 border-x-2 border-b-2 border-black bg-white px-5 py-6 lg:grid-cols-[0.85fr_1.35fr]">
                             <div>
                                 <div className="mb-3 flex items-end justify-between gap-4">
-                                    <span className="font-mono text-[10px] font-black uppercase text-slate-500">Sessions per month</span>
-                                    <span className="text-3xl font-black text-slate-950">{formatInteger(calculatorSessions)}</span>
+                                    <span className="font-mono text-[10px] font-black uppercase text-slate-500">{copy.sessionsPerMonthLabel}</span>
+                                    <span className="text-3xl font-black text-slate-950">{formatInteger(calculatorSessions, locale.languageTag)}</span>
                                 </div>
                                 <input
                                     type="range"
@@ -319,7 +306,7 @@ export const PricingTable: React.FC = () => {
                                     onChange={(event) => setSliderValue(Number(event.target.value))}
                                     className="pricing-range-slider"
                                     style={sliderStyle}
-                                    aria-label="Monthly sessions"
+                                    aria-label={copy.monthlySessionsAriaLabel}
                                 />
                                 <div className="mt-4 flex flex-wrap gap-2">
                                     {VOLUME_PRESETS.map((preset) => {
@@ -346,17 +333,17 @@ export const PricingTable: React.FC = () => {
                                 <div className="border-b-2 border-black bg-[#f8fafc] p-5 sm:border-b-0 sm:border-r-2">
                                     <p className="font-mono text-[10px] font-black uppercase text-slate-500">Rejourney</p>
                                     <p className="mt-3 text-3xl font-black text-slate-950">${rejourneyMonthlyPlan.price}</p>
-                                    <p className="mt-2 text-sm font-semibold text-slate-500">{rejourneyMonthlyPlan.plan} plan{rejourneyMonthlyPlan.isCustom ? ', custom volume' : ''}</p>
+                                    <p className="mt-2 text-sm font-semibold text-slate-500">{copy.rejourneyPlanLabel(rejourneyMonthlyPlan.plan, rejourneyMonthlyPlan.isCustom)}</p>
                                 </div>
                                 <div className="border-b-2 border-black p-5 sm:border-b-0 sm:border-r-2">
                                     <p className="font-mono text-[10px] font-black uppercase text-slate-500">PostHog</p>
                                     <p className="mt-3 text-3xl font-black text-slate-950">{formatApproxCurrency(posthogMonthlyCost)}</p>
-                                    <p className="mt-2 text-sm font-semibold text-slate-500">Usage-based replay estimate</p>
+                                    <p className="mt-2 text-sm font-semibold text-slate-500">{copy.posthogEstimate}</p>
                                 </div>
                                 <div className="bg-[#ecfeff] p-5">
                                     <p className="font-mono text-[10px] font-black uppercase text-slate-500">Sentry</p>
                                     <p className="mt-3 text-3xl font-black text-slate-950">{formatApproxCurrency(sentryMonthlyCost)}</p>
-                                    <p className="mt-2 text-sm font-semibold text-slate-500">~$0.006 per replay add-on</p>
+                                    <p className="mt-2 text-sm font-semibold text-slate-500">{copy.sentryEstimate}</p>
                                 </div>
                             </div>
                         </div>
@@ -365,10 +352,10 @@ export const PricingTable: React.FC = () => {
 
                 <div className="border-b-2 border-black py-9">
                     <div className="max-w-3xl">
-                        <p className="font-mono text-[10px] font-black uppercase text-slate-500">Self-hosted</p>
-                        <h2 className="mt-3 text-2xl font-black uppercase leading-tight text-slate-950">Run Rejourney on your own infrastructure.</h2>
+                        <p className="font-mono text-[10px] font-black uppercase text-slate-500">{copy.selfHostedEyebrow}</p>
+                        <h2 className="mt-3 text-2xl font-black uppercase leading-tight text-slate-950">{copy.selfHostedHeading}</h2>
                         <p className="mt-4 text-[15px] font-semibold leading-7 text-slate-600">
-                            Deploy with Docker or K3s and keep session data inside your environment.
+                            {copy.selfHostedCopy}
                         </p>
                         <a
                             href="https://github.com/rejourneyco/rejourney"
@@ -377,7 +364,7 @@ export const PricingTable: React.FC = () => {
                             className="mt-6 inline-flex h-11 items-center justify-center gap-2 border-2 border-black bg-white px-4 text-sm font-black uppercase text-slate-950 shadow-neo-sm transition-all hover:-translate-x-0.5 hover:-translate-y-0.5 hover:bg-[#ecfeff] hover:shadow-neo"
                         >
                             <Github className="h-4 w-4" aria-hidden />
-                            View source
+                            {copy.viewSource}
                         </a>
                     </div>
                 </div>

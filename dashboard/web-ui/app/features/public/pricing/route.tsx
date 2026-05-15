@@ -6,40 +6,89 @@ import type { Route } from "./+types/route";
 import { Header } from "~/shell/components/layout/Header";
 import { Footer } from "~/shell/components/layout/Footer";
 import { PricingTable } from "~/features/public/home/components/PricingTable";
+import { redirect, useLocation } from "react-router";
+import { getContentLocaleCopy } from "~/shared/lib/contentLocalization";
+import {
+    getLocalizedAlternateLinksForPath,
+    getLocalizedPublicUrl,
+    getMarketingLocaleFromPathname,
+    getMarketingLocaleRedirectPath,
+    MARKETING_LOCALE_VARY_HEADER,
+} from "~/shared/lib/internationalMarketing";
 
-export const meta: Route.MetaFunction = () => [
-    { title: "Rejourney Pricing: Fixed-Price Mobile Analytics & Session Replay" },
-    {
-        name: "description",
-        content: "Rejourney pricing for mobile analytics, session replay, crash reporting, heatmaps, and self-hosted deployments.",
-    },
-    {
-        name: "keywords",
-        content: "mobile analytics pricing, mobile session replay pricing, mobile app analytics pricing, PostHog alternative pricing, self-hosted analytics pricing, mobile observability pricing",
-    },
-    { name: "robots", content: "index, follow, max-image-preview:large, max-snippet:-1" },
-    { property: "og:locale", content: "en_US" },
-    { property: "og:title", content: "Rejourney Pricing: Fixed-Price Mobile Analytics & Session Replay" },
-    {
-        property: "og:description",
-        content: "Simple fixed pricing for mobile session replay, heatmaps, crash reporting, journeys, and self-hosted analytics.",
-    },
-    { property: "og:url", content: "https://rejourney.co/pricing" },
-    { property: "og:type", content: "website" },
-    { property: "og:image", content: "https://rejourney.co/rejourneyIcon-removebg-preview.png" },
-    { name: "twitter:card", content: "summary_large_image" },
-    { name: "twitter:title", content: "Rejourney Pricing: Fixed-Price Mobile Analytics" },
-    {
-        name: "twitter:description",
-        content: "Fixed pricing for open-source mobile analytics, session replay, heatmaps, and crash reporting.",
-    },
-    { name: "twitter:image", content: "https://rejourney.co/rejourneyIcon-removebg-preview.png" },
-    { tagName: "link", rel: "canonical", href: "https://rejourney.co/pricing" },
-];
+export function loader({ request }: Route.LoaderArgs) {
+    const localeRedirectPath = getMarketingLocaleRedirectPath(request);
+    if (localeRedirectPath) {
+        throw redirect(localeRedirectPath, {
+            status: 302,
+            headers: {
+                Vary: MARKETING_LOCALE_VARY_HEADER,
+            },
+        });
+    }
+
+    return null;
+}
+
+export const meta: Route.MetaFunction = ({ location }) => {
+    const locale = getMarketingLocaleFromPathname(location.pathname);
+    const copy = getContentLocaleCopy(locale).pricing;
+    const canonicalUrl = getLocalizedPublicUrl(locale, "/pricing");
+    const alternateLinks = getLocalizedAlternateLinksForPath("/pricing").map((alternate) => ({
+        tagName: "link",
+        rel: "alternate",
+        hrefLang: alternate.hrefLang,
+        href: alternate.href,
+    }));
+    const alternateOgLocales = getLocalizedAlternateLinksForPath("/pricing")
+        .filter((alternate) => alternate.hrefLang !== "x-default" && alternate.hrefLang !== locale.languageTag)
+        .map((alternate) => ({
+            property: "og:locale:alternate",
+            content: getMarketingLocaleFromPathname(new URL(alternate.href).pathname).ogLocale,
+        }));
+
+    return [
+        { title: copy.metaTitle },
+        {
+            name: "description",
+            content: copy.metaDescription,
+        },
+        {
+            name: "keywords",
+            content: copy.metaKeywords.join(", "),
+        },
+        { name: "robots", content: "index, follow, max-image-preview:large, max-snippet:-1" },
+        { httpEquiv: "Content-Language", content: locale.languageTag },
+        { property: "og:locale", content: locale.ogLocale },
+        ...alternateOgLocales,
+        { property: "og:title", content: copy.ogTitle },
+        {
+            property: "og:description",
+            content: copy.ogDescription,
+        },
+        { property: "og:url", content: canonicalUrl },
+        { property: "og:type", content: "website" },
+        { property: "og:image", content: "https://rejourney.co/rejourneyIcon-removebg-preview.png" },
+        { name: "twitter:card", content: "summary_large_image" },
+        { name: "twitter:title", content: copy.twitterTitle },
+        {
+            name: "twitter:description",
+            content: copy.ogDescription,
+        },
+        { name: "twitter:image", content: "https://rejourney.co/rejourneyIcon-removebg-preview.png" },
+        { tagName: "link", rel: "canonical", href: canonicalUrl },
+        ...alternateLinks,
+    ];
+};
 
 export default function Pricing() {
+    const location = useLocation();
+    const locale = getMarketingLocaleFromPathname(location.pathname);
+    const copy = getContentLocaleCopy(locale).pricing;
+    const canonicalUrl = getLocalizedPublicUrl(locale, "/pricing");
+
     return (
-        <div className="public-readable-scope min-h-screen w-full bg-white text-black">
+        <div className="public-readable-scope min-h-screen w-full bg-white text-black" lang={locale.languageTag} dir={locale.dir}>
             <script
                 type="application/ld+json"
                 dangerouslySetInnerHTML={{
@@ -48,12 +97,11 @@ export default function Pricing() {
                         "@graph": [
                             {
                                 "@type": "WebPage",
-                                "@id": "https://rejourney.co/pricing#webpage",
-                                url: "https://rejourney.co/pricing",
-                                name: "Rejourney Pricing",
-                                inLanguage: "en-US",
-                                description:
-                                    "Fixed pricing for mobile analytics, session replay, heatmaps, crash reporting, journeys, and self-hosted deployments.",
+                                "@id": `${canonicalUrl}#webpage`,
+                                url: canonicalUrl,
+                                name: copy.pageName,
+                                inLanguage: locale.languageTag,
+                                description: copy.metaDescription,
                                 isPartOf: {
                                     "@type": "WebSite",
                                     name: "Rejourney",
@@ -62,15 +110,15 @@ export default function Pricing() {
                             },
                             {
                                 "@type": "OfferCatalog",
-                                name: "Rejourney pricing plans",
-                                inLanguage: "en-US",
+                                name: copy.pageName,
+                                inLanguage: locale.languageTag,
                                 itemListElement: [
                                     {
                                         "@type": "Offer",
                                         name: "Starter",
                                         price: "5",
                                         priceCurrency: "USD",
-                                        url: "https://rejourney.co/pricing",
+                                        url: canonicalUrl,
                                         itemOffered: {
                                             "@type": "SoftwareApplication",
                                             name: "Rejourney Starter",
@@ -82,7 +130,7 @@ export default function Pricing() {
                                         name: "Growth",
                                         price: "15",
                                         priceCurrency: "USD",
-                                        url: "https://rejourney.co/pricing",
+                                        url: canonicalUrl,
                                         itemOffered: {
                                             "@type": "SoftwareApplication",
                                             name: "Rejourney Growth",
@@ -94,7 +142,7 @@ export default function Pricing() {
                                         name: "Pro",
                                         price: "35",
                                         priceCurrency: "USD",
-                                        url: "https://rejourney.co/pricing",
+                                        url: canonicalUrl,
                                         itemOffered: {
                                             "@type": "SoftwareApplication",
                                             name: "Rejourney Pro",
@@ -108,7 +156,7 @@ export default function Pricing() {
                 }}
             />
             <Header />
-            <main aria-label="Pricing" className="w-full">
+            <main aria-label={copy.ariaLabel} className="w-full">
                 <PricingTable />
             </main>
             <Footer />

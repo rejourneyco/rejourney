@@ -10,7 +10,13 @@ export type MarketingLocaleCode =
   | "id"
   | "ja"
   | "ko"
-  | "zh-cn";
+  | "zh-cn"
+  | "it"
+  | "nl"
+  | "pl"
+  | "pt"
+  | "ru"
+  | "vi";
 
 export type MarketingFeatureCopy = {
   title: string;
@@ -42,7 +48,7 @@ export type MarketingLocale = {
   features: MarketingFeatureCopy[];
 };
 
-const SITE_URL = "https://rejourney.co";
+export const SITE_URL = "https://rejourney.co";
 
 const englishFeatures: MarketingFeatureCopy[] = [
   { title: "Session", highlight: "Replay", badge: "Replay" },
@@ -98,11 +104,14 @@ export const MARKETING_LOCALES: Record<MarketingLocaleCode, MarketingLocale> = {
     languageTag: "ar",
     ogLocale: "ar_AR",
     dir: "rtl",
-    metaTitle: "Rejourney: تحليلات جوال مفتوحة المصدر وإعادة تشغيل الجلسات",
+    metaTitle: "Rejourney: Session Replay وإعادة تشغيل الجلسات لتطبيقات الجوال",
     metaDescription:
-      "تحليلات ومراقبة مفتوحة المصدر لتطبيقات iOS وAndroid وExpo وReact Native مع إعادة تشغيل الجلسات، الأعطال، الخرائط الحرارية، ورحلات المستخدم.",
+      "Session replay وتحليلات مفتوحة المصدر لتطبيقات iOS وAndroid وExpo وReact Native مع إعادة تشغيل الجلسات، الأعطال، الخرائط الحرارية، ورحلات المستخدم.",
     keywords: [
+      "session replay عربي",
+      "session replay للجوال",
       "تحليلات تطبيقات الجوال مفتوحة المصدر",
+      "إعادة تشغيل الجلسات",
       "إعادة تشغيل جلسات الجوال",
       "مراقبة تطبيقات الجوال",
       "خرائط حرارية للجوال",
@@ -140,11 +149,14 @@ export const MARKETING_LOCALES: Record<MarketingLocaleCode, MarketingLocale> = {
     languageTag: "es",
     ogLocale: "es_ES",
     dir: "ltr",
-    metaTitle: "Rejourney: Analítica móvil open source, replay de sesiones y observabilidad",
+    metaTitle: "Rejourney: Session replay y reproducción de sesiones para apps móviles",
     metaDescription:
-      "Analítica móvil open source para iOS, Android, Expo y React Native con replay de sesiones, crashes, mapas de calor, journeys y un SDK ligero.",
+      "Session replay y analítica móvil open source para iOS, Android, Expo y React Native con reproducción de sesiones, crashes, mapas de calor y un SDK ligero.",
     keywords: [
+      "session replay español",
+      "session replay móvil",
       "analítica móvil open source",
+      "reproducción de sesiones móviles",
       "replay de sesiones móviles",
       "observabilidad móvil",
       "mapas de calor móviles",
@@ -182,11 +194,14 @@ export const MARKETING_LOCALES: Record<MarketingLocaleCode, MarketingLocale> = {
     languageTag: "tr",
     ogLocale: "tr_TR",
     dir: "ltr",
-    metaTitle: "Rejourney: Açık kaynak mobil analitik, oturum kaydı ve gözlemlenebilirlik",
+    metaTitle: "Rejourney: Mobil session replay ve oturum tekrarı",
     metaDescription:
-      "iOS, Android, Expo ve React Native uygulamaları için oturum yeniden oynatma, çökme izleme, ısı haritaları, kullanıcı yolculukları ve hafif SDK.",
+      "iOS, Android, Expo ve React Native uygulamaları için mobil session replay, oturum tekrarı, çökme izleme, ısı haritaları, kullanıcı yolculukları ve hafif SDK.",
     keywords: [
+      "session replay türkçe",
+      "mobil session replay",
       "açık kaynak mobil analitik",
+      "oturum tekrarı",
       "mobil oturum yeniden oynatma",
       "mobil gözlemlenebilirlik",
       "mobil ısı haritaları",
@@ -551,6 +566,258 @@ export const MARKETING_LOCALES: Record<MarketingLocaleCode, MarketingLocale> = {
       { title: "团队", highlight: "告警", badge: "Teams" },
     ],
   },
+  it: {
+    code: "it",
+    slug: "it",
+    path: "/it",
+    label: "Italian",
+    nativeLabel: "Italiano",
+    languageTag: "it",
+    ogLocale: "it_IT",
+    dir: "ltr",
+    metaTitle: "Rejourney: analytics mobile open source, replay di sessione e osservabilita",
+    metaDescription:
+      "Analytics mobile open source per app iOS, Android, Expo e React Native con replay di sessione, crash, heatmap, journey e SDK leggero.",
+    keywords: [
+      "analytics mobile open source",
+      "replay sessioni mobile",
+      "osservabilita mobile",
+      "heatmap mobile",
+      "crash reporting",
+      "analytics React Native",
+      "analytics Expo",
+      "analytics self-hosted",
+    ],
+    mainAriaLabel: "Rejourney - Analytics mobile open source",
+    hero: {
+      headlinePrimary: "Analytics creativa.",
+      headlineSecondary: "SDK leggero.",
+      primaryCta: "Inizia gratis",
+      secondaryCta: "Self-host",
+    },
+    featuresHeading: "Stack mobile.",
+    featuresEyebrow: "Otto segnali",
+    features: [
+      { title: "Replay", highlight: "sessione", badge: "Replay" },
+      { title: "Flusso", highlight: "incidenti", badge: "Live" },
+      { title: "Rilevamento", highlight: "crash", badge: "ANR" },
+      { title: "Mappe", highlight: "journey", badge: "Flow" },
+      { title: "Heatmap", highlight: "touch", badge: "Tap" },
+      { title: "Stabilita", highlight: "globale", badge: "Geo" },
+      { title: "Loop", highlight: "crescita", badge: "Retention" },
+      { title: "Alert", highlight: "team", badge: "Team" },
+    ],
+  },
+  nl: {
+    code: "nl",
+    slug: "nl",
+    path: "/nl",
+    label: "Dutch",
+    nativeLabel: "Nederlands",
+    languageTag: "nl",
+    ogLocale: "nl_NL",
+    dir: "ltr",
+    metaTitle: "Rejourney: open-source mobiele analytics, sessiereplay en observability",
+    metaDescription:
+      "Open-source mobiele analytics voor iOS, Android, Expo en React Native met sessiereplay, crashes, heatmaps, journeys en een lichte SDK.",
+    keywords: [
+      "open source mobiele analytics",
+      "mobiele sessiereplay",
+      "mobiele observability",
+      "mobiele heatmaps",
+      "crashrapportage",
+      "React Native analytics",
+      "Expo analytics",
+      "self-hosted analytics",
+    ],
+    mainAriaLabel: "Rejourney - Open-source mobiele app analytics",
+    hero: {
+      headlinePrimary: "Creatieve analytics.",
+      headlineSecondary: "Lichte SDK.",
+      primaryCta: "Start gratis",
+      secondaryCta: "Self-hosten",
+    },
+    featuresHeading: "Mobiele stack.",
+    featuresEyebrow: "Acht signalen",
+    features: [
+      { title: "Sessie", highlight: "Replay", badge: "Replay" },
+      { title: "Incident", highlight: "Stream", badge: "Live" },
+      { title: "Crash", highlight: "Detectie", badge: "ANR" },
+      { title: "Journey", highlight: "Maps", badge: "Flows" },
+      { title: "Touch", highlight: "Heatmaps", badge: "Taps" },
+      { title: "Globale", highlight: "Stabiliteit", badge: "Geo" },
+      { title: "Growth", highlight: "Loops", badge: "Retention" },
+      { title: "Team", highlight: "Alerts", badge: "Teams" },
+    ],
+  },
+  pl: {
+    code: "pl",
+    slug: "pl",
+    path: "/pl",
+    label: "Polish",
+    nativeLabel: "Polski",
+    languageTag: "pl",
+    ogLocale: "pl_PL",
+    dir: "ltr",
+    metaTitle: "Rejourney: open-source analytics mobilny, replay sesji i obserwowalnosc",
+    metaDescription:
+      "Open-source analytics mobilny dla iOS, Android, Expo i React Native z replayem sesji, crashami, heatmapami, journey i lekkim SDK.",
+    keywords: [
+      "open source analytics mobilny",
+      "replay sesji mobilnych",
+      "obserwowalnosc mobilna",
+      "heatmapy mobilne",
+      "raportowanie crashy",
+      "React Native analytics",
+      "Expo analytics",
+      "self-hosted analytics",
+    ],
+    mainAriaLabel: "Rejourney - Open-source analytics aplikacji mobilnych",
+    hero: {
+      headlinePrimary: "Kreatywna analityka.",
+      headlineSecondary: "Lekkie SDK.",
+      primaryCta: "Zacznij za darmo",
+      secondaryCta: "Self-hosting",
+    },
+    featuresHeading: "Stack mobilny.",
+    featuresEyebrow: "Osiem sygnalow",
+    features: [
+      { title: "Replay", highlight: "sesji", badge: "Replay" },
+      { title: "Strumien", highlight: "incydentow", badge: "Live" },
+      { title: "Wykrywanie", highlight: "crashy", badge: "ANR" },
+      { title: "Mapy", highlight: "journey", badge: "Flow" },
+      { title: "Heatmapy", highlight: "dotyku", badge: "Tap" },
+      { title: "Globalna", highlight: "stabilnosc", badge: "Geo" },
+      { title: "Petle", highlight: "wzrostu", badge: "Retention" },
+      { title: "Alerty", highlight: "zespolu", badge: "Team" },
+    ],
+  },
+  pt: {
+    code: "pt",
+    slug: "pt",
+    path: "/pt",
+    label: "Portuguese",
+    nativeLabel: "Portugues",
+    languageTag: "pt",
+    ogLocale: "pt_PT",
+    dir: "ltr",
+    metaTitle: "Rejourney: analytics mobile open source, replay de sessao e observabilidade",
+    metaDescription:
+      "Analytics mobile open source para apps iOS, Android, Expo e React Native com replay de sessao, crashes, mapas de calor, jornadas e SDK leve.",
+    keywords: [
+      "analytics mobile open source",
+      "replay de sessao mobile",
+      "observabilidade mobile",
+      "mapas de calor mobile",
+      "relatorio de crashes",
+      "analytics React Native",
+      "analytics Expo",
+      "analytics self-hosted",
+    ],
+    mainAriaLabel: "Rejourney - Analytics mobile open source",
+    hero: {
+      headlinePrimary: "Analytics criativo.",
+      headlineSecondary: "SDK leve.",
+      primaryCta: "Comece gratis",
+      secondaryCta: "Self-host",
+    },
+    featuresHeading: "Stack mobile.",
+    featuresEyebrow: "Oito sinais",
+    features: [
+      { title: "Replay", highlight: "de sessao", badge: "Replay" },
+      { title: "Fluxo", highlight: "de incidentes", badge: "Live" },
+      { title: "Deteccao", highlight: "de crashes", badge: "ANR" },
+      { title: "Mapas", highlight: "de jornada", badge: "Fluxos" },
+      { title: "Mapas", highlight: "de calor", badge: "Toques" },
+      { title: "Estabilidade", highlight: "global", badge: "Geo" },
+      { title: "Loops", highlight: "de crescimento", badge: "Retencao" },
+      { title: "Alertas", highlight: "de equipa", badge: "Equipa" },
+    ],
+  },
+  ru: {
+    code: "ru",
+    slug: "ru",
+    path: "/ru",
+    label: "Russian",
+    nativeLabel: "Русский",
+    languageTag: "ru",
+    ogLocale: "ru_RU",
+    dir: "ltr",
+    metaTitle: "Rejourney: open-source мобильная аналитика, replay сессий и observability",
+    metaDescription:
+      "Open-source мобильная аналитика для iOS, Android, Expo и React Native: replay сессий, краши, heatmap, пользовательские пути и легкий SDK.",
+    keywords: [
+      "open source мобильная аналитика",
+      "replay мобильных сессий",
+      "mobile observability",
+      "мобильные heatmap",
+      "crash reporting",
+      "React Native analytics",
+      "Expo analytics",
+      "self-hosted analytics",
+    ],
+    mainAriaLabel: "Rejourney - Open-source аналитика мобильных приложений",
+    hero: {
+      headlinePrimary: "Креативная аналитика.",
+      headlineSecondary: "Легкий SDK.",
+      primaryCta: "Начать бесплатно",
+      secondaryCta: "Self-host",
+    },
+    featuresHeading: "Мобильный стек.",
+    featuresEyebrow: "Восемь сигналов",
+    features: [
+      { title: "Replay", highlight: "сессий", badge: "Replay" },
+      { title: "Поток", highlight: "инцидентов", badge: "Live" },
+      { title: "Детект", highlight: "крашей", badge: "ANR" },
+      { title: "Карты", highlight: "journey", badge: "Flows" },
+      { title: "Touch", highlight: "heatmap", badge: "Taps" },
+      { title: "Глобальная", highlight: "стабильность", badge: "Geo" },
+      { title: "Петли", highlight: "роста", badge: "Retention" },
+      { title: "Командные", highlight: "alerts", badge: "Teams" },
+    ],
+  },
+  vi: {
+    code: "vi",
+    slug: "vi",
+    path: "/vi",
+    label: "Vietnamese",
+    nativeLabel: "Tiếng Việt",
+    languageTag: "vi",
+    ogLocale: "vi_VN",
+    dir: "ltr",
+    metaTitle: "Rejourney: phân tích mobile open source, session replay và observability",
+    metaDescription:
+      "Phân tích mobile open source cho iOS, Android, Expo và React Native với session replay, crash, heatmap, journey và SDK nhẹ.",
+    keywords: [
+      "phan tich mobile open source",
+      "mobile session replay",
+      "mobile observability",
+      "mobile heatmap",
+      "crash reporting",
+      "React Native analytics",
+      "Expo analytics",
+      "self-hosted analytics",
+    ],
+    mainAriaLabel: "Rejourney - Phan tich ung dung mobile open source",
+    hero: {
+      headlinePrimary: "Analytics sáng tạo.",
+      headlineSecondary: "SDK nhẹ.",
+      primaryCta: "Bắt đầu miễn phí",
+      secondaryCta: "Self-host",
+    },
+    featuresHeading: "Mobile stack.",
+    featuresEyebrow: "Tám tín hiệu",
+    features: [
+      { title: "Session", highlight: "Replay", badge: "Replay" },
+      { title: "Incident", highlight: "Stream", badge: "Live" },
+      { title: "Crash", highlight: "Detection", badge: "ANR" },
+      { title: "Journey", highlight: "Maps", badge: "Flows" },
+      { title: "Touch", highlight: "Heatmaps", badge: "Taps" },
+      { title: "Global", highlight: "Stability", badge: "Geo" },
+      { title: "Growth", highlight: "Loops", badge: "Retention" },
+      { title: "Team", highlight: "Alerts", badge: "Teams" },
+    ],
+  },
 };
 
 export const MARKETING_LOCALE_ORDER: MarketingLocaleCode[] = [
@@ -566,6 +833,12 @@ export const MARKETING_LOCALE_ORDER: MarketingLocaleCode[] = [
   "ja",
   "ko",
   "zh-cn",
+  "it",
+  "nl",
+  "pl",
+  "pt",
+  "ru",
+  "vi",
 ];
 
 export const MARKETING_LOCALE_SLUGS = MARKETING_LOCALE_ORDER
@@ -582,6 +855,75 @@ export function getMarketingLocaleFromPathname(pathname: string): MarketingLocal
   const firstSegment = pathname.split("/").filter(Boolean)[0]?.toLowerCase();
   const locale = MARKETING_LOCALE_ORDER.find((code) => MARKETING_LOCALES[code].slug === firstSegment);
   return MARKETING_LOCALES[locale ?? "en"];
+}
+
+export function isMarketingLocaleSlug(segment: string | null | undefined): segment is MarketingLocale["slug"] {
+  if (!segment) return false;
+  const normalized = segment.toLowerCase();
+  return MARKETING_LOCALE_ORDER.some((code) => MARKETING_LOCALES[code].slug === normalized);
+}
+
+export function stripMarketingLocaleFromPathname(pathname: string): {
+  locale: MarketingLocale;
+  pathname: string;
+  hasLocalePrefix: boolean;
+} {
+  const normalizedPathname = pathname.startsWith("/") ? pathname : `/${pathname}`;
+  const segments = normalizedPathname.split("/").filter(Boolean);
+  const firstSegment = segments[0]?.toLowerCase();
+  const locale = getMarketingLocaleFromPathname(normalizedPathname);
+
+  if (!isMarketingLocaleSlug(firstSegment)) {
+    return {
+      locale,
+      pathname: normalizedPathname,
+      hasLocalePrefix: false,
+    };
+  }
+
+  const stripped = `/${segments.slice(1).join("/")}`.replace(/\/$/, "");
+  return {
+    locale,
+    pathname: stripped === "" ? "/" : stripped,
+    hasLocalePrefix: true,
+  };
+}
+
+export function getLocalizedPublicPath(localeOrCode: MarketingLocale | MarketingLocaleCode, pathname: string): string {
+  const locale = typeof localeOrCode === "string" ? MARKETING_LOCALES[localeOrCode] : localeOrCode;
+  const normalizedPathname = pathname.startsWith("/") ? pathname : `/${pathname}`;
+
+  if (normalizedPathname === "/") {
+    return locale.path;
+  }
+
+  if (locale.code === "en") {
+    return normalizedPathname;
+  }
+
+  return `${locale.path}${normalizedPathname}`;
+}
+
+export function getLocalizedPublicUrl(localeOrCode: MarketingLocale | MarketingLocaleCode, pathname: string): string {
+  return `${SITE_URL}${getLocalizedPublicPath(localeOrCode, pathname)}`;
+}
+
+export function getLocalizedAlternateLinksForPath(pathname: string) {
+  const basePathname = stripMarketingLocaleFromPathname(pathname).pathname;
+
+  return [
+    ...MARKETING_LOCALE_ORDER.map((code) => {
+      const locale = MARKETING_LOCALES[code];
+      return {
+        hrefLang: locale.languageTag,
+        href: getLocalizedPublicUrl(locale, basePathname),
+      };
+    }),
+    {
+      hrefLang: "x-default",
+      href: getLocalizedPublicUrl(MARKETING_LOCALES.en, basePathname),
+    },
+  ];
 }
 
 export function getMarketingLocaleUrl(locale: MarketingLocale): string {
@@ -652,17 +994,14 @@ const COUNTRY_LOCALE_MAP: Record<string, MarketingLocaleCode> = {
   SV: "es",
   UY: "es",
   VE: "es",
-  CY: "tr",
   TR: "tr",
   BR: "pt-br",
-  PT: "pt-br",
-  AO: "pt-br",
-  MZ: "pt-br",
+  PT: "pt",
+  AO: "pt",
+  MZ: "pt",
   DE: "de",
   AT: "de",
-  CH: "de",
   FR: "fr",
-  BE: "fr",
   SN: "fr",
   CI: "fr",
   IN: "hi",
@@ -670,14 +1009,18 @@ const COUNTRY_LOCALE_MAP: Record<string, MarketingLocaleCode> = {
   JP: "ja",
   KR: "ko",
   CN: "zh-cn",
-  SG: "zh-cn",
+  IT: "it",
+  NL: "nl",
+  PL: "pl",
+  RU: "ru",
+  VN: "vi",
 };
 
 const LANGUAGE_LOCALE_MAP: Record<string, MarketingLocaleCode> = {
   ar: "ar",
   es: "es",
   tr: "tr",
-  pt: "pt-br",
+  pt: "pt",
   de: "de",
   fr: "fr",
   hi: "hi",
@@ -685,6 +1028,11 @@ const LANGUAGE_LOCALE_MAP: Record<string, MarketingLocaleCode> = {
   ja: "ja",
   ko: "ko",
   zh: "zh-cn",
+  it: "it",
+  nl: "nl",
+  pl: "pl",
+  ru: "ru",
+  vi: "vi",
   en: "en",
 };
 
@@ -755,12 +1103,14 @@ export function getPreferredMarketingLocaleFromRequest(request: Request): Market
 
 export function getMarketingLocaleRedirectPath(request: Request): string | null {
   const url = new URL(request.url);
-  if (url.pathname !== "/") return null;
+  const { pathname, hasLocalePrefix } = stripMarketingLocaleFromPathname(url.pathname);
+  const isLocalizablePublicPath = /^\/(?:docs|engineering|pricing)(?:\/.*)?$/.test(pathname);
+  if (hasLocalePrefix || (pathname !== "/" && !isLocalizablePublicPath)) return null;
 
   const preferredLocale = getPreferredMarketingLocaleFromRequest(request);
   if (!preferredLocale || preferredLocale.code === "en") return null;
 
-  return `${preferredLocale.path}${url.search}`;
+  return `${getLocalizedPublicPath(preferredLocale, pathname)}${url.search}`;
 }
 
 export type MarketingHomeCopy = {
@@ -926,7 +1276,7 @@ const englishHomeCopy: MarketingHomeCopy = {
   },
   narrative: {
     loopEyebrow: "Revenue lift loop",
-    loopHeadingLines: ["Find blockers.", "See The Growth."],
+    loopHeadingLines: ["Find Revenue blockers.", "See The Growth."],
     loopIntro: "Replay the drop-off, ship the fix, prove the lift.",
     tableStep: "Step",
     tableCatches: "What Rejourney catches",

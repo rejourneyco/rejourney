@@ -9,6 +9,8 @@ import {
     MARKETING_LOCALE_ORDER,
     MARKETING_LOCALES,
     getMarketingAlternateLinks,
+    getLocalizedAlternateLinksForPath,
+    getLocalizedPublicPath,
 } from "~/shared/lib/internationalMarketing";
 
 function escapeXml(text: string): string {
@@ -43,31 +45,49 @@ export async function loader() {
 
     const staticRoutes: SitemapRoute[] = [
         { path: "/dashboard", priority: "0.9", changefreq: "daily" },
-        { path: "/pricing", priority: "0.8", changefreq: "weekly" },
-        { path: "/engineering", priority: "0.9", changefreq: "weekly" },
     ];
 
-    const docRoutes: SitemapRoute[] = Object.keys(DOCS_MAP).map(slug => ({
-        path: `/docs/${slug}`,
-        priority: slug === "reactnative/overview" ? "0.9" : "0.7",
-        changefreq: "weekly"
+    const pricingRoutes: SitemapRoute[] = MARKETING_LOCALE_ORDER.map((code) => ({
+        path: getLocalizedPublicPath(MARKETING_LOCALES[code], "/pricing"),
+        priority: code === "en" ? "0.8" : "0.7",
+        changefreq: "weekly",
+        alternates: getLocalizedAlternateLinksForPath("/pricing"),
     }));
 
-    const engineeringRoutes: SitemapRoute[] = ARTICLES.map(article => ({
-        path: `/engineering/${article.urlDate}/${article.id}`,
-        priority: "0.8",
-        changefreq: "monthly",
-        lastmod: article.dateModified ?? article.urlDate,
-        image: article.image,
-        imageTitle: article.title,
+    const docRoutes: SitemapRoute[] = MARKETING_LOCALE_ORDER.flatMap((code) =>
+        Object.keys(DOCS_MAP).map(slug => ({
+            path: getLocalizedPublicPath(MARKETING_LOCALES[code], `/docs/${slug}`),
+            priority: slug === "reactnative/overview" ? (code === "en" ? "0.9" : "0.7") : "0.6",
+            changefreq: "weekly",
+            alternates: getLocalizedAlternateLinksForPath(`/docs/${slug}`),
+        }))
+    );
+
+    const engineeringIndexRoutes: SitemapRoute[] = MARKETING_LOCALE_ORDER.map((code) => ({
+        path: getLocalizedPublicPath(MARKETING_LOCALES[code], "/engineering"),
+        priority: code === "en" ? "0.9" : "0.7",
+        changefreq: "weekly",
+        alternates: getLocalizedAlternateLinksForPath("/engineering"),
     }));
+
+    const engineeringRoutes: SitemapRoute[] = MARKETING_LOCALE_ORDER.flatMap((code) =>
+        ARTICLES.map(article => ({
+            path: getLocalizedPublicPath(MARKETING_LOCALES[code], `/engineering/${article.urlDate}/${article.id}`),
+            priority: code === "en" ? "0.8" : "0.6",
+            changefreq: "monthly",
+            lastmod: article.dateModified ?? article.urlDate,
+            image: article.image,
+            imageTitle: article.title,
+            alternates: getLocalizedAlternateLinksForPath(`/engineering/${article.urlDate}/${article.id}`),
+        }))
+    );
 
     // Generate XML content
     const sitemap = `<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"
         xmlns:xhtml="http://www.w3.org/1999/xhtml"
         xmlns:image="http://www.google.com/schemas/sitemap-image/1.1">
-${[...marketingRoutes, ...staticRoutes, ...docRoutes, ...engineeringRoutes].map(route => `
+${[...marketingRoutes, ...staticRoutes, ...pricingRoutes, ...docRoutes, ...engineeringIndexRoutes, ...engineeringRoutes].map(route => `
   <url>
     <loc>${escapeXml(`${baseUrl}${route.path}`)}</loc>
     <lastmod>${"lastmod" in route && route.lastmod ? route.lastmod : lastModified}</lastmod>

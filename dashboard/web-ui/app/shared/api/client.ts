@@ -10,6 +10,7 @@ import {
   IssueSession
 } from "~/shared/types";
 import { isUuid } from "~/shared/lib/ids";
+import { isPublicRoutePath } from "~/shared/lib/publicRoutePaths";
 import * as demoApiData from '~/shared/data/demoApiData';
 import { demoSessions } from '~/shared/data/demoData';
 
@@ -63,18 +64,7 @@ function handleUnauthorized() {
     return;
   }
 
-  // Public routes that should NOT force a login redirect
-  const publicPaths = new Set([
-    '/',
-    '/login',
-    '/docs',
-    '/engineering',
-    '/pricing',
-    '/terms-of-service',
-    '/privacy-policy'
-  ]);
-
-  if (!publicPaths.has(window.location.pathname)) {
+  if (!isPublicRoutePath(window.location.pathname)) {
     window.location.href = '/login';
   }
 }

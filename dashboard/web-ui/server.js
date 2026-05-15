@@ -27,13 +27,16 @@ const cachePublicHtmlAtEdge = process.env.WEB_EDGE_HTML_CACHE === 'true';
 const buildClientPath = join(__dirname, 'build', 'client');
 const buildAssetsPath = join(buildClientPath, 'assets');
 let isShuttingDown = false;
-const MARKETING_LOCALE_PATH_PATTERN = /^\/(?:ar|es|tr|pt-br|de|fr|hi|id|ja|ko|zh-cn)$/;
+const MARKETING_LOCALE_SEGMENT = '(?:ar|es|tr|pt-br|de|fr|hi|id|ja|ko|zh-cn|it|nl|pl|pt|ru|vi)';
+const MARKETING_LOCALE_PATH_PATTERN = new RegExp(`^/${MARKETING_LOCALE_SEGMENT}$`);
+const LOCALIZED_PUBLIC_CONTENT_PATTERN = new RegExp(`^/${MARKETING_LOCALE_SEGMENT}/(?:docs|engineering|pricing)(?:/.*)?$`);
 const EDGE_CACHEABLE_HTML_PATTERNS = [
   /^\/$/,
   MARKETING_LOCALE_PATH_PATTERN,
   /^\/login$/,
   /^\/pricing$/,
   /^\/docs(?:\/.*)?$/,
+  LOCALIZED_PUBLIC_CONTENT_PATTERN,
   /^\/contribute$/,
   /^\/engineering(?:\/.*)?$/,
   /^\/terms-of-service$/,

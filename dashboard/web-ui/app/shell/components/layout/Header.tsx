@@ -3,13 +3,17 @@ import { Link, useLocation } from 'react-router';
 import { Button } from '~/shared/ui/core/Button';
 import { useAuth } from '~/shared/providers/AuthContext';
 import { ExternalLink } from 'lucide-react';
-import { getMarketingHomeCopy, getMarketingLocaleFromPathname } from '~/shared/lib/internationalMarketing';
+import { getLocalizedPublicPath, getMarketingHomeCopy, getMarketingLocaleFromPathname } from '~/shared/lib/internationalMarketing';
 
 export const Header: React.FC = () => {
   const { isAuthenticated } = useAuth();
   const location = useLocation();
   const locale = getMarketingLocaleFromPathname(location.pathname);
   const copy = getMarketingHomeCopy(location.pathname).header;
+  const engineeringPath = getLocalizedPublicPath(locale, "/engineering");
+  const docsPath = getLocalizedPublicPath(locale, "/docs/reactnative/overview");
+  const pricingPath = getLocalizedPublicPath(locale, "/pricing");
+  const selfHostedPath = getLocalizedPublicPath(locale, "/docs/selfhosted");
   const publicNavLinkClass = "text-base font-bold uppercase tracking-wide hover:underline decoration-2 underline-offset-4 decoration-slate-900 text-slate-900 font-mono";
   const mobileNavLinkClass = "inline-flex shrink-0 items-center gap-1.5 border border-slate-300 bg-white px-3 py-1.5 font-mono text-[11px] font-black uppercase text-slate-900 shadow-sm transition hover:border-black hover:bg-[#ecfeff]";
 
@@ -26,19 +30,19 @@ export const Header: React.FC = () => {
 
           <nav className="hidden items-center gap-5 lg:flex xl:gap-8">
             <Link
-              to="/engineering"
+              to={engineeringPath}
               className={publicNavLinkClass}
             >
               {copy.engineering}
             </Link>
             <Link
-              to="/docs/reactnative/overview"
+              to={docsPath}
               className={publicNavLinkClass}
             >
               {copy.docs}
             </Link>
             <Link
-              to="/pricing"
+              to={pricingPath}
               className={publicNavLinkClass}
             >
               {copy.pricing}
@@ -55,7 +59,7 @@ export const Header: React.FC = () => {
           </nav>
 
           <div className="flex items-center gap-2 sm:gap-4">
-            <Link to="/docs/selfhosted">
+            <Link to={selfHostedPath}>
               <Button variant="ghost" className="font-mono uppercase font-black text-sm px-6 py-2 border-2 border-transparent hover:border-black transition-all rounded-none hidden md:flex">
                 {copy.selfHosted}
               </Button>
@@ -69,16 +73,16 @@ export const Header: React.FC = () => {
         </div>
         <nav className="border-t border-slate-200 bg-white/90 lg:hidden" aria-label={`${copy.ariaLabel} mobile links`}>
           <div className="no-scrollbar mx-auto flex w-full max-w-7xl gap-2 overflow-x-auto px-4 py-2 sm:px-6">
-            <Link to="/engineering" className={mobileNavLinkClass}>
+            <Link to={engineeringPath} className={mobileNavLinkClass}>
               {copy.engineering}
             </Link>
-            <Link to="/docs/reactnative/overview" className={mobileNavLinkClass}>
+            <Link to={docsPath} className={mobileNavLinkClass}>
               {copy.docs}
             </Link>
-            <Link to="/pricing" className={mobileNavLinkClass}>
+            <Link to={pricingPath} className={mobileNavLinkClass}>
               {copy.pricing}
             </Link>
-            <Link to="/docs/selfhosted" className={mobileNavLinkClass}>
+            <Link to={selfHostedPath} className={mobileNavLinkClass}>
               {copy.selfHosted}
             </Link>
             <a

@@ -1,12 +1,17 @@
 import React from 'react';
 import { Link, useLocation } from 'react-router';
 import { useToast } from '~/shared/providers/ToastContext';
-import { getMarketingHomeCopy } from '~/shared/lib/internationalMarketing';
+import { getLocalizedPublicPath, getMarketingHomeCopy, getMarketingLocaleFromPathname } from '~/shared/lib/internationalMarketing';
 
 export const Footer: React.FC = () => {
   const location = useLocation();
+  const locale = getMarketingLocaleFromPathname(location.pathname);
   const copy = getMarketingHomeCopy(location.pathname).footer;
   const { showToast } = useToast();
+  const docsPath = getLocalizedPublicPath(locale, "/docs/reactnative/overview");
+  const engineeringPath = getLocalizedPublicPath(locale, "/engineering");
+  const pricingPath = getLocalizedPublicPath(locale, "/pricing");
+  const selfHostedPath = getLocalizedPublicPath(locale, "/docs/selfhosted");
 
   const handleCopyEmail = (e: React.MouseEvent) => {
     e.preventDefault();
@@ -20,15 +25,15 @@ export const Footer: React.FC = () => {
         <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-3 text-center text-xs font-mono font-bold uppercase tracking-tight text-gray-500 sm:text-sm">
           <Link to="/dashboard/general" className="hover:text-black transition-colors">{copy.dashboard}</Link>
           <span className="hidden sm:inline">•</span>
-          <Link to="/docs/reactnative/overview" className="hover:text-black transition-colors">{copy.docs}</Link>
+          <Link to={docsPath} className="hover:text-black transition-colors">{copy.docs}</Link>
           <span className="hidden sm:inline">•</span>
-          <Link to="/engineering" className="hover:text-black transition-colors">{copy.engineering}</Link>
+          <Link to={engineeringPath} className="hover:text-black transition-colors">{copy.engineering}</Link>
           <span className="hidden sm:inline">•</span>
           <a href="https://github.com/rejourneyco/rejourney/releases" target="_blank" rel="noopener noreferrer" className="hover:text-black transition-colors">{copy.changelog}</a>
           <span className="hidden sm:inline">•</span>
-          <Link to="/pricing" className="hover:text-black transition-colors">{copy.pricing}</Link>
+          <Link to={pricingPath} className="hover:text-black transition-colors">{copy.pricing}</Link>
           <span className="hidden sm:inline">•</span>
-          <Link to="/docs/selfhosted" className="hover:text-black transition-colors">{copy.selfHosted}</Link>
+          <Link to={selfHostedPath} className="hover:text-black transition-colors">{copy.selfHosted}</Link>
           <span className="hidden sm:inline">•</span>
           <Link to="/login" className="hover:text-black transition-colors">{copy.login}</Link>
           <span className="hidden sm:inline">•</span>

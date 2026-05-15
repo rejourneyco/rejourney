@@ -8,47 +8,83 @@ import { Header } from "~/shell/components/layout/Header";
 import { Footer } from "~/shell/components/layout/Footer";
 import { ARTICLES } from "~/shared/data/engineering";
 import { ArrowLeft } from "lucide-react";
-import { Link, redirect, useParams } from "react-router";
+import { Link, redirect, useLocation, useParams } from "react-router";
+import { getContentLocaleCopy, getLocalizedArticleSeo } from "~/shared/lib/contentLocalization";
+import {
+    getLocalizedAlternateLinksForPath,
+    getLocalizedPublicPath,
+    getLocalizedPublicUrl,
+    getMarketingLocaleFromPathname,
+    getMarketingLocaleRedirectPath,
+    MARKETING_LOCALE_VARY_HEADER,
+} from "~/shared/lib/internationalMarketing";
 
 const SITE_URL = "https://rejourney.co";
 
-function getArticleUrl(article: (typeof ARTICLES)[number]): string {
-    return `${SITE_URL}/engineering/${article.urlDate}/${article.id}`;
-}
-
-function getArticleKeywords(article: (typeof ARTICLES)[number]): string {
-    return article.seo.targetKeywords.join(", ");
+function getArticleUrl(article: (typeof ARTICLES)[number], locale = getMarketingLocaleFromPathname("/")): string {
+    return getLocalizedPublicUrl(locale, `/engineering/${article.urlDate}/${article.id}`);
 }
 
 // Loader to validate slug
-export function loader({ params }: LoaderFunctionArgs) {
+export function loader({ params, request }: LoaderFunctionArgs) {
     const article = ARTICLES.find((a) => a.id === params.slug);
     if (!article) {
         throw new Response("Article not found", { status: 404 });
     }
 
+    const requestUrl = new URL(request.url);
+    const localeRedirectPath = getMarketingLocaleRedirectPath(request);
+    if (localeRedirectPath) {
+        const preferredLocale = getMarketingLocaleFromPathname(localeRedirectPath);
+        throw redirect(`${getLocalizedPublicPath(preferredLocale, `/engineering/${article.urlDate}/${article.id}`)}${requestUrl.search}`, {
+            status: params.date !== article.urlDate ? 301 : 302,
+            headers: {
+                Vary: MARKETING_LOCALE_VARY_HEADER,
+            },
+        });
+    }
+
     if (params.date !== article.urlDate) {
-        throw redirect(`/engineering/${article.urlDate}/${article.id}`, { status: 301 });
+        const locale = getMarketingLocaleFromPathname(requestUrl.pathname);
+        throw redirect(`${getLocalizedPublicPath(locale, `/engineering/${article.urlDate}/${article.id}`)}${requestUrl.search}`, { status: 301 });
     }
 
     return null;
 }
 
-export const meta: MetaFunction = ({ params }) => {
+export const meta: MetaFunction = ({ params, location }) => {
     const article = ARTICLES.find((a) => a.id === params.slug);
+    const locale = getMarketingLocaleFromPathname(location.pathname);
+    const copy = getContentLocaleCopy(locale);
     if (!article) {
         return [{ title: "Article Not Found - Rejourney" }];
     }
-    const canonicalUrl = getArticleUrl(article);
-    const metaTitle = article.seo.metaTitle;
-    const metaDescription = article.seo.metaDescription;
+    const localizedArticle = getLocalizedArticleSeo(article, locale);
+    const canonicalPath = `/engineering/${article.urlDate}/${article.id}`;
+    const canonicalUrl = getArticleUrl(article, locale);
+    const metaTitle = localizedArticle.metaTitle;
+    const metaDescription = localizedArticle.metaDescription;
+    const alternateLinks = getLocalizedAlternateLinksForPath(canonicalPath).map((alternate) => ({
+        tagName: "link",
+        rel: "alternate",
+        hrefLang: alternate.hrefLang,
+        href: alternate.href,
+    }));
+    const alternateOgLocales = getLocalizedAlternateLinksForPath(canonicalPath)
+        .filter((alternate) => alternate.hrefLang !== "x-default" && alternate.hrefLang !== locale.languageTag)
+        .map((alternate) => ({
+            property: "og:locale:alternate",
+            content: getMarketingLocaleFromPathname(new URL(alternate.href).pathname).ogLocale,
+        }));
     const metaTags = [
-        { title: `${metaTitle} | Rejourney Engineering` },
+        { title: `${metaTitle} | ${copy.articleMetaTitleSuffix}` },
         { name: "robots", content: "index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1" },
         { name: "description", content: metaDescription },
-        { name: "keywords", content: getArticleKeywords(article) },
+        { name: "keywords", content: localizedArticle.targetKeywords.join(", ") },
         { name: "author", content: article.author.name },
-        { property: "og:locale", content: "en_US" },
+        { httpEquiv: "Content-Language", content: locale.languageTag },
+        { property: "og:locale", content: locale.ogLocale },
+        ...alternateOgLocales,
         { property: "og:title", content: metaTitle },
         { property: "og:description", content: metaDescription },
         { property: "og:type", content: "article" },
@@ -66,26 +102,31 @@ export const meta: MetaFunction = ({ params }) => {
         { name: "twitter:description", content: metaDescription },
         { name: "twitter:image", content: article.image },
         { tagName: "link", rel: "canonical", href: canonicalUrl },
+        ...alternateLinks,
     ];
     return metaTags;
 };
 
 export default function EngineeringArticlePage() {
     const { slug } = useParams();
+    const location = useLocation();
+    const locale = getMarketingLocaleFromPathname(location.pathname);
+    const copy = getContentLocaleCopy(locale);
     const article = ARTICLES.find((a) => a.id === slug);
 
     if (!article) {
-        return <div>Article not found</div>;
+        return <div>{copy.documentationNotFoundHeading}</div>;
     }
 
-    const canonicalUrl = getArticleUrl(article);
+    const canonicalUrl = getArticleUrl(article, locale);
+    const localizedArticle = getLocalizedArticleSeo(article, locale);
     const articleStructuredData = {
         ...article.schema,
-        headline: article.title,
-        description: article.seo.metaDescription,
-        inLanguage: "en-US",
+        headline: localizedArticle.title,
+        description: localizedArticle.metaDescription,
+        inLanguage: locale.languageTag,
         url: canonicalUrl,
-        keywords: article.seo.targetKeywords,
+        keywords: localizedArticle.targetKeywords,
         dateModified: article.dateModified ?? article.urlDate,
         image: [article.image],
         mainEntityOfPage: {
@@ -112,7 +153,7 @@ export default function EngineeringArticlePage() {
     };
 
     return (
-        <div className="public-readable-scope min-h-screen w-full bg-white text-slate-900 font-sans selection:bg-yellow-200 flex flex-col">
+        <div className="public-readable-scope min-h-screen w-full bg-white text-slate-900 font-sans selection:bg-yellow-200 flex flex-col" lang={locale.languageTag} dir={locale.dir}>
             <script
                 type="application/ld+json"
                 dangerouslySetInnerHTML={{
@@ -129,8 +170,8 @@ export default function EngineeringArticlePage() {
 
                 <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-16 sm:py-24">
 
-                    <Link to="/engineering" className="inline-flex items-center gap-2 text-sm font-bold uppercase tracking-widest text-gray-500 hover:text-black mb-12 transition-colors">
-                        <ArrowLeft size={16} /> Back to Engineering Log
+                    <Link to={getLocalizedPublicPath(locale, "/engineering")} className="inline-flex items-center gap-2 text-sm font-bold uppercase tracking-widest text-gray-500 hover:text-black mb-12 transition-colors">
+                        <ArrowLeft size={16} /> {copy.backToEngineering}
                     </Link>
 
                     <article>
@@ -138,15 +179,15 @@ export default function EngineeringArticlePage() {
                             <div className="flex flex-wrap items-center gap-4 text-xs font-mono font-black uppercase tracking-widest text-blue-600 mb-6">
                                 <span>{article.date}</span>
                                 <span className="w-1 h-1 bg-gray-300 rounded-full" />
-                                <span>{article.readTime}</span>
+                                <span>{localizedArticle.readTime}</span>
                             </div>
 
                             <h1 className="text-4xl sm:text-5xl lg:text-7xl font-black uppercase tracking-tighter mb-8 leading-[0.9]">
-                                {article.title}
+                                {localizedArticle.title}
                             </h1>
 
                             <p className="text-xl sm:text-2xl font-medium text-gray-600 max-w-3xl leading-relaxed">
-                                {article.subtitle}
+                                {localizedArticle.subtitle}
                             </p>
 
                             <div className="flex items-center gap-3 mt-8">
@@ -157,11 +198,11 @@ export default function EngineeringArticlePage() {
                                     <div className="font-bold text-gray-900">{article.author.name}</div>
                                     <div className="flex flex-wrap gap-x-3 gap-y-1">
                                         <a href={article.author.url} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">
-                                            View LinkedIn
+                                            {copy.viewLinkedIn}
                                         </a>
                                         {article.author.github && (
                                             <a href={article.author.github} target="_blank" rel="noopener noreferrer" className="text-gray-900 hover:underline">
-                                                View GitHub
+                                                {copy.viewGitHub}
                                             </a>
                                         )}
                                     </div>
@@ -174,21 +215,21 @@ export default function EngineeringArticlePage() {
                         </div>
 
                         <div className="mt-20 pt-12 border-t-2 border-gray-100">
-                            <h3 className="text-2xl font-black uppercase tracking-tighter mb-8">Author</h3>
+                            <h3 className="text-2xl font-black uppercase tracking-tighter mb-8">{copy.authorHeading}</h3>
                             <div className="flex items-start gap-4">
                                 <div className="w-16 h-16 bg-gray-200 rounded-full overflow-hidden flex items-center justify-center font-bold text-2xl text-gray-500">
                                     {article.author.name.charAt(0)}
                                 </div>
                                 <div>
                                     <div className="font-bold text-xl text-gray-900 mb-1">{article.author.name}</div>
-                                    <p className="text-gray-500 text-sm mb-2">Rejourney Engineering Team</p>
+                                    <p className="text-gray-500 text-sm mb-2">{copy.engineeringTeamLabel}</p>
                                     <div className="flex gap-4">
                                         <a href={article.author.url} target="_blank" rel="noopener noreferrer" className="text-blue-600 font-bold hover:underline">
-                                            View LinkedIn
+                                            {copy.viewLinkedIn}
                                         </a>
                                         {article.author.github && (
                                             <a href={article.author.github} target="_blank" rel="noopener noreferrer" className="text-gray-900 font-bold hover:underline">
-                                                View GitHub
+                                                {copy.viewGitHub}
                                             </a>
                                         )}
                                     </div>
