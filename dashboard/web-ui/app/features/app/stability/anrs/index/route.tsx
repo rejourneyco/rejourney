@@ -20,7 +20,9 @@ import { useDemoMode } from '~/shared/providers/DemoModeContext';
 import { useSessionData } from '~/shared/providers/SessionContext';
 import { usePathPrefix } from '~/shell/routing/usePathPrefix';
 import { getANRsOverview, type ANRRecord } from '~/shared/api/client';
-import { TimeFilter, TimeRange, DEFAULT_TIME_RANGE } from '~/shared/ui/core/TimeFilter';
+import { DashboardLensControls } from '~/shared/ui/core/DashboardLensControls';
+import { platformLensToSessionPlatform, useSharedPlatformLens } from '~/shared/hooks/useSharedPlatformLens';
+import { useSharedRejourneyTimeRange } from '~/shared/hooks/useSharedRejourneyTimeRange';
 import { formatAge } from '~/shared/lib/formatDates';
 import { formatDeviceModel, getDeviceModelSearchText } from '~/shared/lib/deviceModelNames';
 import { DashboardPageHeader } from '~/shared/ui/core/DashboardPageHeader';
@@ -46,9 +48,11 @@ export const ANRsList: React.FC = () => {
   const [anrs, setAnrs] = useState<ANRRecord[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [expandedAnr, setExpandedAnr] = useState<string | null>(null);
-  const [timeRange, setTimeRange] = useState<TimeRange>(DEFAULT_TIME_RANGE);
+  const { timeRange, setTimeRange } = useSharedRejourneyTimeRange(currentProject?.id);
   const [searchQuery, setSearchQuery] = useState('');
   const [copiedStack, setCopiedStack] = useState<string | null>(null);
+  const { platformLens } = useSharedPlatformLens(currentProject?.id, currentProject?.platforms);
+  const platform = platformLensToSessionPlatform(platformLens);
 
   useEffect(() => {
     const fetchAnrs = async () => {
@@ -60,7 +64,7 @@ export const ANRsList: React.FC = () => {
 
       setIsLoading(true);
       try {
-        const data = await getANRsOverview(currentProject?.id || 'demo', timeRange);
+        const data = await getANRsOverview(currentProject?.id || 'demo', timeRange, platform);
         setAnrs(data.anrs || []);
       } catch (error) {
         console.error('Failed to fetch ANRs:', error);
@@ -71,7 +75,7 @@ export const ANRsList: React.FC = () => {
     };
 
     fetchAnrs();
-  }, [currentProject?.id, timeRange, isDemoMode]);
+  }, [currentProject?.id, timeRange, isDemoMode, platform]);
 
   useEffect(() => {
     window.scrollTo(0, 0);
@@ -144,7 +148,7 @@ export const ANRsList: React.FC = () => {
         icon={<Clock className="h-5 w-5" />}
         iconColor="bg-[#ede9fe]"
       >
-        <TimeFilter value={timeRange} onChange={setTimeRange} />
+        <DashboardLensControls timeRange={timeRange} onTimeRangeChange={setTimeRange} />
       </DashboardPageHeader>
 
       <div className="mx-auto w-full max-w-[1800px] space-y-4 px-6 pt-6">

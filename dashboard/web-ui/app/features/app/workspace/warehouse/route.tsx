@@ -22,7 +22,7 @@ import {
   getWarehouseAlerting,
   WarehouseAlertingData,
 } from '~/shared/api/client';
-import { Project } from '~/shared/types';
+import { Project, Platform } from '~/shared/types';
 import TeamNode, { TEAM_NODE_MAX_VISIBLE_ROWS, TEAM_NODE_WIDTH, TeamNodeData } from './components/TeamNode';
 import AlertingNode, { AlertingNodeData } from './components/AlertingNode';
 
@@ -65,6 +65,8 @@ const CANVAS_PADDING = 100;
 const MAX_COLUMNS = 4;
 // When alert nodes exist, reserve space so they don't overlap the next column
 const ALERT_NODE_WIDTH = 200;
+const ALERT_NODE_HEIGHT = 68;
+const ALERT_NODE_VERTICAL_GAP = 12;
 const GAP_TEAM_TO_ALERT = 40;
 const GAP_AFTER_ALERT = 48;
 const HORIZONTAL_GAP_WITH_ALERT = GAP_TEAM_TO_ALERT + ALERT_NODE_WIDTH + GAP_AFTER_ALERT; // 288
@@ -149,7 +151,7 @@ function getColumnCount(totalNodes: number, viewportWidth: number, hasAlertNodes
 
 function toProjectModel(project: WarehouseProject): Project {
   const platforms = (project.platforms || []).filter(
-    (platform): platform is 'ios' | 'android' => platform === 'ios' || platform === 'android',
+    (platform): platform is Platform => platform === 'ios' || platform === 'android' || platform === 'web',
   );
 
   return {
@@ -158,6 +160,8 @@ function toProjectModel(project: WarehouseProject): Project {
     platforms,
     bundleId: project.bundleId || '',
     packageName: project.packageName,
+    webDomain: project.webDomain,
+    webAllowedDomains: project.webAllowedDomains || [],
     teamId: project.teamId,
     publicKey: project.publicKey,
     rejourneyEnabled: project.rejourneyEnabled ?? true,
@@ -166,6 +170,7 @@ function toProjectModel(project: WarehouseProject): Project {
     recordingFps: project.recordingFps,
     sampleRate: project.sampleRate,
     maxRecordingMinutes: project.maxRecordingMinutes,
+    webMaxObservabilityMinutes: project.webMaxObservabilityMinutes,
     createdAt: project.createdAt,
     sessionsLast7Days: project.sessionsLast7Days,
     errorsLast7Days: project.errorsLast7Days,
@@ -240,6 +245,8 @@ const WarehouseContent: React.FC = () => {
         name: project.name,
         bundleId: project.bundleId || undefined,
         packageName: project.packageName,
+        webDomain: project.webDomain,
+        webAllowedDomains: project.webAllowedDomains || [],
         teamId: project.teamId,
         platforms: project.platforms,
         publicKey: project.publicKey,
@@ -249,6 +256,7 @@ const WarehouseContent: React.FC = () => {
         recordingFps: project.recordingFps,
         sampleRate: project.sampleRate ?? 100,
         maxRecordingMinutes: project.maxRecordingMinutes,
+        webMaxObservabilityMinutes: project.webMaxObservabilityMinutes,
         sessionsTotal: project.sessionsLast7Days ?? 0,
         sessionsLast7Days: project.sessionsLast7Days ?? 0,
         errorsLast7Days: project.errorsLast7Days ?? 0,
@@ -483,19 +491,24 @@ const WarehouseContent: React.FC = () => {
         const baseX = CANVAS_PADDING + (col * (TEAM_NODE_WIDTH + horizontalGap));
         const baseY = rowStarts[row] ?? CANVAS_PADDING;
 
+        let nextAlertY: number | null = null;
         teamNodeData.projects.forEach((proj, projIndex) => {
           if (projIndex >= TEAM_NODE_MAX_VISIBLE_ROWS) return;
           // Only show alert node when this project has alert recipients configured
           if (!connectedProjectIds.has(proj.id)) return;
 
           const projectY = baseY + TEAM_NODE_HEADER_HEIGHT + (projIndex * TEAM_NODE_ROW_HEIGHT) + (TEAM_NODE_ROW_HEIGHT / 2);
+          const desiredAlertY = projectY - 24;
+          const alertY = nextAlertY === null ? desiredAlertY : Math.max(desiredAlertY, nextAlertY);
+          nextAlertY = alertY + ALERT_NODE_HEIGHT + ALERT_NODE_VERTICAL_GAP;
+
           const alertingNodeId = `alerting-${proj.id}`;
           alertingNodes.push({
             id: alertingNodeId,
             type: 'alertingNode',
             position: {
               x: baseX + TEAM_NODE_WIDTH + GAP_TEAM_TO_ALERT,
-              y: projectY - 24,
+              y: alertY,
             },
             data: {
               projectId: proj.id,

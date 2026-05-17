@@ -67,6 +67,13 @@ const PLAN_DESCRIPTIONS: Record<string, string> = {
   pro: 'For high-traffic applications',
 };
 
+const PLAN_ACCENT_COLORS: Record<string, string> = {
+  free: '#94a3b8',
+  starter: '#1a73e8',
+  growth: '#188038',
+  pro: '#9334e6',
+};
+
 export const BillingSettings: React.FC = () => {
   const { isDemoMode } = useDemoMode();
   const { user } = useAuth();
@@ -566,6 +573,23 @@ export const BillingSettings: React.FC = () => {
     );
   }
 
+  const plansForDisplay: BillingPlan[] = availablePlans.length > 0 ? availablePlans : [
+    { name: 'free', displayName: 'Free', sessionLimit: 5000, videoRetentionTier: 1, videoRetentionDays: 7, videoRetentionLabel: '7 days', priceCents: 0 },
+    { name: 'starter', displayName: 'Starter', sessionLimit: 25000, videoRetentionTier: 2, videoRetentionDays: 14, videoRetentionLabel: '14 days', priceCents: 500 },
+    { name: 'growth', displayName: 'Growth', sessionLimit: 100000, videoRetentionTier: 3, videoRetentionDays: 30, videoRetentionLabel: '30 days', priceCents: 1500 },
+    { name: 'pro', displayName: 'Pro', sessionLimit: 350000, videoRetentionTier: 4, videoRetentionDays: 60, videoRetentionLabel: '60 days', priceCents: 3500 },
+  ];
+  const currentPlanName = teamPlan?.planName?.toLowerCase() || 'free';
+  const currentPlanDisplay = teamPlan?.displayName || teamPlan?.planName || 'Free';
+  const currentPlanPriceLabel = teamPlan?.priceCents ? `$${(teamPlan.priceCents / 100).toFixed(0)}/mo` : 'Free';
+  const periodEndsLabel = alertSettings
+    ? new Date(alertSettings.billingCycleEndDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+    : '---';
+  const usageBarClass = isAtLimit || isNearLimit ? 'bg-rose-500' : 'bg-emerald-500';
+  const usageToneClass = isAtLimit || isNearLimit ? 'text-rose-600' : 'text-emerald-600';
+  const showPaymentSummary = stripeStatus?.enabled && (currentPlanName !== 'free' || paymentMethods.length > 0 || isBillingAdmin);
+  const hasScheduledPlanChange = Boolean(teamPlan?.scheduledPriceId || teamPlan?.cancelAtPeriodEnd);
+
   return (
     <SettingsLayout
       className="firebase-settings-page firebase-billing-settings-page"
@@ -581,217 +605,253 @@ export const BillingSettings: React.FC = () => {
         </div>
       }
     >
-      {/* Scheduled Downgrade Alert */}
-      {(teamPlan?.scheduledPriceId || teamPlan?.cancelAtPeriodEnd) && (
-        <div className="p-4 bg-rose-50 border-4 border-rose-500 flex items-center gap-4 mb-6">
-          <Info className="w-6 h-6 text-rose-600 shrink-0" />
-          <div className="flex-1">
-            <div className="font-semibold text-rose-900 uppercase tracking-wide text-sm">Scheduled Plan Change</div>
-            <div className="text-sm font-bold text-rose-800">
-              {teamPlan.cancelAtPeriodEnd
-                ? 'Your subscription will be canceled at the end of your current billing period. You\'ll continue to have access to your current plan features until then.'
-                : 'Your plan change is scheduled for the end of your current billing period. You\'ll keep your current plan features until then.'}
+      {hasScheduledPlanChange && (
+        <div className="dashboard-surface flex items-start gap-3 border-rose-200 bg-rose-50 p-4">
+          <Info className="mt-0.5 h-5 w-5 shrink-0 text-rose-600" />
+          <div className="min-w-0 flex-1">
+            <div className="text-sm font-semibold text-rose-900">Scheduled plan change</div>
+            <div className="mt-1 text-sm font-medium text-rose-800">
+              {teamPlan?.cancelAtPeriodEnd
+                ? 'Your subscription will be canceled at the end of your current billing period. You keep access until then.'
+                : 'Your plan change is scheduled for the end of your current billing period.'}
             </div>
           </div>
         </div>
       )}
 
-      {/* Error Display */}
       {billingError && (
-        <div className="p-4 bg-rose-50 border-4 border-rose-600 flex items-center gap-4 mb-6">
-          <AlertTriangle className="w-6 h-6 text-rose-600 shrink-0" />
-          <div className="flex-1">
-            <div className="font-semibold text-rose-900 uppercase tracking-wide text-sm">Error</div>
-            <div className="text-sm font-bold text-rose-700">{billingError}</div>
+        <div className="dashboard-surface flex items-start gap-3 border-rose-200 bg-rose-50 p-4">
+          <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-rose-600" />
+          <div className="min-w-0 flex-1">
+            <div className="text-sm font-semibold text-rose-900">Billing error</div>
+            <div className="mt-1 text-sm font-medium text-rose-700">{billingError}</div>
           </div>
-          <button onClick={() => setBillingError(null)} className="text-rose-600 hover:text-rose-800">
-            ✕
+          <button onClick={() => setBillingError(null)} className="rounded-md p-1 text-rose-600 hover:bg-rose-100 hover:text-rose-800" aria-label="Dismiss billing error">
+            <X className="h-4 w-4" />
           </button>
         </div>
       )}
 
-      {/* Current Plan & Usage Overview */}
-      <NeoCard className={`p-6 border-b-[6px] ${isAtLimit ? 'border-rose-600 bg-rose-50' : isNearLimit ? 'border-rose-500 bg-rose-50' : 'border-emerald-500 bg-emerald-50'}`}>
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Usage Bar */}
-          <div className="lg:col-span-2 space-y-4">
-            <div className="flex items-center justify-between">
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_380px]">
+        <section className="dashboard-surface p-5">
+          <div className="mb-5 flex flex-wrap items-start justify-between gap-3 border-b border-slate-200 pb-4">
+            <div>
+              <h2 className="text-sm font-semibold uppercase tracking-wide text-black">Usage This Period</h2>
+              <p className="mt-1 text-xs font-medium text-slate-500">Session usage, remaining capacity, and renewal timing.</p>
+            </div>
+            <div className="text-left sm:text-right">
+              <div className="text-xs font-medium text-slate-500">Period ends</div>
+              <div className="font-mono text-sm font-semibold text-slate-950">{periodEndsLabel}</div>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-end justify-between gap-4">
+            <div>
+              <div className="flex items-baseline gap-2">
+                <span className="font-mono text-4xl font-semibold text-slate-950">
+                  {(sessionUsage?.sessionsUsed ?? 0).toLocaleString()}
+                </span>
+                <span className="text-base font-semibold text-slate-500">
+                  / {effectiveSessionLimit.toLocaleString()}
+                </span>
+              </div>
+              {bonusSessionsActive > 0 ? (
+                <p className="mt-2 max-w-xl text-xs font-medium text-slate-600">
+                  Plan includes {planSessionCap.toLocaleString()} sessions; +{bonusSessionsActive.toLocaleString()} bonus this billing period.
+                </p>
+              ) : null}
+            </div>
+            <div className={`text-sm font-semibold ${usageToneClass}`}>
+              {usagePercent}% used
+            </div>
+          </div>
+
+          <div className="mt-5 space-y-2">
+            <div className="billing-progress-track">
+              <div
+                className={`billing-progress-fill ${usageBarClass}`}
+                style={{ width: `${usagePercent}%` }}
+              />
+            </div>
+            <div className="flex items-center justify-between text-xs font-medium text-slate-500">
+              <span>{sessionsRemainingDisplay.toLocaleString()} sessions remaining</span>
+              <span>{planSessionCap.toLocaleString()} base plan cap</span>
+            </div>
+          </div>
+
+          {(isAtLimit || isNearLimit) && (
+            <div className="dashboard-inner-surface mt-4 flex items-start gap-3 border-rose-200 bg-rose-50 p-3">
+              {isAtLimit ? <AlertOctagon className="mt-0.5 h-5 w-5 text-rose-600" /> : <AlertTriangle className="mt-0.5 h-5 w-5 text-rose-600" />}
+              <span className="text-sm font-medium text-rose-800">
+                {isAtLimit
+                  ? 'Session limit reached. Recording is paused until the next billing cycle or upgrade.'
+                  : 'Approaching limit. Consider upgrading to avoid recording interruption.'}
+              </span>
+            </div>
+          )}
+
+        </section>
+
+        <div className="space-y-4">
+          <section className="dashboard-surface p-5">
+            <div className="flex items-start justify-between gap-3">
               <div>
-                <span className="text-[10px] font-semibold uppercase text-slate-500 tracking-widest">Sessions This Period</span>
-                <div className="flex items-baseline gap-2">
-                  <span className="text-4xl font-semibold text-slate-900 font-mono">
-                    {(sessionUsage?.sessionsUsed ?? 0).toLocaleString()}
-                  </span>
-                  <span className="text-lg font-bold text-slate-500">
-                    / {effectiveSessionLimit.toLocaleString()}
-                  </span>
-                </div>
-                {bonusSessionsActive > 0 ? (
-                  <p className="text-xs font-semibold text-slate-600 mt-2 max-w-xl">
-                    Plan includes {planSessionCap.toLocaleString()} sessions; +{bonusSessionsActive.toLocaleString()}{' '}
-                    bonus this billing period. Bonus does not carry over when the period renews.
-                  </p>
-                ) : null}
+                <h2 className="text-sm font-semibold uppercase tracking-wide text-black">Current Plan</h2>
+                <p className="mt-1 text-sm text-slate-500">{PLAN_DESCRIPTIONS[currentPlanName] || 'Subscription Plan'}</p>
               </div>
-              <div className="text-right">
-                <span className="text-[10px] font-semibold uppercase text-slate-500 tracking-widest">Period Ends</span>
-                <div className="text-lg font-semibold text-slate-900 font-mono">
-                  {alertSettings ? new Date(alertSettings.billingCycleEndDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '---'}
-                </div>
-              </div>
+              <NeoBadge variant={currentPlanName === 'free' ? 'warning' : 'success'} size="sm">
+                {currentPlanName}
+              </NeoBadge>
             </div>
-
-            {/* Progress Bar */}
-            <div className="space-y-2">
-              <div className="w-full bg-white h-4 border-2 border-slate-900 overflow-hidden shadow-inner">
-                <div
-                  className={`h-full transition-all duration-500 ${isAtLimit ? 'bg-rose-500' : isNearLimit ? 'bg-rose-500' : 'bg-emerald-500'
-                    }`}
-                  style={{ width: `${usagePercent}%` }}
-                />
-              </div>
-              <div className="flex items-center justify-between">
-                <span className={`text-xs font-semibold uppercase ${isAtLimit ? 'text-rose-600' : isNearLimit ? 'text-rose-600' : 'text-emerald-600'}`}>
-                  {usagePercent}% used
-                </span>
-                <span className="text-xs font-bold text-slate-500">
-                  {sessionsRemainingDisplay.toLocaleString()} remaining
-                </span>
-              </div>
+            <div className="mt-5">
+              <div className="text-3xl font-semibold text-slate-950">{currentPlanDisplay}</div>
+              <div className="mt-1 text-sm font-semibold text-slate-500">{currentPlanPriceLabel}</div>
             </div>
-
-            {/* Warning Messages */}
-            {isAtLimit && (
-              <div className="flex items-center gap-3 p-3 bg-rose-100 border-2 border-rose-600">
-                <AlertOctagon className="w-5 h-5 text-rose-600" />
-                <span className="text-sm font-semibold text-rose-800">
-                  Session limit reached. Recording is paused until next billing cycle or upgrade.
-                </span>
+            {hasScheduledPlanChange && (
+              <div className="dashboard-inner-surface mt-4 border-rose-200 bg-rose-50 p-3 text-sm font-medium text-rose-800">
+                {teamPlan?.cancelAtPeriodEnd ? 'Canceling at period end' : 'Plan change scheduled'}
               </div>
             )}
-            {isNearLimit && !isAtLimit && (
-              <div className="flex items-center gap-3 p-3 bg-rose-100 border-2 border-rose-500">
-                <AlertTriangle className="w-5 h-5 text-rose-600" />
-                <span className="text-sm font-semibold text-rose-800">
-                  Approaching limit. Consider upgrading to avoid recording interruption.
-                </span>
-              </div>
+            {isBillingAdmin && stripeStatus?.enabled && (
+              <NeoButton
+                variant="secondary"
+                className="mt-4 w-full"
+                onClick={handleOpenBillingPortal}
+                disabled={isLoadingPortal}
+                leftIcon={<ExternalLink className="h-4 w-4" />}
+              >
+                {isLoadingPortal ? 'Opening...' : 'Manage Stripe Billing'}
+              </NeoButton>
             )}
-          </div>
+          </section>
 
-          {/* Current Plan Summary */}
-          <div className="bg-white/50 p-4 border-2 border-slate-900 flex flex-col justify-center items-center text-center">
-            <span className="text-[10px] font-semibold uppercase text-slate-500 tracking-widest mb-1">Current Plan</span>
-            <span className="text-3xl font-semibold text-slate-900 uppercase mb-2">
-              {teamPlan?.planName || 'Free'}
-            </span>
-            <span className="text-lg font-bold text-slate-600">
-              {teamPlan?.priceCents ? `$${(teamPlan.priceCents / 100).toFixed(0)}/mo` : 'Free'}
-            </span>
-            {(teamPlan?.scheduledPriceId || teamPlan?.cancelAtPeriodEnd) && (
-              <div className="mt-3 pt-3 border-t-2 border-rose-500 w-full">
-                <div className="flex items-center gap-2 justify-center mb-1">
-                  <AlertTriangle className="w-4 h-4 text-rose-600" />
-                  <span className="text-[10px] font-semibold uppercase text-rose-600 tracking-widest">Scheduled Change</span>
+          {showPaymentSummary && (
+            <section className="dashboard-surface p-5">
+              <div className="mb-4 flex items-center justify-between gap-3">
+                <h2 className="text-sm font-semibold uppercase tracking-wide text-black">Payment</h2>
+                <NeoBadge variant={stripeStatus?.paymentFailed ? 'warning' : hasPaymentMethod ? 'success' : 'neutral'} size="sm">
+                  {stripeStatus?.paymentFailed ? 'Failed' : hasPaymentMethod ? 'On file' : 'None'}
+                </NeoBadge>
+              </div>
+              {stripeStatus?.paymentFailed && (
+                <div className="dashboard-inner-surface mb-3 flex items-start gap-3 border-rose-200 bg-rose-50 p-3">
+                  <AlertOctagon className="mt-0.5 h-5 w-5 text-rose-600" />
+                  <div className="text-sm font-medium text-rose-800">Update your payment method in Stripe Billing to continue recording.</div>
                 </div>
-                <span className="text-xs font-bold text-rose-800">
-                  {teamPlan.cancelAtPeriodEnd
-                    ? 'Canceling at period end'
-                    : 'Downgrade scheduled'}
-                </span>
-              </div>
-            )}
-          </div>
+              )}
+              {paymentMethods.length > 0 ? (
+                <div className="space-y-2">
+                  {paymentMethods.map(pm => (
+                    <div key={pm.id} className="dashboard-inner-surface p-3">
+                      <div className="flex items-center gap-3">
+                        <div className="rounded-md border border-slate-200 bg-white p-2">
+                          <CreditCard className="h-4 w-4 text-slate-700" />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <div className="truncate font-mono text-sm font-semibold text-slate-950">
+                            {pm.brand ? pm.brand.toUpperCase() : 'CARD'} **** {pm.last4 || '****'}
+                          </div>
+                          <div className="text-xs font-medium text-slate-500">
+                            {pm.expiryMonth && pm.expiryYear
+                              ? `Expires ${String(pm.expiryMonth).padStart(2, '0')}/${pm.expiryYear}`
+                              : 'No expiry info'}
+                          </div>
+                        </div>
+                        {pm.isDefault && <NeoBadge variant="success" size="sm">Default</NeoBadge>}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="dashboard-inner-surface p-4 text-sm font-medium text-slate-600">
+                  {currentPlanName === 'free'
+                    ? 'No payment method is needed while this team is on Free.'
+                    : 'Add a payment method in Stripe Billing before reaching the session limit.'}
+                </div>
+              )}
+            </section>
+          )}
         </div>
-      </NeoCard>
+      </div>
 
-
-      {/* Plan Selection */}
-      <section className="space-y-4">
-        <div className="flex items-center justify-between">
-          <h2 className="text-xl font-semibold uppercase tracking-tight">Choose Your Plan</h2>
-          <div className="text-xs font-bold text-slate-500">
-            Need more? <a href="mailto:sales@rejourney.co" className="text-slate-900 hover:underline font-semibold">Contact Sales</a>
+      <section className="dashboard-surface p-5">
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 className="text-sm font-semibold uppercase tracking-wide text-black">Plans</h2>
+            <p className="mt-1 text-xs font-medium text-slate-500">Compare monthly sessions and replay retention without leaving this screen.</p>
+          </div>
+          <div className="text-xs font-medium text-slate-500">
+            Need more? <a href="mailto:sales@rejourney.co" className="font-semibold text-slate-900 hover:underline">Contact Sales</a>
           </div>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 pt-4">
-          {(availablePlans.length > 0 ? availablePlans : [
-            { name: 'free', displayName: 'Free', sessionLimit: 5000, videoRetentionTier: 1, videoRetentionDays: 7, videoRetentionLabel: '7 days', priceCents: 0 },
-            { name: 'starter', displayName: 'Starter', sessionLimit: 25000, videoRetentionTier: 2, videoRetentionDays: 14, videoRetentionLabel: '14 days', priceCents: 500 },
-            { name: 'growth', displayName: 'Growth', sessionLimit: 100000, videoRetentionTier: 3, videoRetentionDays: 30, videoRetentionLabel: '30 days', priceCents: 1500 },
-            { name: 'pro', displayName: 'Pro', sessionLimit: 350000, videoRetentionTier: 4, videoRetentionDays: 60, videoRetentionLabel: '60 days', priceCents: 3500 },
-          ]).map((plan) => {
-            const currentPlanName = teamPlan?.planName?.toLowerCase() || 'free';
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+          {plansForDisplay.map((plan) => {
             const isCurrentPlan = currentPlanName === plan.name;
-            const isDowngrade = teamPlan && availablePlans.findIndex(p => p.name === currentPlanName) > availablePlans.findIndex(p => p.name === plan.name);
+            const currentPlanIndex = plansForDisplay.findIndex(p => p.name === currentPlanName);
+            const planIndex = plansForDisplay.findIndex(p => p.name === plan.name);
+            const isDowngrade = teamPlan && currentPlanIndex > planIndex;
             const isNewPaidSubscription = currentPlanName === 'free' && plan.priceCents > 0;
-            // Disable free plan only if already on free
             const isFreePlanDisabled = plan.name === 'free' && isCurrentPlan;
-            // Disable plan if it's already scheduled for downgrade
             const isScheduledPlan = teamPlan?.scheduledPlanName?.toLowerCase() === plan.name;
             const price = plan.priceCents / 100;
+            const actionLabel = isSavingPlan
+              ? '...'
+              : isDowngrade
+                ? 'Downgrade'
+                : isNewPaidSubscription
+                  ? 'Subscribe'
+                  : 'Upgrade';
 
             return (
-              <NeoCard
+              <div
                 key={plan.name}
-                className={`p-5 relative transition-all overflow-visible ${isCurrentPlan
-                  ? 'border-emerald-600 bg-emerald-50 border-b-[6px]'
+                className={`billing-plan-card dashboard-inner-surface p-0 transition-all ${isCurrentPlan
+                  ? 'billing-plan-card-current'
                   : isFreePlanDisabled || isScheduledPlan
-                    ? 'border-slate-200 bg-slate-50 opacity-60 cursor-not-allowed'
-                    : 'border-slate-300 hover:border-slate-900 hover:-translate-y-1 cursor-pointer'
+                    ? 'bg-slate-50 opacity-70'
+                    : 'bg-white'
                   }`}
-                onClick={isCurrentPlan || isFreePlanDisabled || isScheduledPlan ? undefined : () => handlePlanClick(plan.name)}
+                style={{ '--plan-accent': PLAN_ACCENT_COLORS[plan.name] ?? '#1a73e8' } as React.CSSProperties}
               >
-                {isCurrentPlan && (
-                  <div className="absolute right-4 top-4 z-10">
-                    <NeoBadge variant="success" size="sm">CURRENT PLAN</NeoBadge>
-                  </div>
-                )}
-                {isScheduledPlan && (
-                  <div className="absolute right-4 top-4 z-10">
-                    <NeoBadge variant="warning" size="sm">SCHEDULED</NeoBadge>
-                  </div>
-                )}
-
-
-                <div className="space-y-4">
-                  <div className={isCurrentPlan || isScheduledPlan ? 'pr-32' : undefined}>
-                    <h3 className="text-xl font-semibold uppercase tracking-tight">{plan.displayName}</h3>
-                    <p className="text-xs font-bold text-slate-500 mt-1">{PLAN_DESCRIPTIONS[plan.name] || 'Subscription Plan'}</p>
+                <div className="billing-plan-accent" />
+                <div className="p-4">
+                  <div className="mb-4 flex min-h-[2.5rem] items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <h3 className="truncate text-lg font-semibold text-slate-950">{plan.displayName}</h3>
+                      <p className="mt-1 text-xs font-medium text-slate-500">{PLAN_DESCRIPTIONS[plan.name] || 'Subscription Plan'}</p>
+                    </div>
+                    {isCurrentPlan && <NeoBadge variant="success" size="sm">Current</NeoBadge>}
+                    {isScheduledPlan && <NeoBadge variant="warning" size="sm">Scheduled</NeoBadge>}
                   </div>
 
-                  <div>
-                    <span className="text-4xl font-semibold text-slate-900">
-                      {price === 0 ? 'Free' : `$${price}`}
-                    </span>
-                    {price > 0 && <span className="text-sm font-bold text-slate-500">/mo</span>}
+                  <div className="mb-4">
+                    <span className="text-3xl font-semibold text-slate-950">{price === 0 ? 'Free' : `$${price}`}</span>
+                    {price > 0 && <span className="text-sm font-semibold text-slate-500">/mo</span>}
                   </div>
 
-                  <div className="space-y-3 rounded-md border border-[#dadce0] bg-white px-4 py-3">
+                  <div className="mb-4 grid gap-2 text-sm">
                     <div className="flex items-center gap-2">
-                      <div className="h-2 w-2 shrink-0 bg-slate-900" />
-                      <span className="text-sm font-bold font-mono uppercase text-black">
-                        {plan.sessionLimit.toLocaleString()} sessions
+                      <Check className="h-4 w-4 shrink-0 text-emerald-600" />
+                      <span className="min-w-0 flex-1 text-slate-600">
+                        <span className="font-mono font-semibold text-slate-950">{plan.sessionLimit.toLocaleString()}</span> sessions/mo
                       </span>
                     </div>
-                    <p className="text-[10px] font-bold text-slate-400 mt-1 ml-4">per month</p>
                     <div className="flex items-center gap-2">
-                      <div className="h-2 w-2 shrink-0 bg-slate-400" />
-                      <span className="text-sm font-bold font-mono uppercase text-black">
-                        {plan.videoRetentionLabel} Video Retention
+                      <Check className="h-4 w-4 shrink-0 text-emerald-600" />
+                      <span className="min-w-0 flex-1 text-slate-600">
+                        <span className="font-mono font-semibold text-slate-950">{plan.videoRetentionLabel}</span> replay retention
                       </span>
                     </div>
-                    <p className="text-[10px] font-bold text-slate-400 mt-1 ml-4">replay media only/everything else retained unlimited</p>
                   </div>
 
                   {isCurrentPlan ? (
-                    <div className="py-3 text-center border-2 border-emerald-600 bg-emerald-100">
-                      <span className="text-sm font-semibold text-emerald-700 uppercase">Current Plan</span>
+                    <div className="rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-center text-sm font-semibold text-blue-700">
+                      Current plan
                     </div>
                   ) : isScheduledPlan ? (
-                    <div className="py-3 text-center border-2 border-rose-500 bg-rose-100">
-                      <span className="text-sm font-semibold text-rose-700 uppercase">Already Scheduled</span>
+                    <div className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-center text-sm font-semibold text-rose-700">
+                      Already scheduled
                     </div>
                   ) : isBillingAdmin ? (
                     <NeoButton
@@ -800,109 +860,30 @@ export const BillingSettings: React.FC = () => {
                       onClick={() => handlePlanClick(plan.name)}
                       disabled={isSavingPlan || isFreePlanDisabled}
                     >
-                      {isSavingPlan ? '...' : isDowngrade ? 'Downgrade' : isNewPaidSubscription ? 'Subscribe' : 'Upgrade'}
+                      {actionLabel}
                     </NeoButton>
                   ) : (
-                    <div className="py-3 text-center border-2 border-black bg-[#f4f4f5]">
-                      <span className="text-xs font-bold text-slate-500">Billing admin required</span>
+                    <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-center text-xs font-semibold text-slate-500">
+                      Billing admin required
                     </div>
                   )}
                 </div>
-              </NeoCard>
+              </div>
             );
           })}
         </div>
       </section>
 
-      {/* Payment Methods - Only show if user has a paid plan or payment methods */}
-      {stripeStatus?.enabled && (teamPlan?.planName?.toLowerCase() !== 'free' || paymentMethods.length > 0) && (
-        <section className="space-y-4">
-          <h2 className="text-xl font-semibold uppercase tracking-tight">Payment Method</h2>
-
-          <NeoCard className="p-6">
-            {stripeStatus.paymentFailed && (
-              <div className="p-4 bg-rose-50 border-4 border-rose-600 flex items-center gap-4 mb-6">
-                <AlertOctagon className="w-8 h-8 text-rose-600" />
-                <div className="flex-1">
-                  <div className="font-semibold text-rose-900 uppercase tracking-wide">Payment Failed</div>
-                  <div className="text-sm font-bold text-rose-700">Please update your payment method in Stripe Billing to continue recording.</div>
-                </div>
-              </div>
-            )}
-
-            {paymentMethods.length > 0 ? (
-              <div className="space-y-4">
-                {paymentMethods.map(pm => (
-                  <div key={pm.id} className="flex items-center justify-between p-4 border-2 border-slate-900 bg-slate-50 shadow-[4px_4px_0_0_#000]">
-                    <div className="flex items-center gap-4">
-                      <div className="bg-white p-3 border-2 border-slate-900">
-                        <CreditCard className="w-6 h-6 text-slate-800" />
-                      </div>
-                      <div>
-                        <span className="font-mono font-semibold text-slate-900">
-                          {pm.brand ? pm.brand.toUpperCase() : 'CARD'} •••• {pm.last4 || '****'}
-                        </span>
-                        <div className="text-xs font-bold text-slate-500">
-                          {pm.expiryMonth && pm.expiryYear
-                            ? `Expires ${String(pm.expiryMonth).padStart(2, '0')}/${pm.expiryYear}`
-                            : 'No expiry info'}
-                        </div>
-                      </div>
-                      {pm.isDefault && <NeoBadge variant="success" size="sm">DEFAULT</NeoBadge>}
-                    </div>
-                  </div>
-                ))}
-
-                {isBillingAdmin && (
-                  <div className="pt-2">
-                    <NeoButton
-                      variant="ghost"
-                      onClick={handleOpenBillingPortal}
-                      disabled={isLoadingPortal}
-                      leftIcon={<ExternalLink className="w-4 h-4" />}
-                    >
-                      {isLoadingPortal ? 'Opening...' : 'Manage in Stripe Billing'}
-                    </NeoButton>
-                  </div>
-                )}
-              </div>
-            ) : (
-              <div className="text-center py-8">
-                <div className="w-16 h-16 bg-[#f4f4f5] border-2 border-black flex items-center justify-center mx-auto mb-4">
-                  <CreditCard className="w-8 h-8 text-slate-400" />
-                </div>
-                <h3 className="text-lg font-black font-mono uppercase tracking-wide text-black uppercase mb-2">No Payment Method</h3>
-                <p className="text-sm font-bold text-slate-500 mb-4 max-w-md mx-auto">
-                  Manage your payment method in Stripe Billing. Recording pauses at your session limit until a valid card is on file.
-                </p>
-                {isBillingAdmin && (
-                  <NeoButton
-                    variant="primary"
-                    onClick={handleOpenBillingPortal}
-                    disabled={isLoadingPortal}
-                    leftIcon={<ExternalLink className="w-4 h-4" />}
-                  >
-                    {isLoadingPortal ? 'Opening...' : 'Open Stripe Billing'}
-                  </NeoButton>
-                )}
-              </div>
-            )}
-          </NeoCard>
-        </section>
-      )}
-
-
-
       {/* Plan Change Confirmation Modal */}
       {planChangeModal.isOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50" onClick={handleCloseModal}>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4 backdrop-blur-[2px]" onClick={handleCloseModal}>
           <div
-            className="bg-white border-4 border-slate-900 shadow-[8px_8px_0_0_#000] max-w-lg w-full max-h-[90vh] overflow-y-auto"
+            className="billing-modal-panel bg-white max-w-lg w-full max-h-[90vh] overflow-y-auto"
             onClick={(e) => e.stopPropagation()}
           >
             {/* Modal Header */}
-            <div className="flex items-center justify-between p-4 border-b-4 border-slate-900 bg-slate-100">
-              <h2 className="text-xl font-semibold uppercase tracking-tight">
+            <div className="flex items-center justify-between border-b border-slate-200 bg-white p-4">
+              <h2 className="text-lg font-semibold tracking-tight">
                 {planChangeModal.isLoading ? 'Loading...' :
                   planChangeModal.preview?.changeType === 'new' ? 'Subscribe to Plan' :
                     planChangeModal.preview?.changeType === 'upgrade' ? 'Confirm Upgrade' :
@@ -911,7 +892,7 @@ export const BillingSettings: React.FC = () => {
               </h2>
               <button
                 onClick={handleCloseModal}
-                className="p-2 hover:bg-slate-200 transition-colors"
+                className="rounded-md p-2 text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-900"
                 disabled={planChangeModal.isConfirming}
               >
                 <X className="w-5 h-5" />
@@ -928,7 +909,7 @@ export const BillingSettings: React.FC = () => {
                 <div className="space-y-6">
                   {/* Plan Change Summary */}
                   <div className="flex items-center justify-center gap-4">
-                    <div className="text-center p-4 bg-[#f4f4f5] border-2 border-black flex-1">
+                    <div className="dashboard-inner-surface flex-1 p-4 text-center">
                       <div className="text-xs font-bold text-slate-500 uppercase mb-1">Current</div>
                       <div className="text-lg font-semibold">
                         {planChangeModal.preview.currentPlan.displayName}
@@ -940,7 +921,7 @@ export const BillingSettings: React.FC = () => {
                       </div>
                     </div>
                     <div className="text-slate-400 font-semibold text-xl">→</div>
-                    <div className={`text-center p-4 border-2 flex-1 ${planChangeModal.preview.changeType === 'upgrade' || planChangeModal.preview.changeType === 'new'
+                    <div className={`dashboard-inner-surface flex-1 p-4 text-center ${planChangeModal.preview.changeType === 'upgrade' || planChangeModal.preview.changeType === 'new'
                       ? 'bg-emerald-50 border-emerald-600'
                       : 'bg-rose-50 border-rose-600'
                       }`}>
@@ -955,7 +936,7 @@ export const BillingSettings: React.FC = () => {
                   </div>
 
                   {/* Session Limit Change */}
-                  <div className="p-4 bg-[#f4f4f5] border-2 border-black">
+                  <div className="dashboard-inner-surface p-4">
                     <div className="flex justify-between items-center">
                       <span className="font-bold text-slate-600">Monthly Session Limit</span>
                       <div className="text-right">
@@ -972,7 +953,7 @@ export const BillingSettings: React.FC = () => {
                     </div>
                   </div>
 
-                  <div className="p-4 bg-[#f4f4f5] border-2 border-black">
+                  <div className="dashboard-inner-surface p-4">
                     <div className="flex justify-between items-center">
                       <span className="font-bold text-slate-600">Video Retention</span>
                       <div className="text-right">
@@ -993,7 +974,7 @@ export const BillingSettings: React.FC = () => {
 
                   {/* Payment Method Warning */}
                   {planChangeModal.preview.requiresPaymentMethod && !planChangeModal.preview.hasPaymentMethod && (
-                    <div className="p-4 bg-[#f4f4f5] border-2 border-black">
+                    <div className="dashboard-inner-surface p-4">
                       <div className="font-semibold text-slate-900 mb-2">Payment Method Required</div>
                       <p className="text-sm text-slate-600 mb-3">
                         Add or update your payment method in Stripe Billing, then return here to finish this change.
@@ -1012,7 +993,7 @@ export const BillingSettings: React.FC = () => {
                   {/* Warnings */}
                   {planChangeModal.preview.warnings.length > 0 &&
                     !(planChangeModal.preview.requiresPaymentMethod && !planChangeModal.preview.hasPaymentMethod) && (
-                      <div className="p-4 bg-[#f4f4f5] border-2 border-black">
+                      <div className="dashboard-inner-surface p-4">
                         <div className="font-semibold text-slate-900 mb-2">Important</div>
                         <ul className="text-sm text-slate-600 space-y-1">
                           {planChangeModal.preview.warnings.map((warning, i) => (
@@ -1024,12 +1005,12 @@ export const BillingSettings: React.FC = () => {
 
                   {/* When change takes effect */}
                   {planChangeModal.preview.isImmediate ? (
-                    <div className="p-3 bg-[#f4f4f5] border-2 border-black text-sm">
+                    <div className="dashboard-inner-surface p-3 text-sm">
                       <div className="font-semibold text-slate-900">Takes effect immediately</div>
                       <p className="text-slate-600 mt-1">Your new session limit will be active right away.</p>
                     </div>
                   ) : (
-                    <div className="p-3 bg-[#f4f4f5] border-2 border-black text-sm">
+                    <div className="dashboard-inner-surface p-3 text-sm">
                       <div className="font-semibold text-slate-900">Scheduled for end of billing period</div>
                       <p className="text-slate-600 mt-1">
                         Your downgrade will take effect on {new Date(planChangeModal.preview.effectiveDate).toLocaleDateString()}.
@@ -1049,7 +1030,7 @@ export const BillingSettings: React.FC = () => {
 
             {/* Modal Footer */}
             {!planChangeModal.isLoading && planChangeModal.preview && (
-              <div className="flex gap-3 p-4 border-t-4 border-slate-900 bg-slate-50">
+              <div className="flex gap-3 border-t border-slate-200 bg-slate-50 p-4">
                 <NeoButton
                   variant="secondary"
                   className="flex-1"

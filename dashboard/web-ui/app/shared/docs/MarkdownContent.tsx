@@ -6,20 +6,164 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { DocsCodeBlock } from '~/shared/docs/DocsCodeBlock';
 import React, { useState } from 'react';
-import { Check, Info, AlertTriangle, XCircle, Lightbulb } from 'lucide-react';
+import { Check, Info, AlertTriangle, XCircle, Lightbulb, Code2 } from 'lucide-react';
 import { AI_INTEGRATION_PROMPT } from '~/shared/constants/aiPrompts';
 import { cn } from "~/shared/lib/cn";
 
 interface MarkdownContentProps {
     content: string;
     onAIPromptRender?: (renderPrompt: () => React.JSX.Element) => void;
+    showAIPrompt?: boolean;
+    aiPromptLabels?: DocsAIPromptLabels;
 }
+
+const AI_PROMPT_START_MARKER = '<!-- AI_PROMPT_SECTION -->';
+const AI_PROMPT_END_MARKER = '<!-- /AI_PROMPT_SECTION -->';
+
+export function getDocsAIPromptText(content: string): string | null {
+    const startIdx = content.indexOf(AI_PROMPT_START_MARKER);
+    const endIdx = content.indexOf(AI_PROMPT_END_MARKER);
+
+    if (startIdx === -1 || endIdx === -1 || endIdx < startIdx) {
+        return null;
+    }
+
+    return content
+        .substring(startIdx + AI_PROMPT_START_MARKER.length, endIdx)
+        .replace(/\*\*/g, '')
+        .replace(/\*/g, '')
+        .trim();
+}
+
+export function stripDocsAIPromptSection(content: string): string {
+    const startIdx = content.indexOf(AI_PROMPT_START_MARKER);
+    const endIdx = content.indexOf(AI_PROMPT_END_MARKER);
+
+    if (startIdx === -1 || endIdx === -1 || endIdx < startIdx) {
+        return content;
+    }
+
+    return content.substring(0, startIdx) + content.substring(endIdx + AI_PROMPT_END_MARKER.length);
+}
+
+type DocsAIPromptLabels = {
+    heading: string;
+    copyButton: string;
+    copied: string;
+};
+
+const defaultAIPromptLabels: DocsAIPromptLabels = {
+    heading: "Use AI to integrate faster",
+    copyButton: "Copy Integration Prompt",
+    copied: "Copied!",
+};
+
+export function DocsAIPromptCallout({
+    promptText,
+    compact = false,
+    labels = defaultAIPromptLabels,
+}: {
+    promptText: string;
+    compact?: boolean;
+    labels?: DocsAIPromptLabels;
+}) {
+    const [promptCopied, setPromptCopied] = useState(false);
+
+    const handleCopyPrompt = async () => {
+        try {
+            await navigator.clipboard.writeText(AI_INTEGRATION_PROMPT);
+            setPromptCopied(true);
+            setTimeout(() => setPromptCopied(false), 2000);
+        } catch (err) {
+            console.error('Failed to copy:', err);
+        }
+    };
+
+    return (
+        <div className={cn(
+            "border-2 border-black bg-[#bbf7d0] shadow-[5px_5px_0px_0px_rgba(0,0,0,1)]",
+            compact ? "p-4" : "p-6"
+        )}>
+            <p className={cn(
+                "flex items-center gap-2 font-black text-slate-900",
+                compact ? "mb-2 text-sm" : "mb-4 text-lg"
+            )}>
+                <Code2 className="h-4 w-4 shrink-0" />
+                {labels.heading}
+            </p>
+            <p className={cn(
+                "font-medium leading-relaxed text-slate-800",
+                compact ? "mb-3 text-sm" : "mb-6 text-base"
+            )}>
+                {promptText}
+            </p>
+            <button
+                onClick={handleCopyPrompt}
+                className={cn(
+                    "bg-black font-bold text-white shadow-[4px_4px_0px_0px_rgba(100,100,100,1)] transition-colors hover:bg-gray-800 active:translate-x-[4px] active:translate-y-[4px] active:shadow-none",
+                    compact ? "px-4 py-2 text-sm" : "px-6 py-3"
+                )}
+            >
+                {promptCopied ? labels.copied : labels.copyButton}
+            </button>
+        </div>
+    );
+}
+
+const canonicalHeadingIds: Record<string, string> = {
+    Installation: "installation",
+    Instalación: "installation",
+    التثبيت: "installation",
+    تثبيت: "installation",
+    Kurulum: "installation",
+    "Basic Setup": "basic-setup",
+    "Configuración básica": "basic-setup",
+    "الإعداد الأساسي": "basic-setup",
+    "Temel kurulum": "basic-setup",
+    "Temel Kurulum": "basic-setup",
+    "Route Tracking": "route-tracking",
+    "Seguimiento de rutas": "route-tracking",
+    "Seguimiento de ruta": "route-tracking",
+    "تتبع المسارات": "route-tracking",
+    "تتبع الطريق": "route-tracking",
+    "Rota Takibi": "route-tracking",
+    "User Identification": "user-identification",
+    "Identificación de usuarios": "user-identification",
+    "Identificación de usuario": "user-identification",
+    "تعريف المستخدم": "user-identification",
+    "تحديد هوية المستخدم": "user-identification",
+    "Kullanıcı kimliği": "user-identification",
+    "Kullanıcı Kimliği": "user-identification",
+    "Custom Events": "custom-events",
+    "Eventos personalizados": "custom-events",
+    "الأحداث المخصصة": "custom-events",
+    "Özel Etkinlikler": "custom-events",
+    "Metadata": "metadata",
+    Metadatos: "metadata",
+    "البيانات الوصفية": "metadata",
+    "Meta veriler": "metadata",
+    "Privacy Controls": "privacy-controls",
+    "Controles de privacidad": "privacy-controls",
+    "عناصر التحكم بالخصوصية": "privacy-controls",
+    "ضوابط الخصوصية": "privacy-controls",
+    "Gizlilik kontrolleri": "privacy-controls",
+    "Gizlilik Kontrolleri": "privacy-controls",
+};
 
 // Helper to generate ID from heading text
 function generateId(text: string): string {
-    return String(text)
+    const normalizedText = String(text).replace(/\s+/g, " ").trim();
+    const canonicalId = canonicalHeadingIds[normalizedText];
+
+    if (canonicalId) {
+        return canonicalId;
+    }
+
+    return normalizedText
         .toLowerCase()
-        .replace(/[^\w\s-]/g, '')
+        .normalize("NFKD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .replace(/[^\p{L}\p{N}\s-]/gu, "")
         .replace(/\s+/g, '-')
         .replace(/-+/g, '-')
         .trim();
@@ -64,75 +208,38 @@ const getAlertProps = (children: any) => {
     return { type, title, content };
 };
 
-export function MarkdownContent({ content, onAIPromptRender }: MarkdownContentProps) {
-    const [promptCopied, setPromptCopied] = useState(false);
-
-    const handleCopyPrompt = async () => {
-        try {
-            await navigator.clipboard.writeText(AI_INTEGRATION_PROMPT);
-            setPromptCopied(true);
-            setTimeout(() => setPromptCopied(false), 2000);
-        } catch (err) {
-            console.error('Failed to copy:', err);
-        }
-    };
-
+export function MarkdownContent({ content, onAIPromptRender, showAIPrompt = true, aiPromptLabels }: MarkdownContentProps) {
     // Check if content has AI prompt section
-    const hasAIPrompt = content.includes('<!-- AI_PROMPT_SECTION -->');
+    const hasAIPrompt = content.includes(AI_PROMPT_START_MARKER);
 
     // Extract AI prompt section
-    let processedContent = content;
-    let aiPromptSection: string | null = null;
+    const processedContent = stripDocsAIPromptSection(content);
+    const aiPromptSection = getDocsAIPromptText(content);
 
-    if (hasAIPrompt) {
-        const startMarker = '<!-- AI_PROMPT_SECTION -->';
-        const endMarker = '<!-- /AI_PROMPT_SECTION -->';
-        const startIdx = content.indexOf(startMarker);
-        const endIdx = content.indexOf(endMarker);
-
-        if (startIdx !== -1 && endIdx !== -1) {
-            aiPromptSection = content.substring(startIdx + startMarker.length, endIdx).trim();
-            processedContent = content.substring(0, startIdx) + content.substring(endIdx + endMarker.length);
-        }
-    }
     // Render AI prompt section if present
-    const renderAIPrompt = () => {
-        // Remove markdown formatting (asterisks, etc.) from the text
-        const cleanText = aiPromptSection?.replace(/\*\*/g, '').replace(/\*/g, '').trim() || '';
-
+    const renderAIPromptSection = () => {
         return (
             <section className="mb-12 pb-8 border-b-2 border-black">
-                <div className="bg-yellow-100 border-2 border-black p-6 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]">
-                    <p className="text-black font-bold mb-4 text-lg">
-                        Use AI to integrate faster
-                    </p>
-                    <p className="text-black mb-6 font-medium">
-                        {cleanText}
-                    </p>
-                    <button
-                        onClick={handleCopyPrompt}
-                        className="px-6 py-3 bg-black text-white font-bold hover:bg-gray-800 transition-colors shadow-[4px_4px_0px_0px_rgba(100,100,100,1)] hover:translate-x-[2px] hover:translate-y-[2px] hover:shadow-[2px_2px_0px_0px_rgba(100,100,100,1)] active:translate-x-[4px] active:translate-y-[4px] active:shadow-none"
-                    >
-                        {promptCopied ? "Copied!" : "Copy Integration Prompt"}
-                    </button>
-                </div>
+                <DocsAIPromptCallout promptText={aiPromptSection ?? ""} labels={aiPromptLabels} />
             </section>
         );
     };
 
     // Notify parent about AI prompt renderer if callback provided
     if (onAIPromptRender && aiPromptSection) {
-        onAIPromptRender(renderAIPrompt);
+        onAIPromptRender(renderAIPromptSection);
     }
 
     return (
-        <div className="prose prose-slate max-w-none prose-headings:font-bold prose-headings:text-black prose-p:text-gray-800 prose-a:text-blue-600 prose-code:text-gray-700 prose-code:bg-gray-50 prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-code:before:content-none prose-code:after:content-none">
-            {aiPromptSection && renderAIPrompt()}
-            <ReactMarkdown
-                remarkPlugins={[remarkGfm]}
-                components={{
-                    // Custom code block rendering to match existing style
-                    code({ node, inline, className, children, ...props }: any) {
+        <article className="border-2 border-black bg-white px-5 py-7 shadow-[8px_8px_0_0_rgba(0,0,0,1)] sm:px-8 sm:py-9 lg:px-10">
+            <div className="prose prose-slate max-w-none prose-headings:font-bold prose-headings:text-black prose-p:text-gray-800 prose-a:text-blue-600 prose-code:text-gray-700 prose-code:bg-gray-50 prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-code:before:content-none prose-code:after:content-none">
+                {aiPromptSection && showAIPrompt && renderAIPromptSection()}
+                <ReactMarkdown
+                    remarkPlugins={[remarkGfm]}
+                    components={{
+                        pre: ({ children }) => <>{children}</>,
+                        // Custom code block rendering to match existing style
+                        code({ node, inline, className, children, ...props }: any) {
                         const match = /language-(\w+)/.exec(className || '');
                         const language = match ? match[1] : '';
 
@@ -196,7 +303,7 @@ export function MarkdownContent({ content, onAIPromptRender }: MarkdownContentPr
                     h2: ({ children }) => {
                         const id = generateId(String(children));
                         return (
-                            <h2 id={id} className="text-2xl font-black text-black mb-4 mt-12 scroll-mt-32 border-b-4 border-black pb-2 inline-block">
+                            <h2 id={id} className="inline-flex scroll-mt-32 border-b-4 border-black pb-2 mt-12 mb-4 text-2xl font-black text-black">
                                 {children}
                             </h2>
                         );
@@ -219,18 +326,18 @@ export function MarkdownContent({ content, onAIPromptRender }: MarkdownContentPr
                     },
                     // Style paragraphs
                     p: ({ children }) => (
-                        <p className="text-gray-800 mb-6 leading-relaxed text-base">
+                        <p className="mb-6 text-base leading-relaxed text-slate-700">
                             {children}
                         </p>
                     ),
                     // Style lists
                     ul: ({ children }) => (
-                        <ul className="list-disc list-outside ml-6 text-gray-800 space-y-2 mb-6">
+                        <ul className="mb-6 ml-6 list-outside list-disc space-y-2 text-slate-700">
                             {children}
                         </ul>
                     ),
                     ol: ({ children }) => (
-                        <ol className="list-decimal list-outside ml-6 text-gray-800 space-y-2 mb-6">
+                        <ol className="mb-6 ml-6 list-outside list-decimal space-y-2 text-slate-700">
                             {children}
                         </ol>
                     ),
@@ -254,7 +361,7 @@ export function MarkdownContent({ content, onAIPromptRender }: MarkdownContentPr
                     img: ({ src, alt }) => {
                         if (!src) return null;
                         return (
-                            <figure className="my-8 border-2 border-black bg-slate-50 overflow-hidden">
+                            <figure className="my-8 overflow-hidden border-2 border-black bg-slate-50 shadow-[5px_5px_0_0_rgba(0,0,0,1)]">
                                 <img
                                     src={src as string}
                                     alt={alt || 'Documentation image'}
@@ -350,7 +457,7 @@ export function MarkdownContent({ content, onAIPromptRender }: MarkdownContentPr
 
                             return (
                                 <div className={cn(
-                                    "flex items-start gap-4 p-4 my-6 border-l-4 shadow-sm rounded-r-md transition-all hover:shadow-md",
+                                    "flex items-start gap-4 p-4 my-6 border-2 border-l-8 border-black shadow-[4px_4px_0_0_rgba(0,0,0,1)] transition-all",
                                     style.bg,
                                     style.border
                                 )}>
@@ -364,7 +471,7 @@ export function MarkdownContent({ content, onAIPromptRender }: MarkdownContentPr
 
                         // Standard blockquote
                         return (
-                            <blockquote className="border-l-4 border-black pl-4 italic text-gray-700 my-6 bg-gray-50 py-4 pr-4 rounded-r-md">
+                            <blockquote className="my-6 border-l-4 border-black bg-slate-50 py-4 pl-4 pr-4 text-slate-700 italic">
                                 {children}
                             </blockquote>
                         );
@@ -372,7 +479,7 @@ export function MarkdownContent({ content, onAIPromptRender }: MarkdownContentPr
                     // Style tables
                     table: ({ children }) => (
                         <div className="overflow-x-auto my-8 border-2 border-black shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]">
-                            <table className="min-w-full text-left text-sm">
+                            <table className="min-w-full bg-white text-left text-sm">
                                 {children}
                             </table>
                         </div>
@@ -406,7 +513,7 @@ export function MarkdownContent({ content, onAIPromptRender }: MarkdownContentPr
             >
                 {processedContent}
             </ReactMarkdown>
-
         </div>
+        </article>
     );
 }

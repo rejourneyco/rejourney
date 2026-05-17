@@ -12,7 +12,7 @@ describe('workerDefinitions', () => {
         expect(INGEST_ARTIFACT_WORKER.ownedResponsibilities).not.toContain('session-reconciliation');
 
         expect(REPLAY_ARTIFACT_WORKER.mode).toBe('artifact');
-        expect(REPLAY_ARTIFACT_WORKER.allowedKinds).toEqual(['screenshots', 'hierarchy']);
+        expect(REPLAY_ARTIFACT_WORKER.allowedKinds).toEqual(['screenshots', 'hierarchy', 'rrweb']);
         expect(REPLAY_ARTIFACT_WORKER.ownedResponsibilities).not.toContain('session-reconciliation');
     });
 

@@ -24,7 +24,7 @@ export default function DPA() {
                 {/* Main Content */}
                 <div>
                     <h1 className="text-4xl font-bold mb-4">Data Processing Agreement</h1>
-                    <p className="text-sm text-muted-foreground mb-8">Last Updated: May 6, 2026</p>
+                    <p className="text-sm text-muted-foreground mb-8">Last Updated: May 17, 2026</p>
 
                     <div className="bg-muted/30 border border-input rounded-lg p-8 space-y-6">
                         <div className="text-sm leading-relaxed space-y-6">
@@ -34,15 +34,23 @@ export default function DPA() {
 
                             <h3 className="text-base font-semibold mt-6 mb-2">1. Scope and Purpose</h3>
                             <p>
-                                Processor will process Personal Data only as necessary to provide the Service as described in the Terms and as further specified in <strong>Annex I</strong>.
+                                Processor will process Personal Data only as necessary to provide the Service as described in the Terms, to create anonymized or aggregated outputs as authorized below, and as further specified in <strong>Annex I</strong>.
                             </p>
 
-                            <h3 className="text-base font-semibold mt-6 mb-2">2. Technical and Organizational Measures</h3>
+                            <h3 className="text-base font-semibold mt-6 mb-2">2. Authorized Anonymization and Aggregate Research</h3>
+                            <p>
+                                Controller instructs and authorizes Processor to analyze Customer Data and service telemetry to create anonymized, aggregated, or de-identified datasets for product analytics, service improvement, benchmarking, research, and publication of general trend reports, articles, benchmarks, and similar public findings. Processor will not publish raw session recordings, screenshots, request payloads, Personal Data, Controller confidential information, or statistics that reasonably identify or single out Controller, a specific application, or any data subject without Controller's separate permission.
+                            </p>
+                            <p className="mt-2">
+                                Pseudonymized data remains Personal Data where it can be attributed to an individual using additional information. Anonymous information created under this section is not subject to this DPA only where the relevant individuals are not or are no longer identifiable by means reasonably likely to be used.
+                            </p>
+
+                            <h3 className="text-base font-semibold mt-6 mb-2">3. Technical and Organizational Measures</h3>
                             <p>
                                 Processor has implemented and will maintain the technical and organizational measures specified in <strong>Annex II</strong> to protect Personal Data against unauthorized or unlawful processing and accidental loss, destruction, or damage.
                             </p>
 
-                            <h3 className="text-base font-semibold mt-6 mb-2">3. Sub-processors</h3>
+                            <h3 className="text-base font-semibold mt-6 mb-2">4. Sub-processors</h3>
                             <p>
                                 Controller grants a general authorization for Processor to engage Sub-processors. Processor will provide Controller with at least 14 days' prior written notice (via email or dashboard notification) before adding or replacing any Sub-processor. Controller may object in writing within 14 days of such notice. Current Sub-processors are listed below:
                             </p>
@@ -99,12 +107,12 @@ export default function DPA() {
                                 </table>
                             </div>
 
-                            <h3 className="text-base font-semibold mt-6 mb-2">4. Data Subject Rights</h3>
+                            <h3 className="text-base font-semibold mt-6 mb-2">5. Data Subject Rights</h3>
                             <p>
                                 Processor will assist Controller in fulfilling its obligations to respond to requests from individuals exercising their rights under GDPR. Please contact <a href="mailto:contact@rejourney.co" className="text-primary hover:underline">contact@rejourney.co</a> for assistance.
                             </p>
 
-                            <h3 className="text-base font-semibold mt-6 mb-2">5. Data Breach Notification</h3>
+                            <h3 className="text-base font-semibold mt-6 mb-2">6. Data Breach Notification</h3>
                             <p>
                                 Processor will notify Controller without undue delay (and in no case later than 72 hours) after becoming aware of a personal data breach. Processor will provide Controller with all information reasonably necessary to allow Controller to comply with its own notification obligations to supervisory authorities and data subjects under GDPR Articles 33–34.
                             </p>
@@ -119,6 +127,7 @@ export default function DPA() {
                             <p className="mt-4"><strong>B. Description of Transfer</strong></p>
                             <p>Categories of data subjects: End-users of the Controller's mobile applications.</p>
                             <p>Categories of personal data: IP addresses, device identifiers, approximate geolocation (country, region, city), session recordings, and interaction metadata.</p>
+                            <p>Nature and purpose of processing: Providing session replay, analytics, diagnostics, security, support, and related Service functionality; improving the Service; and creating anonymized or aggregated outputs for research, benchmarking, and public trend reporting as authorized in Section 2.</p>
                             <p>Sensitive data: None. <strong>Controller is responsible for ensuring that no sensitive data is transmitted to Processor by utilizing the provided masking and redaction tools.</strong></p>
 
                             <h2 className="text-xl font-bold mb-4 mt-8">Annex II: Technical and Organizational Measures</h2>
@@ -127,6 +136,7 @@ export default function DPA() {
                                 <li><strong>Access Control:</strong> Logical access controlled via multi-factor authentication and role-based permissions.</li>
                                 <li><strong>Encryption:</strong> Data encrypted in transit using TLS 1.3 and at rest using AES-256.</li>
                                 <li><strong>Pseudonymization:</strong> User identifiers are hashed upon ingest to prevent direct identification.</li>
+                                <li><strong>Anonymization and Aggregation Controls:</strong> Published research and trend outputs use anonymized or aggregated data designed to prevent reasonable identification or singling out of a Controller, application, or data subject.</li>
                                 <li><strong>Redaction:</strong> Automatic UI element masking and sensitive data scrubbing at the SDK level.</li>
                                 <li><strong>Resilience:</strong> Regular backups and geographically redundant storage for disaster recovery.</li>
                             </ul>

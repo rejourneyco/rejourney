@@ -21,7 +21,9 @@ import { useDemoMode } from '~/shared/providers/DemoModeContext';
 import { useSessionData } from '~/shared/providers/SessionContext';
 import { usePathPrefix } from '~/shell/routing/usePathPrefix';
 import { getErrorsOverview, type ErrorOverviewGroup } from '~/shared/api/client';
-import { TimeFilter, TimeRange, DEFAULT_TIME_RANGE } from '~/shared/ui/core/TimeFilter';
+import { DashboardLensControls } from '~/shared/ui/core/DashboardLensControls';
+import { platformLensToSessionPlatform, useSharedPlatformLens } from '~/shared/hooks/useSharedPlatformLens';
+import { useSharedRejourneyTimeRange } from '~/shared/hooks/useSharedRejourneyTimeRange';
 import { formatAge, formatLastSeen } from '~/shared/lib/formatDates';
 import { formatDeviceModel, getDeviceModelSearchText } from '~/shared/lib/deviceModelNames';
 import { DashboardPageHeader } from '~/shared/ui/core/DashboardPageHeader';
@@ -45,12 +47,14 @@ export const ErrorsList: React.FC = () => {
   const pathPrefix = usePathPrefix();
 
   const [expandedGroup, setExpandedGroup] = useState<string | null>(null);
-  const [timeRange, setTimeRange] = useState<TimeRange>(DEFAULT_TIME_RANGE);
+  const { timeRange, setTimeRange } = useSharedRejourneyTimeRange(currentProject?.id);
   const [searchQuery, setSearchQuery] = useState('');
   const [copiedStack, setCopiedStack] = useState<string | null>(null);
 
   const [errorGroups, setErrorGroups] = useState<ErrorOverviewGroup[]>([]);
   const [loading, setLoading] = useState(true);
+  const { platformLens } = useSharedPlatformLens(currentProject?.id, currentProject?.platforms);
+  const platform = platformLensToSessionPlatform(platformLens);
 
   useEffect(() => {
     if (!isDemoMode && !currentProject) {
@@ -62,7 +66,7 @@ export const ErrorsList: React.FC = () => {
     const fetchErrors = async () => {
       setLoading(true);
       try {
-        const data = await getErrorsOverview(currentProject?.id || 'demo', timeRange);
+        const data = await getErrorsOverview(currentProject?.id || 'demo', timeRange, platform);
         setErrorGroups(data.groups || []);
       } catch (err) {
         console.error('Failed to fetch errors:', err);
@@ -73,7 +77,7 @@ export const ErrorsList: React.FC = () => {
     };
 
     fetchErrors();
-  }, [currentProject?.id, isDemoMode, timeRange]);
+  }, [currentProject?.id, isDemoMode, timeRange, platform]);
 
   useEffect(() => {
     window.scrollTo(0, 0);
@@ -144,7 +148,7 @@ export const ErrorsList: React.FC = () => {
         icon={<Bug className="h-5 w-5" />}
         iconColor="bg-[#fce7f3]"
       >
-        <TimeFilter value={timeRange} onChange={setTimeRange} />
+        <DashboardLensControls timeRange={timeRange} onTimeRangeChange={setTimeRange} />
       </DashboardPageHeader>
 
       <div className="mx-auto w-full max-w-[1800px] space-y-4 px-6 pt-6">

@@ -317,30 +317,31 @@ export const PerformanceMetrics: React.FC<{ copy: MarketingHomeCopy['performance
                             <p className="mt-1 text-[10px] font-mono uppercase leading-relaxed text-gray-500">{copy.metricsNotePrefix} <a href="https://merchcampus.com" target="_blank" rel="noopener noreferrer" className="underline">{copy.metricsNoteApp}</a>. {copy.metricsNoteSuffix}</p>
                         </div>
 
-                        <div className="grid gap-3 md:hidden">
-                            {renderedMetricRows.map((row) => (
-                                <article key={row.metric} className="border-2 border-black bg-[#f8fafc] p-3 shadow-neo-sm">
-                                    <div className="mb-3 flex items-start justify-between gap-3 border-b-2 border-black pb-2">
-                                        <h4 className="text-xs font-black uppercase leading-tight">{row.metric}</h4>
-                                        <span className={`shrink-0 text-[10px] font-black uppercase ${row.threadClassName}`}>
-                                            {row.thread}
-                                        </span>
+                        <div className="md:hidden border-2 border-black overflow-hidden">
+                            {renderedMetricRows.map((row, index) => (
+                                <div
+                                    key={row.metric}
+                                    className={`flex items-center justify-between gap-3 px-3 py-3 ${index < renderedMetricRows.length - 1 ? 'border-b-2 border-black' : ''} ${index % 2 === 0 ? 'bg-white' : 'bg-slate-50'}`}
+                                >
+                                    <div className="min-w-0 flex-1">
+                                        <p className="text-[10px] font-black uppercase leading-tight truncate">{row.metric}</p>
+                                        <span className={`text-[9px] font-black uppercase ${row.threadClassName}`}>{row.thread}</span>
                                     </div>
-                                    <div className="grid grid-cols-3 gap-2 font-mono text-[10px] font-black uppercase">
-                                        <div className="border-2 border-black bg-white p-2">
-                                            <p className="text-gray-500">{copy.tableAvgShort}</p>
-                                            <p className="mt-1 text-sm text-black">{row.average}</p>
+                                    <div className="flex shrink-0 items-center gap-0 font-mono text-[10px] font-bold uppercase">
+                                        <div className="flex flex-col items-center border-l-2 border-black pl-3 pr-3">
+                                            <span className="text-gray-400">{copy.tableAvgShort}</span>
+                                            <span className="text-sm font-black text-black">{row.average}</span>
                                         </div>
-                                        <div className="border-2 border-black bg-white p-2">
-                                            <p className="text-gray-500">{copy.tableMaxShort}</p>
-                                            <p className="mt-1 text-sm text-black">{row.max}</p>
+                                        <div className="flex flex-col items-center border-l-2 border-black pl-3 pr-3">
+                                            <span className="text-gray-400">{copy.tableMaxShort}</span>
+                                            <span className="text-sm font-black text-black">{row.max}</span>
                                         </div>
-                                        <div className="border-2 border-black bg-white p-2">
-                                            <p className="text-gray-500">{copy.tableMinShort}</p>
-                                            <p className="mt-1 text-sm text-black">{row.min}</p>
+                                        <div className="flex flex-col items-center border-l-2 border-black pl-3">
+                                            <span className="text-gray-400">{copy.tableMinShort}</span>
+                                            <span className="text-sm font-black text-black">{row.min}</span>
                                         </div>
                                     </div>
-                                </article>
+                                </div>
                             ))}
                         </div>
 

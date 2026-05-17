@@ -27,12 +27,29 @@ describe('sessionClientEvidence', () => {
             { type: 'navigation', timestamp: '2026-04-09T12:00:03.000Z' },
             { type: 'app_background', timestamp: backgroundAtSeconds },
             { type: 'app_foreground', timestamp: foregroundAtMs, totalBackgroundTime: 2_000 },
-            { type: 'app_foreground', timestamp: latestEventIso, totalBackgroundTime: '3000' },
+            { type: 'app_foreground', timestamp: latestEventIso, payload: { totalBackgroundTimeMs: '3000' } },
         ]);
 
         expect(evidence.maxClientEventAt?.toISOString()).toBe(latestEventIso);
         expect(evidence.maxClientForegroundAt?.toISOString()).toBe(latestEventIso);
         expect(evidence.maxClientBackgroundAt?.toISOString()).toBe(backgroundAtIso);
+        expect(evidence.artifactBackgroundSeconds).toBe(3);
+    });
+
+    it('falls back to foreground duration fields when no cumulative total is present', () => {
+        const evidence = collectSessionClientEvidence([
+            {
+                type: 'app_foreground',
+                timestamp: '2026-04-09T12:00:15.000Z',
+                payload: { backgroundDurationMs: 2_400 },
+            },
+            {
+                type: 'app_foreground',
+                timestamp: '2026-04-09T12:00:20.000Z',
+                backgroundDurationMs: 3_100,
+            },
+        ]);
+
         expect(evidence.artifactBackgroundSeconds).toBe(5);
     });
 });

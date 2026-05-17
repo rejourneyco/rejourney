@@ -1,4 +1,4 @@
-import { and, eq, inArray, isNull, lte, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNull, lte, or, sql } from 'drizzle-orm';
 import { db, recordingArtifacts, sessions } from '../db/client.js';
 import { getObjectSizeBytesForArtifact } from '../db/s3.js';
 import { logger } from '../logger.js';
@@ -53,7 +53,7 @@ type StalePendingReplayRecoveryResult = {
 };
 
 function isReplayArtifactKind(kind: string | null | undefined): boolean {
-    return kind === 'screenshots' || kind === 'hierarchy';
+    return kind === 'screenshots' || kind === 'hierarchy' || kind === 'rrweb';
 }
 
 function hasClosedTiming(session: { endedAt?: Date | string | null }): boolean {
@@ -64,15 +64,39 @@ function hasClosedTiming(session: { endedAt?: Date | string | null }): boolean {
     return Number.isFinite(endedAt.getTime());
 }
 
+function toClientEpochMs(value: unknown): number | null {
+    if (value === null || value === undefined) return null;
+    const numeric = Number(value);
+    if (!Number.isFinite(numeric) || numeric <= 0) return null;
+    return numeric >= 10_000_000_000 ? numeric : numeric * 1000;
+}
+
+function artifactClientActivityMs(params: Pick<PendingArtifactParams, 'timestamp' | 'startTime' | 'endTime'>): number | null {
+    const values = [params.timestamp, params.startTime, params.endTime]
+        .map(toClientEpochMs)
+        .filter((value): value is number => value !== null);
+    return values.length > 0 ? Math.max(...values) : null;
+}
+
+function shouldReopenForArtifactMutation(
+    session: { endedAt?: Date | string | null; platform?: string | null },
+    params?: Pick<PendingArtifactParams, 'timestamp' | 'startTime' | 'endTime'>
+): boolean {
+    if (!hasClosedTiming(session)) return true;
+    if (session.platform !== 'web' || !params) return false;
+
+    const endedAt = session.endedAt instanceof Date ? session.endedAt : new Date(String(session.endedAt));
+    const activityMs = artifactClientActivityMs(params);
+    return activityMs !== null && activityMs > endedAt.getTime() + 1000;
+}
+
 async function touchSessionForArtifactMutation(
-    session: { id: string; endedAt?: Date | string | null },
+    session: { id: string; endedAt?: Date | string | null; platform?: string | null },
+    params?: Pick<PendingArtifactParams, 'timestamp' | 'startTime' | 'endTime'>,
     at = new Date()
 ): Promise<void> {
-    if (hasClosedTiming(session)) {
-        await markSessionIngestActivity(session.id, { at });
-        return;
-    }
-    await markSessionIngestActivity(session.id, { at, reopen: true });
+    const reopen = shouldReopenForArtifactMutation(session, params);
+    await markSessionIngestActivity(session.id, reopen ? { at, reopen: true } : { at });
 }
 
 // ─── BullMQ enqueue helpers ───────────────────────────────────────────────────
@@ -210,7 +234,7 @@ export async function prepareReplayArtifactForUpload(
         throw ApiError.conflict('Session is closed to ingest; no new uploads or mutations are accepted.');
     }
 
-    await touchSessionForArtifactMutation(session);
+    await touchSessionForArtifactMutation(session, params);
 
     const update = buildArtifactRetryUpdate(params);
 
@@ -284,7 +308,7 @@ export async function registerPendingArtifact(params: PendingArtifactParams) {
     }
     assertSessionAcceptsNewIngestWork(guardSession);
 
-    await touchSessionForArtifactMutation(guardSession);
+    await touchSessionForArtifactMutation(guardSession, params);
 
     const [artifact] = await db.insert(recordingArtifacts).values({
         sessionId: params.sessionId,
@@ -467,7 +491,7 @@ export async function markArtifactBufferLost(params: {
         .where(and(eq(recordingArtifacts.id, artifact.id), eq(recordingArtifacts.status, 'buffered')));
 
     if (!isSessionIngestImmutable(session)) {
-        await touchSessionForArtifactMutation(session, now);
+        await touchSessionForArtifactMutation(session, undefined, now);
     }
 
     logger.warn({
@@ -527,7 +551,7 @@ export async function markArtifactUploadInterrupted(params: {
     await removeArtifactJobIfQueued(artifact.id, artifact.kind);
 
     if (!isSessionIngestImmutable(session)) {
-        await touchSessionForArtifactMutation(session, now);
+        await touchSessionForArtifactMutation(session, undefined, now);
     }
 
     logger.warn({
@@ -586,7 +610,7 @@ export async function completeArtifactUpload(params: CompleteArtifactParams) {
         jobState = { queued: false, alreadyCompleted: true };
     }
 
-    const isReplayKind = artifact.kind === 'screenshots' || artifact.kind === 'hierarchy';
+    const isReplayKind = isReplayArtifactKind(artifact.kind);
     if (isReplayKind && artifact.status === 'pending') {
         logger.warn(
             {
@@ -676,6 +700,38 @@ export async function queueRecoverableArtifacts(limit = 100): Promise<number> {
         }
     }
 
+    const readyEventRows = await db.select({
+        artifact: recordingArtifacts,
+        projectId: sessions.projectId,
+    })
+        .from(recordingArtifacts)
+        .innerJoin(sessions, eq(recordingArtifacts.sessionId, sessions.id))
+        .where(and(
+            eq(recordingArtifacts.status, 'ready'),
+            eq(recordingArtifacts.kind, 'events'),
+            or(
+                isNull(recordingArtifacts.startTime),
+                isNull(recordingArtifacts.endTime),
+            ),
+        ))
+        .orderBy(desc(recordingArtifacts.createdAt))
+        .limit(limit);
+
+    for (const row of readyEventRows) {
+        const enqueued = await enqueueArtifactJob(buildArtifactJobData(row.artifact, row.projectId));
+        if (enqueued) {
+            queued += 1;
+            logger.info({
+                event: 'artifact.ready_event_repair_queued',
+                replayArtifact: false,
+                projectId: row.projectId,
+                sessionId: row.artifact.sessionId,
+                artifactId: row.artifact.id,
+                kind: row.artifact.kind,
+            }, 'artifact.ready_event_repair_queued');
+        }
+    }
+
     return queued;
 }
 
@@ -690,7 +746,7 @@ export async function recoverStalePendingReplayArtifacts(limit = 100): Promise<S
         .where(and(
             eq(recordingArtifacts.status, 'pending'),
             isNull(recordingArtifacts.uploadCompletedAt),
-            sql`${recordingArtifacts.kind} in ('screenshots', 'hierarchy')`,
+            sql`${recordingArtifacts.kind} in ('screenshots', 'hierarchy', 'rrweb')`,
             lte(recordingArtifacts.createdAt, cutoff),
         ))
         .limit(limit);
@@ -760,7 +816,7 @@ export async function abandonExpiredPendingArtifacts(limit = 100): Promise<numbe
             isNull(recordingArtifacts.uploadCompletedAt),
             lte(recordingArtifacts.createdAt, cutoff),
             sql`(
-                ${recordingArtifacts.kind} NOT IN ('screenshots', 'hierarchy')
+                ${recordingArtifacts.kind} NOT IN ('screenshots', 'hierarchy', 'rrweb')
                 OR ${recordingArtifacts.createdAt} <= ${replayGraceCutoff}
             )`,
         ))

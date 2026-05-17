@@ -12,6 +12,7 @@ import { sessionAuth, requireProjectAccess, asyncHandler, ApiError } from '../mi
 import { validate } from '../middleware/validation.js';
 import { dashboardRateLimiter, writeApiRateLimiter } from '../middleware/rateLimit.js';
 import { auditFromRequest, buildAuditFieldChanges } from '../services/auditLog.js';
+import { buildDefaultEmailAlertRules, getEmailAlertRules } from '../services/emailAlertRules.js';
 import { z } from 'zod';
 
 const router = Router();
@@ -24,6 +25,7 @@ function getAlertSettingsAuditState(settings?: {
     errorSpikeThresholdPercent?: number | null;
     apiDegradationThresholdPercent?: number | null;
     apiLatencyThresholdMs?: number | null;
+    emailRules?: unknown[] | null;
 } | null): Record<string, unknown> {
     return {
         crashAlertsEnabled: settings?.crashAlertsEnabled ?? true,
@@ -33,6 +35,7 @@ function getAlertSettingsAuditState(settings?: {
         errorSpikeThresholdPercent: settings?.errorSpikeThresholdPercent ?? 50,
         apiDegradationThresholdPercent: settings?.apiDegradationThresholdPercent ?? 100,
         apiLatencyThresholdMs: settings?.apiLatencyThresholdMs ?? 3000,
+        emailRules: settings?.emailRules ?? [],
     };
 }
 
@@ -44,6 +47,21 @@ const projectIdParamSchema = z.object({
     projectId: z.string().uuid(),
 });
 
+const emailAlertRuleSchema = z.object({
+    id: z.string().min(1).max(80),
+    name: z.string().min(1).max(80),
+    description: z.string().max(220).optional(),
+    alertType: z.enum(['crash', 'anr', 'error_spike', 'api_degradation']),
+    metric: z.enum(['affected_users', 'duration_ms', 'percent_increase', 'latency_ms']),
+    operator: z.enum(['gt', 'gte', 'lt', 'lte']),
+    threshold: z.number().min(0).max(100000),
+    windowMinutes: z.number().int().min(5).max(10080),
+    severity: z.enum(['critical', 'high', 'watch']),
+    enabled: z.boolean(),
+    source: z.enum(['default', 'custom']),
+    updatedAt: z.string().min(1).max(60),
+});
+
 const updateAlertSettingsSchema = z.object({
     crashAlertsEnabled: z.boolean().optional(),
     anrAlertsEnabled: z.boolean().optional(),
@@ -51,7 +69,9 @@ const updateAlertSettingsSchema = z.object({
     apiDegradationAlertsEnabled: z.boolean().optional(),
     dailyDigestEnabled: z.boolean().optional(),
     errorSpikeThresholdPercent: z.number().min(10).max(500).optional(),
+    apiDegradationThresholdPercent: z.number().min(10).max(1000).optional(),
     apiLatencyThresholdMs: z.number().min(500).max(30000).optional(),
+    emailRules: z.array(emailAlertRuleSchema).max(20).optional(),
 });
 
 const addRecipientSchema = z.object({
@@ -91,10 +111,16 @@ router.get(
             // Create default settings
             [settings] = await db.insert(alertSettings).values({
                 projectId,
+                emailRules: buildDefaultEmailAlertRules(),
             }).returning();
         }
 
-        res.json({ settings });
+        res.json({
+            settings: {
+                ...settings,
+                emailRules: getEmailAlertRules(settings),
+            },
+        });
     })
 );
 
@@ -155,7 +181,12 @@ router.put(
             });
         }
 
-        res.json({ settings });
+        res.json({
+            settings: {
+                ...settings,
+                emailRules: getEmailAlertRules(settings),
+            },
+        });
     })
 );
 

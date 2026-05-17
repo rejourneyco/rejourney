@@ -7,9 +7,30 @@ import {
     resolveStoredOrDerivedSessionDurationSeconds,
     resolveReportedSessionEndedAt,
     selectSessionEndedAt,
+    selectMaxObservabilityMinutes,
+    shouldApplySuccessorSessionCap,
 } from '../services/sessionTiming.js';
 
 describe('sessionTiming', () => {
+    it('selects separate mobile and web observability duration caps', () => {
+        const project = {
+            maxRecordingMinutes: 3,
+            webMaxObservabilityMinutes: 7,
+        };
+
+        expect(selectMaxObservabilityMinutes(project, 'ios')).toBe(3);
+        expect(selectMaxObservabilityMinutes(project, 'android')).toBe(3);
+        expect(selectMaxObservabilityMinutes(project, 'web')).toBe(7);
+    });
+
+    it('falls back and clamps observability duration caps', () => {
+        expect(selectMaxObservabilityMinutes({ maxRecordingMinutes: 4, webMaxObservabilityMinutes: null }, 'web')).toBe(4);
+        expect(selectMaxObservabilityMinutes({ maxRecordingMinutes: 99, webMaxObservabilityMinutes: 0 }, 'web')).toBe(1);
+        expect(selectMaxObservabilityMinutes({ maxRecordingMinutes: 10, webMaxObservabilityMinutes: 45 }, 'web')).toBe(30);
+        expect(selectMaxObservabilityMinutes({ maxRecordingMinutes: 45, webMaxObservabilityMinutes: 30 }, 'ios')).toBe(10);
+        expect(selectMaxObservabilityMinutes(null, 'web')).toBe(30);
+    });
+
     it('uses a stable fallback when /session/end omits endedAt', () => {
         const fallbackEndedAt = new Date('2026-03-26T03:01:08.476Z');
 
@@ -225,5 +246,21 @@ describe('sessionTiming', () => {
 
         expect(resolvedClose.endedAt.toISOString()).toBe('2026-04-09T00:00:20.000Z');
         expect(resolvedClose.successorCapApplied).toBe(true);
+    });
+
+    it('does not use a newer web session as a cap when the old tab has later evidence', () => {
+        expect(shouldApplySuccessorSessionCap({
+            platform: 'web',
+            successorStartedAt: new Date('2026-04-09T00:00:20.000Z'),
+            latestClientEvidenceEndMs: new Date('2026-04-09T00:00:25.000Z').getTime(),
+        })).toBe(false);
+    });
+
+    it('uses a newer web session as a cap when the old tab has no later evidence', () => {
+        expect(shouldApplySuccessorSessionCap({
+            platform: 'web',
+            successorStartedAt: new Date('2026-04-09T00:00:20.000Z'),
+            latestClientEvidenceEndMs: new Date('2026-04-09T00:00:19.000Z').getTime(),
+        })).toBe(true);
     });
 });

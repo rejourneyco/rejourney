@@ -1,4 +1,4 @@
-import React, { useRef, useState, useEffect } from 'react';
+import React, { useRef, useState, useEffect, useCallback } from 'react';
 
 interface TruncatedTextProps {
   text: string;
@@ -14,6 +14,25 @@ export const TruncatedText: React.FC<TruncatedTextProps> = ({
   const [isTruncated, setIsTruncated] = useState(false);
   const [showTooltip, setShowTooltip] = useState(false);
   const textRef = useRef<HTMLSpanElement>(null);
+  const showTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const handleEnter = useCallback(() => {
+    if (showTimer.current) clearTimeout(showTimer.current);
+    showTimer.current = setTimeout(() => {
+      if (textRef.current) {
+        const el = textRef.current;
+        if (el.scrollHeight > el.clientHeight || el.scrollWidth > el.clientWidth) {
+          setIsTruncated(true);
+          setShowTooltip(true);
+        }
+      }
+    }, 200);
+  }, []);
+
+  const handleLeave = useCallback(() => {
+    if (showTimer.current) clearTimeout(showTimer.current);
+    setShowTooltip(false);
+  }, []);
 
   useEffect(() => {
     if (textRef.current) {
@@ -35,17 +54,8 @@ export const TruncatedText: React.FC<TruncatedTextProps> = ({
       <span
         ref={textRef}
         className={`${getLineClampClass()} ${className} block`}
-        onMouseEnter={() => {
-          if (textRef.current) {
-            const element = textRef.current;
-            const isOverflowing = element.scrollHeight > element.clientHeight || element.scrollWidth > element.clientWidth;
-            if (isOverflowing) {
-              setIsTruncated(true);
-              setShowTooltip(true);
-            }
-          }
-        }}
-        onMouseLeave={() => setShowTooltip(false)}
+        onMouseEnter={handleEnter}
+        onMouseLeave={handleLeave}
       >
         {text}
       </span>

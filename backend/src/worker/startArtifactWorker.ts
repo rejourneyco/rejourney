@@ -22,7 +22,8 @@ const FLUSH_MAX_ATTEMPTS = 8;
 
 export function startArtifactWorker(definition: ArtifactWorkerDefinition): void {
     const isReplayWorker = definition.allowedKinds.includes('screenshots')
-        || definition.allowedKinds.includes('hierarchy');
+        || definition.allowedKinds.includes('hierarchy')
+        || definition.allowedKinds.includes('rrweb');
 
     const queueName = isReplayWorker ? REPLAY_QUEUE_NAME : INGEST_QUEUE_NAME;
     const concurrency = definition.defaultJobProcessConcurrency;

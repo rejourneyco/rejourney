@@ -15,18 +15,18 @@ import * as demoApiData from '~/shared/data/demoApiData';
  * Hook for fetching sessions with demo mode support
  */
 export function useSessionsApi() {
-    const { isDemoMode, demoSessions } = useDemoMode();
+    const { isDemoMode, demoReplaySessions } = useDemoMode();
 
     const getSessionsPaginated = useCallback(async (params: Parameters<typeof api.getSessionsPaginated>[0]) => {
         if (isDemoMode) {
             return {
-                sessions: demoSessions,
+                sessions: demoReplaySessions,
                 nextCursor: null,
                 hasMore: false
             };
         }
         return api.getSessionsPaginated(params);
-    }, [isDemoMode, demoSessions]);
+    }, [isDemoMode, demoReplaySessions]);
 
     const getSession = useCallback(async (sessionId: string) => {
         if (isDemoMode) {
@@ -120,7 +120,7 @@ export function useCrashesApi() {
 export function useAnrsApi() {
     const { isDemoMode } = useDemoMode();
 
-    const getANRs = useCallback(async (projectId: string, options?: { limit?: number; offset?: number; timeRange?: string }) => {
+    const getANRs = useCallback(async (projectId: string, options?: { limit?: number; offset?: number; timeRange?: string; platform?: string }) => {
         if (isDemoMode) {
             return demoApiData.demoANRsResponse;
         }
@@ -159,10 +159,10 @@ export function useErrorsApi() {
 }
 
 /**
- * Hook for analytics APIs with demo mode support
- * Note: These analytics functions use the demo data that exists in demoApiData
+ * Hook for Rejourney insight APIs with demo mode support.
+ * Note: These functions use the demo data that exists in demoApiData.
  */
-export function useAnalyticsApi() {
+export function useRejourneyInsightsApi() {
     const { isDemoMode } = useDemoMode();
 
     const getGrowthObservability = useCallback(async (_projectId: string, _timeRange?: string) => {

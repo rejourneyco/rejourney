@@ -8,7 +8,7 @@ export const Footer: React.FC = () => {
   const locale = getMarketingLocaleFromPathname(location.pathname);
   const copy = getMarketingHomeCopy(location.pathname).footer;
   const { showToast } = useToast();
-  const docsPath = getLocalizedPublicPath(locale, "/docs/reactnative/overview");
+  const docsPath = getLocalizedPublicPath(locale, "/docs/web/getting-started");
   const engineeringPath = getLocalizedPublicPath(locale, "/engineering");
   const pricingPath = getLocalizedPublicPath(locale, "/pricing");
   const selfHostedPath = getLocalizedPublicPath(locale, "/docs/selfhosted");
@@ -38,6 +38,8 @@ export const Footer: React.FC = () => {
           <Link to="/login" className="hover:text-black transition-colors">{copy.login}</Link>
           <span className="hidden sm:inline">•</span>
           <Link to="/terms-of-service" className="hover:text-black transition-colors">{copy.terms}</Link>
+          <span className="hidden sm:inline">•</span>
+          <Link to="/dpa" className="hover:text-black transition-colors">{copy.dpa}</Link>
           <span className="hidden sm:inline">•</span>
           <Link to="/privacy-policy" className="hover:text-black transition-colors">{copy.privacy}</Link>
           <span className="hidden sm:inline">•</span>

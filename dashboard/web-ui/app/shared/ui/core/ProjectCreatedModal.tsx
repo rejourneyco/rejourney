@@ -19,9 +19,13 @@ interface ProjectCreatedModalProps {
 
 function getProjectPlatformLabel(project: Project): string {
   if (project.platforms.length === 0) return 'No platform selected';
-  if (project.platforms.length === 2) return 'iOS and Android';
+  const labels = project.platforms.map((platform) => (
+    platform === 'ios' ? 'iOS' : platform === 'android' ? 'Android' : 'Web'
+  ));
+  if (labels.length === 1) return `${labels[0]} app`;
+  if (labels.length === 2) return `${labels[0]} and ${labels[1]}`;
 
-  return project.platforms[0] === 'ios' ? 'iOS app' : 'Android app';
+  return `${labels.slice(0, -1).join(', ')}, and ${labels[labels.length - 1]}`;
 }
 
 export const ProjectCreatedModal: React.FC<ProjectCreatedModalProps> = ({
@@ -96,6 +100,11 @@ export const ProjectCreatedModal: React.FC<ProjectCreatedModalProps> = ({
                   {project.packageName && (
                     <span className="rounded-full border border-[#dadce0] bg-white px-3 py-1 font-mono text-[11px] text-slate-600">
                       Android: {project.packageName}
+                    </span>
+                  )}
+                  {(project.webAllowedDomains?.length || project.webDomain) && (
+                    <span className="rounded-full border border-[#dadce0] bg-white px-3 py-1 font-mono text-[11px] text-slate-600">
+                      Web: {(project.webAllowedDomains?.[0] || project.webDomain)}
                     </span>
                   )}
                 </div>

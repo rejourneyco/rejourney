@@ -1,14 +1,17 @@
 import React from 'react';
 import { MousePointer2 } from 'lucide-react';
 import { DashboardPageHeader } from '~/shared/ui/core/DashboardPageHeader';
-import { TimeFilter, TimeRange, DEFAULT_TIME_RANGE } from '~/shared/ui/core/TimeFilter';
+import { DashboardLensControls } from '~/shared/ui/core/DashboardLensControls';
 import { TouchHeatmapSection } from '~/features/app/shared/dashboard/TouchHeatmapSection';
-import { useSharedAnalyticsTimeRange } from '~/shared/hooks/useSharedAnalyticsTimeRange';
+import { useSharedRejourneyTimeRange } from '~/shared/hooks/useSharedRejourneyTimeRange';
+import { platformLensToSessionPlatform, useSharedPlatformLens } from '~/shared/hooks/useSharedPlatformLens';
 import { useSessionData } from '~/shared/providers/SessionContext';
 
 export const Heatmaps: React.FC = () => {
     const { selectedProject } = useSessionData();
-    const { timeRange, setTimeRange } = useSharedAnalyticsTimeRange(selectedProject?.id);
+    const { timeRange, setTimeRange } = useSharedRejourneyTimeRange(selectedProject?.id);
+    const { platformLens } = useSharedPlatformLens(selectedProject?.id, selectedProject?.platforms);
+    const platform = platformLensToSessionPlatform(platformLens);
 
     return (
         <div className="firebase-heatmaps-page min-h-screen bg-[#f8fafd] pb-12 font-sans text-slate-900">
@@ -17,11 +20,11 @@ export const Heatmaps: React.FC = () => {
                 icon={<MousePointer2 className="w-6 h-6" />}
                 iconColor="bg-[#fce7f3]"
             >
-                <TimeFilter value={timeRange} onChange={setTimeRange} />
+                <DashboardLensControls timeRange={timeRange} onTimeRangeChange={setTimeRange} />
             </DashboardPageHeader>
 
             <div className="mx-auto w-full max-w-[1800px] px-4 py-6 sm:px-6">
-                <TouchHeatmapSection timeRange={timeRange} compact={false} />
+                <TouchHeatmapSection timeRange={timeRange} platform={platform} compact={false} />
             </div>
         </div>
     );

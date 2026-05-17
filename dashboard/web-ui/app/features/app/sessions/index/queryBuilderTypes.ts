@@ -72,7 +72,7 @@ export type ConversionCondition = {
 export type PlatformCondition = {
   id: string;
   type: 'platform';
-  platform: 'ios' | 'android';
+  platform: 'ios' | 'android' | 'web';
 };
 
 export type JourneyCondition = {
@@ -214,6 +214,12 @@ const OP_SYMBOLS: Record<string, string> = {
   lte: '≤',
 };
 
+const PLATFORM_LABELS: Record<PlatformCondition['platform'], string> = {
+  ios: 'iOS',
+  android: 'Android',
+  web: 'Web',
+};
+
 export function buildHumanSummary(conditions: QueryCondition[], logic: 'AND' | 'OR' = 'AND'): string {
   if (conditions.length === 0) return 'All sessions';
 
@@ -263,7 +269,7 @@ export function buildHumanSummary(conditions: QueryCondition[], logic: 'AND' | '
           ? 'checkout dropoffs'
           : 'checkout successes';
       case 'platform':
-        return cond.platform === 'ios' ? 'on iOS' : 'on Android';
+        return `on ${PLATFORM_LABELS[cond.platform]}`;
       case 'journey': {
         const steps = cond.steps.filter(Boolean);
         if (steps.length === 0) return 'journey (incomplete)';
@@ -298,7 +304,7 @@ export function getConditionShortLabel(cond: QueryCondition): string {
     case 'conversion':
       return cond.preset === 'checkout_bounced' ? 'Checkout bounced' : 'Checkout success';
     case 'platform':
-      return cond.platform === 'ios' ? 'iOS' : 'Android';
+      return PLATFORM_LABELS[cond.platform];
     case 'journey': {
       const steps = cond.steps.filter(Boolean);
       if (steps.length === 0) return 'Journey';
@@ -315,7 +321,7 @@ export type PresetConditionTemplate =
   | { type: 'metadata'; metaKey: string; metaValue?: string }
   | { type: 'lifecycle'; preset: 'early_user' | 'returning_user' }
   | { type: 'conversion'; preset: 'checkout_bounced' | 'checkout_success' }
-  | { type: 'platform'; platform: 'ios' | 'android' };
+  | { type: 'platform'; platform: 'ios' | 'android' | 'web' };
 
 export type QueryPreset = {
   id: string;
@@ -381,6 +387,13 @@ export const QUERY_PRESETS: QueryPreset[] = [
     description: 'Sessions on Apple devices only',
     iconName: 'Smartphone',
     conditions: [{ type: 'platform', platform: 'ios' }],
+  },
+  {
+    id: 'web',
+    label: 'Web sessions',
+    description: 'Sessions from browser SDK',
+    iconName: 'MonitorSmartphone',
+    conditions: [{ type: 'platform', platform: 'web' }],
   },
 ];
 
@@ -452,7 +465,7 @@ export const CONDITION_TYPE_META: Record<ConditionType, ConditionTypeMeta> = {
   },
   platform: {
     label: 'PLATFORM',
-    description: 'Filter by mobile OS platform',
+    description: 'Filter by SDK platform',
     pillBg: 'bg-cyan-50',
     pillBorder: 'border-cyan-200',
     pillText: 'text-cyan-800',

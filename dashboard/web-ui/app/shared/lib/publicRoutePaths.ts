@@ -8,6 +8,7 @@ const PUBLIC_EXACT_PATHS = new Set([
   "/dpa",
   "/contribute",
   "/changelog",
+  "/roadmap",
   "/feed.xml",
   "/sitemap.xml",
 ]);

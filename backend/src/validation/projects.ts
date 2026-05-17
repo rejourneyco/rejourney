@@ -3,6 +3,7 @@
  */
 
 import { z } from 'zod';
+import { normalizeWebAllowedDomain, normalizeWebAllowedDomains } from '../utils/webAllowedDomains.js';
 
 // ── App identifier validation ────────────────────────────────────────────────
 // Accept input that matches EITHER iOS bundle ID OR Android package name format.
@@ -46,20 +47,51 @@ const appIdentifierSchema = z
 
 const textInputMaskingSchema = z.enum(['all', 'secure_only']);
 const recordingFpsSchema = z.number().int().min(1).max(3);
+const mobileMaxObservabilityMinutesSchema = z.number().int().min(1).max(10);
+const webMaxObservabilityMinutesSchema = z.number().int().min(1).max(30);
+const webAllowedDomainSchema = z
+    .string()
+    .trim()
+    .min(1)
+    .max(255)
+    .refine((value) => normalizeWebAllowedDomain(value) !== null, {
+        message: 'Allowed domain must be a valid host, URL, localhost, or wildcard subdomain',
+    })
+    .transform((value) => normalizeWebAllowedDomain(value)!);
+const webAllowedDomainsSchema = z
+    .array(webAllowedDomainSchema)
+    .max(25, 'At most 25 web allowed domains are supported')
+    .transform((values) => normalizeWebAllowedDomains(values));
 
 export const createProjectSchema = z.object({
     name: z.string().min(1).max(100),
     bundleId: appIdentifierSchema.optional(),
     packageName: appIdentifierSchema.optional(),
     teamId: z.string().uuid().optional(),
-    webDomain: z.string().url().optional(),
+    webDomain: webAllowedDomainSchema.optional(),
+    webAllowedDomains: webAllowedDomainsSchema.optional(),
     platforms: z.array(z.enum(['ios', 'android', 'web', 'react-native'])).optional(),
     rejourneyEnabled: z.boolean().optional().default(true),
     recordingEnabled: z.boolean().optional().default(true),
     textInputMasking: textInputMaskingSchema.optional().default('all'),
     recordingFps: recordingFpsSchema.optional().default(1),
     sampleRate: z.number().int().min(0).max(100).optional().default(100),
-    maxRecordingMinutes: z.number().int().min(1).max(10).optional().default(10),
+    maxRecordingMinutes: mobileMaxObservabilityMinutesSchema.optional().default(10),
+    webMaxObservabilityMinutes: webMaxObservabilityMinutesSchema.optional().default(30),
+}).superRefine((data, ctx) => {
+    if (data.platforms?.includes('web')) {
+        const domains = normalizeWebAllowedDomains([
+            ...(data.webAllowedDomains ?? []),
+            ...(data.webDomain ? [data.webDomain] : []),
+        ]);
+        if (domains.length === 0) {
+            ctx.addIssue({
+                code: z.ZodIssueCode.custom,
+                path: ['webAllowedDomains'],
+                message: 'At least one allowed domain is required when Web is selected',
+            });
+        }
+    }
 });
 
 export const updateProjectSchema = z.object({
@@ -67,13 +99,15 @@ export const updateProjectSchema = z.object({
     teamId: z.string().uuid().optional(),
     bundleId: appIdentifierSchema.optional(),
     packageName: appIdentifierSchema.optional(),
-    webDomain: z.string().url().nullable().optional(),
+    webDomain: webAllowedDomainSchema.nullable().optional(),
+    webAllowedDomains: webAllowedDomainsSchema.nullable().optional(),
     rejourneyEnabled: z.boolean().optional(),
     recordingEnabled: z.boolean().optional(),
     textInputMasking: textInputMaskingSchema.optional(),
     recordingFps: recordingFpsSchema.optional(),
     sampleRate: z.number().int().min(0).max(100).optional(),
-    maxRecordingMinutes: z.number().int().min(1).max(10).optional(),
+    maxRecordingMinutes: mobileMaxObservabilityMinutesSchema.optional(),
+    webMaxObservabilityMinutes: webMaxObservabilityMinutesSchema.optional(),
 });
 
 export const projectIdParamSchema = z.object({

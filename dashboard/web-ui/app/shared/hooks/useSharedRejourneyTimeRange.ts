@@ -13,8 +13,12 @@ function isTimeRange(value: string): value is TimeRange {
     );
 }
 
-export function useSharedAnalyticsTimeRange(projectId?: string | null) {
+export function useSharedRejourneyTimeRange(projectId?: string | null) {
     const storageKey = useMemo(
+        () => `rejourney.dashboard.timeRange.${projectId || 'global'}`,
+        [projectId],
+    );
+    const legacyStorageKey = useMemo(
         () => `rejourney.analytics.timeRange.${projectId || 'global'}`,
         [projectId],
     );
@@ -22,13 +26,15 @@ export function useSharedAnalyticsTimeRange(projectId?: string | null) {
 
     useEffect(() => {
         if (typeof window === 'undefined') return;
-        const stored = window.localStorage.getItem(storageKey);
+        const stored = window.localStorage.getItem(storageKey) ?? window.localStorage.getItem(legacyStorageKey);
         if (stored && isTimeRange(stored)) {
             setTimeRangeState(stored);
+            window.localStorage.setItem(storageKey, stored);
+            window.localStorage.removeItem(legacyStorageKey);
         } else {
             setTimeRangeState(DEFAULT_TIME_RANGE);
         }
-    }, [storageKey]);
+    }, [legacyStorageKey, storageKey]);
 
     const setTimeRange = useCallback((next: TimeRange) => {
         setTimeRangeState(next);

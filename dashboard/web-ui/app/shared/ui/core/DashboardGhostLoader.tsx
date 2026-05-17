@@ -34,21 +34,19 @@ const GhostSurface: React.FC<{ className?: string; children: React.ReactNode }> 
   </div>
 );
 
-const DashboardHeaderGhost: React.FC<{ actionCount?: number }> = ({ actionCount = 2 }) => (
-  <div className="sticky top-0 z-30 border-b-2 border-black bg-[#f8fafc]">
-    <div className="mx-auto flex w-full max-w-[1800px] flex-col gap-4 px-6 py-4 md:flex-row md:items-center md:justify-between">
-      <div className="flex min-w-0 flex-wrap items-center gap-4">
-        <GhostBlock className="h-12 w-12 rounded-none" />
-        <div className="min-w-0 flex-1 space-y-2" style={{ minWidth: 'min(100%, 13rem)' }}>
-          <GhostBlock className="h-6 w-40 max-w-[60vw]" />
-          <GhostBlock className="h-3 w-64 max-w-[70vw]" />
+const PageHeaderGhost: React.FC<{ withControls?: boolean }> = ({ withControls = false }) => (
+  <div className="dashboard-page-header w-full border-b border-slate-200 bg-white">
+    <div className="grid w-full gap-x-4 gap-y-2 px-3 py-2 sm:px-5 xl:grid-cols-[minmax(0,1fr)_auto] xl:items-center">
+      <div className="flex min-w-0 flex-wrap items-center gap-2.5">
+        <GhostBlock className="h-5 w-1.5 shrink-0 rounded-none" />
+        <GhostBlock className="h-4 w-32 rounded-none" />
+      </div>
+      {withControls && (
+        <div className="flex min-w-0 max-w-full flex-wrap items-center gap-2 xl:justify-end">
+          <GhostBlock className="h-8 w-28 rounded-none" />
+          <GhostBlock className="h-8 w-20 rounded-none" />
         </div>
-      </div>
-      <div className="flex flex-wrap items-center gap-3">
-        {Array.from({ length: actionCount }).map((_, index) => (
-          <GhostBlock key={index} className="h-10 w-24 rounded-none" />
-        ))}
-      </div>
+      )}
     </div>
   </div>
 );
@@ -66,131 +64,154 @@ const SettingsHeaderGhost: React.FC = () => (
   </div>
 );
 
-const GeneralPageHeaderGhost: React.FC = () => (
-  <div className="w-full border-b-2 border-black bg-[#f8fafc]">
-    <div className="mx-auto grid w-full max-w-[1800px] gap-x-4 gap-y-3 px-4 py-4 sm:px-6 xl:grid-cols-[minmax(0,1fr)_auto] xl:items-center">
-      <div className="flex min-w-0 flex-wrap items-start gap-3 sm:gap-4">
-        <GhostBlock className="mt-0.5 h-11 w-11 shrink-0 rounded-xl" />
-        <div className="min-w-0 flex-1 space-y-2" style={{ minWidth: 'min(100%, 13rem)' }}>
-          <GhostBlock className="h-7 w-44 max-w-[65vw] rounded-none" />
-        </div>
-      </div>
-      <div className="flex min-w-0 max-w-full flex-wrap items-center gap-2 sm:gap-3 xl:justify-end">
-        <GhostBlock className="h-10 w-full max-w-[min(100%,20rem)] rounded-none sm:w-56" />
-      </div>
-    </div>
+const GA4CardGhost: React.FC<{ className?: string; minHeight?: string; children: React.ReactNode }> = ({ className, minHeight = '260px', children }) => (
+  <div className={cn('dashboard-surface p-4', className)} style={{ minHeight }}>
+    {children}
   </div>
 );
 
 const GeneralGhostBody: React.FC = () => (
-  <div className="mx-auto w-full max-w-[1600px] space-y-6 px-4 py-6 sm:px-6">
-    <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+  <div className="mx-auto w-full max-w-[1560px] space-y-5 px-4 py-5 sm:space-y-6 sm:px-6 sm:py-6">
+    {/* Momentum KPI cards — matches grid grid-cols-2 gap-2 sm:gap-3 lg:grid-cols-4 */}
+    <div className="grid grid-cols-2 gap-2 sm:gap-3 lg:grid-cols-4">
       {Array.from({ length: 4 }).map((_, index) => (
-        <GhostSurface key={`momentum-${index}`} className="px-4 py-3">
+        <div key={`momentum-${index}`} className="min-w-0 rounded-xl border border-[#dadce0] bg-white p-4 sm:p-5">
           <GhostBlock className="h-3 w-28 rounded-none" />
           <GhostBlock className="mt-3 h-8 w-20 rounded-none" />
-          <GhostBlock className="mt-2 h-3 w-32 rounded-none" />
-        </GhostSurface>
-      ))}
-    </div>
-
-    {Array.from({ length: 2 }).map((_, rowIndex) => (
-      <div key={`ga4-row-${rowIndex}`} className="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-4">
-        {Array.from({ length: 4 }).map((__, cardIndex) => (
-          <GhostSurface key={`ga4-${rowIndex}-${cardIndex}`} className="min-h-[280px]">
-            <GhostBlock className="h-5 w-48 max-w-[85%] rounded-none" />
-            <GhostBlock className="mt-4 h-36 w-full rounded-none" />
-            <div className="mt-4 grid grid-cols-2 gap-3">
-              <GhostBlock className="h-14 rounded-none" />
-              <GhostBlock className="h-14 rounded-none" />
-            </div>
-          </GhostSurface>
-        ))}
-      </div>
-    ))}
-
-    <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
-      {Array.from({ length: 2 }).map((_, index) => (
-        <GhostSurface key={`ga4-wide-${index}`} className="min-h-[260px]">
-          <GhostBlock className="h-5 w-40 max-w-[80%] rounded-none" />
-          <GhostBlock className="mt-4 h-44 w-full rounded-none" />
-          <div className="mt-4 flex flex-wrap gap-3">
-            <GhostBlock className="h-3 w-16 rounded-none" />
-            <GhostBlock className="h-3 w-20 rounded-none" />
-            <GhostBlock className="h-3 w-14 rounded-none" />
-          </div>
-        </GhostSurface>
-      ))}
-    </div>
-
-    <section className="space-y-3">
-      <GhostBlock className="h-7 w-36 rounded-none" />
-      <GhostSurface className="overflow-hidden p-0">
-        <div className="divide-y divide-slate-100">
-          {Array.from({ length: 4 }).map((_, index) => (
-            <div key={`issue-${index}`} className="flex flex-col gap-3 px-5 py-3.5 md:flex-row md:items-center">
-              <GhostBlock className="h-6 w-24 rounded-none" />
-              <div className="min-w-0 flex-1 space-y-2">
-                <GhostBlock className="h-4 w-3/4 max-w-md rounded-none" />
-                <GhostBlock className="h-3 w-full max-w-lg rounded-none" />
-              </div>
-              <GhostBlock className="hidden h-10 w-28 rounded-none md:block" />
-            </div>
-          ))}
+          <GhostBlock className="mt-4 h-6 w-24 rounded-full" />
         </div>
-      </GhostSurface>
-    </section>
+      ))}
+    </div>
 
-    <section className="space-y-3">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <GhostBlock className="h-7 w-28 rounded-none" />
-        <GhostBlock className="h-6 w-20 rounded-none" />
-      </div>
-      <div className="flex gap-3 overflow-hidden pb-1">
-        {Array.from({ length: 3 }).map((_, index) => (
-          <GhostSurface key={`top-user-${index}`} className="h-[200px] min-w-[300px] shrink-0 p-4">
-            <div className="flex gap-3">
-              <GhostBlock className="h-9 w-9 shrink-0 rounded-full" />
-              <div className="min-w-0 flex-1 space-y-2">
-                <GhostBlock className="h-4 w-full rounded-none" />
-                <GhostBlock className="h-3 w-2/3 rounded-none" />
+    {/* First GA4 row — xl:grid-cols-12 with col-span-5 + col-span-3 + col-span-4 */}
+    <div className="soft-border-scope space-y-4 sm:space-y-5">
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-12">
+        <GA4CardGhost className="xl:col-span-5" minHeight="260px">
+          <GhostBlock className="h-4 w-44 rounded-none" />
+          <div className="mb-3 mt-3 grid grid-cols-2 gap-3">
+            <GhostBlock className="h-8 rounded-none" />
+            <GhostBlock className="h-8 rounded-none" />
+            <GhostBlock className="h-8 rounded-none" />
+            <GhostBlock className="h-8 rounded-none" />
+          </div>
+          <GhostBlock className="h-[130px] w-full rounded-none" />
+        </GA4CardGhost>
+        <GA4CardGhost className="xl:col-span-3" minHeight="260px">
+          <GhostBlock className="h-4 w-36 rounded-none" />
+          <GhostBlock className="mx-auto mt-4 h-10 w-28 rounded-none" />
+          <GhostBlock className="mt-2 h-3 w-40 max-w-full rounded-none" />
+          <GhostBlock className="mt-3 h-[80px] w-full rounded-none" />
+          <div className="mt-3 space-y-1.5 border-t border-slate-100 pt-3">
+            {Array.from({ length: 3 }).map((_, i) => (
+              <div key={i} className="flex justify-between gap-2">
+                <GhostBlock className="h-3 w-20 rounded-none" />
+                <GhostBlock className="h-3 w-8 rounded-none" />
               </div>
-            </div>
-            <GhostBlock className="mt-4 h-24 w-full rounded-xl" />
-          </GhostSurface>
-        ))}
+            ))}
+          </div>
+        </GA4CardGhost>
+        <GA4CardGhost className="xl:col-span-4" minHeight="260px">
+          <GhostBlock className="h-4 w-32 rounded-none" />
+          <div className="mt-4 space-y-2.5">
+            {Array.from({ length: 5 }).map((_, i) => (
+              <div key={i} className="flex items-center gap-3">
+                <GhostBlock className="h-8 w-8 shrink-0 rounded-none" />
+                <div className="min-w-0 flex-1 space-y-1">
+                  <GhostBlock className="h-3 w-full rounded-none" />
+                  <GhostBlock className="h-1.5 w-full rounded-none" />
+                </div>
+              </div>
+            ))}
+          </div>
+        </GA4CardGhost>
       </div>
-    </section>
 
-    <section className="space-y-3">
-      <div className="space-y-2">
-        <GhostBlock className="h-7 w-52 rounded-none" />
-        <GhostBlock className="h-3 w-full max-w-xl rounded-none" />
+      {/* Second GA4 row — xl:grid-cols-12 with col-span-4 + col-span-4 + col-span-4 */}
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-12">
+        <GA4CardGhost className="xl:col-span-4" minHeight="240px">
+          <GhostBlock className="h-4 w-40 rounded-none" />
+          <GhostBlock className="mt-4 h-[180px] w-full rounded-none" />
+          <div className="mt-2 flex flex-wrap gap-3">
+            <GhostBlock className="h-2.5 w-12 rounded-none" />
+            <GhostBlock className="h-2.5 w-16 rounded-none" />
+            <GhostBlock className="h-2.5 w-10 rounded-none" />
+          </div>
+        </GA4CardGhost>
+        <GA4CardGhost className="xl:col-span-4" minHeight="240px">
+          <GhostBlock className="h-4 w-44 rounded-none" />
+          <div className="mb-3 mt-3 grid grid-cols-2 gap-3">
+            <GhostBlock className="h-8 rounded-none" />
+            <GhostBlock className="h-8 rounded-none" />
+          </div>
+          <GhostBlock className="h-[130px] w-full rounded-none" />
+        </GA4CardGhost>
+        <GA4CardGhost className="xl:col-span-4" minHeight="240px">
+          <GhostBlock className="h-4 w-36 rounded-none" />
+          <div className="mt-4">
+            <GhostBlock className="h-[180px] w-full rounded-none" />
+          </div>
+        </GA4CardGhost>
       </div>
-      <div className="flex gap-3 overflow-hidden pb-1">
-        {Array.from({ length: 3 }).map((_, index) => (
-          <GhostSurface key={`rec-${index}`} className="h-[220px] min-w-[280px] shrink-0 p-4">
-            <GhostBlock className="h-5 w-32 rounded-none" />
-            <GhostBlock className="mt-3 h-3 w-full rounded-none" />
-            <GhostBlock className="mt-4 h-28 w-full rounded-none" />
-          </GhostSurface>
-        ))}
+
+      {/* Third GA4 row — xl:grid-cols-12 with col-span-4 + col-span-8 */}
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-12">
+        <GA4CardGhost className="xl:col-span-4" minHeight="200px">
+          <GhostBlock className="h-4 w-36 rounded-none" />
+          <div className="mt-4 space-y-2">
+            {Array.from({ length: 4 }).map((_, i) => (
+              <div key={i} className="flex justify-between gap-4">
+                <GhostBlock className="h-3 w-24 rounded-none" />
+                <GhostBlock className="h-3 w-16 rounded-none" />
+              </div>
+            ))}
+          </div>
+        </GA4CardGhost>
+        <GA4CardGhost className="xl:col-span-8" minHeight="200px">
+          <GhostBlock className="h-4 w-52 rounded-none" />
+          <div className="mb-3 mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <GhostBlock className="h-8 rounded-none" />
+            <GhostBlock className="h-8 rounded-none" />
+            <GhostBlock className="h-8 rounded-none" />
+            <GhostBlock className="h-8 rounded-none" />
+          </div>
+          <GhostBlock className="h-[180px] w-full rounded-none" />
+        </GA4CardGhost>
       </div>
-    </section>
+    </div>
   </div>
 );
 
-const AnalyticsGhostBody: React.FC<{ kpiCount?: number }> = ({ kpiCount = 4 }) => (
-  <div className="mx-auto w-full max-w-[1600px] space-y-6 px-6 py-6">
-    <div className="grid grid-cols-[repeat(auto-fit,minmax(220px,1fr))] gap-4">
-      {Array.from({ length: kpiCount }).map((_, index) => (
-        <GhostSurface key={index} className="px-4 py-4">
-          <GhostBlock className="h-3 w-24 rounded-none" />
-          <GhostBlock className="mt-4 h-8 w-20 rounded-none" />
-          <GhostBlock className="mt-3 h-3 w-28 rounded-none" />
-        </GhostSurface>
-      ))}
+const KpiCardGhost: React.FC<{ accentColor: string }> = ({ accentColor }) => (
+  <div className="dashboard-keep-neo dashboard-kpi-card min-w-0 p-2.5 sm:p-4">
+    <div className="mb-2 h-1 border-2 border-black sm:mb-2.5 sm:h-1.5" style={{ backgroundColor: accentColor }} />
+    <GhostBlock className="h-3 w-24 rounded-none" />
+    <GhostBlock className="mt-2 h-7 w-20 rounded-none sm:h-8" />
+    <div className="mt-1.5 flex items-center gap-2 sm:mt-2">
+      <GhostBlock className="h-5 w-14 rounded-none" />
+      <GhostBlock className="h-3 w-20 rounded-none" />
     </div>
+  </div>
+);
+
+const KPI_ACCENT_COLORS = ['#67e8f9', '#86efac', '#f9a8d4', '#c4b5fd'];
+
+const AnalyticsGhostBody: React.FC<{ kpiCount?: number }> = ({ kpiCount = 4 }) => (
+  <div className="mx-auto w-full max-w-[1600px] space-y-6 px-4 py-6 sm:px-6">
+    {/* KpiCardsGrid — controls bar + cards */}
+    <section>
+      <div className="dashboard-surface mb-4 p-4">
+        <div className="flex flex-wrap items-center gap-3">
+          <GhostBlock className="h-8 w-36 rounded-none" />
+          <GhostBlock className="h-8 w-28 rounded-none" />
+          <GhostBlock className="h-8 w-24 rounded-none" />
+        </div>
+      </div>
+      <div className="grid grid-cols-[repeat(auto-fit,minmax(220px,1fr))] gap-5">
+        {Array.from({ length: kpiCount }).map((_, index) => (
+          <KpiCardGhost key={index} accentColor={KPI_ACCENT_COLORS[index % KPI_ACCENT_COLORS.length]} />
+        ))}
+      </div>
+    </section>
 
     <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
       <GhostSurface className="min-h-[320px]">
@@ -230,41 +251,53 @@ const AnalyticsGhostBody: React.FC<{ kpiCount?: number }> = ({ kpiCount = 4 }) =
 );
 
 const ListGhostBody: React.FC = () => (
-  <div className="mx-auto w-full max-w-[1800px] space-y-4 px-6 py-6">
-    <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-      {Array.from({ length: 3 }).map((_, index) => (
-        <GhostSurface key={index} className="p-4">
-          <GhostBlock className="h-3 w-24 rounded-none" />
-          <GhostBlock className="mt-3 h-8 w-16 rounded-none" />
-        </GhostSurface>
-      ))}
-    </div>
-
-    <GhostSurface className="overflow-hidden p-0">
-      <div className="border-b border-slate-100 bg-white/55 px-6 py-4">
-        <div className="flex flex-wrap items-center gap-3">
-          <GhostBlock className="h-10 min-w-[240px] flex-1 rounded-none" />
-          <GhostBlock className="h-10 w-36 rounded-none" />
-          <GhostBlock className="h-10 w-28 rounded-none" />
+  <>
+    {/* Search/controls row — matches border-b-2 border-black bg-[#f8fafc] row in real list pages */}
+    <div className="border-b-2 border-black bg-[#f8fafc] px-4 py-3 sm:px-6">
+      <div className="mx-auto flex max-w-[1800px] flex-col gap-2 sm:flex-row sm:items-center">
+        <GhostBlock className="h-10 min-w-[240px] flex-1 rounded-none" />
+        <div className="flex items-center gap-2">
+          <GhostBlock className="h-10 w-24 rounded-none" />
         </div>
       </div>
+    </div>
 
-      <div className="divide-y divide-slate-100">
-        {Array.from({ length: 8 }).map((_, index) => (
-          <div key={index} className="flex items-center gap-4 px-6 py-4">
-            <GhostBlock className="h-8 w-8 rounded-none" />
-            <div className="min-w-0 flex-1 space-y-2">
-              <GhostBlock className="h-4 w-48 rounded-none" />
-              <GhostBlock className="h-3 w-72 max-w-full rounded-none" />
-            </div>
-            <GhostBlock className="hidden h-8 w-20 rounded-none md:block" />
-            <GhostBlock className="hidden h-8 w-16 rounded-none md:block" />
-            <GhostBlock className="h-9 w-24 rounded-none" />
+    <div className="mx-auto w-full max-w-[1800px] space-y-4 px-6 pt-6">
+      <GhostSurface className="overflow-hidden p-0">
+        {/* Table header row */}
+        <div className="border-b border-slate-200 bg-slate-50 px-4 py-3">
+          <div className="flex items-center gap-4 text-[11px]">
+            <GhostBlock className="h-3 w-6 rounded-none" />
+            <GhostBlock className="h-3 flex-1 rounded-none" />
+            <GhostBlock className="hidden h-3 w-24 rounded-none md:block" />
+            <GhostBlock className="hidden h-3 w-16 rounded-none sm:block" />
+            <GhostBlock className="hidden h-3 w-16 rounded-none lg:block" />
+            <GhostBlock className="h-3 w-12 rounded-none" />
+            <GhostBlock className="h-3 w-12 rounded-none" />
+            <GhostBlock className="h-3 w-6 rounded-none" />
           </div>
-        ))}
-      </div>
-    </GhostSurface>
-  </div>
+        </div>
+
+        <div className="divide-y divide-slate-100 bg-white">
+          {Array.from({ length: 8 }).map((_, index) => (
+            <div key={index} className="flex items-center gap-4 px-4 py-4">
+              <GhostBlock className="h-6 w-6 shrink-0 rounded-none" />
+              <div className="min-w-0 flex-1 space-y-2">
+                <GhostBlock className="h-4 w-64 max-w-full rounded-none" />
+                <GhostBlock className="h-3 w-80 max-w-full rounded-none" />
+              </div>
+              <GhostBlock className="hidden h-6 w-24 rounded-none md:block" />
+              <GhostBlock className="hidden h-4 w-16 rounded-none sm:block" />
+              <GhostBlock className="hidden h-4 w-16 rounded-none lg:block" />
+              <GhostBlock className="h-4 w-10 rounded-none" />
+              <GhostBlock className="h-4 w-10 rounded-none" />
+              <GhostBlock className="h-6 w-6 shrink-0 rounded-none" />
+            </div>
+          ))}
+        </div>
+      </GhostSurface>
+    </div>
+  </>
 );
 
 const MapGhostBody: React.FC = () => (
@@ -367,8 +400,8 @@ const AlertsGhostBody: React.FC = () => (
 export const DashboardGhostLoader: React.FC<DashboardGhostLoaderProps> = ({ variant = 'analytics' }) => {
   if (variant === 'general') {
     return (
-      <div className="min-h-screen bg-transparent pb-12 font-sans text-black">
-        <GeneralPageHeaderGhost />
+      <div className="firebase-general-page min-h-screen bg-[#f8fafd] pb-12 font-sans text-black">
+        <PageHeaderGhost withControls />
         <GeneralGhostBody />
       </div>
     );
@@ -386,7 +419,7 @@ export const DashboardGhostLoader: React.FC<DashboardGhostLoaderProps> = ({ vari
   if (variant === 'map') {
     return (
       <div className="flex min-h-screen flex-col bg-transparent font-sans text-black">
-        <DashboardHeaderGhost actionCount={1} />
+        <PageHeaderGhost withControls />
         <MapGhostBody />
       </div>
     );
@@ -394,8 +427,8 @@ export const DashboardGhostLoader: React.FC<DashboardGhostLoaderProps> = ({ vari
 
   if (variant === 'list') {
     return (
-      <div className="min-h-screen bg-transparent font-sans text-black">
-        <DashboardHeaderGhost />
+      <div className="min-h-screen bg-[#f8fafd] font-sans text-black">
+        <PageHeaderGhost withControls />
         <ListGhostBody />
       </div>
     );
@@ -404,15 +437,15 @@ export const DashboardGhostLoader: React.FC<DashboardGhostLoaderProps> = ({ vari
   if (variant === 'alerts') {
     return (
       <div className="min-h-screen bg-slate-50 font-sans text-black">
-        <DashboardHeaderGhost actionCount={1} />
+        <PageHeaderGhost withControls />
         <AlertsGhostBody />
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-transparent font-sans text-black">
-      <DashboardHeaderGhost />
+    <div className="firebase-api-page min-h-screen bg-[#f8fafd] font-sans text-black">
+      <PageHeaderGhost withControls />
       <AnalyticsGhostBody kpiCount={4} />
     </div>
   );

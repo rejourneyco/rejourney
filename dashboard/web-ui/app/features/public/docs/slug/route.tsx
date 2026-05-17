@@ -5,13 +5,15 @@
 
 import type { Route } from "./+types/route";
 import { redirect } from "react-router";
+import { BookOpen } from "lucide-react";
 import { DocsLayout } from "~/shared/docs/DocsLayout";
 import { DocsSidebar } from "~/shared/docs/DocsSidebar";
-import { MarkdownContent } from "~/shared/docs/MarkdownContent";
+import { DocsAIPromptCallout, getDocsAIPromptText, MarkdownContent } from "~/shared/docs/MarkdownContent";
 import { getDocMetadata } from "~/shared/lib/docsConfig";
 import { getContentLocaleCopy, getLocalizedDocMetadata } from "~/shared/lib/contentLocalization";
 import {
     getLocalizedAlternateLinksForPath,
+    getLocalizedPublicPath,
     getLocalizedPublicUrl,
     getMarketingLocaleFromPathname,
     getMarketingLocaleRedirectPath,
@@ -71,7 +73,7 @@ export const meta: Route.MetaFunction = ({ params, location }) => {
         { property: "og:description", content: description },
         { property: "og:url", content: canonicalUrl },
         { property: "og:type", content: "article" },
-        { property: "og:site_name", content: "Rejourney Documentation" },
+        { property: "og:site_name", content: copy.docsSiteName },
         { property: "og:image", content: `${domain}/rejourneyIcon-removebg-preview.png` },
         // Twitter
         { name: "twitter:card", content: "summary" },
@@ -94,7 +96,13 @@ export async function loader({ params, request }: Route.LoaderArgs) {
 
     const { loadLocalizedDocContent, getDocMetadata } = await import("~/shared/lib/docsLoader.server");
     const slug = getSlugFromParams(params as any);
-    const localeCode = getMarketingLocaleFromPathname(new URL(request.url).pathname).code;
+    const locale = getMarketingLocaleFromPathname(new URL(request.url).pathname);
+    const localeCode = locale.code;
+
+    if (slug === "web/overview") {
+        throw redirect(getLocalizedPublicPath(locale, "/docs/web/getting-started"));
+    }
+
     const loadedDoc = loadLocalizedDocContent(slug, localeCode);
     const metadata = getDocMetadata(slug);
 
@@ -116,6 +124,7 @@ export default function DocPage({ loaderData }: Route.ComponentProps) {
     const contentLocale = MARKETING_LOCALES[contentLocaleCode] ?? MARKETING_LOCALES.en;
     const copy = getContentLocaleCopy(locale);
     const localizedMetadata = metadata ? getLocalizedDocMetadata(metadata, locale) : null;
+    const aiPromptText = getDocsAIPromptText(content);
 
     if (!localizedMetadata) {
         return (
@@ -166,7 +175,7 @@ export default function DocPage({ loaderData }: Route.ComponentProps) {
                                         "@type": "ListItem",
                                         "position": 1,
                                         "name": copy.docsBreadcrumb,
-                                        "item": getLocalizedPublicUrl(locale, "/docs/reactnative/overview")
+                                        "item": getLocalizedPublicUrl(locale, "/docs/web/getting-started")
                                     },
                                     {
                                         "@type": "ListItem",
@@ -180,18 +189,54 @@ export default function DocPage({ loaderData }: Route.ComponentProps) {
                     })
                 }}
             />
-            <header className="mb-12">
-                {localizedMetadata.category && (
-                    <p className="text-sm text-gray-500 uppercase tracking-wide mb-2">
-                        {localizedMetadata.category}
+            <header className="mb-10 border-2 border-black bg-white p-5 shadow-[8px_8px_0_0_rgba(0,0,0,1)] sm:p-7 lg:p-8">
+                <div className="mb-6 flex flex-wrap items-center gap-3">
+                    {localizedMetadata.category && (
+                        <p className="inline-flex items-center border-2 border-black bg-[#fff08a] px-3 py-1 text-xs font-black uppercase text-black shadow-[3px_3px_0_0_rgba(0,0,0,1)]">
+                            {localizedMetadata.category}
+                        </p>
+                    )}
+                    <p className="inline-flex items-center gap-2 border border-slate-300 bg-slate-50 px-3 py-1 text-xs font-bold uppercase text-slate-700">
+                        <BookOpen className="h-3.5 w-3.5" />
+                        {copy.docsBreadcrumb}
                     </p>
-                )}
-                <h1 className="text-3xl font-bold text-black mb-3">
-                    {localizedMetadata.title}
-                </h1>
+                </div>
+                <div className="grid gap-7 lg:grid-cols-[minmax(0,1fr)_330px] lg:items-end">
+                    <div>
+                        <h1 className="text-balance text-4xl font-black leading-[0.98] tracking-normal text-black sm:text-5xl lg:text-6xl">
+                            {localizedMetadata.title}
+                        </h1>
+                        {localizedMetadata.description && (
+                            <p className="mt-5 max-w-3xl text-base font-semibold leading-relaxed text-slate-700 sm:text-lg">
+                                {localizedMetadata.description}
+                            </p>
+                        )}
+                    </div>
+                    <div className="text-sm font-bold text-slate-800">
+                        {aiPromptText && (
+                            <DocsAIPromptCallout
+                                promptText={aiPromptText}
+                                compact
+                                labels={{
+                                    heading: copy.docsAiHeading,
+                                    copyButton: copy.docsCopyIntegrationPrompt,
+                                    copied: copy.docsCopied,
+                                }}
+                            />
+                        )}
+                    </div>
+                </div>
             </header>
 
-            <MarkdownContent content={content} />
+            <MarkdownContent
+                content={content}
+                showAIPrompt={false}
+                aiPromptLabels={{
+                    heading: copy.docsAiHeading,
+                    copyButton: copy.docsCopyIntegrationPrompt,
+                    copied: copy.docsCopied,
+                }}
+            />
         </DocsLayout>
     );
 }

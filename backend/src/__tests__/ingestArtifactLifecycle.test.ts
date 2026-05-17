@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
     and: vi.fn((...args) => ({ args })),
+    desc: vi.fn((...args) => ({ args })),
     eq: vi.fn((...args) => ({ args })),
     inArray: vi.fn((...args) => ({ args })),
     isNull: vi.fn((...args) => ({ args })),
@@ -37,6 +38,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('drizzle-orm', () => ({
     and: mocks.and,
+    desc: mocks.desc,
     eq: mocks.eq,
     inArray: mocks.inArray,
     isNull: mocks.isNull,
@@ -90,9 +92,16 @@ function queueJoinedSelectRows(result: any[]) {
     mocks.db.select.mockImplementationOnce(() => ({
         from: vi.fn(() => ({
             innerJoin: vi.fn(() => ({
-                where: vi.fn(() => ({
-                    limit: vi.fn(async () => result),
-                })),
+                where: vi.fn(() => {
+                    const chain = {
+                        limit: vi.fn(async () => result),
+                        orderBy: vi.fn(() => ({
+                            limit: vi.fn(async () => result),
+                        })),
+                    };
+
+                    return chain;
+                }),
             })),
         })),
     }));
@@ -317,6 +326,39 @@ describe('ingestArtifactLifecycle', () => {
         expect(mocks.markSessionIngestActivity.mock.calls[0]?.[1]).not.toMatchObject({ reopen: true });
     });
 
+    it('reopens a closed web session when a later same-session artifact arrives', async () => {
+        mocks.db.select.mockImplementationOnce(() => ({
+            from: vi.fn(() => ({
+                where: vi.fn(() => ({
+                    limit: vi.fn(async () => [{
+                        id: 'session_1',
+                        projectId: 'project_1',
+                        platform: 'web',
+                        status: 'ready',
+                        endedAt: new Date('2026-04-10T12:01:01.000Z'),
+                    }]),
+                })),
+            })),
+        }));
+
+        await registerPendingArtifact({
+            sessionId: 'session_1',
+            kind: 'rrweb',
+            s3ObjectKey: 'tenant/team/project/session/rrweb/1770000080000.rrweb.json.gz',
+            endpointId: 'endpoint_1',
+            clientUploadId: 'seg_session_1_rrweb_1770000080000_1770000085000_na',
+            declaredSizeBytes: 128,
+            timestamp: Date.parse('2026-04-10T12:02:20.000Z'),
+            startTime: Date.parse('2026-04-10T12:02:20.000Z'),
+            endTime: Date.parse('2026-04-10T12:02:25.000Z'),
+            frameCount: 4,
+        });
+
+        expect(mocks.markSessionIngestActivity).toHaveBeenCalledTimes(1);
+        expect(mocks.markSessionIngestActivity.mock.calls[0]?.[0]).toBe('session_1');
+        expect(mocks.markSessionIngestActivity.mock.calls[0]?.[1]).toMatchObject({ reopen: true });
+    });
+
     it('marks interrupted uploads abandoned immediately and fails any active job', async () => {
         const updateCalls: Array<{ table: unknown; payload: any }> = [];
         mocks.db.update.mockImplementation((table: unknown) => ({
@@ -485,6 +527,7 @@ describe('ingestArtifactLifecycle', () => {
             },
             projectId: 'project_1',
         }]);
+        queueJoinedSelectRows([]);
 
         const result = await queueRecoverableArtifacts(10);
 

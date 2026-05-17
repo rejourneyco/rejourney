@@ -57,35 +57,35 @@ export const links: Route.LinksFunction = () => [
 export const meta: Route.MetaFunction = () => [
     // charset and viewport are set explicitly in Layout head
     { name: "theme-color", content: "#ffffff" },
-    { title: "Rejourney: Open Source Mobile App Analytics & Observability" },
+    { title: "Rejourney: Open Source Web & Mobile Analytics & Observability" },
     {
         name: "description",
-        content: "Open-source mobile analytics with session replay, crash reports, heatmaps, journeys, and a lightweight SDK for mobile apps.",
+        content: "Open-source analytics with session replay, crash reports, heatmaps, journeys, and a lightweight SDK for web and mobile apps.",
     },
     {
         name: "keywords",
-        content: "mobile app analytics, mobile observability, open source session replay, crash reporting, heatmaps, product analytics, lightweight SDK, self-hosted",
+        content: "web analytics, mobile app analytics, web session replay, mobile session replay, open source session replay, crash reporting, heatmaps, product analytics, lightweight SDK, self-hosted",
     },
     { name: "robots", content: "index, follow" },
     { property: "og:locale", content: "en_US" },
     { property: "og:type", content: "website" },
     { property: "og:url", content: "https://rejourney.co/" },
-    { property: "og:title", content: "Rejourney: Lightweight Mobile App Analytics & Observability" },
+    { property: "og:title", content: "Rejourney: Lightweight Web & Mobile Analytics & Observability" },
     {
         property: "og:description",
-        content: "Everything analytics for mobile apps: session replay, crashes, journeys, heatmaps, and product signals in a light SDK.",
+        content: "Everything analytics for web and mobile apps: session replay, crashes, journeys, heatmaps, and product signals in a light SDK.",
     },
     { property: "og:image", content: "https://rejourney.co/rejourneyIcon-removebg-preview.png" },
     { property: "og:image:width", content: "1200" },
     { property: "og:image:height", content: "630" },
-    { property: "og:image:alt", content: "Rejourney - Open Source Mobile App Analytics" },
+    { property: "og:image:alt", content: "Rejourney - Open Source Web and Mobile Analytics" },
     { property: "og:image:type", content: "image/png" },
     { name: "twitter:card", content: "summary_large_image" },
     { name: "twitter:url", content: "https://rejourney.co/" },
-    { name: "twitter:title", content: "Rejourney: Lightweight Mobile App Analytics & Observability" },
+    { name: "twitter:title", content: "Rejourney: Lightweight Web & Mobile Analytics & Observability" },
     {
         name: "twitter:description",
-        content: "Everything analytics for mobile apps: session replay, crashes, journeys, heatmaps, and product signals in a light SDK.",
+        content: "Everything analytics for web and mobile apps: session replay, crashes, journeys, heatmaps, and product signals in a light SDK.",
     },
     { name: "twitter:image", content: "https://rejourney.co/rejourneyIcon-removebg-preview.png" },
     { name: "twitter:site", content: "@rejourneyco" },
@@ -144,7 +144,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
                                     "inLanguage": locale.languageTag,
                                     "availableLanguage": MARKETING_AVAILABLE_LANGUAGES,
                                     "applicationCategory": "DeveloperApplication",
-                                    "operatingSystem": "iOS, Android, Expo, React Native",
+                                    "operatingSystem": "Web, iOS, Android, Expo, React Native",
                                     "offers": {
                                         "@type": "Offer",
                                         "price": "0",
@@ -165,11 +165,12 @@ export function Layout({ children }: { children: React.ReactNode }) {
                                     "name": "Sitelinks",
                                     "inLanguage": locale.languageTag,
                                     "itemListElement": [
-                                        { "@type": "SiteNavigationElement", "position": 1, "name": copy.header.docs, "url": getLocalizedPublicUrl(locale, "/docs/reactnative/overview") },
+                                        { "@type": "SiteNavigationElement", "position": 1, "name": copy.header.docs, "url": getLocalizedPublicUrl(locale, "/docs") },
                                         { "@type": "SiteNavigationElement", "position": 2, "name": copy.header.engineering, "url": getLocalizedPublicUrl(locale, "/engineering") },
                                         { "@type": "SiteNavigationElement", "position": 3, "name": copy.header.pricing, "url": getLocalizedPublicUrl(locale, "/pricing") },
-                                        { "@type": "SiteNavigationElement", "position": 4, "name": copy.header.selfHosted, "url": getLocalizedPublicUrl(locale, "/docs/selfhosted") },
-                                        { "@type": "SiteNavigationElement", "position": 5, "name": copy.header.login, "url": "https://rejourney.co/login" }
+                                        { "@type": "SiteNavigationElement", "position": 4, "name": copy.header.roadmap, "url": getLocalizedPublicUrl(locale, "/roadmap") },
+                                        { "@type": "SiteNavigationElement", "position": 5, "name": copy.header.selfHosted, "url": getLocalizedPublicUrl(locale, "/docs/selfhosted") },
+                                        { "@type": "SiteNavigationElement", "position": 6, "name": copy.header.login, "url": "https://rejourney.co/login" }
                                     ]
                                 }
                             ]

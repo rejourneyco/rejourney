@@ -6,7 +6,7 @@
  */
 
 import React, { createContext, useContext, ReactNode } from 'react';
-import { demoProjects, demoSessions, demoDashboardStats, demoDailyStats, DEMO_FEATURED_SESSION_ID, DEMO_TEAM } from '~/shared/data/demoData';
+import { demoProjects, demoSessions, demoReplaySessions, demoDashboardStats, demoDailyStats, DEMO_FEATURED_SESSION_ID, DEMO_TEAM } from '~/shared/data/demoData';
 import { Project, RecordingSession, ProjectDailyStats } from '~/shared/types';
 import { ApiTeam, ApiTeamMember } from '~/shared/api/client';
 import { DemoTeamContext } from './TeamContext';
@@ -15,6 +15,7 @@ interface DemoModeContextValue {
     isDemoMode: boolean;
     demoProjects: Project[];
     demoSessions: RecordingSession[];
+    demoReplaySessions: RecordingSession[];
     demoDashboardStats: {
         totalSessions: number;
         avgDuration: number;
@@ -34,6 +35,7 @@ export function useDemoMode(): DemoModeContextValue {
             isDemoMode: false,
             demoProjects: [],
             demoSessions: [],
+            demoReplaySessions: [],
             demoDashboardStats: { totalSessions: 0, avgDuration: 0, errorRate: 0 },
             demoDailyStats: [],
             featuredSessionId: ''
@@ -51,6 +53,7 @@ export function DemoModeProvider({ children }: DemoModeProviderProps) {
         isDemoMode: true,
         demoProjects,
         demoSessions,
+        demoReplaySessions,
         demoDashboardStats,
         demoDailyStats,
         featuredSessionId: DEMO_FEATURED_SESSION_ID

@@ -1,5 +1,6 @@
 import { createRequire } from 'module';
 import express, { Request, Response } from 'express';
+import cors from 'cors';
 import helmet from 'helmet';
 import { v4 as uuidv4 } from 'uuid';
 import { config, isDevelopment } from './config.js';
@@ -21,6 +22,13 @@ app.disable('x-powered-by');
 
 app.use(helmet({
     contentSecurityPolicy: isDevelopment ? false : undefined,
+}));
+
+app.use(cors({
+    origin: true,
+    methods: ['GET', 'PUT', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Content-Encoding'],
+    credentials: false,
 }));
 
 app.use((req, res, next) => {

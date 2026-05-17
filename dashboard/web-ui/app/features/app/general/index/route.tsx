@@ -6,6 +6,7 @@ import {
     Check,
     Copy,
     ExternalLink,
+    Globe2,
     Info,
     MessageSquareWarning,
     User,
@@ -28,6 +29,7 @@ import { useSessionData } from '~/shared/providers/SessionContext';
 import {
     getDashboardOverview,
     getDashboardOverviewHeavy,
+    getSessionsPaginated,
     GeoSummary,
     GrowthObservability,
     InsightsTrends,
@@ -37,9 +39,10 @@ import {
     UserEngagementTrends,
 } from '~/shared/api/client';
 import { DashboardPageHeader } from '~/shared/ui/core/DashboardPageHeader';
-import { TimeFilter } from '~/shared/ui/core/TimeFilter';
+import { DashboardLensControls } from '~/shared/ui/core/DashboardLensControls';
 import { usePathPrefix } from '~/shell/routing/usePathPrefix';
-import { useSharedAnalyticsTimeRange } from '~/shared/hooks/useSharedAnalyticsTimeRange';
+import { useSharedRejourneyTimeRange } from '~/shared/hooks/useSharedRejourneyTimeRange';
+import { useSharedPlatformLens, platformLensToSessionPlatform } from '~/shared/hooks/useSharedPlatformLens';
 import { formatGeoDisplay } from '~/shared/lib/geoDisplay';
 import { formatDeviceModel } from '~/shared/lib/deviceModelNames';
 import { NeoBadge } from '~/shared/ui/core/neo/NeoBadge';
@@ -138,6 +141,8 @@ function issueSignalsForSession(session: RecordingSession): number {
         + (session.crashCount || 0)
         + (session.anrCount || 0)
         + (session.rageTapCount || 0)
+        + (session.deadTapCount || 0)
+        + (session.apiErrorCount || 0)
     );
 }
 
@@ -224,6 +229,10 @@ const RECOMMENDED_SESSION_PRIORITY_STYLES: Record<RecommendedSession['priority']
     watch: 'bg-sky-50 text-sky-700',
     baseline: 'bg-slate-50 text-slate-700',
 };
+
+const MAX_RECOMMENDED_SESSIONS = 8;
+const MIN_RECOMMENDED_SESSION_SCORE = 70;
+const MAX_RECOMMENDATIONS_PER_CATEGORY = 2;
 
 const ANONYMOUS_NICKNAME_STYLES = [
     'border-emerald-200 bg-emerald-100 text-emerald-800',
@@ -369,245 +378,318 @@ function buildRecommendedSessions(sessions: RecordingSession[]): RecommendedSess
     const pool = sessions.filter((s) => hasSuccessfulRecording(s) && !s.isReplayExpired);
     if (pool.length === 0) return [];
 
-    const picks: RecommendedSession[] = [];
-    const usedIds = new Set<string>();
+    type RecommendationCandidate = RecommendedSession & {
+        categoryKey: string;
+        score: number;
+    };
+
+    const candidates: RecommendationCandidate[] = [];
     const byMostRecent = (a: RecordingSession, b: RecordingSession) =>
         new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime();
 
-    const userSessionCounts = new Map<string, { count: number; bestSignalSession: RecordingSession; latestSession: RecordingSession }>();
+    const userSessionCounts = new Map<string, { count: number; sessions: RecordingSession[] }>();
     for (const s of pool) {
         const key = sessionUserKey(s);
         const existing = userSessionCounts.get(key);
         if (!existing) {
-            userSessionCounts.set(key, { count: 1, bestSignalSession: s, latestSession: s });
+            userSessionCounts.set(key, { count: 1, sessions: [s] });
         } else {
             existing.count += 1;
-            if (issueSignalsForSession(s) > issueSignalsForSession(existing.bestSignalSession)) {
-                existing.bestSignalSession = s;
-            }
-            if (new Date(s.startedAt).getTime() > new Date(existing.latestSession.startedAt).getTime()) {
-                existing.latestSession = s;
-            }
+            existing.sessions.push(s);
         }
     }
 
-    const pick = (
-        category: string,
-        priority: RecommendedSession['priority'],
-        reason: string,
-        finder: (pool: RecordingSession[]) => RecordingSession | undefined,
-    ) => {
-        const available = pool.filter((s) => !usedIds.has(s.id));
-        const session = finder(available);
-        if (session) {
-            usedIds.add(session.id);
-            picks.push({ session, category, priority, reason });
-        }
+    const startedAtMs = (session: RecordingSession) => {
+        const value = new Date(session.startedAt).getTime();
+        return Number.isFinite(value) ? value : 0;
     };
 
-    pick('High Friction Journey', 'critical', 'Highest issue signal count', (p) =>
-        [...p].sort((a, b) => issueSignalsForSession(b) - issueSignalsForSession(a)).find((s) => issueSignalsForSession(s) > 0),
+    const recencyBonus = (session: RecordingSession): number => {
+        const ageHours = (Date.now() - startedAtMs(session)) / 36e5;
+        if (!Number.isFinite(ageHours) || ageHours < 0) return 6;
+        if (ageHours <= 1) return 6;
+        if (ageHours <= 24) return 4;
+        if (ageHours <= 168) return 2;
+        return 0;
+    };
+
+    const issueWeight = (session: RecordingSession): number => (
+        ((session.crashCount || 0) * 45)
+        + ((session.anrCount || 0) * 42)
+        + ((session.errorCount || 0) * 14)
+        + ((session.apiErrorCount || 0) * 9)
+        + ((session.rageTapCount || 0) * 16)
+        + ((session.deadTapCount || 0) * 12)
     );
 
-    pick('Crash Impact', 'critical', 'Most recent session with a crash signal', (p) =>
-        [...p]
-            .filter((s) => (s.crashCount || 0) > 0)
-            .sort(byMostRecent)[0],
+    const activityCount = (session: RecordingSession): number => (
+        (session.touchCount || 0)
+        + (session.scrollCount || 0)
+        + (session.gestureCount || 0)
+        + (session.inputCount || 0)
     );
 
-    pick('ANR Freeze Session', 'critical', 'Session with an ANR freeze signature', (p) =>
-        [...p]
-            .filter((s) => (s.anrCount || 0) > 0)
-            .sort(byMostRecent)[0],
+    const screenCount = (session: RecordingSession): number => (
+        Array.isArray(session.screensVisited) ? session.screensVisited.length : 0
     );
 
-    pick('API Failure Spike', 'critical', 'Highest number of failing API calls', (p) =>
-        [...p].sort((a, b) => (b.apiErrorCount || 0) - (a.apiErrorCount || 0)).find((s) => (s.apiErrorCount || 0) > 0),
-    );
+    const engagementWatchScore = (session: RecordingSession): number => {
+        const duration = session.durationSeconds || 0;
+        const interactions = activityCount(session);
+        const screens = screenCount(session);
+        const interactionScore = session.interactionScore || 0;
+        const explorationScore = session.explorationScore || 0;
 
-    pick('Stable Journey', 'baseline', 'No issue signals with high engagement', (p) =>
-        [...p]
-            .filter((s) => (s.errorCount || 0) === 0 && (s.crashCount || 0) === 0 && (s.anrCount || 0) === 0 && (s.rageTapCount || 0) === 0)
-            .sort((a, b) => (b.interactionScore + b.explorationScore) - (a.interactionScore + a.explorationScore))[0],
-    );
+        if (duration < 120) return 0;
+        if (interactionScore < 45 && interactions < 20 && screens < 4 && explorationScore < 6) return 0;
 
-    pick('Rage Input Pattern', 'high', 'Highest rage tap count', (p) =>
-        [...p].sort((a, b) => (b.rageTapCount || 0) - (a.rageTapCount || 0)).find((s) => (s.rageTapCount || 0) > 0),
-    );
+        return Math.min(34, duration / 18)
+            + Math.min(28, interactionScore / 3)
+            + Math.min(18, interactions / 3)
+            + Math.min(14, screens * 3)
+            + Math.min(12, explorationScore * 1.5);
+    };
 
-    pick('API Latency Outlier', 'high', 'Slowest average API response time', (p) =>
-        [...p]
-            .filter((s) => (s.apiTotalCount || 0) > 0)
-            .sort((a, b) => (b.apiAvgResponseMs || 0) - (a.apiAvgResponseMs || 0))[0],
-    );
+    const recommendationPriority = (score: number): RecommendedSession['priority'] => {
+        if (score >= 112) return 'critical';
+        if (score >= 82) return 'high';
+        return 'watch';
+    };
 
-    pick('Deep Engagement', 'watch', 'Longest session with meaningful interaction', (p) =>
-        [...p]
-            .filter((s) => (s.touchCount || 0) > 10)
-            .sort((a, b) => (b.durationSeconds || 0) - (a.durationSeconds || 0))[0],
-    );
-
-    const topUserEntry = [...userSessionCounts.entries()]
-        .sort((a, b) => b[1].count - a[1].count)
-        .find(([, v]) => v.count > 1);
-
-    if (topUserEntry && !usedIds.has(topUserEntry[1].bestSignalSession.id)) {
-        usedIds.add(topUserEntry[1].bestSignalSession.id);
-        picks.push({
-            session: topUserEntry[1].bestSignalSession,
-            category: 'Frequent Returning User',
-            priority: 'watch',
-            reason: `${topUserEntry[1].count} sessions from this user`,
-        });
-    }
-
-    pick('New User Journey', 'high', 'First-time user path to validate onboarding health', (p) =>
-        [...p]
-            .filter((s) => (userSessionCounts.get(sessionUserKey(s))?.count || 0) <= 1)
-            .sort((a, b) => {
-                const signalDelta = issueSignalsForSession(b) - issueSignalsForSession(a);
-                if (signalDelta !== 0) return signalDelta;
-                return byMostRecent(a, b);
-            })[0],
-    );
-
-    pick('Returning User Pattern', 'watch', 'Representative repeat-user behavior sample', (p) =>
-        [...p]
-            .filter((s) => (userSessionCounts.get(sessionUserKey(s))?.count || 0) >= 2)
-            .sort((a, b) => {
-                const signalDelta = issueSignalsForSession(b) - issueSignalsForSession(a);
-                if (signalDelta !== 0) return signalDelta;
-                return (b.interactionScore || 0) - (a.interactionScore || 0);
-            })[0],
-    );
-
-    pick('Anonymous User Flow', 'watch', 'Anonymous visitor flow for pre-login experience', (p) =>
-        [...p]
-            .filter((s) => !s.userId && Boolean(s.anonymousId || s.anonymousDisplayName))
-            .sort((a, b) => (b.interactionScore || 0) - (a.interactionScore || 0))[0],
-    );
-
-    pick('Power User Flow', 'watch', 'High-intent user session with deep interaction', (p) =>
-        [...p]
-            .filter((s) => (s.interactionScore || 0) > 90 || ((s.durationSeconds || 0) > 240 && (s.touchCount || 0) > 30))
-            .sort((a, b) => (b.interactionScore || 0) - (a.interactionScore || 0))[0],
-    );
-
-    pick('Passive User Exit', 'high', 'Low-interaction user likely to bounce quickly', (p) =>
-        [...p]
-            .filter((s) => (s.touchCount || 0) < 5 && (s.durationSeconds || 0) < 45)
-            .sort((a, b) => (a.durationSeconds || 0) - (b.durationSeconds || 0))[0],
-    );
-
-    pick('iOS User Sample', 'baseline', 'Representative iOS user session', (p) =>
-        [...p]
-            .filter((s) => s.platform === 'ios')
-            .sort((a, b) => {
-                const signalDelta = issueSignalsForSession(b) - issueSignalsForSession(a);
-                if (signalDelta !== 0) return signalDelta;
-                return byMostRecent(a, b);
-            })[0],
-    );
-
-    pick('Android User Sample', 'baseline', 'Representative Android user session', (p) =>
-        [...p]
-            .filter((s) => s.platform === 'android')
-            .sort((a, b) => {
-                const signalDelta = issueSignalsForSession(b) - issueSignalsForSession(a);
-                if (signalDelta !== 0) return signalDelta;
-                return byMostRecent(a, b);
-            })[0],
-    );
-
-    pick('Constrained Network User', 'high', 'User session on constrained or expensive network', (p) =>
-        [...p]
-            .filter((s) => s.isConstrained || s.isExpensive || s.cellularGeneration === '2G' || s.cellularGeneration === '3G')
-            .sort((a, b) => (b.apiAvgResponseMs || 0) - (a.apiAvgResponseMs || 0))[0],
-    );
-
-    pick('Exploration Heavy', 'watch', 'Visited the most distinct screens', (p) =>
-        [...p].sort((a, b) => (b.explorationScore || 0) - (a.explorationScore || 0)).find((s) => (s.explorationScore || 0) > 0),
-    );
-
-    pick('Early Exit', 'high', 'Short session with no interaction', (p) =>
-        [...p]
-            .filter((s) => (s.durationSeconds || 0) < 10 && (s.interactionScore || 0) === 0)
-            .sort((a, b) => (a.durationSeconds || 0) - (b.durationSeconds || 0))[0],
-    );
-
-    pick('Funnel Drop-off', 'critical', 'High interaction session ending in an error or crash', (p) =>
-        [...p]
-            .filter((s) => (s.interactionScore || 0) > 50 && ((s.errorCount || 0) > 0 || (s.crashCount || 0) > 0))
-            .sort((a, b) => (b.interactionScore || 0) - (a.interactionScore || 0))[0],
-    );
-
-    pick('Slow Startup', 'high', 'Longest app startup time', (p) =>
-        [...p].sort((a, b) => (b.appStartupTimeMs || 0) - (a.appStartupTimeMs || 0)).find((s) => (s.appStartupTimeMs || 0) > 2000),
-    );
-
-    pick('Dead Tap Pattern', 'high', 'Highest dead tap count', (p) =>
-        [...p].sort((a, b) => (b.deadTapCount || 0) - (a.deadTapCount || 0)).find((s) => (s.deadTapCount || 0) > 0),
-    );
-
-    pick('First Session Crash', 'critical', 'Crash detected on a first-time user session', (p) => {
-        const singleUserSessions = p.filter((s) => {
-            const key = sessionUserKey(s);
-            return (userSessionCounts.get(key)?.count || 0) <= 1;
-        });
-        return singleUserSessions
-            .filter((s) => (s.crashCount || 0) > 0)
-            .sort(byMostRecent)[0];
-    });
-
-    pick('App Freeze', 'critical', 'Session experienced an ANR signal', (p) =>
-        [...p].sort((a, b) => (b.anrCount || 0) - (a.anrCount || 0)).find((s) => (s.anrCount || 0) > 0),
-    );
-
-    pick('Navigation Confusion', 'high', 'High screen count with little interaction', (p) =>
-        [...p]
-            .filter((s) => (s.explorationScore || 0) > 5 && (s.interactionScore || 0) < 5)
-            .sort((a, b) => (b.explorationScore || 0) - (a.explorationScore || 0))[0],
-    );
-
-    pick('UI Friction Cluster', 'high', 'Intense interaction concentrated on few screens with failed taps', (p) =>
-        [...p]
-            .filter((s) => (s.interactionScore || 0) > 20 && (s.explorationScore || 0) < 3 && ((s.deadTapCount || 0) > 0 || (s.rageTapCount || 0) > 0))
-            .sort((a, b) => (b.interactionScore || 0) - (a.interactionScore || 0))[0],
-    );
-
-    pick('High API Volume', 'watch', 'Highest volume of API requests', (p) =>
-        [...p].sort((a, b) => (b.apiTotalCount || 0) - (a.apiTotalCount || 0)).find((s) => (s.apiTotalCount || 0) > 50),
-    );
-
-    pick('Frustrated Exit', 'high', 'Rage taps followed by a short session', (p) =>
-        [...p]
-            .filter((s) => (s.rageTapCount || 0) > 0 && (s.durationSeconds || 0) < 30)
-            .sort((a, b) => (a.durationSeconds || 0) - (b.durationSeconds || 0))[0],
-    );
-
-    const remaining = pool
-        .filter((s) => !usedIds.has(s.id))
-        .sort((a, b) => {
-            const signalDelta = issueSignalsForSession(b) - issueSignalsForSession(a);
-            if (signalDelta !== 0) return signalDelta;
-            const interactionDelta = (b.interactionScore || 0) - (a.interactionScore || 0);
-            if (interactionDelta !== 0) return interactionDelta;
-            return byMostRecent(a, b);
-        });
-
-    for (const session of remaining.slice(0, 8)) {
-        const issueCount = issueSignalsForSession(session);
-        picks.push({
+    const addCandidate = (
+        session: RecordingSession,
+        category: string,
+        reason: string,
+        rawScore: number,
+        priority?: RecommendedSession['priority'],
+    ) => {
+        const score = Math.round(rawScore + recencyBonus(session));
+        if (score < MIN_RECOMMENDED_SESSION_SCORE) return;
+        candidates.push({
             session,
-            category: issueCount > 0 ? 'Additional Risk Session' : 'Additional User Sample',
-            priority: issueCount > 0 ? 'high' : 'watch',
-            reason: issueCount > 0
-                ? `${issueCount} issue signals detected in this session`
-                : 'Additional user behavior sample in this time window',
+            category,
+            categoryKey: category.toLowerCase(),
+            priority: priority || recommendationPriority(score),
+            reason,
+            score,
         });
+    };
+
+    for (const session of pool) {
+        const signals = issueSignalsForSession(session);
+        const weightedIssues = issueWeight(session);
+        const duration = session.durationSeconds || 0;
+        const apiTotal = session.apiTotalCount || 0;
+        const apiErrors = session.apiErrorCount || 0;
+        const apiAvgMs = session.apiAvgResponseMs || 0;
+        const apiErrorRate = apiTotal > 0 ? apiErrors / apiTotal : 0;
+        const interactions = activityCount(session);
+        const screens = screenCount(session);
+        const network = String(session.networkType || '').toLowerCase();
+        const constrainedNetwork =
+            Boolean(session.isConstrained)
+            || Boolean(session.isExpensive)
+            || session.cellularGeneration === '2G'
+            || session.cellularGeneration === '3G'
+            || network.includes('2g')
+            || network.includes('3g');
+        const userGroup = userSessionCounts.get(sessionUserKey(session));
+        const isFirstKnownSession = Boolean(session.isFirstSession) || (userGroup?.count || 0) <= 1;
+
+        if ((session.crashCount || 0) > 0) {
+            addCandidate(
+                session,
+                isFirstKnownSession ? 'First Session Crash' : 'Crash Impact',
+                isFirstKnownSession
+                    ? 'Crash detected on a first-time user session'
+                    : `${session.crashCount} crash signal${session.crashCount === 1 ? '' : 's'} in this replay`,
+                104 + (session.crashCount || 0) * 34 + Math.min(12, duration / 30),
+                'critical',
+            );
+        }
+
+        if ((session.anrCount || 0) > 0) {
+            addCandidate(
+                session,
+                'ANR Freeze Session',
+                `${session.anrCount} freeze signal${session.anrCount === 1 ? '' : 's'} captured`,
+                100 + (session.anrCount || 0) * 32 + Math.min(10, duration / 45),
+                'critical',
+            );
+        }
+
+        if (signals >= 3 || weightedIssues >= 50) {
+            addCandidate(
+                session,
+                'High Friction Journey',
+                `${signals} issue signal${signals === 1 ? '' : 's'} detected in this replay`,
+                56 + weightedIssues + Math.min(12, duration / 45),
+            );
+        }
+
+        if (apiErrors > 0 && (apiErrors >= 2 || apiErrorRate >= 0.1 || weightedIssues >= 50)) {
+            addCandidate(
+                session,
+                'API Failure Spike',
+                `${apiErrors} failing API call${apiErrors === 1 ? '' : 's'}${apiTotal > 0 ? ` across ${apiTotal} request${apiTotal === 1 ? '' : 's'}` : ''}`,
+                68 + apiErrors * 12 + Math.min(28, apiErrorRate * 100),
+            );
+        }
+
+        if ((session.rageTapCount || 0) >= 2) {
+            addCandidate(
+                session,
+                'Rage Input Pattern',
+                `${session.rageTapCount} rage tap signal${session.rageTapCount === 1 ? '' : 's'} found`,
+                66 + (session.rageTapCount || 0) * 18 + Math.min(10, interactions / 5),
+            );
+        }
+
+        if ((session.deadTapCount || 0) >= 2) {
+            addCandidate(
+                session,
+                'Dead Tap Pattern',
+                `${session.deadTapCount} dead tap signal${session.deadTapCount === 1 ? '' : 's'} found`,
+                62 + (session.deadTapCount || 0) * 15 + Math.min(10, interactions / 5),
+            );
+        }
+
+        if (
+            apiAvgMs > 0
+            && (
+                (apiTotal >= 3 && apiAvgMs >= 1200)
+                || (apiTotal >= 10 && apiAvgMs >= 800)
+                || apiAvgMs >= 2500
+            )
+        ) {
+            addCandidate(
+                session,
+                'API Latency Outlier',
+                `${Math.round(apiAvgMs).toLocaleString()}ms average API response time`,
+                54 + Math.min(48, apiAvgMs / 65) + Math.min(14, apiTotal / 2) + Math.min(14, duration / 30),
+            );
+        }
+
+        if ((session.appStartupTimeMs || 0) >= 3000) {
+            addCandidate(
+                session,
+                'Slow Startup',
+                `${Math.round((session.appStartupTimeMs || 0) / 100) / 10}s startup time`,
+                60 + Math.min(55, (session.appStartupTimeMs || 0) / 120),
+            );
+        }
+
+        if (constrainedNetwork && (apiAvgMs >= 1000 || apiErrors > 0 || signals > 0 || duration >= 120)) {
+            addCandidate(
+                session,
+                'Constrained Network User',
+                'Slow or constrained network coincides with replay-worthy behavior',
+                58 + Math.min(30, apiAvgMs / 100) + Math.min(24, weightedIssues / 2) + Math.min(12, duration / 45),
+            );
+        }
+
+        if (isFirstKnownSession && (signals > 0 || apiErrors > 0)) {
+            addCandidate(
+                session,
+                'New User Friction',
+                'First-known user session includes friction signals',
+                62 + weightedIssues + Math.min(12, duration / 40),
+            );
+        }
+
+        if (duration <= 45 && (signals > 0 || apiErrors > 0) && (interactions > 0 || apiTotal > 0)) {
+            addCandidate(
+                session,
+                'Frustrated Exit',
+                'Short replay ended after observable friction',
+                62 + weightedIssues + Math.max(0, 45 - duration) / 2,
+            );
+        }
+
+        if ((session.explorationScore || 0) >= 8 && (session.interactionScore || 0) <= 10 && duration >= 45) {
+            addCandidate(
+                session,
+                'Navigation Confusion',
+                'High exploration with little interaction suggests a confusing path',
+                58 + Math.min(34, (session.explorationScore || 0) * 3) + Math.min(12, screens * 2),
+            );
+        }
+
+        if (apiTotal >= 100 || (apiTotal >= 50 && (apiAvgMs >= 500 || apiErrors > 0))) {
+            addCandidate(
+                session,
+                'High API Volume',
+                `${apiTotal} API request${apiTotal === 1 ? '' : 's'} in one replay`,
+                54 + Math.min(32, apiTotal / 6) + Math.min(20, apiAvgMs / 100) + apiErrors * 4,
+                'watch',
+            );
+        }
+
+        const engagementScore = engagementWatchScore(session);
+        if (engagementScore >= 70 && signals === 0) {
+            addCandidate(
+                session,
+                'Deep Engagement',
+                `${formatDuration(duration)} replay with ${interactions} interaction event${interactions === 1 ? '' : 's'}${screens > 0 ? ` across ${screens} screen${screens === 1 ? '' : 's'}` : ''}`,
+                engagementScore,
+                'watch',
+            );
+        }
     }
 
-    return picks.slice(0, 24);
+    for (const [, group] of userSessionCounts) {
+        if (group.count < 3) continue;
+
+        const best = [...group.sessions]
+            .map((session) => ({
+                session,
+                score: issueWeight(session) + engagementWatchScore(session) + Math.min(32, (session.apiAvgResponseMs || 0) / 90),
+            }))
+            .filter((entry) => entry.score >= MIN_RECOMMENDED_SESSION_SCORE)
+            .sort((a, b) => {
+                if (b.score !== a.score) return b.score - a.score;
+                return byMostRecent(a.session, b.session);
+            })[0];
+
+        if (!best) continue;
+
+        const signals = issueSignalsForSession(best.session);
+        addCandidate(
+            best.session,
+            signals > 0 ? 'Returning User With Friction' : 'Power Returning User',
+            signals > 0
+                ? `${group.count} sessions from this user; this replay has the strongest friction`
+                : `${group.count} sessions from this user; this is their most informative replay`,
+            best.score + Math.min(18, group.count),
+            signals > 0 ? 'high' : 'watch',
+        );
+    }
+
+    const usedSessionIds = new Set<string>();
+    const categoryCounts = new Map<string, number>();
+    const picks: RecommendedSession[] = [];
+
+    for (const candidate of candidates.sort((a, b) => {
+        if (b.score !== a.score) return b.score - a.score;
+        return byMostRecent(a.session, b.session);
+    })) {
+        if (usedSessionIds.has(candidate.session.id)) continue;
+        const categoryCount = categoryCounts.get(candidate.categoryKey) || 0;
+        if (categoryCount >= MAX_RECOMMENDATIONS_PER_CATEGORY) continue;
+
+        usedSessionIds.add(candidate.session.id);
+        categoryCounts.set(candidate.categoryKey, categoryCount + 1);
+        picks.push({
+            session: candidate.session,
+            category: candidate.category,
+            priority: candidate.priority,
+            reason: candidate.reason,
+        });
+
+        if (picks.length >= MAX_RECOMMENDED_SESSIONS) break;
+    }
+
+    return picks;
 }
 
 const IssueSparkline: React.FC<{ dailyEvents?: Record<string, number>; color: string }> = ({ dailyEvents, color }) => {
@@ -678,10 +760,6 @@ type TrendChartRow = {
     avgDurationSeconds: number;
 };
 
-type CountryUsersChartRow = {
-    dateKey: string;
-} & Record<string, string | number>;
-
 type EngagementSegmentKey = 'bouncers' | 'casuals' | 'explorers' | 'loyalists';
 
 type EngagementMixChartRow = {
@@ -694,6 +772,10 @@ type EngagementMixChartRow = {
     engagedShare: number;
 };
 
+type CustomEventTrendRow = {
+    dateKey: string;
+} & Record<string, string | number>;
+
 const ENGAGEMENT_SEGMENTS: Array<{ key: EngagementSegmentKey; label: string; color: string }> = [
     { key: 'bouncers', label: 'Bouncers', color: '#ef4444' },
     { key: 'casuals', label: 'Casuals', color: '#f9a8d4' },
@@ -701,7 +783,7 @@ const ENGAGEMENT_SEGMENTS: Array<{ key: EngagementSegmentKey; label: string; col
     { key: 'loyalists', label: 'Loyalists', color: '#10b981' },
 ];
 
-const COUNTRY_LINE_COLORS = ['#1a73e8', '#5dadec', '#1e8e3e', '#f9a8d4', '#9334e6', '#0f766e'];
+const CUSTOM_EVENT_TREND_COLORS = ['#1a73e8', '#1e8e3e', '#9334e6', '#f9a8d4', '#0f766e', '#f59e0b'];
 
 type MomentumCard = {
     label: string;
@@ -712,12 +794,75 @@ type MomentumCard = {
 };
 
 const RETRO_CARD_ACCENTS = ['#67e8f9', '#86efac', '#f9a8d4', '#c4b5fd'];
+const DIRECT_REFERRAL_LABEL = 'Direct / none';
+
+type ReferralSourceRow = {
+    source: string;
+    count: number;
+    share: number;
+};
+
+function readMetadataStringValue(metadata: Record<string, unknown> | undefined, keys: string[]): string | null {
+    if (!metadata || typeof metadata !== 'object') return null;
+    for (const key of keys) {
+        const value = metadata[key];
+        if (value === null || value === undefined) continue;
+        const normalized = String(value).trim();
+        if (normalized) return normalized;
+    }
+    return null;
+}
+
+function normalizeReferralSource(value: string | null | undefined): string {
+    const raw = String(value ?? '').trim();
+    if (!raw) return DIRECT_REFERRAL_LABEL;
+
+    const lower = raw.toLowerCase();
+    if (['direct', '(direct)', 'none', 'null', 'undefined'].includes(lower)) {
+        return DIRECT_REFERRAL_LABEL;
+    }
+    if (lower === 'internal') return 'Internal';
+
+    const maybeUrl = raw.includes('://')
+        ? raw
+        : raw.includes('.') && !raw.includes(' ')
+            ? `https://${raw}`
+            : null;
+
+    if (maybeUrl) {
+        try {
+            const hostname = new URL(maybeUrl).hostname.replace(/^www\./i, '');
+            if (hostname) return hostname;
+        } catch {
+            // Keep the raw source below when it is not a valid URL or domain.
+        }
+    }
+
+    return raw.length > 64 ? `${raw.slice(0, 61)}...` : raw;
+}
+
+function getSessionReferralSource(session: RecordingSession): string {
+    return normalizeReferralSource(
+        session.webReferral ||
+        readMetadataStringValue(session.metadata, [
+            'webReferral',
+            'webReferrerDomain',
+            'webAttributionSource',
+            'utm_source',
+            'webAttributionChannel',
+            'webAttributionCampaign',
+            'utm_campaign',
+        ]),
+    );
+}
 
 export const GeneralOverview: React.FC = () => {
     const { selectedProject } = useSessionData();
     const pathPrefix = usePathPrefix();
     const navigate = useNavigate();
-    const { timeRange, setTimeRange } = useSharedAnalyticsTimeRange(selectedProject?.id);
+    const { timeRange, setTimeRange } = useSharedRejourneyTimeRange(selectedProject?.id);
+    const { platformLens } = useSharedPlatformLens(selectedProject?.id, selectedProject?.platforms);
+    const platform = platformLensToSessionPlatform(platformLens);
 
     const [isLoading, setIsLoading] = useState(true);
     const [isHeavyLoading, setIsHeavyLoading] = useState(true);
@@ -730,11 +875,15 @@ export const GeneralOverview: React.FC = () => {
     const [geoSummary, setGeoSummary] = useState<GeoSummary | null>(null);
     const [issues, setIssues] = useState<Issue[]>([]);
     const [sessions, setSessions] = useState<RecordingSession[]>([]);
+    const [webReferralSessions, setWebReferralSessions] = useState<RecordingSession[]>([]);
+    const [isReferralLoading, setIsReferralLoading] = useState(false);
     const [retentionCohortRows, setRetentionCohortRows] = useState<RetentionCohortRow[]>([]);
     const [topIssuesPage, setTopIssuesPage] = useState(0);
     const [copiedTopUserKey, setCopiedTopUserKey] = useState<string | null>(null);
     const [copiedPublicKey, setCopiedPublicKey] = useState(false);
     const [copiedDocsPrompt, setCopiedDocsPrompt] = useState(false);
+    const [selectedCustomEventNames, setSelectedCustomEventNames] = useState<string[]>([]);
+    const [customEventSelectionTouched, setCustomEventSelectionTouched] = useState(false);
 
     const TOP_ISSUES_PAGE_SIZE = 5;
 
@@ -756,7 +905,7 @@ export const GeneralOverview: React.FC = () => {
         setIsLoading(true);
         setPartialError(null);
 
-        getDashboardOverview(selectedProject.id, timeRange)
+        getDashboardOverview(selectedProject.id, timeRange, platform)
             .then((overviewData) => {
                 if (isCancelled) return;
 
@@ -794,7 +943,7 @@ export const GeneralOverview: React.FC = () => {
         return () => {
             isCancelled = true;
         };
-    }, [selectedProject?.id, timeRange]);
+    }, [selectedProject?.id, timeRange, platform]);
 
     useEffect(() => {
         if (!selectedProject?.id) {
@@ -807,7 +956,7 @@ export const GeneralOverview: React.FC = () => {
         let isCancelled = false;
         setIsHeavyLoading(true);
 
-        getDashboardOverviewHeavy(selectedProject.id, timeRange)
+        getDashboardOverviewHeavy(selectedProject.id, timeRange, platform)
             .then((heavyData) => {
                 if (isCancelled) return;
                 setSessions((heavyData.sessions || []) as RecordingSession[]);
@@ -827,11 +976,54 @@ export const GeneralOverview: React.FC = () => {
         return () => {
             isCancelled = true;
         };
-    }, [selectedProject?.id, timeRange]);
+    }, [selectedProject?.id, timeRange, platform]);
+
+    useEffect(() => {
+        if (!selectedProject?.id) {
+            setIsReferralLoading(false);
+            setWebReferralSessions([]);
+            return;
+        }
+        if (platform === 'mobile') {
+            setIsReferralLoading(false);
+            setWebReferralSessions([]);
+            return;
+        }
+
+        let isCancelled = false;
+        setIsReferralLoading(true);
+
+        getSessionsPaginated({
+            projectId: selectedProject.id,
+            timeRange,
+            platform: 'web',
+            limit: 200,
+            includeTotal: false,
+            sort: 'date',
+            sortDir: 'desc',
+        })
+            .then((response) => {
+                if (isCancelled) return;
+                setWebReferralSessions((response.sessions || []) as RecordingSession[]);
+            })
+            .catch(() => {
+                if (isCancelled) return;
+                setWebReferralSessions([]);
+            })
+            .finally(() => {
+                if (!isCancelled) {
+                    setIsReferralLoading(false);
+                }
+            });
+
+        return () => {
+            isCancelled = true;
+        };
+    }, [selectedProject?.id, timeRange, platform]);
 
     useEffect(() => {
         setTopIssuesPage(0);
-    }, [selectedProject?.id, timeRange]);
+    }, [selectedProject?.id, timeRange, platform]);
 
     const trendChartData = useMemo<TrendChartRow[]>(() => {
         if (!trends?.daily?.length) return [];
@@ -873,11 +1065,19 @@ export const GeneralOverview: React.FC = () => {
         };
     }, [trendChartData]);
 
-    const activeUsersPerMinute = useMemo(() => {
+    const activeUsersPerMinuteLabel = useMemo(() => {
         const latestDau = activitySummary.latestDau;
-        if (latestDau <= 0) return 0;
-        return Math.max(1, Math.round(latestDau / 1440));
+        if (latestDau <= 0) return '0';
+
+        const usersPerMinute = latestDau / 1440;
+        if (usersPerMinute < 1) return '<1';
+
+        return formatCompact(Math.round(usersPerMinute));
     }, [activitySummary.latestDau]);
+
+    const activeUsersPerMinuteUnit = activeUsersPerMinuteLabel === '1' || activeUsersPerMinuteLabel === '<1'
+        ? 'user'
+        : 'users';
 
     const realtimeActivitySeries = useMemo(() => {
         return trendChartData.slice(-14).map((row) => ({
@@ -933,96 +1133,33 @@ export const GeneralOverview: React.FC = () => {
             }));
     }, [geoSummary]);
 
-    const countryUsersByRegion = useMemo(() => {
-        const totals = new Map<string, number>();
-        let rows: CountryUsersChartRow[] = [];
+    const referralSummary = useMemo(() => {
+        const webSessions = webReferralSessions.filter((session) => session.platform === 'web');
+        const counts = new Map<string, number>();
 
-        if (trends?.daily?.some((entry) => entry.countryDauBreakdown && Object.keys(entry.countryDauBreakdown).length > 0)) {
-            for (const entry of trends.daily) {
-                const dateKey = toUtcDateKey(entry.date);
-                if (!dateKey) continue;
-
-                const breakdown = entry.countryDauBreakdown || {};
-                for (const [country, value] of Object.entries(breakdown)) {
-                    const count = Number(value || 0);
-                    if (count > 0) totals.set(country || 'Unknown', (totals.get(country || 'Unknown') || 0) + count);
-                }
-            }
-
-            const countryKeys = [...totals.entries()]
-                .sort((a, b) => b[1] - a[1])
-                .slice(0, 5)
-                .map(([country]) => country);
-
-            rows = trends.daily
-                .map((entry) => {
-                    const dateKey = toUtcDateKey(entry.date);
-                    if (!dateKey) return null;
-                    const row: CountryUsersChartRow = { dateKey };
-                    for (const country of countryKeys) {
-                        row[country] = Number(entry.countryDauBreakdown?.[country] || 0);
-                    }
-                    return row;
-                })
-                .filter((row): row is CountryUsersChartRow => Boolean(row))
-                .sort((a, b) => String(a.dateKey).localeCompare(String(b.dateKey)));
-        } else {
-            const dailyCountryUsers = new Map<string, Map<string, Set<string>>>();
-
-            for (const session of sessions) {
-                const dateKey = toUtcDateKey(session.startedAt);
-                const country = session.geoLocation?.country?.trim();
-                if (!dateKey || !country) continue;
-
-                const userKey = sessionUserKey(session);
-                if (!dailyCountryUsers.has(dateKey)) dailyCountryUsers.set(dateKey, new Map());
-                const countryMap = dailyCountryUsers.get(dateKey)!;
-                if (!countryMap.has(country)) countryMap.set(country, new Set());
-                countryMap.get(country)!.add(userKey);
-            }
-
-            for (const countryMap of dailyCountryUsers.values()) {
-                for (const [country, usersForCountry] of countryMap.entries()) {
-                    totals.set(country, (totals.get(country) || 0) + usersForCountry.size);
-                }
-            }
-
-            const countryKeys = [...totals.entries()]
-                .sort((a, b) => b[1] - a[1])
-                .slice(0, 5)
-                .map(([country]) => country);
-
-            const dateKeys = trendChartData.length > 0
-                ? trendChartData.map((row) => row.dateKey)
-                : [...dailyCountryUsers.keys()].sort();
-
-            rows = dateKeys.map((dateKey) => {
-                const row: CountryUsersChartRow = { dateKey };
-                const countryMap = dailyCountryUsers.get(dateKey);
-                for (const country of countryKeys) {
-                    row[country] = countryMap?.get(country)?.size || 0;
-                }
-                return row;
-            });
+        for (const session of webSessions) {
+            const source = getSessionReferralSource(session);
+            counts.set(source, (counts.get(source) || 0) + 1);
         }
 
-        const countryKeys = [...totals.entries()]
-            .sort((a, b) => b[1] - a[1])
-            .slice(0, 5)
-            .map(([country]) => country);
-        const totalUserDays = [...totals.values()].reduce((sum, value) => sum + value, 0);
-        const topCountry = countryKeys[0] || null;
-        const topCountryUsers = topCountry ? totals.get(topCountry) || 0 : 0;
+        const rows: ReferralSourceRow[] = [...counts.entries()]
+            .map(([source, count]) => ({
+                source,
+                count,
+                share: webSessions.length > 0 ? (count / webSessions.length) * 100 : 0,
+            }))
+            .sort((a, b) => {
+                if (b.count !== a.count) return b.count - a.count;
+                return a.source.localeCompare(b.source);
+            })
+            .slice(0, 8);
 
         return {
+            total: webSessions.length,
             rows,
-            countryKeys,
-            activeCountries: totals.size,
-            totalUserDays,
-            topCountry,
-            topCountryShare: totalUserDays > 0 ? (topCountryUsers / totalUserDays) * 100 : null,
         };
-    }, [trends, sessions, trendChartData]);
+    }, [webReferralSessions]);
+    const isMobileLens = platform === 'mobile';
 
     const engagementMixChartData = useMemo<EngagementMixChartRow[]>(() => {
         if (!engagementTrends?.daily?.length) return [];
@@ -1269,6 +1406,60 @@ export const GeneralOverview: React.FC = () => {
         [customEvents],
     );
 
+    const customEventNameSet = useMemo(
+        () => new Set(customEvents.map((event) => event.name)),
+        [customEvents],
+    );
+
+    const defaultCustomEventNames = useMemo(
+        () => customEvents.slice(0, 3).map((event) => event.name),
+        [customEvents],
+    );
+
+    useEffect(() => {
+        setCustomEventSelectionTouched(false);
+    }, [selectedProject?.id, timeRange]);
+
+    useEffect(() => {
+        setSelectedCustomEventNames((current) => {
+            const validCurrent = current.filter((eventName) => customEventNameSet.has(eventName));
+            if (!customEventSelectionTouched || validCurrent.length === 0) {
+                return defaultCustomEventNames;
+            }
+            return validCurrent;
+        });
+    }, [customEventNameSet, customEventSelectionTouched, defaultCustomEventNames]);
+
+    const selectedCustomEvents = useMemo(
+        () => selectedCustomEventNames.filter((eventName) => customEventNameSet.has(eventName)),
+        [selectedCustomEventNames, customEventNameSet],
+    );
+
+    const customEventTrendData = useMemo<CustomEventTrendRow[]>(() => {
+        const dailyEvents = overviewObs?.dailyCustomEvents || [];
+        return dailyEvents
+            .map((entry) => {
+                const dateKey = toUtcDateKey(entry.date);
+                if (!dateKey) return null;
+                const row: CustomEventTrendRow = { dateKey };
+                for (const eventName of selectedCustomEvents) {
+                    row[eventName] = Number(entry.events?.[eventName] || 0);
+                }
+                return row;
+            })
+            .filter((row): row is CustomEventTrendRow => Boolean(row))
+            .sort((a, b) => a.dateKey.localeCompare(b.dateKey));
+    }, [overviewObs, selectedCustomEvents]);
+
+    const handleToggleCustomEvent = useCallback((eventName: string) => {
+        setCustomEventSelectionTouched(true);
+        setSelectedCustomEventNames((current) => (
+            current.includes(eventName)
+                ? current.filter((name) => name !== eventName)
+                : [...current, eventName]
+        ));
+    }, []);
+
     const sortedIssues = useMemo(() => {
         return [...issues].sort((a, b) => {
             if (b.eventCount !== a.eventCount) return b.eventCount - a.eventCount;
@@ -1376,8 +1567,9 @@ export const GeneralOverview: React.FC = () => {
             || (engagementTrends?.daily?.length ?? 0) > 0
             || (geoSummary?.countries?.length ?? 0) > 0
             || issues.length > 0
+            || (!isMobileLens && referralSummary.total > 0)
         );
-    }, [trendChartData, overviewObs, deepMetrics, engagementTrends, geoSummary, issues.length]);
+    }, [trendChartData, overviewObs, deepMetrics, engagementTrends, geoSummary, issues.length, referralSummary.total, isMobileLens]);
 
     if (isLoading && selectedProject?.id) {
         return <DashboardGhostLoader variant="general" />;
@@ -1391,7 +1583,7 @@ export const GeneralOverview: React.FC = () => {
                 iconColor="bg-[#cffafe]"
             >
                 <div className="flex min-w-0 max-w-full flex-wrap items-center gap-2">
-                    <TimeFilter value={timeRange} onChange={setTimeRange} />
+                    <DashboardLensControls timeRange={timeRange} onTimeRangeChange={setTimeRange} />
                 </div>
             </DashboardPageHeader>
 
@@ -1415,9 +1607,9 @@ export const GeneralOverview: React.FC = () => {
                                 <Info className="h-4 w-4 shrink-0" aria-hidden />
                                 New project setup
                             </div>
-                            <h3 className="mt-2 text-lg font-semibold text-[#202124]">No analytics yet - connect your app first</h3>
+                            <h3 className="mt-2 text-lg font-semibold text-[#202124]">No analytics yet - connect your project first</h3>
                             <p className="mt-2 max-w-3xl text-sm font-medium leading-6 text-[#3c4043]">
-                                Once your first build sends data, this General dashboard will populate automatically.
+                                Once your first SDK sends data, this General dashboard will populate automatically.
                                 Use these shortcuts to finish setup for either React Native or Swift.
                             </p>
                         </div>
@@ -1530,7 +1722,7 @@ export const GeneralOverview: React.FC = () => {
                                 <div className="mt-1 text-center">
                                     <div className="text-3xl font-extrabold leading-none text-black">{formatCompact(activitySummary.latestDau)}</div>
                                     <div className="dashboard-label mt-2">Latest daily active users</div>
-                                    <div className="mt-1 text-[11px] font-bold text-slate-500">Estimated {formatCompact(activeUsersPerMinute)} users/min</div>
+                                    <div className="mt-1 text-[11px] font-bold text-slate-500">Estimated {activeUsersPerMinuteLabel} {activeUsersPerMinuteUnit}/min</div>
                                 </div>
 
                                 <div className="mt-3 h-[80px]">
@@ -1569,7 +1761,53 @@ export const GeneralOverview: React.FC = () => {
                                 </div>
                                 </GA4Card>
 
-                                <GA4Card title="Active users by app version" className="xl:col-span-4" accentClassName="bg-[#c4b5fd]">
+                                <GA4Card title="Referral sources" className="xl:col-span-4" accentClassName="bg-[#f9a8d4]">
+                                {isMobileLens ? (
+                                    <div className="flex flex-1 items-center justify-center py-8 text-center text-xs text-slate-400">
+                                        Referral sources are only captured for web sessions. Mobile attribution will appear in the appropriate acquisition view.
+                                    </div>
+                                ) : isReferralLoading && referralSummary.rows.length === 0 ? (
+                                    <div className="space-y-2.5">
+                                        {Array.from({ length: 8 }, (_, index) => (
+                                            <div key={index} className="flex items-center gap-3">
+                                                <div className="h-8 w-8 animate-pulse border border-[#dadce0] bg-[#eef4ff]" />
+                                                <div className="h-5 flex-1 animate-pulse bg-[#f1f5f9]" />
+                                            </div>
+                                        ))}
+                                    </div>
+                                ) : referralSummary.rows.length > 0 ? (
+                                    <div className="space-y-2">
+                                        {referralSummary.rows.map((row) => (
+                                            <div key={row.source} className="group min-w-0">
+                                                <div className="flex min-w-0 items-center gap-3">
+                                                    <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center border border-black bg-[#eef4ff] text-xs font-black uppercase text-black">
+                                                        {row.source === DIRECT_REFERRAL_LABEL ? (
+                                                            <Globe2 className="h-4 w-4" />
+                                                        ) : (
+                                                            row.source.slice(0, 1)
+                                                        )}
+                                                    </span>
+                                                    <div className="min-w-0 flex-1">
+                                                        <div className="flex min-w-0 items-center justify-between gap-3">
+                                                            <span className="truncate text-sm font-semibold text-[#202124]" title={row.source}>{row.source}</span>
+                                                            <span className="shrink-0 font-mono text-xs font-semibold text-slate-500">{formatCompact(row.count)}</span>
+                                                        </div>
+                                                        <div className="mt-1 h-1.5 border border-[#dadce0] bg-white">
+                                                            <div className="h-full bg-[#1a73e8]" style={{ width: `${Math.max(6, row.share)}%` }} />
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                ) : (
+                                    <div className="flex flex-1 items-center justify-center py-8 text-center text-xs text-slate-400">
+                                        No web referral sources observed for this filter.
+                                    </div>
+                                )}
+                                </GA4Card>
+
+                                <GA4Card title="Active users by version" className="xl:col-span-4" accentClassName="bg-[#c4b5fd]">
                                 <div className="h-[180px]">
                                     <ResponsiveContainer width="100%" height="100%">
                                         <LineChart data={versionChartData} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
@@ -1602,17 +1840,17 @@ export const GeneralOverview: React.FC = () => {
                                         ))}
                                     </div>
                                 ) : (
-                                    <div className="mt-2 text-xs text-slate-400">No app version data for this filter.</div>
+                                    <div className="mt-2 text-xs text-slate-400">No version data for this filter.</div>
                                 )}
 
                                 <div className="mt-2 text-right">
                                     <Link to={`${pathPrefix}/analytics/devices`} className="text-[11px] font-bold text-[#2563eb] transition-colors hover:text-black">
-                                        View app versions →
+                                        View versions →
                                     </Link>
                                 </div>
                                 </GA4Card>
 
-                                <GA4Card title="User engagement mix" className="xl:col-span-12" accentClassName="bg-[#67e8f9]">
+                                <GA4Card title="User engagement mix" className="xl:col-span-8" accentClassName="bg-[#67e8f9]">
                                 <div className="mb-3 grid grid-cols-2 gap-3 text-left">
                                     <div>
                                         <span className="dashboard-label">Latest tracked users</span>
@@ -1695,12 +1933,12 @@ export const GeneralOverview: React.FC = () => {
                             </div>
 
                             <div className="grid grid-cols-1 gap-4 xl:grid-cols-12">
-                            <GA4Card title="App stability overview" className="xl:col-span-4" accentClassName="bg-[#f9a8d4]">
+                            <GA4Card title="Stability overview" className="xl:col-span-4" accentClassName="bg-[#f9a8d4]">
                                 <div className="-mx-1 overflow-x-auto px-1">
                                     <table className="mt-1 min-w-[360px] w-full text-xs">
                                         <thead>
                                             <tr className="border-b border-slate-200 text-[11px] text-black">
-                                                <th className="py-2 text-left font-medium">APP</th>
+                                                <th className="py-2 text-left font-medium">PROJECT</th>
                                                 <th className="py-2 text-right font-medium">CRASH-FREE</th>
                                                 <th className="py-2 text-right font-medium">ANR-FREE</th>
                                             </tr>
@@ -1710,7 +1948,7 @@ export const GeneralOverview: React.FC = () => {
                                                 platformBreakdown.map((platformData) => (
                                                     <tr key={platformData.platform} className="border-b border-slate-50">
                                                         <td className="py-2 text-slate-700 capitalize">
-                                                            {selectedProject?.name ?? 'App'} ({platformData.platform})
+                                                            {selectedProject?.name ?? 'Project'} ({platformData.platform})
                                                         </td>
                                                         <td className="py-2 text-right text-slate-700 font-medium">
                                                             {platformData.crashFreeSessionRate !== null ? `${platformData.crashFreeSessionRate.toFixed(1)}%` : 'N/A'}
@@ -1722,7 +1960,7 @@ export const GeneralOverview: React.FC = () => {
                                                 ))
                                             ) : (
                                                 <tr className="border-b border-slate-50">
-                                                    <td className="py-2 text-slate-700">{selectedProject?.name ?? 'App'}</td>
+                                                    <td className="py-2 text-slate-700">{selectedProject?.name ?? 'Project'}</td>
                                                     <td className="py-2 text-right text-slate-700 font-medium">
                                                         {crashFreeRate !== null ? `${crashFreeRate.toFixed(1)}%` : 'N/A'}
                                                     </td>
@@ -1863,47 +2101,92 @@ export const GeneralOverview: React.FC = () => {
                                 )}
                             </GA4Card>
 
-                            <GA4Card title="Regional user reach" className="xl:col-span-7" accentClassName="bg-[#c4b5fd]">
-                                {countryUsersByRegion.countryKeys.length > 0 ? (
+                            <GA4Card
+                                title="Custom event usage over time"
+                                className="xl:col-span-7"
+                                accentClassName="bg-[#c4b5fd]"
+                                action={customEvents.length > 0 ? (
+                                    <span className="border border-[#dadce0] bg-[#f8fafc] px-2 py-0.5 text-[10px] font-semibold uppercase text-slate-600">
+                                        {selectedCustomEvents.length} selected
+                                    </span>
+                                ) : null}
+                            >
+                                {customEvents.length > 0 ? (
                                     <>
+                                        <div className="mb-3 max-h-[76px] overflow-y-auto pr-1">
+                                            <div className="flex flex-wrap gap-1.5">
+                                                {customEvents.map((event, index) => {
+                                                    const isSelected = selectedCustomEvents.includes(event.name);
+                                                    return (
+                                                        <button
+                                                            key={event.name}
+                                                            type="button"
+                                                            onClick={() => handleToggleCustomEvent(event.name)}
+                                                            className={`inline-flex min-w-0 items-center gap-1.5 border px-2 py-1 text-[10px] font-semibold transition-colors ${
+                                                                isSelected
+                                                                    ? 'border-black bg-black text-white'
+                                                                    : 'border-[#dadce0] bg-white text-slate-600 hover:border-black hover:text-black'
+                                                            }`}
+                                                            title={event.name}
+                                                        >
+                                                            <span
+                                                                className="h-2 w-2 shrink-0 border border-black"
+                                                                style={{ backgroundColor: CUSTOM_EVENT_TREND_COLORS[index % CUSTOM_EVENT_TREND_COLORS.length] }}
+                                                            />
+                                                            <span className="max-w-[11rem] truncate">{event.name}</span>
+                                                            <span className={isSelected ? 'text-white/70' : 'text-slate-400'}>
+                                                                {formatCompact(event.count)}
+                                                            </span>
+                                                        </button>
+                                                    );
+                                                })}
+                                            </div>
+                                        </div>
+
+                                        {customEventTrendData.length > 0 && selectedCustomEvents.length > 0 ? (
                                         <div className="h-[220px]">
                                             <ResponsiveContainer width="100%" height="100%">
-                                                <LineChart data={countryUsersByRegion.rows} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
+                                                <LineChart data={customEventTrendData} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
                                                     <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
                                                     <XAxis dataKey="dateKey" tick={{ fontSize: 10 }} tickFormatter={formatDateLabel} minTickGap={40} />
                                                     <YAxis tick={{ fontSize: 10 }} allowDecimals={false} />
                                                     <Tooltip
                                                         labelFormatter={(value) => formatDateLabel(String(value))}
-                                                        formatter={(value: number | undefined, name: string | undefined) => [formatCompact(value ?? 0), name ?? 'Users']}
+                                                        formatter={(value: number | undefined, name: string | undefined) => [formatCompact(value ?? 0), name ?? 'Events']}
                                                     />
-                                                    {countryUsersByRegion.countryKeys.map((country, index) => (
+                                                    {selectedCustomEvents.map((eventName, index) => (
                                                         <Line
-                                                            key={country}
+                                                            key={eventName}
                                                             type="monotone"
-                                                            dataKey={country}
-                                                            stroke={COUNTRY_LINE_COLORS[index % COUNTRY_LINE_COLORS.length]}
+                                                            dataKey={eventName}
+                                                            stroke={CUSTOM_EVENT_TREND_COLORS[index % CUSTOM_EVENT_TREND_COLORS.length]}
                                                             strokeWidth={2}
                                                             dot={false}
-                                                            name={country}
+                                                            name={eventName}
                                                             isAnimationActive={false}
                                                         />
                                                     ))}
                                                 </LineChart>
                                             </ResponsiveContainer>
                                         </div>
+                                        ) : (
+                                            <div className="flex h-[220px] items-center justify-center text-center text-xs text-slate-400">
+                                                {selectedCustomEvents.length === 0 ? 'No custom events selected.' : 'No daily event trend data.'}
+                                            </div>
+                                        )}
 
                                         <div className="mt-3 flex flex-wrap gap-3">
-                                            {countryUsersByRegion.countryKeys.map((country, index) => (
-                                                <span key={country} className="flex items-center gap-1 text-[10px] text-slate-500">
-                                                    <span className="h-2 w-2 rounded-full" style={{ backgroundColor: COUNTRY_LINE_COLORS[index % COUNTRY_LINE_COLORS.length] }} />
-                                                    {country}
+                                            {selectedCustomEvents.map((eventName, index) => (
+                                                <span key={eventName} className="flex min-w-0 items-center gap-1 text-[10px] text-slate-500">
+                                                    <span className="h-2 w-2 shrink-0" style={{ backgroundColor: CUSTOM_EVENT_TREND_COLORS[index % CUSTOM_EVENT_TREND_COLORS.length] }} />
+                                                    <span className="truncate">{eventName}</span>
                                                 </span>
                                             ))}
                                         </div>
                                     </>
                                 ) : (
                                     <div className="flex flex-1 items-center justify-center py-8 text-center text-xs text-slate-400">
-                                        No country-level user activity available for this filter.
+                                        No custom events observed for this filter.
                                     </div>
                                 )}
                             </GA4Card>
@@ -2147,6 +2430,13 @@ export const GeneralOverview: React.FC = () => {
                                                                 id: session.id,
                                                                 deviceModel: session.deviceModel,
                                                                 createdAt: session.startedAt,
+                                                                platform: session.platform,
+                                                                appVersion: session.appVersion,
+                                                                sdkVersion: session.sdkVersion,
+                                                                osVersion: session.osVersion,
+                                                                webLandingRoute: session.webLandingRoute,
+                                                                metadata: session.metadata,
+                                                                networkType: session.networkType,
                                                                 coverPhotoUrl:
                                                                     hasSuccessfulRecording(session)
                                                                         ? `/api/sessions/cover/${session.id}`
@@ -2173,7 +2463,7 @@ export const GeneralOverview: React.FC = () => {
                                 <div>
                                     <h2 className="border-2 border-black bg-[#67e8f9] px-3 py-1.5 text-base font-extrabold text-black shadow-neo-sm">Recommended Sessions</h2>
                                     <p className="mt-2 text-xs font-semibold text-slate-600">
-                                        Mixed user segments: new, returning, anonymous, platform-specific, and risk-heavy journeys.
+                                        Only sessions with clear friction, performance risk, or unusually informative behavior are shown.
                                     </p>
                                 </div>
                                 <NeoBadge variant="neutral" size="sm" className="rounded-none border-black bg-white text-black shadow-neo-sm">
@@ -2186,7 +2476,7 @@ export const GeneralOverview: React.FC = () => {
                             ) : recommendedSessions.length === 0 ? (
                                 <EmptyStateCard
                                     title="No recommended sessions"
-                                    subtitle="Sessions will appear here once replay data is available in this time window."
+                                    subtitle="No replay in this time window crossed the recommendation threshold."
                                 />
                             ) : (
                                 <div className="relative">
@@ -2293,6 +2583,13 @@ export const GeneralOverview: React.FC = () => {
                                                                     id: rec.session.id,
                                                                     deviceModel: rec.session.deviceModel,
                                                                     createdAt: rec.session.startedAt,
+                                                                    platform: rec.session.platform,
+                                                                    appVersion: rec.session.appVersion,
+                                                                    sdkVersion: rec.session.sdkVersion,
+                                                                    osVersion: rec.session.osVersion,
+                                                                    webLandingRoute: rec.session.webLandingRoute,
+                                                                    metadata: rec.session.metadata,
+                                                                    networkType: rec.session.networkType,
                                                                     coverPhotoUrl:
                                                                         hasSuccessfulRecording(rec.session)
                                                                             ? `/api/sessions/cover/${rec.session.id}`

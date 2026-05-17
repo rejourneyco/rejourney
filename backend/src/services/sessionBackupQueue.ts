@@ -39,7 +39,8 @@ export async function enqueueSessionBackupCandidate(sessionId: string): Promise<
                     COUNT(*)::int AS ready_artifact_count,
                     COUNT(*) FILTER (WHERE ra.kind = 'events')::int AS ready_events_count,
                     COUNT(*) FILTER (WHERE ra.kind = 'hierarchy')::int AS ready_hierarchy_count,
-                    COUNT(*) FILTER (WHERE ra.kind = 'screenshots')::int AS ready_screenshots_count
+                    COUNT(*) FILTER (WHERE ra.kind = 'screenshots')::int AS ready_screenshots_count,
+                    COUNT(*) FILTER (WHERE ra.kind = 'rrweb')::int AS ready_rrweb_count
                 FROM recording_artifacts ra
                 WHERE ra.session_id = s.id
                   AND ra.status = 'ready'
@@ -54,14 +55,23 @@ export async function enqueueSessionBackupCandidate(sessionId: string): Promise<
                 (
                     COALESCE(s.observe_only, false) = true
                     AND artifact_stats.ready_events_count > 0
-                    AND artifact_stats.ready_hierarchy_count > 0
                     AND artifact_stats.ready_screenshots_count = 0
+                    AND artifact_stats.ready_rrweb_count = 0
+                    AND (
+                        artifact_stats.ready_hierarchy_count > 0
+                        OR LOWER(COALESCE(s.platform, '')) = 'web'
+                    )
                 )
                 OR (
                     COALESCE(s.observe_only, false) = false
                     AND artifact_stats.ready_events_count > 0
-                    AND artifact_stats.ready_hierarchy_count > 0
-                    AND artifact_stats.ready_screenshots_count > 0
+                    AND (
+                        artifact_stats.ready_rrweb_count > 0
+                        OR (
+                            artifact_stats.ready_hierarchy_count > 0
+                            AND artifact_stats.ready_screenshots_count > 0
+                        )
+                    )
                 )
               )
               AND (

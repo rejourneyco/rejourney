@@ -16,7 +16,7 @@ import {
     summarizeSessionEndMetrics,
 } from '../services/ingestSessionEnd.js';
 import { loadSessionWorkAggregate } from '../services/sessionPresentationState.js';
-import { hasStoredClosedTiming, resolveAuthoritativeSessionClose } from '../services/sessionTiming.js';
+import { hasStoredClosedTiming, resolveAuthoritativeSessionClose, selectMaxObservabilityMinutes } from '../services/sessionTiming.js';
 import { loadSuccessorSessionStartedAt } from '../services/sessionTimingQuery.js';
 import { markSessionIngestActivity, reconcileSessionState } from '../services/sessionReconciliation.js';
 import { isSessionIngestImmutable } from '../services/sessionIngestImmutability.js';
@@ -160,10 +160,14 @@ router.post(
             return;
         }
 
-        const [project] = await db.select({ maxRecordingMinutes: projects.maxRecordingMinutes })
+        const [project] = await db.select({
+            maxRecordingMinutes: projects.maxRecordingMinutes,
+            webMaxObservabilityMinutes: projects.webMaxObservabilityMinutes,
+        })
             .from(projects)
             .where(eq(projects.id, session.projectId))
             .limit(1);
+        const maxObservabilityMinutes = selectMaxObservabilityMinutes(project, session.platform);
         const aggregate = await loadSessionWorkAggregate(session.id);
         const successorStartedAt = await loadSuccessorSessionStartedAt({
             sessionId: session.id,
@@ -179,7 +183,7 @@ router.post(
             totalBackgroundTimeMs: data.totalBackgroundTimeMs,
             closeAnchorAtMs: data.closeAnchorAtMs,
             storedBackgroundTimeSeconds: session.backgroundTimeSeconds,
-            maxRecordingMinutes: project?.maxRecordingMinutes ?? 10,
+            maxRecordingMinutes: maxObservabilityMinutes,
             successorStartedAt,
         });
 

@@ -41,8 +41,9 @@ import {
     deriveSessionPresentationState,
     loadSessionWorkAggregate,
     type SessionPresentationState,
+    type SessionWorkAggregate,
 } from '../services/sessionPresentationState.js';
-import { durationSecondsForDisplay } from '../services/sessionTiming.js';
+import { durationSecondsForDisplay, shouldApplySuccessorSessionCap } from '../services/sessionTiming.js';
 import {
     archiveKeysetMatchesRequest,
     archiveListSortNeedsMetricsJoin,
@@ -55,7 +56,7 @@ import {
     normalizeArchiveListSortKey,
     parseArchiveListCursor,
 } from '../services/sessionArchiveListSort.js';
-import { hasNewerSessionForSameVisitor } from '../services/sessionTimingQuery.js';
+import { loadSuccessorSessionStartedAt } from '../services/sessionTimingQuery.js';
 import { resolveAnrStackTrace } from '../services/anrStack.js';
 import {
     buildSessionExportCsvRow,
@@ -77,7 +78,7 @@ const archiveListLatestReplayEndMsSql = sql<number | null>`(
     select max(${recordingArtifacts.endTime})
     from ${recordingArtifacts}
     where ${eq(recordingArtifacts.sessionId, sessions.id)}
-      and ${inArray(recordingArtifacts.kind, ['screenshots', 'hierarchy'])}
+      and ${inArray(recordingArtifacts.kind, ['screenshots', 'hierarchy', 'rrweb'])}
 )`.as('latestReplayArtifactEndMs');
 
 /** `device_id` → `anonymous_hash` → `user_display_id` — matches how the dashboard distinguishes visitors. */
@@ -96,6 +97,22 @@ const archiveListHasNewerVisitorSessionSql = sql<boolean>`(
           )
     )
 )`.as('hasNewerSessionOnVisitor');
+
+const archiveWebReferralSql = sql<string | null>`
+    nullif(coalesce(
+        ${sessions.webReferral},
+        ${sessions.metadata}->>'webReferral',
+        ${sessions.metadata}->>'webReferrerDomain',
+        ${sessions.metadata}->>'webAttributionSource'
+    ), '')
+`.as('webReferral');
+
+const archiveWebLandingRouteSql = sql<string | null>`
+    nullif(coalesce(
+        ${sessions.metadata}->>'webLandingRoute',
+        ${sessions.metadata}->>'webEntryPath'
+    ), '')
+`.as('webLandingRoute');
 
 type ArchiveListSessionForFirstCheck = Pick<
     typeof sessions.$inferSelect,
@@ -230,7 +247,11 @@ function buildSessionArchiveBaseConditions(
         userFilterConditions.push(gte(sessions.startedAt, startedAfter));
     }
 
-    if (platform) userFilterConditions.push(eq(sessions.platform, platform));
+    if (platform === 'mobile') {
+        userFilterConditions.push(inArray(sessions.platform, ['ios', 'android']));
+    } else if (platform) {
+        userFilterConditions.push(eq(sessions.platform, platform));
+    }
     if (status) baseConditions.push(eq(sessions.status, status));
 
     const recordingFilter = hasRecording;
@@ -245,9 +266,24 @@ function buildSessionArchiveBaseConditions(
             else if (metaValue === 'false') parsedValue = false;
             else if (!isNaN(Number(metaValue))) parsedValue = Number(metaValue);
 
-            userFilterConditions.push(sql`${sessions.metadata} @> ${JSON.stringify({ [metaKey]: parsedValue })}::jsonb`);
+            if (metaKey === 'webReferral') {
+                const referralValue = String(metaValue).trim().slice(0, 255);
+                userFilterConditions.push(or(
+                    eq(sessions.webReferral, referralValue),
+                    sql`${sessions.metadata} @> ${JSON.stringify({ [metaKey]: parsedValue })}::jsonb`
+                ));
+            } else {
+                userFilterConditions.push(sql`${sessions.metadata} @> ${JSON.stringify({ [metaKey]: parsedValue })}::jsonb`);
+            }
         } else {
-            userFilterConditions.push(sql`${sessions.metadata} ? ${metaKey}`);
+            if (metaKey === 'webReferral') {
+                userFilterConditions.push(or(
+                    sql`${sessions.webReferral} IS NOT NULL AND ${sessions.webReferral} <> ''`,
+                    sql`${sessions.metadata} ? ${metaKey}`
+                ));
+            } else {
+                userFilterConditions.push(sql`${sessions.metadata} ? ${metaKey}`);
+            }
         }
     }
 
@@ -474,7 +510,41 @@ const SESSION_DETAIL_CACHE_TTL_SECONDS = Number(process.env.RJ_SESSION_DETAIL_CA
 const SESSION_BOOTSTRAP_CACHE_TTL_SECONDS = Number(process.env.RJ_SESSION_BOOTSTRAP_CACHE_TTL_SECONDS ?? 15);
 const FRAME_AUTH_CACHE_TTL_SECONDS = Number(process.env.RJ_FRAME_AUTH_CACHE_TTL_SECONDS ?? 60);
 const SESSION_BOOTSTRAP_CACHE_CONTROL = 'private, max-age=15, stale-while-revalidate=45';
-const SESSION_DETAIL_CACHE_VERSION = 'v2';
+const SESSION_DETAIL_CACHE_VERSION = 'v3';
+
+function isStableForSessionDetailCache(session: any): boolean {
+    const status = String(session?.status || '').toLowerCase();
+    return Boolean(session?.endedAt)
+        || status === 'ready'
+        || status === 'completed'
+        || status === 'failed'
+        || status === 'deleted';
+}
+
+function shouldWriteSessionDetailCache(session: any, aggregate?: SessionWorkAggregate | null): boolean {
+    if (!isStableForSessionDetailCache(session)) return false;
+    if (aggregate?.hasPendingWork || aggregate?.hasPendingReplayWork) return false;
+    return true;
+}
+
+function latestClientEvidenceEndMs(aggregate: SessionWorkAggregate): number | null {
+    return Math.max(
+        Number(aggregate.latestReplayArtifactEndMs ?? 0),
+        Number(aggregate.latestEventArtifactEndMs ?? 0),
+    ) || null;
+}
+
+function shouldTreatSessionAsSuperseded(
+    session: { platform?: string | null },
+    aggregate: SessionWorkAggregate,
+    successorStartedAt: Date | null,
+): boolean {
+    return shouldApplySuccessorSessionCap({
+        platform: session.platform,
+        successorStartedAt,
+        latestClientEvidenceEndMs: latestClientEvidenceEndMs(aggregate),
+    });
+}
 
 function resolveFrameUrlMode(raw: unknown): ScreenshotFrameUrlMode {
     if (typeof raw !== 'string') return DEFAULT_FRAME_URL_MODE;
@@ -647,6 +717,139 @@ function buildSessionPresentationPayload(presentationState: SessionPresentationS
     };
 }
 
+function readSessionMetadataString(metadata: unknown, keys: string[]): string | null {
+    if (!metadata || typeof metadata !== 'object') return null;
+    const record = metadata as Record<string, unknown>;
+    for (const key of keys) {
+        const value = record[key];
+        if (value === null || value === undefined) continue;
+        const normalized = String(value).trim();
+        if (normalized) return normalized;
+    }
+    return null;
+}
+
+function buildWebContextPayload(session: any) {
+    return {
+        webReferral: session?.webReferral || readSessionMetadataString(session?.metadata, ['webReferral', 'webReferrerDomain', 'webAttributionSource']),
+        webLandingRoute: readSessionMetadataString(session?.metadata, ['webLandingRoute', 'webEntryPath']),
+    };
+}
+
+type RrwebReplaySegment = {
+    index: number;
+    startTime: number | null;
+    endTime: number | null;
+    eventCount: number;
+    sizeBytes: number | null;
+    url: string | null;
+};
+
+type RrwebReplayPayload = {
+    events: any[];
+    eventCount: number;
+    segments: RrwebReplaySegment[];
+    page: Record<string, unknown> | null;
+    viewport: Record<string, unknown> | null;
+};
+
+const emptyRrwebReplayPayload = (): RrwebReplayPayload => ({
+    events: [],
+    eventCount: 0,
+    segments: [],
+    page: null,
+    viewport: null,
+});
+
+function parseArtifactJson(data: Buffer, s3ObjectKey?: string | null) {
+    const isGzipped = (data.length > 2 && data[0] === 0x1f && data[1] === 0x8b) ||
+        Boolean(s3ObjectKey?.endsWith('.gz'));
+
+    if (!isGzipped) return JSON.parse(data.toString());
+
+    try {
+        return JSON.parse(gunzipSync(data).toString());
+    } catch {
+        return JSON.parse(data.toString());
+    }
+}
+
+async function loadRrwebReplayPayload(session: any, rrwebArtifacts: any[]): Promise<RrwebReplayPayload> {
+    if (rrwebArtifacts.length === 0 || session.isReplayExpired || session.recordingDeleted) {
+        return emptyRrwebReplayPayload();
+    }
+
+    const events: any[] = [];
+    const segments: RrwebReplaySegment[] = [];
+    let page: Record<string, unknown> | null = null;
+    let viewport: Record<string, unknown> | null = null;
+
+    const sortedArtifacts = [...rrwebArtifacts].sort((a, b) => {
+        const aTime = a.startTime ?? a.timestamp ?? a.createdAt?.getTime?.() ?? 0;
+        const bTime = b.startTime ?? b.timestamp ?? b.createdAt?.getTime?.() ?? 0;
+        return aTime - bTime;
+    });
+
+    for (const [index, artifact] of sortedArtifacts.entries()) {
+        try {
+            const [data, url] = await Promise.all([
+                downloadFromS3ForArtifact(session.projectId, artifact.s3ObjectKey, artifact.endpointId),
+                artifact.endpointId
+                    ? getSignedDownloadUrl(artifact.endpointId, artifact.s3ObjectKey)
+                    : getSignedDownloadUrlForProject(session.projectId, artifact.s3ObjectKey),
+            ]);
+            if (!data) continue;
+
+            const parsed = parseArtifactJson(data, artifact.s3ObjectKey);
+            const segmentEvents = Array.isArray(parsed)
+                ? parsed
+                : (Array.isArray(parsed?.events) ? parsed.events : []);
+
+            if (!page && parsed?.page && typeof parsed.page === 'object') {
+                page = parsed.page;
+            }
+            if (!viewport && parsed?.viewport && typeof parsed.viewport === 'object') {
+                viewport = parsed.viewport;
+            }
+
+            if (segmentEvents.length > 0) {
+                events.push(...segmentEvents);
+            }
+
+            segments.push({
+                index,
+                startTime: artifact.startTime ?? parsed?.chunkStartedAt ?? parsed?.startedAt ?? null,
+                endTime: artifact.endTime ?? parsed?.chunkEndedAt ?? null,
+                eventCount: segmentEvents.length || artifact.frameCount || 0,
+                sizeBytes: artifact.sizeBytes ?? artifact.declaredSizeBytes ?? null,
+                url: url ?? null,
+            });
+        } catch (err) {
+            logger.warn(
+                {
+                    err,
+                    event: 'sessions.rrweb_artifact_download_failed',
+                    sessionId: session.id,
+                    projectId: session.projectId,
+                    artifactId: artifact.id,
+                    s3ObjectKeySuffix: artifact.s3ObjectKey?.slice(-64),
+                },
+                'sessions.rrweb_artifact_download_failed',
+            );
+        }
+    }
+
+    events.sort((a, b) => (a?.timestamp || 0) - (b?.timestamp || 0));
+
+    return {
+        events,
+        eventCount: events.length,
+        segments,
+        page,
+        viewport,
+    };
+}
+
 function buildSessionBasePayload(
     session: any,
     metrics: any,
@@ -665,6 +868,7 @@ function buildSessionBasePayload(
     });
     const sessionPresentationState = presentationState ?? deriveSessionPresentationState({
         status: session.status,
+        platform: session.platform,
         replayAvailable: session.replayAvailable,
         recordingDeleted: session.recordingDeleted,
         isReplayExpired: session.isReplayExpired,
@@ -683,6 +887,7 @@ function buildSessionBasePayload(
         anonymousDisplayName: session.deviceId && !session.userDisplayId ? generateAnonymousName(session.deviceId) : null,
         platform: session.platform,
         appVersion: session.appVersion,
+        sdkVersion: session.sdkVersion,
         hasRecording,
         playbackMode,
         deviceInfo: {
@@ -690,6 +895,7 @@ function buildSessionBasePayload(
             os: session.platform,
             systemVersion: session.osVersion,
             appVersion: session.appVersion,
+            sdkVersion: session.sdkVersion,
         },
         osVersion: session.osVersion,
         geoLocation: session.geoCity
@@ -710,6 +916,7 @@ function buildSessionBasePayload(
         playableDuration: durationSeconds,
         status: session.status,
         ...buildSessionPresentationPayload(sessionPresentationState),
+        ...buildWebContextPayload(session),
         // Session-level JSONB metadata and custom events stored in the sessions table
         metadata: session.metadata,
         events: [] as any[],
@@ -782,6 +989,47 @@ async function loadScreenshotReplayBootstrap(
         screenshotFrameCount: Math.max(screenshotFrameCount, framesResult.totalFrames),
         processedSegments: framesResult.processedSegments,
         totalSegments: framesResult.totalSegments,
+    };
+}
+
+async function loadVisualReplayBootstrap(
+    session: any,
+    screenshotArtifactCount: number,
+    rrwebArtifacts: any[],
+    frameUrlMode: ScreenshotFrameUrlMode
+) {
+    const hasRecording = Boolean(session.replayAvailable) && !session.isReplayExpired && !session.recordingDeleted;
+    if (!hasRecording) {
+        return {
+            hasRecording: false,
+            playbackMode: 'none' as const,
+            screenshotFrames: [] as Array<{ timestamp: number; url: string; index: number }>,
+            screenshotFramesStatus: 'none' as const,
+            screenshotFrameCount: 0,
+            processedSegments: 0,
+            totalSegments: 0,
+            rrwebReplay: emptyRrwebReplayPayload(),
+        };
+    }
+
+    const rrwebReplay = await loadRrwebReplayPayload(session, rrwebArtifacts);
+    if (rrwebReplay.eventCount > 0) {
+        return {
+            hasRecording: true,
+            playbackMode: 'rrweb' as const,
+            screenshotFrames: [] as Array<{ timestamp: number; url: string; index: number }>,
+            screenshotFramesStatus: 'none' as const,
+            screenshotFrameCount: 0,
+            processedSegments: rrwebReplay.segments.length,
+            totalSegments: rrwebReplay.segments.length,
+            rrwebReplay,
+        };
+    }
+
+    const screenshotReplay = await loadScreenshotReplayBootstrap(session, screenshotArtifactCount, frameUrlMode);
+    return {
+        ...screenshotReplay,
+        rrwebReplay,
     };
 }
 
@@ -1057,6 +1305,21 @@ function buildSessionFaultEvents(
     return [...crashEvents, ...anrEvents, ...errorEvents];
 }
 
+function isWebShortLongTaskAnr(session: any, anrRow: any): boolean {
+    const platform = String(session?.platform || session?.deviceInfo?.os || '').toLowerCase();
+    if (platform !== 'web') return false;
+
+    const durationMs = Number(anrRow?.durationMs);
+    if (!Number.isFinite(durationMs) || durationMs >= 1_000) return false;
+
+    const threadState = String(anrRow?.threadState || anrRow?.deviceMetadata?.stack || '').toLowerCase();
+    return threadState.includes('main_thread_long_task');
+}
+
+function filterDisplayAnrs(session: any, sessionAnrs: any[]) {
+    return sessionAnrs.filter((anrRow) => !isWebShortLongTaskAnr(session, anrRow));
+}
+
 function mapCrashRowsForPayload(sessionCrashes: any[]) {
     return sessionCrashes.map((crashRow) => ({
         id: crashRow.id,
@@ -1087,7 +1350,7 @@ function maxReplayEndMsFromArtifacts(
 ): number | null {
     let max: number | null = null;
     for (const a of artifacts) {
-        if (a.kind !== 'screenshots' && a.kind !== 'hierarchy') continue;
+        if (a.kind !== 'screenshots' && a.kind !== 'hierarchy' && a.kind !== 'rrweb') continue;
         const t = a.endTime ?? a.startTime ?? null;
         if (typeof t === 'number' && Number.isFinite(t) && t > 0) {
             max = max === null ? t : Math.max(max, t);
@@ -1108,7 +1371,7 @@ async function loadTimelinePayload(session: any, artifactsList: any[]) {
             try {
                 const data = await downloadFromS3ForArtifact(session.projectId, artifact.s3ObjectKey, artifact.endpointId);
                 if (!data) return { events: [] as any[], deviceInfo: null as any };
-                const parsed = JSON.parse(data.toString());
+                const parsed = parseArtifactJson(data, artifact.s3ObjectKey);
                 if (Array.isArray(parsed)) return { events: parsed, deviceInfo: null as any };
                 if (Array.isArray(parsed?.events)) {
                     return { events: parsed.events, deviceInfo: parsed.deviceInfo ?? null };
@@ -1165,6 +1428,7 @@ async function loadTimelinePayload(session: any, artifactsList: any[]) {
 
     const allEvents = [...artifactEvents, ...extraSessionEvents];
     const allNetwork = parsedNetworkBatches.flat();
+    const displayAnrs = filterDisplayAnrs(session, sessionAnrs);
 
     const sessionStartMs = session.startedAt.getTime();
     const timelineReplayEndMs = maxReplayEndMsFromArtifacts(artifactsList);
@@ -1177,7 +1441,7 @@ async function loadTimelinePayload(session: any, artifactsList: any[]) {
     const { normalizedEvents, coerceToEpochMs } = normalizeEventsForTimeline(allEvents, sessionStartMs, sessionEndMs);
     const faultEvents = buildSessionFaultEvents(
         sessionCrashes,
-        sessionAnrs,
+        displayAnrs,
         sessionErrors,
         sessionStartMs,
         coerceToEpochMs
@@ -1240,7 +1504,7 @@ async function loadTimelinePayload(session: any, artifactsList: any[]) {
         events: mergedEvents,
         networkRequests,
         crashes: mapCrashRowsForPayload(sessionCrashes),
-        anrs: mapAnrRowsForPayload(sessionAnrs),
+        anrs: mapAnrRowsForPayload(displayAnrs),
         deviceInfo: timelineDeviceInfo,
     };
 }
@@ -1423,6 +1687,7 @@ router.get(
             const successfulRecording = hasSuccessfulRecording(s, m, false);
             const presentationState = deriveSessionPresentationState({
                 status: s.status,
+                platform: s.platform,
                 replayAvailable: s.replayAvailable,
                 recordingDeleted: s.recordingDeleted,
                 isReplayExpired: s.isReplayExpired,
@@ -1600,6 +1865,8 @@ router.get(
                 visitorFinalSessionNumber: archiveVisitorFinalSessionNumberSql,
                 checkoutEntered: archiveCheckoutEnteredSql,
                 checkoutSucceeded: archiveCheckoutSucceededSql,
+                webReferral: archiveWebReferralSql,
+                webLandingRoute: archiveWebLandingRouteSql,
                 archiveSortKey: sortExpr.as('archive_sort_key'),
             })
             .from(sessions)
@@ -1638,7 +1905,7 @@ router.get(
 
         // Transform to API format
         const sessionsData = resultSessions.map(
-            ({ session: s, metrics: m, latestReplayArtifactEndMs, hasNewerSessionOnVisitor, visitorSessionNumber, visitorFinalSessionNumber, checkoutEntered, checkoutSucceeded }) => {
+            ({ session: s, metrics: m, latestReplayArtifactEndMs, hasNewerSessionOnVisitor, visitorSessionNumber, visitorFinalSessionNumber, checkoutEntered, checkoutSucceeded, webReferral, webLandingRoute }) => {
             const durationSec = durationSecondsForDisplay({
                 ...s,
                 latestReplayEndMs: latestReplayArtifactEndMs,
@@ -1653,6 +1920,7 @@ router.get(
              */
             const presentationState = deriveSessionPresentationState({
                 status: s.status,
+                platform: s.platform,
                 replayAvailable: s.replayAvailable,
                 recordingDeleted: s.recordingDeleted,
                 isReplayExpired: s.isReplayExpired,
@@ -1672,6 +1940,7 @@ router.get(
                 anonymousDisplayName: s.deviceId && !s.userDisplayId ? generateAnonymousName(s.deviceId) : null,
                 platform: s.platform,
                 appVersion: s.appVersion,
+                sdkVersion: s.sdkVersion,
                 deviceModel: s.deviceModel,
                 osVersion: s.osVersion,
                 startedAt: s.startedAt.toISOString(),
@@ -1682,6 +1951,8 @@ router.get(
                 playableDuration: durationSec,
                 status: s.status,
                 ...buildSessionPresentationPayload(presentationState),
+                webReferral,
+                webLandingRoute,
                 isFirstSession: firstSessionIds.has(s.id),
                 // Metrics
                 touchCount: m?.touchCount ?? 0,
@@ -1785,19 +2056,19 @@ router.get(
 
         const session = sessionResult.session;
         const metrics = sessionResult.metrics;
-        const [aggregate, supersededByNewerVisitorSession] = await Promise.all([
+        const [aggregate, successorStartedAt] = await Promise.all([
             loadSessionWorkAggregate(session.id),
-            hasNewerSessionForSameVisitor({
-                projectId: session.projectId,
+            loadSuccessorSessionStartedAt({
                 sessionId: session.id,
-                startedAt: session.startedAt,
+                projectId: session.projectId,
                 deviceId: session.deviceId,
-                anonymousHash: session.anonymousHash,
-                userDisplayId: session.userDisplayId,
+                startedAt: session.startedAt,
             }),
         ]);
+        const supersededByNewerVisitorSession = shouldTreatSessionAsSuperseded(session, aggregate, successorStartedAt);
         const presentationState = deriveSessionPresentationState({
             status: session.status,
+            platform: session.platform,
             replayAvailable: session.replayAvailable,
             recordingDeleted: session.recordingDeleted,
             isReplayExpired: session.isReplayExpired,
@@ -1805,6 +2076,7 @@ router.get(
             startedAt: session.startedAt,
             endedAt: session.endedAt,
             hasPendingWork: aggregate.hasPendingWork,
+            hasPendingProcessingWork: aggregate.hasPendingProcessingWork,
             hasPendingReplayWork: aggregate.hasPendingReplayWork,
             supersededByNewerVisitorSession,
         });
@@ -1863,6 +2135,9 @@ router.get(
         const screenshotArtifacts = (!session.isReplayExpired && !session.recordingDeleted)
             ? artifactsList.filter((a) => a.kind === 'screenshots')
             : [];
+        const rrwebArtifacts = (!session.isReplayExpired && !session.recordingDeleted)
+            ? artifactsList.filter((a) => a.kind === 'rrweb')
+            : [];
 
         // Compute total storage used in S3 for this session's artifacts.
         // Prefer `recording_artifacts.size_bytes` (populated during ingest), and fall back to S3 HEAD.
@@ -1894,7 +2169,7 @@ router.get(
             try {
                 const data = await downloadFromS3ForArtifact(session.projectId, artifact.s3ObjectKey, artifact.endpointId);
                 if (data) {
-                    const parsed = JSON.parse(data.toString());
+                    const parsed = parseArtifactJson(data, artifact.s3ObjectKey);
                     if (parsed.events) {
                         allEvents.push(...parsed.events);
                         if (!artifactDeviceInfo && parsed.deviceInfo?.screenWidth && parsed.deviceInfo?.screenHeight) {
@@ -1949,8 +2224,7 @@ router.get(
             }
         }
 
-        // Extract screenshot frames for image-based playback (iOS sessions)
-        // Screenshots are the only supported visual replay mode.
+        // Extract screenshot frames for image-based playback (mobile sessions).
         let screenshotFrames: Array<{ timestamp: number; url: string; index: number }> = [];
 
         logger.info({
@@ -1980,6 +2254,8 @@ router.get(
                 }));
             }
         }
+
+        const rrwebReplay = await loadRrwebReplayPayload(session, rrwebArtifacts);
 
         // Download and embed hierarchy snapshots that remain after retention.
         hierarchyArtifacts.sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
@@ -2098,9 +2374,10 @@ router.get(
             .map((e, idx) => normalizeEvent(e, idx))
             .sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
 
+        const displayAnrs = filterDisplayAnrs(session, sessionAnrs);
         const faultEvents = buildSessionFaultEvents(
             sessionCrashes,
-            sessionAnrs,
+            displayAnrs,
             sessionErrors,
             sessionStartMs,
             coerceToEpochMs
@@ -2109,8 +2386,11 @@ router.get(
         const mergedEvents = mergeEventsWithFaults(normalizedEvents, faultEvents);
 
         const readyScreenshotArtifacts = artifactsList.some((artifact) => artifact.kind === 'screenshots');
+        const hasRrwebReplay = rrwebReplay.eventCount > 0;
         const hasRecording = Boolean(session.replayAvailable) && !session.isReplayExpired && !session.recordingDeleted;
-        const playbackMode = hasRecording ? 'screenshots' : 'none';
+        const playbackMode = hasRecording
+            ? (hasRrwebReplay ? 'rrweb' : 'screenshots')
+            : 'none';
         const successfulRecording = hasSuccessfulRecording(session, metrics, readyScreenshotArtifacts);
         const durationSeconds = durationSecondsForDisplay({
             ...session,
@@ -2126,13 +2406,15 @@ router.get(
             anonymousDisplayName: session.deviceId && !session.userDisplayId ? generateAnonymousName(session.deviceId) : null,
             platform: session.platform,
             appVersion: session.appVersion,
+            sdkVersion: session.sdkVersion,
             hasRecording, // Indicates whether visual replay is available
-            playbackMode, // 'screenshots' or 'none' - determines which player to use
+            playbackMode, // 'rrweb', 'screenshots', or 'none' - determines which player to use
             deviceInfo: {
                 model: session.deviceModel,
                 os: session.platform,
                 systemVersion: session.osVersion,
                 appVersion: session.appVersion,
+                sdkVersion: session.sdkVersion,
                 ...(artifactDeviceInfo ?? {}),
             },
             osVersion: session.osVersion,
@@ -2155,6 +2437,7 @@ router.get(
             playableDuration: durationSeconds,
             status: session.status,
             ...buildSessionPresentationPayload(presentationState),
+            ...buildWebContextPayload(session),
             // Session-level JSONB metadata accumulated from custom "$user_property" events
             metadata: session.metadata,
             events: mergedEvents,
@@ -2213,8 +2496,9 @@ router.get(
                 events: eventsUrl,
                 eventsBatches: eventsUrls,
             },
-            // Visual capture data - screenshot frames only.
+            // Visual capture data.
             screenshotFrames, // Array of { timestamp, url, index } for image-based playback
+            rrwebReplay,
             hierarchySnapshots,
             metrics: metrics
                 ? {
@@ -2240,7 +2524,7 @@ router.get(
                 }
                 : null,
             crashes: mapCrashRowsForPayload(sessionCrashes),
-            anrs: mapAnrRowsForPayload(sessionAnrs),
+            anrs: mapAnrRowsForPayload(displayAnrs),
             stats: {
                 duration: String(session.durationSeconds ?? 0),
                 durationMinutes: String(((session.durationSeconds ?? 0) / 60).toFixed(2)),
@@ -2285,30 +2569,32 @@ router.get(
         const { session, metrics } = await getAuthorizedSession(req.user!.id, req.params.id);
         res.setHeader('Cache-Control', SESSION_BOOTSTRAP_CACHE_CONTROL);
 
-        const cached = await readCachedSessionDetail('bootstrap', session.id);
+        const mayReadCache = isStableForSessionDetailCache(session);
+        const cached = mayReadCache ? await readCachedSessionDetail('bootstrap', session.id) : null;
         if (cached) {
             res.type('json').send(cached);
             return;
         }
 
-        const [artifactsList, aggregate, supersededByNewerVisitorSession] = await Promise.all([
+        const [artifactsList, aggregate, successorStartedAt] = await Promise.all([
             getReadyArtifacts(session.id),
             loadSessionWorkAggregate(session.id),
-            hasNewerSessionForSameVisitor({
-                projectId: session.projectId,
+            loadSuccessorSessionStartedAt({
                 sessionId: session.id,
-                startedAt: session.startedAt,
+                projectId: session.projectId,
                 deviceId: session.deviceId,
-                anonymousHash: session.anonymousHash,
-                userDisplayId: session.userDisplayId,
+                startedAt: session.startedAt,
             }),
         ]);
+        const supersededByNewerVisitorSession = shouldTreatSessionAsSuperseded(session, aggregate, successorStartedAt);
 
         const screenshotArtifacts = artifactsList.filter((artifact) => artifact.kind === 'screenshots');
+        const rrwebArtifacts = artifactsList.filter((artifact) => artifact.kind === 'rrweb');
         const frameUrlMode = resolveFrameUrlMode(req.query.frameUrlMode);
-        const replayBootstrap = await loadScreenshotReplayBootstrap(
+        const replayBootstrap = await loadVisualReplayBootstrap(
             session,
             screenshotArtifacts.length,
+            rrwebArtifacts,
             frameUrlMode,
         );
 
@@ -2319,6 +2605,7 @@ router.get(
             screenshotArtifacts.length > 0,
             deriveSessionPresentationState({
                 status: session.status,
+                platform: session.platform,
                 replayAvailable: session.replayAvailable,
                 recordingDeleted: session.recordingDeleted,
                 isReplayExpired: session.isReplayExpired,
@@ -2326,6 +2613,7 @@ router.get(
                 startedAt: session.startedAt,
                 endedAt: session.endedAt,
                 hasPendingWork: aggregate.hasPendingWork,
+                hasPendingProcessingWork: aggregate.hasPendingProcessingWork,
                 hasPendingReplayWork: aggregate.hasPendingReplayWork,
                 supersededByNewerVisitorSession,
             }),
@@ -2349,6 +2637,7 @@ router.get(
             screenshotFrameCount: replayBootstrap.screenshotFrameCount,
             screenshotFramesProcessedSegments: replayBootstrap.processedSegments,
             screenshotFramesTotalSegments: replayBootstrap.totalSegments,
+            rrwebReplay: replayBootstrap.rrwebReplay,
             stats,
         };
 
@@ -2361,7 +2650,7 @@ router.get(
 
         res.json(responseBody);
 
-        if (replayBootstrap.screenshotFramesStatus !== 'preparing') {
+        if (shouldWriteSessionDetailCache(session, aggregate) && replayBootstrap.screenshotFramesStatus !== 'preparing') {
             await writeCachedSessionDetail('bootstrap', session.id, responseBody);
         }
     }),
@@ -2378,31 +2667,33 @@ router.get(
     dashboardRateLimiter,
     asyncHandler(async (req, res) => {
         const { session, metrics } = await getAuthorizedSession(req.user!.id, req.params.id);
-        const cached = await readCachedSessionDetail('core', session.id);
+        const mayReadCache = isStableForSessionDetailCache(session);
+        const cached = mayReadCache ? await readCachedSessionDetail('core', session.id) : null;
         if (cached) {
             res.setHeader('X-Replay-Core-Cache', 'hit');
             res.type('json').send(cached);
             return;
         }
 
-        const [artifactsList, aggregate, supersededByNewerVisitorSession] = await Promise.all([
+        const [artifactsList, aggregate, successorStartedAt] = await Promise.all([
             getReadyArtifacts(session.id),
             loadSessionWorkAggregate(session.id),
-            hasNewerSessionForSameVisitor({
-                projectId: session.projectId,
+            loadSuccessorSessionStartedAt({
                 sessionId: session.id,
-                startedAt: session.startedAt,
+                projectId: session.projectId,
                 deviceId: session.deviceId,
-                anonymousHash: session.anonymousHash,
-                userDisplayId: session.userDisplayId,
+                startedAt: session.startedAt,
             }),
         ]);
+        const supersededByNewerVisitorSession = shouldTreatSessionAsSuperseded(session, aggregate, successorStartedAt);
 
         const screenshotArtifacts = artifactsList.filter((a) => a.kind === 'screenshots');
+        const rrwebArtifacts = artifactsList.filter((a) => a.kind === 'rrweb');
         const frameUrlMode = resolveFrameUrlMode(req.query.frameUrlMode);
-        const replayBootstrap = await loadScreenshotReplayBootstrap(
+        const replayBootstrap = await loadVisualReplayBootstrap(
             session,
             screenshotArtifacts.length,
+            rrwebArtifacts,
             frameUrlMode
         );
 
@@ -2413,6 +2704,7 @@ router.get(
             screenshotArtifacts.length > 0,
             deriveSessionPresentationState({
                 status: session.status,
+                platform: session.platform,
                 replayAvailable: session.replayAvailable,
                 recordingDeleted: session.recordingDeleted,
                 isReplayExpired: session.isReplayExpired,
@@ -2420,6 +2712,7 @@ router.get(
                 startedAt: session.startedAt,
                 endedAt: session.endedAt,
                 hasPendingWork: aggregate.hasPendingWork,
+                hasPendingProcessingWork: aggregate.hasPendingProcessingWork,
                 hasPendingReplayWork: aggregate.hasPendingReplayWork,
                 supersededByNewerVisitorSession,
             }),
@@ -2435,12 +2728,13 @@ router.get(
             screenshotFrameCount: replayBootstrap.screenshotFrameCount,
             screenshotFramesProcessedSegments: replayBootstrap.processedSegments,
             screenshotFramesTotalSegments: replayBootstrap.totalSegments,
+            rrwebReplay: replayBootstrap.rrwebReplay,
             stats,
         };
 
         res.json(responseBody);
 
-        if (replayBootstrap.screenshotFramesStatus !== 'preparing') {
+        if (shouldWriteSessionDetailCache(session, aggregate) && replayBootstrap.screenshotFramesStatus !== 'preparing') {
             await writeCachedSessionDetail('core', session.id, responseBody);
         }
     })
@@ -2457,15 +2751,21 @@ router.get(
     dashboardRateLimiter,
     asyncHandler(async (req, res) => {
         const { session } = await getAuthorizedSession(req.user!.id, req.params.id);
-        const cached = await readCachedSessionDetail('timeline', session.id);
+        const mayReadCache = isStableForSessionDetailCache(session);
+        const cached = mayReadCache ? await readCachedSessionDetail('timeline', session.id) : null;
         if (cached) {
             res.type('json').send(cached);
             return;
         }
 
         const artifactsList = await getReadyArtifacts(session.id);
-        const timeline = await loadTimelinePayload(session, artifactsList);
-        await writeCachedSessionDetail('timeline', session.id, timeline);
+        const [timeline, aggregate] = await Promise.all([
+            loadTimelinePayload(session, artifactsList),
+            loadSessionWorkAggregate(session.id),
+        ]);
+        if (shouldWriteSessionDetailCache(session, aggregate)) {
+            await writeCachedSessionDetail('timeline', session.id, timeline);
+        }
         res.json(timeline);
     })
 );
@@ -2481,7 +2781,8 @@ router.get(
     dashboardRateLimiter,
     asyncHandler(async (req, res) => {
         const { session } = await getAuthorizedSession(req.user!.id, req.params.id);
-        const cached = await readCachedSessionDetail('hierarchy', session.id);
+        const mayReadCache = isStableForSessionDetailCache(session);
+        const cached = mayReadCache ? await readCachedSessionDetail('hierarchy', session.id) : null;
         if (cached) {
             res.type('json').send(cached);
             return;
@@ -2490,7 +2791,10 @@ router.get(
         const artifactsList = await getReadyArtifacts(session.id);
         const hierarchySnapshots = await loadHierarchyPayload(session, artifactsList);
         const responseBody = { hierarchySnapshots };
-        await writeCachedSessionDetail('hierarchy', session.id, responseBody);
+        const aggregate = await loadSessionWorkAggregate(session.id);
+        if (shouldWriteSessionDetailCache(session, aggregate)) {
+            await writeCachedSessionDetail('hierarchy', session.id, responseBody);
+        }
         res.json(responseBody);
     })
 );
@@ -2660,7 +2964,7 @@ router.get(
                 .from(recordingArtifacts)
                 .where(and(
                     eq(recordingArtifacts.sessionId, sessionId),
-                    inArray(recordingArtifacts.kind, ['screenshots', 'hierarchy']),
+                    inArray(recordingArtifacts.kind, ['screenshots', 'hierarchy', 'rrweb']),
                     eq(recordingArtifacts.status, 'ready'),
                 )),
         ]);

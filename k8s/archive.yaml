@@ -29,9 +29,10 @@ data:
      *    format are backed up. Legacy `sessions/` prefix data is skipped.
      *
      * 3. **Artifact-shape gated** — A session is only backupable when its ready
-     *    artifacts match the expected profile: standard sessions need events +
-     *    hierarchy + screenshots, while observe-only sessions need events +
-     *    hierarchy and must not have screenshots.
+     *    artifacts match the expected profile: native replay sessions need events +
+     *    hierarchy + screenshots, web replay sessions need events + rrweb, native
+     *    observe-only sessions need events + hierarchy, and web observe-only
+     *    sessions need events only.
      *
      * 4. **R2 structure keeps the same key layout:**
      *
@@ -39,6 +40,7 @@ data:
      *        ├── manifest.json
      *        ├── events/events_0_xxx.json.gz
      *        ├── hierarchy/123456.json.gz
+     *        ├── rrweb/123456.rrweb.json.gz
      *        └── screenshots/123456.tar.gz   (real tar.gz on R2)
      *
      * 5. **All-or-nothing** — ALL artifacts for a session must succeed or the
@@ -549,7 +551,8 @@ data:
                 COUNT(*)::int AS ready_artifact_count,
                 COUNT(*) FILTER (WHERE ra.kind = 'events')::int AS ready_events_count,
                 COUNT(*) FILTER (WHERE ra.kind = 'hierarchy')::int AS ready_hierarchy_count,
-                COUNT(*) FILTER (WHERE ra.kind = 'screenshots')::int AS ready_screenshots_count
+                COUNT(*) FILTER (WHERE ra.kind = 'screenshots')::int AS ready_screenshots_count,
+                COUNT(*) FILTER (WHERE ra.kind = 'rrweb')::int AS ready_rrweb_count
               FROM recording_artifacts ra
               WHERE ra.session_id = ${sessionAlias}.id
                 AND ra.status = 'ready'
@@ -564,14 +567,23 @@ data:
               (
                 COALESCE(${sessionAlias}.observe_only, false) = true
                 AND ${statsAlias}.ready_events_count > 0
-                AND ${statsAlias}.ready_hierarchy_count > 0
                 AND ${statsAlias}.ready_screenshots_count = 0
+                AND ${statsAlias}.ready_rrweb_count = 0
+                AND (
+                  ${statsAlias}.ready_hierarchy_count > 0
+                  OR LOWER(COALESCE(${sessionAlias}.platform, '')) = 'web'
+                )
               )
               OR (
                 COALESCE(${sessionAlias}.observe_only, false) = false
                 AND ${statsAlias}.ready_events_count > 0
-                AND ${statsAlias}.ready_hierarchy_count > 0
-                AND ${statsAlias}.ready_screenshots_count > 0
+                AND (
+                  ${statsAlias}.ready_rrweb_count > 0
+                  OR (
+                    ${statsAlias}.ready_hierarchy_count > 0
+                    AND ${statsAlias}.ready_screenshots_count > 0
+                  )
+                )
               )
             )
       `.trim();
@@ -677,7 +689,7 @@ data:
       `);
       return result.rowCount || 0;
     }
-
+    
     async function cleanupNonClaimableSessionRows() {
       const result = await sql(`
         DELETE FROM session_backup_queue q
@@ -688,7 +700,7 @@ data:
       `);
       return result.rowCount || 0;
     }
-
+    
     async function recoverStaleQueueClaims() {
       const result = await sql(`
         UPDATE session_backup_queue
@@ -1213,19 +1225,19 @@ data:
         }
       }
     
-      const realScreenshotCount = artifacts.filter((a) => a.kind === 'screenshots').length;
+      const visualReplayArtifacts = artifacts.filter((a) => a.kind === 'screenshots' || a.kind === 'rrweb');
+      const realReplaySegmentCount = visualReplayArtifacts.length;
       const storedCount = Number(s.replaySegmentCount || 0);
-      if (realScreenshotCount !== storedCount) {
+      if (realReplaySegmentCount !== storedCount) {
         await sql(`
           UPDATE sessions
           SET replay_segment_count = $1, updated_at = NOW()
           WHERE id = $2 AND COALESCE(replay_segment_count, 0) != $1;
-        `, [realScreenshotCount, sessionId]).catch(() => {});
-        repairs.push(`segments=${storedCount}->${realScreenshotCount}`);
+        `, [realReplaySegmentCount, sessionId]).catch(() => {});
+        repairs.push(`segments=${storedCount}->${realReplaySegmentCount}`);
       }
     
-      const realStorageBytes = artifacts
-        .filter((a) => a.kind === 'screenshots')
+      const realStorageBytes = visualReplayArtifacts
         .reduce((sum, a) => sum + (Number(a.sizeBytes) || 0), 0);
       const storedBytes = Number(s.replayStorageBytes || 0);
       if (realStorageBytes > 0 && realStorageBytes !== storedBytes) {
@@ -1249,7 +1261,7 @@ data:
       if (repairs.length > 0) {
         log(`  repaired ${sessionId}: ${repairs.join(', ')}`);
       }
-
+    
       return repairs;
     }
     
@@ -1432,19 +1444,19 @@ data:
     async function streamSourceToR2(artifact, backupKey, artifactLabel) {
       const { client, bucket } = getSourceClientForArtifact(artifact);
       let sourceSize;
-
+    
       await withRetry(async () => {
         const resp = await sendStorageCommand(
           client,
           new GetObjectCommand({ Bucket: bucket, Key: artifact.s3ObjectKey }),
           `stream-get ${artifact.s3ObjectKey}`,
         );
-
+    
         sourceSize = Number(resp.ContentLength || 0);
         if (!sourceSize) {
           throw new Error(`${artifactLabel}: source ContentLength is zero or missing`);
         }
-
+    
         await sendStorageCommand(
           r2Client,
           new PutObjectCommand({
@@ -1457,10 +1469,10 @@ data:
           `stream-put ${backupKey}`,
         );
       }, `stream ${artifactLabel}`, { shouldRetry: (error) => !isSourceNotFound(error) });
-
+    
       return sourceSize;
     }
-
+    
     async function verifyDownload(filePath, label) {
       const { size } = await stat(filePath);
       if (size === 0) {
@@ -1619,11 +1631,11 @@ data:
     async function processArtifact(artifact, index, tempDir, session) {
       const backupKey = `backups/${artifact.s3ObjectKey}`;
       const artifactLabel = `${session.id}/${artifact.kind}[${index}]`;
-
+    
       if (!artifact.endpointResolved) {
         throw new Error(`artifact ${artifactLabel} references unknown endpoint_id ${artifact.endpointId}`);
       }
-
+    
       // Fast path: events are always passthrough — stream directly from source S3 to R2.
       // No disk write, no disk read, no temp file. Each S3 error (including 404) propagates
       // to the caller, which handles source_missing the same way as the disk path.
@@ -1645,11 +1657,11 @@ data:
           status: 'copied',
         };
       }
-
-      // Slow path: hierarchy (may need legacy gzip repair) and screenshots (need tar repack)
-      // both require reading or writing content, so we use a temp file on disk.
+    
+      // Slow path: hierarchy (may need legacy gzip repair), screenshots (may need
+      // tar repack), and rrweb (mirrored unchanged) use a temp file on disk.
       const tempPath = path.join(tempDir, `artifact-${index}`);
-
+    
       let sourceSize;
       let backupSize;
       let repairStatus = 'unchanged';
@@ -1713,35 +1725,52 @@ data:
     
     function validateBackupArtifactShape(sessionId, manifest, artifacts) {
       const observeOnly = manifest?.session?.observeOnly === true;
+      const platform = String(manifest?.session?.platform || '').toLowerCase();
       const counts = {
         total: artifacts.length,
         events: artifacts.filter((artifact) => artifact.kind === 'events').length,
         hierarchy: artifacts.filter((artifact) => artifact.kind === 'hierarchy').length,
         screenshots: artifacts.filter((artifact) => artifact.kind === 'screenshots').length,
+        rrweb: artifacts.filter((artifact) => artifact.kind === 'rrweb').length,
       };
+      const webReplayShape = platform === 'web' || counts.rrweb > 0;
     
       if (counts.total <= 0) {
         throw new Error(`session ${sessionId} has no ready artifacts to back up`);
       }
     
-      if (counts.events <= 0 || counts.hierarchy <= 0) {
+      if (counts.events <= 0) {
         throw new Error(
-          `session ${sessionId} has mismatched ready artifacts (events=${counts.events}, hierarchy=${counts.hierarchy}, screenshots=${counts.screenshots}, observeOnly=${observeOnly})`,
+          `session ${sessionId} has mismatched ready artifacts (events=${counts.events}, hierarchy=${counts.hierarchy}, screenshots=${counts.screenshots}, rrweb=${counts.rrweb}, observeOnly=${observeOnly}, platform=${platform || 'unknown'})`,
         );
       }
     
       if (observeOnly) {
-        if (counts.screenshots > 0) {
+        if (counts.screenshots > 0 || counts.rrweb > 0) {
           throw new Error(
-            `session ${sessionId} is observe_only but has ${counts.screenshots} ready screenshot artifact(s)`,
+            `session ${sessionId} is observe_only but has visual replay artifact(s) (screenshots=${counts.screenshots}, rrweb=${counts.rrweb})`,
+          );
+        }
+        if (!webReplayShape && counts.hierarchy <= 0) {
+          throw new Error(
+            `session ${sessionId} observe_only backup requires hierarchy for native sessions (events=${counts.events}, hierarchy=${counts.hierarchy})`,
           );
         }
         return;
       }
     
-      if (counts.screenshots <= 0) {
+      if (webReplayShape) {
+        if (counts.rrweb <= 0) {
+          throw new Error(
+            `session ${sessionId} requires ready rrweb before backup (events=${counts.events}, rrweb=${counts.rrweb}, platform=${platform || 'unknown'})`,
+          );
+        }
+        return;
+      }
+    
+      if (counts.hierarchy <= 0 || counts.screenshots <= 0) {
         throw new Error(
-          `session ${sessionId} requires ready screenshots before backup (events=${counts.events}, hierarchy=${counts.hierarchy}, screenshots=${counts.screenshots})`,
+          `session ${sessionId} requires ready hierarchy and screenshots before backup (events=${counts.events}, hierarchy=${counts.hierarchy}, screenshots=${counts.screenshots})`,
         );
       }
     }
@@ -1826,7 +1855,7 @@ data:
         }
     
         const repairs = await maybeRepairSessionMetadata(session.id, manifest, artifacts);
-
+    
         // Only re-fetch the manifest from the DB if a repair actually changed session fields.
         // For the common case (no repairs), reuse the already-fetched manifest to save a round-trip.
         const finalManifest = repairs.length > 0
@@ -1991,17 +2020,17 @@ data:
         if (cleanedOrphans > 0) {
           log(`Removed ${cleanedOrphans} orphaned session(s) from the backup queue`);
         }
-
+    
         const cleanedSourceMissing = await cleanupTerminalSourceMissingRows();
         if (cleanedSourceMissing > 0) {
           log(`Removed ${cleanedSourceMissing} permanently unrecoverable source_missing session(s) from the backup queue`);
         }
-
+    
         const cleanedNonClaimable = await cleanupNonClaimableSessionRows();
         if (cleanedNonClaimable > 0) {
           log(`Removed ${cleanedNonClaimable} queued session(s) whose session status is no longer claimable`);
         }
-
+    
         const recoveredClaims = await recoverStaleQueueClaims();
         if (recoveredClaims > 0) {
           log(`Recovered ${recoveredClaims} stale queued backup claim(s)`);
@@ -2086,7 +2115,10 @@ data:
      */
     export const OBSERVE_ONLY_QUALITY_TIER = 'observe_only';
     
-    const REQUIRED_ARTIFACT_KINDS = ['events', 'hierarchy', 'screenshots'];
+    const NATIVE_REPLAY_ARTIFACT_KINDS = ['events', 'hierarchy', 'screenshots'];
+    const NATIVE_OBSERVE_ONLY_ARTIFACT_KINDS = ['events', 'hierarchy'];
+    const WEB_REPLAY_ARTIFACT_KINDS = ['events', 'rrweb'];
+    const WEB_OBSERVE_ONLY_ARTIFACT_KINDS = ['events'];
     const SOFT_REASONS = new Set([
       'too_short',
       'low_frame_count',
@@ -2177,6 +2209,20 @@ data:
       return 'broken';
     }
     
+    function isWebBackupShape(session, artifactKinds, backupArtifactKinds) {
+      const platform = typeof session?.platform === 'string' ? session.platform.toLowerCase() : '';
+      return platform === 'web' || artifactKinds.includes('rrweb') || backupArtifactKinds.includes('rrweb');
+    }
+    
+    function expectedArtifactKindsForSession(session, artifactKinds, backupArtifactKinds) {
+      const observeOnly = session?.observeOnly === true;
+      const webShape = isWebBackupShape(session, artifactKinds, backupArtifactKinds);
+      if (webShape && observeOnly) return WEB_OBSERVE_ONLY_ARTIFACT_KINDS;
+      if (webShape) return WEB_REPLAY_ARTIFACT_KINDS;
+      if (observeOnly) return NATIVE_OBSERVE_ONLY_ARTIFACT_KINDS;
+      return NATIVE_REPLAY_ARTIFACT_KINDS;
+    }
+    
     export function evaluateBackupQuality({
       manifest,
       plannedArtifactCount,
@@ -2192,7 +2238,8 @@ data:
       const backupArtifacts = Array.isArray(manifest?.backupArtifacts) ? manifest.backupArtifacts.filter(isPlainObject) : [];
       const artifactKinds = collectKinds(artifacts);
       const backupArtifactKinds = collectKinds(backupArtifacts);
-      const expectedArtifactKinds = sessionObserveOnly ? ['events', 'hierarchy'] : REQUIRED_ARTIFACT_KINDS;
+      const expectedArtifactKinds = expectedArtifactKindsForSession(session, artifactKinds, backupArtifactKinds);
+      const webShape = isWebBackupShape(session, artifactKinds, backupArtifactKinds);
       const plannedCount = normalizeInteger(plannedArtifactCount);
       const copiedCount = normalizeInteger(artifactCount);
       const r2ArtifactCount = normalizeInteger(actualR2ArtifactCount);
@@ -2230,6 +2277,9 @@ data:
       }
       if (sessionObserveOnly && (artifactKinds.includes('screenshots') || backupArtifactKinds.includes('screenshots'))) {
         reasons.add('unexpected_screenshots_for_observe_only');
+      }
+      if (sessionObserveOnly && (artifactKinds.includes('rrweb') || backupArtifactKinds.includes('rrweb'))) {
+        reasons.add('unexpected_rrweb_for_observe_only');
       }
     
       if (plannedCount <= 0 || copiedCount <= 0 || r2ArtifactCount <= 0) {
@@ -2273,10 +2323,10 @@ data:
       if (invalidTimeRange) {
         reasons.add('invalid_time_range');
       }
-      if (artifactKinds.includes('screenshots') && coverageMs < HIGH_QUALITY_MIN_VISUAL_DURATION_MS) {
+      if (!webShape && artifactKinds.includes('screenshots') && coverageMs < HIGH_QUALITY_MIN_VISUAL_DURATION_MS) {
         reasons.add('too_short');
       }
-      if (artifactKinds.includes('screenshots') && totalScreenshotFrames < HIGH_QUALITY_MIN_SCREENSHOT_FRAMES) {
+      if (!webShape && artifactKinds.includes('screenshots') && totalScreenshotFrames < HIGH_QUALITY_MIN_SCREENSHOT_FRAMES) {
         reasons.add('low_frame_count');
       }
       if (sessionDurationSeconds != null && (!Number.isFinite(sessionDurationSeconds) || sessionDurationSeconds < 0)) {

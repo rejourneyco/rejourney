@@ -97,6 +97,46 @@ export function clampSessionEndedAt(startedAt: Date, candidate: Date, maxRecordi
     return candidate;
 }
 
+export function selectMaxObservabilityMinutes(
+    project: {
+        maxRecordingMinutes?: number | null;
+        webMaxObservabilityMinutes?: number | null;
+    } | null | undefined,
+    platform?: string | null,
+): number {
+    const rawValue = platform === 'web'
+        ? (project?.webMaxObservabilityMinutes ?? project?.maxRecordingMinutes)
+        : project?.maxRecordingMinutes;
+    const fallbackValue = platform === 'web' ? 30 : 10;
+    const roundedValue = typeof rawValue === 'number' && Number.isFinite(rawValue)
+        ? Math.round(rawValue)
+        : fallbackValue;
+    const maxMinutes = platform === 'web' ? 30 : 10;
+    return Math.max(1, Math.min(maxMinutes, roundedValue));
+}
+
+export function shouldApplySuccessorSessionCap(params: {
+    platform?: string | null;
+    successorStartedAt?: Date | null;
+    latestClientEvidenceEndMs?: number | null;
+    toleranceMs?: number;
+}): boolean {
+    const successor = params.successorStartedAt ?? null;
+    if (!successor || !Number.isFinite(successor.getTime())) return false;
+
+    const latestEvidenceMs = Number(params.latestClientEvidenceEndMs ?? 0);
+    const toleranceMs = params.toleranceMs ?? 1000;
+    if (
+        params.platform === 'web'
+        && Number.isFinite(latestEvidenceMs)
+        && latestEvidenceMs > successor.getTime() + toleranceMs
+    ) {
+        return false;
+    }
+
+    return true;
+}
+
 /** Latest instant allowed by project recording policy (deterministic; not wall clock). */
 export function recordingPolicyUpperBoundEndedAt(startedAt: Date, maxRecordingMinutes: number): Date {
     const farFuture = new Date(startedAt.getTime() + 365 * 24 * 60 * 60 * 1000);

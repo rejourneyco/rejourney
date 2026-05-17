@@ -212,6 +212,7 @@ async function main() {
                 recordingFps: 1,
                 sampleRate: 100,
                 maxRecordingMinutes: 10,
+                webMaxObservabilityMinutes: 30,
             }).returning();
 
             // Create an API key for the project

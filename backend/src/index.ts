@@ -36,6 +36,60 @@ const app = express();
 let isShuttingDown = false;
 let server: Server | undefined;
 
+const CORS_ALLOWED_HEADERS = [
+    'Content-Type',
+    'Authorization',
+    'X-Rejourney-Key',
+    'X-Public-Key',
+    'X-Platform',
+    'X-API-Key',
+    'X-CSRF-Token',
+    'X-Device-Id',
+    'X-Upload-Token',
+    'X-Ingest-Token',
+    'Idempotency-Key',
+    'X-Session-Id',
+];
+
+function isPublicBrowserSdkCorsPath(path: string): boolean {
+    return path === '/api/sdk/config' || path.startsWith('/api/ingest');
+}
+
+function isCorsOriginAllowed(origin: string | undefined, path: string): boolean {
+    // Allow requests with no origin (like mobile apps or curl)
+    if (!origin) return true;
+
+    // Browser SDK calls carry customer-site origins. Let those requests reach
+    // route auth so project webAllowedDomains can make the real decision.
+    if (isPublicBrowserSdkCorsPath(path)) return true;
+
+    // Allow configured dashboard URL and related domains
+    if (config.PUBLIC_DASHBOARD_URL) {
+        // Allow exact match
+        if (origin === config.PUBLIC_DASHBOARD_URL) {
+            return true;
+        }
+
+        try {
+            const dashboardUrl = new URL(config.PUBLIC_DASHBOARD_URL);
+            const originUrl = new URL(origin);
+
+            const dashboardBase = getBaseDomain(dashboardUrl.hostname);
+            const originBase = getBaseDomain(originUrl.hostname);
+
+            // Allow same base domain (e.g., rejourney.co, www.rejourney.co)
+            if (dashboardBase === originBase) {
+                return true;
+            }
+        } catch {
+            // Invalid URL, fall through to deny
+        }
+    }
+
+    // In development, allow all
+    return isDevelopment;
+}
+
 app.set('trust proxy', 1);
 // Disable X-Powered-By header (security best practice)
 app.disable('x-powered-by');
@@ -44,63 +98,14 @@ app.use(helmet({
     contentSecurityPolicy: isDevelopment ? false : undefined,
 }));
 
-app.use(cors({
-    origin: (origin, callback) => {
-        // Allow requests with no origin (like mobile apps or curl)
-        if (!origin) return callback(null, true);
-
-        // Always allow localhost for development
-        const localhostPatterns = [
-            'http://localhost:3000',
-            'http://localhost:8080',
-            'http://localhost:3456',
-            'http://127.0.0.1:3000',
-            'http://127.0.0.1:8080',
-            'http://127.0.0.1:3456',
-        ];
-        if (localhostPatterns.includes(origin)) {
-            return callback(null, true);
-        }
-
-        // Allow configured dashboard URL and related domains
-        if (config.PUBLIC_DASHBOARD_URL) {
-            // Allow exact match
-            if (origin === config.PUBLIC_DASHBOARD_URL) {
-                return callback(null, true);
-            }
-
-            try {
-                const dashboardUrl = new URL(config.PUBLIC_DASHBOARD_URL);
-                const originUrl = new URL(origin);
-
-                const dashboardBase = getBaseDomain(dashboardUrl.hostname);
-                const originBase = getBaseDomain(originUrl.hostname);
-
-                // Allow same base domain (e.g., rejourney.co, www.rejourney.co)
-                if (dashboardBase === originBase) {
-                    return callback(null, true);
-                }
-            } catch {
-                // Invalid URL, fall through to deny
-            }
-        }
-
-        // Allow local network IPs (192.168.x.x, 10.x.x.x, etc.)
-        if (/^https?:\/\/(192\.168\.|10\.|172\.(1[6-9]|2[0-9]|3[01])\.)/.test(origin)) {
-            return callback(null, true);
-        }
-
-        // In development, allow all
-        if (isDevelopment) {
-            return callback(null, true);
-        }
-
-        // Otherwise deny
-        callback(new Error('Not allowed by CORS'));
-    },
-    credentials: true,
-    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'X-Rejourney-Key', 'X-API-Key', 'X-CSRF-Token', 'X-Device-Id', 'X-Upload-Token', 'X-Ingest-Token', 'Idempotency-Key', 'X-Session-Id'],
+app.use(cors((req, callback) => {
+    const origin = req.header('Origin');
+    callback(null, {
+        origin: isCorsOriginAllowed(origin, req.path),
+        credentials: true,
+        methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+        allowedHeaders: CORS_ALLOWED_HEADERS,
+    });
 }));
 
 

@@ -1,0 +1,21 @@
+{
+  "name": "rejourney-web-nuxt-example",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "nuxt dev --host 0.0.0.0 --port 3102",
+    "build": "nuxt build",
+    "preview": "nuxt preview --host 0.0.0.0 --port 3102",
+    "typecheck": "nuxt typecheck"
+  },
+  "dependencies": {
+    "@rejourneyco/browser": "file:../../packages/browser",
+    "nuxt": "^3.16.0",
+    "vue": "^3.5.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3",
+    "vue-tsc": "^2.2.0"
+  }
+}

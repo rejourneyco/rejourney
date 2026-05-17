@@ -25,6 +25,7 @@ import dashboardOverviewRoutes from './dashboardOverview.js';
 import workspaceRoutes from './uiWorkspace.js';
 import demoRoutes from './demo.js';
 import alertsRoutes from './alerts.js';
+import roadmapRoutes from './roadmap.js';
 
 const router = Router();
 
@@ -36,6 +37,9 @@ router.use('/sdk', sdkRoutes);
 
 // Demo routes (public, no auth required)
 router.use('/demo', demoRoutes);
+
+// Public roadmap routes (reads are public, writes require session auth)
+router.use('/roadmap', roadmapRoutes);
 
 // Dashboard routes
 router.use('/projects', projectsRoutes);

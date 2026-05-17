@@ -15,7 +15,7 @@ const CREDENTIAL_STUFFING_MAX_IP_FAILURES = 60;
 const CREDENTIAL_STUFFING_IP_WINDOW_SECONDS = 15 * 60;
 const CREDENTIAL_STUFFING_EMAIL_WINDOW_SECONDS = 30 * 60;
 
-type NewAccountAction = 'team_create' | 'project_create' | 'invite_send' | 'api_key_create';
+type NewAccountAction = 'team_create' | 'project_create' | 'invite_send' | 'api_key_create' | 'roadmap_post';
 
 const NEW_ACCOUNT_ACTION_RULES: Record<
     NewAccountAction,
@@ -54,6 +54,13 @@ const NEW_ACCOUNT_ACTION_RULES: Record<
         shortMax: 10,
         longWindowMs: ONE_DAY_MS,
         longMax: 40,
+    },
+    roadmap_post: {
+        label: 'roadmap posts',
+        shortWindowMs: ONE_HOUR_MS,
+        shortMax: 4,
+        longWindowMs: ONE_DAY_MS,
+        longMax: 12,
     },
 };
 
@@ -343,4 +350,3 @@ export async function assertNoDuplicateContentSpam(params: {
         }
     }
 }
-

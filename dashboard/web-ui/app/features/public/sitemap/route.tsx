@@ -45,6 +45,7 @@ export async function loader() {
 
     const staticRoutes: SitemapRoute[] = [
         { path: "/dashboard", priority: "0.9", changefreq: "daily" },
+        { path: "/roadmap", priority: "0.7", changefreq: "daily" },
     ];
 
     const pricingRoutes: SitemapRoute[] = MARKETING_LOCALE_ORDER.map((code) => ({

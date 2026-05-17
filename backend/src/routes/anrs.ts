@@ -6,13 +6,19 @@
 
 import { Router } from 'express';
 import crypto from 'crypto';
-import { eq, and, desc, gte } from 'drizzle-orm';
+import { eq, and, desc, gte, inArray, type SQL } from 'drizzle-orm';
 import { db, anrs, projects, teamMembers, sessions } from '../db/client.js';
 import { sessionAuth, asyncHandler, ApiError } from '../middleware/index.js';
 import { generateANRFingerprint } from '../services/issueTracker.js';
 import { resolveAnrStackTrace } from '../services/anrStack.js';
 
 const router = Router();
+
+function buildSessionPlatformCondition(platform?: string): SQL | undefined {
+    if (!platform || platform === 'all') return undefined;
+    if (platform === 'mobile') return inArray(sessions.platform, ['ios', 'android']);
+    return eq(sessions.platform, platform);
+}
 
 /**
  * Get ANRs for a project
@@ -25,6 +31,9 @@ router.get(
         const limit = Math.min(parseInt(req.query.limit as string) || 50, 200);
         const offset = parseInt(req.query.offset as string) || 0;
         const timeRange = (req.query.timeRange as string) || '30d';
+        const platform = typeof req.query.platform === 'string' && req.query.platform !== 'all'
+            ? req.query.platform
+            : undefined;
 
         // Verify access to project
         const [project] = await db
@@ -71,6 +80,13 @@ router.get(
 
         // Pull all ANR events in the selected time range and group them into "ANR issues"
         // (same concept as Errors page): grouped by a stable fingerprint derived from threadState.
+        const conditions = [
+            eq(anrs.projectId, projectId),
+            cutoff ? gte(anrs.timestamp, cutoff) : undefined,
+        ];
+        const platformCondition = buildSessionPlatformCondition(platform);
+        if (platformCondition) conditions.push(platformCondition);
+
         const rows = await db
             .select({
                 anr: anrs,
@@ -80,12 +96,7 @@ router.get(
             })
             .from(anrs)
             .leftJoin(sessions, eq(anrs.sessionId, sessions.id))
-            .where(
-                and(
-                    eq(anrs.projectId, projectId),
-                    cutoff ? gte(anrs.timestamp, cutoff) : undefined!
-                )
-            )
+            .where(and(...conditions))
             .orderBy(desc(anrs.timestamp));
 
         type Group = {

@@ -10,9 +10,10 @@ import { NeoBadge } from '~/shared/ui/core/neo/NeoBadge';
 import { Input } from '~/shared/ui/core/Input';
 import { Modal } from '~/shared/ui/core/Modal';
 import { DashboardGhostLoader } from '~/shared/ui/core/DashboardGhostLoader';
-import { DashboardPageHeader } from '~/shared/ui/core/DashboardPageHeader';
-import { Copy, Plus, Trash2, Key, AlertTriangle, CheckCircle, Shield, Info, Check, Settings, Save, AlertOctagon, Smartphone, Clock, Percent } from 'lucide-react';
-import { getAndroidPackageError, getIosBundleIdError } from '~/shared/lib/validation';
+import { SettingsLayout } from '~/shell/components/layout/SettingsLayout';
+import { InfoTooltip } from '~/shared/ui/core/InfoTooltip';
+import { Copy, Plus, Minus, Trash2, Key, AlertTriangle, CheckCircle, Shield, Check, Settings, Save, AlertOctagon, Smartphone, MonitorSmartphone, Percent, Globe } from 'lucide-react';
+import { formatWebAllowedDomainsInput, getAndroidPackageError, getIosBundleIdError, getWebAllowedDomainsError, parseWebAllowedDomainsInput } from '~/shared/lib/validation';
 import {
   getProject,
   updateProject,
@@ -31,6 +32,225 @@ interface SettingsProps {
 
 type TextInputMasking = 'all' | 'secure_only';
 type RecordingFps = 1 | 2 | 3;
+type ProjectSettingsTone = 'blue' | 'emerald' | 'amber' | 'rose' | 'slate';
+
+const PROJECT_SETTINGS_TONES: Record<ProjectSettingsTone, {
+  accent: string;
+  icon: string;
+  pill: string;
+}> = {
+  blue: {
+    accent: 'bg-[#1a73e8]',
+    icon: 'border-blue-100 bg-blue-50 text-blue-700',
+    pill: 'border-blue-100 bg-blue-50 text-blue-700',
+  },
+  emerald: {
+    accent: 'bg-emerald-500',
+    icon: 'border-emerald-100 bg-emerald-50 text-emerald-700',
+    pill: 'border-emerald-100 bg-emerald-50 text-emerald-700',
+  },
+  amber: {
+    accent: 'bg-amber-400',
+    icon: 'border-amber-100 bg-amber-50 text-amber-700',
+    pill: 'border-amber-100 bg-amber-50 text-amber-700',
+  },
+  rose: {
+    accent: 'bg-rose-500',
+    icon: 'border-rose-100 bg-rose-50 text-rose-700',
+    pill: 'border-rose-100 bg-rose-50 text-rose-700',
+  },
+  slate: {
+    accent: 'bg-slate-300',
+    icon: 'border-slate-200 bg-slate-50 text-slate-600',
+    pill: 'border-slate-200 bg-slate-50 text-slate-600',
+  },
+};
+
+interface SettingsSectionProps {
+  id: string;
+  title: string;
+  description: string;
+  icon: React.ReactNode;
+  tone?: ProjectSettingsTone;
+  action?: React.ReactNode;
+  children: React.ReactNode;
+}
+
+const SettingsSection: React.FC<SettingsSectionProps> = ({
+  id,
+  title,
+  description,
+  icon,
+  tone = 'blue',
+  action,
+  children,
+}) => {
+  const toneClasses = PROJECT_SETTINGS_TONES[tone];
+  return (
+    <section id={id} className="project-settings-section dashboard-surface scroll-mt-24 overflow-hidden">
+      <div className={`project-settings-section-accent ${toneClasses.accent}`} />
+      <div className="flex flex-col gap-4 border-b border-slate-100 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex min-w-0 items-start gap-3">
+          <div className={`project-settings-section-icon ${toneClasses.icon}`}>{icon}</div>
+          <div className="min-w-0">
+            <h2 className="text-sm font-semibold text-black">{title}</h2>
+            <p className="mt-1 max-w-2xl text-xs font-medium leading-5 text-slate-500">{description}</p>
+          </div>
+        </div>
+        {action}
+      </div>
+      <div className="divide-y divide-slate-100">
+        {children}
+      </div>
+    </section>
+  );
+};
+
+interface SettingRowProps {
+  title: string;
+  description?: string;
+  icon?: React.ReactNode;
+  children: React.ReactNode;
+}
+
+const SettingRow: React.FC<SettingRowProps> = ({ title, description, icon, children }) => (
+  <div className="project-settings-row grid gap-4 px-5 py-4 lg:grid-cols-[minmax(220px,0.62fr)_minmax(0,1fr)] lg:items-start">
+    <div className="flex min-w-0 gap-3">
+      {icon && <div className="project-settings-row-icon">{icon}</div>}
+      <div className="min-w-0">
+        <h3 className="text-sm font-semibold text-slate-950">{title}</h3>
+        {description && <p className="mt-1 max-w-md text-xs font-medium leading-5 text-slate-500">{description}</p>}
+      </div>
+    </div>
+    <div className="min-w-0">
+      {children}
+    </div>
+  </div>
+);
+
+interface StatusPillProps {
+  label: string;
+  tone?: ProjectSettingsTone;
+}
+
+const StatusPill: React.FC<StatusPillProps> = ({ label, tone = 'slate' }) => (
+  <span className={`project-settings-status-pill ${PROJECT_SETTINGS_TONES[tone].pill}`}>
+    {label}
+  </span>
+);
+
+interface SwitchControlProps {
+  checked: boolean;
+  disabled?: boolean;
+  onChange: (checked: boolean) => void;
+  label: string;
+}
+
+const SwitchControl: React.FC<SwitchControlProps> = ({ checked, disabled, onChange, label }) => (
+  <button
+    type="button"
+    role="switch"
+    aria-checked={checked}
+    aria-label={label}
+    onClick={() => onChange(!checked)}
+    disabled={disabled}
+    className={`project-settings-switch ${checked ? 'project-settings-switch-on' : ''}`}
+  >
+    <span />
+  </button>
+);
+
+interface RangeSettingProps {
+  label: string;
+  value: number;
+  unit: string;
+  min: number;
+  max: number;
+  step?: number;
+  disabled?: boolean;
+  saveState?: string | null;
+  error?: string | null;
+  tooltip?: React.ReactNode;
+  onDraftChange: (value: number) => void;
+  onCommit: () => void;
+}
+
+const RangeSetting: React.FC<RangeSettingProps> = ({
+  label,
+  value,
+  unit,
+  min,
+  max,
+  step = 1,
+  disabled,
+  saveState,
+  error,
+  tooltip,
+  onDraftChange,
+  onCommit,
+}) => {
+  const rangeProgress = max === min ? 0 : ((value - min) / (max - min)) * 100;
+  const commitValue = (nextValue: number) => {
+    const clamped = Math.min(max, Math.max(min, nextValue));
+    if (clamped === value) return;
+    onDraftChange(clamped);
+    onCommit();
+  };
+
+  return (
+    <div className="project-settings-range-card dashboard-inner-surface bg-white p-4">
+      <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <label className="flex min-w-0 items-center gap-2 text-sm font-semibold text-slate-900">
+          <span>{label}</span>
+          {tooltip}
+        </label>
+        <div className="project-settings-stepper" aria-label={`${label} value`}>
+          <button
+            type="button"
+            onClick={() => commitValue(value - step)}
+            disabled={disabled || value <= min}
+            aria-label={`Decrease ${label}`}
+          >
+            <Minus className="h-4 w-4" />
+          </button>
+          <span className="project-settings-stepper-value">{value}{unit}</span>
+          <button
+            type="button"
+            onClick={() => commitValue(value + step)}
+            disabled={disabled || value >= max}
+            aria-label={`Increase ${label}`}
+          >
+            <Plus className="h-4 w-4" />
+          </button>
+        </div>
+      </div>
+      <input
+        type="range"
+        min={min}
+        max={max}
+        step={step}
+        value={value}
+        onChange={(e) => onDraftChange(Number(e.target.value))}
+        onPointerUp={onCommit}
+        onMouseUp={onCommit}
+        onTouchEnd={onCommit}
+        onKeyUp={(e) => { if (['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) onCommit(); }}
+        onBlur={onCommit}
+        disabled={disabled}
+        className="project-settings-range-input"
+        style={{ '--range-progress': `${rangeProgress}%` } as React.CSSProperties}
+      />
+      <div className="mt-3 flex justify-between text-xs font-medium text-slate-400">
+        <span>{min}{unit}</span><span>{max}{unit}</span>
+      </div>
+      {(saveState || error) && (
+        <p className={`mt-2 flex items-center gap-1 text-xs font-semibold ${error ? 'text-red-600' : 'text-slate-500'}`}>
+          {error ? <AlertTriangle className="h-3 w-3" /> : null}{error || saveState}
+        </p>
+      )}
+    </div>
+  );
+};
 
 const normalizeTextInputMasking = (value: unknown): TextInputMasking => (
   value === 'secure_only' ? 'secure_only' : 'all'
@@ -44,6 +264,11 @@ const normalizeRecordingFps = (value: unknown): RecordingFps => {
 const normalizeMaxRecordingMinutes = (value: unknown): number => {
   const numericValue = typeof value === 'number' && Number.isFinite(value) ? Math.round(value) : 10;
   return Math.min(10, Math.max(1, numericValue));
+};
+
+const normalizeWebMaxObservabilityMinutes = (value: unknown): number => {
+  const numericValue = typeof value === 'number' && Number.isFinite(value) ? Math.round(value) : 30;
+  return Math.min(30, Math.max(1, numericValue));
 };
 
 const normalizeSampleRate = (value: unknown): number => {
@@ -90,6 +315,8 @@ export const ProjectSettings: React.FC<SettingsProps> = ({ projectId: propProjec
   const [appName, setAppName] = useState('');
   const [maxRecordingMinutes, setMaxRecordingMinutes] = useState<number>(10);
   const [maxRecordingMinutesDraft, setMaxRecordingMinutesDraft] = useState<number | null>(null);
+  const [webMaxObservabilityMinutes, setWebMaxObservabilityMinutes] = useState<number>(30);
+  const [webMaxObservabilityMinutesDraft, setWebMaxObservabilityMinutesDraft] = useState<number | null>(null);
   const [sampleRate, setSampleRate] = useState<number>(100);
   const [sampleRateDraft, setSampleRateDraft] = useState<number | null>(null);
   const [recordingFps, setRecordingFps] = useState<RecordingFps>(1);
@@ -98,25 +325,32 @@ export const ProjectSettings: React.FC<SettingsProps> = ({ projectId: propProjec
   const [rejourneyEnabled, setRejourneyEnabled] = useState<boolean>(true);
   const [recordingEnabled, setRecordingEnabled] = useState<boolean>(true);
   const [textInputMasking, setTextInputMasking] = useState<TextInputMasking>('all');
+  const [webAllowedDomainsText, setWebAllowedDomainsText] = useState('');
   const [isSaving, setIsSaving] = useState(false);
+  const [isSavingWebDomains, setIsSavingWebDomains] = useState(false);
   const [isSavingDuration, setIsSavingDuration] = useState(false);
+  const [isSavingWebDuration, setIsSavingWebDuration] = useState(false);
   const [isSavingSampleRate, setIsSavingSampleRate] = useState(false);
   const [isSavingRecordingFps, setIsSavingRecordingFps] = useState(false);
   const [isSavingRejourney, setIsSavingRejourney] = useState(false);
   const [isSavingRecording, setIsSavingRecording] = useState(false);
   const [isSavingMasking, setIsSavingMasking] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [webDomainsSaveError, setWebDomainsSaveError] = useState<string | null>(null);
   const [durationSaveError, setDurationSaveError] = useState<string | null>(null);
+  const [webDurationSaveError, setWebDurationSaveError] = useState<string | null>(null);
   const [sampleRateSaveError, setSampleRateSaveError] = useState<string | null>(null);
   const [recordingFpsSaveError, setRecordingFpsSaveError] = useState<string | null>(null);
   const [rejourneySaveError, setRejourneySaveError] = useState<string | null>(null);
   const [recordingSaveError, setRecordingSaveError] = useState<string | null>(null);
   const [maskingSaveError, setMaskingSaveError] = useState<string | null>(null);
   const pendingMaxRecordingMinutesRef = useRef<number | null>(null);
+  const pendingWebMaxObservabilityMinutesRef = useRef<number | null>(null);
   const pendingSampleRateRef = useRef<number | null>(null);
   const pendingTextInputMaskingRef = useRef<TextInputMasking | null>(null);
   const pendingRecordingFpsRef = useRef<RecordingFps | null>(null);
   const maxRecordingMinutesDraftRef = useRef<number | null>(null);
+  const webMaxObservabilityMinutesDraftRef = useRef<number | null>(null);
   const sampleRateDraftRef = useRef<number | null>(null);
   const recordingFpsDraftRef = useRef<RecordingFps | null>(null);
 
@@ -151,6 +385,11 @@ export const ProjectSettings: React.FC<SettingsProps> = ({ projectId: propProjec
     setMaxRecordingMinutesDraft(minutes);
   };
 
+  const setWebMaxObservabilityMinutesDraftValue = (minutes: number | null) => {
+    webMaxObservabilityMinutesDraftRef.current = minutes;
+    setWebMaxObservabilityMinutesDraft(minutes);
+  };
+
   const setSampleRateDraftValue = (rate: number | null) => {
     sampleRateDraftRef.current = rate;
     setSampleRateDraft(rate);
@@ -181,6 +420,14 @@ export const ProjectSettings: React.FC<SettingsProps> = ({ projectId: propProjec
     if (pendingMaxRecordingMinutes && sourceMaxRecordingMinutes === pendingMaxRecordingMinutes) {
       pendingMaxRecordingMinutesRef.current = null;
     }
+    const sourceWebMaxObservabilityMinutes = normalizeWebMaxObservabilityMinutes(nextProject?.webMaxObservabilityMinutes);
+    const pendingWebMaxObservabilityMinutes = pendingWebMaxObservabilityMinutesRef.current;
+    const resolvedWebMaxObservabilityMinutes = pendingWebMaxObservabilityMinutes && sourceWebMaxObservabilityMinutes !== pendingWebMaxObservabilityMinutes
+      ? pendingWebMaxObservabilityMinutes
+      : sourceWebMaxObservabilityMinutes;
+    if (pendingWebMaxObservabilityMinutes && sourceWebMaxObservabilityMinutes === pendingWebMaxObservabilityMinutes) {
+      pendingWebMaxObservabilityMinutesRef.current = null;
+    }
     const sourceSampleRate = normalizeSampleRate(nextProject?.sampleRate);
     const pendingSampleRate = pendingSampleRateRef.current;
     const resolvedSampleRate = pendingSampleRate !== null && pendingSampleRate !== undefined && sourceSampleRate !== pendingSampleRate
@@ -197,17 +444,28 @@ export const ProjectSettings: React.FC<SettingsProps> = ({ projectId: propProjec
     if (pendingRecordingFps && sourceRecordingFps === pendingRecordingFps) {
       pendingRecordingFpsRef.current = null;
     }
+    const sourceWebAllowedDomains = Array.isArray(nextProject?.webAllowedDomains) && nextProject.webAllowedDomains.length > 0
+      ? nextProject.webAllowedDomains
+      : nextProject?.webDomain
+        ? [nextProject.webDomain]
+        : [];
+    const normalizedWebAllowedDomains = parseWebAllowedDomainsInput(formatWebAllowedDomainsInput(sourceWebAllowedDomains));
 
     setProject({
       ...nextProject,
       textInputMasking: masking,
       maxRecordingMinutes: resolvedMaxRecordingMinutes,
+      webMaxObservabilityMinutes: resolvedWebMaxObservabilityMinutes,
       sampleRate: resolvedSampleRate,
       recordingFps: resolvedRecordingFps,
+      webDomain: normalizedWebAllowedDomains[0] ?? null,
+      webAllowedDomains: normalizedWebAllowedDomains,
     });
     setAppName(nextProject.name);
     setMaxRecordingMinutes(resolvedMaxRecordingMinutes);
     setMaxRecordingMinutesDraftValue(null);
+    setWebMaxObservabilityMinutes(resolvedWebMaxObservabilityMinutes);
+    setWebMaxObservabilityMinutesDraftValue(null);
     setSampleRate(resolvedSampleRate);
     setSampleRateDraftValue(null);
     setRecordingFps(resolvedRecordingFps);
@@ -216,6 +474,8 @@ export const ProjectSettings: React.FC<SettingsProps> = ({ projectId: propProjec
     setRejourneyEnabled((nextProject as any).rejourneyEnabled ?? true);
     setRecordingEnabled(nextProject.recordingEnabled ?? true);
     setTextInputMasking(masking);
+    setWebAllowedDomainsText(formatWebAllowedDomainsInput(normalizedWebAllowedDomains));
+    setWebDomainsSaveError(null);
   };
 
   // Find project from context or fetch it
@@ -302,6 +562,58 @@ export const ProjectSettings: React.FC<SettingsProps> = ({ projectId: propProjec
     }
   };
 
+  const handleSaveWebAllowedDomains = async () => {
+    if (!project) {
+      setWebDomainsSaveError('Project not loaded');
+      return;
+    }
+    const isWebProject = project.platforms?.includes('web');
+    const validationError = getWebAllowedDomainsError(webAllowedDomainsText, isWebProject);
+    if (validationError) {
+      setWebDomainsSaveError(validationError);
+      return;
+    }
+
+    const domains = parseWebAllowedDomainsInput(webAllowedDomainsText);
+    try {
+      setIsSavingWebDomains(true);
+      setWebDomainsSaveError(null);
+      const updatedProject = await updateProject(project.id, {
+        webAllowedDomains: domains,
+        webDomain: domains[0] ?? null,
+      });
+      const confirmedDomains = parseWebAllowedDomainsInput(
+        formatWebAllowedDomainsInput(updatedProject.webAllowedDomains?.length ? updatedProject.webAllowedDomains : domains),
+      );
+      setProject({
+        ...project,
+        ...updatedProject,
+        webDomain: confirmedDomains[0] ?? null,
+        webAllowedDomains: confirmedDomains,
+      });
+      setWebAllowedDomainsText(formatWebAllowedDomainsInput(confirmedDomains));
+      const currentSelectedProject = selectedProject?.id === project.id ? selectedProject : null;
+      if (currentSelectedProject) {
+        setSelectedProject({
+          ...currentSelectedProject,
+          ...(updatedProject as any),
+          webDomain: confirmedDomains[0] ?? null,
+          webAllowedDomains: confirmedDomains,
+          platforms: (updatedProject.platforms as any) || currentSelectedProject.platforms,
+          bundleId: updatedProject.bundleId || currentSelectedProject.bundleId,
+          createdAt: updatedProject.createdAt || currentSelectedProject.createdAt,
+          sessionsLast7Days: currentSelectedProject.sessionsLast7Days,
+          errorsLast7Days: currentSelectedProject.errorsLast7Days,
+        });
+      }
+      await refreshSessions();
+    } catch (err) {
+      setWebDomainsSaveError(err instanceof Error ? err.message : 'Failed to update web allowed domains');
+    } finally {
+      setIsSavingWebDomains(false);
+    }
+  };
+
   const handleMaxRecordingMinutesChange = async (minutes: number): Promise<boolean> => {
     if (!project) {
       setDurationSaveError('Project not loaded');
@@ -363,6 +675,69 @@ export const ProjectSettings: React.FC<SettingsProps> = ({ projectId: propProjec
     }
     setMaxRecordingMinutesDraftValue(null);
     await handleMaxRecordingMinutesChange(nextMinutes);
+  };
+
+  const handleWebMaxObservabilityMinutesChange = async (minutes: number): Promise<boolean> => {
+    if (!project) {
+      setWebDurationSaveError('Project not loaded');
+      return false;
+    }
+    const clamped = normalizeWebMaxObservabilityMinutes(minutes);
+    if (clamped === webMaxObservabilityMinutes) {
+      return false;
+    }
+    const previous = webMaxObservabilityMinutes;
+    try {
+      setIsSavingWebDuration(true);
+      setWebDurationSaveError(null);
+      pendingWebMaxObservabilityMinutesRef.current = clamped;
+      setWebMaxObservabilityMinutes(clamped);
+      const updatedProject = await updateProject(project.id, { webMaxObservabilityMinutes: clamped });
+      const confirmedMinutes = normalizeWebMaxObservabilityMinutes(updatedProject.webMaxObservabilityMinutes ?? clamped);
+      pendingWebMaxObservabilityMinutesRef.current = confirmedMinutes;
+      setProject({ ...project, ...updatedProject, webMaxObservabilityMinutes: confirmedMinutes });
+      setWebMaxObservabilityMinutes(confirmedMinutes);
+      const currentSelectedProject = selectedProject?.id === project.id ? selectedProject : null;
+      if (currentSelectedProject) {
+        setSelectedProject({
+          ...currentSelectedProject,
+          ...(updatedProject as any),
+          webMaxObservabilityMinutes: confirmedMinutes,
+          platforms: currentSelectedProject.platforms,
+          bundleId: updatedProject.bundleId || currentSelectedProject.bundleId,
+          createdAt: updatedProject.createdAt || currentSelectedProject.createdAt,
+          sessionsLast7Days: currentSelectedProject.sessionsLast7Days,
+          errorsLast7Days: currentSelectedProject.errorsLast7Days,
+        });
+      }
+      await refreshSessions();
+      return true;
+    } catch (err) {
+      pendingWebMaxObservabilityMinutesRef.current = null;
+      setWebDurationSaveError(err instanceof Error ? err.message : 'Failed to update web observability duration');
+      setWebMaxObservabilityMinutes(previous);
+      return false;
+    } finally {
+      setIsSavingWebDuration(false);
+    }
+  };
+
+  const handleWebMaxObservabilityMinutesDraftChange = (minutes: number) => {
+    setWebDurationSaveError(null);
+    setWebMaxObservabilityMinutesDraftValue(normalizeWebMaxObservabilityMinutes(minutes));
+  };
+
+  const commitWebMaxObservabilityMinutesDraft = async () => {
+    const nextMinutes = webMaxObservabilityMinutesDraftRef.current;
+    if (isSavingWebDuration) {
+      return;
+    }
+    if (!nextMinutes || nextMinutes === webMaxObservabilityMinutes) {
+      setWebMaxObservabilityMinutesDraftValue(null);
+      return;
+    }
+    setWebMaxObservabilityMinutesDraftValue(null);
+    await handleWebMaxObservabilityMinutesChange(nextMinutes);
   };
 
   const handleSampleRateChange = async (rate: number): Promise<boolean> => {
@@ -675,8 +1050,13 @@ export const ProjectSettings: React.FC<SettingsProps> = ({ projectId: propProjec
 
   if (error || !project) {
     return (
-      <div className="firebase-settings-page firebase-project-settings-page min-h-screen bg-[#f8fafd] p-8">
-        <div className="mx-auto max-w-5xl">
+      <SettingsLayout
+        className="firebase-settings-page firebase-project-settings-page"
+        title="Project Settings"
+        description="Configure project"
+        icon={<Settings className="w-6 h-6" />}
+        iconColor="bg-[#f4f4f5]"
+      >
         <NeoCard className="p-6 border-rose-600 bg-rose-50">
           <div className="flex gap-4 items-center">
             <AlertTriangle className="text-rose-600 w-6 h-6" />
@@ -686,609 +1066,602 @@ export const ProjectSettings: React.FC<SettingsProps> = ({ projectId: propProjec
             </div>
           </div>
         </NeoCard>
-        </div>
-      </div>
+      </SettingsLayout>
     );
   }
 
   const displayedMaxRecordingMinutes = maxRecordingMinutesDraft ?? maxRecordingMinutes;
+  const displayedWebMaxObservabilityMinutes = webMaxObservabilityMinutesDraft ?? webMaxObservabilityMinutes;
   const displayedSampleRate = sampleRateDraft ?? sampleRate;
   const displayedRecordingFps = recordingFpsDraft ?? recordingFpsConfirmation ?? recordingFps;
+  const savedWebAllowedDomains = parseWebAllowedDomainsInput(
+    formatWebAllowedDomainsInput(project.webAllowedDomains?.length ? project.webAllowedDomains : project.webDomain ? [project.webDomain] : []),
+  );
+  const parsedWebAllowedDomains = parseWebAllowedDomainsInput(webAllowedDomainsText);
+  const webAllowedDomainsValidationError = getWebAllowedDomainsError(webAllowedDomainsText, project.platforms?.includes('web'));
+  const hasWebAllowedDomainsChanges = formatWebAllowedDomainsInput(savedWebAllowedDomains) !== formatWebAllowedDomainsInput(parsedWebAllowedDomains);
+  const iosBundleDraft = (project as any)._newBundleId ?? project.bundleId ?? '';
+  const androidPackageDraft = (project as any)._newPackageName ?? project.packageName ?? '';
+  const iosBundleError = (project as any)._newBundleId !== undefined
+    ? getIosBundleIdError((project as any)._newBundleId || '')
+    : null;
+  const androidPackageError = (project as any)._newPackageName !== undefined
+    ? getAndroidPackageError((project as any)._newPackageName || '')
+    : null;
+  const observabilityLabel = !rejourneyEnabled
+    ? 'Paused'
+    : recordingEnabled
+      ? 'Recording'
+      : 'Observe Only';
+  const observabilityTone: ProjectSettingsTone = !rejourneyEnabled
+    ? 'slate'
+    : recordingEnabled
+      ? 'emerald'
+      : 'blue';
+  const copyIcon = (field: string) => copiedField === field
+    ? <Check className="h-4 w-4 text-emerald-600" />
+    : <Copy className="h-4 w-4" />;
+  const platformLabels: string[] = Array.isArray(project.platforms) && project.platforms.length > 0
+    ? project.platforms.map((platform: string) => String(platform))
+    : [];
+  const platformCountLabel = platformLabels.length === 1 ? '1 platform' : `${platformLabels.length} platforms`;
+  const privacyTone: ProjectSettingsTone = textInputMasking === 'all' ? 'emerald' : 'amber';
+  const navItems = [
+    { href: '#project-profile', label: 'Project Profile', detail: platformCountLabel, tone: 'blue' as ProjectSettingsTone, icon: <Settings className="h-4 w-4" /> },
+    { href: '#sdk-intake', label: 'SDK Intake', detail: observabilityLabel, tone: observabilityTone, icon: <Shield className="h-4 w-4" /> },
+    { href: '#capture-budget', label: 'Replay Quality', detail: `${displayedSampleRate}% sample`, tone: 'emerald' as ProjectSettingsTone, icon: <Percent className="h-4 w-4" /> },
+    { href: '#privacy', label: 'Privacy', detail: textInputMasking === 'all' ? 'Mask all inputs' : 'Secure only', tone: privacyTone, icon: <CheckCircle className="h-4 w-4" /> },
+    { href: '#developer-setup', label: 'Developer Setup', detail: isSelfHosted ? `${apiKeys.length} API keys` : 'Client keys', tone: 'slate' as ProjectSettingsTone, icon: <Key className="h-4 w-4" /> },
+    ...(canEdit ? [{ href: '#danger-zone', label: 'Danger Zone', detail: 'Protected action', tone: 'rose' as ProjectSettingsTone, icon: <AlertOctagon className="h-4 w-4" /> }] : []),
+  ];
 
   return (
-    <div className="firebase-settings-page firebase-project-settings-page flex min-h-screen flex-col bg-[#f8fafd] font-sans text-slate-900">
-      <DashboardPageHeader
-        title="Project Settings"
-        subtitle={`Configure ${project.name}`}
-        icon={<Settings className="w-6 h-6" />}
-        iconColor="bg-[#f4f4f5]"
-      >
-        {!canEdit ? <NeoBadge variant="warning">View Only</NeoBadge> : null}
-      </DashboardPageHeader>
+    <SettingsLayout
+      className="firebase-settings-page firebase-project-settings-page"
+      title="Project Settings"
+      description={`Configure ${project.name}`}
+      icon={<Settings className="w-6 h-6" />}
+      iconColor="bg-[#f4f4f5]"
+      headerAction={!canEdit ? <NeoBadge variant="warning">View Only</NeoBadge> : undefined}
+    >
+      <div className="project-settings-console grid gap-5 xl:grid-cols-[260px_minmax(0,1fr)]">
+        <aside className="project-settings-rail dashboard-surface p-4">
+          <div className="border-b border-slate-100 pb-4">
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Project Map</p>
+            <h2 className="mt-2 truncate text-lg font-semibold text-slate-950">{project.name}</h2>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <StatusPill label={observabilityLabel} tone={observabilityTone} />
+              <StatusPill label={platformCountLabel} tone="slate" />
+            </div>
+          </div>
 
-      <div className="settings-layout-content mx-auto w-full max-w-[1600px] flex-1 space-y-12 px-4 py-6 sm:px-6">
+          <nav className="mt-3 space-y-1" aria-label="Project settings sections">
+            {navItems.map((item) => (
+              <a key={item.href} href={item.href} className="project-settings-rail-item">
+                <span className={`project-settings-rail-icon ${PROJECT_SETTINGS_TONES[item.tone].icon}`}>{item.icon}</span>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-sm font-semibold text-slate-900">{item.label}</span>
+                  <span className="block truncate text-xs font-medium text-slate-500">{item.detail}</span>
+                </span>
+              </a>
+            ))}
+          </nav>
+        </aside>
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          {/* Left Column: Main Settings */}
-          <div className="lg:col-span-2 space-y-6">
+        <div className="min-w-0 space-y-5">
+          <SettingsSection
+            id="project-profile"
+            title="Project Profile"
+            description="The human name and client app identifiers Rejourney uses to accept sessions."
+            icon={<Settings className="h-5 w-5" />}
+            tone="blue"
+            action={<StatusPill label={platformCountLabel} tone="slate" />}
+          >
+            <SettingRow
+              title="Project name"
+              description="Shown throughout the dashboard, alerts, and project switcher."
+              icon={<Settings className="h-4 w-4" />}
+            >
+              <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
+                <Input
+                  label="Name"
+                  value={appName}
+                  onChange={(e) => {
+                    setAppName(e.target.value);
+                    setSaveError(null);
+                  }}
+                  disabled={!canEdit}
+                  className="font-mono font-semibold"
+                />
+                <NeoButton
+                  variant="primary"
+                  onClick={handleSaveName}
+                  disabled={!canEdit || isSaving || !appName || appName === project.name}
+                  leftIcon={<Save className="h-4 w-4" />}
+                >
+                  {isSaving ? 'Saving...' : 'Save'}
+                </NeoButton>
+              </div>
+              {saveError && (
+                <p className="mt-2 flex items-center gap-1 text-xs font-semibold text-red-600">
+                  <AlertTriangle className="h-4 w-4" /> {saveError}
+                </p>
+              )}
+            </SettingRow>
 
-            {/* General Section */}
-            <section className="space-y-4">
-              <h2 className="text-xl font-semibold uppercase tracking-tight">General Information</h2>
-              <NeoCard className="p-6">
-                <div className="space-y-4">
-                  <div className="flex gap-4 items-end">
-                    <div className="flex-1">
-                      <Input
-                        label="Project Name"
-                        value={appName}
-                        onChange={(e) => {
-                          setAppName(e.target.value);
-                          setSaveError(null);
-                        }}
-                        disabled={!canEdit}
-                        className="font-mono font-bold"
-                      />
-                    </div>
-                    {canEdit && (
-                      <NeoButton
-                        variant="primary"
-                        onClick={handleSaveName}
-                        disabled={isSaving || !appName || appName === project.name}
-                        leftIcon={<Save className="w-4 h-4" />}
-                      >
-                        {isSaving ? 'Saving...' : 'Save Changes'}
-                      </NeoButton>
-                    )}
-                  </div>
-                  {saveError && (
-                    <p className="text-xs font-bold text-red-600 flex items-center gap-1 uppercase tracking-wide">
-                      <AlertTriangle className="w-4 h-4" /> {saveError}
-                    </p>
-                  )}
-                </div>
-              </NeoCard>
-            </section>
-
-            {/* App Identifiers */}
-            <section className="space-y-4">
-              <h2 className="text-xl font-semibold uppercase tracking-tight">App Identifiers</h2>
-              <NeoCard className="p-6">
-                <div className="space-y-6">
-                  {/* iOS Bundle ID */}
-                  <div className="space-y-3">
-                    <label className="text-sm font-bold font-mono uppercase text-black tracking-wide flex items-center gap-2">
-                      <Smartphone className="w-4 h-4" />
-                      iOS Bundle ID
-                    </label>
-                    <div className="flex gap-2">
-                      <Input
-                        placeholder="com.example.app"
-                        value={(project as any)._newBundleId ?? project.bundleId ?? ''}
-                        onChange={(e) => setProject({ ...project, _newBundleId: e.target.value })}
-                        disabled={!canEdit}
-                        className="font-mono text-sm font-bold flex-1 border border-slate-100/80"
-                      />
-                      {canEdit && (
-                        <NeoButton
-                          variant="primary"
-                          size="md"
-                          disabled={
-                            !((project as any)._newBundleId ?? project.bundleId) ||
-                            (project as any)._newBundleId === project.bundleId ||
-                            ((project as any)._newBundleId !== undefined && !!getIosBundleIdError((project as any)._newBundleId || ''))
-                          }
-                          onClick={async () => {
-                            try {
-                              const value = (project as any)._newBundleId ?? project.bundleId;
-                              await updateProject(project.id, { bundleId: value });
-                              await refreshSessions();
-                              setProject({ ...project, bundleId: value, _newBundleId: undefined });
-                            } catch (err) {
-                              alert(err instanceof Error ? err.message : 'Failed to save');
-                            }
-                          }}
-                        >
-                          <Save className="w-4 h-4 mr-1" /> Save
-                        </NeoButton>
-                      )}
-                    </div>
-                    {(project as any)._newBundleId && getIosBundleIdError((project as any)._newBundleId) && (
-                      <p className="text-xs font-bold text-red-600 flex items-center gap-1 uppercase">
-                        <AlertTriangle className="w-3 h-3" /> {getIosBundleIdError((project as any)._newBundleId)}
-                      </p>
-                    )}
-                  </div>
-
-                  {/* Divider */}
-                  <div className="h-[2px] bg-slate-200"></div>
-
-                  {/* Android Package Name */}
-                  <div className="space-y-3">
-                    <label className="text-sm font-bold font-mono uppercase text-black tracking-wide flex items-center gap-2">
-                      <Shield className="w-4 h-4" />
-                      Android Package Name
-                    </label>
-                    <div className="flex gap-2">
-                      <Input
-                        placeholder="com.example.app"
-                        value={(project as any)._newPackageName ?? project.packageName ?? ''}
-                        onChange={(e) => setProject({ ...project, _newPackageName: e.target.value })}
-                        disabled={!canEdit}
-                        className="font-mono text-sm font-bold flex-1 border border-slate-100/80"
-                      />
-                      {canEdit && (
-                        <NeoButton
-                          variant="primary"
-                          size="md"
-                          disabled={
-                            !((project as any)._newPackageName ?? project.packageName) ||
-                            (project as any)._newPackageName === project.packageName ||
-                            ((project as any)._newPackageName !== undefined && !!getAndroidPackageError((project as any)._newPackageName || ''))
-                          }
-                          onClick={async () => {
-                            try {
-                              const value = (project as any)._newPackageName ?? project.packageName;
-                              await updateProject(project.id, { packageName: value });
-                              await refreshSessions();
-                              setProject({ ...project, packageName: value, _newPackageName: undefined });
-                            } catch (err) {
-                              alert(err instanceof Error ? err.message : 'Failed to save');
-                            }
-                          }}
-                        >
-                          <Save className="w-4 h-4 mr-1" /> Save
-                        </NeoButton>
-                      )}
-                    </div>
-                    {(project as any)._newPackageName && getAndroidPackageError((project as any)._newPackageName) && (
-                      <p className="text-xs font-bold text-red-600 flex items-center gap-1 uppercase">
-                        <AlertTriangle className="w-3 h-3" /> {getAndroidPackageError((project as any)._newPackageName)}
-                      </p>
-                    )}
-                  </div>
-                </div>
-              </NeoCard>
-            </section>
-
-            {/* Recording Status */}
-            <section className="space-y-4">
-              <h2 className="text-xl font-semibold uppercase tracking-tight">Remote Observability Toggles</h2>
-
-              <NeoCard className="p-4">
-                <div className="flex items-center justify-between gap-4">
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 mb-0.5">
-                      <h3 className="text-sm font-bold uppercase tracking-tight">Rejourney SDK</h3>
-                      <span className={`text-[10px] font-black uppercase tracking-wide ${rejourneyEnabled ? 'text-emerald-700' : 'text-slate-400'}`}>
-                        {isSavingRejourney ? 'Saving…' : rejourneyEnabled ? 'Active' : 'Disabled'}
-                      </span>
-                    </div>
-                    <p className="text-xs text-slate-500 font-medium leading-snug">
-                      {rejourneyEnabled
-                        ? 'SDK initializes and collects observability data.'
-                        : 'SDK disabled — no data collected or sent from device.'}
-                    </p>
-                    {rejourneySaveError && (
-                      <p className="text-[10px] text-red-600 mt-1 font-bold uppercase">{rejourneySaveError}</p>
-                    )}
-                  </div>
-                  {canEdit && (
-                    <button
-                      type="button"
-                      role="switch"
-                      aria-checked={rejourneyEnabled}
-                      onClick={() => handleToggleRejourney(!rejourneyEnabled)}
-                      disabled={isSavingRejourney}
-                      className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer items-center border-2 border-slate-900 transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${rejourneyEnabled ? 'bg-emerald-500' : 'bg-slate-200'}`}
+            <SettingRow
+              title="App identifiers"
+              description="Keep these aligned with the apps that send sessions to this project."
+              icon={<Smartphone className="h-4 w-4" />}
+            >
+              <div className="mb-3 flex flex-wrap gap-2">
+                {platformLabels.length > 0 ? platformLabels.map((platform) => (
+                  <span key={platform} className="project-settings-platform-pill">
+                    {platform === 'web' ? <Globe className="h-3.5 w-3.5" /> : platform === 'ios' ? <Smartphone className="h-3.5 w-3.5" /> : <Shield className="h-3.5 w-3.5" />}
+                    {platform}
+                  </span>
+                )) : <span className="text-xs font-semibold text-slate-400">No platforms configured</span>}
+              </div>
+              <div className="grid gap-3 lg:grid-cols-2">
+                <div className="project-settings-field-card dashboard-inner-surface bg-white p-4">
+                  <label className="mb-2 flex items-center gap-2 text-sm font-semibold text-slate-900">
+                    <Smartphone className="h-4 w-4" />
+                    iOS Bundle ID
+                  </label>
+                  <div className="flex flex-col gap-2 sm:flex-row">
+                    <Input
+                      placeholder="com.example.app"
+                      value={iosBundleDraft}
+                      onChange={(e) => setProject({ ...project, _newBundleId: e.target.value })}
+                      disabled={!canEdit}
+                      className="flex-1 font-mono text-sm font-semibold"
+                    />
+                    <NeoButton
+                      variant="primary"
+                      size="sm"
+                      disabled={
+                        !canEdit ||
+                        !iosBundleDraft ||
+                        (project as any)._newBundleId === undefined ||
+                        iosBundleDraft === project.bundleId ||
+                        !!iosBundleError
+                      }
+                      onClick={async () => {
+                        try {
+                          const value = iosBundleDraft;
+                          await updateProject(project.id, { bundleId: value });
+                          await refreshSessions();
+                          setProject({ ...project, bundleId: value, _newBundleId: undefined });
+                        } catch (err) {
+                          alert(err instanceof Error ? err.message : 'Failed to save');
+                        }
+                      }}
                     >
-                      <span className={`inline-block h-4 w-4 border-2 border-slate-900 bg-white shadow transition-transform ${rejourneyEnabled ? 'translate-x-5' : 'translate-x-0.5'}`} />
-                    </button>
-                  )}
-                </div>
-              </NeoCard>
-
-              <NeoCard className="p-4 mt-3">
-                <div className="flex items-center justify-between gap-4">
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 mb-0.5">
-                      <h3 className="text-sm font-bold uppercase tracking-tight">Session Recording</h3>
-                      <span className={`text-[10px] font-black uppercase tracking-wide ${recordingEnabled && rejourneyEnabled ? 'text-emerald-700' : 'text-slate-400'}`}>
-                        {isSavingRecording ? 'Saving…' : recordingEnabled ? 'Enabled' : 'Observe Only'}
-                      </span>
-                    </div>
-                    <p className="text-xs text-slate-500 font-medium leading-snug">
-                      {recordingEnabled
-                        ? 'Session replays are captured and uploaded. Toggle off to enable Observe Only mode.'
-                        : 'Observe Only mode — analytics and issues tracked, no replays captured. Since analytics is still collected, each session still counts towards usage.'}
-                    </p>
-                    {!rejourneyEnabled && (
-                      <p className="text-[10px] text-slate-400 font-bold uppercase mt-0.5">Overridden by SDK toggle above.</p>
-                    )}
-                  </div>
-                  {canEdit && (
-                    <button
-                      type="button"
-                      role="switch"
-                      aria-checked={recordingEnabled}
-                      onClick={() => handleToggleRecording(!recordingEnabled)}
-                      disabled={isSavingRecording || !rejourneyEnabled}
-                      className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer items-center border-2 border-slate-900 transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${recordingEnabled && rejourneyEnabled ? 'bg-emerald-500' : 'bg-slate-200'}`}
-                    >
-                      <span className={`inline-block h-4 w-4 border-2 border-slate-900 bg-white shadow transition-transform ${recordingEnabled ? 'translate-x-5' : 'translate-x-0.5'}`} />
-                    </button>
-                  )}
-                </div>
-              </NeoCard>
-
-              <NeoCard className="p-6 mt-4">
-                <div className="space-y-4">
-                  <div className="flex-1">
-                    <div className="flex items-center gap-3 mb-1">
-                      <Shield className="w-5 h-5 text-slate-900" />
-                      <h3 className="text-lg font-bold uppercase">Text Input Privacy</h3>
-                      <NeoBadge variant={textInputMasking === 'all' ? 'success' : 'warning'}>
-                        {isSavingMasking ? 'Saving' : textInputMasking === 'all' ? 'Privacy First' : 'Debug Detail'}
-                      </NeoBadge>
-                    </div>
-                    <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide mb-2">Swift Package 0.2.0+ · React Native 1.2.0+</p>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4 max-w-2xl">
-                      <button
-                        type="button"
-                        onClick={() => handleTextInputMaskingChange('all')}
-                        disabled={!canEdit || isSavingMasking}
-                        className={`text-left border-2 p-3 transition-all disabled:cursor-not-allowed disabled:opacity-60 ${textInputMasking === 'all' ? 'border-black bg-emerald-50 shadow-[3px_3px_0_0_#000]' : 'border-slate-200 bg-white hover:border-slate-400'}`}
-                      >
-                        <div className="flex items-center justify-between mb-3">
-                          <span className="text-[10px] font-black uppercase text-slate-500">All Inputs</span>
-                          {textInputMasking === 'all' && <CheckCircle className="w-4 h-4 text-emerald-700" />}
-                        </div>
-                        <div className="space-y-2">
-                          <div className="h-3 w-24 max-w-full bg-slate-900" />
-                          <div className="h-3 w-36 max-w-full bg-slate-900" />
-                        </div>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleTextInputMaskingChange('secure_only')}
-                        disabled={!canEdit || isSavingMasking}
-                        className={`text-left border-2 p-3 transition-all disabled:cursor-not-allowed disabled:opacity-60 ${textInputMasking === 'secure_only' ? 'border-black bg-amber-50 shadow-[3px_3px_0_0_#000]' : 'border-slate-200 bg-white hover:border-slate-400'}`}
-                      >
-                        <div className="flex items-center justify-between mb-3">
-                          <span className="text-[10px] font-black uppercase text-slate-500">Secure Only</span>
-                          {textInputMasking === 'secure_only' && <CheckCircle className="w-4 h-4 text-amber-700" />}
-                        </div>
-                        <div className="space-y-2">
-                          <div className="border border-slate-300 bg-white p-2">
-                            <div className="mb-1 text-[10px] font-black uppercase text-slate-400">Name</div>
-                            <div className="truncate font-mono text-xs font-bold text-slate-800">Alex Morgan</div>
-                          </div>
-                          <div className="border border-slate-300 bg-white p-2">
-                            <div className="mb-1 text-[10px] font-black uppercase text-slate-400">Password</div>
-                            <div className="h-3 w-24 max-w-full bg-slate-900" />
-                          </div>
-                        </div>
-                      </button>
-                    </div>
-                    <div className="flex flex-wrap items-center gap-3 text-[10px] font-bold uppercase text-slate-500">
-                      <span className="inline-flex items-center gap-1"><Shield className="w-3 h-3" /> Secure fields stay masked</span>
-                    </div>
-                    {maskingSaveError && (
-                      <p className="text-xs text-red-600 mt-2 font-bold uppercase">{maskingSaveError}</p>
-                    )}
-                  </div>
-                </div>
-              </NeoCard>
-            </section>
-
-            {/* API Keys Section (Self Hosted Only) */}
-            {isSelfHosted && (
-              <section className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <h2 className="text-xl font-semibold uppercase tracking-tight">API Keys</h2>
-                  {canEdit && (
-                    <NeoButton size="sm" variant="secondary" onClick={() => { setShowCreateKeyModal(true); setCreatedApiKey(null); }}>
-                      <Plus className="w-4 h-4" /> Create Key
+                      <Save className="h-4 w-4" /> Save
                     </NeoButton>
+                  </div>
+                  {iosBundleError && (
+                    <p className="mt-2 flex items-center gap-1 text-xs font-semibold text-red-600">
+                      <AlertTriangle className="h-3 w-3" /> {iosBundleError}
+                    </p>
                   )}
                 </div>
-                <NeoCard className="p-6">
-                  <div className="space-y-4">
-                    {isLoadingKeys ? (
-                      <div className="text-center py-4 text-slate-500 text-sm font-bold uppercase animate-pulse">Loading keys...</div>
-                    ) : apiKeys.length === 0 ? (
-                      <div className="text-center py-8 bg-slate-50 border-2 border-dashed border-slate-900">
-                        <Key className="w-8 h-8 text-slate-300 mx-auto mb-2" />
-                        <p className="text-slate-500 text-xs font-bold uppercase tracking-wider">No API keys created yet</p>
-                      </div>
-                    ) : (
-                      <div className="space-y-3">
-                        {apiKeys.map((key) => (
-                          <div key={key.id} className="flex items-center justify-between p-4 bg-slate-50 border-2 border-slate-900 hover:border-slate-700 transition-colors">
-                            <div>
-                              <div className="flex items-center gap-3">
-                                <span className="font-mono text-sm font-bold text-slate-900">{key.truncatedKey}</span>
-                                <NeoBadge variant="success" size="sm">Active</NeoBadge>
-                              </div>
-                              <div className="text-[10px] font-bold text-slate-400 mt-1 uppercase tracking-wide">
-                                Created {new Date(key.createdAt).toLocaleDateString()}
-                                {key.lastUsedAt && ` • Last used ${new Date(key.lastUsedAt).toLocaleDateString()}`}
-                              </div>
-                            </div>
-                            {canEdit && (
-                              <NeoButton
-                                variant="ghost"
-                                size="sm"
-                                className="text-red-600 hover:bg-red-50 hover:text-red-700"
-                                onClick={() => handleRevokeApiKey(key.id)}
-                              >
-                                Revoke
-                              </NeoButton>
-                            )}
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                </NeoCard>
-              </section>
-            )}
 
-            {/* Danger Zone */}
-            {canEdit && (
-              <section className="space-y-4 pt-8">
-                <h2 className="text-xl font-semibold uppercase tracking-tight text-red-600 flex items-center gap-2">
-                  <AlertOctagon className="w-6 h-6" /> Danger Zone
-                </h2>
-                <NeoCard className="p-6 border-rose-600 bg-rose-50">
-                  <div>
-                    <h3 className="text-lg font-semibold text-rose-900 uppercase tracking-tight">Delete Project</h3>
-                    <p className="text-rose-700 text-sm font-bold mt-1 max-w-xl">
-                      Deleting a project is irreversible. All recordings, analytics, and data will be permanently removed.
-                    </p>
+                <div className="project-settings-field-card dashboard-inner-surface bg-white p-4">
+                  <label className="mb-2 flex items-center gap-2 text-sm font-semibold text-slate-900">
+                    <Shield className="h-4 w-4" />
+                    Android Package Name
+                  </label>
+                  <div className="flex flex-col gap-2 sm:flex-row">
+                    <Input
+                      placeholder="com.example.app"
+                      value={androidPackageDraft}
+                      onChange={(e) => setProject({ ...project, _newPackageName: e.target.value })}
+                      disabled={!canEdit}
+                      className="flex-1 font-mono text-sm font-semibold"
+                    />
+                    <NeoButton
+                      variant="primary"
+                      size="sm"
+                      disabled={
+                        !canEdit ||
+                        !androidPackageDraft ||
+                        (project as any)._newPackageName === undefined ||
+                        androidPackageDraft === project.packageName ||
+                        !!androidPackageError
+                      }
+                      onClick={async () => {
+                        try {
+                          const value = androidPackageDraft;
+                          await updateProject(project.id, { packageName: value });
+                          await refreshSessions();
+                          setProject({ ...project, packageName: value, _newPackageName: undefined });
+                        } catch (err) {
+                          alert(err instanceof Error ? err.message : 'Failed to save');
+                        }
+                      }}
+                    >
+                      <Save className="h-4 w-4" /> Save
+                    </NeoButton>
                   </div>
+                  {androidPackageError && (
+                    <p className="mt-2 flex items-center gap-1 text-xs font-semibold text-red-600">
+                      <AlertTriangle className="h-3 w-3" /> {androidPackageError}
+                    </p>
+                  )}
+                </div>
+              </div>
+            </SettingRow>
+
+            <SettingRow
+              title="Web allowed domains"
+              description="Browser origins that can authenticate with the shared project key."
+              icon={<Globe className="h-4 w-4" />}
+            >
+              <div className="mb-2 flex flex-wrap items-center justify-between gap-3">
+                <div className="flex items-center gap-2">
+                  <StatusPill label={`${parsedWebAllowedDomains.length} domains`} tone="slate" />
+                  <InfoTooltip
+                    label="i"
+                    align="left"
+                    content="Web SDK only. Browser origins must match this list before a web session can authenticate."
+                  />
+                </div>
+                <NeoButton
+                  variant="primary"
+                  size="sm"
+                  disabled={!canEdit || isSavingWebDomains || !hasWebAllowedDomainsChanges || !!webAllowedDomainsValidationError}
+                  onClick={handleSaveWebAllowedDomains}
+                  leftIcon={<Save className="h-4 w-4" />}
+                >
+                  {isSavingWebDomains ? 'Saving...' : 'Save'}
+                </NeoButton>
+              </div>
+              <textarea
+                placeholder="app.example.com, www.example.com, *.example.com"
+                value={webAllowedDomainsText}
+                onChange={(e) => {
+                  setWebAllowedDomainsText(e.target.value);
+                  setWebDomainsSaveError(null);
+                }}
+                rows={3}
+                disabled={!canEdit}
+                className="min-h-[88px] w-full resize-y rounded-md border border-slate-200 bg-white px-3 py-2 font-mono text-sm font-semibold text-slate-900 placeholder:text-slate-400 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-500"
+              />
+              {(webDomainsSaveError || webAllowedDomainsValidationError) && (
+                <p className="mt-2 flex items-center gap-1 text-xs font-semibold text-red-600">
+                  <AlertTriangle className="h-3 w-3" /> {webDomainsSaveError || webAllowedDomainsValidationError}
+                </p>
+              )}
+            </SettingRow>
+          </SettingsSection>
+
+          <SettingsSection
+            id="sdk-intake"
+            title="SDK Intake"
+            description="Gate incoming data before it becomes replay, analytics, and diagnostics."
+            icon={<Shield className="h-5 w-5" />}
+            tone={observabilityTone}
+            action={<StatusPill label={observabilityLabel} tone={observabilityTone} />}
+          >
+            <SettingRow
+              title="SDK collection"
+              description="Master project switch for new events and diagnostics."
+              icon={<Shield className="h-4 w-4" />}
+            >
+              <div className="project-settings-toggle-card dashboard-inner-surface flex items-center justify-between gap-4 bg-white p-4">
+                <div className="min-w-0">
+                  <StatusPill label={isSavingRejourney ? 'Saving' : rejourneyEnabled ? 'Active' : 'Disabled'} tone={rejourneyEnabled ? 'emerald' : 'slate'} />
+                  {rejourneySaveError && <p className="mt-2 text-xs font-semibold text-red-600">{rejourneySaveError}</p>}
+                </div>
+                <SwitchControl
+                  checked={rejourneyEnabled}
+                  onChange={handleToggleRejourney}
+                  disabled={!canEdit || isSavingRejourney}
+                  label="Toggle SDK collection"
+                />
+              </div>
+            </SettingRow>
+
+            <SettingRow
+              title="Session replay"
+              description="Controls whether captured sessions include replay media."
+              icon={<MonitorSmartphone className="h-4 w-4" />}
+            >
+              <div className="project-settings-toggle-card dashboard-inner-surface flex items-center justify-between gap-4 bg-white p-4">
+                <div className="min-w-0">
+                  <StatusPill
+                    label={isSavingRecording ? 'Saving' : recordingEnabled && rejourneyEnabled ? 'Capturing' : 'Observe only'}
+                    tone={recordingEnabled && rejourneyEnabled ? 'emerald' : 'slate'}
+                  />
+                  {!rejourneyEnabled && <p className="mt-2 text-xs font-semibold text-slate-400">Requires SDK collection.</p>}
+                  {recordingSaveError && <p className="mt-2 text-xs font-semibold text-red-600">{recordingSaveError}</p>}
+                </div>
+                <SwitchControl
+                  checked={recordingEnabled}
+                  onChange={handleToggleRecording}
+                  disabled={!canEdit || isSavingRecording || !rejourneyEnabled}
+                  label="Toggle session replay"
+                />
+              </div>
+            </SettingRow>
+          </SettingsSection>
+
+          <SettingsSection
+            id="capture-budget"
+            title="Replay Quality"
+            description="Set capture length, sample volume, and mobile frame rate without hunting through separate panels."
+            icon={<Percent className="h-5 w-5" />}
+            tone="emerald"
+          >
+            <SettingRow
+              title="Capture budgets"
+              description="Balanced defaults keep replays useful while limiting device and storage cost."
+              icon={<MonitorSmartphone className="h-4 w-4" />}
+            >
+              <div className="grid gap-3 lg:grid-cols-2">
+                <RangeSetting
+                  label="Mobile replay length"
+                  value={displayedMaxRecordingMinutes}
+                  unit=" min"
+                  min={1}
+                  max={10}
+                  disabled={!canEdit || isSavingDuration}
+                  saveState={isSavingDuration ? 'Saving...' : null}
+                  error={durationSaveError}
+                  tooltip={<InfoTooltip label="i" align="left" content="Mobile SDKs only. Caps iOS and Android screenshot replay capture." />}
+                  onDraftChange={handleMaxRecordingMinutesDraftChange}
+                  onCommit={() => void commitMaxRecordingMinutesDraft()}
+                />
+                <RangeSetting
+                  label="Web observability length"
+                  value={displayedWebMaxObservabilityMinutes}
+                  unit=" min"
+                  min={1}
+                  max={30}
+                  disabled={!canEdit || isSavingWebDuration}
+                  saveState={isSavingWebDuration ? 'Saving...' : null}
+                  error={webDurationSaveError}
+                  tooltip={<InfoTooltip label="i" align="left" content="Web SDK only. Caps browser DOM/event replay and web session observability." />}
+                  onDraftChange={handleWebMaxObservabilityMinutesDraftChange}
+                  onCommit={() => void commitWebMaxObservabilityMinutesDraft()}
+                />
+                <RangeSetting
+                  label="Session sample rate"
+                  value={displayedSampleRate}
+                  unit="%"
+                  min={0}
+                  max={100}
+                  disabled={!canEdit || isSavingSampleRate}
+                  saveState={isSavingSampleRate ? 'Saving...' : null}
+                  error={sampleRateSaveError}
+                  tooltip={<InfoTooltip label="i" align="left" content="Applies to both web and mobile SDK sessions." />}
+                  onDraftChange={handleSampleRateDraftChange}
+                  onCommit={() => void commitSampleRateDraft()}
+                />
+                <RangeSetting
+                  label="Mobile recording FPS"
+                  value={displayedRecordingFps}
+                  unit=" fps"
+                  min={1}
+                  max={3}
+                  disabled={!canEdit || isSavingRecordingFps || Boolean(recordingFpsConfirmation)}
+                  saveState={isSavingRecordingFps ? 'Saving...' : null}
+                  error={recordingFpsSaveError}
+                  tooltip={<InfoTooltip label="i" align="left" content="Mobile SDKs only. Controls screenshot capture frequency for iOS and Android replay." />}
+                  onDraftChange={(value) => handleRecordingFpsDraftChange(normalizeRecordingFps(value))}
+                  onCommit={() => void commitRecordingFpsDraft()}
+                />
+              </div>
+            </SettingRow>
+          </SettingsSection>
+
+          <SettingsSection
+            id="privacy"
+            title="Privacy"
+            description="Choose the default masking posture for text fields in replay."
+            icon={<CheckCircle className="h-5 w-5" />}
+            tone={privacyTone}
+            action={<StatusPill label={isSavingMasking ? 'Saving' : textInputMasking === 'all' ? 'Privacy first' : 'Debug detail'} tone={privacyTone} />}
+          >
+            <SettingRow
+              title="Text input masking"
+              description="Use stricter masking for sensitive projects, or expose non-secure fields when debugging needs it."
+              icon={<Shield className="h-4 w-4" />}
+            >
+              <div className="grid gap-3 sm:grid-cols-2">
+                <button
+                  type="button"
+                  aria-pressed={textInputMasking === 'all'}
+                  onClick={() => handleTextInputMaskingChange('all')}
+                  disabled={!canEdit || isSavingMasking}
+                  className={`settings-option-card text-left transition-all disabled:cursor-not-allowed disabled:opacity-60 ${textInputMasking === 'all' ? 'dashboard-inner-surface border-emerald-300 bg-emerald-50 p-4' : 'dashboard-inner-surface bg-white p-4 hover:border-slate-300'}`}
+                >
+                  <div className="mb-3 flex items-center justify-between">
+                    <span className="text-sm font-semibold text-slate-900">Mask All Inputs</span>
+                    {textInputMasking === 'all' && <CheckCircle className="h-4 w-4 text-emerald-700" />}
+                  </div>
+                  <div className="space-y-2">
+                    <div className="h-3 w-24 max-w-full rounded bg-slate-900" />
+                    <div className="h-3 w-36 max-w-full rounded bg-slate-900" />
+                  </div>
+                </button>
+                <button
+                  type="button"
+                  aria-pressed={textInputMasking === 'secure_only'}
+                  onClick={() => handleTextInputMaskingChange('secure_only')}
+                  disabled={!canEdit || isSavingMasking}
+                  className={`settings-option-card text-left transition-all disabled:cursor-not-allowed disabled:opacity-60 ${textInputMasking === 'secure_only' ? 'dashboard-inner-surface border-amber-300 bg-amber-50 p-4' : 'dashboard-inner-surface bg-white p-4 hover:border-slate-300'}`}
+                >
+                  <div className="mb-3 flex items-center justify-between">
+                    <span className="text-sm font-semibold text-slate-900">Secure Fields Only</span>
+                    {textInputMasking === 'secure_only' && <CheckCircle className="h-4 w-4 text-amber-700" />}
+                  </div>
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    <div className="rounded border border-slate-200 bg-white p-2">
+                      <div className="mb-1 text-xs font-medium text-slate-400">Name</div>
+                      <div className="truncate font-mono text-xs font-bold text-slate-800">Alex Morgan</div>
+                    </div>
+                    <div className="rounded border border-slate-200 bg-white p-2">
+                      <div className="mb-1 text-xs font-medium text-slate-400">Password</div>
+                      <div className="h-3 w-24 max-w-full rounded bg-slate-900" />
+                    </div>
+                  </div>
+                </button>
+              </div>
+              {maskingSaveError && (
+                <p className="mt-3 flex items-center gap-1 text-xs font-semibold text-red-600">
+                  <AlertTriangle className="h-3 w-3" /> {maskingSaveError}
+                </p>
+              )}
+            </SettingRow>
+          </SettingsSection>
+
+          <SettingsSection
+            id="developer-setup"
+            title="Developer Setup"
+            description="The stable identifiers needed by SDK setup, support, and backend integrations."
+            icon={<Key className="h-5 w-5" />}
+            tone="slate"
+          >
+            <SettingRow
+              title="Client identifiers"
+              description="Project ID and public key are safe to use in client SDK configuration."
+              icon={<Key className="h-4 w-4" />}
+            >
+              <div className="grid gap-3 lg:grid-cols-2">
+                <div>
+                  <div className="mb-1 flex items-center gap-2 text-xs font-medium text-slate-500">
+                    <Key className="h-3 w-3" /> Project ID
+                  </div>
+                  <div className="project-settings-code-row dashboard-inner-surface flex items-center gap-2 bg-white px-3 py-2">
+                    <code className="min-w-0 flex-1 break-all font-mono text-xs font-semibold text-slate-900">{project.id}</code>
+                    <button
+                      type="button"
+                      onClick={() => handleCopy(project.id, 'projectId')}
+                      className="project-settings-copy-button"
+                      title="Copy Project ID"
+                      aria-label="Copy Project ID"
+                    >
+                      {copyIcon('projectId')}
+                    </button>
+                  </div>
+                </div>
+                <div>
+                  <div className="mb-1 flex items-center gap-2 text-xs font-medium text-slate-500">
+                    <Shield className="h-3 w-3" /> Public Key
+                  </div>
+                  <div className="project-settings-code-row dashboard-inner-surface flex items-center gap-2 bg-white px-3 py-2">
+                    <code className="min-w-0 flex-1 truncate font-mono text-xs font-semibold text-slate-900">{project.publicKey}</code>
+                    <button
+                      type="button"
+                      onClick={() => handleCopy(project.publicKey, 'publicKey')}
+                      className="project-settings-copy-button"
+                      title="Copy Public Key"
+                      aria-label="Copy Public Key"
+                    >
+                      {copyIcon('publicKey')}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </SettingRow>
+
+            {isSelfHosted && (
+              <SettingRow
+                title="API keys"
+                description="Secret keys for backend administrative access in self-hosted deployments."
+                icon={<Shield className="h-4 w-4" />}
+              >
+                <div className="project-settings-api-keys">
+                  <div className="mb-3 flex items-center justify-between gap-3">
+                    <StatusPill label={`${apiKeys.length} active`} tone={apiKeys.length > 0 ? 'emerald' : 'slate'} />
+                    <NeoButton
+                      size="sm"
+                      variant="secondary"
+                      disabled={!canEdit}
+                      onClick={() => { setShowCreateKeyModal(true); setCreatedApiKey(null); }}
+                      leftIcon={<Plus className="h-4 w-4" />}
+                    >
+                      Create
+                    </NeoButton>
+                  </div>
+                  {keyError && (
+                    <p className="mb-3 flex items-center gap-1 text-xs font-semibold text-red-600">
+                      <AlertTriangle className="h-3 w-3" /> {keyError}
+                    </p>
+                  )}
+                  {isLoadingKeys ? (
+                    <div className="dashboard-inner-surface py-6 text-center text-sm font-semibold text-slate-500 animate-pulse">Loading keys...</div>
+                  ) : apiKeys.length === 0 ? (
+                    <div className="dashboard-inner-surface border-dashed py-8 text-center">
+                      <Key className="mx-auto mb-2 h-8 w-8 text-slate-300" />
+                      <p className="text-xs font-semibold text-slate-500">No API keys created yet</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      {apiKeys.map((key) => (
+                        <div key={key.id} className="dashboard-inner-surface flex items-center justify-between gap-3 p-3">
+                          <div className="min-w-0">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className="truncate font-mono text-sm font-semibold text-slate-900">{key.truncatedKey}</span>
+                              <NeoBadge variant="success" size="sm">Active</NeoBadge>
+                            </div>
+                            <div className="mt-1 text-xs font-medium text-slate-400">
+                              Created {new Date(key.createdAt).toLocaleDateString()}
+                              {key.lastUsedAt && ` / Last used ${new Date(key.lastUsedAt).toLocaleDateString()}`}
+                            </div>
+                          </div>
+                          <NeoButton
+                            variant="ghost"
+                            size="sm"
+                            disabled={!canEdit}
+                            className="shrink-0 text-red-600 hover:bg-red-50 hover:text-red-700"
+                            onClick={() => handleRevokeApiKey(key.id)}
+                          >
+                            Revoke
+                          </NeoButton>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </SettingRow>
+            )}
+          </SettingsSection>
+
+          {canEdit && (
+            <SettingsSection
+              id="danger-zone"
+              title="Danger Zone"
+              description="Permanent project deletion lives alone so it is visible but never mixed with routine setup."
+              icon={<AlertOctagon className="h-5 w-5" />}
+              tone="rose"
+              action={<StatusPill label="Irreversible" tone="rose" />}
+            >
+              <SettingRow
+                title="Delete project"
+                description="All recordings, analytics, and project data will be permanently removed."
+                icon={<Trash2 className="h-4 w-4" />}
+              >
+                <div className="dashboard-inner-surface flex flex-col justify-between gap-4 border-rose-200 bg-rose-50 p-4 sm:flex-row sm:items-center">
+                  <p className="text-sm font-medium text-rose-700">Requires the project name and email verification code.</p>
                   <NeoButton
                     variant="danger"
                     onClick={() => setShowDeleteModal(true)}
-                    leftIcon={<Trash2 className="w-4 h-4" />}
-                    className="mt-4"
+                    leftIcon={<Trash2 className="h-4 w-4" />}
+                    className="shrink-0"
                   >
-                    Delete Project Permanently
+                    Delete Project
                   </NeoButton>
-                </NeoCard>
-              </section>
-            )}
-          </div>
-
-          {/* Right Column: Configuration & Info */}
-          <div className="space-y-8">
-            {/* Recording Configuration */}
-            <section className="space-y-4">
-              <h2 className="text-xl font-semibold uppercase tracking-tight">Configuration</h2>
-              <NeoCard className="p-6">
-                <div className="divide-y divide-slate-200">
-                  <div className="pb-6">
-                    <div className="mb-4 flex items-center justify-between gap-3">
-                      <label className="text-sm font-semibold uppercase text-slate-900 tracking-wide flex items-center gap-2">
-                        <Clock className="w-4 h-4" />
-                        Max Observability Duration
-                        {isSavingDuration && <NeoBadge variant="neutral" size="sm">Saving</NeoBadge>}
-                      </label>
-                      <span className="font-mono text-sm font-black text-slate-900">{displayedMaxRecordingMinutes} min</span>
-                    </div>
-                    <div className="space-y-3">
-                      <input
-                        type="range"
-                        min={1}
-                        max={10}
-                        step={1}
-                        value={displayedMaxRecordingMinutes}
-                        onChange={(e) => {
-                          handleMaxRecordingMinutesDraftChange(Number(e.target.value));
-                        }}
-                        onPointerUp={() => {
-                          void commitMaxRecordingMinutesDraft();
-                        }}
-                        onMouseUp={() => {
-                          void commitMaxRecordingMinutesDraft();
-                        }}
-                        onTouchEnd={() => {
-                          void commitMaxRecordingMinutesDraft();
-                        }}
-                        onKeyUp={(e) => {
-                          if (['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) {
-                            void commitMaxRecordingMinutesDraft();
-                          }
-                        }}
-                        onBlur={() => {
-                          void commitMaxRecordingMinutesDraft();
-                        }}
-                        disabled={!canEdit || isSavingDuration}
-                        className="h-2 w-full cursor-pointer accent-slate-900 disabled:cursor-not-allowed disabled:opacity-60"
-                      />
-                      <div className="flex items-center justify-between text-[10px] font-black uppercase tracking-wide text-slate-400">
-                        <span>1 min</span>
-                        <span>10 min</span>
-                      </div>
-                      {durationSaveError && (
-                        <p className="text-xs font-bold text-red-600 mt-2 uppercase flex items-center gap-1">
-                          <AlertTriangle className="w-3 h-3" /> {durationSaveError}
-                        </p>
-                      )}
-                    </div>
-                  </div>
-
-                  <div className="pt-6">
-                    <div className="mb-4 flex items-center justify-between gap-3">
-                      <div>
-                        <label className="text-sm font-semibold uppercase text-slate-900 tracking-wide flex items-center gap-2">
-                          <Percent className="w-4 h-4" />
-                          Sample Rate
-                          {isSavingSampleRate && <NeoBadge variant="neutral" size="sm">Saving</NeoBadge>}
-                        </label>
-                        <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide mt-0.5">Swift Package 0.2.0+ · React Native 1.2.0+</p>
-                      </div>
-                      <span className="font-mono text-sm font-black text-cyan-900">{displayedSampleRate}%</span>
-                    </div>
-                    <div className="space-y-3">
-                      <input
-                        type="range"
-                        min={0}
-                        max={100}
-                        step={1}
-                        value={displayedSampleRate}
-                        onChange={(e) => {
-                          handleSampleRateDraftChange(Number(e.target.value));
-                        }}
-                        onPointerUp={() => {
-                          void commitSampleRateDraft();
-                        }}
-                        onMouseUp={() => {
-                          void commitSampleRateDraft();
-                        }}
-                        onTouchEnd={() => {
-                          void commitSampleRateDraft();
-                        }}
-                        onKeyUp={(e) => {
-                          if (['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) {
-                            void commitSampleRateDraft();
-                          }
-                        }}
-                        onBlur={() => {
-                          void commitSampleRateDraft();
-                        }}
-                        disabled={!canEdit || isSavingSampleRate}
-                        className="h-2 w-full cursor-pointer accent-cyan-700 disabled:cursor-not-allowed disabled:opacity-60"
-                      />
-                      <div className="flex items-center justify-between text-[10px] font-black uppercase tracking-wide text-slate-400">
-                        <span>0%</span>
-                        <span>100%</span>
-                      </div>
-                      {sampleRateSaveError && (
-                        <p className="text-xs font-bold text-red-600 uppercase flex items-center gap-1">
-                          <AlertTriangle className="w-3 h-3" /> {sampleRateSaveError}
-                        </p>
-                      )}
-                    </div>
-                  </div>
-
-                  <div className="pt-6">
-                    <div className="mb-4 flex items-center justify-between gap-3">
-                      <div>
-                        <label className="text-sm font-semibold uppercase text-slate-900 tracking-wide flex items-center gap-2">
-                          Recording FPS
-                          {isSavingRecordingFps && <NeoBadge variant="neutral" size="sm">Saving</NeoBadge>}
-                        </label>
-                        <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide mt-0.5">Swift Package 0.2.0+ · React Native 1.2.0+</p>
-                      </div>
-                      <span className="font-mono text-sm font-black text-cyan-900">{displayedRecordingFps} fps</span>
-                    </div>
-                    <div className="space-y-3">
-                      <input
-                        type="range"
-                        min={1}
-                        max={3}
-                        step={1}
-                        value={displayedRecordingFps}
-                        onChange={(e) => {
-                          handleRecordingFpsDraftChange(normalizeRecordingFps(Number(e.target.value)));
-                        }}
-                        onPointerUp={() => {
-                          void commitRecordingFpsDraft();
-                        }}
-                        onMouseUp={() => {
-                          void commitRecordingFpsDraft();
-                        }}
-                        onTouchEnd={() => {
-                          void commitRecordingFpsDraft();
-                        }}
-                        onKeyUp={(e) => {
-                          if (['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) {
-                            void commitRecordingFpsDraft();
-                          }
-                        }}
-                        onBlur={() => {
-                          void commitRecordingFpsDraft();
-                        }}
-                        disabled={!canEdit || isSavingRecordingFps || Boolean(recordingFpsConfirmation)}
-                        className="h-2 w-full cursor-pointer accent-cyan-700 disabled:cursor-not-allowed disabled:opacity-60"
-                      />
-                      {recordingFpsSaveError && (
-                        <p className="text-xs font-bold text-red-600 uppercase flex items-center gap-1">
-                          <AlertTriangle className="w-3 h-3" /> {recordingFpsSaveError}
-                        </p>
-                      )}
-                    </div>
-                  </div>
                 </div>
-              </NeoCard>
-            </section>
-
-            {/* Technical Info */}
-            <section className="space-y-4">
-              <h2 className="text-xl font-semibold uppercase tracking-tight">Technical Details</h2>
-              <NeoCard className="p-0 overflow-hidden">
-                <div className="divide-y-2 divide-slate-200">
-                  <div className="p-5 group hover:bg-slate-50 transition-colors">
-                    <div className="text-xs font-semibold text-slate-600 uppercase tracking-wide mb-2 flex items-center gap-2">
-                      <Key className="w-3 h-3" /> Project ID
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <div className="font-mono text-sm font-bold text-slate-900 break-all flex-1 bg-slate-50 px-3 py-2 border-2 border-slate-900">
-                        {project.id}
-                      </div>
-                      <button
-                        onClick={() => handleCopy(project.id, 'projectId')}
-                        className="flex-shrink-0 p-2 hover:bg-slate-900 hover:text-white border border-slate-100/80 rounded transition-all active:scale-95"
-                        title="Copy Project ID"
-                      >
-                        {copiedField === 'projectId' ? (
-                          <Check className="w-4 h-4 text-emerald-600" />
-                        ) : (
-                          <Copy className="w-4 h-4" />
-                        )}
-                      </button>
-                    </div>
-                  </div>
-                  <div className="p-5 group hover:bg-slate-50 transition-colors">
-                    <div className="text-xs font-semibold text-slate-600 uppercase tracking-wide mb-2 flex items-center gap-2">
-                      <Shield className="w-3 h-3" /> Public Key
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <div className="font-mono text-sm font-bold text-slate-900 truncate flex-1 bg-slate-50 px-3 py-2 border-2 border-slate-900">
-                        {project.publicKey}
-                      </div>
-                      <button
-                        onClick={() => handleCopy(project.publicKey, 'publicKey')}
-                        className="flex-shrink-0 p-2 hover:bg-slate-900 hover:text-white border border-slate-100/80 rounded transition-all active:scale-95"
-                        title="Copy Public Key"
-                      >
-                        {copiedField === 'publicKey' ? (
-                          <Check className="w-4 h-4 text-emerald-600" />
-                        ) : (
-                          <Copy className="w-4 h-4" />
-                        )}
-                      </button>
-                    </div>
-                  </div>
-                  <div className="p-5">
-                    <div className="text-xs font-semibold text-slate-600 uppercase tracking-wide mb-3 flex items-center gap-2">
-                      <Smartphone className="w-3 h-3" /> Platforms
-                    </div>
-                    <div className="flex gap-2 flex-wrap">
-                      {project.platforms?.map((p: any) => (
-                        <NeoBadge key={p} variant="info" size="md">{p}</NeoBadge>
-                      )) || <span className="text-xs font-bold text-slate-400 uppercase">None configured</span>}
-                    </div>
-                  </div>
-                </div>
-              </NeoCard>
-            </section>
-
-          </div>
+              </SettingRow>
+            </SettingsSection>
+          )}
         </div>
+      </div>
 
-        {/* Recording FPS Confirmation Modal */}
+      {/* Recording FPS Confirmation Modal */}
         <Modal
           isOpen={recordingFpsConfirmation !== null}
           onClose={handleCancelRecordingFpsChange}
@@ -1480,8 +1853,7 @@ export const ProjectSettings: React.FC<SettingsProps> = ({ projectId: propProjec
             )}
           </div>
         </Modal>
-      </div>
-    </div>
+    </SettingsLayout>
   );
 };
 

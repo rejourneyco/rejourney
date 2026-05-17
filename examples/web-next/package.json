@@ -1,0 +1,23 @@
+{
+  "name": "rejourney-web-next-example",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev -H 0.0.0.0 -p 3100",
+    "build": "next build",
+    "start": "next start -H 0.0.0.0 -p 3100",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@rejourneyco/browser": "file:../../packages/browser",
+    "next": "^15.2.1",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^25.8.0",
+    "@types/react": "^19.1.0",
+    "@types/react-dom": "^19.1.0",
+    "typescript": "^5.9.3"
+  }
+}

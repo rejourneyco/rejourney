@@ -14,6 +14,10 @@ export const publicRoutes = [
   ]),
   route("contribute", "features/public/contribute/route.tsx", { id: "public-contribute" }),
   route("changelog", "features/public/changelog/route.tsx", { id: "public-changelog" }),
+  route("roadmap", "features/public/roadmap/route.tsx", { id: "public-roadmap" }),
+  ...MARKETING_LOCALE_SLUGS.map((locale) =>
+    route(`${locale}/roadmap`, "features/public/roadmap/route.tsx", { id: `public-roadmap-${locale}` })
+  ),
   route("pricing", "features/public/pricing/route.tsx", { id: "public-pricing" }),
   ...MARKETING_LOCALE_SLUGS.map((locale) =>
     route(`${locale}/pricing`, "features/public/pricing/route.tsx", { id: `public-pricing-${locale}` })

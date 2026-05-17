@@ -1,15 +1,56 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { useSessionData } from '~/shared/providers/SessionContext';
-import { Bell, UserPlus, X, Check, AlertTriangle, Clock, Mail, Info, AlertOctagon, Terminal, Activity, ChevronRight, Search, ChevronLeft } from 'lucide-react';
-import { NeoButton } from '~/shared/ui/core/neo/NeoButton';
-import { NeoCard } from '~/shared/ui/core/neo/NeoCard';
-import { NeoBadge } from '~/shared/ui/core/neo/NeoBadge';
-import { DashboardPageHeader } from '~/shared/ui/core/DashboardPageHeader';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router';
-import { usePathPrefix } from '~/shell/routing/usePathPrefix';
+import {
+    Activity,
+    AlertOctagon,
+    AlertTriangle,
+    Check,
+    ChevronLeft,
+    ChevronRight,
+    Clock,
+    Filter,
+    Info,
+    Mail,
+    Plus,
+    RotateCcw,
+    Search,
+    SlidersHorizontal,
+    Terminal,
+    Trash2,
+    UserPlus,
+    Users,
+    X,
+    Zap,
+} from 'lucide-react';
+import { useSessionData } from '~/shared/providers/SessionContext';
+import { DashboardPageHeader } from '~/shared/ui/core/DashboardPageHeader';
 import { DashboardGhostLoader } from '~/shared/ui/core/DashboardGhostLoader';
+import { NeoBadge } from '~/shared/ui/core/neo/NeoBadge';
+import { NeoButton } from '~/shared/ui/core/neo/NeoButton';
+import { API_BASE_URL, getCsrfToken } from '~/shared/config/appConfig';
+import { usePathPrefix } from '~/shell/routing/usePathPrefix';
 
-// Alert settings types
+type EmailRuleAlertType = 'crash' | 'anr' | 'error_spike' | 'api_degradation';
+type EmailRuleMetric = 'affected_users' | 'duration_ms' | 'percent_increase' | 'latency_ms';
+type EmailRuleOperator = 'gt' | 'gte' | 'lt' | 'lte';
+type EmailRuleSeverity = 'critical' | 'high' | 'watch';
+type EmailRuleSource = 'default' | 'custom';
+
+interface EmailAlertRule {
+    id: string;
+    name: string;
+    description?: string;
+    alertType: EmailRuleAlertType;
+    metric: EmailRuleMetric;
+    operator: EmailRuleOperator;
+    threshold: number;
+    windowMinutes: number;
+    severity: EmailRuleSeverity;
+    enabled: boolean;
+    source: EmailRuleSource;
+    updatedAt: string;
+}
+
 interface AlertSettings {
     id: string;
     projectId: string;
@@ -18,7 +59,9 @@ interface AlertSettings {
     errorSpikeAlertsEnabled: boolean;
     apiDegradationAlertsEnabled: boolean;
     errorSpikeThresholdPercent: number;
+    apiDegradationThresholdPercent: number;
     apiLatencyThresholdMs: number;
+    emailRules: EmailAlertRule[];
 }
 
 interface AlertRecipient {
@@ -58,8 +101,71 @@ interface EmailLogPagination {
     totalPages: number;
 }
 
-// Import centralized config
-import { API_BASE_URL, getCsrfToken } from '~/shared/config/appConfig';
+const DEFAULT_RULE_UPDATED_AT = '2026-01-01T00:00:00.000Z';
+
+const EVENT_META: Record<EmailRuleAlertType, {
+    label: string;
+    shortLabel: string;
+    icon: React.ReactNode;
+    accent: string;
+    badgeVariant: 'danger' | 'anr' | 'warning' | 'info';
+}> = {
+    crash: {
+        label: 'Crash',
+        shortLabel: 'Crash',
+        icon: <AlertOctagon className="h-4 w-4" />,
+        accent: 'bg-[#fb7185]',
+        badgeVariant: 'danger',
+    },
+    anr: {
+        label: 'ANR Freeze',
+        shortLabel: 'ANR',
+        icon: <Clock className="h-4 w-4" />,
+        accent: 'bg-[#c4b5fd]',
+        badgeVariant: 'anr',
+    },
+    error_spike: {
+        label: 'Error Spike',
+        shortLabel: 'Errors',
+        icon: <Terminal className="h-4 w-4" />,
+        accent: 'bg-[#f9a8d4]',
+        badgeVariant: 'warning',
+    },
+    api_degradation: {
+        label: 'API Degradation',
+        shortLabel: 'API',
+        icon: <Activity className="h-4 w-4" />,
+        accent: 'bg-[#67e8f9]',
+        badgeVariant: 'info',
+    },
+};
+
+const METRIC_LABELS: Record<EmailRuleMetric, string> = {
+    affected_users: 'Affected users',
+    duration_ms: 'Freeze duration',
+    percent_increase: 'Percent increase',
+    latency_ms: 'Latency',
+};
+
+const METRICS_BY_EVENT: Record<EmailRuleAlertType, EmailRuleMetric[]> = {
+    crash: ['affected_users'],
+    anr: ['duration_ms', 'affected_users'],
+    error_spike: ['percent_increase'],
+    api_degradation: ['percent_increase', 'latency_ms'],
+};
+
+const OPERATOR_WORDS: Record<EmailRuleOperator, string> = {
+    gt: 'more than',
+    gte: 'at least',
+    lt: 'less than',
+    lte: 'at most',
+};
+
+const SEVERITY_VARIANTS: Record<EmailRuleSeverity, 'danger' | 'warning' | 'info'> = {
+    critical: 'danger',
+    high: 'warning',
+    watch: 'info',
+};
 
 function getHeaders(includeBody = false): HeadersInit {
     const headers: HeadersInit = {};
@@ -135,7 +241,7 @@ async function removeAlertRecipient(projectId: string, userId: string): Promise<
 
 async function getEmailLogs(
     projectId: string,
-    options: { search?: string; alertType?: string; page?: number; limit?: number } = {}
+    options: { search?: string; alertType?: string; page?: number; limit?: number } = {},
 ): Promise<{ logs: EmailLog[]; pagination: EmailLogPagination }> {
     const params = new URLSearchParams();
     if (options.search) params.set('search', options.search);
@@ -151,107 +257,282 @@ async function getEmailLogs(
     return res.json();
 }
 
-// Toggle component - Neo style
+function buildDefaultRules(settings: Partial<AlertSettings> = {}): EmailAlertRule[] {
+    const crashEnabled = settings.crashAlertsEnabled ?? true;
+    const anrEnabled = settings.anrAlertsEnabled ?? true;
+    const errorSpikeEnabled = settings.errorSpikeAlertsEnabled ?? true;
+    const apiEnabled = settings.apiDegradationAlertsEnabled ?? true;
+
+    return [
+        {
+            id: 'default-crash-impact',
+            name: 'Crash impact',
+            description: 'New crash groups affecting at least one user.',
+            alertType: 'crash',
+            metric: 'affected_users',
+            operator: 'gte',
+            threshold: 1,
+            windowMinutes: 60,
+            severity: 'critical',
+            enabled: crashEnabled,
+            source: 'default',
+            updatedAt: DEFAULT_RULE_UPDATED_AT,
+        },
+        {
+            id: 'default-anr-freeze',
+            name: 'ANR freeze',
+            description: 'Application freezes lasting two seconds or longer.',
+            alertType: 'anr',
+            metric: 'duration_ms',
+            operator: 'gte',
+            threshold: 2000,
+            windowMinutes: 60,
+            severity: 'high',
+            enabled: anrEnabled,
+            source: 'default',
+            updatedAt: DEFAULT_RULE_UPDATED_AT,
+        },
+        {
+            id: 'default-error-spike',
+            name: 'Error spike',
+            description: 'Error rate increases beyond the project threshold.',
+            alertType: 'error_spike',
+            metric: 'percent_increase',
+            operator: 'gte',
+            threshold: settings.errorSpikeThresholdPercent ?? 50,
+            windowMinutes: 60,
+            severity: 'high',
+            enabled: errorSpikeEnabled,
+            source: 'default',
+            updatedAt: DEFAULT_RULE_UPDATED_AT,
+        },
+        {
+            id: 'default-api-degradation',
+            name: 'API degradation',
+            description: 'Endpoint latency is at least twice the recent baseline.',
+            alertType: 'api_degradation',
+            metric: 'percent_increase',
+            operator: 'gte',
+            threshold: settings.apiDegradationThresholdPercent ?? 100,
+            windowMinutes: 60,
+            severity: 'high',
+            enabled: apiEnabled,
+            source: 'default',
+            updatedAt: DEFAULT_RULE_UPDATED_AT,
+        },
+        {
+            id: 'default-api-latency',
+            name: 'Slow API ceiling',
+            description: 'Current endpoint latency exceeds the absolute ceiling.',
+            alertType: 'api_degradation',
+            metric: 'latency_ms',
+            operator: 'gte',
+            threshold: settings.apiLatencyThresholdMs ?? 3000,
+            windowMinutes: 60,
+            severity: 'watch',
+            enabled: apiEnabled,
+            source: 'default',
+            updatedAt: DEFAULT_RULE_UPDATED_AT,
+        },
+    ];
+}
+
+function hydrateRules(settings: AlertSettings | null): EmailAlertRule[] {
+    const rawRules = settings?.emailRules;
+    if (Array.isArray(rawRules) && rawRules.length > 0) {
+        return rawRules.map((rule) => ({
+            ...rule,
+            threshold: Number(rule.threshold) || 0,
+            windowMinutes: Number(rule.windowMinutes) || 60,
+            updatedAt: rule.updatedAt || new Date().toISOString(),
+        }));
+    }
+
+    return buildDefaultRules(settings ?? {});
+}
+
+function deriveAlertSettingsPatch(rules: EmailAlertRule[], settings: AlertSettings | null): Partial<AlertSettings> {
+    const hasEnabled = (alertType: EmailRuleAlertType) => rules.some((rule) => rule.alertType === alertType && rule.enabled);
+    const findThreshold = (id: string, fallback: number) => {
+        const rule = rules.find((candidate) => candidate.id === id);
+        return Math.round(Number(rule?.threshold ?? fallback));
+    };
+
+    return {
+        emailRules: rules.map((rule) => ({
+            ...rule,
+            threshold: Number(rule.threshold) || 0,
+            windowMinutes: Math.max(5, Math.round(Number(rule.windowMinutes) || 60)),
+        })),
+        crashAlertsEnabled: hasEnabled('crash'),
+        anrAlertsEnabled: hasEnabled('anr'),
+        errorSpikeAlertsEnabled: hasEnabled('error_spike'),
+        apiDegradationAlertsEnabled: hasEnabled('api_degradation'),
+        errorSpikeThresholdPercent: findThreshold('default-error-spike', settings?.errorSpikeThresholdPercent ?? 50),
+        apiDegradationThresholdPercent: findThreshold('default-api-degradation', settings?.apiDegradationThresholdPercent ?? 100),
+        apiLatencyThresholdMs: findThreshold('default-api-latency', settings?.apiLatencyThresholdMs ?? 3000),
+    };
+}
+
+function thresholdInputValue(rule: Pick<EmailAlertRule, 'metric' | 'threshold'>): number {
+    if (rule.metric === 'duration_ms') {
+        return Number((rule.threshold / 1000).toFixed(1));
+    }
+    return rule.threshold;
+}
+
+function thresholdFromInput(metric: EmailRuleMetric, value: number): number {
+    if (metric === 'duration_ms') {
+        return Math.round(value * 1000);
+    }
+    return value;
+}
+
+function thresholdUnitLabel(metric: EmailRuleMetric): string {
+    if (metric === 'duration_ms') return 'sec';
+    if (metric === 'latency_ms') return 'ms';
+    if (metric === 'percent_increase') return '%';
+    return 'users';
+}
+
+function formatThresholdForHumans(rule: Pick<EmailAlertRule, 'metric' | 'threshold'>): string {
+    if (rule.metric === 'duration_ms') {
+        const seconds = rule.threshold / 1000;
+        return `${Number.isInteger(seconds) ? seconds.toFixed(0) : seconds.toFixed(1)} seconds`;
+    }
+    if (rule.metric === 'latency_ms') return `${rule.threshold.toLocaleString()} ms`;
+    if (rule.metric === 'percent_increase') return `${rule.threshold.toLocaleString()}%`;
+    return `${rule.threshold.toLocaleString()} ${rule.threshold === 1 ? 'user' : 'users'}`;
+}
+
+function ruleTriggerSentence(rule: EmailAlertRule): string {
+    const operator = OPERATOR_WORDS[rule.operator];
+    const value = formatThresholdForHumans(rule);
+
+    if (rule.metric === 'affected_users') {
+        return `Email when ${operator} ${value} are affected.`;
+    }
+    if (rule.metric === 'duration_ms') {
+        return `Email when a freeze lasts ${operator} ${value}.`;
+    }
+    if (rule.metric === 'percent_increase' && rule.alertType === 'api_degradation') {
+        return `Email when API latency is ${operator} ${value} higher than baseline.`;
+    }
+    if (rule.metric === 'percent_increase') {
+        return `Email when errors are ${operator} ${value} higher than baseline.`;
+    }
+    return `Email when API latency reaches ${operator} ${value}.`;
+}
+
+function ruleNumberHelp(rule: Pick<EmailAlertRule, 'metric'>): string {
+    switch (rule.metric) {
+        case 'affected_users':
+            return '1 means any affected user. Raise it to wait for broader impact.';
+        case 'duration_ms':
+            return 'Shown in seconds. 2 seconds catches freezes users can feel.';
+        case 'percent_increase':
+            return '50% means half again above baseline. 100% means double.';
+        case 'latency_ms':
+            return 'Measured in milliseconds. 3000 ms is 3 seconds.';
+        default:
+            return '';
+    }
+}
+
+function formatSentAt(value: string): { date: string; time: string } {
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) {
+        return { date: 'Unknown', time: '' };
+    }
+    return {
+        date: date.toLocaleDateString(),
+        time: date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+    };
+}
+
 const Toggle: React.FC<{
     enabled: boolean;
     onChange: (enabled: boolean) => void;
     disabled?: boolean;
-}> = ({ enabled, onChange, disabled }) => (
+    label: string;
+}> = ({ enabled, onChange, disabled, label }) => (
     <button
+        type="button"
+        aria-label={label}
+        aria-pressed={enabled}
         onClick={() => !disabled && onChange(!enabled)}
         disabled={disabled}
-        className={`
-      relative w-11 h-6 border border-slate-300 rounded-full transition-colors duration-200
-      ${enabled ? 'bg-emerald-400' : 'bg-slate-200'}
-      ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer hover:border-slate-400'}
-    `}
+        className={`relative h-6 w-11 rounded-full border transition-colors ${enabled ? 'border-[#14532d] bg-[#166534]' : 'border-slate-300 bg-slate-100'} ${disabled ? 'cursor-not-allowed opacity-50' : 'hover:border-[#15803d]'}`}
     >
-        <div
-            className={`
-        absolute top-0.5 left-0.5 w-[18px] h-[18px] bg-white border border-slate-300 rounded-full transition-transform duration-200 shadow-sm
-        ${enabled ? 'translate-x-[20px]' : 'translate-x-0'}
-      `}
+        <span
+            className={`absolute left-0.5 top-0.5 h-[18px] w-[18px] rounded-full border bg-white shadow-sm transition-transform ${enabled ? 'translate-x-5 border-[#14532d]' : 'translate-x-0 border-slate-300'}`}
         />
     </button>
 );
 
-// Alert type card
-const AlertTypeCard: React.FC<{
+const SectionHeading: React.FC<{
     icon: React.ReactNode;
     title: string;
-    description: string;
-    enabled: boolean;
-    onChange: (enabled: boolean) => void;
-    color: string;
-    recommended?: boolean;
-}> = ({ icon, title, description, enabled, onChange, color, recommended }) => {
-    const colorVariants: Record<string, any> = {
-        red: { badge: 'danger', icon: 'text-red-500' },
-        rose: { badge: 'warning', icon: 'text-rose-500' },
-        indigo: { badge: 'info', icon: 'text-indigo-500' },
-        blue: { badge: 'info', icon: 'text-blue-500' },
-    };
-
-    const variant = colorVariants[color] || { badge: 'neutral', icon: 'text-slate-500' };
-
-    return (
-        <NeoCard
-            className={`transition-all ${enabled ? 'border-slate-300 shadow-sm' : 'opacity-70 grayscale-[0.5] border-slate-200 hover:opacity-100 hover:grayscale-0'}`}
-            disablePadding
-        >
-            <div className={`p-5 ${enabled ? 'bg-white' : 'bg-slate-50/50'}`}>
-                <div className="flex items-start justify-between mb-4">
-                    <div className={`p-2.5 bg-[#f4f4f5] border-2 border-black ${variant.icon}`}>
-                        {icon}
-                    </div>
-                    <Toggle enabled={enabled} onChange={onChange} />
-                </div>
-                <div className="space-y-1">
-                    <div className="flex items-center gap-2">
-                        <h4 className="font-bold text-slate-900 text-sm tracking-tight">{title}</h4>
-                        {recommended && (
-                            <NeoBadge variant="success" size="sm" className="px-1.5 py-0 border-none rounded-full text-[9px]">
-                                RECOMMENDED
-                            </NeoBadge>
-                        )}
-                    </div>
-                    <p className="text-xs text-slate-500 font-medium leading-relaxed">{description}</p>
-                </div>
+    eyebrow?: string;
+    action?: React.ReactNode;
+}> = ({ icon, title, eyebrow, action }) => (
+    <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#e8eaed] bg-white px-5 py-4">
+        <div className="flex min-w-0 items-center gap-3">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-[#dadce0] bg-[#f8fafd] text-[#1a73e8]">
+                {icon}
             </div>
-        </NeoCard>
-    );
-};
+            <div className="min-w-0">
+                {eyebrow && <div className="text-[11px] font-semibold uppercase text-slate-500">{eyebrow}</div>}
+                <h2 className="truncate text-base font-semibold text-[#202124]">{title}</h2>
+            </div>
+        </div>
+        {action}
+    </div>
+);
+
+interface RuleDraft {
+    name: string;
+    alertType: EmailRuleAlertType;
+    metric: EmailRuleMetric;
+    operator: EmailRuleOperator;
+    threshold: number;
+    windowMinutes: number;
+    severity: EmailRuleSeverity;
+    description: string;
+}
+
+const createEmptyRuleDraft = (): RuleDraft => ({
+    name: '',
+    alertType: 'crash',
+    metric: 'affected_users',
+    operator: 'gte',
+    threshold: 1,
+    windowMinutes: 60,
+    severity: 'high',
+    description: '',
+});
 
 export const AlertEmails: React.FC = () => {
     const { selectedProject } = useSessionData();
     const pathPrefix = usePathPrefix();
     const [settings, setSettings] = useState<AlertSettings | null>(null);
+    const [rules, setRules] = useState<EmailAlertRule[]>([]);
     const [recipients, setRecipients] = useState<AlertRecipient[]>([]);
     const [availableMembers, setAvailableMembers] = useState<TeamMember[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [isSaving, setIsSaving] = useState(false);
+    const [isRulesDirty, setIsRulesDirty] = useState(false);
     const [showAddRecipient, setShowAddRecipient] = useState(false);
+    const [showComposer, setShowComposer] = useState(false);
+    const [ruleDraft, setRuleDraft] = useState<RuleDraft>(() => createEmptyRuleDraft());
     const [error, setError] = useState<string | null>(null);
 
-    // Email log state
     const [emailLogs, setEmailLogs] = useState<EmailLog[]>([]);
     const [emailLogPagination, setEmailLogPagination] = useState<EmailLogPagination>({ page: 1, limit: 15, total: 0, totalPages: 0 });
     const [emailLogSearch, setEmailLogSearch] = useState('');
     const [emailLogTypeFilter, setEmailLogTypeFilter] = useState('all');
     const [isLoadingLogs, setIsLoadingLogs] = useState(false);
 
-    useEffect(() => {
-        if (!selectedProject?.id) {
-            setIsLoading(false);
-            setSettings(null);
-            setRecipients([]);
-            setAvailableMembers([]);
-            return;
-        }
-        loadData();
-    }, [selectedProject?.id]);
-
-    // Load email logs when filters change
     const loadEmailLogs = useCallback(async (page = 1) => {
         if (!selectedProject?.id) return;
         setIsLoadingLogs(true);
@@ -271,24 +552,16 @@ export const AlertEmails: React.FC = () => {
         }
     }, [selectedProject?.id, emailLogSearch, emailLogTypeFilter]);
 
-    useEffect(() => {
-        if (selectedProject?.id) {
-            loadEmailLogs(1);
+    const loadData = useCallback(async () => {
+        if (!selectedProject?.id) {
+            setIsLoading(false);
+            setSettings(null);
+            setRules([]);
+            setRecipients([]);
+            setAvailableMembers([]);
+            return;
         }
-    }, [selectedProject?.id, emailLogTypeFilter]);
 
-    // Debounced search
-    useEffect(() => {
-        const timer = setTimeout(() => {
-            if (selectedProject?.id) {
-                loadEmailLogs(1);
-            }
-        }, 300);
-        return () => clearTimeout(timer);
-    }, [emailLogSearch]);
-
-    const loadData = async () => {
-        if (!selectedProject?.id) return;
         setIsLoading(true);
         setError(null);
         try {
@@ -302,15 +575,18 @@ export const AlertEmails: React.FC = () => {
 
             if (settingsData.status === 'fulfilled') {
                 setSettings(settingsData.value);
+                setRules(hydrateRules(settingsData.value));
+                setIsRulesDirty(false);
             } else {
-                failedSections.push('alert rules');
+                failedSections.push('rules');
                 setSettings(null);
+                setRules(buildDefaultRules());
             }
 
             if (recipientsData.status === 'fulfilled') {
                 setRecipients(recipientsData.value);
             } else {
-                failedSections.push('recipient list');
+                failedSections.push('recipients');
                 setRecipients([]);
             }
 
@@ -322,26 +598,107 @@ export const AlertEmails: React.FC = () => {
             }
 
             if (failedSections.length > 0) {
-                setError(`Some alert settings data failed to load (${failedSections.join(', ')}).`);
+                setError(`Some email alert data failed to load: ${failedSections.join(', ')}.`);
             }
         } catch (err) {
-            setError(err instanceof Error ? err.message : 'Failed to load alert settings');
+            setError(err instanceof Error ? err.message : 'Failed to load email alerts');
         } finally {
             setIsLoading(false);
         }
+    }, [selectedProject?.id]);
+
+    useEffect(() => {
+        loadData();
+    }, [loadData]);
+
+    useEffect(() => {
+        if (selectedProject?.id) {
+            loadEmailLogs(1);
+        }
+    }, [selectedProject?.id, emailLogTypeFilter, loadEmailLogs]);
+
+    useEffect(() => {
+        const timer = window.setTimeout(() => {
+            if (selectedProject?.id) {
+                loadEmailLogs(1);
+            }
+        }, 300);
+        return () => window.clearTimeout(timer);
+    }, [emailLogSearch, selectedProject?.id, loadEmailLogs]);
+
+    const markRulesDirty = (nextRules: EmailAlertRule[]) => {
+        setRules(nextRules);
+        setIsRulesDirty(true);
     };
 
-    const handleSettingChange = async (key: keyof AlertSettings, value: boolean | number) => {
-        if (!selectedProject?.id || !settings) return;
+    const handleRuleUpdate = (ruleId: string, patch: Partial<EmailAlertRule>) => {
+        markRulesDirty(rules.map((rule) => (
+            rule.id === ruleId
+                ? { ...rule, ...patch, updatedAt: new Date().toISOString() }
+                : rule
+        )));
+    };
+
+    const handleDeleteRule = (ruleId: string) => {
+        markRulesDirty(rules.filter((rule) => rule.id !== ruleId || rule.source === 'default'));
+    };
+
+    const handleSaveRules = async () => {
+        if (!selectedProject?.id) return;
         setIsSaving(true);
+        setError(null);
         try {
-            const updated = await updateAlertSettings(selectedProject.id, { [key]: value });
+            const updated = await updateAlertSettings(selectedProject.id, deriveAlertSettingsPatch(rules, settings));
             setSettings(updated);
+            setRules(hydrateRules(updated));
+            setIsRulesDirty(false);
         } catch (err) {
-            setError(err instanceof Error ? err.message : 'Failed to save');
+            setError(err instanceof Error ? err.message : 'Failed to save email rules');
         } finally {
             setIsSaving(false);
         }
+    };
+
+    const handleResetDefaults = () => {
+        markRulesDirty(buildDefaultRules(settings ?? {}));
+    };
+
+    const handleAddRule = () => {
+        const trimmedName = ruleDraft.name.trim();
+        if (!trimmedName) {
+            setError('Rule name is required.');
+            return;
+        }
+
+        const nextRule: EmailAlertRule = {
+            id: `custom-${Date.now()}`,
+            name: trimmedName,
+            description: ruleDraft.description.trim() || undefined,
+            alertType: ruleDraft.alertType,
+            metric: ruleDraft.metric,
+            operator: ruleDraft.operator,
+            threshold: Number(ruleDraft.threshold) || 0,
+            windowMinutes: Math.max(5, Math.round(Number(ruleDraft.windowMinutes) || 60)),
+            severity: ruleDraft.severity,
+            enabled: true,
+            source: 'custom',
+            updatedAt: new Date().toISOString(),
+        };
+
+        markRulesDirty([...rules, nextRule]);
+        setRuleDraft(createEmptyRuleDraft());
+        setShowComposer(false);
+        setError(null);
+    };
+
+    const handleDraftAlertTypeChange = (alertType: EmailRuleAlertType) => {
+        const metric = METRICS_BY_EVENT[alertType][0];
+        setRuleDraft((current) => ({
+            ...current,
+            alertType,
+            metric,
+            threshold: metric === 'percent_increase' ? 50 : metric === 'duration_ms' ? 2000 : metric === 'latency_ms' ? 3000 : 1,
+        }));
     };
 
     const handleAddRecipient = async (userId: string) => {
@@ -359,359 +716,530 @@ export const AlertEmails: React.FC = () => {
         if (!selectedProject?.id) return;
         try {
             await removeAlertRecipient(selectedProject.id, userId);
-            setRecipients(prev => prev.filter(r => r.userId !== userId));
+            setRecipients((prev) => prev.filter((recipient) => recipient.userId !== userId));
         } catch (err) {
             setError(err instanceof Error ? err.message : 'Failed to remove recipient');
         }
     };
 
+    const nonRecipientMembers = useMemo(
+        () => availableMembers.filter((member) => !member.isRecipient),
+        [availableMembers],
+    );
+
+    const summary = useMemo(() => {
+        const activeRules = rules.filter((rule) => rule.enabled).length;
+        const sentLogs = emailLogs.filter((log) => log.status === 'sent').length;
+        const failedLogs = emailLogs.filter((log) => log.status !== 'sent').length;
+        return { activeRules, sentLogs, failedLogs };
+    }, [rules, emailLogs]);
+
+    const rulesByEvent = useMemo(() => {
+        return rules.reduce<Record<EmailRuleAlertType, EmailAlertRule[]>>((acc, rule) => {
+            acc[rule.alertType].push(rule);
+            return acc;
+        }, {
+            crash: [],
+            anr: [],
+            error_spike: [],
+            api_degradation: [],
+        });
+    }, [rules]);
+
     if (isLoading) {
         return <DashboardGhostLoader variant="alerts" />;
     }
 
-    const nonRecipientMembers = availableMembers.filter(m => !m.isRecipient);
-
     return (
-        <div className="firebase-alerts-page min-h-screen animate-fade-in bg-[#f8fafd] pb-12 font-sans text-slate-900">
+        <div className="firebase-alerts-page min-h-screen animate-fade-in bg-[#f8fafd] pb-10 font-sans text-[#202124]">
             <DashboardPageHeader
-                title="Alert Settings"
-                subtitle="Configure real-time notifications for critical events"
-                icon={<Mail className="w-6 h-6" />}
-                iconColor="bg-[#fee2e2]"
+                title="Email Alerts"
+                subtitle="Choose which signals send email and who receives them"
+                icon={<Mail className="h-6 w-6" />}
+                iconColor="bg-[#f4f4f5]"
             >
-                <div className="hidden items-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-3 py-1 lg:flex">
-                    <div className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.6)]" />
-                    <span className="text-[10px] font-bold uppercase text-slate-500">System ready</span>
+                <div className="flex flex-wrap items-center gap-2">
+                    {isRulesDirty && (
+                        <span className="rounded-md border border-amber-200 bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-700">
+                            Unsaved changes
+                        </span>
+                    )}
+                    <NeoButton
+                        type="button"
+                        variant="secondary"
+                        size="sm"
+                        onClick={handleResetDefaults}
+                        leftIcon={<RotateCcw className="h-3.5 w-3.5" />}
+                    >
+                        Reset defaults
+                    </NeoButton>
+                    <NeoButton
+                        type="button"
+                        variant="primary"
+                        size="sm"
+                        onClick={handleSaveRules}
+                        disabled={!isRulesDirty || isSaving}
+                        isLoading={isSaving}
+                        leftIcon={<Check className="h-3.5 w-3.5" />}
+                    >
+                        Save changes
+                    </NeoButton>
                 </div>
             </DashboardPageHeader>
 
-            <div className="mx-auto max-w-[1200px] space-y-6 px-4 py-6 sm:px-6">
-            {error && (
-                <div className="bg-red-50 border border-red-200 p-4 text-sm text-red-900 rounded-xl flex items-center gap-3">
-                    <AlertTriangle className="w-5 h-5 text-red-500" />
-                    {error}
-                    <button onClick={() => setError(null)} className="ml-auto hover:opacity-70 transition-opacity">
-                        <X className="w-5 h-5" />
-                    </button>
-                </div>
-            )}
-
-            {/* Recipients Section */}
-            <NeoCard
-                className="border-2 border-black shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]"
-                disablePadding
-            >
-                <div className="px-6 py-5 border-b-2 border-black flex items-center justify-between">
-                    <div>
-                        <h2 className="font-bold text-slate-900 text-lg tracking-tight">Alert Recipients</h2>
-                        <p className="text-xs font-medium text-slate-500 mt-1">Designate who receives real-time notifications</p>
+            <div className="mx-auto max-w-[1360px] space-y-5 px-3 py-5 sm:px-6">
+                {error && (
+                    <div className="flex items-center gap-3 rounded-lg border border-rose-200 bg-rose-50 p-4 text-sm font-semibold text-rose-800">
+                        <AlertTriangle className="h-5 w-5 shrink-0" />
+                        <span className="min-w-0 flex-1">{error}</span>
+                        <button type="button" onClick={() => setError(null)} className="rounded-md p-1 hover:bg-white">
+                            <X className="h-5 w-5" />
+                        </button>
                     </div>
-                    {recipients.length < 5 && (
-                        <NeoButton
-                            onClick={() => setShowAddRecipient(true)}
-                            variant="primary"
-                            size="sm"
-                            leftIcon={<UserPlus className="w-4 h-4" />}
-                        >
-                            ADD RECIPIENT
-                        </NeoButton>
-                    )}
-                </div>
+                )}
 
-                <div className="p-6">
-                    {recipients.length === 0 ? (
-                        <div className="text-center py-12">
-                            <div className="w-16 h-16 bg-slate-100 border-2 border-slate-200 border-dashed rounded-full flex items-center justify-center mx-auto mb-4">
-                                <Mail className="w-8 h-8 text-slate-300" />
+                <section className="dashboard-surface p-5">
+                    <div className="grid gap-4 md:grid-cols-3">
+                        {[
+                            {
+                                label: 'Rules turned on',
+                                value: `${summary.activeRules}/${rules.length || 0}`,
+                                helper: 'Only enabled rules can send email.',
+                            },
+                            {
+                                label: 'People receiving email',
+                                value: `${recipients.length}/5`,
+                                helper: 'Recipients are team members on this project.',
+                            },
+                            {
+                                label: 'Delivery issues shown',
+                                value: summary.failedLogs,
+                                helper: 'Failed or bounced emails in the current log view.',
+                            },
+                        ].map((item) => (
+                            <div key={item.label} className="rounded-lg border border-[#e8eaed] bg-[#f8fafd] p-4">
+                                <div className="text-xs font-semibold uppercase text-slate-500">{item.label}</div>
+                                <div className="mt-2 text-2xl font-semibold text-[#202124]">{item.value}</div>
+                                <p className="mt-1 text-xs font-medium text-slate-500">{item.helper}</p>
                             </div>
-                            <p className="font-bold text-slate-400 uppercase tracking-tighter text-xl">No recipients configured</p>
-                            <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Add team members to receive email alerts</p>
-                        </div>
-                    ) : (
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            {recipients.map((recipient) => (
-                                <div
-                                    key={recipient.id}
-                                    className="flex items-center justify-between p-4 bg-white border-2 border-black hover:border-black transition-colors group"
+                        ))}
+                    </div>
+                </section>
+
+                <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_380px]">
+                    <section className="dashboard-surface overflow-hidden">
+                        <SectionHeading
+                            icon={<SlidersHorizontal className="h-5 w-5" />}
+                            eyebrow="Alert rules"
+                            title="When should Rejourney send email?"
+                            action={(
+                                <button
+                                    type="button"
+                                    onClick={() => setShowComposer((open) => !open)}
+                                    className="inline-flex h-9 items-center gap-2 rounded-md border border-[#dadce0] bg-white px-3 text-sm font-semibold text-[#202124] hover:bg-[#f8fafd]"
                                 >
-                                    <div className="flex items-center gap-4">
-                                        {recipient.avatarUrl ? (
-                                            <img src={recipient.avatarUrl} alt="" className="w-12 h-12 border border-slate-200 rounded-full" />
-                                        ) : (
-                                            <div className="w-12 h-12 border border-slate-200 rounded-full bg-slate-50 flex items-center justify-center text-slate-600 font-bold text-lg">
-                                                {(recipient.displayName || recipient.email)[0].toUpperCase()}
+                                    {showComposer ? <X className="h-4 w-4" /> : <Plus className="h-4 w-4" />}
+                                    {showComposer ? 'Close' : 'Add rule'}
+                                </button>
+                            )}
+                        />
+
+                        <div className="border-b border-[#e8eaed] bg-blue-50/60 px-5 py-3">
+                            <div className="flex gap-2 text-sm text-blue-900">
+                                <Info className="mt-0.5 h-4 w-4 shrink-0" />
+                                <p className="font-medium">
+                                    Rule numbers are thresholds. A rule sends email only when the signal reaches that number, then duplicate emails are suppressed for one hour.
+                                </p>
+                            </div>
+                        </div>
+
+                        <div className="divide-y divide-[#e8eaed]">
+                            {(Object.keys(EVENT_META) as EmailRuleAlertType[]).map((alertType) => {
+                                const meta = EVENT_META[alertType];
+                                const eventRules = rulesByEvent[alertType];
+                                return (
+                                    <div key={alertType} className="bg-white">
+                                        <div className="flex items-center justify-between gap-3 bg-[#f8fafd] px-5 py-3">
+                                            <div className="flex items-center gap-3">
+                                                <span className={`flex h-8 w-8 items-center justify-center rounded-lg ${meta.accent} text-[#202124]`}>
+                                                    {meta.icon}
+                                                </span>
+                                                <div>
+                                                    <div className="text-sm font-semibold text-[#202124]">{meta.label}</div>
+                                                    <div className="text-xs font-medium text-slate-500">
+                                                        {eventRules.filter((rule) => rule.enabled).length} of {eventRules.length} rules on
+                                                    </div>
+                                                </div>
                                             </div>
-                                        )}
-                                        <div>
-                                            <p className="font-bold text-slate-900 text-sm leading-tight">
-                                                {recipient.displayName || recipient.email}
-                                            </p>
-                                            <p className="text-xs font-medium text-slate-400">{recipient.email}</p>
+                                        </div>
+
+                                        <div className="divide-y divide-[#edf0f3]">
+                                            {eventRules.map((rule) => (
+                                                <div key={rule.id} className="grid gap-4 px-5 py-4 lg:grid-cols-[minmax(0,1fr)_300px_auto] lg:items-center">
+                                                    <div className="min-w-0">
+                                                        <div className="flex flex-wrap items-center gap-2">
+                                                            <h3 className="text-sm font-semibold text-[#202124]">{rule.name}</h3>
+                                                            <span className={`rounded-md border px-2 py-0.5 text-xs font-semibold ${rule.enabled ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-slate-200 bg-slate-50 text-slate-500'}`}>
+                                                                {rule.enabled ? 'On' : 'Off'}
+                                                            </span>
+                                                            {rule.source === 'custom' && (
+                                                                <span className="rounded-md border border-blue-200 bg-blue-50 px-2 py-0.5 text-xs font-semibold text-blue-700">
+                                                                    Custom
+                                                                </span>
+                                                            )}
+                                                        </div>
+                                                        <p className="mt-1 text-sm font-medium text-slate-700">{ruleTriggerSentence(rule)}</p>
+                                                        <p className="mt-1 text-xs font-medium text-slate-500">{ruleNumberHelp(rule)}</p>
+                                                    </div>
+
+                                                    <div className="grid gap-2 sm:grid-cols-[110px_minmax(0,1fr)] lg:grid-cols-[108px_minmax(0,1fr)]">
+                                                        <label className="block">
+                                                            <span className="mb-1 block text-xs font-semibold text-slate-500">Trigger</span>
+                                                            <select
+                                                                value={rule.operator}
+                                                                onChange={(event) => handleRuleUpdate(rule.id, { operator: event.target.value as EmailRuleOperator })}
+                                                                className="h-10 w-full rounded-md border border-[#dadce0] bg-white px-2 text-sm font-medium outline-none"
+                                                            >
+                                                                {(Object.keys(OPERATOR_WORDS) as EmailRuleOperator[]).map((operator) => (
+                                                                    <option key={operator} value={operator}>{OPERATOR_WORDS[operator]}</option>
+                                                                ))}
+                                                            </select>
+                                                        </label>
+                                                        <label className="block">
+                                                            <span className="mb-1 block text-xs font-semibold text-slate-500">Threshold</span>
+                                                            <div className="flex h-10 overflow-hidden rounded-md border border-[#dadce0] bg-white">
+                                                                <input
+                                                                    type="number"
+                                                                    min={0}
+                                                                    step={rule.metric === 'duration_ms' ? 0.5 : 1}
+                                                                    value={thresholdInputValue(rule)}
+                                                                    onChange={(event) => handleRuleUpdate(rule.id, { threshold: thresholdFromInput(rule.metric, Number(event.target.value)) })}
+                                                                    className="min-w-0 flex-1 border-0 bg-transparent px-3 text-sm font-semibold outline-none"
+                                                                />
+                                                                <span className="flex items-center border-l border-[#e8eaed] bg-[#f8fafd] px-3 text-xs font-semibold text-slate-500">
+                                                                    {thresholdUnitLabel(rule.metric)}
+                                                                </span>
+                                                            </div>
+                                                        </label>
+                                                    </div>
+
+                                                    <div className="flex items-center justify-between gap-2 lg:justify-end">
+                                                        <Toggle
+                                                            label={`${rule.enabled ? 'Disable' : 'Enable'} ${rule.name}`}
+                                                            enabled={rule.enabled}
+                                                            onChange={(enabled) => handleRuleUpdate(rule.id, { enabled })}
+                                                        />
+                                                        {rule.source === 'custom' && (
+                                                            <button
+                                                                type="button"
+                                                                aria-label={`Delete ${rule.name}`}
+                                                                onClick={() => handleDeleteRule(rule.id)}
+                                                                className="flex h-9 w-9 items-center justify-center rounded-md border border-[#dadce0] bg-white text-slate-500 hover:bg-rose-50 hover:text-rose-600"
+                                                            >
+                                                                <Trash2 className="h-4 w-4" />
+                                                            </button>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            ))}
                                         </div>
                                     </div>
-                                    <button
-                                        onClick={() => handleRemoveRecipient(recipient.userId)}
-                                        className="p-2 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all"
-                                    >
-                                        <X className="w-5 h-5" />
-                                    </button>
-                                </div>
-                            ))}
+                                );
+                            })}
                         </div>
-                    )}
+                    </section>
+
+                    <aside className="space-y-5">
+                        <section className="dashboard-surface overflow-hidden">
+                            <SectionHeading icon={<Users className="h-5 w-5" />} eyebrow="Recipients" title="Who gets emails?" />
+                            <div className="space-y-3 p-5">
+                                {recipients.length === 0 ? (
+                                    <div className="rounded-lg border border-dashed border-slate-300 bg-[#f8fafd] p-5 text-center">
+                                        <Mail className="mx-auto h-8 w-8 text-slate-300" />
+                                        <p className="mt-3 text-sm font-semibold text-slate-600">No recipients yet</p>
+                                        <p className="mt-1 text-xs font-medium text-slate-500">Add a team member before alerts can be delivered.</p>
+                                    </div>
+                                ) : (
+                                    recipients.map((recipient) => (
+                                        <div key={recipient.id} className="flex min-w-0 items-center justify-between gap-3 rounded-lg border border-[#e8eaed] bg-white p-3">
+                                            <div className="flex min-w-0 items-center gap-3">
+                                                {recipient.avatarUrl ? (
+                                                    <img src={recipient.avatarUrl} alt="" className="h-9 w-9 shrink-0 rounded-full border border-[#dadce0] object-cover" />
+                                                ) : (
+                                                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-blue-50 text-sm font-semibold text-blue-700">
+                                                        {(recipient.displayName || recipient.email)[0].toUpperCase()}
+                                                    </div>
+                                                )}
+                                                <div className="min-w-0">
+                                                    <p className="truncate text-sm font-semibold text-[#202124]">{recipient.displayName || recipient.email}</p>
+                                                    <p className="truncate text-xs font-medium text-slate-500">{recipient.email}</p>
+                                                </div>
+                                            </div>
+                                            <button
+                                                type="button"
+                                                aria-label={`Remove ${recipient.displayName || recipient.email}`}
+                                                onClick={() => handleRemoveRecipient(recipient.userId)}
+                                                className="rounded-md p-2 text-slate-400 hover:bg-rose-50 hover:text-rose-600"
+                                            >
+                                                <X className="h-4 w-4" />
+                                            </button>
+                                        </div>
+                                    ))
+                                )}
+                                {recipients.length < 5 && (
+                                    <button
+                                        type="button"
+                                        onClick={() => setShowAddRecipient(true)}
+                                        className="inline-flex h-9 w-full items-center justify-center gap-2 rounded-md border border-[#dadce0] bg-white text-sm font-semibold text-[#202124] hover:bg-[#f8fafd]"
+                                    >
+                                        <UserPlus className="h-4 w-4" />
+                                        Add recipient
+                                    </button>
+                                )}
+                            </div>
+                        </section>
+
+                        <section className="dashboard-surface overflow-hidden">
+                            <SectionHeading icon={<Filter className="h-5 w-5" />} eyebrow="Guardrails" title="Noise controls" />
+                            <div className="space-y-3 p-5 text-sm">
+                                <div className="rounded-lg border border-[#e8eaed] bg-[#f8fafd] p-3">
+                                    <div className="font-semibold text-[#202124]">Same issue cooldown</div>
+                                    <p className="mt-1 text-xs font-medium text-slate-500">Duplicate emails for the same issue are held for 1 hour.</p>
+                                </div>
+                                <div className="rounded-lg border border-[#e8eaed] bg-[#f8fafd] p-3">
+                                    <div className="font-semibold text-[#202124]">Project daily cap</div>
+                                    <p className="mt-1 text-xs font-medium text-slate-500">A project sends at most 20 alert emails per day.</p>
+                                </div>
+                            </div>
+                        </section>
+                    </aside>
                 </div>
 
-                {/* Add recipient modal */}
+                {showComposer && (
+                    <section className="dashboard-surface overflow-hidden">
+                        <SectionHeading icon={<Plus className="h-5 w-5" />} eyebrow="Custom rule" title="Add a rule" />
+                        <div className="grid gap-4 p-5 lg:grid-cols-[minmax(220px,1fr)_180px_180px_160px] lg:items-end">
+                            <label className="block">
+                                <span className="mb-1 block text-xs font-semibold text-slate-500">Rule name</span>
+                                <input
+                                    value={ruleDraft.name}
+                                    onChange={(event) => setRuleDraft((current) => ({ ...current, name: event.target.value }))}
+                                    placeholder="Production crash surge"
+                                    className="h-10 w-full rounded-md border border-[#dadce0] bg-white px-3 text-sm font-medium outline-none"
+                                />
+                            </label>
+                            <label className="block">
+                                <span className="mb-1 block text-xs font-semibold text-slate-500">Alert type</span>
+                                <select
+                                    value={ruleDraft.alertType}
+                                    onChange={(event) => handleDraftAlertTypeChange(event.target.value as EmailRuleAlertType)}
+                                    className="h-10 w-full rounded-md border border-[#dadce0] bg-white px-3 text-sm font-medium outline-none"
+                                >
+                                    {(Object.keys(EVENT_META) as EmailRuleAlertType[]).map((alertType) => (
+                                        <option key={alertType} value={alertType}>{EVENT_META[alertType].label}</option>
+                                    ))}
+                                </select>
+                            </label>
+                            <label className="block">
+                                <span className="mb-1 block text-xs font-semibold text-slate-500">Measure</span>
+                                <select
+                                    value={ruleDraft.metric}
+                                    onChange={(event) => setRuleDraft((current) => ({ ...current, metric: event.target.value as EmailRuleMetric }))}
+                                    className="h-10 w-full rounded-md border border-[#dadce0] bg-white px-3 text-sm font-medium outline-none"
+                                >
+                                    {METRICS_BY_EVENT[ruleDraft.alertType].map((metric) => (
+                                        <option key={metric} value={metric}>{METRIC_LABELS[metric]}</option>
+                                    ))}
+                                </select>
+                            </label>
+                            <label className="block">
+                                <span className="mb-1 block text-xs font-semibold text-slate-500">Threshold</span>
+                                <div className="flex h-10 overflow-hidden rounded-md border border-[#dadce0] bg-white">
+                                    <input
+                                        type="number"
+                                        min={0}
+                                        step={ruleDraft.metric === 'duration_ms' ? 0.5 : 1}
+                                        value={thresholdInputValue(ruleDraft)}
+                                        onChange={(event) => setRuleDraft((current) => ({
+                                            ...current,
+                                            threshold: thresholdFromInput(current.metric, Number(event.target.value)),
+                                        }))}
+                                        className="min-w-0 flex-1 border-0 bg-transparent px-3 text-sm font-semibold outline-none"
+                                    />
+                                    <span className="flex items-center border-l border-[#e8eaed] bg-[#f8fafd] px-3 text-xs font-semibold text-slate-500">
+                                        {thresholdUnitLabel(ruleDraft.metric)}
+                                    </span>
+                                </div>
+                            </label>
+                            <div className="lg:col-span-3">
+                                <p className="text-xs font-medium text-slate-500">{ruleNumberHelp(ruleDraft)}</p>
+                            </div>
+                            <NeoButton
+                                type="button"
+                                variant="primary"
+                                leftIcon={<Zap className="h-4 w-4" />}
+                                onClick={handleAddRule}
+                            >
+                                Add rule
+                            </NeoButton>
+                        </div>
+                    </section>
+                )}
+
                 {showAddRecipient && (
-                    <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center z-[100] p-4">
-                        <NeoCard className="w-full max-w-md border-2 border-black shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] overflow-hidden" disablePadding>
-                            <div className="px-6 py-5 border-b-2 border-black flex items-center justify-between bg-white text-slate-900">
-                                <h3 className="font-bold tracking-tight text-lg">Add Alert Recipient</h3>
-                                <button onClick={() => setShowAddRecipient(false)} className="p-1 hover:bg-slate-100 rounded-lg transition-colors">
-                                    <X className="w-5 h-5" />
+                    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/40 p-4 backdrop-blur-sm">
+                        <div className="dashboard-surface w-full max-w-md overflow-hidden bg-white">
+                            <div className="flex items-center justify-between border-b border-[#e8eaed] px-5 py-4">
+                                <div>
+                                    <h3 className="text-base font-semibold text-[#202124]">Add recipient</h3>
+                                    <p className="mt-1 text-xs font-medium text-slate-500">Choose a team member to receive matched alert emails.</p>
+                                </div>
+                                <button type="button" onClick={() => setShowAddRecipient(false)} className="rounded-md p-1 text-slate-500 hover:bg-slate-100">
+                                    <X className="h-5 w-5" />
                                 </button>
                             </div>
-                            <div className="p-6 max-h-[60vh] overflow-y-auto bg-white">
+                            <div className="max-h-[62vh] overflow-y-auto bg-white p-5">
                                 {nonRecipientMembers.length === 0 ? (
-                                    <div className="text-center py-8">
-                                        <Check className="w-12 h-12 text-green-500 mx-auto mb-2" />
-                                        <p className="font-bold text-slate-900">Everyone is added!</p>
-                                        <p className="text-xs text-slate-500 uppercase font-bold tracking-widest">All team members are already recipients</p>
+                                    <div className="py-8 text-center">
+                                        <Check className="mx-auto mb-3 h-9 w-9 text-emerald-500" />
+                                        <p className="font-semibold text-[#202124]">Everyone is already included.</p>
                                     </div>
                                 ) : (
                                     <div className="space-y-2">
                                         {nonRecipientMembers.map((member) => (
                                             <button
+                                                type="button"
                                                 key={member.userId}
                                                 onClick={() => handleAddRecipient(member.userId)}
-                                                className="w-full flex items-center justify-between p-3 border-2 border-black hover:bg-[#f4f4f5] transition-all group"
+                                                className="flex w-full items-center justify-between gap-3 rounded-lg border border-[#e8eaed] bg-white p-3 text-left hover:bg-[#f8fafd]"
                                             >
-                                                <div className="flex items-center gap-3">
+                                                <div className="flex min-w-0 items-center gap-3">
                                                     {member.avatarUrl ? (
-                                                        <img src={member.avatarUrl} alt="" className="w-10 h-10 border border-slate-200 rounded-full" />
+                                                        <img src={member.avatarUrl} alt="" className="h-9 w-9 shrink-0 rounded-full border border-[#dadce0] object-cover" />
                                                     ) : (
-                                                        <div className="w-10 h-10 border border-slate-200 rounded-full bg-slate-50 flex items-center justify-center text-slate-500 font-bold text-sm">
+                                                        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-blue-50 text-sm font-semibold text-blue-700">
                                                             {(member.displayName || member.email)[0].toUpperCase()}
                                                         </div>
                                                     )}
-                                                    <div className="text-left font-sans">
-                                                        <p className="font-bold text-slate-900 text-sm">
-                                                            {member.displayName || member.email}
-                                                        </p>
-                                                        <p className="text-[11px] font-medium text-slate-400">{member.role}</p>
+                                                    <div className="min-w-0">
+                                                        <p className="truncate text-sm font-semibold text-[#202124]">{member.displayName || member.email}</p>
+                                                        <p className="truncate text-xs font-medium text-slate-500">{member.role}</p>
                                                     </div>
                                                 </div>
-                                                <div className="p-2 text-slate-400 group-hover:text-indigo-600 transition-colors">
-                                                    <UserPlus className="w-4 h-4" />
-                                                </div>
+                                                <UserPlus className="h-4 w-4 shrink-0 text-slate-500" />
                                             </button>
                                         ))}
                                     </div>
                                 )}
                             </div>
-                        </NeoCard>
+                        </div>
                     </div>
                 )}
-            </NeoCard>
 
-            {/* Alert Types Section */}
-            <div className="space-y-6">
-                <div className="flex items-center gap-4">
-                    <h2 className="font-bold text-slate-900 text-lg tracking-tight">Alert Triggers</h2>
-                    <div className="h-px flex-1 bg-slate-200"></div>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-                    <AlertTypeCard
-                        icon={<AlertOctagon className="w-6 h-6" />}
-                        title="Crash Alerts"
-                        description="Notification when new crash types are detected"
-                        enabled={settings?.crashAlertsEnabled ?? true}
-                        onChange={(val) => handleSettingChange('crashAlertsEnabled', val)}
-                        color="red"
-                        recommended
+                <section className="dashboard-surface overflow-hidden">
+                    <SectionHeading
+                        icon={<Mail className="h-5 w-5" />}
+                        eyebrow="History"
+                        title="Delivery Logs"
+                        action={(
+                            <span className="rounded-md border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-semibold text-slate-600">
+                                {summary.sentLogs} delivered
+                            </span>
+                        )}
                     />
-                    <AlertTypeCard
-                        icon={<Clock className="w-6 h-6" />}
-                        title="ANR Alerts"
-                        description="Notification for app freezes (ANRs)"
-                        enabled={settings?.anrAlertsEnabled ?? true}
-                        onChange={(val) => handleSettingChange('anrAlertsEnabled', val)}
-                        color="rose"
-                        recommended
-                    />
-                    <AlertTypeCard
-                        icon={<Terminal className="w-6 h-6" />}
-                        title="Error Spikes"
-                        description="Notification for significant error rate increases"
-                        enabled={settings?.errorSpikeAlertsEnabled ?? true}
-                        onChange={(val) => handleSettingChange('errorSpikeAlertsEnabled', val)}
-                        color="indigo"
-                        recommended
-                    />
-                    <AlertTypeCard
-                        icon={<Activity className="w-6 h-6" />}
-                        title="API Status"
-                        description="Notification when API thresholds are exceeded"
-                        enabled={settings?.apiDegradationAlertsEnabled ?? true}
-                        onChange={(val) => handleSettingChange('apiDegradationAlertsEnabled', val)}
-                        color="blue"
-                        recommended
-                    />
-                </div>
-            </div>
 
-            {/* Rate Limiting Info */}
-            <div className="border border-gray-200 bg-white p-6 flex items-start gap-5" style={{ boxShadow: '2px 2px 0 0 rgba(0,0,0,0.07)' }}>
-                <div className="p-2.5 bg-indigo-50 text-indigo-600 rounded-xl">
-                    <Info className="w-6 h-6" />
-                </div>
-                <div>
-                    <h3 className="font-bold text-slate-900 tracking-tight text-base mb-1.5">Notification Policies</h3>
-                    <div className="grid md:grid-cols-2 gap-4">
-                        <div className="flex items-start gap-2.5">
-                            <ChevronRight className="w-3.5 h-3.5 text-indigo-500 mt-1" />
-                            <p className="text-xs font-medium text-slate-600">Duplicate alerts suppressed for 1 hour window</p>
-                        </div>
-                        <div className="flex items-start gap-2.5">
-                            <ChevronRight className="w-3.5 h-3.5 text-indigo-500 mt-1" />
-                            <p className="text-xs font-medium text-slate-600">Daily limit: 20 alert emails per project</p>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            {/* Email Log Section */}
-            <div className="space-y-6">
-                <div className="flex items-center gap-4">
-                    <h2 className="font-bold text-slate-900 text-lg tracking-tight">Delivery Logs</h2>
-                    <div className="h-px flex-1 bg-slate-200"></div>
-                </div>
-
-                <NeoCard className="border-2 border-black shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]" disablePadding>
-                    {/* Search & Filter Bar */}
-                    <div className="px-6 py-4 border-b-2 border-black flex flex-col md:flex-row gap-4 items-start md:items-center justify-between">
-                        <div className="relative flex-1 max-w-md group">
-                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 group-focus-within:text-indigo-600 transition-colors" />
+                    <div className="flex flex-col gap-3 border-b border-[#e8eaed] bg-white px-5 py-4 md:flex-row md:items-center md:justify-between">
+                        <div className="relative w-full md:max-w-md">
+                            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
                             <input
                                 type="text"
                                 value={emailLogSearch}
-                                onChange={(e) => setEmailLogSearch(e.target.value)}
-                                placeholder="Filter logs..."
-                                className="w-full pl-10 pr-4 py-2 bg-white border-2 border-black text-sm font-medium placeholder:text-slate-400 focus:outline-none focus:ring-1 focus:ring-indigo-200 focus:border-indigo-400 transition-all"
+                                onChange={(event) => setEmailLogSearch(event.target.value)}
+                                placeholder="Filter logs"
+                                className="h-10 w-full rounded-md border border-[#dadce0] bg-white pl-10 pr-3 text-sm font-medium outline-none"
                             />
                         </div>
-                        <div className="flex items-center gap-3">
-                            <span className="text-xs font-semibold text-slate-400">Type:</span>
-                            <select
-                                value={emailLogTypeFilter}
-                                onChange={(e) => setEmailLogTypeFilter(e.target.value)}
-                                className="text-xs font-bold uppercase px-3 py-2 border-2 border-black bg-white cursor-pointer hover:bg-[#f4f4f5] transition-all outline-none focus:ring-1 focus:ring-indigo-200"
-                            >
-                                <option value="all">All Types</option>
-                                <option value="crash">Crashes</option>
-                                <option value="anr">ANRs</option>
-                                <option value="error_spike">Error Spikes</option>
-                                <option value="api_degradation">API Degradation</option>
-                            </select>
-                        </div>
+                        <select
+                            value={emailLogTypeFilter}
+                            onChange={(event) => setEmailLogTypeFilter(event.target.value)}
+                            className="h-10 rounded-md border border-[#dadce0] bg-white px-3 text-sm font-medium outline-none"
+                        >
+                            <option value="all">All Types</option>
+                            <option value="crash">Crashes</option>
+                            <option value="anr">ANRs</option>
+                            <option value="error_spike">Error Spikes</option>
+                            <option value="api_degradation">API Degradation</option>
+                        </select>
                     </div>
 
-                    {/* Log Table */}
                     <div className="overflow-x-auto">
-                        <table className="w-full text-left text-sm">
-                            <thead className="bg-[#f4f4f5] text-black font-mono border-b-2 border-black font-bold uppercase text-[10px] tracking-wider">
+                        <table className="w-full min-w-[820px] text-left text-sm">
+                            <thead className="border-b border-[#e8eaed] bg-[#f8fafd] text-xs font-semibold uppercase text-slate-500">
                                 <tr>
-                                    <th className="p-4">Timestamp</th>
-                                    <th className="p-4">Alert Class</th>
+                                    <th className="p-4">Time</th>
+                                    <th className="p-4">Class</th>
                                     <th className="p-4">Recipient</th>
-                                    <th className="p-4">Information</th>
-                                    <th className="p-4 text-right">Delivery</th>
+                                    <th className="p-4">Subject</th>
+                                    <th className="p-4 text-right">Status</th>
                                 </tr>
                             </thead>
-                            <tbody className="divide-y divide-gray-200">
+                            <tbody className="divide-y divide-[#edf0f3]">
                                 {isLoadingLogs ? (
                                     <tr>
-                                        <td colSpan={5} className="p-8 text-center">
-                                            <div className="text-sm font-bold text-slate-400 uppercase animate-pulse">Loading email logs...</div>
+                                        <td colSpan={5} className="p-10 text-center text-sm font-semibold text-slate-400">
+                                            Loading email logs
                                         </td>
                                     </tr>
                                 ) : emailLogs.length === 0 ? (
                                     <tr>
                                         <td colSpan={5} className="p-12 text-center">
-                                            <Mail className="w-12 h-12 text-slate-200 mx-auto mb-4" />
-                                            <p className="font-bold text-slate-400 uppercase tracking-tighter text-lg">No emails sent yet</p>
-                                            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Emails will appear here when alerts are triggered</p>
+                                            <Mail className="mx-auto mb-3 h-10 w-10 text-slate-200" />
+                                            <p className="text-base font-semibold text-slate-500">No emails sent yet</p>
+                                            <p className="mt-1 text-xs font-medium text-slate-400">Alert emails will appear here after a rule matches.</p>
                                         </td>
                                     </tr>
                                 ) : (
                                     emailLogs.map((log) => {
-                                        const typeColors: Record<string, string> = {
-                                            crash: 'bg-red-500',
-                                            anr: 'bg-rose-500',
-                                            error_spike: 'bg-indigo-500',
-                                            api_degradation: 'bg-blue-500',
-                                        };
-                                        const typeLabels: Record<string, string> = {
-                                            crash: 'Crash',
-                                            anr: 'ANR',
-                                            error_spike: 'Error Spike',
-                                            api_degradation: 'API',
-                                        };
+                                        const sentAt = formatSentAt(log.sentAt);
+                                        const meta = EVENT_META[(log.alertType as EmailRuleAlertType)] ?? EVENT_META.crash;
                                         return (
-                                            <tr key={log.id} className="hover:bg-[#f4f4f5] transition-colors group text-sm">
+                                            <tr key={log.id} className="transition-colors hover:bg-[#f8fafc]">
                                                 <td className="p-4 whitespace-nowrap">
-                                                    <div className="font-bold text-slate-900">
-                                                        {new Date(log.sentAt).toLocaleDateString()}
-                                                    </div>
-                                                    <div className="text-[10px] font-medium text-slate-400">
-                                                        {new Date(log.sentAt).toLocaleTimeString()}
-                                                    </div>
+                                                    <div className="font-semibold text-slate-900">{sentAt.date}</div>
+                                                    <div className="text-xs font-medium text-slate-400">{sentAt.time}</div>
                                                 </td>
                                                 <td className="p-4">
                                                     <div className="flex items-center gap-2">
-                                                        <div className={`w-2 h-2 rounded-full ${typeColors[log.alertType] || 'bg-slate-300'}`} />
-                                                        <span className="font-bold text-slate-700">
-                                                            {typeLabels[log.alertType] || log.alertType}
-                                                        </span>
+                                                        <span className={`h-2.5 w-2.5 rounded-full ${meta.accent}`} />
+                                                        <span className="font-semibold text-slate-800">{meta.shortLabel}</span>
                                                     </div>
                                                 </td>
                                                 <td className="p-4">
-                                                    <div className="font-bold text-slate-900">
-                                                        {log.recipientName || log.recipientEmail}
-                                                    </div>
+                                                    <div className="font-semibold text-slate-900">{log.recipientName || log.recipientEmail}</div>
                                                     {log.recipientName && (
-                                                        <div className="text-[10px] font-medium text-slate-400">{log.recipientEmail}</div>
+                                                        <div className="text-xs font-medium text-slate-500">{log.recipientEmail}</div>
                                                     )}
                                                 </td>
-                                                <td className="p-4 max-w-xs">
-                                                    <div className="font-bold text-slate-700 truncate" title={log.subject}>
-                                                        {log.subject}
-                                                    </div>
+                                                <td className="max-w-sm p-4">
+                                                    <div className="truncate font-medium text-slate-700" title={log.subject}>{log.subject}</div>
                                                     {log.issueId && (
                                                         <Link
                                                             to={`${pathPrefix}/general/${log.issueId}`}
-                                                            className="text-[10px] text-blue-600 hover:text-blue-700 font-bold uppercase tracking-wider"
+                                                            className="text-xs font-semibold text-blue-600 hover:text-blue-700"
                                                         >
-                                                            View Issue →
+                                                            View issue
                                                         </Link>
                                                     )}
                                                 </td>
                                                 <td className="p-4 text-right">
                                                     {log.status === 'sent' ? (
-                                                        <NeoBadge variant="success" size="sm" className="border-none shadow-none rounded-full px-2.5">
-                                                            Delivered
-                                                        </NeoBadge>
+                                                        <NeoBadge variant="success" size="sm" className="shadow-none">Delivered</NeoBadge>
                                                     ) : log.status === 'failed' ? (
                                                         <span title={log.errorMessage || 'Email delivery failed'}>
-                                                            <NeoBadge variant="danger" size="sm" className="border-none shadow-none rounded-full px-2.5">
-                                                                Failed
-                                                            </NeoBadge>
+                                                            <NeoBadge variant="danger" size="sm" className="shadow-none">Failed</NeoBadge>
                                                         </span>
                                                     ) : (
-                                                        <NeoBadge variant="warning" size="sm" className="border-none shadow-none rounded-full px-2.5">
-                                                            Bounced
-                                                        </NeoBadge>
+                                                        <NeoBadge variant="warning" size="sm" className="shadow-none">Bounced</NeoBadge>
                                                     )}
                                                 </td>
                                             </tr>
@@ -722,11 +1250,10 @@ export const AlertEmails: React.FC = () => {
                         </table>
                     </div>
 
-                    {/* Pagination */}
                     {emailLogPagination.totalPages > 1 && (
-                        <div className="px-6 py-4 border-t-2 border-black flex items-center justify-between">
-                            <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
-                                Page {emailLogPagination.page} / {emailLogPagination.totalPages} • Total: {emailLogPagination.total}
+                        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[#e8eaed] bg-white px-5 py-4">
+                            <div className="text-xs font-medium text-slate-500">
+                                Page {emailLogPagination.page} / {emailLogPagination.totalPages} | Total {emailLogPagination.total}
                             </div>
                             <div className="flex items-center gap-2">
                                 <NeoButton
@@ -734,8 +1261,7 @@ export const AlertEmails: React.FC = () => {
                                     variant="secondary"
                                     onClick={() => loadEmailLogs(emailLogPagination.page - 1)}
                                     disabled={emailLogPagination.page <= 1}
-                                    leftIcon={<ChevronLeft className="w-3.5 h-3.5" />}
-                                    className="h-8 text-[10px] rounded-lg border-slate-200 shadow-none px-3"
+                                    leftIcon={<ChevronLeft className="h-3.5 w-3.5" />}
                                 >
                                     Previous
                                 </NeoButton>
@@ -744,16 +1270,14 @@ export const AlertEmails: React.FC = () => {
                                     variant="secondary"
                                     onClick={() => loadEmailLogs(emailLogPagination.page + 1)}
                                     disabled={emailLogPagination.page >= emailLogPagination.totalPages}
-                                    rightIcon={<ChevronRight className="w-3.5 h-3.5" />}
-                                    className="h-8 text-[10px] rounded-lg border-slate-200 shadow-none px-3"
+                                    rightIcon={<ChevronRight className="h-3.5 w-3.5" />}
                                 >
                                     Next
                                 </NeoButton>
                             </div>
                         </div>
                     )}
-                </NeoCard>
-            </div>
+                </section>
             </div>
         </div>
     );

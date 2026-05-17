@@ -1,6 +1,6 @@
 # Ingest + Session Recording Lifecycle (Visual)
 
-Last updated: 2026-05-06
+Last updated: 2026-05-17
 
 This doc is the ingest/runtime view: package start, upload lanes, relay, workers, Redis, and Postgres session state.
 
@@ -14,10 +14,155 @@ Shortest correct mental model:
 - Redis is the write-ahead buffer + job queue plane: tiny relay uploads land in `artifact:buf:{artifactId}` first, then BullMQ workers flush them to S3 and process them.
 - Replay becomes visible when at least one screenshot artifact reaches `ready`.
 - `/api/ingest/session/end` is a strong hint, but the backend must still work if the SDK never calls it.
-- The backend decides "live vs closed" from `ended_at`, `last_ingest_activity_at`, open replay work (`pending`, `buffered`, or `uploaded`), and newer-session rollover; not from a single client callback.
-- A session stops presenting as live ingest after 60 seconds without ingest touches, or immediately once `ended_at` is set.
+- The backend decides "live vs closed" from `ended_at`, `last_ingest_activity_at`, open replay work (`pending`, `buffered`, or `uploaded`), newer-session rollover, and the platform's finalization window; not from a single client callback.
+- A session stops presenting as live ingest after 60 seconds without ingest touches, or immediately once `ended_at` is set. For web, that 60-second live-badge timeout is not the same as final session closure: the row stays resumable until the web max observability window expires, unless the tab explicitly ends or a newer same-visitor session supersedes it.
 - Late uploads may still arrive after close. They can finish artifact processing, but they must not clear `ended_at`, must not clear `duration_seconds`, and must not make the old row look live again.
 - Hard ingest stops are intentionally narrow: `failed`, `deleted`, `recording_deleted`, or `is_replay_expired`.
+- The web SDK must not record Rejourney ingest/upload traffic as customer network activity. Ingest API routes and upload relay URLs are ignored by default so artifact uploads cannot recursively create more `network_request` events.
+- A visible web tab with no meaningful user activity enters an idle pause after 60 seconds: the SDK emits `app_background` with `reason=idle_timeout`, flushes once, pauses rrweb/upload timers, and resumes as an `app_foreground` gap if the user interacts again before the max session window.
+- Web startup time comes from browser performance timing. The SDK emits one `app_startup` event per session using `loadEventEnd` when available, with DOMContentLoaded/response/current-time fallbacks if it starts before load completes.
+- Web same-tab hard navigations use tab-scoped `sessionStorage` to continue the active session across reloads, Next 404s, and browser Back/Forward. Closing the tab clears that storage, so reopening starts a new session.
+- Web user identity is project-scoped in `localStorage` once `setUserIdentity()` is called. Refreshes and same-tab restores re-emit `user_identity_changed`; `clearUserIdentity()` removes the stored value and sends a clearing event so the backend does not leave a stale dashboard identity.
+- If a plain JavaScript customer passes a numeric user id, the web SDK normalizes it to a string. Identity set before `initRejourney()` is carried into the first initialized project, while re-initializing with a different public key does not reuse another project's identity.
+- Replay playback compresses both paired background/foreground gaps and final open-ended background tails. A user who leaves and never returns sees a short "user left" segment and then replay ends; the player must not show a long blank tail.
+- Visual replay duration comes from replay/session timing, not from every telemetry marker. Late analytics, close, or lifecycle events remain in the activity feed, but they must not stretch rrweb/screenshot playback or pile markers at the end of the timeline.
+
+## Web SDK Behavior Matrix
+
+These are the case-by-case rules the web SDK and dashboard replay viewer should hold. The storage model is:
+
+- Anonymous visitor id: first-party `localStorage`, currently browser-profile scoped.
+- User identity: project-scoped `localStorage`, set only by `setUserIdentity()`.
+- Active session restore state: project-scoped `sessionStorage`, so it survives same-tab reloads and hard navigations but is absent on a normal fresh tab.
+- Restore guard: the stored session must match project key + visitor id, still be inside the max session duration, and have a non-expired upload token.
+- Active-tab ownership guard: a `localStorage` lease prevents a duplicated tab from reusing a session that another live document still owns.
+
+### Start, Sampling, and Identity
+
+| Behavior | SDK session decision | Upload / backend result | Replay result | Dashboard / developer expectation |
+| --- | --- | --- | --- | --- |
+| `initRejourney()` with `autoStart=false` | No session until `start()` is called. | No ingest until `start()`. | No replay. | SDK is initialized but not recording. |
+| `initRejourney()` with `autoStart=true`, or explicit `start()` | Starts a new session unless a same-tab stored session can be restored. | First successful presign materializes the backend row and counts billing once. | Replay starts if sampled in and replay is enabled. | Session appears live once artifacts/events arrive. |
+| Remote config disabled, billing blocked, domain blocked, or bot suppressed | No session starts. | No ingest. | No replay. | Nothing should appear for that page load. |
+| Sampled out but analytics still allowed | Session may start with `sampledIn=false`; replay is disabled. | Event lane can upload analytics; replay presign is skipped/rejected. | No visual replay. | Developer may see analytics-only data, not a playable replay. |
+| `observeOnly=true` or replay consent false | Session can start; `replayEnabled=false`. | Event lane uploads; rrweb is not started. | No visual replay. | Useful for analytics without replay capture. |
+| `setUserIdentity()` before `initRejourney()` | Identity is kept in memory and attached once a project is initialized. | First event batch carries the user id. | No direct visual change. | Refresh/new same-profile sessions re-identify under that project. |
+| `setUserIdentity()` during an active session | Same active session continues. | Emits `user_identity_changed`; backend updates `userDisplayId`. | Replay remains continuous. | Dashboard row should switch from anonymous name to provided user id after processing. |
+| `setUserIdentity()` then refresh | Same-tab session restores if inside max duration; otherwise a new session starts. | SDK re-emits `user_identity_changed` from project-scoped storage. | Same replay if restored; new replay if expired/new tab. | User id should not randomly disappear on refresh. |
+| `clearUserIdentity()` | Same session continues; stored project identity is removed. | Emits clearing `user_identity_changed`; backend clears stale `userDisplayId` / anonymous display id. | Replay remains continuous. | Logout should stop showing the previous logged-in user on that session after processing. |
+| Local/session storage unavailable | SDK falls back to in-memory state for the current page. | Uploads can still work for that page. | Current page can replay; refresh/close cannot restore identity/session. | Private/quota-restricted browsers may create more new sessions. |
+
+### Navigation, Tabs, and Lifecycle
+
+| Behavior | SDK session decision | Upload / backend result | Replay result | Dashboard / developer expectation |
+| --- | --- | --- | --- | --- |
+| SPA navigation via `pushState`, `replaceState`, `popstate`, or hash change | Same session. | Emits `navigation` if route tracking is on. | Continuous replay, no away overlay. | Page journey gains the new route/screen. |
+| Same-tab hard navigation to another app route | Same session if restored inside max duration. | Old document marks background/pagehide and flushes; new document emits foreground on restore. | A short compressed away segment can appear for the reload/navigation gap. | One session/replay, not one per hard route. |
+| Same-tab refresh | Same session if restored inside max duration. | Same as hard navigation. | Replay continues after a compressed reload gap. | Refresh should not create a new session by itself. |
+| Same-tab Next/Remix 404 then Back | Same session if restored inside max duration. | 404 page still uses the same tab session; Back restores or continues. | One replay including the 404 route and return route. | No new session solely because the route module was missing or 404. |
+| Browser Back/Forward cache (`pagehide.persisted=true`, `pageshow`) | Same session if max duration has not expired. | Emits `app_background` / `app_foreground` around the cached gap. | Gap is compressed. | Back/forward should feel like one user journey. |
+| Open a normal new tab/window to the same URL | New session. | Same visitor id may be reused from `localStorage`; session id is new. | Separate replay. | Dashboard can show same visitor with multiple sessions. |
+| Duplicate tab / opener-cloned `sessionStorage` | New session while the original document still owns the active-tab lease. | The duplicate clears its cloned active session state and authenticates a fresh session. | Separate replay. | Avoids interleaved chunks from two tabs writing to one session. |
+| Open and close a tab before the 5s heartbeat | New session. | SDK immediately flushes `session_start` / startup evidence and the initial rrweb snapshot instead of waiting for the normal heartbeat. | Very short but playable replay if capture is enabled. | Bounce sessions should materialize instead of disappearing. |
+| Close tab, then manually open URL in a fresh tab | New session. | Old session may not get `/session/end`; the newer same-visitor session lets backend reconciliation finalize the old row. | Old replay gets an open-ended compressed away tail and then ends. | Fresh open should not append to the closed tab's replay. |
+| Browser "reopen closed tab" / session restore | Browser-dependent: some browsers restore `sessionStorage`. | If storage is restored and still inside max duration, SDK may restore unless a stronger closed-tab guard is added. | Could append to the prior replay. | Product expectation is new session; browser restore is the hard edge to guard explicitly. |
+| `stop()` called by app | Current session ends. | Flushes, sends `/session/end` best-effort, clears tab session queue/state. | Replay ends at stop. | A later `start()` creates a new session. |
+
+### Away, Idle, and Max Duration
+
+| Behavior | SDK session decision | Upload / backend result | Replay result | Dashboard / developer expectation |
+| --- | --- | --- | --- | --- |
+| Visible tab, normal activity under 60s idle | Same session. | Click/scroll/navigation/custom events update `lastActivityAt`. | Continuous replay. | Normal single session. |
+| Visible tab has no meaningful activity for 60s | Same session enters idle pause. | Emits `app_background(reason=idle_timeout)`, flushes once, pauses rrweb/upload timers and network interception. | Replay shows a compressed "user left" segment. | Session should not stay live forever just because the page is open. |
+| Idle pause, user interacts again before max duration | Same session resumes. | Emits `app_foreground(reason=idle_activity)`, restarts upload/rrweb/network, queues the wake event. | Away segment lasts about 2 replay seconds, labeled with real away duration. | Developer sees one replay with a clear absence gap. |
+| Idle pause, user never returns | No new client event; old session eventually closes server-side. | LIVE badge ages out after 60s; backend finalizes at explicit close, newer same-visitor session, or web max observability expiry. | Final open-ended background interval is compressed, then replay ends. | No long empty tail after the away overlay. |
+| Idle pause, user returns after max duration | Old session closes; new session starts. | Old session sends end best-effort on wake; new auth/session begins. | Two separate replays. | Developer should not see one 45-minute replay. |
+| Tab becomes hidden and returns before max duration | Same session. | Emits `app_background` on hidden/pagehide and `app_foreground` on visible/pageshow; flushes on hide. | Hidden gap is compressed; rrweb events inside the gap are dropped by the viewer. | One replay with "user left" overlay, then continuation. |
+| Tab hidden, user never returns | Old session may not get a client close. | LIVE badge ages out after 60s; backend finalizes at explicit close, newer same-visitor session, or web max observability expiry. | Open-ended background tail compresses and replay ends. | Dashboard should not show live replay forever after ingest goes quiet. |
+| Tab hidden, returns after max duration | Old session closes; new session starts. | Old session gets `background_timeout` end best-effort on return. | Old replay ends at the leave point with compressed gap; new replay starts at return. | Max duration boundary wins over continuity. |
+| Active visible session reaches max duration | SDK rotates immediately. | Old session closes with `max_duration`; new session starts. | Replay split at the max duration. | No single web session should exceed the max window. |
+| Hidden/idle session reaches max duration while user is away | SDK cannot start a visible new session until the page wakes. | Old session is finalized at the web max observability boundary or when a newer same-visitor session appears. | Old replay ends with compressed away tail. | No live replay should keep accumulating events during inactivity, and no resumable session should be closed just because it was quiet for 60s. |
+
+### Event and Replay Alignment
+
+| Behavior | SDK session decision | Upload / backend result | Replay result | Dashboard / developer expectation |
+| --- | --- | --- | --- | --- |
+| Customer app network request | Same session. | Emits `network_request` unless ignored by config. | Timeline marker is compressed into playback time. | API density should align with the replay moment. |
+| Rejourney SDK config/ingest/upload traffic | Same session. | Ignored by default by the network interceptor. | No recursive upload/API markers. | Developer sees app traffic, not Rejourney's own plumbing. |
+| Click/scroll after idle pause | Same session resumes before the user event is queued. | Wake event is uploaded after `app_foreground`. | Marker lands after the compressed away segment. | First return interaction should not vanish. |
+| rrweb event timestamp inside background gap | Same session. | Raw artifact can contain noisy events. | Viewer drops visual events inside the gap and freezes at gap start. | Cursor/background noise should not play under the grey overlay. |
+| Analytics event timestamp inside background gap | Same session. | Event remains in analytics. | Marker maps into compressed gap timing. | Timeline should still show that a background event happened without stretching playback. |
+| Final `app_background` with no `app_foreground` | Same session until server/client closes. | Viewer uses session/replay terminal end to close the gap. | Shows short away overlay, then replay ends. | No empty replay tail after "user left". |
+| Event after the final playable replay frame | Same session if it belongs to that session. | Event stays queryable in logs/analytics. | Marker is hidden from the visual timeline if it falls outside playable time. | Telemetry must not create a blank tail or misleading dot cluster. |
+| Late foreground/event artifact after a pre-background rrweb close | Same session if still inside the web max window. | Events artifacts store client `start_time` / `end_time`; reconciliation uses later client event evidence for close math while replay playback still uses visual timing. | Away gap is compressed and the replay does not grow an empty tail. | Duration/background math must not claim `background_time_seconds` is larger than total wall time. |
+| Input values or placeholders inside rrweb snapshots | Same session. | Serialized input `value` and `placeholder` attributes are masked when all-input masking or sensitive input types apply. | Replay shows masked controls. | Developers should not see typed secrets or sensitive placeholder examples in stored rrweb JSON. |
+
+## Mobile SDK Behavior Matrix
+
+The mobile package is not a web-style tab/session restore system. It is a React Native + native runtime:
+
+- Replay is screenshot + hierarchy based, not rrweb DOM based.
+- `initRejourney()` configures lifecycle/auth plumbing but does not start recording. `startRejourney()` starts after consent.
+- Native creates a fresh `session_{timestamp}_{uuid}` every time replay begins.
+- User identity is persisted natively (`UserDefaults` on iOS, SharedPreferences on Android) and restored for future sessions.
+- Background rollover threshold is 60 seconds. This is intentionally much shorter than the web max-session window.
+- Mobile max recording duration comes from `maxRecordingMinutes`, clamped to 1-10 minutes.
+- `/session/end` is best-effort. iOS force-quit, Android OEM task killing, crash, and process death can prevent final callbacks.
+
+### Start, Sampling, and Identity
+
+| Behavior | SDK session decision | Upload / backend result | Replay result | Dashboard / developer expectation |
+| --- | --- | --- | --- | --- |
+| Import package | No native module access should be required at import time. | No ingest. | No replay. | Safe for React Native 0.81+ / bridgeless startup. |
+| `initRejourney(publicKey)` | Initializes JS/native lifecycle listeners and auth-error handling; does not start a session. | No session row until start/upload. | No replay. | App can wait for consent before recording. |
+| `startRejourney()` before `initRejourney()` | No session starts. | No ingest. | No replay. | SDK logs a warning. |
+| Local `enabled=false` or `disableInDev=true` in dev | No session starts. | No ingest. | No replay. | Local config can suppress mobile capture. |
+| Remote config access denied (`401/403/404`) | No session starts; cached config is cleared. | No ingest. | No replay. | Invalid key/project/bundle/package mismatch fails closed. |
+| Remote config network error with cached config | Start decision uses cached remote config. | Normal ingest if cached config allows. | Replay/telemetry follows cached config. | Mobile can keep working through transient config outages. |
+| Remote config network error with no cache | Starts with default mobile config. | Normal ingest. | Replay defaults to enabled, sample rate 100%, max 10 minutes. | Mobile fails open for server/network outages, but not for access denial. |
+| `rejourneyEnabled=false` or billing blocked | No native session starts. | No ingest. | No replay. | Dashboard should not receive new sessions. |
+| Sampled out | Aborts before native session start. | Native receives sampled-out remote state; no session/capture. | No replay. | Sampled-out mobile sessions should not consume recording work. |
+| `recordingEnabled=false` or local `observeOnly=true` | Native session can start, visual capture is disabled. | Telemetry/events/crashes/ANRs/network can upload. | No screenshots; replay is not visually playable. | Developer gets observability without screen recording. |
+| `setUserIdentity()` before start | Stores identity in JS/native state. | Identity is used as the user id on start. | No direct visual effect. | Future sessions attach the known user. |
+| `setUserIdentity()` during active session | Same session continues. | Native records `user_identity_changed`; backend updates `userDisplayId`. | Replay remains continuous. | Dashboard should show the user id after processing. |
+| `clearUserIdentity()` | Same session continues; native persisted identity is removed. | Current code sends native identity `"anonymous"` while active. | Replay remains continuous. | Future sessions fall back to anonymous/device identity. |
+| App restarts after identity was set | New start uses persisted identity. | Native re-associates restored identity on new session and background rollover restarts. | Separate replay for the new mobile session. | User id should persist across app launches until cleared. |
+
+### Foreground, Background, and Termination
+
+| Behavior | SDK session decision | Upload / backend result | Replay result | Dashboard / developer expectation |
+| --- | --- | --- | --- | --- |
+| App remains active/foreground | Same native session until stop, duration limit, crash, or process death. | Telemetry heartbeat flushes about every 5 seconds; screenshot batches upload by frame batch. | Continuous screenshot replay. | Live ingest stays active while events/frames upload. |
+| User is idle while app stays foreground | Same session; no web-style idle pause. | Heartbeat can continue flushing while foregrounded. | Replay continues capturing screenshots at configured FPS. | Mobile idle foreground is considered active app usage. |
+| App goes background | Session moves to paused state. | Records `app_background`, flushes events and frames, ships pending screenshots, pauses telemetry heartbeat. | Visual capture stops while app is backgrounded. | Live badge should age out after ingest goes quiet. |
+| Background < 60s, then foreground | Same session resumes. | Records `app_foreground` with background duration; heartbeat/capture resume. | One replay; dashboard duration subtracts background time. | Short app switches remain one mobile journey. |
+| Background > 60s, then foreground | Old session is ended with `background_timeout`; new native session starts. | Old session sends `/session/end` best-effort with `closeAnchorAtMs` at background entry and total background time; new session reuses cached credentials if valid. | Two replays. Old replay ends at background point; new replay starts on return. | Mobile rollover threshold is 60s, not 30 minutes. |
+| Background > 60s but old session end upload is slow | Restart races against a 2s rollover grace. | If end callback is slow, new session starts after grace timeout. | Two replays; backend reconciliation prevents overlap. | User return should not wait on slow network. |
+| Session ended while backgrounded, then foregrounds before 60s | New session starts instead of resuming a dead session. | New replay/session begins on foreground. | Separate replay. | Covers duration-limit or native teardown while backgrounded. |
+| User force-quits iOS from app switcher | No reliable final callback after suspension. | Last background flush may exist; backend closes by inactivity/reconciliation or crash recovery. | Replay ends from latest evidence/background anchor. | Missing `/session/end` is expected on iOS force-quit. |
+| Android recent-apps swipe-away | `SessionLifecycleService.onTaskRemoved()` may fire, but does not do blocking network finalization. | Recovery/reconciliation handles closure; callback reliability depends on OEM. | Replay ends from latest evidence/background anchor. | Pixel/stock is more reliable; aggressive OEMs may skip callbacks. |
+| Android Samsung false `onTaskRemoved()` near launch | Ignored if it fires too soon after service start. | No premature close. | Replay continues. | Filters known Samsung false positives. |
+| Low-memory/system kill | No reliable client close. | Recovery checkpoint and backend reconciliation close later. | Replay ends from latest uploaded frames/events. | Backend must not depend on mobile termination callbacks. |
+| Native crash/fatal JS error | Current process can die before normal stop. | Recovery checkpoint and stored crash incident are finalized on next launch when possible. | Previous replay is closed with crash evidence after recovery. | Crash sessions may appear after the next app launch/worker processing. |
+| `stopRejourney()` / explicit user stop | Current active/paused session ends. | Sends metrics and `/session/end` best-effort, disables network/capture. | Replay ends at stop. | A later start creates a fresh session. |
+
+### Duration, Network, and Replay Capture
+
+| Behavior | SDK session decision | Upload / backend result | Replay result | Dashboard / developer expectation |
+| --- | --- | --- | --- | --- |
+| Active session reaches `maxRecordingMinutes` | Native replay is ended with `duration_limit`. Current JS wrapper does not immediately start a replacement while app stays foregrounded. | Backend stores closed timing; late uploads may still process. | Replay ends at duration limit. | Current behavior is "close at cap"; QA should not expect automatic foreground rollover. |
+| App backgrounds after duration limit ended the replay | Foreground reconciliation detects no live orchestrator session and starts fresh. | New session starts on foreground if SDK still has API config. | Separate replay. | Lifecycle can recover from duration-limit closure. |
+| `wifiOnly=true`, iOS path is cellular/expensive | iOS waits for an acceptable network before starting capture. | No session artifacts until network is acceptable. | Replay starts later or not at all. | Wi-Fi-only can delay session creation on iOS. |
+| `wifiOnly=true`, Android active network not Wi-Fi | Android network gate prevents `beginRecording()` until Wi-Fi; if no active network exists it currently starts anyway and retries uploads. | Uploads retry through queue/dispatcher. | Capture may start offline on Android no-network fallback. | Android network behavior is best-effort and not identical to iOS. |
+| Network drops during an active session | Session remains active. | Events/frames are queued and retried; pending sessions upload on later activation. | Replay may become available after network returns. | Temporary offline should not split the session by itself. |
+| Native replay starts | New session id is generated natively. | First presign/upload materializes the backend row. | Screenshot/hierarchy replay starts if visual capture enabled. | Session count increments once per created row. |
+| Screenshot capture enabled | Same session. | Frames upload in small bundles; hierarchy uploads separately when changed. | Dashboard uses `ScreenshotReplayPlayer`. | Mobile replay is image based. |
+| Screenshot capture disabled / observe-only | Same telemetry session. | Events, crashes, ANRs, network, metadata can upload; no screenshot artifacts. | No visual replay. | Session may be useful for stability/API analysis only. |
+| Native sheets/dialog capture enabled | Same session. | Eligible app-owned native windows can appear in screenshots. | Replay may include native modal surfaces. | Disable `captureNativeSheets` for privacy-sensitive surfaces. |
+| App-owned sensitive views masked | Same session. | Screenshot pixels are redacted before upload. | Masked/blocked areas in replay. | Privacy masking is native screenshot redaction, not DOM masking. |
+| JS/native network requests | Same session. | JS fetch/XHR is patched; native URLProtocol/OkHttp interception is supplementary. Rejourney ingest routes are ignored where configured. | API timeline should show app traffic, not SDK upload plumbing. | Native-originated HTTP coverage can differ by platform/runtime. |
+| Console tracking enabled | Same session. | Console logs are captured up to the session cap. | Replay/event detail can show logs. | Privacy-sensitive apps should disable/sanitize console logs. |
+| Screen tracking via Expo Router/React Navigation/manual `trackScreen` | Same session. | Screen events and hierarchy capture update current screen. | Page journey/screen markers align to mobile replay. | Mobile screen names are app routes/screens, not URLs. |
 
 ## Flow Index
 
@@ -53,6 +198,15 @@ Shortest correct mental model:
 │ Active -> background < 60s       : keep same session                        │
 │ Active -> background >= 60s      : old session should close; next launch or │
 │                                    resume may start a new session           │
+│ Web visible idle >= 60s          : emit idle background, flush once, pause  │
+│                                    capture/upload until user activity       │
+│ Web idle resume within max       : emit foreground and continue same replay │
+│ Web idle resume after max        : close old session and start a new one    │
+│ Web hard navigation / reload     : restore the same tab session if it is    │
+│                                    still inside the max duration window      │
+│ Web closed tab -> reopened       : start a new session                      │
+│ Web identify -> refresh          : keep the stored user ID and re-emit      │
+│                                    identity on the restored/new session      │
 │ Active -> user stop              : flush and close best-effort              │
 │ Active -> duration limit reached : flush and close                          │
 │ Process death / next launch      : backend may finalize old one later       │
@@ -60,11 +214,12 @@ Shortest correct mental model:
 ```
 
 ```text
-Background rollover threshold      60s
-Rollover grace window               2s
-Event heartbeat flush               5s
-Max recording duration              backend-configured, clamped server-side
-                                    to 1..10 minutes
+Background rollover threshold       60s
+Web visible idle pause              60s
+Rollover grace window                2s
+Event heartbeat flush                5s
+Max web observability duration       backend-configured, currently supports
+                                     up to 30 minutes
 ```
 
 ### iOS: multitasking and force-quit (no guaranteed `/session/end`)
@@ -93,6 +248,10 @@ Package-side rules that matter downstream:
 
 Relevant package files:
 
+- [`packages/browser/src/sdk/client.ts`](/Users/mora/Desktop/Dev-mac/rejourney/packages/browser/src/sdk/client.ts)
+- [`packages/browser/src/sdk/startup.ts`](/Users/mora/Desktop/Dev-mac/rejourney/packages/browser/src/sdk/startup.ts)
+- [`packages/browser/src/sdk/networkInterceptor.ts`](/Users/mora/Desktop/Dev-mac/rejourney/packages/browser/src/sdk/networkInterceptor.ts)
+- [`packages/browser/src/sdk/replayUploadQueue.ts`](/Users/mora/Desktop/Dev-mac/rejourney/packages/browser/src/sdk/replayUploadQueue.ts)
 - [`packages/react-native/src/index.ts`](/Users/mora/Desktop/Dev-mac/rejourney/packages/react-native/src/index.ts)
 - [`packages/react-native/android/src/main/java/com/rejourney/recording/ReplayOrchestrator.kt`](/Users/mora/Desktop/Dev-mac/rejourney/packages/react-native/android/src/main/java/com/rejourney/recording/ReplayOrchestrator.kt)
 - [`packages/react-native/android/src/main/java/com/rejourney/recording/TelemetryPipeline.kt`](/Users/mora/Desktop/Dev-mac/rejourney/packages/react-native/android/src/main/java/com/rejourney/recording/TelemetryPipeline.kt)
@@ -313,7 +472,7 @@ Relevant files:
 Important reconciliation rules:
 
 - Replay availability is artifact-driven, not `/session/end`-driven.
-- `/session/end` is optional. The backend must still finalize a row after 60 seconds of ingest inactivity even if the SDK never sends an end event.
+- `/session/end` is optional. The backend must still finalize a non-web row after 60 seconds of ingest inactivity even if the SDK never sends an end event. Web rows use the 60-second timeout only for the LIVE badge; finalization waits for explicit close, newer same-visitor session rollover, or the configured web max observability window.
 - The live-ingest window is 60 seconds. The lifecycle worker sweeps every 10 seconds.
 - `ended_at` plus positive `duration_seconds` is sticky close timing. Once those are stored, later replay uploads must not clear them.
 - Later `/session/end` calls for an already-closed row return success while preserving the stored close timing instead of recomputing a smaller duration.
@@ -419,14 +578,16 @@ What exactly is the auto-finalizer?
   Session-lifecycle worker sweep plus reconcileSessionState() after artifact jobs complete.
 
 What makes a replay visible?
-  At least one screenshot artifact with status = ready.
+  At least one screenshot or rrweb artifact with status = ready.
 
 Can a ready/closed session reopen?
   Not logically. Later artifact work may still append to the session, but stored close timing
   stays sticky and the old row must not go live again.
 
 Does the backend depend on /session/end?
-  No. It must finalize correctly from inactivity + artifact evidence alone.
+  No. It must finalize correctly from explicit close, rollover/newer-session evidence,
+  max-window expiry, and artifact evidence alone. For non-web runtimes, 60s of
+  ingest inactivity is enough to finalize; for web, 60s only removes the LIVE badge.
 
 What hard-stops new ingest?
   failed, deleted, recording_deleted, or replay_expired.
@@ -435,6 +596,7 @@ What hard-stops new ingest?
 ```text
 Session ID materialization window      6h
 Live ingest idle threshold             60s
+Web finalization window                project web max observability, max 30m
 Session-lifecycle sweep interval       10s
 Pending artifact abandonment           10m
 Redis artifact buffer TTL              30m
@@ -470,7 +632,7 @@ How `durationSeconds` is filled:
 Dashboard client behavior:
 
 - Presentation fields come from `deriveSessionPresentationState()`: `effectiveStatus`, `isLiveIngest`, `isBackgroundProcessing`, `canOpenReplay`.
-- A session with `ended_at` set, or one idle for more than 60 seconds, must not keep the LIVE badge.
+- A session with `ended_at` set, or one idle for more than 60 seconds, must not keep the LIVE badge. A quiet web session may still remain in `processing` and later become live again if the same tab resumes before the web max observability window.
 - If a newer visitor session exists, the older row should not show LIVE even if some stale activity arrives later.
 
 ## [I8] Ingest guardrails + late-arrival behavior

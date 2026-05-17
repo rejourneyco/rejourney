@@ -10,7 +10,10 @@ export const HIGH_QUALITY_MIN_SCREENSHOT_FRAMES = 3;
  */
 export const OBSERVE_ONLY_QUALITY_TIER = 'observe_only';
 
-const REQUIRED_ARTIFACT_KINDS = ['events', 'hierarchy', 'screenshots'];
+const NATIVE_REPLAY_ARTIFACT_KINDS = ['events', 'hierarchy', 'screenshots'];
+const NATIVE_OBSERVE_ONLY_ARTIFACT_KINDS = ['events', 'hierarchy'];
+const WEB_REPLAY_ARTIFACT_KINDS = ['events', 'rrweb'];
+const WEB_OBSERVE_ONLY_ARTIFACT_KINDS = ['events'];
 const SOFT_REASONS = new Set([
   'too_short',
   'low_frame_count',
@@ -101,6 +104,20 @@ function classifyTier(reasons) {
   return 'broken';
 }
 
+function isWebBackupShape(session, artifactKinds, backupArtifactKinds) {
+  const platform = typeof session?.platform === 'string' ? session.platform.toLowerCase() : '';
+  return platform === 'web' || artifactKinds.includes('rrweb') || backupArtifactKinds.includes('rrweb');
+}
+
+function expectedArtifactKindsForSession(session, artifactKinds, backupArtifactKinds) {
+  const observeOnly = session?.observeOnly === true;
+  const webShape = isWebBackupShape(session, artifactKinds, backupArtifactKinds);
+  if (webShape && observeOnly) return WEB_OBSERVE_ONLY_ARTIFACT_KINDS;
+  if (webShape) return WEB_REPLAY_ARTIFACT_KINDS;
+  if (observeOnly) return NATIVE_OBSERVE_ONLY_ARTIFACT_KINDS;
+  return NATIVE_REPLAY_ARTIFACT_KINDS;
+}
+
 export function evaluateBackupQuality({
   manifest,
   plannedArtifactCount,
@@ -116,7 +133,8 @@ export function evaluateBackupQuality({
   const backupArtifacts = Array.isArray(manifest?.backupArtifacts) ? manifest.backupArtifacts.filter(isPlainObject) : [];
   const artifactKinds = collectKinds(artifacts);
   const backupArtifactKinds = collectKinds(backupArtifacts);
-  const expectedArtifactKinds = sessionObserveOnly ? ['events', 'hierarchy'] : REQUIRED_ARTIFACT_KINDS;
+  const expectedArtifactKinds = expectedArtifactKindsForSession(session, artifactKinds, backupArtifactKinds);
+  const webShape = isWebBackupShape(session, artifactKinds, backupArtifactKinds);
   const plannedCount = normalizeInteger(plannedArtifactCount);
   const copiedCount = normalizeInteger(artifactCount);
   const r2ArtifactCount = normalizeInteger(actualR2ArtifactCount);
@@ -154,6 +172,9 @@ export function evaluateBackupQuality({
   }
   if (sessionObserveOnly && (artifactKinds.includes('screenshots') || backupArtifactKinds.includes('screenshots'))) {
     reasons.add('unexpected_screenshots_for_observe_only');
+  }
+  if (sessionObserveOnly && (artifactKinds.includes('rrweb') || backupArtifactKinds.includes('rrweb'))) {
+    reasons.add('unexpected_rrweb_for_observe_only');
   }
 
   if (plannedCount <= 0 || copiedCount <= 0 || r2ArtifactCount <= 0) {
@@ -197,10 +218,10 @@ export function evaluateBackupQuality({
   if (invalidTimeRange) {
     reasons.add('invalid_time_range');
   }
-  if (artifactKinds.includes('screenshots') && coverageMs < HIGH_QUALITY_MIN_VISUAL_DURATION_MS) {
+  if (!webShape && artifactKinds.includes('screenshots') && coverageMs < HIGH_QUALITY_MIN_VISUAL_DURATION_MS) {
     reasons.add('too_short');
   }
-  if (artifactKinds.includes('screenshots') && totalScreenshotFrames < HIGH_QUALITY_MIN_SCREENSHOT_FRAMES) {
+  if (!webShape && artifactKinds.includes('screenshots') && totalScreenshotFrames < HIGH_QUALITY_MIN_SCREENSHOT_FRAMES) {
     reasons.add('low_frame_count');
   }
   if (sessionDurationSeconds != null && (!Number.isFinite(sessionDurationSeconds) || sessionDurationSeconds < 0)) {

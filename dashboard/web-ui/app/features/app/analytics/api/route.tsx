@@ -37,7 +37,10 @@ import {
     RegionPerformance,
 } from '~/shared/api/client';
 import { DashboardPageHeader } from '~/shared/ui/core/DashboardPageHeader';
-import { TimeFilter, TimeRange, DEFAULT_TIME_RANGE } from '~/shared/ui/core/TimeFilter';
+import { type TimeRange } from '~/shared/ui/core/TimeFilter';
+import { DashboardLensControls } from '~/shared/ui/core/DashboardLensControls';
+import { useSharedPlatformLens, platformLensToSessionPlatform } from '~/shared/hooks/useSharedPlatformLens';
+import { useSharedRejourneyTimeRange } from '~/shared/hooks/useSharedRejourneyTimeRange';
 import { KpiCardItem, KpiCardsGrid, computePeriodDeltaFromSeries } from '~/features/app/shared/dashboard/KpiCardsGrid';
 import { DashboardGhostLoader } from '~/shared/ui/core/DashboardGhostLoader';
 
@@ -331,8 +334,10 @@ const getRiskBadgeClass = (riskScore: number): string => {
 
 export const ApiAnalytics: React.FC = () => {
     const { selectedProject } = useSessionData();
+    const { platformLens } = useSharedPlatformLens(selectedProject?.id, selectedProject?.platforms);
+    const platform = platformLensToSessionPlatform(platformLens);
 
-    const [timeRange, setTimeRange] = useState<TimeRange>(DEFAULT_TIME_RANGE);
+    const { timeRange, setTimeRange } = useSharedRejourneyTimeRange(selectedProject?.id);
     const [isLoading, setIsLoading] = useState(true);
     const [searchQuery, setSearchQuery] = useState('');
     const [sortKey, setSortKey] = useState<EndpointSortKey>('totalCalls');
@@ -370,7 +375,7 @@ export const ApiAnalytics: React.FC = () => {
         let isCancelled = false;
         setIsLoading(true);
 
-        void getApiOverview(selectedProject.id, timeRange)
+        void getApiOverview(selectedProject.id, timeRange, platform)
             .then((overview) => {
                 if (isCancelled) return;
                 setEndpointStats(overview.endpointStats);
@@ -395,7 +400,7 @@ export const ApiAnalytics: React.FC = () => {
         return () => {
             isCancelled = true;
         };
-    }, [selectedProject?.id, timeRange]);
+    }, [selectedProject?.id, timeRange, platform]);
 
     useEffect(() => {
         if (typeof window === 'undefined') return;
@@ -990,7 +995,7 @@ export const ApiAnalytics: React.FC = () => {
                 iconColor="bg-[#d1fae5]"
             >
                 <div className="flex min-w-0 max-w-full flex-wrap items-center gap-3">
-                    <TimeFilter value={timeRange} onChange={setTimeRange} />
+                    <DashboardLensControls timeRange={timeRange} onTimeRangeChange={setTimeRange} />
                 </div>
             </DashboardPageHeader>
 

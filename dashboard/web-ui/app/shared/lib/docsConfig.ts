@@ -17,6 +17,13 @@ export interface DocMetadata {
  * This is a client-safe copy of DOCS_MAP from docsLoader.server.ts
  */
 export const DOCS_MAP: Record<string, { file: string; title: string; category?: string; description: string; keywords: string[] }> = {
+    'web/getting-started': {
+        file: 'web/getting-started.md',
+        title: 'Web SDK',
+        category: 'Web',
+        description: 'Install the Rejourney Web SDK for browser session replay, network tracking, error capture, and product analytics across React, Next.js, Vue, and more.',
+        keywords: ['web session replay', 'browser analytics SDK', 'JavaScript session recording', 'web observability', 'React session replay']
+    },
     'reactnative/overview': {
         file: 'react-native/getting-started.md',
         title: 'React Native SDK',

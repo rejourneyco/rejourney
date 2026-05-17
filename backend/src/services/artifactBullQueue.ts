@@ -3,7 +3,7 @@
  *
  * Three queues backed by the existing Redis Sentinel cluster:
  *   rj-ingest-artifacts  — events, crashes, anrs   (was polled from ingest_jobs)
- *   rj-replay-artifacts  — screenshots, hierarchy  (was polled from ingest_jobs)
+ *   rj-replay-artifacts  — screenshots, hierarchy, rrweb  (was polled from ingest_jobs)
  *   rj-artifact-flush    — Redis-buffered uploads waiting to be written to S3
  *
  * Using jobId = `artifact-{artifactId}` gives natural deduplication:
@@ -49,7 +49,7 @@ export const INGEST_QUEUE_NAME = 'rj-ingest-artifacts';
 export const REPLAY_QUEUE_NAME = 'rj-replay-artifacts';
 export const FLUSH_QUEUE_NAME = 'rj-artifact-flush';
 
-const REPLAY_KINDS = new Set(['screenshots', 'hierarchy']);
+const REPLAY_KINDS = new Set(['screenshots', 'hierarchy', 'rrweb']);
 
 // ─── Connection factory ───────────────────────────────────────────────────────
 

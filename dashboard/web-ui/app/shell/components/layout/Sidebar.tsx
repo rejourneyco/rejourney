@@ -7,7 +7,7 @@ import { Modal } from '~/shared/ui/core/Modal';
 import { Input } from '~/shared/ui/core/Input';
 import { Button } from '~/shared/ui/core/Button';
 import { ProjectCreatedModal } from '~/shared/ui/core/ProjectCreatedModal';
-import { getAndroidPackageError, getIosBundleIdError } from '~/shared/lib/validation';
+import { getAndroidPackageError, getIosBundleIdError, getWebAllowedDomainsError, parseWebAllowedDomainsInput } from '~/shared/lib/validation';
 import {
   Activity,
   Smartphone,
@@ -51,7 +51,10 @@ function isTimeRange(value: string | null): value is string {
 
 function readSidebarPrefetchTimeRange(projectId?: string | null): string {
   if (typeof window === 'undefined') return SIDEBAR_PREFETCH_TIME_RANGE;
-  const stored = window.localStorage.getItem(`rejourney.analytics.timeRange.${projectId || 'global'}`);
+  const keySuffix = projectId || 'global';
+  const stored =
+    window.localStorage.getItem(`rejourney.dashboard.timeRange.${keySuffix}`) ??
+    window.localStorage.getItem(`rejourney.analytics.timeRange.${keySuffix}`);
   return isTimeRange(stored) ? stored : SIDEBAR_PREFETCH_TIME_RANGE;
 }
 
@@ -88,6 +91,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const [newAppName, setNewAppName] = useState('');
   const [newBundleId, setNewBundleId] = useState('');
   const [newPackageName, setNewPackageName] = useState('');
+  const [newWebAllowedDomains, setNewWebAllowedDomains] = useState('');
   const [selectedPlatforms, setSelectedPlatforms] = useState<string[]>([]);
   const [isCreating, setIsCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
@@ -231,6 +235,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
     setCreateTeamError(null);
   };
 
+  const resetCreateProjectForm = () => {
+    setNewAppName('');
+    setNewBundleId('');
+    setNewPackageName('');
+    setNewWebAllowedDomains('');
+    setSelectedPlatforms([]);
+    setCreateError(null);
+  };
+
   const navSections = React.useMemo(() => [
     {
       section: 'Monitor',
@@ -281,6 +294,25 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   // isActive needs to check if path matches, accounting for demo prefix
   const isActive = (path: string) => location.pathname === path;
+
+  const NAV_ACCENT: Record<string, string> = {
+    '/general':            '#22d3ee',
+    '/sessions':           '#22d3ee',
+    '/analytics/api':      '#4ade80',
+    '/analytics/journeys': '#f472b6',
+    '/analytics/heatmaps': '#f472b6',
+    '/analytics/devices':  '#a78bfa',
+    '/analytics/geo':      '#38bdf8',
+    '/stability/crashes':  '#f87171',
+    '/stability/anrs':     '#a78bfa',
+    '/stability/errors':   '#fb923c',
+    '/alerts/emails':      '#fbbf24',
+  };
+
+  const getNavAccent = (path: string): string => {
+    const stripped = path.startsWith(pathPrefix) ? path.slice(pathPrefix.length) : path;
+    return NAV_ACCENT[stripped] ?? '#e2e8f0';
+  };
   const warehousePath = p('/warehouse');
   const isWarehouseActive = isActive(warehousePath);
   const collapsedDesktop = isDesktop && collapsed;
@@ -326,6 +358,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
     const timeoutId = globalThis.setTimeout(schedule, 350);
     return () => globalThis.clearTimeout(timeoutId);
   }, [location.pathname, navSections, prefetchPath]);
+
+  const parsedWebAllowedDomains = parseWebAllowedDomainsInput(newWebAllowedDomains);
+  const webAllowedDomainsError = selectedPlatforms.includes('web')
+    ? getWebAllowedDomainsError(newWebAllowedDomains, true)
+    : null;
+  const visibleWebAllowedDomainsError = newWebAllowedDomains.trim() ? webAllowedDomainsError : null;
 
   return (
     <>
@@ -561,7 +599,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                       onMouseEnter={() => prefetchPath(item.path)}
                       onFocus={() => prefetchPath(item.path)}
                       className={`
-                        dashboard-nav-item flex items-center text-[0.88rem] transition-colors
+                        dashboard-nav-item relative flex items-center text-[0.88rem] transition-colors overflow-hidden
                         ${collapsedDesktop ? 'justify-center px-2 py-2' : 'gap-3 px-4 py-2.5'}
                         ${isActive(item.path)
                           ? 'bg-[#f1f3f4] text-[#202124] font-semibold'
@@ -569,6 +607,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
                         }
                       `}
                     >
+                      <span
+                        className="absolute left-0 top-0 bottom-0 w-[3px] transition-opacity duration-150"
+                        style={{
+                          background: getNavAccent(item.path),
+                          opacity: isActive(item.path) ? 1 : 0,
+                        }}
+                      />
                       <item.icon className="w-4 h-4 shrink-0 text-current" strokeWidth={2.5} />
                       {!collapsedDesktop && <span>{item.label}</span>}
                     </Link>
@@ -600,10 +645,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         isOpen={showAddAppModal}
         onClose={() => {
           setShowAddAppModal(false);
-          setNewAppName('');
-          setNewBundleId('');
-          setNewPackageName('');
-          setSelectedPlatforms([]);
+          resetCreateProjectForm();
         }}
         title="Create New Project"
         panelClassName="rounded-none border-2 border-black shadow-[8px_8px_0_0_rgba(0,0,0,1)]"
@@ -615,11 +657,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               className="rounded-none border-2 border-black bg-white px-5 font-black uppercase text-black shadow-neo-sm hover:bg-[#ecfeff] hover:border-black"
               onClick={() => {
                 setShowAddAppModal(false);
-                setNewAppName('');
-                setNewBundleId('');
-                setNewPackageName('');
-                setSelectedPlatforms([]);
-                setCreateError(null);
+                resetCreateProjectForm();
               }}
             >
               Cancel
@@ -631,6 +669,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 if (!newAppName || selectedPlatforms.length === 0) return;
                 if (selectedPlatforms.includes('ios') && !newBundleId) return;
                 if (selectedPlatforms.includes('android') && !newPackageName) return;
+                if (selectedPlatforms.includes('web') && webAllowedDomainsError) return;
 
                 try {
                   setIsCreating(true);
@@ -640,6 +679,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     name: newAppName,
                     bundleId: newBundleId || undefined,
                     packageName: newPackageName || undefined,
+                    webDomain: selectedPlatforms.includes('web') ? parsedWebAllowedDomains[0] : undefined,
+                    webAllowedDomains: selectedPlatforms.includes('web') ? parsedWebAllowedDomains : undefined,
                     teamId: currentTeam?.id,
                     platforms: selectedPlatforms,
                   });
@@ -647,10 +688,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   const createdProjectData: Project = { ...newProject } as any;
 
                   setShowAddAppModal(false);
-                  setNewAppName('');
-                  setNewBundleId('');
-                  setNewPackageName('');
-                  setSelectedPlatforms([]);
+                  resetCreateProjectForm();
 
                   setCreatedProject(createdProjectData);
                   setShowProjectCreatedModal(true);
@@ -672,7 +710,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 (selectedPlatforms.includes('ios') && !newBundleId) ||
                 (selectedPlatforms.includes('android') && !newPackageName) ||
                 (selectedPlatforms.includes('ios') && !!getIosBundleIdError(newBundleId)) ||
-                (selectedPlatforms.includes('android') && !!getAndroidPackageError(newPackageName))
+                (selectedPlatforms.includes('android') && !!getAndroidPackageError(newPackageName)) ||
+                (selectedPlatforms.includes('web') && !!webAllowedDomainsError)
               }
             >
               {isCreating ? 'Creating...' : 'Create Project'}
@@ -695,11 +734,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
           />
 
           <div className="space-y-2">
-            <label className="text-sm font-bold font-mono uppercase text-slate-700">Platforms</label>
-            <div className="grid grid-cols-2 gap-3">
+            <label className="text-sm font-bold font-mono uppercase text-slate-700">Platform (Select All)</label>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
               {[
                 { id: 'ios', label: 'iOS App', icon: Apple },
-                { id: 'android', label: 'Android App', icon: Smartphone }
+                { id: 'android', label: 'Android App', icon: Smartphone },
+                { id: 'web', label: 'Web App', icon: Globe },
               ].map(platform => (
                 <div
                   key={platform.id}
@@ -762,6 +802,38 @@ export const Sidebar: React.FC<SidebarProps> = ({
               {getAndroidPackageError(newPackageName) && (
                 <p className="text-xs font-bold text-red-600 flex items-center gap-1">
                   <AlertTriangle className="w-3 h-3" /> {getAndroidPackageError(newPackageName)}
+                </p>
+              )}
+            </div>
+          )}
+
+          {selectedPlatforms.includes('web') && (
+            <div className="space-y-3 border-2 border-black bg-[#f8fafc] p-4 shadow-neo-sm rounded-none">
+              <div className="flex items-center gap-2 mb-2">
+                <Globe className="w-4 h-4 text-slate-900" />
+                <h4 className="text-sm font-bold text-slate-900 font-mono uppercase">Web Configuration</h4>
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-sm font-bold font-mono uppercase text-slate-700">
+                  Allowed Domains ({parsedWebAllowedDomains.length})
+                </label>
+                <textarea
+                  placeholder="app.example.com, www.example.com, *.example.com"
+                  value={newWebAllowedDomains}
+                  onChange={(e) => {
+                    setNewWebAllowedDomains(e.target.value);
+                    setCreateError(null);
+                  }}
+                  rows={4}
+                  className="w-full resize-y rounded-none border-2 border-black bg-white px-3 py-2 font-mono text-sm font-medium text-black placeholder:text-slate-500 focus-visible:border-black focus-visible:outline-none focus-visible:ring-0"
+                />
+                <p className="text-[10px] font-bold uppercase tracking-wide text-slate-500">
+                  Comma or line separated. Add local domains only for local test projects.
+                </p>
+              </div>
+              {visibleWebAllowedDomainsError && (
+                <p className="text-xs font-bold text-red-600 flex items-center gap-1">
+                  <AlertTriangle className="w-3 h-3" /> {visibleWebAllowedDomainsError}
                 </p>
               )}
             </div>

@@ -12,6 +12,20 @@ type ContentLocaleCopy = {
   docsTitleSuffix: string;
   docsSiteName: string;
   docsBreadcrumb: string;
+  docsAiHeading: string;
+  docsCopyIntegrationPrompt: string;
+  docsCopied: string;
+  docsCopyCode: string;
+  docsCopyCodeTitle: string;
+  docsCopyCommandTitle: string;
+  docsNavGettingStarted: string;
+  docsNavInstallation: string;
+  docsNavBasicSetup: string;
+  docsNavRouteTracking: string;
+  docsNavUserIdentification: string;
+  docsNavCustomEvents: string;
+  docsNavMetadata: string;
+  docsNavPrivacyControls: string;
   documentationNotFoundTitle: string;
   documentationNotFoundHeading: string;
   documentationNotFoundCopy: string;
@@ -76,18 +90,34 @@ type ContentLocaleCopy = {
 };
 
 const englishContentCopy: ContentLocaleCopy = {
-  docsIndexTitle: "Mobile SDK Documentation - Rejourney",
+  docsIndexTitle: "Web & Mobile SDK Documentation - Rejourney",
   docsIndexDescription:
-    "Rejourney documentation for mobile apps, including React Native, Swift iOS, Expo, self-hosting, and architecture guides.",
+    "Rejourney documentation for web and mobile apps, including the browser SDK, React Native, Swift iOS, Expo, self-hosting, and architecture guides.",
   docsTitleSuffix: "Rejourney Documentation",
   docsSiteName: "Rejourney Documentation",
   docsBreadcrumb: "Docs",
+  docsAiHeading: "Use AI to integrate faster",
+  docsCopyIntegrationPrompt: "Copy Integration Prompt",
+  docsCopied: "Copied!",
+  docsCopyCode: "Copy",
+  docsCopyCodeTitle: "Copy code",
+  docsCopyCommandTitle: "Copy command",
+  docsNavGettingStarted: "Getting Started",
+  docsNavInstallation: "Installation",
+  docsNavBasicSetup: "Basic Setup",
+  docsNavRouteTracking: "Route Tracking",
+  docsNavUserIdentification: "User Identification",
+  docsNavCustomEvents: "Custom Events",
+  docsNavMetadata: "Metadata",
+  docsNavPrivacyControls: "Privacy Controls",
   documentationNotFoundTitle: "Documentation Not Found - Rejourney",
   documentationNotFoundHeading: "Documentation Not Found",
   documentationNotFoundCopy: "The requested documentation page could not be found.",
   docDefaultDescription: (title) =>
-    `${title} documentation for Rejourney's open-source mobile observability platform.`,
+    `${title} documentation for Rejourney's open-source web and mobile observability platform.`,
   docKeywords: [
+    "web SDK documentation",
+    "browser session replay docs",
     "mobile SDK documentation",
     "React Native analytics documentation",
     "mobile session replay docs",
@@ -144,7 +174,7 @@ const englishContentCopy: ContentLocaleCopy = {
       fallback: "For mobile teams building with Rejourney.",
     },
     sharedFeatures: [
-      "Session Replays Every Session",
+      "AI Replay Query Builder",
       "Crashes/ANRS/Errors",
       "Growth Analytics",
       "Geographic Analytics",
@@ -156,7 +186,7 @@ const englishContentCopy: ContentLocaleCopy = {
     popular: "Popular",
     perMonth: "per month",
     perYear: "per year",
-    sessionsPerMonth: (sessions) => `${sessions} sessions per month`,
+    sessionsPerMonth: (sessions) => `${sessions} session replays`,
     replayRetention: (retention) => `${retention} replay retention`,
     startFree: "Start free",
     getStarted: "Get started",
@@ -185,12 +215,26 @@ type ContentLocaleOverride = Partial<Omit<ContentLocaleCopy, "pricing">> & {
 
 const contentLocaleOverrides: Partial<Record<MarketingLocaleCode, ContentLocaleOverride>> = {
   ar: {
-    docsIndexTitle: "توثيق SDK للجوال - Rejourney",
+    docsIndexTitle: "توثيق Web وMobile SDK - Rejourney",
     docsIndexDescription:
-      "توثيق Rejourney لتطبيقات الجوال، بما في ذلك session replay وإعادة تشغيل الجلسات وReact Native وSwift iOS وExpo والاستضافة الذاتية.",
+      "توثيق Rejourney لتطبيقات الويب والجوال، بما في ذلك Browser SDK وsession replay وReact Native وSwift iOS وExpo والاستضافة الذاتية.",
     docsTitleSuffix: "توثيق Rejourney",
     docsSiteName: "توثيق Rejourney",
     docsBreadcrumb: "التوثيق",
+    docsAiHeading: "استخدم AI للتكامل أسرع",
+    docsCopyIntegrationPrompt: "نسخ prompt التكامل",
+    docsCopied: "تم النسخ!",
+    docsCopyCode: "نسخ",
+    docsCopyCodeTitle: "نسخ الكود",
+    docsCopyCommandTitle: "نسخ الأمر",
+    docsNavGettingStarted: "بدء الاستخدام",
+    docsNavInstallation: "التثبيت",
+    docsNavBasicSetup: "الإعداد الأساسي",
+    docsNavRouteTracking: "تتبع المسارات",
+    docsNavUserIdentification: "تعريف المستخدم",
+    docsNavCustomEvents: "الأحداث المخصصة",
+    docsNavMetadata: "البيانات الوصفية",
+    docsNavPrivacyControls: "عناصر التحكم بالخصوصية",
     documentationNotFoundTitle: "التوثيق غير موجود - Rejourney",
     documentationNotFoundHeading: "التوثيق غير موجود",
     documentationNotFoundCopy: "تعذر العثور على صفحة التوثيق المطلوبة.",
@@ -214,12 +258,26 @@ const contentLocaleOverrides: Partial<Record<MarketingLocaleCode, ContentLocaleO
     readTime: (minutes) => `${minutes} دقيقة قراءة`,
   },
   es: {
-    docsIndexTitle: "Documentación del SDK móvil - Rejourney",
+    docsIndexTitle: "Documentación del SDK web y móvil - Rejourney",
     docsIndexDescription:
-      "Documentación de Rejourney para apps móviles, incluyendo session replay, reproducción de sesiones, React Native, Swift iOS, Expo y self-hosting.",
+      "Documentación de Rejourney para apps web y móviles, incluyendo Browser SDK, session replay, React Native, Swift iOS, Expo y self-hosting.",
     docsTitleSuffix: "Documentación de Rejourney",
     docsSiteName: "Documentación de Rejourney",
     docsBreadcrumb: "Docs",
+    docsAiHeading: "Usa AI para integrar más rápido",
+    docsCopyIntegrationPrompt: "Copiar prompt de integración",
+    docsCopied: "Copiado",
+    docsCopyCode: "Copiar",
+    docsCopyCodeTitle: "Copiar código",
+    docsCopyCommandTitle: "Copiar comando",
+    docsNavGettingStarted: "Primeros pasos",
+    docsNavInstallation: "Instalación",
+    docsNavBasicSetup: "Configuración básica",
+    docsNavRouteTracking: "Seguimiento de rutas",
+    docsNavUserIdentification: "Identificación de usuarios",
+    docsNavCustomEvents: "Eventos personalizados",
+    docsNavMetadata: "Metadatos",
+    docsNavPrivacyControls: "Controles de privacidad",
     documentationNotFoundTitle: "Documentación no encontrada - Rejourney",
     documentationNotFoundHeading: "Documentación no encontrada",
     documentationNotFoundCopy: "No se pudo encontrar la página de documentación solicitada.",
@@ -244,12 +302,26 @@ const contentLocaleOverrides: Partial<Record<MarketingLocaleCode, ContentLocaleO
     readTime: (minutes) => `${minutes} min de lectura`,
   },
   tr: {
-    docsIndexTitle: "Mobil SDK Dokümantasyonu - Rejourney",
+    docsIndexTitle: "Web ve Mobil SDK Dokümantasyonu - Rejourney",
     docsIndexDescription:
-      "Mobil session replay, oturum tekrarı, React Native, Swift iOS, Expo, self-hosting ve mimari kılavuzları için Rejourney dokümantasyonu.",
+      "Browser SDK, web ve mobil session replay, React Native, Swift iOS, Expo, self-hosting ve mimari kılavuzları için Rejourney dokümantasyonu.",
     docsTitleSuffix: "Rejourney Dokümantasyonu",
     docsSiteName: "Rejourney Dokümantasyonu",
     docsBreadcrumb: "Dokümanlar",
+    docsAiHeading: "Daha hızlı entegre etmek için AI kullan",
+    docsCopyIntegrationPrompt: "Entegrasyon promptunu kopyala",
+    docsCopied: "Kopyalandı!",
+    docsCopyCode: "Kopyala",
+    docsCopyCodeTitle: "Kodu kopyala",
+    docsCopyCommandTitle: "Komutu kopyala",
+    docsNavGettingStarted: "Başlangıç",
+    docsNavInstallation: "Kurulum",
+    docsNavBasicSetup: "Temel kurulum",
+    docsNavRouteTracking: "Route tracking",
+    docsNavUserIdentification: "Kullanıcı kimliği",
+    docsNavCustomEvents: "Custom events",
+    docsNavMetadata: "Metadata",
+    docsNavPrivacyControls: "Gizlilik kontrolleri",
     documentationNotFoundTitle: "Dokümantasyon Bulunamadı - Rejourney",
     documentationNotFoundHeading: "Dokümantasyon Bulunamadı",
     documentationNotFoundCopy: "İstenen dokümantasyon sayfası bulunamadı.",
@@ -274,9 +346,9 @@ const contentLocaleOverrides: Partial<Record<MarketingLocaleCode, ContentLocaleO
     readTime: (minutes) => `${minutes} dk okuma`,
   },
   fr: {
-    docsIndexTitle: "Documentation SDK mobile - Rejourney",
+    docsIndexTitle: "Documentation SDK web et mobile - Rejourney",
     docsIndexDescription:
-      "Documentation Rejourney pour apps mobiles, avec React Native, Swift iOS, Expo, auto-hébergement et guides d'architecture.",
+      "Documentation Rejourney pour apps web et mobiles, avec Browser SDK, React Native, Swift iOS, Expo, auto-hébergement et guides d'architecture.",
     docsTitleSuffix: "Documentation Rejourney",
     docsSiteName: "Documentation Rejourney",
     docsBreadcrumb: "Docs",
@@ -302,9 +374,9 @@ const contentLocaleOverrides: Partial<Record<MarketingLocaleCode, ContentLocaleO
     readTime: (minutes) => `${minutes} min de lecture`,
   },
   de: {
-    docsIndexTitle: "Mobile SDK Dokumentation - Rejourney",
+    docsIndexTitle: "Web- und Mobile-SDK Dokumentation - Rejourney",
     docsIndexDescription:
-      "Rejourney Dokumentation für mobile Apps, inklusive React Native, Swift iOS, Expo, Self-Hosting und Architektur-Guides.",
+      "Rejourney Dokumentation für Web- und Mobile-Apps, inklusive Browser SDK, React Native, Swift iOS, Expo, Self-Hosting und Architektur-Guides.",
     docsTitleSuffix: "Rejourney Dokumentation",
     docsSiteName: "Rejourney Dokumentation",
     docsBreadcrumb: "Docs",
@@ -330,9 +402,9 @@ const contentLocaleOverrides: Partial<Record<MarketingLocaleCode, ContentLocaleO
     readTime: (minutes) => `${minutes} Min. Lesezeit`,
   },
   it: {
-    docsIndexTitle: "Documentazione SDK mobile - Rejourney",
+    docsIndexTitle: "Documentazione SDK web e mobile - Rejourney",
     docsIndexDescription:
-      "Documentazione Rejourney per app mobile, inclusi React Native, Swift iOS, Expo, self-hosting e guide di architettura.",
+      "Documentazione Rejourney per app web e mobile, inclusi Browser SDK, React Native, Swift iOS, Expo, self-hosting e guide di architettura.",
     docsTitleSuffix: "Documentazione Rejourney",
     docsSiteName: "Documentazione Rejourney",
     docsBreadcrumb: "Docs",
@@ -358,9 +430,9 @@ const contentLocaleOverrides: Partial<Record<MarketingLocaleCode, ContentLocaleO
     readTime: (minutes) => `${minutes} min di lettura`,
   },
   nl: {
-    docsIndexTitle: "Mobiele SDK documentatie - Rejourney",
+    docsIndexTitle: "Web- en mobiele SDK documentatie - Rejourney",
     docsIndexDescription:
-      "Rejourney documentatie voor mobiele apps, inclusief React Native, Swift iOS, Expo, self-hosting en architectuurgidsen.",
+      "Rejourney documentatie voor web- en mobiele apps, inclusief Browser SDK, React Native, Swift iOS, Expo, self-hosting en architectuurgidsen.",
     docsTitleSuffix: "Rejourney Documentatie",
     docsSiteName: "Rejourney Documentatie",
     docsBreadcrumb: "Docs",
@@ -386,9 +458,9 @@ const contentLocaleOverrides: Partial<Record<MarketingLocaleCode, ContentLocaleO
     readTime: (minutes) => `${minutes} min leestijd`,
   },
   pl: {
-    docsIndexTitle: "Dokumentacja mobilnego SDK - Rejourney",
+    docsIndexTitle: "Dokumentacja SDK web i mobile - Rejourney",
     docsIndexDescription:
-      "Dokumentacja Rejourney dla aplikacji mobilnych, w tym React Native, Swift iOS, Expo, self-hosting i przewodniki architektury.",
+      "Dokumentacja Rejourney dla aplikacji web i mobile, w tym Browser SDK, React Native, Swift iOS, Expo, self-hosting i przewodniki architektury.",
     docsTitleSuffix: "Dokumentacja Rejourney",
     docsSiteName: "Dokumentacja Rejourney",
     docsBreadcrumb: "Docs",
@@ -414,9 +486,9 @@ const contentLocaleOverrides: Partial<Record<MarketingLocaleCode, ContentLocaleO
     readTime: (minutes) => `${minutes} min czytania`,
   },
   pt: {
-    docsIndexTitle: "Documentação do SDK mobile - Rejourney",
+    docsIndexTitle: "Documentação do SDK web e mobile - Rejourney",
     docsIndexDescription:
-      "Documentação Rejourney para apps mobile, incluindo React Native, Swift iOS, Expo, self-hosting e guias de arquitetura.",
+      "Documentação Rejourney para apps web e mobile, incluindo Browser SDK, React Native, Swift iOS, Expo, self-hosting e guias de arquitetura.",
     docsTitleSuffix: "Documentação Rejourney",
     docsSiteName: "Documentação Rejourney",
     docsBreadcrumb: "Docs",
@@ -442,9 +514,9 @@ const contentLocaleOverrides: Partial<Record<MarketingLocaleCode, ContentLocaleO
     readTime: (minutes) => `${minutes} min de leitura`,
   },
   "pt-br": {
-    docsIndexTitle: "Documentação do SDK mobile - Rejourney",
+    docsIndexTitle: "Documentação do SDK web e mobile - Rejourney",
     docsIndexDescription:
-      "Documentação Rejourney para apps mobile, incluindo React Native, Swift iOS, Expo, self-hosting e guias de arquitetura.",
+      "Documentação Rejourney para apps web e mobile, incluindo Browser SDK, React Native, Swift iOS, Expo, self-hosting e guias de arquitetura.",
     docsTitleSuffix: "Documentação Rejourney",
     docsSiteName: "Documentação Rejourney",
     docsBreadcrumb: "Docs",
@@ -470,9 +542,9 @@ const contentLocaleOverrides: Partial<Record<MarketingLocaleCode, ContentLocaleO
     readTime: (minutes) => `${minutes} min de leitura`,
   },
   ru: {
-    docsIndexTitle: "Документация Mobile SDK - Rejourney",
+    docsIndexTitle: "Документация Web и Mobile SDK - Rejourney",
     docsIndexDescription:
-      "Документация Rejourney для мобильных приложений: React Native, Swift iOS, Expo, self-hosting и архитектурные руководства.",
+      "Документация Rejourney для web и mobile приложений: Browser SDK, React Native, Swift iOS, Expo, self-hosting и архитектурные руководства.",
     docsTitleSuffix: "Документация Rejourney",
     docsSiteName: "Документация Rejourney",
     docsBreadcrumb: "Документация",
@@ -498,9 +570,9 @@ const contentLocaleOverrides: Partial<Record<MarketingLocaleCode, ContentLocaleO
     readTime: (minutes) => `${minutes} мин чтения`,
   },
   vi: {
-    docsIndexTitle: "Tài liệu Mobile SDK - Rejourney",
+    docsIndexTitle: "Tài liệu Web và Mobile SDK - Rejourney",
     docsIndexDescription:
-      "Tài liệu Rejourney cho app mobile, gồm React Native, Swift iOS, Expo, self-hosting và hướng dẫn kiến trúc.",
+      "Tài liệu Rejourney cho app web và mobile, gồm Browser SDK, React Native, Swift iOS, Expo, self-hosting và hướng dẫn kiến trúc.",
     docsTitleSuffix: "Tài liệu Rejourney",
     docsSiteName: "Tài liệu Rejourney",
     docsBreadcrumb: "Docs",
@@ -559,7 +631,7 @@ const pricingLocaleOverrides: Partial<Record<MarketingLocaleCode, Partial<Conten
       fallback: "لفرق الجوال التي تبني مع Rejourney.",
     },
     sharedFeatures: [
-      "Session replay وإعادة تشغيل لكل جلسة",
+      "AI Replay Query Builder",
       "الأعطال وANR والأخطاء",
       "تحليلات النمو",
       "تحليلات جغرافية",
@@ -571,7 +643,7 @@ const pricingLocaleOverrides: Partial<Record<MarketingLocaleCode, Partial<Conten
     popular: "الأكثر شيوعًا",
     perMonth: "شهريًا",
     perYear: "سنويًا",
-    sessionsPerMonth: (sessions) => `${sessions} جلسة شهريًا`,
+    sessionsPerMonth: (sessions) => `${sessions} إعادة تشغيل جلسات مجانية`,
     replayRetention: (retention) => `احتفاظ replay لمدة ${retention}`,
     startFree: "ابدأ مجانًا",
     getStarted: "ابدأ الآن",
@@ -623,7 +695,7 @@ const pricingLocaleOverrides: Partial<Record<MarketingLocaleCode, Partial<Conten
       fallback: "Para equipos móviles que construyen con Rejourney.",
     },
     sharedFeatures: [
-      "Session replay y reproducción en cada sesión",
+      "AI Replay Query Builder",
       "Crashes/ANR/errores",
       "Analítica de crecimiento",
       "Analítica geográfica",
@@ -635,7 +707,7 @@ const pricingLocaleOverrides: Partial<Record<MarketingLocaleCode, Partial<Conten
     popular: "Popular",
     perMonth: "al mes",
     perYear: "al año",
-    sessionsPerMonth: (sessions) => `${sessions} sesiones al mes`,
+    sessionsPerMonth: (sessions) => `${sessions} session replays gratis`,
     replayRetention: (retention) => `${retention} de retención de replay`,
     startFree: "Empieza gratis",
     getStarted: "Empezar",
@@ -687,7 +759,7 @@ const pricingLocaleOverrides: Partial<Record<MarketingLocaleCode, Partial<Conten
       fallback: "Rejourney ile geliştiren mobil ekipler için.",
     },
     sharedFeatures: [
-      "Her oturumda session replay ve oturum tekrarı",
+      "AI Replay Query Builder",
       "Crash/ANR/hatalar",
       "Büyüme analitiği",
       "Coğrafi analitik",
@@ -699,7 +771,7 @@ const pricingLocaleOverrides: Partial<Record<MarketingLocaleCode, Partial<Conten
     popular: "Popüler",
     perMonth: "aylık",
     perYear: "yıllık",
-    sessionsPerMonth: (sessions) => `Ayda ${sessions} oturum`,
+    sessionsPerMonth: (sessions) => `${sessions} ücretsiz session replay`,
     replayRetention: (retention) => `${retention} replay saklama`,
     startFree: "Ücretsiz başla",
     getStarted: "Başla",
@@ -735,7 +807,7 @@ const pricingLocaleOverrides: Partial<Record<MarketingLocaleCode, Partial<Conten
     emailCopiedToast: "Email copié dans le presse-papiers.",
     perMonth: "par mois",
     perYear: "par an",
-    sessionsPerMonth: (sessions) => `${sessions} sessions par mois`,
+    sessionsPerMonth: (sessions) => `${sessions} replays de session gratuits`,
     replayRetention: (retention) => `${retention} de rétention replay`,
     startFree: "Démarrer gratuitement",
     getStarted: "Démarrer",
@@ -763,7 +835,7 @@ const pricingLocaleOverrides: Partial<Record<MarketingLocaleCode, Partial<Conten
     emailCopiedToast: "E-Mail wurde kopiert.",
     perMonth: "pro Monat",
     perYear: "pro Jahr",
-    sessionsPerMonth: (sessions) => `${sessions} Sessions pro Monat`,
+    sessionsPerMonth: (sessions) => `${sessions} kostenlose Session Replays`,
     replayRetention: (retention) => `${retention} Replay-Aufbewahrung`,
     startFree: "Kostenlos starten",
     getStarted: "Loslegen",
@@ -791,7 +863,7 @@ const pricingLocaleOverrides: Partial<Record<MarketingLocaleCode, Partial<Conten
     emailCopiedToast: "Email copiado.",
     perMonth: "por mês",
     perYear: "por ano",
-    sessionsPerMonth: (sessions) => `${sessions} sessões por mês`,
+    sessionsPerMonth: (sessions) => `${sessions} replays de sessão grátis`,
     replayRetention: (retention) => `${retention} de retenção de replay`,
     startFree: "Comece grátis",
     getStarted: "Começar",
@@ -819,7 +891,7 @@ const pricingLocaleOverrides: Partial<Record<MarketingLocaleCode, Partial<Conten
     emailCopiedToast: "Email copiado.",
     perMonth: "por mês",
     perYear: "por ano",
-    sessionsPerMonth: (sessions) => `${sessions} sessões por mês`,
+    sessionsPerMonth: (sessions) => `${sessions} replays de sessão grátis`,
     replayRetention: (retention) => `${retention} de retenção de replay`,
     startFree: "Comece grátis",
     getStarted: "Começar",
@@ -844,7 +916,7 @@ const pricingLocaleOverrides: Partial<Record<MarketingLocaleCode, Partial<Conten
     copied: "Copiato",
     perMonth: "al mese",
     perYear: "all'anno",
-    sessionsPerMonth: (sessions) => `${sessions} sessioni al mese`,
+    sessionsPerMonth: (sessions) => `${sessions} replay di sessione gratis`,
     startFree: "Inizia gratis",
     getStarted: "Inizia",
     contact: "Contatto",
@@ -866,7 +938,7 @@ const pricingLocaleOverrides: Partial<Record<MarketingLocaleCode, Partial<Conten
     copied: "Gekopieerd",
     perMonth: "per maand",
     perYear: "per jaar",
-    sessionsPerMonth: (sessions) => `${sessions} sessies per maand`,
+    sessionsPerMonth: (sessions) => `${sessions} gratis sessiereplays`,
     startFree: "Start gratis",
     getStarted: "Aan de slag",
     contact: "Contact",
@@ -888,7 +960,7 @@ const pricingLocaleOverrides: Partial<Record<MarketingLocaleCode, Partial<Conten
     copied: "Skopiowano",
     perMonth: "miesięcznie",
     perYear: "rocznie",
-    sessionsPerMonth: (sessions) => `${sessions} sesji miesięcznie`,
+    sessionsPerMonth: (sessions) => `${sessions} darmowych session replays`,
     startFree: "Zacznij za darmo",
     getStarted: "Zacznij",
     contact: "Kontakt",
@@ -919,7 +991,7 @@ const pricingLocaleOverrides: Partial<Record<MarketingLocaleCode, Partial<Conten
       fallback: "Для мобильных команд, которые строят с Rejourney.",
     },
     sharedFeatures: [
-      "Session replay для каждой сессии",
+      "AI Replay Query Builder",
       "Crashes/ANR/Errors",
       "Growth analytics",
       "Геоаналитика",
@@ -931,7 +1003,7 @@ const pricingLocaleOverrides: Partial<Record<MarketingLocaleCode, Partial<Conten
     popular: "Популярно",
     perMonth: "в месяц",
     perYear: "в год",
-    sessionsPerMonth: (sessions) => `${sessions} сессий в месяц`,
+    sessionsPerMonth: (sessions) => `${sessions} бесплатных session replays`,
     replayRetention: (retention) => `${retention} хранения replay`,
     startFree: "Начать бесплатно",
     getStarted: "Начать",
@@ -964,7 +1036,7 @@ const pricingLocaleOverrides: Partial<Record<MarketingLocaleCode, Partial<Conten
     copied: "Đã sao chép",
     perMonth: "mỗi tháng",
     perYear: "mỗi năm",
-    sessionsPerMonth: (sessions) => `${sessions} phiên mỗi tháng`,
+    sessionsPerMonth: (sessions) => `${sessions} session replay miễn phí`,
     startFree: "Bắt đầu miễn phí",
     getStarted: "Bắt đầu",
     contact: "Liên hệ",
@@ -981,7 +1053,7 @@ const pricingLocaleOverrides: Partial<Record<MarketingLocaleCode, Partial<Conten
     intro: "Mobile session replay और analytics के लिए fixed monthly plans. Session volume से चुनें; core features शामिल रहते हैं.",
     copied: "Copied",
     perMonth: "प्रति माह",
-    sessionsPerMonth: (sessions) => `${sessions} sessions प्रति माह`,
+    sessionsPerMonth: (sessions) => `${sessions} session replays`,
     startFree: "मुफ्त शुरू करें",
     getStarted: "शुरू करें",
     contact: "Contact",
@@ -997,7 +1069,7 @@ const pricingLocaleOverrides: Partial<Record<MarketingLocaleCode, Partial<Conten
     intro: "Paket bulanan tetap untuk mobile session replay dan analytics. Pilih berdasarkan volume sesi; fitur inti tetap termasuk.",
     copied: "Disalin",
     perMonth: "per bulan",
-    sessionsPerMonth: (sessions) => `${sessions} sesi per bulan`,
+    sessionsPerMonth: (sessions) => `${sessions} session replay gratis`,
     startFree: "Mulai gratis",
     getStarted: "Mulai",
     contact: "Kontak",
@@ -1013,7 +1085,7 @@ const pricingLocaleOverrides: Partial<Record<MarketingLocaleCode, Partial<Conten
     intro: "モバイル session replay と分析のための固定月額プラン。セッション量で選び、主要機能は含まれます。",
     copied: "コピー済み",
     perMonth: "月額",
-    sessionsPerMonth: (sessions) => `月 ${sessions} セッション`,
+    sessionsPerMonth: (sessions) => `${sessions} 件の無料セッションリプレイ`,
     startFree: "無料で始める",
     getStarted: "始める",
     contact: "連絡",
@@ -1029,7 +1101,7 @@ const pricingLocaleOverrides: Partial<Record<MarketingLocaleCode, Partial<Conten
     intro: "모바일 session replay와 분석을 위한 고정 월간 플랜입니다. 세션 볼륨으로 선택하고 핵심 기능은 포함됩니다.",
     copied: "복사됨",
     perMonth: "월",
-    sessionsPerMonth: (sessions) => `월 ${sessions} 세션`,
+    sessionsPerMonth: (sessions) => `무료 세션 리플레이 ${sessions}건`,
     startFree: "무료로 시작",
     getStarted: "시작하기",
     contact: "문의",
@@ -1045,13 +1117,40 @@ const pricingLocaleOverrides: Partial<Record<MarketingLocaleCode, Partial<Conten
     intro: "面向移动 session replay 和分析的固定月度套餐。按会话量选择，核心功能始终包含。",
     copied: "已复制",
     perMonth: "每月",
-    sessionsPerMonth: (sessions) => `每月 ${sessions} 次会话`,
+    sessionsPerMonth: (sessions) => `${sessions} 次免费会话回放`,
     startFree: "免费开始",
     getStarted: "开始使用",
     contact: "联系",
     comparisonTitle: "使用成本对比",
     sessionsPerMonthLabel: "每月会话数",
     selfHostedHeading: "在你自己的基础设施上运行 Rejourney。",
+  },
+};
+
+const localizedDocMetadataOverrides: Partial<Record<MarketingLocaleCode, Record<string, Partial<DocMetadata>>>> = {
+  ar: {
+    "web/getting-started": {
+      title: "Web SDK",
+      category: "الويب",
+      description: "ثبّت Rejourney Web SDK لإعادة تشغيل جلسات المتصفح، وتتبع الشبكة، والتقاط الأخطاء، وتحليلات المنتج عبر React وNext.js وVue وغيرها.",
+      keywords: ["توثيق Web SDK", "session replay للمتصفح", "تحليلات المتصفح", "توثيق JavaScript SDK"],
+    },
+  },
+  es: {
+    "web/getting-started": {
+      title: "SDK web",
+      category: "Web",
+      description: "Instala el SDK web de Rejourney para session replay en navegador, seguimiento de red, captura de errores y analítica de producto en React, Next.js, Vue y más.",
+      keywords: ["documentación SDK web", "session replay navegador", "analítica browser", "documentación JavaScript SDK"],
+    },
+  },
+  tr: {
+    "web/getting-started": {
+      title: "Web SDK",
+      category: "Web",
+      description: "React, Next.js, Vue ve daha fazlasında tarayıcı session replay, network takibi, hata yakalama ve ürün analitiği için Rejourney Web SDK'yı kur.",
+      keywords: ["web SDK dokümantasyonu", "tarayıcı session replay", "browser analitik", "JavaScript SDK dokümantasyonu"],
+    },
   },
 };
 
@@ -1081,13 +1180,23 @@ export function getContentLocaleCopy(localeOrCode: MarketingLocale | MarketingLo
 
 export function getLocalizedDocMetadata(metadata: DocMetadata, locale: MarketingLocale): DocMetadata {
   const copy = getContentLocaleCopy(locale);
-  const description = locale.code === "en"
-    ? metadata.description ?? copy.docDefaultDescription(metadata.title)
-    : copy.docDefaultDescription(metadata.title);
-  const keywords = Array.from(new Set([...(metadata.keywords ?? []), ...copy.docKeywords]));
+  const metadataOverride = localizedDocMetadataOverrides[locale.code]?.[metadata.path] ?? {};
+  const title = metadataOverride.title ?? metadata.title;
+  const category = metadataOverride.category ?? metadata.category;
+  const description = metadataOverride.description
+    ?? (locale.code === "en"
+      ? metadata.description ?? copy.docDefaultDescription(title)
+      : copy.docDefaultDescription(title));
+  const keywords = Array.from(new Set([
+    ...(metadata.keywords ?? []),
+    ...(metadataOverride.keywords ?? []),
+    ...copy.docKeywords,
+  ]));
 
   return {
     ...metadata,
+    title,
+    category,
     description,
     keywords,
   };

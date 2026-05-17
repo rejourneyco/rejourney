@@ -1,10 +1,11 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { MousePointer2 } from 'lucide-react';
+import { Monitor, MousePointer2 } from 'lucide-react';
 import { useSessionData } from '~/shared/providers/SessionContext';
 import { useDemoMode } from '~/shared/providers/DemoModeContext';
 import {
     getHeatmapsOverview,
     getHeatmapScreenOverview,
+    getSessionCore,
     type AlltimeHeatmapScreen,
     type HeatmapIterationScreen,
     type HeatmapIterationSummary,
@@ -12,6 +13,7 @@ import {
 } from '~/shared/api/client';
 import { API_BASE_URL, getCsrfToken } from '~/shared/config/appConfig';
 import { TimeRange } from '~/shared/ui/core/TimeFilter';
+import WebReplayPlayer from '~/shared/ui/core/WebReplayPlayer';
 
 const TOUCH_HEATMAP_DEBUG_PREFIX = '[TouchHeatmapDebug]';
 
@@ -32,6 +34,13 @@ const convertHeic = async (blob: Blob): Promise<Blob> => {
 function isHeicContentType(contentType: string): boolean {
     const ct = (contentType || '').toLowerCase();
     return ct.includes('heic') || ct.includes('heif');
+}
+
+function getScreenshotPreviewErrorMessage(error: unknown): string {
+    if (error instanceof Error && /^HTTP\s+\d+/i.test(error.message)) {
+        return 'Screenshot unavailable';
+    }
+    return 'Failed to load screenshot';
 }
 
 function drawTouchHeatmap(
@@ -149,12 +158,16 @@ type HeatmapHotspot = { x: number; y: number; intensity: number; isRageTap: bool
 type SignalType = 'rage_taps' | 'errors' | 'exits' | 'mixed';
 type ConfidenceType = 'high' | 'medium' | 'low';
 type PriorityType = 'critical' | 'high' | 'watch';
+type HeatmapViewerMode = 'auto' | 'web' | 'mobile';
+type ResolvedHeatmapViewer = Exclude<HeatmapViewerMode, 'auto'>;
 
 interface PreviewHeatmapScreen {
     name: string;
     screenshotUrl: string | null;
+    screenFirstSeenMs?: number | null;
     touchHotspots?: HeatmapHotspot[];
     evidenceSessionId?: string | null;
+    platform?: string | null;
 }
 
 interface EnrichedHeatmapScreen extends AlltimeHeatmapScreen {
@@ -178,6 +191,12 @@ type VersionHeatmapScreen = HeatmapIterationScreen & {
     touchHotspots?: HeatmapHotspot[];
 };
 
+type WebReplayPreviewState = {
+    events: any[];
+    currentTime: number;
+    durationSeconds: number;
+};
+
 type VersionHeatmapGroup = Omit<HeatmapIterationVersion, 'screens'> & {
     screens: VersionHeatmapScreen[];
 };
@@ -185,6 +204,50 @@ type VersionHeatmapGroup = Omit<HeatmapIterationVersion, 'screens'> & {
 function getInsightsRangeFromTimeFilter(timeRange: TimeRange): string {
     if (timeRange === 'all') return 'all';
     return timeRange;
+}
+
+function isLikelyWebScreenName(screenName: string): boolean {
+    const name = screenName.trim();
+    if (!name) return false;
+    return (
+        name === '/'
+        || name.startsWith('/')
+        || /^https?:\/\//i.test(name)
+        || /^[a-z]+:\/\//i.test(name)
+        || /[?#]/.test(name)
+    );
+}
+
+function resolveHeatmapViewer(
+    screen: PreviewHeatmapScreen,
+    viewerMode: HeatmapViewerMode,
+    projectPlatforms: string[] = [],
+): ResolvedHeatmapViewer {
+    if (viewerMode === 'web' || viewerMode === 'mobile') return viewerMode;
+
+    const screenPlatform = screen.platform?.toLowerCase();
+    if (screenPlatform === 'web') return 'web';
+    if (screenPlatform === 'ios' || screenPlatform === 'android') return 'mobile';
+
+    const normalizedPlatforms = projectPlatforms.map((platform) => platform.toLowerCase());
+    const isWebOnlyProject = normalizedPlatforms.includes('web') && normalizedPlatforms.every((platform) => platform === 'web');
+    if (isWebOnlyProject || isLikelyWebScreenName(screen.name)) return 'web';
+
+    return 'mobile';
+}
+
+function getDisplayRoute(screenName: string): string {
+    const trimmed = screenName.trim();
+    if (!trimmed) return '/';
+    if (trimmed.startsWith('http')) {
+        try {
+            const url = new URL(trimmed);
+            return `${url.pathname}${url.search}`;
+        } catch {
+            return trimmed;
+        }
+    }
+    return trimmed.startsWith('/') ? trimmed : `/${trimmed}`;
 }
 
 function compareVersionLabels(a: string, b: string): number {
@@ -219,15 +282,24 @@ const HeatmapPreview: React.FC<{
     compact?: boolean;
     tile?: boolean;
     showLegend?: boolean;
-}> = ({ screen, compact = false, tile = false, showLegend = true }) => {
+    viewerMode?: HeatmapViewerMode;
+    projectPlatforms?: string[];
+}> = ({ screen, compact = false, tile = false, showLegend = true, viewerMode = 'auto', projectPlatforms = [] }) => {
     const [blobUrl, setBlobUrl] = useState<string | null>(null);
     const [imageLoaded, setImageLoaded] = useState(false);
     const [loadError, setLoadError] = useState<string | null>(null);
     const [downloadProgress, setDownloadProgress] = useState(0);
+    const [webReplayPreview, setWebReplayPreview] = useState<WebReplayPreviewState | null>(null);
+    const [webReplayLoading, setWebReplayLoading] = useState(false);
+    const [webReplayError, setWebReplayError] = useState<string | null>(null);
 
     const containerRef = useRef<HTMLDivElement>(null);
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const blobUrlRef = useRef<string | null>(null);
+
+    const resolvedViewer = resolveHeatmapViewer(screen, viewerMode, projectPlatforms);
+    const isWebViewer = resolvedViewer === 'web';
+    const replayPreviewSessionId = isWebViewer && !screen.screenshotUrl ? screen.evidenceSessionId || null : null;
 
     const fullCoverUrl = screen.screenshotUrl
         ? screen.screenshotUrl.startsWith('http')
@@ -429,10 +501,10 @@ const HeatmapPreview: React.FC<{
                     durationMs: Date.now() - fetchStartedAt,
                 });
                 if (error instanceof Error) {
-                    setLoadError(error.message || 'Failed to load screenshot');
+                    setLoadError(getScreenshotPreviewErrorMessage(error));
                     return;
                 }
-                setLoadError('Failed to load screenshot');
+                setLoadError(getScreenshotPreviewErrorMessage(error));
             });
 
         return () => {
@@ -450,6 +522,64 @@ const HeatmapPreview: React.FC<{
     }, [fullCoverUrl]);
 
     useEffect(() => {
+        let cancelled = false;
+        setWebReplayPreview(null);
+        setWebReplayError(null);
+        setWebReplayLoading(false);
+
+        if (!isWebViewer || fullCoverUrl || !replayPreviewSessionId) {
+            return () => undefined;
+        }
+
+        setWebReplayLoading(true);
+        getSessionCore(replayPreviewSessionId, { frameUrlMode: 'none' })
+            .then((session) => {
+                if (cancelled) return;
+                const events = (session.rrwebReplay?.events || [])
+                    .filter((event) => event && typeof event === 'object' && typeof event.timestamp === 'number');
+                if (events.length === 0) {
+                    setWebReplayError('Page replay unavailable');
+                    return;
+                }
+
+                const firstTimestamp = events[0]?.timestamp || session.startTime || 0;
+                const lastTimestamp = events[events.length - 1]?.timestamp || firstTimestamp;
+                const rawTargetTimestamp = typeof screen.screenFirstSeenMs === 'number' && Number.isFinite(screen.screenFirstSeenMs)
+                    ? screen.screenFirstSeenMs
+                    : null;
+                const targetTimestamp = rawTargetTimestamp !== null
+                    && rawTargetTimestamp >= firstTimestamp - 60_000
+                    && rawTargetTimestamp <= lastTimestamp + 60_000
+                    ? rawTargetTimestamp
+                    : firstTimestamp;
+                const currentTime = Math.max(0, (targetTimestamp - firstTimestamp) / 1000);
+                const durationSeconds = Math.max(1, (lastTimestamp - firstTimestamp) / 1000, currentTime + 0.5);
+
+                setWebReplayPreview({
+                    events,
+                    currentTime,
+                    durationSeconds,
+                });
+            })
+            .catch((error) => {
+                if (cancelled) return;
+                console.error(`${TOUCH_HEATMAP_DEBUG_PREFIX} Web replay heatmap preview failed`, {
+                    screenName: screen.name,
+                    evidenceSessionId: replayPreviewSessionId,
+                    error,
+                });
+                setWebReplayError('Page replay unavailable');
+            })
+            .finally(() => {
+                if (!cancelled) setWebReplayLoading(false);
+            });
+
+        return () => {
+            cancelled = true;
+        };
+    }, [fullCoverUrl, isWebViewer, replayPreviewSessionId, screen.name, screen.screenFirstSeenMs]);
+
+    useEffect(() => {
         const canvas = canvasRef.current;
         const container = containerRef.current;
         if (!canvas || !container) return;
@@ -459,26 +589,50 @@ const HeatmapPreview: React.FC<{
 
         window.addEventListener('resize', draw);
         return () => window.removeEventListener('resize', draw);
-    }, [screen.touchHotspots, imageLoaded, blobUrl]);
+    }, [screen.touchHotspots, imageLoaded, blobUrl, webReplayPreview?.events.length, webReplayPreview?.currentTime]);
 
     const topDots = useMemo(
         () => [...(screen.touchHotspots || [])].sort((a, b) => b.intensity - a.intensity).slice(0, 10),
         [screen.touchHotspots],
     );
 
-    const widthClass = tile ? (compact ? 'w-[148px]' : 'w-[184px]') : `mx-auto w-full ${compact ? 'max-w-[310px]' : 'max-w-[360px]'}`;
-    const frameClass = 'heatmap-phone-frame rounded-[28px] border-2 border-black bg-black p-3 shadow-neo';
-    const screenClass = 'heatmap-phone-screen relative aspect-[9/19] overflow-hidden rounded-[24px] bg-slate-800';
-    const tileScreenClass =
-        'heatmap-tile-screen relative aspect-[9/19] overflow-hidden rounded-2xl border-2 border-black bg-slate-800 shadow-neo-sm';
+    const displayRoute = getDisplayRoute(screen.name);
+    const widthClass = tile
+        ? isWebViewer
+            ? 'w-full'
+            : 'w-full'
+        : `mx-auto w-full ${isWebViewer ? 'max-w-[920px]' : compact ? 'max-w-[310px]' : 'max-w-[360px]'}`;
+    const frameClass = isWebViewer
+        ? 'heatmap-browser-frame overflow-hidden rounded-xl border-2 border-black bg-white shadow-neo'
+        : 'heatmap-phone-frame rounded-[28px] border-2 border-black bg-black p-3 shadow-neo';
+    const screenClass = isWebViewer
+        ? `heatmap-browser-screen relative overflow-hidden bg-slate-950 ${compact ? 'aspect-[16/10]' : 'aspect-[16/9]'}`
+        : 'heatmap-phone-screen relative aspect-[9/19] overflow-hidden rounded-[24px] bg-slate-800';
+    const tileScreenClass = isWebViewer
+        ? 'heatmap-tile-screen heatmap-web-tile-screen relative aspect-[16/10] overflow-hidden rounded-lg border-2 border-black bg-slate-950 shadow-neo-sm'
+        : 'heatmap-tile-screen relative mx-auto aspect-[9/19] max-h-[500px] w-full max-w-[184px] overflow-hidden rounded-2xl border-2 border-black bg-slate-800 shadow-neo-sm';
+    const imageFitClass = isWebViewer ? 'object-contain' : 'object-cover';
+    const placeholderClass = isWebViewer
+        ? 'bg-[linear-gradient(90deg,rgba(148,163,184,0.12)_1px,transparent_1px),linear-gradient(rgba(148,163,184,0.12)_1px,transparent_1px)] bg-[length:32px_32px] bg-slate-950'
+        : 'bg-[#111827]';
 
     const previewInner = (
         <>
-            {blobUrl ? (
+            {webReplayPreview ? (
+                <div className="absolute inset-0 bg-white">
+                    <WebReplayPlayer
+                        events={webReplayPreview.events}
+                        currentTime={webReplayPreview.currentTime}
+                        isPlaying={false}
+                        playbackRate={1}
+                        durationSeconds={webReplayPreview.durationSeconds}
+                    />
+                </div>
+            ) : blobUrl ? (
                 <img
                     src={blobUrl}
                     alt={screen.name}
-                    className={`absolute inset-0 h-full w-full object-cover transition-opacity duration-200 ${imageLoaded ? 'opacity-95' : 'opacity-0'}`}
+                    className={`absolute inset-0 h-full w-full ${imageFitClass} transition-opacity duration-200 ${imageLoaded ? 'opacity-95' : 'opacity-0'}`}
                     onLoad={() => {
                         heatmapDebug('Screenshot image element loaded successfully', {
                             screenName: screen.name,
@@ -496,13 +650,19 @@ const HeatmapPreview: React.FC<{
                     }}
                 />
             ) : (
-                <div className="absolute inset-0 flex flex-col items-center justify-center bg-[#111827] p-4 text-center">
-                    <MousePointer2 className="mb-2 h-8 w-8 text-[#67e8f9]" />
+                <div className={`absolute inset-0 flex flex-col items-center justify-center p-4 text-center ${placeholderClass}`}>
+                    {isWebViewer ? (
+                        <Monitor className="mb-2 h-8 w-8 text-[#67e8f9]" />
+                    ) : (
+                        <MousePointer2 className="mb-2 h-8 w-8 text-[#67e8f9]" />
+                    )}
                     <p className="text-xs font-black uppercase text-slate-200">{screen.name}</p>
                     {!loadError && downloadProgress > 0 && downloadProgress < 100 && (
                         <p className="mt-2 text-[11px] text-slate-400">Loading screenshot {downloadProgress}%</p>
                     )}
+                    {webReplayLoading && <p className="mt-2 text-[11px] text-slate-400">Loading page replay</p>}
                     {loadError && <p className="mt-2 text-[11px] text-rose-300">{loadError}</p>}
+                    {webReplayError && <p className="mt-2 text-[11px] text-rose-300">{webReplayError}</p>}
                 </div>
             )}
 
@@ -543,6 +703,16 @@ const HeatmapPreview: React.FC<{
                 </div>
             ) : (
                 <div className={frameClass}>
+                    {isWebViewer && (
+                        <div className="heatmap-browser-chrome flex items-center gap-2 border-b border-black bg-[#f8fafd] px-3 py-2">
+                            <span className="h-2.5 w-2.5 rounded-full bg-[#ff5f57]" />
+                            <span className="h-2.5 w-2.5 rounded-full bg-[#ffbd2e]" />
+                            <span className="h-2.5 w-2.5 rounded-full bg-[#28c840]" />
+                            <span className="ml-2 min-w-0 flex-1 truncate rounded-md border border-[#dadce0] bg-white px-3 py-1 text-left text-[11px] font-semibold text-slate-600">
+                                {displayRoute}
+                            </span>
+                        </div>
+                    )}
                     <div ref={containerRef} className={screenClass}>
                         {previewInner}
                     </div>
@@ -562,12 +732,14 @@ const HeatmapPreview: React.FC<{
 
 interface TouchHeatmapSectionProps {
     timeRange?: TimeRange;
+    platform?: string;
     compact?: boolean;
     className?: string;
 }
 
 export const TouchHeatmapSection: React.FC<TouchHeatmapSectionProps> = ({
     timeRange = '30d',
+    platform,
     compact = false,
     className = '',
 }) => {
@@ -790,13 +962,14 @@ export const TouchHeatmapSection: React.FC<TouchHeatmapSectionProps> = ({
 
         const range = getInsightsRangeFromTimeFilter(timeRange);
 
-        getHeatmapsOverview(selectedProject.id, range)
+        getHeatmapsOverview(selectedProject.id, range, platform)
             .then(async (overview) => {
                 if (cancelled) return;
 
                 heatmapDebug('Touch heatmap overview fetched', {
                     projectId: selectedProject.id,
                     timeRange,
+                    platform: platform || 'all',
                     normalizedRange: range,
                     screenCount: overview.screens.length,
                     versionCount: overview.screenIteration?.versions.length ?? 0,
@@ -816,7 +989,7 @@ export const TouchHeatmapSection: React.FC<TouchHeatmapSectionProps> = ({
                 if (screensNeedingHotspots.length > 0) {
                     const results = await Promise.allSettled(
                         screensNeedingHotspots.map((screen) => (
-                            getHeatmapScreenOverview(selectedProject.id, screen.name, range)
+                            getHeatmapScreenOverview(selectedProject.id, screen.name, range, platform)
                         )),
                     );
                     if (cancelled) return;
@@ -857,6 +1030,7 @@ export const TouchHeatmapSection: React.FC<TouchHeatmapSectionProps> = ({
                 console.error(`${TOUCH_HEATMAP_DEBUG_PREFIX} Unexpected error while building touch heatmap state`, {
                     projectId: selectedProject.id,
                     timeRange,
+                    platform: platform || 'all',
                     error,
                 });
                 if (!cancelled) setPartialError('Heatmap data unavailable.');
@@ -868,7 +1042,7 @@ export const TouchHeatmapSection: React.FC<TouchHeatmapSectionProps> = ({
         return () => {
             cancelled = true;
         };
-    }, [selectedProject?.id, timeRange, isDemoMode]);
+    }, [selectedProject?.id, timeRange, platform, isDemoMode]);
 
     const sortedScreens = useMemo(() => (
         [...screens].sort((a, b) => {
@@ -900,6 +1074,7 @@ export const TouchHeatmapSection: React.FC<TouchHeatmapSectionProps> = ({
             return {
                 ...screen,
                 screenshotUrl: screen.screenshotUrl ?? iterationFallback?.screenshotUrl ?? fallback?.screenshotUrl ?? null,
+                screenFirstSeenMs: screen.screenFirstSeenMs ?? iterationFallback?.screenFirstSeenMs ?? fallback?.screenFirstSeenMs ?? null,
                 evidenceSessionId: screen.evidenceSessionId ?? iterationFallback?.evidenceSessionId ?? fallback?.evidenceSessionId ?? null,
                 touchHotspots: screen.touchHotspots?.length
                     ? screen.touchHotspots
@@ -957,6 +1132,10 @@ export const TouchHeatmapSection: React.FC<TouchHeatmapSectionProps> = ({
         () => sortedScreens.find((screen) => screen.name === selectedScreenName) || sortedScreens[0] || null,
         [selectedScreenName, sortedScreens],
     );
+
+    const projectPlatforms = selectedProject?.platforms || [];
+    const selectedViewer = selectedScreen ? resolveHeatmapViewer(selectedScreen, 'auto', projectPlatforms) : 'mobile';
+    const selectedScreenLabel = selectedViewer === 'web' ? 'Selected route' : 'Selected screen';
 
     const heatmapTotals = useMemo(() => {
         const visits = sortedScreens.reduce((sum, screen) => sum + (screen.rangeVisits || 0), 0);
@@ -1041,8 +1220,8 @@ export const TouchHeatmapSection: React.FC<TouchHeatmapSectionProps> = ({
                     <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_340px]">
                         <div className="heatmap-focus-panel min-w-0 border border-black bg-white p-4">
                             <div className="mb-4 flex flex-col gap-3 border-b border-black/80 pb-4 md:flex-row md:items-start md:justify-between">
-                                <div className="min-w-0">
-                                    <div className="text-[11px] font-semibold uppercase text-slate-500">Selected screen</div>
+                                <div className="min-w-0 flex-1">
+                                    <div className="text-[11px] font-semibold uppercase text-slate-500">{selectedScreenLabel}</div>
                                     <h3 className="mt-1 truncate text-xl font-semibold text-black" title={selectedScreen.name}>{selectedScreen.name}</h3>
                                 </div>
                                 <div className="grid grid-cols-2 gap-2 text-right sm:flex sm:flex-wrap sm:justify-end">
@@ -1064,7 +1243,13 @@ export const TouchHeatmapSection: React.FC<TouchHeatmapSectionProps> = ({
                                     </div>
                                 </div>
                             </div>
-                            <HeatmapPreview screen={selectedScreen} compact={compact} showLegend />
+                            <HeatmapPreview
+                                screen={selectedScreen}
+                                compact={compact}
+                                showLegend
+                                viewerMode="auto"
+                                projectPlatforms={projectPlatforms}
+                            />
                         </div>
 
                         <aside className="heatmap-priority-panel border border-black bg-white">
@@ -1115,7 +1300,7 @@ export const TouchHeatmapSection: React.FC<TouchHeatmapSectionProps> = ({
                     <div className={`dashboard-mobile-scroll overflow-x-auto ${compact ? 'p-3' : 'p-4'}`}>
                         <div className="heatmap-version-strip flex min-w-max items-stretch gap-3">
                             {versionGroups.map((version, versionIndex) => {
-                                const screen = version.screens.find((candidate) => candidate.name === selectedScreenName) || version.screens[0];
+                                const screen = version.screens.find((candidate) => candidate.name === selectedScreenName);
                                 if (!screen) return null;
                                 const isSelectedScreen = screen.name === selectedScreenName;
 
@@ -1137,7 +1322,14 @@ export const TouchHeatmapSection: React.FC<TouchHeatmapSectionProps> = ({
                                             <strong>v{version.appVersion}</strong>
                                             <span>{version.sessions.toLocaleString()} sessions</span>
                                         </div>
-                                        <HeatmapPreview screen={screen} compact tile showLegend={false} />
+                                        <HeatmapPreview
+                                            screen={screen}
+                                            compact
+                                            tile
+                                            showLegend={false}
+                                            viewerMode="auto"
+                                            projectPlatforms={projectPlatforms}
+                                        />
                                         <div className="heatmap-version-metrics">
                                             <span>{screen.visits.toLocaleString()} visits</span>
                                             <span>{screen.incidentRatePer100.toFixed(1)} /100</span>

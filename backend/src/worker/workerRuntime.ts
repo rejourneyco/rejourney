@@ -17,7 +17,7 @@ function sleep(ms: number): Promise<void> {
 
 async function buildQueueHeartbeatMessage(): Promise<string> {
     const queueHealth = await checkQueueHealth();
-    return `waiting=${queueHealth.pendingJobs},active=${queueHealth.processingJobs},failed=${queueHealth.dlqJobs},replay_waiting=${queueHealth.replayPendingByKind.screenshots + queueHealth.replayPendingByKind.hierarchy},stale_replay_pending=${queueHealth.stalePendingReplayArtifacts}`;
+    return `waiting=${queueHealth.pendingJobs},active=${queueHealth.processingJobs},failed=${queueHealth.dlqJobs},replay_waiting=${queueHealth.replayPendingByKind.screenshots + queueHealth.replayPendingByKind.hierarchy + queueHealth.replayPendingByKind.rrweb},stale_replay_pending=${queueHealth.stalePendingReplayArtifacts}`;
 }
 
 export function startPollingWorker(options: PollingWorkerOptions): void {

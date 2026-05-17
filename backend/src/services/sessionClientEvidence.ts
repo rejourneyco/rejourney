@@ -5,6 +5,16 @@ export type SessionClientEvidence = {
     artifactBackgroundSeconds: number;
 };
 
+const BACKGROUND_TOTAL_MS_FIELDS = [
+    'totalBackgroundTimeMs',
+    'totalBackgroundTime',
+    'backgroundTimeMs',
+] as const;
+const BACKGROUND_DURATION_MS_FIELDS = [
+    'backgroundDurationMs',
+    'backgroundDuration',
+] as const;
+
 function maxDate(current: Date | null, candidate: Date | null): Date | null {
     if (!candidate) return current;
     if (!current || candidate.getTime() > current.getTime()) {
@@ -41,11 +51,41 @@ export function coerceTimestampToDate(value: unknown): Date | null {
     return null;
 }
 
+function asRecord(value: unknown): Record<string, unknown> | null {
+    return value && typeof value === 'object' ? value as Record<string, unknown> : null;
+}
+
+function readMsFromEvent(event: Record<string, unknown>, fields: readonly string[]): number | null {
+    const payload = asRecord(event.payload);
+    for (const field of fields) {
+        const raw = event[field] ?? payload?.[field];
+        const numeric = Number(raw);
+        if (Number.isFinite(numeric) && numeric >= 0) {
+            return numeric;
+        }
+    }
+    return null;
+}
+
+function msToSeconds(value: number | null): number | null {
+    if (value === null) return null;
+    return Math.max(0, Math.round(value / 1000));
+}
+
+export function extractCumulativeBackgroundSeconds(event: Record<string, unknown>): number | null {
+    return msToSeconds(readMsFromEvent(event, BACKGROUND_TOTAL_MS_FIELDS));
+}
+
+export function extractBackgroundDurationSeconds(event: Record<string, unknown>): number | null {
+    return msToSeconds(readMsFromEvent(event, BACKGROUND_DURATION_MS_FIELDS));
+}
+
 export function collectSessionClientEvidence(eventsData: unknown[]): SessionClientEvidence {
     let maxClientEventAt: Date | null = null;
     let maxClientForegroundAt: Date | null = null;
     let maxClientBackgroundAt: Date | null = null;
-    let artifactBackgroundSeconds = 0;
+    let maxCumulativeBackgroundSeconds = 0;
+    let summedDurationBackgroundSeconds = 0;
 
     for (const rawEvent of eventsData) {
         if (!rawEvent || typeof rawEvent !== 'object') continue;
@@ -56,9 +96,14 @@ export function collectSessionClientEvidence(eventsData: unknown[]): SessionClie
         const type = String(event.type || '').toLowerCase();
         if (type === 'app_foreground') {
             maxClientForegroundAt = maxDate(maxClientForegroundAt, timestamp);
-            const backgroundMs = Number(event.totalBackgroundTime);
-            if (Number.isFinite(backgroundMs) && backgroundMs > 0) {
-                artifactBackgroundSeconds += Math.max(0, Math.round(backgroundMs / 1000));
+            const cumulativeSeconds = extractCumulativeBackgroundSeconds(event);
+            if (cumulativeSeconds !== null) {
+                maxCumulativeBackgroundSeconds = Math.max(maxCumulativeBackgroundSeconds, cumulativeSeconds);
+            } else {
+                const durationSeconds = extractBackgroundDurationSeconds(event);
+                if (durationSeconds !== null) {
+                    summedDurationBackgroundSeconds += durationSeconds;
+                }
             }
         } else if (type === 'app_background') {
             maxClientBackgroundAt = maxDate(maxClientBackgroundAt, timestamp);
@@ -69,6 +114,6 @@ export function collectSessionClientEvidence(eventsData: unknown[]): SessionClie
         maxClientEventAt,
         maxClientForegroundAt,
         maxClientBackgroundAt,
-        artifactBackgroundSeconds,
+        artifactBackgroundSeconds: Math.max(maxCumulativeBackgroundSeconds, summedDurationBackgroundSeconds),
     };
 }

@@ -24,7 +24,7 @@ export default function TermsOfService() {
                 {/* Main Content */}
                 <div>
                     <h1 className="text-4xl font-bold mb-4">Terms of Service</h1>
-                    <p className="text-sm text-muted-foreground mb-8">Last Updated: March 1, 2026</p>
+                    <p className="text-sm text-muted-foreground mb-8">Last Updated: May 17, 2026</p>
 
                     <div className="bg-muted/30 border border-input rounded-lg p-8 space-y-6">
                         <div className="text-sm leading-relaxed space-y-6">
@@ -39,7 +39,7 @@ export default function TermsOfService() {
                                     <li><a href="#service" className="hover:underline">2. Use of Service & Restrictions</a></li>
                                     <li><a href="#accounts" className="hover:underline">3. Accounts & Security</a></li>
                                     <li><a href="#billing" className="hover:underline">4. Billing & Payments</a></li>
-                                    <li><a href="#data" className="hover:underline">5. Data, Privacy & Compliance</a></li>
+                                    <li><a href="#data" className="hover:underline">5. Data, Privacy, Research & Compliance</a></li>
                                     <li><a href="#ip" className="hover:underline">6. Intellectual Property</a></li>
                                     <li><a href="#indemnity" className="hover:underline">7. Indemnification</a></li>
                                     <li><a href="#liability" className="hover:underline">8. Limitation of Liability</a></li>
@@ -98,8 +98,11 @@ export default function TermsOfService() {
                             <p className="mt-4">
                                 <strong>GDPR Compliance:</strong> Rejourney is committed to GDPR compliance. We process data within the European Union and act as a Data Processor for the session data you collect.
                             </p>
+                            <p className="mt-4">
+                                <strong>Anonymized and Aggregated Studies:</strong> You authorize Rejourney to create and use anonymized, aggregated, or de-identified data derived from Customer Data for product analytics, benchmarking, research, public reports, blog posts, articles, and other publications about usage patterns, performance, reliability, product trends, and similar findings. We will not publish raw session recordings, personal data, customer confidential information, or statistics that reasonably identify a specific customer, application, or end user without permission. Pseudonymized data is treated as personal data unless and until it has been rendered anonymous.
+                            </p>
                             <p className="mt-2 text-muted-foreground italic">
-                            Note: Session recordings are retained for 7 days by default, after which they are automatically deleted unless you have a paid subscription. Personally identifiable session metadata is retained for the duration of your session retention period. After a session recording is deleted, anonymized aggregate event data (containing no personal identifiers) is retained indefinitely for product analytics.
+                            Note: Session recordings are retained for 7 days by default, after which they are automatically deleted unless you have a paid subscription. Personally identifiable session metadata is retained for the duration of your session retention period. After a session recording is deleted, anonymized aggregate event data (containing no personal identifiers) may be retained indefinitely for product analytics, research, benchmarking, and public trend reporting.
                             </p>
 
                             <h3 id="ip" className="text-base font-semibold mt-6 mb-2">6. Intellectual Property</h3>
@@ -107,7 +110,7 @@ export default function TermsOfService() {
                                 <strong>Our IP:</strong> The Service, including its software, logos, and designs, is the exclusive property of Rejourney and its licensors.
                             </p>
                             <p className="mt-2">
-                                <strong>Your IP:</strong> You retain all rights and ownership of the data you upload or collect through the Service ("Customer Data"). You grant us a limited license to process Customer Data solely to provide and improve the Service.
+                                <strong>Your IP:</strong> You retain all rights and ownership of the data you upload or collect through the Service ("Customer Data"). You grant us a limited license to process Customer Data to provide, secure, maintain, analyze, and improve the Service, and to create and use anonymized or aggregated data as described in these Terms, the Privacy Policy, and the DPA.
                             </p>
                             <p className="mt-2">
                                 <strong>Publicity:</strong> Unless you request otherwise in writing, you grant us permission to use your name and logo on our website and in marketing materials to identify you as a Rejourney customer.

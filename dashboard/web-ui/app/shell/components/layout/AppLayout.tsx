@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router';
 import { Sidebar } from './Sidebar';
 import { TopBar } from './TopBar';
-import { Project } from '~/shared/types';
+import { Project, Platform } from '~/shared/types';
 import { ApiProject } from '~/shared/api/client';
 import { useTeam } from '~/shared/providers/TeamContext';
 import { useSessionData } from '~/shared/providers/SessionContext';
@@ -19,9 +19,11 @@ function apiProjectToProject(apiProject: ApiProject): Project {
   return {
     id: apiProject.id,
     name: apiProject.name,
-    platforms: apiProject.platforms as ('ios' | 'android')[],
+    platforms: apiProject.platforms as Platform[],
     bundleId: apiProject.bundleId || '',
     packageName: apiProject.packageName,
+    webDomain: apiProject.webDomain,
+    webAllowedDomains: apiProject.webAllowedDomains || [],
     teamId: apiProject.teamId,
     publicKey: apiProject.publicKey,
     rejourneyEnabled: apiProject.rejourneyEnabled ?? true,
@@ -30,6 +32,7 @@ function apiProjectToProject(apiProject: ApiProject): Project {
     recordingFps: apiProject.recordingFps,
     sampleRate: apiProject.sampleRate,
     maxRecordingMinutes: apiProject.maxRecordingMinutes,
+    webMaxObservabilityMinutes: apiProject.webMaxObservabilityMinutes,
     createdAt: apiProject.createdAt,
     sessionsLast7Days: apiProject.sessionsLast7Days || 0,
     errorsLast7Days: apiProject.errorsLast7Days || 0,

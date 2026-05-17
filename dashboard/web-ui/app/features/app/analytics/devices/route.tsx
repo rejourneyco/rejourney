@@ -22,7 +22,9 @@ import {
     DeviceSummary,
 } from '~/shared/api/client';
 import { DashboardPageHeader } from '~/shared/ui/core/DashboardPageHeader';
-import { TimeFilter, TimeRange, DEFAULT_TIME_RANGE } from '~/shared/ui/core/TimeFilter';
+import { DashboardLensControls } from '~/shared/ui/core/DashboardLensControls';
+import { useSharedPlatformLens, platformLensToSessionPlatform } from '~/shared/hooks/useSharedPlatformLens';
+import { useSharedRejourneyTimeRange } from '~/shared/hooks/useSharedRejourneyTimeRange';
 import { DashboardGhostLoader } from '~/shared/ui/core/DashboardGhostLoader';
 import { formatDeviceModel } from '~/shared/lib/deviceModelNames';
 
@@ -68,14 +70,12 @@ type SummaryCardProps = {
     label: string;
     value: string;
     detail: string;
-    icon: LucideIcon;
     accentClassName: string;
 };
 
 type RankingCardProps = {
     title: string;
     subtitle: string;
-    icon: LucideIcon;
     rows: DeviceMetricRow[];
     emptyText: string;
     metricLabel: string;
@@ -120,13 +120,15 @@ const getPlatformColor = (platform: string): string => {
     const normalized = platform.trim().toLowerCase();
     if (normalized === 'ios') return '#0284c7';
     if (normalized === 'android') return '#16a34a';
-    return '#7c3aed';
+    if (normalized === 'web') return '#7c3aed';
+    return '#94a3b8';
 };
 
 const getPlatformLabel = (platform: string): string => {
     const normalized = platform.trim().toLowerCase();
     if (normalized === 'ios') return 'iOS';
     if (normalized === 'android') return 'Android';
+    if (normalized === 'web') return 'Web';
     return platform.trim() || 'Unknown';
 };
 
@@ -151,15 +153,12 @@ const getMetricToneClass = (tone: RankingCardProps['tone']): string => {
     return 'text-black';
 };
 
-const SummaryCard: React.FC<SummaryCardProps> = ({ label, value, detail, icon: Icon, accentClassName }) => (
+const SummaryCard: React.FC<SummaryCardProps> = ({ label, value, detail, accentClassName }) => (
     <div className="devices-summary-card dashboard-keep-neo dashboard-kpi-card min-w-0 p-2.5 transition-all hover:-translate-y-0.5 sm:p-4">
         <div className={`devices-card-accent dashboard-kpi-accent mb-2 h-1 border-2 border-black sm:mb-2.5 sm:h-1.5 ${accentClassName}`} />
-        <div className="flex items-start justify-between gap-3">
-            <div className="min-w-0">
-                <div className="dashboard-label break-words text-slate-700">{label}</div>
-                <div className="mt-1.5 break-words text-[1.35rem] font-extrabold leading-none text-black sm:mt-2 sm:text-3xl">{value}</div>
-            </div>
-            <Icon className="mt-0.5 h-4 w-4 shrink-0 text-slate-500" />
+        <div className="min-w-0">
+            <div className="dashboard-label break-words text-slate-700">{label}</div>
+            <div className="mt-1.5 break-words text-[1.35rem] font-extrabold leading-none text-black sm:mt-2 sm:text-3xl">{value}</div>
         </div>
         <div className="mt-2 text-[11px] font-semibold uppercase leading-4 text-slate-500">
             {detail}
@@ -170,17 +169,13 @@ const SummaryCard: React.FC<SummaryCardProps> = ({ label, value, detail, icon: I
 const Panel: React.FC<{
     title: string;
     subtitle?: string;
-    icon: LucideIcon;
     children: React.ReactNode;
     className?: string;
-}> = ({ title, subtitle, icon: Icon, children, className = '' }) => (
+}> = ({ title, subtitle, children, className = '' }) => (
     <section className={`devices-panel dashboard-surface overflow-hidden p-0 ${className}`}>
-        <div className="devices-panel-header flex items-start justify-between gap-4 border-b border-slate-200 bg-white px-5 py-4">
-            <div className="min-w-0">
-                <h2 className="text-sm font-black uppercase tracking-wide text-black">{title}</h2>
-                {subtitle && <p className="mt-1 text-xs font-semibold leading-5 text-slate-500">{subtitle}</p>}
-            </div>
-            <Icon className="h-5 w-5 shrink-0 text-slate-700" />
+        <div className="devices-panel-header border-b border-slate-200 bg-white px-5 py-4">
+            <h2 className="text-sm font-black uppercase tracking-wide text-black">{title}</h2>
+            {subtitle && <p className="mt-1 text-xs font-semibold leading-5 text-slate-500">{subtitle}</p>}
         </div>
         <div className="devices-panel-body p-5">{children}</div>
     </section>
@@ -189,7 +184,6 @@ const Panel: React.FC<{
 const RankingCard: React.FC<RankingCardProps> = ({
     title,
     subtitle,
-    icon: Icon,
     rows,
     emptyText,
     metricLabel,
@@ -198,7 +192,7 @@ const RankingCard: React.FC<RankingCardProps> = ({
     accentClassName,
     tone = 'neutral',
 }) => (
-    <Panel title={title} subtitle={subtitle} icon={Icon}>
+    <Panel title={title} subtitle={subtitle}>
         <div className={`devices-card-accent mb-4 h-1.5 rounded-full ${accentClassName}`} />
         <div className="space-y-2">
             {rows.length > 0 ? rows.slice(0, 6).map((row, index) => (
@@ -226,19 +220,15 @@ const TechnicalMetricCard: React.FC<{
     label: string;
     row: DeviceMetricRow | null;
     value: string;
-    icon: LucideIcon;
     accentClassName: string;
-}> = ({ label, row, value, icon: Icon, accentClassName }) => (
+}> = ({ label, row, value, accentClassName }) => (
     <div className="devices-tech-card dashboard-kpi-card p-2.5 transition-all hover:-translate-y-0.5 sm:p-4">
         <div className={`devices-card-accent dashboard-kpi-accent mb-2 h-1 border-2 border-black sm:mb-2.5 sm:h-1.5 ${accentClassName}`} />
-        <div className="flex items-start justify-between gap-3">
-            <div className="min-w-0">
-                <div className="dashboard-label text-slate-700">{label}</div>
-                <div className="mt-1.5 truncate text-base font-extrabold text-black" title={row?.model || ''}>
-                    {row ? row.displayName : 'No data'}
-                </div>
+        <div className="min-w-0">
+            <div className="dashboard-label text-slate-700">{label}</div>
+            <div className="mt-1.5 truncate text-base font-extrabold text-black" title={row?.model || ''}>
+                {row ? row.displayName : 'No data'}
             </div>
-            <Icon className="mt-0.5 h-4 w-4 shrink-0 text-slate-500" />
         </div>
         <div className="mt-3 flex items-end justify-between gap-3">
             <div className="text-2xl font-black text-black">{value}</div>
@@ -256,6 +246,7 @@ const PlatformMixBar: React.FC<{
     const platformOrder = new Map([
         ['ios', 0],
         ['android', 1],
+        ['web', 2],
     ]);
     const total = Math.max(totalSessions, 0);
     const segments = Object.entries(platforms || {})
@@ -398,11 +389,14 @@ const CohortTable: React.FC<{
 
 export const Devices: React.FC = () => {
     const { selectedProject } = useSessionData();
-    const [timeRange, setTimeRange] = useState<TimeRange>(DEFAULT_TIME_RANGE);
+    const { timeRange, setTimeRange } = useSharedRejourneyTimeRange(selectedProject?.id);
     const [data, setData] = useState<DeviceSummary | null>(null);
     const [matrixData, setMatrixData] = useState<DeviceIssueMatrix | null>(null);
     const [partialError, setPartialError] = useState<string | null>(null);
     const [isLoading, setIsLoading] = useState(true);
+
+    const { platformLens } = useSharedPlatformLens(selectedProject?.id, selectedProject?.platforms);
+    const platform = platformLensToSessionPlatform(platformLens);
 
     useEffect(() => {
         if (!selectedProject?.id) {
@@ -417,7 +411,7 @@ export const Devices: React.FC = () => {
         setIsLoading(true);
         setPartialError(null);
 
-        void getDevicesOverview(selectedProject.id, timeRange)
+        void getDevicesOverview(selectedProject.id, timeRange, platform)
             .then((overview) => {
                 if (cancelled) return;
                 setData(overview.summary);
@@ -438,7 +432,7 @@ export const Devices: React.FC = () => {
         return () => {
             cancelled = true;
         };
-    }, [selectedProject?.id, timeRange]);
+    }, [selectedProject?.id, timeRange, platform]);
 
     const hasData = Boolean(data && data.totalSessions > 0);
 
@@ -591,7 +585,7 @@ export const Devices: React.FC = () => {
                 iconColor="bg-[#e0e7ff]"
             >
                 <div className="flex min-w-0 max-w-full flex-wrap items-center gap-3">
-                    <TimeFilter value={timeRange} onChange={setTimeRange} />
+                    <DashboardLensControls timeRange={timeRange} onTimeRangeChange={setTimeRange} />
                 </div>
             </DashboardPageHeader>
 
@@ -622,28 +616,24 @@ export const Devices: React.FC = () => {
                                     label="Most Used Device"
                                     value={topUsed?.displayName || 'N/A'}
                                     detail={topUsed ? `${formatCompact(topUsed.count)} sessions · ${formatPercent(topUsed.sessionShare)} share` : 'No device sample'}
-                                    icon={Smartphone}
                                     accentClassName={RETRO_CARD_ACCENTS[0]}
                                 />
                                 <SummaryCard
                                     label="Most Engaged Device"
                                     value={topEngaged?.displayName || 'N/A'}
                                     detail={topEngaged ? `${topEngaged.engagementScore.toFixed(1)} score · ${formatPercent(topEngaged.engagementRate)} engaged` : 'No engagement sample'}
-                                    icon={TrendingUp}
                                     accentClassName={RETRO_CARD_ACCENTS[1]}
                                 />
                                 <SummaryCard
                                     label="Longest Sessions"
                                     value={topDuration?.displayName || 'N/A'}
                                     detail={topDuration ? `${formatDuration(topDuration.avgDurationSeconds)} average · ${formatCompact(topDuration.count)} sessions` : 'No duration sample'}
-                                    icon={Timer}
                                     accentClassName={RETRO_CARD_ACCENTS[2]}
                                 />
                                 <SummaryCard
                                     label="Worst Engaged Device"
                                     value={worstEngaged?.displayName || 'N/A'}
                                     detail={worstEngaged ? `${worstEngaged.engagementScore.toFixed(1)} score · ${formatDuration(worstEngaged.avgDurationSeconds)} average` : 'No weak cohort'}
-                                    icon={TrendingDown}
                                     accentClassName={RETRO_CARD_ACCENTS[3]}
                                 />
                             </div>
@@ -651,7 +641,7 @@ export const Devices: React.FC = () => {
 
                         <div className="devices-workspace soft-border-scope space-y-6">
                             <section className="grid grid-cols-1 gap-6 xl:grid-cols-4">
-                                <Panel title="Device Portfolio" subtitle={`${formatCompact(data.totalSessions)} sessions across ${deviceRows.length.toLocaleString()} models`} icon={Layers}>
+                                <Panel title="Device Portfolio" subtitle={`${formatCompact(data.totalSessions)} sessions across ${deviceRows.length.toLocaleString()} models`}>
                                     <div className="grid grid-cols-2 gap-3">
                                         <div>
                                             <div className="text-[10px] font-black uppercase text-slate-500">Avg engagement</div>
@@ -675,7 +665,7 @@ export const Devices: React.FC = () => {
                                     </div>
                                 </Panel>
 
-                                <Panel title="Platform Mix" subtitle="Where the device traffic comes from." icon={Smartphone} className="xl:col-span-3">
+                                <Panel title="Platform Mix" subtitle="Where the device traffic comes from." className="xl:col-span-3">
                                     <PlatformMixBar platforms={data.platforms} totalSessions={data.totalSessions} />
                                 </Panel>
                             </section>
@@ -684,7 +674,6 @@ export const Devices: React.FC = () => {
                                 <RankingCard
                                     title="Most Used Devices"
                                     subtitle="Highest session volume by model."
-                                    icon={Smartphone}
                                     rows={rankings.mostUsed}
                                     emptyText="No device volume available."
                                     metricLabel="sessions"
@@ -695,7 +684,6 @@ export const Devices: React.FC = () => {
                                 <RankingCard
                                     title="Most Engaged Devices"
                                     subtitle="Best combined interaction, exploration, and UX score."
-                                    icon={TrendingUp}
                                     rows={rankings.mostEngaged}
                                     emptyText="No engagement data available."
                                     metricLabel="score"
@@ -707,7 +695,6 @@ export const Devices: React.FC = () => {
                                 <RankingCard
                                     title="Longest Duration Devices"
                                     subtitle="Devices with the longest average session length."
-                                    icon={Clock}
                                     rows={rankings.longestDuration}
                                     emptyText="No duration data available."
                                     metricLabel="avg"
@@ -718,7 +705,6 @@ export const Devices: React.FC = () => {
                                 <RankingCard
                                     title="Worst Engaged Devices"
                                     subtitle="Lower engagement cohorts worth inspecting."
-                                    icon={TrendingDown}
                                     rows={rankings.worstEngaged}
                                     emptyText="No low-engagement device cohort found."
                                     metricLabel="score"
@@ -729,34 +715,30 @@ export const Devices: React.FC = () => {
                                 />
                             </section>
 
-                            <Panel title="Technical Device Pressure" subtitle="Crash, ANR, error, and rage tap leaders by device model." icon={ListChecks}>
+                            <Panel title="Technical Device Pressure" subtitle="Crash, ANR, error, and rage tap leaders by device model.">
                                 <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
                                     <TechnicalMetricCard
                                         label="Most Crashes"
                                         row={rankings.mostCrashes[0] || null}
                                         value={rankings.mostCrashes[0] ? formatCompact(rankings.mostCrashes[0].crashes) : '0'}
-                                        icon={Bug}
                                         accentClassName="bg-[#fecaca]"
                                     />
                                     <TechnicalMetricCard
                                         label="Most ANRs"
                                         row={rankings.mostAnrs[0] || null}
                                         value={rankings.mostAnrs[0] ? formatCompact(rankings.mostAnrs[0].anrs) : '0'}
-                                        icon={AlertTriangle}
                                         accentClassName="bg-[#fed7aa]"
                                     />
                                     <TechnicalMetricCard
                                         label="Most Errors"
                                         row={rankings.mostErrors[0] || null}
                                         value={rankings.mostErrors[0] ? formatCompact(rankings.mostErrors[0].errors) : '0'}
-                                        icon={Zap}
                                         accentClassName="bg-[#dbeafe]"
                                     />
                                     <TechnicalMetricCard
                                         label="Most Rage Taps"
                                         row={rankings.mostRageTaps[0] || null}
                                         value={rankings.mostRageTaps[0] ? formatCompact(rankings.mostRageTaps[0].rageTaps) : '0'}
-                                        icon={Flame}
                                         accentClassName="bg-[#f9a8d4]"
                                     />
                                 </div>
@@ -765,22 +747,21 @@ export const Devices: React.FC = () => {
                             <Panel
                                 title="Device Detail"
                                 subtitle={worstFriction ? `Highest friction right now: ${worstFriction.displayName} at ${worstFriction.frictionScore.toFixed(1)} weighted events per 100 sessions.` : 'Detailed device rows for the selected range.'}
-                                icon={Gauge}
                             >
                                 <DeviceTable rows={rankings.worstFriction.length ? rankings.worstFriction : deviceRows} />
                             </Panel>
 
                             <section className="grid grid-cols-1 gap-6 xl:grid-cols-2">
-                                <Panel title="OS Version Pressure" subtitle="Technical friction grouped by OS version." icon={Cpu}>
+                                <Panel title="OS Version Pressure" subtitle="Technical friction grouped by OS version.">
                                     <CohortTable rows={cohortRows.os} label="OS Version" />
                                 </Panel>
-                                <Panel title="App Version Pressure" subtitle="Technical friction grouped by app version." icon={Layers}>
+                                <Panel title="App Version Pressure" subtitle="Technical friction grouped by app version.">
                                     <CohortTable rows={cohortRows.versions} label="App Version" valuePrefix="v" />
                                 </Panel>
                             </section>
 
                             {matrixHotspots.length > 0 && (
-                                <Panel title="Device + Version Hotspots" subtitle="Device/version combinations with the most concentrated friction." icon={AlertTriangle}>
+                                <Panel title="Device + Version Hotspots" subtitle="Device/version combinations with the most concentrated friction.">
                                     <div className="overflow-x-auto">
                                         <table className="devices-data-table w-full min-w-[820px] text-left text-sm">
                                             <thead className="text-[11px] font-black uppercase tracking-wide text-slate-500">

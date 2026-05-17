@@ -18,7 +18,9 @@
     "dev:down": "./scripts/local-k8s/dev.sh down",
     "dev:logs": "./scripts/local-k8s/dev.sh logs",
     "build": "npm run build:sdk",
-    "build:sdk": "cd packages/react-native && npm run prepack",
+    "build:react-native": "cd packages/react-native && npm run prepack",
+    "build:browser": "cd packages/browser && npm run prepack",
+    "build:sdk": "npm run build:react-native && npm run build:browser",
     "build:clean": "npm run clean && npm run build:sdk",
     "test": "npm run test --workspaces --if-present",
     "security:audit": "npm audit --omit=dev",
@@ -27,11 +29,16 @@
     "lint": "eslint \"**/*.{js,ts,tsx}\"",
     "docs:localize": "node scripts/localize-docs.mjs",
     "docs:localize:audit": "node scripts/audit-localized-docs.mjs",
-    "clean": "rm -rf packages/react-native/lib",
+    "docs:localize:web": "DOCS=web/getting-started.md node scripts/localize-docs.mjs",
+    "docs:localize:web:audit": "DOCS=web/getting-started.md node scripts/audit-localized-docs.mjs",
+    "clean": "rm -rf packages/react-native/lib packages/browser/dist",
     "db:seed": "cd backend && npm run db:seed",
     "example:boilerplate": "cd examples/react-native-boilerplate && npm start",
     "example:brew": "cd examples/brew-coffee-labs && npm start",
     "example:bare": "cd examples/react-native-bare && npm start",
+    "example:web-next": "cd examples/web-next && npm run dev",
+    "example:web-sveltekit": "cd examples/web-sveltekit && npm run dev",
+    "example:web-nuxt": "cd examples/web-nuxt && npm run dev",
     "example:swift": "open examples/swift-clean-arch/CountriesSwiftUI.xcodeproj",
     "example:boilerplate:ios": "cd examples/react-native-boilerplate && npm run ios",
     "example:boilerplate:android": "cd examples/react-native-boilerplate && npm run android",
@@ -61,7 +68,8 @@
     "esbuild": "^0.25.0",
     "fast-xml-parser": "^5.3.4",
     "nodemailer": "^8.0.1",
-    "minimatch": "^10.2.2"
+    "minimatch": "^10.2.2",
+    "postcss": "^8.5.10"
   },
   "engines": {
     "node": ">=24.0.0"

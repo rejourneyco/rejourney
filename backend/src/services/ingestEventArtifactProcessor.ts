@@ -1,13 +1,130 @@
 import { createHash } from 'crypto';
+import { gunzipSync } from 'zlib';
 import { eq, sql } from 'drizzle-orm';
-import { db, sessions, sessionMetrics, anrs, errors, apiEndpointDailyStats, screenTouchHeatmaps } from '../db/client.js';
+import { db, sessions, sessionMetrics, anrs, errors, apiEndpointDailyStats, screenTouchHeatmaps, recordingArtifacts } from '../db/client.js';
 import { trackANRAsIssue, trackErrorAsIssue } from './issueTracker.js';
 import { normalizeIngestSdkVersion } from './ingestSessionLifecycle.js';
 import { getUniqueScreenCount, mergeScreenPaths, normalizeScreenPath } from '../utils/screenPaths.js';
 import { shouldExcludeNetworkEventFromProductAnalytics } from '../utils/internalToolEndpointFilter.js';
 import { mergeAnrDeviceMetadata, resolveAnrStackTrace } from './anrStack.js';
+import { extractSessionIdentityChange } from './sessionIdentityEvents.js';
+import {
+    coerceTimestampToDate,
+    extractBackgroundDurationSeconds,
+    extractCumulativeBackgroundSeconds,
+} from './sessionClientEvidence.js';
 const MAX_SCREEN_PATH_LENGTH = 200;
 const UNKNOWN_STATUS_CODE_KEY = 'unknown';
+const WEB_LONG_TASK_ANR_THRESHOLD_MS = 1_000;
+const WEB_ATTRIBUTION_METADATA_KEYS = [
+    'webReferral',
+    'webReferrer',
+    'webReferrerDomain',
+    'webAttributionSource',
+    'webAttributionMedium',
+    'webAttributionCampaign',
+    'webAttributionTerm',
+    'webAttributionContent',
+    'webAttributionChannel',
+    'webLandingRoute',
+    'webEntryPath',
+    'webEntryUrl',
+    'webNavigationType',
+] as const;
+
+function parseMaybeGzippedJson(data: Buffer): any {
+    const isGzipped = data.length >= 2 && data[0] === 0x1f && data[1] === 0x8b;
+    const raw = isGzipped ? gunzipSync(data).toString('utf8') : data.toString('utf8');
+    return JSON.parse(raw);
+}
+
+function normalizeMetadataString(value: unknown, maxLength = 512): string | null {
+    if (value === null || value === undefined) return null;
+    const normalized = String(value).trim();
+    if (!normalized) return null;
+    return normalized.slice(0, maxLength);
+}
+
+function hostnameFromUrl(value: unknown): string | null {
+    const raw = normalizeMetadataString(value, 2048);
+    if (!raw) return null;
+    try {
+        return new URL(raw).hostname;
+    } catch {
+        try {
+            return new URL(`https://${raw}`).hostname;
+        } catch {
+            return null;
+        }
+    }
+}
+
+function extractWebAttribution(event: any): any | null {
+    const attribution = event?.attribution || event?.payload?.attribution || event?.properties?.attribution;
+    return attribution && typeof attribution === 'object' ? attribution : null;
+}
+
+function buildWebAttributionMetadata(event: any): Record<string, string> {
+    const attribution = extractWebAttribution(event);
+    if (!attribution) return {};
+
+    const referrerDomain =
+        normalizeMetadataString(attribution.referrerDomain) ||
+        hostnameFromUrl(attribution.referrer);
+    const channel = normalizeMetadataString(attribution.channel, 128);
+    const webReferral =
+        referrerDomain ||
+        normalizeMetadataString(attribution.source, 256) ||
+        (channel === 'direct' ? 'Direct' : null);
+
+    const updates: Record<string, string> = {};
+    const assign = (key: typeof WEB_ATTRIBUTION_METADATA_KEYS[number], value: unknown, maxLength = 512) => {
+        const normalized = normalizeMetadataString(value, maxLength);
+        if (normalized) updates[key] = normalized;
+    };
+
+    assign('webReferral', webReferral);
+    assign('webReferrer', attribution.referrer, 2048);
+    assign('webReferrerDomain', referrerDomain);
+    assign('webAttributionSource', attribution.source);
+    assign('webAttributionMedium', attribution.medium);
+    assign('webAttributionCampaign', attribution.campaign);
+    assign('webAttributionTerm', attribution.term);
+    assign('webAttributionContent', attribution.content);
+    assign('webAttributionChannel', channel);
+    assign('webLandingRoute', attribution.landingRoute);
+    assign('webEntryPath', attribution.entryPath);
+    assign('webEntryUrl', attribution.entryUrl, 2048);
+    assign('webNavigationType', attribution.navigationType, 128);
+
+    return updates;
+}
+
+function buildDeviceMetadataUpdates(deviceInfo: any): Record<string, string | boolean> {
+    const updates: Record<string, string | boolean> = {};
+    const assign = (key: string, value: unknown, maxLength = 512) => {
+        if (typeof value === 'boolean') {
+            updates[key] = value;
+            return;
+        }
+        if (value === null || value === undefined) return;
+        const normalized = String(value).trim();
+        if (normalized) updates[key] = normalized.slice(0, maxLength);
+    };
+
+    assign('browser', deviceInfo?.browser, 128);
+    assign('browserVersion', deviceInfo?.browserVersion, 128);
+    assign('os', deviceInfo?.os, 128);
+    assign('osVersion', deviceInfo?.systemVersion || deviceInfo?.osVersion, 128);
+    assign('networkType', deviceInfo?.networkType, 128);
+    assign('effectiveConnectionType', deviceInfo?.effectiveConnectionType, 128);
+    assign('connectionSaveData', deviceInfo?.connectionSaveData);
+    assign('sdkVersion', normalizeIngestSdkVersion(deviceInfo?.sdkVersion), 50);
+    assign('appVersion', deviceInfo?.appVersion || deviceInfo?.sdkVersion, 128);
+    assign('userAgent', deviceInfo?.userAgent, 2048);
+
+    return updates;
+}
 
 function normalizeErrorStatusCodeKey(statusCode: unknown, isError: boolean): string | null {
     const parsed = Number(statusCode);
@@ -17,14 +134,38 @@ function normalizeErrorStatusCodeKey(statusCode: unknown, isError: boolean): str
     return isError ? UNKNOWN_STATUS_CODE_KEY : null;
 }
 
+function maxDate(current: Date | null, candidate: Date | null): Date | null {
+    if (!candidate) return current;
+    return !current || candidate.getTime() > current.getTime() ? candidate : current;
+}
+
+function minDate(current: Date | null, candidate: Date | null): Date | null {
+    if (!candidate) return current;
+    return !current || candidate.getTime() < current.getTime() ? candidate : current;
+}
+
+function capBackgroundSecondsToElapsed(
+    backgroundSeconds: number,
+    startedAt: Date | string | null | undefined,
+    at: Date | null,
+): number {
+    const start = startedAt instanceof Date ? startedAt : startedAt ? new Date(String(startedAt)) : null;
+    if (!start || !at || !Number.isFinite(start.getTime()) || !Number.isFinite(at.getTime())) {
+        return backgroundSeconds;
+    }
+    const elapsedSeconds = Math.max(0, Math.round((at.getTime() - start.getTime()) / 1000));
+    return Math.min(backgroundSeconds, elapsedSeconds);
+}
+
 export async function processEventsArtifact(job: any, session: any, metrics: any, projectId: string, data: Buffer, log: any) {
-    const payload = JSON.parse(data.toString());
+    const payload = parseMaybeGzippedJson(data);
     const eventsData = payload.events || [];
     const deviceInfo = payload.deviceInfo;
     // Update session metadata from device info
     if (deviceInfo) {
         const sessionUpdates: any = { updatedAt: new Date() };
-        if (deviceInfo.appVersion) sessionUpdates.appVersion = deviceInfo.appVersion;
+        const deviceAppVersion = deviceInfo.appVersion || deviceInfo.sdkVersion;
+        if (deviceAppVersion) sessionUpdates.appVersion = deviceAppVersion;
         if (deviceInfo.model) sessionUpdates.deviceModel = deviceInfo.model;
         if (deviceInfo.platform) sessionUpdates.platform = deviceInfo.platform;
         if ((!session.deviceId || session.deviceId === '') && (deviceInfo.deviceId || deviceInfo.vendorId || deviceInfo.deviceHash)) {
@@ -32,10 +173,15 @@ export async function processEventsArtifact(job: any, session: any, metrics: any
         }
         if (deviceInfo.systemVersion) sessionUpdates.osVersion = deviceInfo.systemVersion;
         else if (deviceInfo.osVersion) sessionUpdates.osVersion = deviceInfo.osVersion;
+        else if (deviceInfo.os && deviceInfo.os !== 'web') sessionUpdates.osVersion = deviceInfo.os;
 
         const fromDeviceInfo = normalizeIngestSdkVersion(deviceInfo.sdkVersion);
         if (fromDeviceInfo && !session.sdkVersion) {
             sessionUpdates.sdkVersion = fromDeviceInfo;
+        }
+        const deviceMetadataUpdates = buildDeviceMetadataUpdates(deviceInfo);
+        if (Object.keys(deviceMetadataUpdates).length > 0) {
+            sessionUpdates.metadata = sql`${sessions.metadata} || ${JSON.stringify(deviceMetadataUpdates)}::jsonb`;
         }
 
         await db.update(sessions).set(sessionUpdates).where(eq(sessions.id, job.sessionId));
@@ -59,6 +205,9 @@ export async function processEventsArtifact(job: any, session: any, metrics: any
     let errorCount = 0, rageTapCount = 0, customEventCount = 0;
     let deadTapCount = 0;
     let appStartupTimeMs: number | null = null;
+    let observedBackgroundTimeSeconds: number | null = null;
+    let earliestClientEventAt: Date | null = null;
+    let latestClientEventAt: Date | null = null;
     const recentTaps: { x: number; y: number; timestamp: number }[] = [];
     const screenPath: string[] = [];
     const endpointStats: Record<string, { calls: number; errors: number; latencySum: number; statusCodeBreakdown: Record<string, number> }> = {};
@@ -111,6 +260,10 @@ export async function processEventsArtifact(job: any, session: any, metrics: any
     const screenHeight = deviceInfo?.screenHeight || 812;
 
     for (const event of eventsData) {
+        const eventAt = coerceTimestampToDate(event.timestamp);
+        earliestClientEventAt = minDate(earliestClientEventAt, eventAt);
+        latestClientEventAt = maxDate(latestClientEventAt, eventAt);
+
         const type = (event.type || '').toLowerCase();
         const gestureType = (event.gestureType || '').toLowerCase();
 
@@ -322,14 +475,15 @@ export async function processEventsArtifact(job: any, session: any, metrics: any
                 }
                 if (event.duration) endpointStats[endpoint].latencySum += event.duration;
             }
-        } else if (type === 'error') {
+        } else if (type === 'error' || type === 'resource_error') {
             errorCount++;
             // Collect error details for batch insert
-            const errorName = event.name || 'Error';
+            const errorName = event.name || (type === 'resource_error' ? 'ResourceError' : 'Error');
             const errorMessage = event.message || 'Unknown error';
-            const errorType = errorName === 'UnhandledRejection' ? 'promise_rejection'
-                : errorName.includes('Exception') ? 'unhandled_exception'
-                    : 'js_error';
+            const errorType = type === 'resource_error' ? 'resource_error'
+                : errorName === 'UnhandledRejection' ? 'promise_rejection'
+                    : errorName.includes('Exception') ? 'unhandled_exception'
+                        : 'js_error';
             errorEvents.push({
                 timestamp: new Date(event.timestamp || Date.now()),
                 errorType,
@@ -338,14 +492,26 @@ export async function processEventsArtifact(job: any, session: any, metrics: any
                 stack: event.stack,
                 screenName: currentScreen || undefined,
             });
-        } else if (type === 'anr') {
+        } else if (type === 'anr' || type === 'long_task' || type === 'ui_freeze') {
+            const durationMs = Math.max(0, Math.round(Number(event.durationMs) || 0));
+            const threadState = typeof event.threadState === 'string' ? event.threadState : '';
+            const isWebShortLongTask =
+                deviceInfo?.platform === 'web' &&
+                (type === 'long_task' || threadState === 'main_thread_long_task') &&
+                durationMs > 0 &&
+                durationMs < WEB_LONG_TASK_ANR_THRESHOLD_MS;
+
+            if (isWebShortLongTask) {
+                continue;
+            }
+
             const stackTrace = resolveAnrStackTrace({
                 threadState: event.threadState,
                 stack: event.stack,
             });
             anrEvents.push({
                 timestamp: new Date(event.timestamp || Date.now()),
-                durationMs: event.durationMs || 5000,
+                durationMs: durationMs || 5000,
                 threadState: stackTrace || event.threadState || 'blocked',
                 stackTrace: stackTrace || undefined,
                 rawThreadState: typeof event.threadState === 'string' ? event.threadState : undefined,
@@ -357,29 +523,56 @@ export async function processEventsArtifact(job: any, session: any, metrics: any
             customEventCount++;
         } else if (type === 'app_startup') {
             // Extract app startup time
-            const durationMs = event.durationMs || event.duration;
-            if (durationMs && typeof durationMs === 'number' && durationMs > 0) {
+            const durationMs = Number(event.durationMs ?? event.duration ?? event.payload?.durationMs);
+            if (Number.isFinite(durationMs) && durationMs > 0) {
                 // Store in updates - will be applied to session_metrics
-                appStartupTimeMs = durationMs;
-                log.info({ appStartupTimeMs: durationMs, platform: event.platform }, 'Captured app startup time');
+                appStartupTimeMs = Math.round(durationMs);
+                log.info({ appStartupTimeMs, platform: event.platform }, 'Captured app startup time');
+            }
+        } else if (type === 'app_foreground') {
+            const totalBackgroundSeconds = extractCumulativeBackgroundSeconds(event);
+            if (totalBackgroundSeconds !== null) {
+                const cappedBackgroundSeconds = capBackgroundSecondsToElapsed(
+                    totalBackgroundSeconds,
+                    session.startedAt,
+                    eventAt,
+                );
+                observedBackgroundTimeSeconds = Math.max(
+                    observedBackgroundTimeSeconds ?? 0,
+                    cappedBackgroundSeconds,
+                );
+            } else {
+                const durationBackgroundSeconds = extractBackgroundDurationSeconds(event);
+                if (durationBackgroundSeconds !== null) {
+                    const cumulativeBackgroundSeconds = (observedBackgroundTimeSeconds ?? 0) + durationBackgroundSeconds;
+                    const cappedBackgroundSeconds = capBackgroundSecondsToElapsed(
+                        cumulativeBackgroundSeconds,
+                        session.startedAt,
+                        eventAt,
+                    );
+                    observedBackgroundTimeSeconds = Math.max(
+                        observedBackgroundTimeSeconds ?? 0,
+                        cappedBackgroundSeconds,
+                    );
+                }
             }
         } else if (type === 'user_identity_changed') {
-            // Update session's userId when user identity changes mid-session
-            const newUserId = event.userId || event.details?.userId;
-            if (newUserId && newUserId !== 'anonymous' && typeof newUserId === 'string') {
-                if (newUserId.startsWith('anon_')) {
-                    // It's an anonymous ID, update anonymousDisplayId instead
-                    await db.update(sessions)
-                        .set({ anonymousDisplayId: newUserId, updatedAt: new Date() })
-                        .where(eq(sessions.id, job.sessionId));
-                    log.info({ anonymousId: newUserId }, 'Session anonymousId updated from user_identity_changed event');
-                } else {
-                    // It's a real user ID
-                    await db.update(sessions)
-                        .set({ userDisplayId: newUserId, updatedAt: new Date() })
-                        .where(eq(sessions.id, job.sessionId));
-                    log.info({ userId: newUserId }, 'Session userId updated from user_identity_changed event');
-                }
+            const identityChange = extractSessionIdentityChange(event);
+            if (identityChange.type === 'clear') {
+                await db.update(sessions)
+                    .set({ userDisplayId: null, anonymousDisplayId: null, updatedAt: new Date() })
+                    .where(eq(sessions.id, job.sessionId));
+                log.info('Session identity cleared from user_identity_changed event');
+            } else if (identityChange.type === 'anonymous') {
+                await db.update(sessions)
+                    .set({ anonymousDisplayId: identityChange.anonymousDisplayId, userDisplayId: null, updatedAt: new Date() })
+                    .where(eq(sessions.id, job.sessionId));
+                log.info({ anonymousId: identityChange.anonymousDisplayId }, 'Session anonymousId updated from user_identity_changed event');
+            } else if (identityChange.type === 'user') {
+                await db.update(sessions)
+                    .set({ userDisplayId: identityChange.userDisplayId, anonymousDisplayId: null, updatedAt: new Date() })
+                    .where(eq(sessions.id, job.sessionId));
+                log.info({ userId: identityChange.userDisplayId }, 'Session userId updated from user_identity_changed event');
             }
         }
     }
@@ -637,6 +830,10 @@ export async function processEventsArtifact(job: any, session: any, metrics: any
         const type = (event.type || '').toLowerCase();
         const eventName = (event.name || '').toLowerCase();
 
+        if (type === 'session_start') {
+            Object.assign(metadataUpdates, buildWebAttributionMetadata(event));
+        }
+
         // Native SDK sends metadata as: {type: "custom", name: "$user_property", payload: "{...}"}
         // Also handle if sent directly as type: "$user_property"
         if (type === '$user_property' || eventName === '$user_property') {
@@ -682,6 +879,14 @@ export async function processEventsArtifact(job: any, session: any, metrics: any
 
             if (Object.keys(metadataUpdates).length > 0) {
                 updates.metadata = sql`${sessions.metadata} || ${JSON.stringify(metadataUpdates)}::jsonb`;
+                const webReferralForColumn = normalizeMetadataString(metadataUpdates.webReferral, 255);
+                if (webReferralForColumn) {
+                    updates.webReferral = webReferralForColumn;
+                }
+            }
+
+            if (Object.keys(updates).length > 0) {
+                updates.updatedAt = new Date();
             }
 
             await db.update(sessions)
@@ -695,6 +900,38 @@ export async function processEventsArtifact(job: any, session: any, metrics: any
         } catch (err) {
             log.error({ err }, 'Failed to update session custom events and metadata');
         }
+    }
+
+    if (observedBackgroundTimeSeconds !== null) {
+        const mergedBackgroundSeconds = sql<number>`
+            GREATEST(COALESCE(${sessions.backgroundTimeSeconds}, 0), ${observedBackgroundTimeSeconds})
+        `;
+        const elapsedSeconds = sql<number>`
+            ROUND(EXTRACT(EPOCH FROM (${sessions.endedAt} - ${sessions.startedAt})))::int
+        `;
+
+        await db.update(sessions)
+            .set({
+                backgroundTimeSeconds: mergedBackgroundSeconds,
+                durationSeconds: sql`
+                    CASE
+                        WHEN ${sessions.endedAt} IS NOT NULL THEN
+                            GREATEST(1, ${elapsedSeconds} - ${mergedBackgroundSeconds})
+                        ELSE ${sessions.durationSeconds}
+                    END
+                `,
+                updatedAt: new Date(),
+            })
+            .where(eq(sessions.id, job.sessionId));
+    }
+
+    if (earliestClientEventAt || latestClientEventAt) {
+        await db.update(recordingArtifacts)
+            .set({
+                startTime: earliestClientEventAt?.getTime() ?? null,
+                endTime: latestClientEventAt?.getTime() ?? null,
+            })
+            .where(eq(recordingArtifacts.id, job.artifactId));
     }
 
     log.debug({ eventsCount: eventsData.length, touchCount, rageTapCount }, 'Events artifact processed');

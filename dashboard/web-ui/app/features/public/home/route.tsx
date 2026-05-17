@@ -130,8 +130,8 @@ export default function LandingPage() {
                                 inLanguage: locale.languageTag,
                                 availableLanguage: MARKETING_AVAILABLE_LANGUAGES,
                                 applicationCategory: "DeveloperApplication",
-                                operatingSystem: "iOS, Android, React Native, Expo",
-                                softwareHelp: "https://rejourney.co/docs/reactnative/overview",
+                                operatingSystem: "Web, iOS, Android, React Native, Expo",
+                                softwareHelp: "https://rejourney.co/docs",
                                 codeRepository: "https://github.com/rejourneyco/rejourney",
                                 offers: {
                                     "@type": "Offer",

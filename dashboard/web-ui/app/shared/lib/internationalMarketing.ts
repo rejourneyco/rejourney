@@ -55,7 +55,7 @@ const englishFeatures: MarketingFeatureCopy[] = [
   { title: "Incident", highlight: "Stream", badge: "Live" },
   { title: "Crash", highlight: "Detection", badge: "ANR" },
   { title: "Journey", highlight: "Maps", badge: "Flows" },
-  { title: "Touch", highlight: "Heatmaps", badge: "Taps" },
+  { title: "Click", highlight: "Heatmaps", badge: "Taps" },
   { title: "Global", highlight: "Stability", badge: "Geo" },
   { title: "Growth", highlight: "Loops", badge: "Retention" },
   { title: "Team", highlight: "Alerts", badge: "Teams" },
@@ -71,27 +71,30 @@ export const MARKETING_LOCALES: Record<MarketingLocaleCode, MarketingLocale> = {
     languageTag: "en-US",
     ogLocale: "en_US",
     dir: "ltr",
-    metaTitle: "Rejourney: Open Source Mobile Analytics, Session Replay & Observability",
+    metaTitle: "Rejourney: Open Source Web & Mobile Analytics, Session Replay & Observability",
     metaDescription:
-      "Open-source mobile analytics for iOS, Android, Expo, and React Native apps with replay, crashes, heatmaps, journeys, and a light SDK.",
+      "Open-source analytics for web, iOS, Android, Expo, and React Native apps with replay, crashes, heatmaps, journeys, and a light SDK.",
     keywords: [
-      "open source mobile analytics",
+      "open source web analytics",
+      "web session replay",
       "mobile session replay",
-      "mobile observability",
-      "mobile heatmaps",
+      "product analytics",
+      "web observability",
+      "mobile analytics",
       "crash reporting",
-      "Expo analytics",
-      "Swift iOS analytics",
+      "heatmaps",
+      "React Native analytics",
+      "JavaScript SDK analytics",
       "self-hosted analytics",
     ],
-    mainAriaLabel: "Rejourney - Open Source Mobile App Analytics",
+    mainAriaLabel: "Rejourney - Open Source Web and Mobile Analytics",
     hero: {
       headlinePrimary: "Creative analytics.",
       headlineSecondary: "Light SDK.",
       primaryCta: "Get started free",
       secondaryCta: "Self-host instead",
     },
-    featuresHeading: "Mobile stack.",
+    featuresHeading: "Web and mobile stack.",
     featuresEyebrow: "Eight signals",
     features: englishFeatures,
   },
@@ -104,30 +107,31 @@ export const MARKETING_LOCALES: Record<MarketingLocaleCode, MarketingLocale> = {
     languageTag: "ar",
     ogLocale: "ar_AR",
     dir: "rtl",
-    metaTitle: "Rejourney: Session Replay وإعادة تشغيل الجلسات لتطبيقات الجوال",
+    metaTitle: "Rejourney: Session Replay وتحليلات للويب وتطبيقات الجوال",
     metaDescription:
-      "Session replay وتحليلات مفتوحة المصدر لتطبيقات iOS وAndroid وExpo وReact Native مع إعادة تشغيل الجلسات، الأعطال، الخرائط الحرارية، ورحلات المستخدم.",
+      "Session replay وتحليلات مفتوحة المصدر للويب وتطبيقات iOS وAndroid وExpo وReact Native مع إعادة تشغيل الجلسات، الأعطال، الخرائط الحرارية، ورحلات المستخدم.",
     keywords: [
       "session replay عربي",
+      "session replay للويب",
       "session replay للجوال",
-      "تحليلات تطبيقات الجوال مفتوحة المصدر",
+      "تحليلات الويب مفتوحة المصدر",
+      "تحليلات تطبيقات الجوال",
       "إعادة تشغيل الجلسات",
-      "إعادة تشغيل جلسات الجوال",
-      "مراقبة تطبيقات الجوال",
-      "خرائط حرارية للجوال",
+      "مراقبة الويب والجوال",
+      "خرائط حرارية للويب والجوال",
       "تقارير الأعطال",
       "تحليلات React Native",
-      "تحليلات Expo",
+      "تحليلات JavaScript SDK",
       "استضافة ذاتية للتحليلات",
     ],
-    mainAriaLabel: "Rejourney - تحليلات تطبيقات الجوال مفتوحة المصدر",
+    mainAriaLabel: "Rejourney - تحليلات الويب وتطبيقات الجوال مفتوحة المصدر",
     hero: {
       headlinePrimary: "تحليلات إبداعية.",
       headlineSecondary: "SDK خفيف.",
       primaryCta: "ابدأ مجانًا",
       secondaryCta: "استضافة ذاتية",
     },
-    featuresHeading: "منصة الجوال.",
+    featuresHeading: "منصة الويب والجوال.",
     featuresEyebrow: "ثماني إشارات",
     features: [
       { title: "إعادة", highlight: "الجلسات", badge: "إعادة" },
@@ -149,30 +153,31 @@ export const MARKETING_LOCALES: Record<MarketingLocaleCode, MarketingLocale> = {
     languageTag: "es",
     ogLocale: "es_ES",
     dir: "ltr",
-    metaTitle: "Rejourney: Session replay y reproducción de sesiones para apps móviles",
+    metaTitle: "Rejourney: Session replay y analítica para web y apps móviles",
     metaDescription:
-      "Session replay y analítica móvil open source para iOS, Android, Expo y React Native con reproducción de sesiones, crashes, mapas de calor y un SDK ligero.",
+      "Session replay y analítica open source para web, iOS, Android, Expo y React Native con reproducción de sesiones, crashes, mapas de calor y un SDK ligero.",
     keywords: [
       "session replay español",
+      "session replay web",
       "session replay móvil",
-      "analítica móvil open source",
-      "reproducción de sesiones móviles",
-      "replay de sesiones móviles",
-      "observabilidad móvil",
-      "mapas de calor móviles",
+      "analítica web open source",
+      "analítica móvil",
+      "reproducción de sesiones web",
+      "observabilidad web y móvil",
+      "mapas de calor web y móvil",
       "reporte de crashes",
       "analítica React Native",
-      "analítica Expo",
+      "analítica JavaScript SDK",
       "analítica self-hosted",
     ],
-    mainAriaLabel: "Rejourney - Analítica móvil open source",
+    mainAriaLabel: "Rejourney - Analítica web y móvil open source",
     hero: {
       headlinePrimary: "Analítica creativa.",
       headlineSecondary: "SDK ligero.",
       primaryCta: "Empieza gratis",
       secondaryCta: "Autohospedar",
     },
-    featuresHeading: "Stack móvil.",
+    featuresHeading: "Stack web y móvil.",
     featuresEyebrow: "Ocho señales",
     features: [
       { title: "Replay", highlight: "de sesión", badge: "Replay" },
@@ -194,30 +199,31 @@ export const MARKETING_LOCALES: Record<MarketingLocaleCode, MarketingLocale> = {
     languageTag: "tr",
     ogLocale: "tr_TR",
     dir: "ltr",
-    metaTitle: "Rejourney: Mobil session replay ve oturum tekrarı",
+    metaTitle: "Rejourney: Web ve mobil session replay analitigi",
     metaDescription:
-      "iOS, Android, Expo ve React Native uygulamaları için mobil session replay, oturum tekrarı, çökme izleme, ısı haritaları, kullanıcı yolculukları ve hafif SDK.",
+      "Web, iOS, Android, Expo ve React Native uygulamaları için open source analytics, session replay, çökme izleme, ısı haritaları, kullanıcı yolculukları ve hafif SDK.",
     keywords: [
       "session replay türkçe",
+      "web session replay",
       "mobil session replay",
-      "açık kaynak mobil analitik",
+      "açık kaynak web analitik",
+      "mobil analitik",
       "oturum tekrarı",
-      "mobil oturum yeniden oynatma",
-      "mobil gözlemlenebilirlik",
-      "mobil ısı haritaları",
+      "web ve mobil gözlemlenebilirlik",
+      "web ve mobil ısı haritaları",
       "çökme raporlama",
       "React Native analitik",
-      "Expo analitik",
+      "JavaScript SDK analitik",
       "self-hosted analitik",
     ],
-    mainAriaLabel: "Rejourney - Açık kaynak mobil uygulama analitiği",
+    mainAriaLabel: "Rejourney - Açık kaynak web ve mobil uygulama analitiği",
     hero: {
       headlinePrimary: "Yaratıcı analitik.",
       headlineSecondary: "Hafif SDK.",
       primaryCta: "Ücretsiz başla",
       secondaryCta: "Kendin barındır",
     },
-    featuresHeading: "Mobil stack.",
+    featuresHeading: "Web ve mobil stack.",
     featuresEyebrow: "Sekiz sinyal",
     features: [
       { title: "Oturum", highlight: "Replay", badge: "Replay" },
@@ -239,27 +245,29 @@ export const MARKETING_LOCALES: Record<MarketingLocaleCode, MarketingLocale> = {
     languageTag: "pt-BR",
     ogLocale: "pt_BR",
     dir: "ltr",
-    metaTitle: "Rejourney: Analytics mobile open source, replay de sessão e observabilidade",
+    metaTitle: "Rejourney: Analytics web e mobile open source, replay de sessão e observabilidade",
     metaDescription:
-      "Analytics mobile open source para iOS, Android, Expo e React Native com replay de sessão, crashes, mapas de calor, jornadas e SDK leve.",
+      "Analytics open source para web, iOS, Android, Expo e React Native com replay de sessão, crashes, mapas de calor, jornadas e SDK leve.",
     keywords: [
-      "analytics mobile open source",
+      "analytics web open source",
+      "session replay web",
       "replay de sessão mobile",
-      "observabilidade mobile",
-      "mapas de calor mobile",
+      "analytics mobile",
+      "observabilidade web e mobile",
+      "mapas de calor web e mobile",
       "relatório de crashes",
       "analytics React Native",
-      "analytics Expo",
+      "analytics JavaScript SDK",
       "analytics self-hosted",
     ],
-    mainAriaLabel: "Rejourney - Analytics mobile open source",
+    mainAriaLabel: "Rejourney - Analytics web e mobile open source",
     hero: {
       headlinePrimary: "Analytics criativo.",
       headlineSecondary: "SDK leve.",
       primaryCta: "Comece grátis",
       secondaryCta: "Hospede você mesmo",
     },
-    featuresHeading: "Stack mobile.",
+    featuresHeading: "Stack web e mobile.",
     featuresEyebrow: "Oito sinais",
     features: [
       { title: "Replay", highlight: "de sessão", badge: "Replay" },
@@ -281,27 +289,28 @@ export const MARKETING_LOCALES: Record<MarketingLocaleCode, MarketingLocale> = {
     languageTag: "de",
     ogLocale: "de_DE",
     dir: "ltr",
-    metaTitle: "Rejourney: Open-Source-Mobile-Analytics, Session Replay und Observability",
+    metaTitle: "Rejourney: Open-Source-Web- und Mobile-Analytics, Session Replay und Observability",
     metaDescription:
-      "Open-Source-Mobile-Analytics für iOS, Android, Expo und React Native mit Session Replay, Crash-Reporting, Heatmaps, Journeys und leichtem SDK.",
+      "Open-Source-Analytics für Web, iOS, Android, Expo und React Native mit Session Replay, Crash-Reporting, Heatmaps, Journeys und leichtem SDK.",
     keywords: [
-      "Open Source Mobile Analytics",
+      "Open Source Web Analytics",
+      "Web Session Replay",
       "Mobile Session Replay",
-      "Mobile Observability",
-      "Mobile Heatmaps",
+      "Web und Mobile Observability",
+      "Web und Mobile Heatmaps",
       "Crash Reporting",
       "React Native Analytics",
-      "Expo Analytics",
+      "JavaScript SDK Analytics",
       "Self-Hosted Analytics",
     ],
-    mainAriaLabel: "Rejourney - Open-Source-Mobile-App-Analytics",
+    mainAriaLabel: "Rejourney - Open-Source-Web- und Mobile-App-Analytics",
     hero: {
       headlinePrimary: "Kreative Analytics.",
       headlineSecondary: "Leichtes SDK.",
       primaryCta: "Kostenlos starten",
       secondaryCta: "Selbst hosten",
     },
-    featuresHeading: "Mobile Stack.",
+    featuresHeading: "Web- und Mobile-Stack.",
     featuresEyebrow: "Acht Signale",
     features: [
       { title: "Session", highlight: "Replay", badge: "Replay" },
@@ -323,27 +332,29 @@ export const MARKETING_LOCALES: Record<MarketingLocaleCode, MarketingLocale> = {
     languageTag: "fr",
     ogLocale: "fr_FR",
     dir: "ltr",
-    metaTitle: "Rejourney: Analytics mobile open source, replay de session et observabilité",
+    metaTitle: "Rejourney: Analytics web et mobile open source, replay de session et observabilité",
     metaDescription:
-      "Analytics mobile open source pour iOS, Android, Expo et React Native avec replay de session, crashs, heatmaps, parcours utilisateur et SDK léger.",
+      "Analytics open source pour le web, iOS, Android, Expo et React Native avec replay de session, crashs, heatmaps, parcours utilisateur et SDK léger.",
     keywords: [
-      "analytics mobile open source",
+      "analytics web open source",
+      "replay de session web",
       "replay de session mobile",
-      "observabilité mobile",
-      "heatmaps mobile",
+      "analytics mobile",
+      "observabilité web et mobile",
+      "heatmaps web et mobile",
       "rapport de crash",
       "analytics React Native",
-      "analytics Expo",
+      "analytics JavaScript SDK",
       "analytics self-hosted",
     ],
-    mainAriaLabel: "Rejourney - Analytics mobile open source",
+    mainAriaLabel: "Rejourney - Analytics web et mobile open source",
     hero: {
       headlinePrimary: "Analytics créative.",
       headlineSecondary: "SDK léger.",
       primaryCta: "Démarrer gratuitement",
       secondaryCta: "Auto-héberger",
     },
-    featuresHeading: "Stack mobile.",
+    featuresHeading: "Stack web et mobile.",
     featuresEyebrow: "Huit signaux",
     features: [
       { title: "Replay", highlight: "de session", badge: "Replay" },
@@ -365,27 +376,28 @@ export const MARKETING_LOCALES: Record<MarketingLocaleCode, MarketingLocale> = {
     languageTag: "hi",
     ogLocale: "hi_IN",
     dir: "ltr",
-    metaTitle: "Rejourney: ओपन-सोर्स मोबाइल एनालिटिक्स, सेशन रीप्ले और ऑब्जर्वेबिलिटी",
+    metaTitle: "Rejourney: ओपन-सोर्स वेब और मोबाइल एनालिटिक्स, सेशन रीप्ले और ऑब्जर्वेबिलिटी",
     metaDescription:
-      "iOS, Android, Expo और React Native ऐप्स के लिए ओपन-सोर्स मोबाइल एनालिटिक्स: सेशन रीप्ले, क्रैश, हीटमैप, यूजर जर्नी और हल्का SDK.",
+      "वेब, iOS, Android, Expo और React Native ऐप्स के लिए ओपन-सोर्स एनालिटिक्स: सेशन रीप्ले, क्रैश, हीटमैप, यूजर जर्नी और हल्का SDK.",
     keywords: [
-      "ओपन सोर्स मोबाइल एनालिटिक्स",
+      "ओपन सोर्स वेब एनालिटिक्स",
+      "वेब सेशन रीप्ले",
       "मोबाइल सेशन रीप्ले",
-      "मोबाइल ऑब्जर्वेबिलिटी",
-      "मोबाइल हीटमैप",
+      "वेब और मोबाइल ऑब्जर्वेबिलिटी",
+      "वेब और मोबाइल हीटमैप",
       "क्रैश रिपोर्टिंग",
       "React Native analytics",
-      "Expo analytics",
+      "JavaScript SDK analytics",
       "self-hosted analytics",
     ],
-    mainAriaLabel: "Rejourney - ओपन-सोर्स मोबाइल ऐप एनालिटिक्स",
+    mainAriaLabel: "Rejourney - ओपन-सोर्स वेब और मोबाइल ऐप एनालिटिक्स",
     hero: {
       headlinePrimary: "क्रिएटिव एनालिटिक्स.",
       headlineSecondary: "हल्का SDK.",
       primaryCta: "मुफ्त शुरू करें",
       secondaryCta: "स्वयं होस्ट करें",
     },
-    featuresHeading: "मोबाइल स्टैक.",
+    featuresHeading: "वेब और मोबाइल स्टैक.",
     featuresEyebrow: "आठ संकेत",
     features: [
       { title: "सेशन", highlight: "रीप्ले", badge: "रीप्ले" },
@@ -407,27 +419,29 @@ export const MARKETING_LOCALES: Record<MarketingLocaleCode, MarketingLocale> = {
     languageTag: "id",
     ogLocale: "id_ID",
     dir: "ltr",
-    metaTitle: "Rejourney: Analitik mobile open source, session replay, dan observability",
+    metaTitle: "Rejourney: Analitik web dan mobile open source, session replay, dan observability",
     metaDescription:
-      "Analitik mobile open source untuk iOS, Android, Expo, dan React Native dengan session replay, crash, heatmap, journey, dan SDK ringan.",
+      "Analitik open source untuk web, iOS, Android, Expo, dan React Native dengan session replay, crash, heatmap, journey, dan SDK ringan.",
     keywords: [
-      "analitik mobile open source",
+      "analitik web open source",
+      "session replay web",
       "session replay mobile",
-      "observability mobile",
-      "heatmap mobile",
+      "analitik mobile",
+      "observability web dan mobile",
+      "heatmap web dan mobile",
       "crash reporting",
       "analitik React Native",
-      "analitik Expo",
+      "analitik JavaScript SDK",
       "self-hosted analytics",
     ],
-    mainAriaLabel: "Rejourney - Analitik aplikasi mobile open source",
+    mainAriaLabel: "Rejourney - Analitik aplikasi web dan mobile open source",
     hero: {
       headlinePrimary: "Analitik kreatif.",
       headlineSecondary: "SDK ringan.",
       primaryCta: "Mulai gratis",
       secondaryCta: "Self-host",
     },
-    featuresHeading: "Stack mobile.",
+    featuresHeading: "Stack web dan mobile.",
     featuresEyebrow: "Delapan sinyal",
     features: [
       { title: "Session", highlight: "Replay", badge: "Replay" },
@@ -449,27 +463,28 @@ export const MARKETING_LOCALES: Record<MarketingLocaleCode, MarketingLocale> = {
     languageTag: "ja",
     ogLocale: "ja_JP",
     dir: "ltr",
-    metaTitle: "Rejourney: オープンソースのモバイル分析、セッションリプレイ、Observability",
+    metaTitle: "Rejourney: オープンソースのWeb・モバイル分析、セッションリプレイ、Observability",
     metaDescription:
-      "iOS、Android、Expo、React Native向けの軽量SDKで、セッションリプレイ、クラッシュ、ヒートマップ、ジャーニーを扱うオープンソースのモバイル分析基盤。",
+      "Web、iOS、Android、Expo、React Native向けの軽量SDKで、セッションリプレイ、クラッシュ、ヒートマップ、ジャーニーを扱うオープンソース分析基盤。",
     keywords: [
-      "オープンソース モバイル分析",
+      "オープンソース Web分析",
+      "Web セッションリプレイ",
       "モバイル セッションリプレイ",
-      "モバイル Observability",
-      "モバイル ヒートマップ",
+      "Webとモバイル Observability",
+      "Webとモバイル ヒートマップ",
       "クラッシュレポート",
       "React Native analytics",
-      "Expo analytics",
+      "JavaScript SDK analytics",
       "self-hosted analytics",
     ],
-    mainAriaLabel: "Rejourney - オープンソースのモバイルアプリ分析",
+    mainAriaLabel: "Rejourney - オープンソースのWeb・モバイルアプリ分析",
     hero: {
       headlinePrimary: "創造的な分析。",
       headlineSecondary: "軽量SDK。",
       primaryCta: "無料で始める",
       secondaryCta: "セルフホスト",
     },
-    featuresHeading: "モバイル基盤。",
+    featuresHeading: "Web・モバイル基盤。",
     featuresEyebrow: "8つのシグナル",
     features: [
       { title: "セッション", highlight: "リプレイ", badge: "Replay" },
@@ -491,27 +506,28 @@ export const MARKETING_LOCALES: Record<MarketingLocaleCode, MarketingLocale> = {
     languageTag: "ko",
     ogLocale: "ko_KR",
     dir: "ltr",
-    metaTitle: "Rejourney: 오픈소스 모바일 분석, 세션 리플레이, 옵저버빌리티",
+    metaTitle: "Rejourney: 오픈소스 웹 및 모바일 분석, 세션 리플레이, 옵저버빌리티",
     metaDescription:
-      "iOS, Android, Expo, React Native 앱을 위한 오픈소스 모바일 분석. 세션 리플레이, 크래시, 히트맵, 사용자 여정, 가벼운 SDK를 제공합니다.",
+      "웹, iOS, Android, Expo, React Native 앱을 위한 오픈소스 분석. 세션 리플레이, 크래시, 히트맵, 사용자 여정, 가벼운 SDK를 제공합니다.",
     keywords: [
-      "오픈소스 모바일 분석",
+      "오픈소스 웹 분석",
+      "웹 세션 리플레이",
       "모바일 세션 리플레이",
-      "모바일 옵저버빌리티",
-      "모바일 히트맵",
+      "웹 및 모바일 옵저버빌리티",
+      "웹 및 모바일 히트맵",
       "크래시 리포팅",
       "React Native analytics",
-      "Expo analytics",
+      "JavaScript SDK analytics",
       "self-hosted analytics",
     ],
-    mainAriaLabel: "Rejourney - 오픈소스 모바일 앱 분석",
+    mainAriaLabel: "Rejourney - 오픈소스 웹 및 모바일 앱 분석",
     hero: {
       headlinePrimary: "창의적인 분석.",
       headlineSecondary: "가벼운 SDK.",
       primaryCta: "무료로 시작",
       secondaryCta: "셀프 호스팅",
     },
-    featuresHeading: "모바일 스택.",
+    featuresHeading: "웹 및 모바일 스택.",
     featuresEyebrow: "8가지 신호",
     features: [
       { title: "세션", highlight: "리플레이", badge: "Replay" },
@@ -533,27 +549,28 @@ export const MARKETING_LOCALES: Record<MarketingLocaleCode, MarketingLocale> = {
     languageTag: "zh-CN",
     ogLocale: "zh_CN",
     dir: "ltr",
-    metaTitle: "Rejourney：开源移动分析、会话回放与可观测性",
+    metaTitle: "Rejourney：开源 Web 与移动分析、会话回放与可观测性",
     metaDescription:
-      "面向 iOS、Android、Expo 和 React Native 应用的开源移动分析，包含会话回放、崩溃、热力图、用户旅程和轻量 SDK。",
+      "面向 Web、iOS、Android、Expo 和 React Native 应用的开源分析，包含会话回放、崩溃、热力图、用户旅程和轻量 SDK。",
     keywords: [
-      "开源移动分析",
+      "开源 Web 分析",
+      "Web 会话回放",
       "移动端会话回放",
-      "移动应用可观测性",
-      "移动热力图",
+      "Web 与移动应用可观测性",
+      "Web 与移动热力图",
       "崩溃报告",
       "React Native analytics",
-      "Expo analytics",
+      "JavaScript SDK analytics",
       "self-hosted analytics",
     ],
-    mainAriaLabel: "Rejourney - 开源移动应用分析",
+    mainAriaLabel: "Rejourney - 开源 Web 与移动应用分析",
     hero: {
       headlinePrimary: "创意分析。",
       headlineSecondary: "轻量 SDK。",
       primaryCta: "免费开始",
       secondaryCta: "自托管",
     },
-    featuresHeading: "移动端技术栈。",
+    featuresHeading: "Web 与移动端技术栈。",
     featuresEyebrow: "八个信号",
     features: [
       { title: "会话", highlight: "回放", badge: "Replay" },
@@ -575,27 +592,29 @@ export const MARKETING_LOCALES: Record<MarketingLocaleCode, MarketingLocale> = {
     languageTag: "it",
     ogLocale: "it_IT",
     dir: "ltr",
-    metaTitle: "Rejourney: analytics mobile open source, replay di sessione e osservabilita",
+    metaTitle: "Rejourney: analytics web e mobile open source, replay di sessione e osservabilita",
     metaDescription:
-      "Analytics mobile open source per app iOS, Android, Expo e React Native con replay di sessione, crash, heatmap, journey e SDK leggero.",
+      "Analytics open source per app web, iOS, Android, Expo e React Native con replay di sessione, crash, heatmap, journey e SDK leggero.",
     keywords: [
-      "analytics mobile open source",
+      "analytics web open source",
+      "session replay web",
       "replay sessioni mobile",
-      "osservabilita mobile",
-      "heatmap mobile",
+      "analytics mobile",
+      "osservabilita web e mobile",
+      "heatmap web e mobile",
       "crash reporting",
       "analytics React Native",
-      "analytics Expo",
+      "analytics JavaScript SDK",
       "analytics self-hosted",
     ],
-    mainAriaLabel: "Rejourney - Analytics mobile open source",
+    mainAriaLabel: "Rejourney - Analytics web e mobile open source",
     hero: {
       headlinePrimary: "Analytics creativa.",
       headlineSecondary: "SDK leggero.",
       primaryCta: "Inizia gratis",
       secondaryCta: "Self-host",
     },
-    featuresHeading: "Stack mobile.",
+    featuresHeading: "Stack web e mobile.",
     featuresEyebrow: "Otto segnali",
     features: [
       { title: "Replay", highlight: "sessione", badge: "Replay" },
@@ -617,27 +636,28 @@ export const MARKETING_LOCALES: Record<MarketingLocaleCode, MarketingLocale> = {
     languageTag: "nl",
     ogLocale: "nl_NL",
     dir: "ltr",
-    metaTitle: "Rejourney: open-source mobiele analytics, sessiereplay en observability",
+    metaTitle: "Rejourney: open-source web- en mobiele analytics, sessiereplay en observability",
     metaDescription:
-      "Open-source mobiele analytics voor iOS, Android, Expo en React Native met sessiereplay, crashes, heatmaps, journeys en een lichte SDK.",
+      "Open-source analytics voor web, iOS, Android, Expo en React Native met sessiereplay, crashes, heatmaps, journeys en een lichte SDK.",
     keywords: [
-      "open source mobiele analytics",
+      "open source web analytics",
+      "web sessiereplay",
       "mobiele sessiereplay",
-      "mobiele observability",
-      "mobiele heatmaps",
+      "web en mobiele observability",
+      "web en mobiele heatmaps",
       "crashrapportage",
       "React Native analytics",
-      "Expo analytics",
+      "JavaScript SDK analytics",
       "self-hosted analytics",
     ],
-    mainAriaLabel: "Rejourney - Open-source mobiele app analytics",
+    mainAriaLabel: "Rejourney - Open-source web- en mobiele app analytics",
     hero: {
       headlinePrimary: "Creatieve analytics.",
       headlineSecondary: "Lichte SDK.",
       primaryCta: "Start gratis",
       secondaryCta: "Self-hosten",
     },
-    featuresHeading: "Mobiele stack.",
+    featuresHeading: "Web- en mobiele stack.",
     featuresEyebrow: "Acht signalen",
     features: [
       { title: "Sessie", highlight: "Replay", badge: "Replay" },
@@ -659,27 +679,29 @@ export const MARKETING_LOCALES: Record<MarketingLocaleCode, MarketingLocale> = {
     languageTag: "pl",
     ogLocale: "pl_PL",
     dir: "ltr",
-    metaTitle: "Rejourney: open-source analytics mobilny, replay sesji i obserwowalnosc",
+    metaTitle: "Rejourney: open-source analytics webowy i mobilny, replay sesji i obserwowalnosc",
     metaDescription:
-      "Open-source analytics mobilny dla iOS, Android, Expo i React Native z replayem sesji, crashami, heatmapami, journey i lekkim SDK.",
+      "Open-source analytics dla web, iOS, Android, Expo i React Native z replayem sesji, crashami, heatmapami, journey i lekkim SDK.",
     keywords: [
-      "open source analytics mobilny",
+      "open source analytics webowy",
+      "replay sesji web",
       "replay sesji mobilnych",
-      "obserwowalnosc mobilna",
-      "heatmapy mobilne",
+      "analytics mobilny",
+      "obserwowalnosc web i mobile",
+      "heatmapy web i mobile",
       "raportowanie crashy",
       "React Native analytics",
-      "Expo analytics",
+      "JavaScript SDK analytics",
       "self-hosted analytics",
     ],
-    mainAriaLabel: "Rejourney - Open-source analytics aplikacji mobilnych",
+    mainAriaLabel: "Rejourney - Open-source analytics aplikacji webowych i mobilnych",
     hero: {
       headlinePrimary: "Kreatywna analityka.",
       headlineSecondary: "Lekkie SDK.",
       primaryCta: "Zacznij za darmo",
       secondaryCta: "Self-hosting",
     },
-    featuresHeading: "Stack mobilny.",
+    featuresHeading: "Stack webowy i mobilny.",
     featuresEyebrow: "Osiem sygnalow",
     features: [
       { title: "Replay", highlight: "sesji", badge: "Replay" },
@@ -701,27 +723,29 @@ export const MARKETING_LOCALES: Record<MarketingLocaleCode, MarketingLocale> = {
     languageTag: "pt",
     ogLocale: "pt_PT",
     dir: "ltr",
-    metaTitle: "Rejourney: analytics mobile open source, replay de sessao e observabilidade",
+    metaTitle: "Rejourney: analytics web e mobile open source, replay de sessao e observabilidade",
     metaDescription:
-      "Analytics mobile open source para apps iOS, Android, Expo e React Native com replay de sessao, crashes, mapas de calor, jornadas e SDK leve.",
+      "Analytics open source para apps web, iOS, Android, Expo e React Native com replay de sessao, crashes, mapas de calor, jornadas e SDK leve.",
     keywords: [
-      "analytics mobile open source",
+      "analytics web open source",
+      "session replay web",
       "replay de sessao mobile",
-      "observabilidade mobile",
-      "mapas de calor mobile",
+      "analytics mobile",
+      "observabilidade web e mobile",
+      "mapas de calor web e mobile",
       "relatorio de crashes",
       "analytics React Native",
-      "analytics Expo",
+      "analytics JavaScript SDK",
       "analytics self-hosted",
     ],
-    mainAriaLabel: "Rejourney - Analytics mobile open source",
+    mainAriaLabel: "Rejourney - Analytics web e mobile open source",
     hero: {
       headlinePrimary: "Analytics criativo.",
       headlineSecondary: "SDK leve.",
       primaryCta: "Comece gratis",
       secondaryCta: "Self-host",
     },
-    featuresHeading: "Stack mobile.",
+    featuresHeading: "Stack web e mobile.",
     featuresEyebrow: "Oito sinais",
     features: [
       { title: "Replay", highlight: "de sessao", badge: "Replay" },
@@ -743,27 +767,28 @@ export const MARKETING_LOCALES: Record<MarketingLocaleCode, MarketingLocale> = {
     languageTag: "ru",
     ogLocale: "ru_RU",
     dir: "ltr",
-    metaTitle: "Rejourney: open-source мобильная аналитика, replay сессий и observability",
+    metaTitle: "Rejourney: open-source web и мобильная аналитика, replay сессий и observability",
     metaDescription:
-      "Open-source мобильная аналитика для iOS, Android, Expo и React Native: replay сессий, краши, heatmap, пользовательские пути и легкий SDK.",
+      "Open-source аналитика для web, iOS, Android, Expo и React Native: replay сессий, краши, heatmap, пользовательские пути и легкий SDK.",
     keywords: [
-      "open source мобильная аналитика",
+      "open source web аналитика",
+      "web session replay",
       "replay мобильных сессий",
-      "mobile observability",
-      "мобильные heatmap",
+      "web и mobile observability",
+      "web и mobile heatmap",
       "crash reporting",
       "React Native analytics",
-      "Expo analytics",
+      "JavaScript SDK analytics",
       "self-hosted analytics",
     ],
-    mainAriaLabel: "Rejourney - Open-source аналитика мобильных приложений",
+    mainAriaLabel: "Rejourney - Open-source аналитика web и мобильных приложений",
     hero: {
       headlinePrimary: "Креативная аналитика.",
       headlineSecondary: "Легкий SDK.",
       primaryCta: "Начать бесплатно",
       secondaryCta: "Self-host",
     },
-    featuresHeading: "Мобильный стек.",
+    featuresHeading: "Web и мобильный стек.",
     featuresEyebrow: "Восемь сигналов",
     features: [
       { title: "Replay", highlight: "сессий", badge: "Replay" },
@@ -785,27 +810,29 @@ export const MARKETING_LOCALES: Record<MarketingLocaleCode, MarketingLocale> = {
     languageTag: "vi",
     ogLocale: "vi_VN",
     dir: "ltr",
-    metaTitle: "Rejourney: phân tích mobile open source, session replay và observability",
+    metaTitle: "Rejourney: phân tích web và mobile open source, session replay và observability",
     metaDescription:
-      "Phân tích mobile open source cho iOS, Android, Expo và React Native với session replay, crash, heatmap, journey và SDK nhẹ.",
+      "Phân tích open source cho web, iOS, Android, Expo và React Native với session replay, crash, heatmap, journey và SDK nhẹ.",
     keywords: [
-      "phan tich mobile open source",
+      "phan tich web open source",
+      "web session replay",
       "mobile session replay",
-      "mobile observability",
-      "mobile heatmap",
+      "phan tich mobile",
+      "web va mobile observability",
+      "web va mobile heatmap",
       "crash reporting",
       "React Native analytics",
-      "Expo analytics",
+      "JavaScript SDK analytics",
       "self-hosted analytics",
     ],
-    mainAriaLabel: "Rejourney - Phan tich ung dung mobile open source",
+    mainAriaLabel: "Rejourney - Phan tich ung dung web va mobile open source",
     hero: {
       headlinePrimary: "Analytics sáng tạo.",
       headlineSecondary: "SDK nhẹ.",
       primaryCta: "Bắt đầu miễn phí",
       secondaryCta: "Self-host",
     },
-    featuresHeading: "Mobile stack.",
+    featuresHeading: "Web and mobile stack.",
     featuresEyebrow: "Tám tín hiệu",
     features: [
       { title: "Session", highlight: "Replay", badge: "Replay" },
@@ -1104,7 +1131,7 @@ export function getPreferredMarketingLocaleFromRequest(request: Request): Market
 export function getMarketingLocaleRedirectPath(request: Request): string | null {
   const url = new URL(request.url);
   const { pathname, hasLocalePrefix } = stripMarketingLocaleFromPathname(url.pathname);
-  const isLocalizablePublicPath = /^\/(?:docs|engineering|pricing)(?:\/.*)?$/.test(pathname);
+  const isLocalizablePublicPath = /^\/(?:docs|engineering|pricing|roadmap)(?:\/.*)?$/.test(pathname);
   if (hasLocalePrefix || (pathname !== "/" && !isLocalizablePublicPath)) return null;
 
   const preferredLocale = getPreferredMarketingLocaleFromRequest(request);
@@ -1116,9 +1143,12 @@ export function getMarketingLocaleRedirectPath(request: Request): string | null 
 export type MarketingHomeCopy = {
   header: {
     ariaLabel: string;
+    mobileAriaLabel: string;
     logoAlt: string;
     engineering: string;
     docs: string;
+    roadmap: string;
+    newBadge: string;
     pricing: string;
     github: string;
     selfHosted: string;
@@ -1134,6 +1164,7 @@ export type MarketingHomeCopy = {
     selfHosted: string;
     login: string;
     terms: string;
+    dpa: string;
     privacy: string;
     contact: string;
     copyEmailToast: string;
@@ -1177,6 +1208,14 @@ export type MarketingHomeCopy = {
       bullets: string[];
       alt: string;
     }>;
+    faq: {
+      eyebrow: string;
+      heading: string;
+      items: Array<{
+        q: string;
+        a: string;
+      }>;
+    };
     trustEyebrow: string;
     trustHeading: string;
     trustCopy: string;
@@ -1231,14 +1270,55 @@ export type MarketingHomeCopy = {
     primary: string;
     secondary: string;
   };
+  roadmap: {
+    metaTitle: string;
+    metaDescription: string;
+    ogDescription: string;
+    eyebrow: string;
+    title: string;
+    intro: string;
+    signInToPost: string;
+    addIdeaTitle: string;
+    signInFirst: string;
+    ideaPlaceholder: string;
+    detailsPlaceholder: string;
+    postButton: string;
+    signInToAddIdea: string;
+    ideaMinError: string;
+    detailsMinError: string;
+    unableToLoad: string;
+    unableToUpdateVote: string;
+    unableToAddIdea: string;
+    showLess: string;
+    showMore: string;
+    developerComment: string;
+    vote: string;
+    unvote: string;
+    voteSingular: string;
+    votePlural: string;
+    open: string;
+    complete: string;
+    noOpenIdeas: string;
+    noOpenIdeasCopy: string;
+    nothingComplete: string;
+    nothingCompleteCopy: string;
+    votesHeader: string;
+    ideaHeader: string;
+    detailsHeader: string;
+    voteActionAria: string;
+    loadingRoadmap: string;
+  };
 };
 
 const englishHomeCopy: MarketingHomeCopy = {
   header: {
     ariaLabel: "Site navigation",
+    mobileAriaLabel: "Site navigation mobile links",
     logoAlt: "Rejourney | Open Source Session Replay & Observability",
     engineering: "Engineering",
     docs: "Docs",
+    roadmap: "Roadmap",
+    newBadge: "New",
     pricing: "Pricing",
     github: "GitHub",
     selfHosted: "Self-hosted",
@@ -1254,6 +1334,7 @@ const englishHomeCopy: MarketingHomeCopy = {
     selfHosted: "Self Hosted",
     login: "Login",
     terms: "Terms",
+    dpa: "DPA",
     privacy: "Privacy",
     contact: "Contact",
     copyEmailToast: "Email copied to clipboard!",
@@ -1264,7 +1345,7 @@ const englishHomeCopy: MarketingHomeCopy = {
   hero: {
     ariaLabel: "Hero section",
     description:
-      "See what users actually did inside your mobile app, why they got stuck, and which fixes will move retention, stability, and conversion.",
+      "See what users actually did inside your web or mobile app, why they got stuck, and which fixes will move retention, stability, and conversion.",
   },
   trust: {
     ariaLabel: "Trust and supported platforms",
@@ -1285,8 +1366,8 @@ const englishHomeCopy: MarketingHomeCopy = {
     steps: [
       {
         label: "Watch",
-        title: "Replay the exact mobile session",
-        signal: "Screens, taps, swipes, navigation, crashes, and network context.",
+        title: "Replay the exact user session",
+        signal: "Screens, clicks, taps, swipes, navigation, crashes, and network context.",
         move: "See the exact moment a user hesitates instead of inferring it from a chart.",
       },
       {
@@ -1303,14 +1384,14 @@ const englishHomeCopy: MarketingHomeCopy = {
       },
     ],
     signalsEyebrow: "What you can see",
-    signalsHeading: "The signals mobile teams need in one place.",
+    signalsHeading: "The signals web and mobile teams need in one place.",
     demoCta: "See live demo",
     productStories: [
       {
         eyebrow: "Session recordings",
         title: "Watch real users move through your app.",
-        copy: "Replay mobile sessions with enough context to answer the question everyone asks first: what actually happened?",
-        bullets: ["Pixel-perfect mobile replay", "Touch trails and screen changes", "Network, logs, and device context"],
+        copy: "Replay web and mobile sessions with enough context to answer the question everyone asks first: what actually happened?",
+        bullets: ["Pixel-perfect replay", "Click, tap, and screen changes", "Network, logs, and device context"],
         alt: "Rejourney session replay preview",
       },
       {
@@ -1334,11 +1415,56 @@ const englishHomeCopy: MarketingHomeCopy = {
         bullets: ["Retention and loyalty segments", "Release impact signals", "Funnel recovery opportunities"],
         alt: "Rejourney growth analytics preview",
       },
+      {
+        eyebrow: "Geographic analytics",
+        title: "See API response and sentiment by region.",
+        copy: "Spot where latency, errors, and user sentiment change across countries before regional issues turn into churn.",
+        bullets: ["API response times by city", "Regional sentiment signals", "Geo health and session context"],
+        alt: "Rejourney geographic analytics globe preview",
+      },
     ],
+    faq: {
+      eyebrow: "FAQ",
+      heading: "Common questions.",
+      items: [
+        {
+          q: "We already have analytics dashboards. Why do we need session replay?",
+          a: "Analytics tell you that something went wrong. Session replay shows you why. A funnel chart can tell you 40% of users abandon checkout, but only replay shows you that your payment form is clearing on validation error, or that a button is obscured on a specific device. Numbers surface the problem; replay surfaces the cause.",
+        },
+        {
+          q: "How does Rejourney help us find user friction we didn't know existed?",
+          a: "Most friction is invisible in metrics because users never report it. They just leave. Rejourney surfaces rage taps, dead taps, slow screens, and unusual session paths so you can see exactly where users struggle before it shows up as churn. You can also search sessions by outcome (crash, rage, drop-off) and watch the moments leading up to it.",
+        },
+        {
+          q: "What are some cool things I can actually do with Rejourney?",
+          a: "One of the most powerful features is the AI query builder. Instead of setting up complex filters, you describe what you are looking for in plain language and Rejourney finds the sessions that match. You can search for things like \"users who tapped the checkout button but never completed payment\" or \"sessions where the app froze during onboarding\" and get a list of real replays that fit that scenario. It makes it fast to investigate specific behaviors without knowing exactly which events or properties to filter on.",
+        },
+        {
+          q: "Can this help us investigate crashes and bugs faster?",
+          a: "Yes. Crash investigation is one of the highest-value use cases. When a crash is reported, Rejourney gives you the full session replay leading up to it, the network requests, the event timeline, and the device context. Instead of asking a user to reproduce the issue, you watch it happen. That often cuts debugging time from hours to minutes.",
+        },
+        {
+          q: "Does Rejourney work for both mobile and web?",
+          a: "Yes. Rejourney supports iOS (Swift), React Native (iOS & Android), and web apps via our JavaScript SDK. All sessions, mobile and web, feed into the same dashboard so your team has one unified view of the user experience across platforms.",
+        },
+        {
+          q: "Is this useful for product teams, or just engineering?",
+          a: "Both. Engineering teams use Rejourney to reproduce bugs and triage crashes without needing to ask users. Product teams use it to understand where onboarding breaks down, which features go unused, and what the experience actually looks like on real devices, not just in design mockups.",
+        },
+        {
+          q: "Is user data kept private? Can I mask sensitive fields?",
+          a: "Yes. By default, all text inputs are masked in recordings. You can optionally switch to \"Secure Only\" mode, which masks only password-type fields and lets plaintext inputs through. No raw keystrokes are ever captured.",
+        },
+        {
+          q: "Can I self-host Rejourney?",
+          a: "Yes. Rejourney offers a self-hosted always free Docker or K3s option for teams that need full data control. You run the backend on your own infrastructure with the same dashboard and SDKs. Contact sales for setup and licensing.",
+        },
+      ],
+    },
     trustEyebrow: "Team workspace",
     trustHeading: "One room for all.",
     trustCopy:
-      "PMs, designers, and developers work from the same replay-backed view: metrics on the left, the mobile session in the middle, and timeline/API evidence on the right.",
+      "PMs, designers, and developers work from the same replay-backed view: metrics on the left, the user session in the middle, and timeline/API evidence on the right.",
     trustCards: [
       {
         title: "Developers",
@@ -1416,14 +1542,55 @@ const englishHomeCopy: MarketingHomeCopy = {
     primary: "View Engineering Decisions",
     secondary: "Start Building",
   },
+  roadmap: {
+    metaTitle: "Roadmap - Rejourney",
+    metaDescription: "Vote on Rejourney roadmap ideas and share what you want the team to build next.",
+    ogDescription: "Vote on Rejourney roadmap ideas and share what you want next.",
+    eyebrow: "New",
+    title: "Roadmap",
+    intro: "Vote on what should come next, or add the feature you want Rejourney to build.",
+    signInToPost: "Sign in to post",
+    addIdeaTitle: "Add an idea",
+    signInFirst: "Sign in first, then add your idea.",
+    ideaPlaceholder: "IDEA",
+    detailsPlaceholder: "DETAILS",
+    postButton: "Post",
+    signInToAddIdea: "Sign in to add an idea",
+    ideaMinError: "Idea needs at least 3 characters.",
+    detailsMinError: "Details need at least 10 characters.",
+    unableToLoad: "Unable to load roadmap posts.",
+    unableToUpdateVote: "Unable to update your vote.",
+    unableToAddIdea: "Unable to add that idea.",
+    showLess: "Show less",
+    showMore: "Show more",
+    developerComment: "Developer comment",
+    vote: "Vote",
+    unvote: "Unvote",
+    voteSingular: "vote",
+    votePlural: "votes",
+    open: "Open",
+    complete: "Complete",
+    noOpenIdeas: "No open ideas yet",
+    noOpenIdeasCopy: "Be the first to put something on the board.",
+    nothingComplete: "Nothing complete yet",
+    nothingCompleteCopy: "Completed roadmap items will show up here.",
+    votesHeader: "Votes",
+    ideaHeader: "Idea",
+    detailsHeader: "Details",
+    voteActionAria: "Vote action",
+    loadingRoadmap: "Loading roadmap",
+  },
 };
 
 const arabicHomeCopy: MarketingHomeCopy = {
   header: {
     ariaLabel: "تنقل الموقع",
+    mobileAriaLabel: "روابط تنقل الموقع للجوال",
     logoAlt: "Rejourney | إعادة تشغيل جلسات ومراقبة مفتوحة المصدر",
     engineering: "الهندسة",
     docs: "التوثيق",
+    roadmap: "خارطة الطريق",
+    newBadge: "جديد",
     pricing: "الأسعار",
     github: "GitHub",
     selfHosted: "استضافة ذاتية",
@@ -1439,6 +1606,7 @@ const arabicHomeCopy: MarketingHomeCopy = {
     selfHosted: "استضافة ذاتية",
     login: "الدخول",
     terms: "الشروط",
+    dpa: "DPA",
     privacy: "الخصوصية",
     contact: "تواصل",
     copyEmailToast: "تم نسخ البريد الإلكتروني!",
@@ -1449,7 +1617,7 @@ const arabicHomeCopy: MarketingHomeCopy = {
   hero: {
     ariaLabel: "القسم الرئيسي",
     description:
-      "شاهد ما فعله المستخدمون داخل تطبيقك فعليا، ولماذا تعثروا، وأي إصلاحات ستحسن الاحتفاظ والاستقرار والتحويل.",
+      "شاهد ما فعله المستخدمون داخل تطبيقك على الويب أو الجوال فعليا، ولماذا تعثروا، وأي إصلاحات ستحسن الاحتفاظ والاستقرار والتحويل.",
   },
   trust: {
     ariaLabel: "الثقة والمنصات المدعومة",
@@ -1460,7 +1628,7 @@ const arabicHomeCopy: MarketingHomeCopy = {
     sdkSize: "13.2 kB",
   },
   narrative: {
-    loopEyebrow: "حلقة فهم تجربة الجوال",
+    loopEyebrow: "حلقة فهم تجربة الويب والجوال",
     loopHeadingLines: ["توقف عن التخمين", "لماذا يغادر", "المستخدمون."],
     loopIntro:
       "تم تصميم Rejourney حول طريقة اتخاذ فرق المنتج للقرارات: شاهد ما حدث، افهم النمط، ثم تصرف قبل أن يكرر الإصدار التالي المشكلة نفسها.",
@@ -1471,8 +1639,8 @@ const arabicHomeCopy: MarketingHomeCopy = {
     steps: [
       {
         label: "شاهد",
-        title: "أعد تشغيل جلسة الجوال كما حدثت",
-        signal: "الشاشات، اللمسات، السحب، التنقل، الأعطال، وسياق الشبكة.",
+        title: "أعد تشغيل جلسة المستخدم كما حدثت",
+        signal: "الشاشات، النقرات، اللمسات، السحب، التنقل، الأعطال، وسياق الشبكة.",
         move: "اعرف اللحظة الدقيقة التي تردد فيها المستخدم بدلا من استنتاجها من رسم بياني.",
       },
       {
@@ -1489,14 +1657,14 @@ const arabicHomeCopy: MarketingHomeCopy = {
       },
     ],
     signalsEyebrow: "ما يمكنك رؤيته",
-    signalsHeading: "كل الإشارات التي تحتاجها فرق الجوال في مكان واحد.",
+    signalsHeading: "كل الإشارات التي تحتاجها فرق الويب والجوال في مكان واحد.",
     demoCta: "شاهد العرض المباشر",
     productStories: [
       {
         eyebrow: "تسجيلات الجلسات",
         title: "شاهد المستخدمين الحقيقيين وهم يتنقلون داخل تطبيقك.",
-        copy: "أعد تشغيل جلسات الجوال مع سياق كاف للإجابة عن أول سؤال يسأله الجميع: ماذا حدث فعلا؟",
-        bullets: ["إعادة تشغيل جوال بدقة بكسل", "مسارات لمس وتغييرات شاشة", "سياق الشبكة والسجلات والجهاز"],
+        copy: "أعد تشغيل جلسات الويب والجوال مع سياق كاف للإجابة عن أول سؤال يسأله الجميع: ماذا حدث فعلا؟",
+        bullets: ["إعادة تشغيل بدقة بكسل", "مسارات نقر ولمس وتغييرات شاشة", "سياق الشبكة والسجلات والجهاز"],
         alt: "معاينة إعادة تشغيل الجلسات في Rejourney",
       },
       {
@@ -1520,11 +1688,56 @@ const arabicHomeCopy: MarketingHomeCopy = {
         bullets: ["شرائح الاحتفاظ والولاء", "إشارات أثر الإصدار", "فرص استعادة مسارات التحويل"],
         alt: "معاينة تحليلات النمو في Rejourney",
       },
+      {
+        eyebrow: "تحليلات جغرافية",
+        title: "شاهد استجابة API والمشاعر حسب المنطقة.",
+        copy: "اكتشف أين تتغير مدة الاستجابة والأخطاء ومشاعر المستخدمين عبر البلدان قبل أن تتحول المشكلات الإقليمية إلى فقدان مستخدمين.",
+        bullets: ["أزمنة استجابة API حسب المدينة", "إشارات المشاعر الإقليمية", "صحة الموقع الجغرافي وسياق الجلسة"],
+        alt: "معاينة كرة تحليلات جغرافية في Rejourney",
+      },
     ],
+    faq: {
+      eyebrow: "أسئلة شائعة",
+      heading: "أسئلة شائعة.",
+      items: [
+        {
+          q: "لدينا لوحات تحليلات بالفعل. لماذا نحتاج إلى إعادة تشغيل الجلسات؟",
+          a: "تخبرك التحليلات أن شيئا ما تعطل. أما إعادة تشغيل الجلسة فتريك السبب. قد يخبرك مخطط التحويل أن 40٪ من المستخدمين يتركون الدفع، لكن إعادة التشغيل وحدها تكشف أن نموذج الدفع يمسح البيانات عند خطأ التحقق أو أن زرا مخفيا على جهاز معين. الأرقام تظهر المشكلة؛ وإعادة التشغيل تظهر السبب.",
+        },
+        {
+          q: "كيف يساعدنا Rejourney في اكتشاف احتكاك لم نكن نعرف بوجوده؟",
+          a: "معظم الاحتكاك لا يظهر في المقاييس لأن المستخدمين لا يبلغون عنه؛ إنهم يغادرون فقط. يكشف Rejourney نقرات الغضب والنقرات الميتة والشاشات البطيئة ومسارات الجلسات غير المعتادة حتى ترى بدقة أين يتعثر المستخدمون قبل أن يظهر ذلك كفقدان. يمكنك أيضا البحث في الجلسات حسب النتيجة، مثل crash أو rage أو drop-off، ومشاهدة اللحظات التي سبقتها.",
+        },
+        {
+          q: "ما الأشياء المفيدة التي يمكنني فعلها فعلا باستخدام Rejourney؟",
+          a: "من أقوى الميزات منشئ استعلامات AI. بدلا من إعداد فلاتر معقدة، تصف ما تبحث عنه بلغة عادية ويجد Rejourney الجلسات المطابقة. يمكنك البحث عن أشياء مثل \"المستخدمون الذين ضغطوا زر الدفع ولم يكملوا الدفع\" أو \"الجلسات التي تجمد فيها التطبيق أثناء onboarding\" والحصول على قائمة بإعادات تشغيل حقيقية تناسب هذا السيناريو.",
+        },
+        {
+          q: "هل يساعدنا هذا في التحقيق في الأعطال والعلل بسرعة أكبر؟",
+          a: "نعم. التحقيق في الأعطال من أعلى حالات الاستخدام قيمة. عند الإبلاغ عن crash، يعطيك Rejourney إعادة تشغيل الجلسة الكاملة قبل حدوثه، وطلبات الشبكة، وخط الأحداث الزمني، وسياق الجهاز. بدلا من طلب إعادة إنتاج المشكلة من المستخدم، تشاهدها وهي تحدث، وهذا غالبا يقلل وقت التصحيح من ساعات إلى دقائق.",
+        },
+        {
+          q: "هل يعمل Rejourney مع الجوال والويب معا؟",
+          a: "نعم. يدعم Rejourney تطبيقات iOS (Swift)، وAndroid قريبا، وReact Native، وتطبيقات الويب عبر JavaScript SDK. كل الجلسات، الجوال والويب، تصل إلى لوحة واحدة حتى يحصل فريقك على رؤية موحدة لتجربة المستخدم عبر المنصات.",
+        },
+        {
+          q: "هل هذا مفيد لفرق المنتج أم للهندسة فقط؟",
+          a: "كلاهما. تستخدم فرق الهندسة Rejourney لإعادة إنتاج العلل وفرز الأعطال دون سؤال المستخدمين. وتستخدمه فرق المنتج لفهم أين يتعطل onboarding، وأي الميزات لا تُستخدم، وكيف تبدو التجربة فعلا على أجهزة حقيقية لا في نماذج التصميم فقط.",
+        },
+        {
+          q: "هل تبقى بيانات المستخدم خاصة؟ وهل يمكنني إخفاء الحقول الحساسة؟",
+          a: "نعم. بشكل افتراضي، يتم إخفاء كل حقول النص في التسجيلات. يمكنك اختيار وضع Secure Only، الذي يخفي حقول كلمات المرور فقط ويسمح بمرور حقول النص العادية. لا يتم التقاط ضغطات المفاتيح الخام أبدا.",
+        },
+        {
+          q: "هل يمكنني استضافة Rejourney ذاتيا؟",
+          a: "نعم. يوفر Rejourney خيار استضافة ذاتية مجاني دائما عبر Docker أو K3s للفرق التي تحتاج تحكما كاملا في البيانات. تشغل الخلفية على بنيتك التحتية مع نفس لوحة التحكم وSDKs. تواصل مع المبيعات للإعداد والترخيص.",
+        },
+      ],
+    },
     trustEyebrow: "مساحة عمل الفريق",
     trustHeading: "مساحة عمل واحدة لكل غرفة المنتج.",
     trustCopy:
-      "يمكن لمديري المنتج والمصممين والمطورين العمل من نفس العرض المدعوم بإعادة التشغيل: المقاييس على اليسار، جلسة الجوال في الوسط، وأدلة الخط الزمني وAPI على اليمين.",
+      "يمكن لمديري المنتج والمصممين والمطورين العمل من نفس العرض المدعوم بإعادة التشغيل: المقاييس على اليسار، جلسة المستخدم في الوسط، وأدلة الخط الزمني وAPI على اليمين.",
     trustCards: [
       {
         title: "المطورون",
@@ -1602,6 +1815,44 @@ const arabicHomeCopy: MarketingHomeCopy = {
     primary: "عرض القرارات الهندسية",
     secondary: "ابدأ البناء",
   },
+  roadmap: {
+    metaTitle: "خارطة الطريق - Rejourney",
+    metaDescription: "صوّت على أفكار خارطة طريق Rejourney وشارك ما تريد أن يبنيه الفريق لاحقا.",
+    ogDescription: "صوّت على أفكار خارطة طريق Rejourney وشارك ما تريده لاحقا.",
+    eyebrow: "جديد",
+    title: "خارطة الطريق",
+    intro: "صوّت على ما يجب أن يأتي بعد ذلك، أو أضف الميزة التي تريد من Rejourney بناءها.",
+    signInToPost: "سجل الدخول للنشر",
+    addIdeaTitle: "أضف فكرة",
+    signInFirst: "سجل الدخول أولا، ثم أضف فكرتك.",
+    ideaPlaceholder: "الفكرة",
+    detailsPlaceholder: "التفاصيل",
+    postButton: "نشر",
+    signInToAddIdea: "سجل الدخول لإضافة فكرة",
+    ideaMinError: "يجب أن تحتوي الفكرة على 3 أحرف على الأقل.",
+    detailsMinError: "يجب أن تحتوي التفاصيل على 10 أحرف على الأقل.",
+    unableToLoad: "تعذر تحميل منشورات خارطة الطريق.",
+    unableToUpdateVote: "تعذر تحديث تصويتك.",
+    unableToAddIdea: "تعذر إضافة هذه الفكرة.",
+    showLess: "عرض أقل",
+    showMore: "عرض المزيد",
+    developerComment: "تعليق المطور",
+    vote: "تصويت",
+    unvote: "إلغاء التصويت",
+    voteSingular: "تصويت",
+    votePlural: "تصويتات",
+    open: "مفتوح",
+    complete: "مكتمل",
+    noOpenIdeas: "لا توجد أفكار مفتوحة بعد",
+    noOpenIdeasCopy: "كن أول من يضع فكرة على اللوحة.",
+    nothingComplete: "لا شيء مكتمل بعد",
+    nothingCompleteCopy: "ستظهر عناصر خارطة الطريق المكتملة هنا.",
+    votesHeader: "الأصوات",
+    ideaHeader: "الفكرة",
+    detailsHeader: "التفاصيل",
+    voteActionAria: "إجراء التصويت",
+    loadingRoadmap: "جار تحميل خارطة الطريق",
+  },
 };
 
 const spanishHomeCopy: MarketingHomeCopy = {
@@ -1609,9 +1860,12 @@ const spanishHomeCopy: MarketingHomeCopy = {
   header: {
     ...englishHomeCopy.header,
     ariaLabel: "Navegacion del sitio",
+    mobileAriaLabel: "Enlaces moviles de navegacion",
     logoAlt: "Rejourney | Replay de sesiones y observabilidad open source",
     engineering: "Ingenieria",
     docs: "Docs",
+    roadmap: "Hoja de ruta",
+    newBadge: "Nuevo",
     pricing: "Precios",
     selfHosted: "Autohospedado",
     dashboard: "Panel",
@@ -1627,6 +1881,7 @@ const spanishHomeCopy: MarketingHomeCopy = {
     selfHosted: "Autohospedado",
     login: "Iniciar sesion",
     terms: "Terminos",
+    dpa: "DPA",
     privacy: "Privacidad",
     contact: "Contacto",
     copyEmailToast: "Correo copiado al portapapeles!",
@@ -1637,14 +1892,14 @@ const spanishHomeCopy: MarketingHomeCopy = {
   hero: {
     ariaLabel: "Seccion principal",
     description:
-      "Ve que hicieron realmente los usuarios dentro de tu app movil, por que se quedaron atascados y que arreglos moveran retencion, estabilidad y conversion.",
+      "Ve que hicieron realmente los usuarios dentro de tu app web o movil, por que se quedaron atascados y que arreglos moveran retencion, estabilidad y conversion.",
   },
   trust: {
     ...englishHomeCopy.trust,
     ariaLabel: "Confianza y plataformas compatibles",
   },
   narrative: {
-    loopEyebrow: "El ciclo de insight movil",
+    loopEyebrow: "El ciclo de insight web y movil",
     loopHeadingLines: ["Deja de adivinar", "por que los usuarios", "se van."],
     loopIntro:
       "Rejourney esta organizado como los equipos toman decisiones de producto: mira que paso, entiende el patron y actua antes de que el siguiente lanzamiento repita el problema.",
@@ -1655,8 +1910,8 @@ const spanishHomeCopy: MarketingHomeCopy = {
     steps: [
       {
         label: "Mira",
-        title: "Reproduce la sesion movil exacta",
-        signal: "Pantallas, toques, swipes, navegacion, bloqueos y contexto de red.",
+        title: "Reproduce la sesion exacta del usuario",
+        signal: "Pantallas, clics, toques, swipes, navegacion, bloqueos y contexto de red.",
         move: "Ve el momento exacto en que un usuario duda, en lugar de inferirlo desde una grafica.",
       },
       {
@@ -1673,14 +1928,14 @@ const spanishHomeCopy: MarketingHomeCopy = {
       },
     ],
     signalsEyebrow: "Lo que puedes ver",
-    signalsHeading: "Las señales que necesitan los equipos moviles en un solo lugar.",
+    signalsHeading: "Las señales que necesitan los equipos web y moviles en un solo lugar.",
     demoCta: "Ver demo en vivo",
     productStories: [
       {
         eyebrow: "Grabaciones de sesiones",
         title: "Mira a usuarios reales moverse por tu app.",
-        copy: "Reproduce sesiones moviles con suficiente contexto para responder la primera pregunta de todos: que paso realmente?",
-        bullets: ["Replay movil pixel-perfect", "Rastros de toque y cambios de pantalla", "Contexto de red, logs y dispositivo"],
+        copy: "Reproduce sesiones web y moviles con suficiente contexto para responder la primera pregunta de todos: que paso realmente?",
+        bullets: ["Replay pixel-perfect", "Rastros de clic, toque y cambios de pantalla", "Contexto de red, logs y dispositivo"],
         alt: "Vista previa del replay de sesiones de Rejourney",
       },
       {
@@ -1704,11 +1959,56 @@ const spanishHomeCopy: MarketingHomeCopy = {
         bullets: ["Segmentos de retencion y lealtad", "Señales de impacto por release", "Oportunidades de recuperacion de funnels"],
         alt: "Vista previa de analitica de crecimiento de Rejourney",
       },
+      {
+        eyebrow: "Analitica geografica",
+        title: "Ve respuesta de API y sentimiento por region.",
+        copy: "Detecta donde cambian la latencia, los errores y el sentimiento de usuario entre paises antes de que los problemas regionales se conviertan en churn.",
+        bullets: ["Tiempos de respuesta de API por ciudad", "Señales de sentimiento regional", "Salud geografica y contexto de sesion"],
+        alt: "Vista previa del globo de analitica geografica de Rejourney",
+      },
     ],
+    faq: {
+      eyebrow: "Preguntas",
+      heading: "Preguntas comunes.",
+      items: [
+        {
+          q: "Ya tenemos dashboards de analitica. ¿Por que necesitamos session replay?",
+          a: "La analitica te dice que algo salio mal. Session replay te muestra por que. Un funnel puede decirte que 40% de los usuarios abandona checkout, pero solo el replay muestra que el formulario de pago se limpia con un error de validacion o que un boton queda oculto en un dispositivo concreto. Los numeros muestran el problema; el replay muestra la causa.",
+        },
+        {
+          q: "¿Como nos ayuda Rejourney a encontrar friccion que no sabiamos que existia?",
+          a: "La mayor parte de la friccion es invisible en las metricas porque los usuarios no la reportan. Simplemente se van. Rejourney muestra rage taps, dead taps, pantallas lentas y rutas de sesion inusuales para que veas exactamente donde sufren los usuarios antes de que aparezca como churn.",
+        },
+        {
+          q: "¿Que cosas utiles puedo hacer con Rejourney?",
+          a: "Una de las funciones mas potentes es el constructor de consultas con AI. En lugar de crear filtros complejos, describes lo que buscas en lenguaje natural y Rejourney encuentra las sesiones que coinciden. Puedes buscar cosas como \"usuarios que tocaron checkout pero no completaron el pago\" o \"sesiones donde la app se congelo durante onboarding\" y obtener replays reales de ese escenario.",
+        },
+        {
+          q: "¿Esto nos ayuda a investigar crashes y bugs mas rapido?",
+          a: "Si. La investigacion de crashes es uno de los usos de mayor valor. Cuando se reporta un crash, Rejourney te da el replay completo previo al problema, las solicitudes de red, la linea de eventos y el contexto del dispositivo. En lugar de pedirle al usuario que reproduzca el error, lo ves ocurrir.",
+        },
+        {
+          q: "¿Rejourney funciona para mobile y web?",
+          a: "Si. Rejourney soporta iOS (Swift), Android (proximamente), React Native y apps web con nuestro JavaScript SDK. Todas las sesiones, mobile y web, llegan al mismo dashboard para que tu equipo tenga una vista unificada de la experiencia en todas las plataformas.",
+        },
+        {
+          q: "¿Esto sirve para equipos de producto o solo para ingenieria?",
+          a: "Para ambos. Ingenieria usa Rejourney para reproducir bugs y triar crashes sin pedir ayuda a usuarios. Producto lo usa para entender donde se rompe onboarding, que funciones no se usan y como se ve realmente la experiencia en dispositivos reales.",
+        },
+        {
+          q: "¿Los datos de usuario se mantienen privados? ¿Puedo ocultar campos sensibles?",
+          a: "Si. Por defecto, todos los inputs de texto se enmascaran en las grabaciones. Opcionalmente puedes usar el modo Secure Only, que solo oculta campos de contraseña y deja pasar inputs de texto plano. Nunca se capturan teclas sin procesar.",
+        },
+        {
+          q: "¿Puedo self-hostear Rejourney?",
+          a: "Si. Rejourney ofrece una opcion self-hosted siempre gratuita con Docker o K3s para equipos que necesitan control total de datos. Ejecutas el backend en tu propia infraestructura con el mismo dashboard y SDKs. Contacta ventas para configuracion y licencia.",
+        },
+      ],
+    },
     trustEyebrow: "Workspace compartido",
     trustHeading: "Un workspace para toda la sala de producto.",
     trustCopy:
-      "PMs, disenadores y desarrolladores trabajan desde la misma vista con replay: metricas a la izquierda, la sesion movil al centro y evidencia de timeline/API a la derecha.",
+      "PMs, disenadores y desarrolladores trabajan desde la misma vista con replay: metricas a la izquierda, la sesion del usuario al centro y evidencia de timeline/API a la derecha.",
     trustCards: [
       {
         title: "Desarrolladores",
@@ -1786,6 +2086,44 @@ const spanishHomeCopy: MarketingHomeCopy = {
     primary: "Ver decisiones de ingenieria",
     secondary: "Empezar a construir",
   },
+  roadmap: {
+    metaTitle: "Hoja de ruta - Rejourney",
+    metaDescription: "Vota por ideas de la hoja de ruta de Rejourney y comparte lo que quieres que el equipo construya despues.",
+    ogDescription: "Vota por ideas de la hoja de ruta de Rejourney y comparte lo que quieres despues.",
+    eyebrow: "Nuevo",
+    title: "Hoja de ruta",
+    intro: "Vota por lo que deberia venir despues o agrega la funcion que quieres que Rejourney construya.",
+    signInToPost: "Inicia sesion para publicar",
+    addIdeaTitle: "Agrega una idea",
+    signInFirst: "Inicia sesion primero y luego agrega tu idea.",
+    ideaPlaceholder: "IDEA",
+    detailsPlaceholder: "DETALLES",
+    postButton: "Publicar",
+    signInToAddIdea: "Inicia sesion para agregar una idea",
+    ideaMinError: "La idea necesita al menos 3 caracteres.",
+    detailsMinError: "Los detalles necesitan al menos 10 caracteres.",
+    unableToLoad: "No se pudieron cargar las publicaciones de la hoja de ruta.",
+    unableToUpdateVote: "No se pudo actualizar tu voto.",
+    unableToAddIdea: "No se pudo agregar esa idea.",
+    showLess: "Mostrar menos",
+    showMore: "Mostrar mas",
+    developerComment: "Comentario del desarrollador",
+    vote: "Votar",
+    unvote: "Quitar voto",
+    voteSingular: "voto",
+    votePlural: "votos",
+    open: "Abierto",
+    complete: "Completo",
+    noOpenIdeas: "Aun no hay ideas abiertas",
+    noOpenIdeasCopy: "Se la primera persona en poner algo en el tablero.",
+    nothingComplete: "Nada completo todavia",
+    nothingCompleteCopy: "Los elementos completados de la hoja de ruta apareceran aqui.",
+    votesHeader: "Votos",
+    ideaHeader: "Idea",
+    detailsHeader: "Detalles",
+    voteActionAria: "Accion de voto",
+    loadingRoadmap: "Cargando hoja de ruta",
+  },
 };
 
 const turkishHomeCopy: MarketingHomeCopy = {
@@ -1793,9 +2131,12 @@ const turkishHomeCopy: MarketingHomeCopy = {
   header: {
     ...englishHomeCopy.header,
     ariaLabel: "Site navigasyonu",
+    mobileAriaLabel: "Mobil site navigasyonu",
     logoAlt: "Rejourney | Acik kaynak oturum replay ve gozlemlenebilirlik",
     engineering: "Muhendislik",
     docs: "Dokumanlar",
+    roadmap: "Yol haritasi",
+    newBadge: "Yeni",
     pricing: "Fiyatlar",
     selfHosted: "Self-host",
     dashboard: "Panel",
@@ -1811,6 +2152,7 @@ const turkishHomeCopy: MarketingHomeCopy = {
     selfHosted: "Self-host",
     login: "Giris",
     terms: "Kosullar",
+    dpa: "DPA",
     privacy: "Gizlilik",
     contact: "Iletisim",
     copyEmailToast: "E-posta panoya kopyalandi!",
@@ -1821,14 +2163,14 @@ const turkishHomeCopy: MarketingHomeCopy = {
   hero: {
     ariaLabel: "Hero bolumu",
     description:
-      "Kullanicilarin mobil uygulamanin icinde gercekte ne yaptigini, nerede takildigini ve hangi duzeltmelerin tutma, stabilite ve donusumu artiracagini gor.",
+      "Kullanicilarin web veya mobil uygulamanin icinde gercekte ne yaptigini, nerede takildigini ve hangi duzeltmelerin tutma, stabilite ve donusumu artiracagini gor.",
   },
   trust: {
     ...englishHomeCopy.trust,
     ariaLabel: "Guven ve desteklenen platformlar",
   },
   narrative: {
-    loopEyebrow: "Mobil insight dongusu",
+    loopEyebrow: "Web ve mobil insight dongusu",
     loopHeadingLines: ["Kullanicilarin", "neden ayrildigini", "tahmin etme."],
     loopIntro:
       "Rejourney, ekiplerin urun kararlarini alma sekline gore kuruldu: ne oldugunu izle, paterni anla ve sonraki surum ayni sorunu tekrar etmeden harekete gec.",
@@ -1839,8 +2181,8 @@ const turkishHomeCopy: MarketingHomeCopy = {
     steps: [
       {
         label: "Izle",
-        title: "Tam mobil oturumu yeniden oynat",
-        signal: "Ekranlar, dokunuslar, kaydirmalar, navigasyon, cokmeler ve ag baglami.",
+        title: "Tam kullanici oturumunu yeniden oynat",
+        signal: "Ekranlar, tiklamalar, dokunuslar, kaydirmalar, navigasyon, cokmeler ve ag baglami.",
         move: "Bir grafikten tahmin etmek yerine kullanicinin duraksadigi ani birebir gor.",
       },
       {
@@ -1857,14 +2199,14 @@ const turkishHomeCopy: MarketingHomeCopy = {
       },
     ],
     signalsEyebrow: "Neleri gorebilirsin",
-    signalsHeading: "Mobil ekiplerin ihtiyac duydugu sinyaller tek yerde.",
+    signalsHeading: "Web ve mobil ekiplerin ihtiyac duydugu sinyaller tek yerde.",
     demoCta: "Canli demoyu gor",
     productStories: [
       {
         eyebrow: "Oturum kayitlari",
         title: "Gercek kullanicilarin uygulamada nasil ilerledigini izle.",
-        copy: "Herkesin ilk sordugu soruya cevap verecek baglamla mobil oturumlari yeniden oynat: gercekte ne oldu?",
-        bullets: ["Pixel-perfect mobil replay", "Dokunus izleri ve ekran degisimleri", "Ag, log ve cihaz baglami"],
+        copy: "Herkesin ilk sordugu soruya cevap verecek baglamla web ve mobil oturumlari yeniden oynat: gercekte ne oldu?",
+        bullets: ["Pixel-perfect replay", "Tiklama, dokunus ve ekran degisimleri", "Ag, log ve cihaz baglami"],
         alt: "Rejourney oturum replay onizlemesi",
       },
       {
@@ -1888,11 +2230,56 @@ const turkishHomeCopy: MarketingHomeCopy = {
         bullets: ["Retention ve sadakat segmentleri", "Surum etkisi sinyalleri", "Funnel kurtarma firsatlari"],
         alt: "Rejourney buyume analitigi onizlemesi",
       },
+      {
+        eyebrow: "Cografi analitik",
+        title: "API yanitini ve duyarliligi bolgeye gore gor.",
+        copy: "Bolgesel sorunlar churn'e donusmeden once latency, hata ve kullanici duyarliliginin ulkeler arasinda nerede degistigini yakala.",
+        bullets: ["Sehre gore API yanit sureleri", "Bolgesel duyarlilik sinyalleri", "Geo saglik ve oturum baglami"],
+        alt: "Rejourney cografi analitik kure onizlemesi",
+      },
     ],
+    faq: {
+      eyebrow: "SSS",
+      heading: "Sik sorulan sorular.",
+      items: [
+        {
+          q: "Zaten analitik dashboardlarimiz var. Neden session replay'e ihtiyacimiz var?",
+          a: "Analitik sana bir seyin ters gittigini soyler. Session replay nedenini gosterir. Funnel grafigi kullanicilarin %40'inin checkout'u terk ettigini soyleyebilir, ama sadece replay odeme formunun validation hatasinda temizlendigini veya belirli bir cihazda bir butonun kapandigini gosterir. Rakamlar problemi, replay nedeni ortaya cikarir.",
+        },
+        {
+          q: "Rejourney var oldugunu bilmedigimiz kullanici surtunmesini nasil bulur?",
+          a: "Surtunmenin cogu metriklerde gorunmez cunku kullanicilar bunu raporlamaz; sadece ayrilir. Rejourney rage tapleri, dead tapleri, yavas ekranlari ve olagandisi oturum yollarini yuzeye cikarir, boylece churn'e donusmeden once kullanicilarin nerede zorlandigini gorursun.",
+        },
+        {
+          q: "Rejourney ile gercekten hangi faydali seyleri yapabilirim?",
+          a: "En guclu ozelliklerden biri AI query builder. Karmasik filtreler kurmak yerine aradigin seyi dogal dille anlatirsin, Rejourney eslesen oturumlari bulur. \"Checkout butonuna dokunup odemeyi tamamlamayan kullanicilar\" veya \"onboarding sirasinda uygulamanin dondugu oturumlar\" gibi aramalarla gercek replay listeleri alabilirsin.",
+        },
+        {
+          q: "Crash ve bug arastirmasini daha hizli yapmamiza yardimci olur mu?",
+          a: "Evet. Crash arastirmasi en yuksek degerli kullanim alanlarindan biridir. Bir crash raporlandiginda Rejourney sana oncesindeki tam session replay'i, network isteklerini, event timeline'ini ve cihaz baglamini verir. Kullanicidan sorunu tekrar uretmesini istemek yerine olay olurken izlersin.",
+        },
+        {
+          q: "Rejourney hem mobile hem web icin calisir mi?",
+          a: "Evet. Rejourney iOS (Swift), Android (yakinda), React Native ve JavaScript SDK ile web uygulamalarini destekler. Mobil ve web tum oturumlar ayni dashboard'a akar, boylece ekip platformlar arasinda birlesik bir deneyim gorunumune sahip olur.",
+        },
+        {
+          q: "Bu urun ekipleri icin mi, yoksa sadece muhendislik icin mi?",
+          a: "Ikisi icin de. Muhendislik ekipleri kullanicilara sormadan buglari yeniden uretmek ve crashleri triyaj etmek icin Rejourney kullanir. Urun ekipleri onboarding'in nerede bozuldugunu, hangi ozelliklerin kullanilmadigini ve deneyimin gercek cihazlarda nasil gorundugunu anlamak icin kullanir.",
+        },
+        {
+          q: "Kullanici verisi gizli kalir mi? Hassas alanlari maskeleyebilir miyim?",
+          a: "Evet. Varsayilan olarak kayitlarda tum metin inputlari maskelenir. Istersen Secure Only moduna gecebilirsin; bu mod sadece parola turu alanlari maskeler ve duz metin inputlarini gecirir. Ham tus vuruslari hicbir zaman yakalanmaz.",
+        },
+        {
+          q: "Rejourney'i self-host edebilir miyim?",
+          a: "Evet. Rejourney, tam veri kontrolune ihtiyac duyan ekipler icin Docker veya K3s ile her zaman ucretsiz self-hosted secenegi sunar. Backend'i kendi altyapinda ayni dashboard ve SDK'larla calistirirsin. Kurulum ve lisanslama icin sales ile iletisime gec.",
+        },
+      ],
+    },
     trustEyebrow: "Ortak ekip workspace'i",
     trustHeading: "Tum urun odasi icin tek workspace.",
     trustCopy:
-      "PM'ler, tasarimcilar ve gelistiriciler ayni replay destekli gorunumden calisir: solda metrikler, ortada mobil oturum, sagda timeline/API kaniti.",
+      "PM'ler, tasarimcilar ve gelistiriciler ayni replay destekli gorunumden calisir: solda metrikler, ortada kullanici oturumu, sagda timeline/API kaniti.",
     trustCards: [
       {
         title: "Gelistiriciler",
@@ -1969,6 +2356,44 @@ const turkishHomeCopy: MarketingHomeCopy = {
     headingAfter: "kararlari.",
     primary: "Muhendislik kararlarini gor",
     secondary: "Gelistirmeye basla",
+  },
+  roadmap: {
+    metaTitle: "Yol haritasi - Rejourney",
+    metaDescription: "Rejourney yol haritasi fikirlerine oy ver ve ekibin sirada ne insa etmesini istedigini paylas.",
+    ogDescription: "Rejourney yol haritasi fikirlerine oy ver ve sirada ne istedigini paylas.",
+    eyebrow: "Yeni",
+    title: "Yol haritasi",
+    intro: "Sirada ne gelmeli, oy ver; ya da Rejourney'in insa etmesini istedigin ozelligi ekle.",
+    signInToPost: "Paylasmak icin giris yap",
+    addIdeaTitle: "Fikir ekle",
+    signInFirst: "Once giris yap, sonra fikrini ekle.",
+    ideaPlaceholder: "FIKIR",
+    detailsPlaceholder: "DETAYLAR",
+    postButton: "Paylas",
+    signInToAddIdea: "Fikir eklemek icin giris yap",
+    ideaMinError: "Fikir en az 3 karakter olmali.",
+    detailsMinError: "Detaylar en az 10 karakter olmali.",
+    unableToLoad: "Yol haritasi gonderileri yuklenemedi.",
+    unableToUpdateVote: "Oyun guncellenemedi.",
+    unableToAddIdea: "Bu fikir eklenemedi.",
+    showLess: "Daha az goster",
+    showMore: "Daha fazla goster",
+    developerComment: "Gelistirici yorumu",
+    vote: "Oy ver",
+    unvote: "Oyu kaldir",
+    voteSingular: "oy",
+    votePlural: "oy",
+    open: "Acik",
+    complete: "Tamamlandi",
+    noOpenIdeas: "Henuz acik fikir yok",
+    noOpenIdeasCopy: "Panoya bir sey ekleyen ilk kisi ol.",
+    nothingComplete: "Henuz tamamlanan yok",
+    nothingCompleteCopy: "Tamamlanan yol haritasi maddeleri burada gorunecek.",
+    votesHeader: "Oylar",
+    ideaHeader: "Fikir",
+    detailsHeader: "Detaylar",
+    voteActionAria: "Oy islemi",
+    loadingRoadmap: "Yol haritasi yukleniyor",
   },
 };
 

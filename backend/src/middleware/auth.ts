@@ -9,6 +9,7 @@ import { createHash, createHmac } from 'crypto';
 import { eq, and, isNull } from 'drizzle-orm';
 import { db, userSessions, users, apiKeys, projects, teams, teamMembers } from '../db/client.js';
 import { logger } from '../logger.js';
+import { isWebOriginAllowed } from '../utils/webAllowedDomains.js';
 
 const AUTH_CONTEXT_CACHE_TTL_MS = 5 * 60 * 1000;
 const API_KEY_LAST_USED_WRITE_INTERVAL_MS = 5 * 60 * 1000;
@@ -26,6 +27,8 @@ type UploadTokenPayload = {
     projectId?: string | null;
     teamId?: string | null;
     projectName?: string | null;
+    platform?: string | null;
+    webOrigin?: string | null;
     recordingEnabled?: boolean;
     rejourneyEnabled?: boolean;
     iat?: number;
@@ -101,6 +104,31 @@ function decodeUploadTokenPayload(token: string): UploadTokenPayload | null {
     } catch {
         return null;
     }
+}
+
+function getWebRequestOrigin(req: Request): string | undefined {
+    const origin = req.headers.origin;
+    if (typeof origin === 'string' && origin) return origin;
+    const referer = req.headers.referer;
+    if (typeof referer === 'string' && referer) return referer;
+    return undefined;
+}
+
+function isWebIngestRequest(req: Request): boolean {
+    const path = req.originalUrl || req.path || req.url || '';
+    if (!path.includes('/api/ingest')) return false;
+    if (String(req.headers['x-platform'] ?? '').toLowerCase() === 'web') return true;
+    return typeof req.headers.origin === 'string' && req.headers.origin.length > 0;
+}
+
+function uploadTokenOriginAllowed(payload: UploadTokenPayload, req: Request): boolean {
+    const requestOrigin = getWebRequestOrigin(req);
+    if (payload.platform === 'web') {
+        if (!payload.webOrigin) return false;
+        return isWebOriginAllowed([payload.webOrigin], requestOrigin);
+    }
+
+    return !isWebIngestRequest(req);
 }
 
 function buildUploadTokenCacheKey(projectId: string): string {
@@ -348,6 +376,11 @@ export async function apiKeyAuth(
                             }
 
                             if (hmacValid || redisValid) {
+                                if (!uploadTokenOriginAllowed(payload, req)) {
+                                    res.status(403).json({ error: 'Forbidden', message: 'Domain is not allowed for this upload token' });
+                                    return;
+                                }
+
                                 const embeddedContext = (
                                     typeof payload.teamId === 'string'
                                     && typeof payload.projectName === 'string'
@@ -425,6 +458,11 @@ export async function apiKeyAuth(
             } catch (err) {
                 logger.warn({ err }, 'Upload token validation failed, falling back to other auth methods');
             }
+        }
+
+        if (isWebIngestRequest(req)) {
+            res.status(401).json({ error: 'Unauthorized', message: 'Valid upload token required for browser ingest' });
+            return;
         }
 
         // Fall back to project key / API key authentication

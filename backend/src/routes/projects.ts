@@ -34,13 +34,22 @@ import {
     assertNoDuplicateContentSpam,
     enforceNewAccountActionLimit,
 } from '../services/abuseDetection.js';
+import { normalizeWebAllowedDomains } from '../utils/webAllowedDomains.js';
 
-function getProjectPlatforms(project: { bundleId?: string | null; packageName?: string | null; platform?: string | null }): string[] {
+function getProjectWebAllowedDomains(project: { webAllowedDomains?: string[] | null; webDomain?: string | null }): string[] {
+    return normalizeWebAllowedDomains([
+        ...(project.webAllowedDomains ?? []),
+        ...(project.webDomain ? [project.webDomain] : []),
+    ]);
+}
+
+function getProjectPlatforms(project: { bundleId?: string | null; packageName?: string | null; webDomain?: string | null; webAllowedDomains?: string[] | null; platform?: string | null }): string[] {
     const platforms: string[] = [];
     if (project.bundleId) platforms.push('ios');
     if (project.packageName) platforms.push('android');
+    if (project.webDomain || getProjectWebAllowedDomains(project).length > 0 || project.platform === 'web') platforms.push('web');
     if (platforms.length === 0 && project.platform) platforms.push(project.platform);
-    return platforms;
+    return Array.from(new Set(platforms));
 }
 
 function getProjectAuditState(project: {
@@ -49,12 +58,14 @@ function getProjectAuditState(project: {
     bundleId?: string | null;
     packageName?: string | null;
     webDomain?: string | null;
+    webAllowedDomains?: string[] | null;
     rejourneyEnabled?: boolean | null;
     recordingEnabled?: boolean | null;
     textInputMasking?: string | null;
     recordingFps?: number | null;
     sampleRate?: number | null;
     maxRecordingMinutes?: number | null;
+    webMaxObservabilityMinutes?: number | null;
 }): Record<string, unknown> {
     return {
         name: project.name,
@@ -62,12 +73,14 @@ function getProjectAuditState(project: {
         bundleId: project.bundleId ?? null,
         packageName: project.packageName ?? null,
         webDomain: project.webDomain ?? null,
+        webAllowedDomains: getProjectWebAllowedDomains(project),
         rejourneyEnabled: project.rejourneyEnabled ?? null,
         recordingEnabled: project.recordingEnabled ?? null,
         textInputMasking: project.textInputMasking ?? 'all',
         recordingFps: project.recordingFps ?? 1,
         sampleRate: project.sampleRate ?? null,
         maxRecordingMinutes: project.maxRecordingMinutes ?? null,
+        webMaxObservabilityMinutes: project.webMaxObservabilityMinutes ?? null,
     };
 }
 
@@ -94,11 +107,13 @@ type QueryBuilderProjectContext = {
     rejourneyEnabled: boolean;
     recordingFps: number;
     maxRecordingMinutes: number;
+    webMaxObservabilityMinutes: number;
 };
 
 type CountOp = 'eq' | 'gt' | 'lt' | 'gte' | 'lte';
 type QueryBuilderIssueFilter = 'crashes' | 'anrs' | 'errors' | 'rage' | 'dead_taps' | 'slow_start' | 'slow_api';
 type QueryBuilderTimeRange = '24h' | '7d' | '30d' | '90d' | '1y';
+type QueryBuilderPlatform = 'ios' | 'android' | 'web';
 
 type QueryBuilderCondition =
     | { id: string; type: 'issue'; issueFilter: QueryBuilderIssueFilter }
@@ -108,7 +123,7 @@ type QueryBuilderCondition =
     | { id: string; type: 'metadata'; metaKey: string; metaValue?: string }
     | { id: string; type: 'lifecycle'; preset: 'early_user' | 'returning_user'; sessionWindowSize?: number; returnedCountOp?: CountOp; returnedCountValue?: string }
     | { id: string; type: 'conversion'; preset: 'checkout_bounced' | 'checkout_success' }
-    | { id: string; type: 'platform'; platform: 'ios' | 'android' }
+    | { id: string; type: 'platform'; platform: QueryBuilderPlatform }
     | { id: string; type: 'journey'; steps: string[] };
 
 type QueryBuilderGroup = {
@@ -193,10 +208,11 @@ function inferIssueFromPrompt(prompt: string): QueryBuilderIssueFilter | undefin
     return undefined;
 }
 
-function inferPlatformFromPrompt(prompt: string): 'ios' | 'android' | undefined {
+function inferPlatformFromPrompt(prompt: string): QueryBuilderPlatform | undefined {
     const normalized = prompt.toLowerCase();
     if (/\b(ios|iphone|ipad|apple)\b/.test(normalized)) return 'ios';
     if (/\b(android|pixel|samsung)\b/.test(normalized)) return 'android';
+    if (/\b(web|browser|desktop browser|website|site|chrome|safari|firefox|edge)\b/.test(normalized)) return 'web';
     return undefined;
 }
 
@@ -414,7 +430,7 @@ function describeQueryBuilderCondition(condition: QueryBuilderCondition): string
         case 'conversion':
             return condition.preset === 'checkout_success' ? 'completed checkout' : 'left checkout';
         case 'platform':
-            return `on ${condition.platform === 'ios' ? 'iOS' : 'Android'}`;
+            return `on ${condition.platform === 'ios' ? 'iOS' : condition.platform === 'android' ? 'Android' : 'Web'}`;
         case 'journey':
             return `followed ${condition.steps.join(' to ')}`;
     }
@@ -502,6 +518,18 @@ function enrichQueryBuilderGroups(groups: QueryBuilderGroup[], filters: Availabl
         if (metaKey) {
             const metaValue = findMentionedAllowedValue(prompt, filters.metadata[metaKey] ?? []) ?? undefined;
             next = addToFirstGroup(next, { id: randomUUID(), type: 'metadata', metaKey, metaValue });
+        } else {
+            const normalizedPrompt = prompt.toLowerCase();
+            const mentionsReferral = /\b(referr?al|referrer|referer|source|utm|campaign)\b/.test(normalizedPrompt);
+            const referralKey = metadataKeys.find((key) => key === 'webReferral') ||
+                metadataKeys.find((key) => key === 'webReferrerDomain');
+            if (mentionsReferral && referralKey) {
+                const domainMatch = normalizedPrompt.match(/\b([a-z0-9-]+(?:\.[a-z0-9-]+)+)\b/i)?.[1];
+                const metaValue = domainMatch
+                    ? findAllowedValue(domainMatch, filters.metadata[referralKey] ?? []) ?? domainMatch
+                    : undefined;
+                next = addToFirstGroup(next, { id: randomUUID(), type: 'metadata', metaKey: referralKey, metaValue });
+            }
         }
     }
 
@@ -517,9 +545,18 @@ async function loadAvailableProjectFilters(projectId: string): Promise<Available
     `);
 
     const metadataQuery = await db.execute(sql`
-        SELECT DISTINCT key as meta_key, value as meta_value
-        FROM ${sessions}, jsonb_each_text(metadata)
-        WHERE project_id = ${projectId}
+        SELECT DISTINCT meta_key, meta_value
+        FROM (
+            SELECT key as meta_key, value as meta_value
+            FROM ${sessions}, jsonb_each_text(metadata)
+            WHERE project_id = ${projectId}
+            UNION
+            SELECT 'webReferral' as meta_key, ${sessions.webReferral} as meta_value
+            FROM ${sessions}
+            WHERE project_id = ${projectId}
+              AND ${sessions.webReferral} IS NOT NULL
+              AND ${sessions.webReferral} <> ''
+        ) available_metadata
         LIMIT 1000
     `);
 
@@ -564,6 +601,18 @@ async function loadAvailableProjectFilters(projectId: string): Promise<Available
             availableMetadata[key].push(value);
         }
     });
+    for (const key of [
+        'webReferral',
+        'webReferrerDomain',
+        'webAttributionSource',
+        'webAttributionMedium',
+        'webAttributionCampaign',
+        'webAttributionChannel',
+        'webLandingRoute',
+        'webEntryPath',
+    ]) {
+        if (!availableMetadata[key]) availableMetadata[key] = [];
+    }
 
     return {
         events: availableEvents,
@@ -586,6 +635,7 @@ async function loadQueryBuilderProjectContext(projectId: string): Promise<QueryB
             rejourneyEnabled: projects.rejourneyEnabled,
             recordingFps: projects.recordingFps,
             maxRecordingMinutes: projects.maxRecordingMinutes,
+            webMaxObservabilityMinutes: projects.webMaxObservabilityMinutes,
         })
         .from(projects)
         .where(eq(projects.id, projectId))
@@ -637,7 +687,7 @@ function buildQueryBuilderPrompt(input: {
         allowedConditionTypes: {
             issue: ['crashes', 'anrs', 'errors', 'rage', 'dead_taps', 'slow_start', 'slow_api'],
             date: ['range: 24h, 7d, 30d, 90d, 1y', 'exact: YYYY-MM-DD'],
-            platform: ['ios', 'android'],
+            platform: ['ios', 'android', 'web'],
             lifecycle: ['early_user', 'returning_user'],
             conversion: ['checkout_bounced', 'checkout_success'],
             screen: 'screenName must come from screensOrPages',
@@ -647,7 +697,7 @@ function buildQueryBuilderPrompt(input: {
         },
         outputRules: [
             'Return only query conditions that are supported by the allowed condition types.',
-            'Use project setup only as context. Never add a platform condition unless the user explicitly says iOS, iPhone, iPad, Apple, Android, Pixel, or Samsung.',
+            'Use project setup only as context. Never add a platform condition unless the user explicitly says iOS, iPhone, iPad, Apple, Android, Pixel, Samsung, web, browser, website, or site.',
             'Every condition must be directly requested by the user. Do not add filters just because they are common, likely, or present in project setup.',
             'Prefer the smallest accurate query. Do not duplicate the same screen, page, event, metadata, platform, issue, lifecycle, conversion, or journey condition.',
             'Use available app-specific screens/pages, events, metadata keys, and event properties exactly as provided.',
@@ -660,6 +710,7 @@ function buildQueryBuilderPrompt(input: {
             'When user asks for crashes, hangs/freezes, rage taps, dead taps, slow startup, slow API, errors/exceptions/failed API requests, map to the matching issue filter.',
             'When user asks for new/first-time/onboarding users, map to lifecycle early_user.',
             'When user asks for returning/reactivated/came-back users, map to lifecycle returning_user.',
+            'When user asks for referral/referrer/source/campaign on web sessions, use metadata keys like webReferral, webReferrerDomain, webAttributionSource, webAttributionCampaign, or webAttributionChannel if available.',
             'If the user asks for alternatives, represent them as multiple groups.',
             'If the request is too vague or impossible with the provided values, return an empty groups array and a concise explanation.',
         ],
@@ -716,6 +767,13 @@ function buildQueryBuilderPrompt(input: {
                 output: [
                     { type: 'lifecycle', preset: 'early_user' },
                     { type: 'platform', platform: 'android' },
+                ],
+            },
+            {
+                input: 'web sessions referred by www.google.com',
+                output: [
+                    { type: 'platform', platform: 'web' },
+                    { type: 'metadata', metaKey: 'webReferral', metaValue: 'www.google.com' },
                 ],
             },
             {
@@ -1026,10 +1084,15 @@ router.post(
             action: 'project_create',
         });
 
+        const webAllowedDomains = normalizeWebAllowedDomains([
+            ...(data.webAllowedDomains ?? []),
+            ...(data.webDomain ? [data.webDomain] : []),
+        ]);
+
         await assertNoDuplicateContentSpam({
             actorId: req.user!.id,
             action: 'project_create',
-            contentParts: [data.name, data.webDomain],
+            contentParts: [data.name, ...webAllowedDomains],
             targetId: teamId,
         });
 
@@ -1044,7 +1107,8 @@ router.post(
                     teamId,
                     bundleId: data.bundleId,
                     packageName: data.packageName,
-                    webDomain: data.webDomain,
+                    webDomain: webAllowedDomains[0] ?? null,
+                    webAllowedDomains,
                     platform: data.platforms?.[0],
                     publicKey,
                     rejourneyEnabled: data.rejourneyEnabled ?? true,
@@ -1053,6 +1117,7 @@ router.post(
                     recordingFps: data.recordingFps ?? 1,
                     sampleRate: data.sampleRate ?? 100,
                     maxRecordingMinutes: data.maxRecordingMinutes ?? 10,
+                    webMaxObservabilityMinutes: data.webMaxObservabilityMinutes ?? 30,
                 }).returning();
                 break; // Success
             } catch (err: any) {
@@ -1193,18 +1258,32 @@ router.put(
         if (
             data.name !== undefined ||
             data.webDomain !== undefined ||
+            data.webAllowedDomains !== undefined ||
             data.bundleId !== undefined ||
             data.packageName !== undefined
         ) {
+            const nextWebAllowedDomains = data.webAllowedDomains !== undefined
+                ? normalizeWebAllowedDomains(data.webAllowedDomains ?? [])
+                : normalizeWebAllowedDomains(data.webDomain ? [data.webDomain] : []);
             await assertNoDuplicateContentSpam({
                 actorId: req.user!.id,
                 action: 'project_update',
                 contentParts: [
                     data.name,
                     typeof data.webDomain === 'string' ? data.webDomain : null,
+                    ...nextWebAllowedDomains,
                 ],
                 targetId: req.params.id,
             });
+        }
+
+        if (data.webDomain !== undefined || data.webAllowedDomains !== undefined) {
+            const nextWebAllowedDomains = data.webAllowedDomains !== undefined
+                ? normalizeWebAllowedDomains(data.webAllowedDomains ?? [])
+                : normalizeWebAllowedDomains(data.webDomain ? [data.webDomain] : []);
+            if (getProjectPlatforms(currentProject).includes('web') && nextWebAllowedDomains.length === 0) {
+                throw ApiError.badRequest('At least one allowed domain is required for web projects');
+            }
         }
 
         // Build update object, only including fields that should be updated
@@ -1217,13 +1296,22 @@ router.put(
         if (data.teamId !== undefined) updateData.teamId = data.teamId;
         if (data.bundleId !== undefined) updateData.bundleId = data.bundleId;
         if (data.packageName !== undefined) updateData.packageName = data.packageName;
-        if (data.webDomain !== undefined) updateData.webDomain = data.webDomain;
+        if (data.webAllowedDomains !== undefined) {
+            const webAllowedDomains = normalizeWebAllowedDomains(data.webAllowedDomains ?? []);
+            updateData.webAllowedDomains = webAllowedDomains;
+            updateData.webDomain = webAllowedDomains[0] ?? null;
+        } else if (data.webDomain !== undefined) {
+            const webAllowedDomains = normalizeWebAllowedDomains(data.webDomain ? [data.webDomain] : []);
+            updateData.webAllowedDomains = webAllowedDomains;
+            updateData.webDomain = webAllowedDomains[0] ?? null;
+        }
         if (data.rejourneyEnabled !== undefined) updateData.rejourneyEnabled = data.rejourneyEnabled;
         if (data.recordingEnabled !== undefined) updateData.recordingEnabled = data.recordingEnabled;
         if (data.textInputMasking !== undefined) updateData.textInputMasking = data.textInputMasking;
         if (data.recordingFps !== undefined) updateData.recordingFps = data.recordingFps;
         if (data.sampleRate !== undefined) updateData.sampleRate = data.sampleRate;
         if (data.maxRecordingMinutes !== undefined) updateData.maxRecordingMinutes = data.maxRecordingMinutes;
+        if (data.webMaxObservabilityMinutes !== undefined) updateData.webMaxObservabilityMinutes = data.webMaxObservabilityMinutes;
 
         const [project] = await db.update(projects)
             .set(updateData)
@@ -1233,14 +1321,17 @@ router.put(
         const shouldInvalidateConfig =
             data.sampleRate !== undefined ||
             data.maxRecordingMinutes !== undefined ||
+            data.webMaxObservabilityMinutes !== undefined ||
             data.recordingFps !== undefined ||
             data.recordingEnabled !== undefined ||
             data.rejourneyEnabled !== undefined ||
-            data.textInputMasking !== undefined;
+            data.textInputMasking !== undefined ||
+            data.webDomain !== undefined ||
+            data.webAllowedDomains !== undefined;
 
         if (shouldInvalidateConfig) {
             try {
-                await getRedis().del(`sdk:config:${project.publicKey}`, `sdk:config:v2:${project.publicKey}`, `sdk:config:v3:${project.publicKey}`);
+                await getRedis().del(`sdk:config:${project.publicKey}`, `sdk:config:v2:${project.publicKey}`, `sdk:config:v3:${project.publicKey}`, `sdk:config:v4:${project.publicKey}`, `sdk:config:v5:${project.publicKey}`);
             } catch {
                 // ignore cache errors
             }
@@ -1400,7 +1491,7 @@ router.delete(
         });
 
         try {
-            await getRedis().del(`sdk:config:${projectResult.project.publicKey}`, `sdk:config:v2:${projectResult.project.publicKey}`, `sdk:config:v3:${projectResult.project.publicKey}`);
+            await getRedis().del(`sdk:config:${projectResult.project.publicKey}`, `sdk:config:v2:${projectResult.project.publicKey}`, `sdk:config:v3:${projectResult.project.publicKey}`, `sdk:config:v4:${projectResult.project.publicKey}`);
         } catch {
             // ignore cache errors
         }

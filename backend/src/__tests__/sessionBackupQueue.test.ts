@@ -43,9 +43,13 @@ describe('sessionBackupQueue', () => {
         expect(query).toContain("COUNT(*) FILTER (WHERE ra.kind = 'events')::int AS ready_events_count");
         expect(query).toContain("COUNT(*) FILTER (WHERE ra.kind = 'hierarchy')::int AS ready_hierarchy_count");
         expect(query).toContain("COUNT(*) FILTER (WHERE ra.kind = 'screenshots')::int AS ready_screenshots_count");
+        expect(query).toContain("COUNT(*) FILTER (WHERE ra.kind = 'rrweb')::int AS ready_rrweb_count");
         expect(query).toContain('COALESCE(s.observe_only, false) = true');
         expect(query).toContain('artifact_stats.ready_screenshots_count = 0');
+        expect(query).toContain('artifact_stats.ready_rrweb_count = 0');
+        expect(query).toContain("LOWER(COALESCE(s.platform, '')) = 'web'");
         expect(query).toContain('COALESCE(s.observe_only, false) = false');
+        expect(query).toContain('artifact_stats.ready_rrweb_count > 0');
         expect(query).toContain('artifact_stats.ready_screenshots_count > 0');
         expect(query).toContain('ON CONFLICT (session_id) DO NOTHING');
         expect(query).toContain("s.status IN ('ready', 'completed')");

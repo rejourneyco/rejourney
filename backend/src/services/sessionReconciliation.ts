@@ -8,8 +8,8 @@ import {
     loadSessionWorkAggregate,
     SESSION_LIVE_INGEST_WINDOW_MS,
 } from './sessionPresentationState.js';
-import { computeSessionDurationSeconds, hasStoredClosedTiming, resolveAuthoritativeSessionClose } from './sessionTiming.js';
-import { hasNewerSessionForSameVisitor, loadSuccessorSessionStartedAt } from './sessionTimingQuery.js';
+import { computeSessionDurationSeconds, hasStoredClosedTiming, resolveAuthoritativeSessionClose, selectMaxObservabilityMinutes, shouldApplySuccessorSessionCap } from './sessionTiming.js';
+import { loadSuccessorSessionStartedAt } from './sessionTimingQuery.js';
 
 export const SESSION_FINALIZE_IDLE_MS = SESSION_LIVE_INGEST_WINDOW_MS;
 
@@ -86,38 +86,52 @@ export async function reconcileSessionState(sessionId: string, now = new Date())
     }
 
     await ensureMetricsRow(sessionId);
-    const [aggregate, supersededByNewerVisitorSession] = await Promise.all([
+    const [aggregate, successorStartedAt] = await Promise.all([
         loadSessionWorkAggregate(sessionId),
-        hasNewerSessionForSameVisitor({
-            projectId: session.projectId,
+        loadSuccessorSessionStartedAt({
             sessionId: session.id,
-            startedAt: session.startedAt,
+            projectId: session.projectId,
             deviceId: session.deviceId,
-            anonymousHash: session.anonymousHash,
-            userDisplayId: session.userDisplayId,
+            startedAt: session.startedAt,
         }),
     ]);
 
     const readyScreenshotCount = aggregate.readyScreenshotCount;
     const readyScreenshotBytes = aggregate.readyScreenshotBytes;
+    const readyWebReplayCount = aggregate.readyWebReplayCount;
+    const readyWebReplayBytes = aggregate.readyWebReplayBytes;
     const readyHierarchyCount = aggregate.readyHierarchyCount;
     const openArtifactCount = aggregate.openArtifactCount;
     const activeJobCount = aggregate.activeJobCount;
     const openReplayArtifactCount = aggregate.openReplayArtifactCount;
     const activeReplayJobCount = aggregate.activeReplayJobCount;
 
-    const [project] = await db.select({ maxRecordingMinutes: projects.maxRecordingMinutes })
+    const [project] = await db.select({
+        maxRecordingMinutes: projects.maxRecordingMinutes,
+        webMaxObservabilityMinutes: projects.webMaxObservabilityMinutes,
+    })
         .from(projects)
         .where(eq(projects.id, session.projectId))
         .limit(1);
-    const maxRecordingMinutes = project?.maxRecordingMinutes ?? 10;
+    const maxRecordingMinutes = selectMaxObservabilityMinutes(project, session.platform);
 
-    const replayAvailable = readyScreenshotCount > 0;
+    const replayAvailable = readyScreenshotCount > 0 || readyWebReplayCount > 0;
 
     const normalizedStatus = session.status === 'pending' ? 'processing' : session.status;
+    const latestClientEvidenceEndMs = Math.max(
+        Number(aggregate.latestReplayArtifactEndMs ?? 0),
+        Number(aggregate.latestEventArtifactEndMs ?? 0),
+    ) || null;
+    const successorCapsThisSession = shouldApplySuccessorSessionCap({
+        platform: session.platform,
+        successorStartedAt,
+        latestClientEvidenceEndMs,
+    });
+    const supersededByNewerVisitorSession = successorCapsThisSession;
 
     const presentationState = deriveSessionPresentationState({
         status: normalizedStatus,
+        platform: session.platform,
         replayAvailable,
         recordingDeleted: session.recordingDeleted,
         isReplayExpired: session.isReplayExpired,
@@ -125,36 +139,45 @@ export async function reconcileSessionState(sessionId: string, now = new Date())
         startedAt: session.startedAt,
         endedAt: session.endedAt,
         hasPendingWork: aggregate.hasPendingWork,
+        hasPendingProcessingWork: aggregate.hasPendingProcessingWork,
         hasPendingReplayWork: aggregate.hasPendingReplayWork,
         supersededByNewerVisitorSession,
+        maxSessionDurationMs: maxRecordingMinutes * 60_000,
         now,
     });
     const shouldFinalize = presentationState.shouldFinalize;
 
-    const successorStartedAt = await loadSuccessorSessionStartedAt({
-        sessionId: session.id,
-        projectId: session.projectId,
-        deviceId: session.deviceId,
-        startedAt: session.startedAt,
-    });
-
     const resolvedClose = resolveAuthoritativeSessionClose({
         startedAt: session.startedAt,
         lastIngestActivityAt: session.lastIngestActivityAt,
-        latestReplayEndMs: aggregate.latestReplayArtifactEndMs,
+        latestReplayEndMs: latestClientEvidenceEndMs,
         storedBackgroundTimeSeconds: session.backgroundTimeSeconds,
         maxRecordingMinutes,
-        successorStartedAt,
+        successorStartedAt: successorCapsThisSession ? successorStartedAt : null,
     });
+    const hasLaterWebClientEvidence = Boolean(
+        session.platform === 'web'
+        && session.endedAt
+        && latestClientEvidenceEndMs
+        && Number(latestClientEvidenceEndMs) > session.endedAt.getTime() + 1000
+    );
+    const storedDurationMatchesBackground = !hasStoredClosedTiming({
+        endedAt: session.endedAt,
+        durationSeconds: session.durationSeconds,
+    }) || session.durationSeconds === computeSessionDurationSeconds(
+        session.startedAt,
+        session.endedAt ?? session.startedAt,
+        session.backgroundTimeSeconds ?? 0,
+    );
     const preserveStoredCloseTiming = hasStoredClosedTiming({
         endedAt: session.endedAt,
         durationSeconds: session.durationSeconds,
-    });
+    }) && !hasLaterWebClientEvidence && storedDurationMatchesBackground;
 
     const sessionUpdate: Record<string, unknown> = {
         replayAvailable,
-        replaySegmentCount: readyScreenshotCount,
-        replayStorageBytes: readyScreenshotBytes,
+        replaySegmentCount: readyScreenshotCount + readyWebReplayCount,
+        replayStorageBytes: readyScreenshotBytes + readyWebReplayBytes,
         updatedAt: now,
     };
 
@@ -209,6 +232,7 @@ export async function reconcileSessionState(sessionId: string, now = new Date())
         sessionId,
         replayAvailable,
         readyScreenshotCount,
+        readyWebReplayCount,
         openArtifactCount,
         activeJobCount,
         openReplayArtifactCount,
@@ -226,28 +250,59 @@ export async function reconcileSessionState(sessionId: string, now = new Date())
 }
 
 export async function reconcileDueSessions(batchSize = 500, maxBatches = 20): Promise<number> {
-    const cutoff = new Date(Date.now() - SESSION_FINALIZE_IDLE_MS);
+    const now = new Date();
+    const cutoff = new Date(now.getTime() - SESSION_FINALIZE_IDLE_MS);
     let processed = 0;
 
     for (let batch = 0; batch < maxBatches; batch += 1) {
         const result = await db.execute(sql`
             select s.id
             from ${sessions} s
+            left join ${projects} p on p.id = s.project_id
             where s.status in ('processing', 'pending')
             and (
-                s.last_ingest_activity_at <= ${cutoff}
+                (
+                    s.last_ingest_activity_at <= ${cutoff}
+                    and (
+                        coalesce(s.platform, '') <> 'web'
+                        or s.ended_at is not null
+                        or s.started_at <= (${now}::timestamp - make_interval(
+                            mins => least(30, greatest(1, coalesce(p.web_max_observability_minutes, p.max_recording_minutes, 30)))
+                        ))
+                        or (
+                            coalesce(s.device_id, s.anonymous_hash, s.user_display_id) is not null
+                            and exists (
+                                select 1
+                                from ${sessions} s2
+                                where s2.project_id = s.project_id
+                                  and coalesce(s2.device_id, s2.anonymous_hash, s2.user_display_id) = coalesce(s.device_id, s.anonymous_hash, s.user_display_id)
+                                  and (
+                                      s2.started_at > s.started_at
+                                      or (s2.started_at = s.started_at and s2.id > s.id)
+                                  )
+                            )
+                        )
+                    )
+                )
                 or (
                     s.replay_available = true
+                    and (
+                        coalesce(s.platform, '') <> 'web'
+                        or s.ended_at is not null
+                        or s.started_at <= (${now}::timestamp - make_interval(
+                            mins => least(30, greatest(1, coalesce(p.web_max_observability_minutes, p.max_recording_minutes, 30)))
+                        ))
+                    )
                     and not exists (
                         select 1 from ${recordingArtifacts} ra
                         where ra.session_id = s.id
-                          and ra.kind in ('screenshots', 'hierarchy')
+                          and ra.kind in ('screenshots', 'hierarchy', 'rrweb')
                           and ra.status in ('pending', 'buffered', 'uploaded')
                     )
                     and exists (
                         select 1 from ${recordingArtifacts} ra
                         where ra.session_id = s.id
-                          and ra.kind = 'screenshots'
+                          and ra.kind in ('screenshots', 'rrweb')
                           and ra.status = 'ready'
                           and coalesce(ra.ready_at, ra.verified_at, ra.upload_completed_at, ra.created_at) <= ${cutoff}
                     )
@@ -304,7 +359,7 @@ export async function backfillArtifactDrivenLifecycleState(): Promise<void> {
         with replay as (
             select
                 ra.session_id,
-                bool_or(ra.kind = 'screenshots' and ra.status = 'ready') as has_replay
+                bool_or(ra.kind in ('screenshots', 'rrweb') and ra.status = 'ready') as has_replay
             from ${recordingArtifacts} ra
             group by ra.session_id
         )
@@ -321,7 +376,7 @@ export async function backfillArtifactDrivenLifecycleState(): Promise<void> {
             select 1
             from ${recordingArtifacts} ra
             where ra.session_id = s.id
-              and ra.kind = 'screenshots'
+              and ra.kind in ('screenshots', 'rrweb')
               and ra.status = 'ready'
         )
     `);

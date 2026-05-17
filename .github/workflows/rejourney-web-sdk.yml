@@ -1,0 +1,173 @@
+name: Rejourney Web SDK CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  web-sdk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+
+      - name: TypeScript check
+        working-directory: ./packages/browser
+        run: npm run typecheck
+
+      - name: Run unit tests
+        working-directory: ./packages/browser
+        run: npm test
+
+      - name: Build web SDK
+        working-directory: ./packages/browser
+        run: npm run prepack
+
+      - name: Pack dry-run
+        working-directory: ./packages/browser
+        run: npm pack --dry-run
+
+      - name: Verify package structure
+        working-directory: ./packages/browser
+        run: |
+          if [ ! -f "src/index.ts" ]; then echo "❌ Src missing"; exit 1; fi
+          if [ ! -d "dist" ]; then echo "❌ Build output missing"; exit 1; fi
+          echo "✅ Web package structure valid"
+
+  web-version:
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    outputs:
+      changed: ${{ steps.version_check.outputs.changed }}
+      version: ${{ steps.version_check.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Check if web package version changed
+        id: version_check
+        run: |
+          VERSION="$(jq -r .version packages/browser/package.json)"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Current web SDK version: $VERSION"
+
+          if [ "$VERSION" = "0.0.0" ]; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "Web SDK is at bootstrap version 0.0.0; skipping publish/tag/release."
+            exit 0
+          fi
+
+          if git show HEAD~1:packages/browser/package.json >/tmp/previous-web-package.json 2>/dev/null; then
+            PREV_VERSION="$(jq -r .version /tmp/previous-web-package.json)"
+            echo "Previous web SDK version: $PREV_VERSION"
+            if [ "$VERSION" != "$PREV_VERSION" ]; then
+              echo "changed=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "changed=false" >> "$GITHUB_OUTPUT"
+            fi
+          else
+            echo "No previous web package found; skipping first package release until a later version bump."
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  publish-web-sdk:
+    needs: [web-sdk, web-version]
+    if: success() && github.ref == 'refs/heads/main' && needs.web-version.outputs.changed == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Build web SDK
+        working-directory: ./packages/browser
+        run: npm run prepack
+
+      - name: Check version and publish web SDK
+        working-directory: ./packages/browser
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          echo "::add-mask::$NODE_AUTH_TOKEN"
+          PACKAGE_NAME=$(jq -r .name package.json)
+          CURRENT_VERSION=$(jq -r .version package.json)
+          echo "Package: $PACKAGE_NAME"
+          echo "Local Version: $CURRENT_VERSION"
+
+          if [ "$CURRENT_VERSION" = "0.0.0" ]; then
+            echo "Refusing to publish bootstrap version 0.0.0."
+            exit 1
+          fi
+
+          PUBLISHED_VERSION=$(npm view $PACKAGE_NAME version 2>/dev/null || echo "0.0.0")
+          echo "Published Version: $PUBLISHED_VERSION"
+
+          if [ "$CURRENT_VERSION" != "$PUBLISHED_VERSION" ]; then
+             echo "Publishing version $CURRENT_VERSION to NPM..."
+             npm publish --access public
+          else
+             echo "Version $CURRENT_VERSION is already published. Skipping."
+          fi
+
+  release-web-tag:
+    needs: [publish-web-sdk, web-version]
+    if: success() && github.ref == 'refs/heads/main' && needs.web-version.outputs.changed == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create and push Web SDK release tag
+        env:
+          VERSION: ${{ needs.web-version.outputs.version }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "::add-mask::$GH_TOKEN"
+          TAG="web/v${VERSION}"
+
+          if [ "$VERSION" = "0.0.0" ]; then
+            echo "Refusing to tag bootstrap version 0.0.0."
+            exit 1
+          fi
+
+          if git ls-remote --tags origin "refs/tags/$TAG" | grep -q "$TAG"; then
+            echo "Tag $TAG already exists — bump packages/browser/package.json version to create a new release."
+            exit 1
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag "$TAG"
+          git push origin "$TAG"
+
+          NOTES_FILE=".github/releases/web-${VERSION}.md"
+          NOTES_ARGS=(--notes "Published to npm as \`@rejourneyco/browser@${VERSION}\`." --generate-notes)
+          if [ -f "$NOTES_FILE" ]; then
+            NOTES_ARGS=(--notes-file "$NOTES_FILE")
+          fi
+
+          gh release create "$TAG" \
+            --title "Web SDK v${VERSION}" \
+            "${NOTES_ARGS[@]}" \
+            --verify-tag

@@ -9,7 +9,7 @@ export const timeRangeSchema = z.enum(['24h', '7d', '30d', '90d', '1y', 'all']).
 export const sessionsQuerySchema = z.object({
     timeRange: timeRangeSchema,
     projectId: z.string().uuid().optional(),
-    platform: z.enum(['ios', 'android']).optional(),
+    platform: z.enum(['ios', 'android', 'web']).optional(),
     status: z.enum(['pending', 'processing', 'ready', 'failed', 'deleted']).optional(),
     limit: z.string().transform(Number).pipe(z.number().int().min(1).max(100)).optional(),
     offset: z.string().transform(Number).pipe(z.number().int().min(0)).optional(),

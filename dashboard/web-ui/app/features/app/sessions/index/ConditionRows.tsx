@@ -2,6 +2,7 @@ import React from 'react';
 import {
   X, AlertOctagon, Calendar, LayoutGrid, Zap, Tag, Users,
   Smartphone, ArrowRight, Plus, Info, Route, ChevronDown,
+  MonitorSmartphone,
 } from 'lucide-react';
 import {
   type IssueCondition, type DateCondition, type ScreenCondition,
@@ -285,10 +286,11 @@ export function PlatformRow({ cond, onChange, onRemove }: { cond: PlatformCondit
   return (
     <ConditionRowShell type="platform" onRemove={onRemove}>
       <div className="flex overflow-hidden border-2 border-black text-xs font-black shadow-neo-sm">
-        {(['ios', 'android'] as const).map((p) => (
+        {(['ios', 'android', 'web'] as const).map((p) => (
           <button key={p} onClick={() => onChange({ ...cond, platform: p })}
-            className={`px-3 py-1.5 transition-colors uppercase ${cond.platform === p ? 'bg-[#67e8f9] text-black' : 'bg-white text-slate-700 hover:bg-[#67e8f9]/50'}`}>
-            {p === 'ios' ? '🍎 iOS' : '🤖 Android'}
+            className={`inline-flex items-center gap-1.5 px-3 py-1.5 transition-colors uppercase ${cond.platform === p ? 'bg-[#67e8f9] text-black' : 'bg-white text-slate-700 hover:bg-[#67e8f9]/50'}`}>
+            {p === 'web' ? <MonitorSmartphone className="h-3.5 w-3.5" /> : <Smartphone className="h-3.5 w-3.5" />}
+            {p === 'ios' ? 'iOS' : p === 'android' ? 'Android' : 'Web'}
           </button>
         ))}
       </div>

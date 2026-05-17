@@ -24,7 +24,7 @@ export default function PrivacyPolicy() {
                 {/* Main Content */}
                 <div>
                     <h1 className="text-4xl font-bold mb-4">Privacy Policy</h1>
-                    <p className="text-sm text-muted-foreground mb-8">Last Updated: May 6, 2026</p>
+                    <p className="text-sm text-muted-foreground mb-8">Last Updated: May 17, 2026</p>
 
                     <div className="bg-muted/30 border border-input rounded-lg p-8 space-y-6">
                         <div className="text-sm leading-relaxed space-y-6">
@@ -41,9 +41,10 @@ export default function PrivacyPolicy() {
                                     <li><a href="#scrubbing" className="hover:underline">4. Data Scrubbing & Minimization</a></li>
                                     <li><a href="#sharing" className="hover:underline">5. Data Sharing & Sub-processors</a></li>
                                     <li><a href="#retention" className="hover:underline">6. Data Retention</a></li>
-                                    <li><a href="#rights" className="hover:underline">7. Your Rights (GDPR)</a></li>
-                                    <li><a href="#security" className="hover:underline">8. Security</a></li>
-                                    <li><a href="#lawful-basis" className="hover:underline">9. Lawful Basis for Processing</a></li>
+                                    <li><a href="#research" className="hover:underline">7. Anonymized Studies & Public Reports</a></li>
+                                    <li><a href="#rights" className="hover:underline">8. Your Rights (GDPR)</a></li>
+                                    <li><a href="#security" className="hover:underline">9. Security</a></li>
+                                    <li><a href="#lawful-basis" className="hover:underline">10. Lawful Basis for Processing</a></li>
                                 </ul>
                             </div>
 
@@ -144,13 +145,24 @@ export default function PrivacyPolicy() {
                                 <strong>Session Replays:</strong> Automatically deleted after 7 days on the free plan, otherwise retained for the duration detailed in your subscription.
                             </p>
                             <p>
-                                <strong>Metadata & Analytics:</strong> Personally identifiable session metadata is retained for the duration of your active subscription. After a session recording is deleted, anonymized aggregate event data (containing no personal identifiers) is retained indefinitely for product analytics purposes.
+                                <strong>Metadata & Analytics:</strong> Personally identifiable session metadata is retained for the duration of your active subscription. After a session recording is deleted, anonymized aggregate event data (containing no personal identifiers) may be retained indefinitely for product analytics, research, benchmarking, and public trend reporting.
                             </p>
                             <p>
                                 <strong>Backups:</strong> Encrypted backups are retained for up to 90 days for disaster recovery.
                             </p>
 
-                            <h3 id="rights" className="text-base font-semibold mt-6 mb-2">7. Your Rights (GDPR)</h3>
+                            <h3 id="research" className="text-base font-semibold mt-6 mb-2">7. Anonymized Studies & Public Reports</h3>
+                            <p>
+                                We may analyze Customer Data and service telemetry to create anonymized, aggregated, or de-identified datasets. We may use those datasets to study usage patterns, performance, reliability, product friction, adoption trends, and other findings, and we may publish articles, reports, benchmarks, or similar public materials based on those findings.
+                            </p>
+                            <p className="mt-2">
+                                Public materials will not include raw session recordings, screenshots, request payloads, personal data, customer confidential information, or information that reasonably identifies or singles out a particular customer, application, or end-user unless we have separate permission.
+                            </p>
+                            <p className="mt-2">
+                                Under GDPR, pseudonymized data remains personal data when it can be attributed to an individual using additional information. We treat pseudonymized data as personal data unless and until it has been rendered anonymous so that the individual is not or no longer identifiable by means reasonably likely to be used.
+                            </p>
+
+                            <h3 id="rights" className="text-base font-semibold mt-6 mb-2">8. Your Rights (GDPR)</h3>
                             <p>
                                 If you are located in the European Economic Area, you have the following rights regarding your personal data:
                             </p>
@@ -169,12 +181,12 @@ export default function PrivacyPolicy() {
                                 You also have the right to lodge a complaint with the data protection supervisory authority in your country of residence. A full list of EU supervisory authorities is available at <a href="https://www.edpb.europa.eu/about-edpb/about-edpb/members_en" className="text-primary hover:underline" target="_blank" rel="noopener noreferrer">edpb.europa.eu</a>.
                             </p>
 
-                            <h3 id="security" className="text-base font-semibold mt-6 mb-2">8. Security</h3>
+                            <h3 id="security" className="text-base font-semibold mt-6 mb-2">9. Security</h3>
                             <p>
                                 We use industry-standard security measures, including TLS 1.3 encryption for data in transit and AES-256 for data at rest. We conduct regular security audits to ensure your data remains protected.
                             </p>
 
-                            <h3 id="lawful-basis" className="text-base font-semibold mt-6 mb-2">9. Lawful Basis for Processing</h3>
+                            <h3 id="lawful-basis" className="text-base font-semibold mt-6 mb-2">10. Lawful Basis for Processing</h3>
                             <p>
                                 We rely on the following legal bases under GDPR Article 6 for our processing activities:
                             </p>
@@ -183,9 +195,10 @@ export default function PrivacyPolicy() {
                                 <li><strong>Consent (Art. 6(1)(a)):</strong> Loading Microsoft Clarity analytics and cookies on our website — only after you provide explicit consent via our cookie consent banner.</li>
                                 <li><strong>Legitimate interests (Art. 6(1)(f)):</strong> Processing server log data for security, fraud prevention, and site improvement where our interests are not overridden by your rights.</li>
                                 <li><strong>Controller's legal basis (end-user data):</strong> Rejourney processes end-user session data as a Data Processor on behalf of our Customers (Data Controllers). The lawful basis for this processing is determined by the Customer and must be established by the Customer before deploying the Rejourney SDK.</li>
+                                <li><strong>Anonymous information:</strong> Once information has been rendered anonymous so that it no longer relates to an identified or identifiable person, it is no longer personal data under GDPR. The processing used to create anonymized aggregate datasets follows the applicable legal basis above and, for end-user data, the Customer's instructions under the DPA.</li>
                             </ul>
 
-                            <h3 className="text-base font-semibold mt-6 mb-2">10. Updates</h3>
+                            <h3 className="text-base font-semibold mt-6 mb-2">11. Updates</h3>
                             <p>
                                 We may update this policy periodically. Material changes will be notified via email or a prominent notice on our website.
                             </p>

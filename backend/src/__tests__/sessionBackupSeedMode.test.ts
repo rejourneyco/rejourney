@@ -118,7 +118,10 @@ describe('session backup seed mode', () => {
         expect(block).toContain('${statsAlias}.ready_events_count > 0');
         expect(block).toContain('${statsAlias}.ready_hierarchy_count > 0');
         expect(block).toContain('${statsAlias}.ready_screenshots_count = 0');
+        expect(block).toContain('${statsAlias}.ready_rrweb_count = 0');
+        expect(block).toContain("LOWER(COALESCE(${sessionAlias}.platform, '')) = 'web'");
         expect(block).toContain('COALESCE(${sessionAlias}.observe_only, false) = false');
+        expect(block).toContain('${statsAlias}.ready_rrweb_count > 0');
         expect(block).toContain('${statsAlias}.ready_screenshots_count > 0');
     });
 });

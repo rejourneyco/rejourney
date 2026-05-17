@@ -1,6 +1,9 @@
 import React, { useState } from 'react';
 import { Copy, Check } from 'lucide-react';
 import { CodeBlock } from '~/shared/ui/core/CodeBlock';
+import { useLocation } from 'react-router';
+import { getContentLocaleCopy } from '~/shared/lib/contentLocalization';
+import { getMarketingLocaleFromPathname } from '~/shared/lib/internationalMarketing';
 
 interface DocsCodeBlockProps {
     code: string;
@@ -10,6 +13,9 @@ interface DocsCodeBlockProps {
 
 export const DocsCodeBlock: React.FC<DocsCodeBlockProps> = ({ code, language, isTerminal = false }) => {
     const [copied, setCopied] = useState(false);
+    const location = useLocation();
+    const locale = getMarketingLocaleFromPathname(location.pathname);
+    const copy = getContentLocaleCopy(locale);
 
     const handleCopy = async () => {
         try {
@@ -28,17 +34,17 @@ export const DocsCodeBlock: React.FC<DocsCodeBlockProps> = ({ code, language, is
                 <button
                     onClick={handleCopy}
                     className="absolute top-2 right-2 flex items-center gap-1.5 px-2 py-1 text-xs font-mono font-bold text-gray-400 hover:text-white hover:bg-white/10 border border-white/10 rounded transition-all z-10"
-                    title="Copy command"
+                    title={copy.docsCopyCommandTitle}
                 >
                     {copied ? (
                         <>
                             <Check size={12} className="text-green-400" />
-                            <span className="text-green-400">Copied!</span>
+                            <span className="text-green-400">{copy.docsCopied}</span>
                         </>
                     ) : (
                         <>
                             <Copy size={12} />
-                            <span>Copy</span>
+                            <span>{copy.docsCopyCode}</span>
                         </>
                     )}
                 </button>
@@ -64,17 +70,17 @@ export const DocsCodeBlock: React.FC<DocsCodeBlockProps> = ({ code, language, is
                 <button
                     onClick={handleCopy}
                     className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-mono font-bold text-gray-400 hover:text-white hover:bg-white/10 border border-white/10 rounded-md transition-all active:scale-95"
-                    title="Copy code"
+                    title={copy.docsCopyCodeTitle}
                 >
                     {copied ? (
                         <>
                             <Check size={14} className="text-[#34d399]" />
-                            <span className="text-[#34d399]">Copied!</span>
+                            <span className="text-[#34d399]">{copy.docsCopied}</span>
                         </>
                     ) : (
                         <>
                             <Copy size={14} />
-                            <span>Copy</span>
+                            <span>{copy.docsCopyCode}</span>
                         </>
                     )}
                 </button>

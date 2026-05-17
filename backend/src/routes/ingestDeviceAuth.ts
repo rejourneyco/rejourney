@@ -10,6 +10,7 @@ import {
     ingestDeviceAuthRateLimiter,
 } from '../middleware/rateLimit.js';
 import { config } from '../config.js';
+import { isWebOriginAllowed, normalizeWebAllowedDomain } from '../utils/webAllowedDomains.js';
 
 const router = Router();
 
@@ -35,6 +36,8 @@ router.post(
             id: projects.id,
             teamId: projects.teamId,
             name: projects.name,
+            webDomain: projects.webDomain,
+            webAllowedDomains: projects.webAllowedDomains,
             recordingEnabled: projects.recordingEnabled,
             rejourneyEnabled: projects.rejourneyEnabled,
             deletedAt: projects.deletedAt,
@@ -47,6 +50,22 @@ router.post(
             throw ApiError.unauthorized('Invalid project key');
         }
 
+        const requestedPlatform = String(req.headers['x-platform'] || (metadata as any)?.platform || (metadata as any)?.os || '').toLowerCase();
+        const platform = (requestedPlatform === 'web' || typeof req.headers.origin === 'string')
+            ? 'web'
+            : requestedPlatform;
+        let webOrigin: string | null = null;
+        if (platform === 'web') {
+            const origin = req.headers.origin || (metadata as any)?.origin || (metadata as any)?.url || req.headers.referer;
+            if (!isWebOriginAllowed([
+                ...(project.webAllowedDomains ?? []),
+                ...(project.webDomain ? [project.webDomain] : []),
+            ], origin)) {
+                throw ApiError.forbidden('Domain is not allowed for this project');
+            }
+            webOrigin = normalizeWebAllowedDomain(origin);
+        }
+
         const tokenTTL = 3600;
         const tokenPayload = JSON.stringify({
             type: 'upload',
@@ -54,6 +73,8 @@ router.post(
             projectId: project.id,
             teamId: project.teamId,
             projectName: project.name,
+            platform: platform || undefined,
+            webOrigin: webOrigin || undefined,
             recordingEnabled: project.recordingEnabled,
             rejourneyEnabled: project.rejourneyEnabled,
             iat: Math.floor(Date.now() / 1000),

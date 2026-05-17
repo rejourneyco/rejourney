@@ -11,16 +11,18 @@ import { useAuth } from './AuthContext';
 import { useDemoMode } from './DemoModeContext';
 import { useSafeTeam } from './TeamContext';
 import { api, ApiProject, clearCache, clearCacheByPrefixes, getProjects } from '~/shared/api/client';
-import { RecordingSession, Project, ProjectDailyStats, TimeRange } from '~/shared/types';
+import { RecordingSession, Project, ProjectDailyStats, TimeRange, Platform } from '~/shared/types';
 import { clearSelectionCookie, SELECTED_PROJECT_COOKIE, writeSelectionCookie } from '~/shared/utils/selectionCookies';
 
 function apiProjectToProject(apiProject: ApiProject): Project {
   return {
     id: apiProject.id,
     name: apiProject.name,
-    platforms: apiProject.platforms as ('ios' | 'android')[],
+    platforms: apiProject.platforms as Platform[],
     bundleId: apiProject.bundleId || '',
     packageName: apiProject.packageName,
+    webDomain: apiProject.webDomain,
+    webAllowedDomains: apiProject.webAllowedDomains || [],
     teamId: apiProject.teamId,
     publicKey: apiProject.publicKey,
     rejourneyEnabled: apiProject.rejourneyEnabled ?? true,
@@ -29,6 +31,7 @@ function apiProjectToProject(apiProject: ApiProject): Project {
     recordingFps: apiProject.recordingFps,
     sampleRate: apiProject.sampleRate,
     maxRecordingMinutes: apiProject.maxRecordingMinutes,
+    webMaxObservabilityMinutes: apiProject.webMaxObservabilityMinutes,
     createdAt: apiProject.createdAt,
     sessionsLast7Days: apiProject.sessionsLast7Days || 0,
     errorsLast7Days: apiProject.errorsLast7Days || 0,

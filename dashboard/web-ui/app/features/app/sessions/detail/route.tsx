@@ -8,6 +8,7 @@ import {
     Clock,
     Smartphone,
     Monitor,
+    MonitorSmartphone,
     Zap,
     MousePointer2,
     Globe,
@@ -42,8 +43,15 @@ import DOMInspector, { HierarchySnapshot } from '~/shared/ui/core/DOMInspector';
 import { TouchOverlay, TouchEvent as OverlayTouchEvent } from '~/shared/ui/core/TouchOverlay';
 import { MarkerTooltip } from '~/shared/ui/core/MarkerTooltip';
 import { SessionLoadingOverlay, SessionLoadingOverlayProps } from '~/features/app/sessions/shared/SessionLoadingOverlay';
+import WebReplayPlayer from '~/shared/ui/core/WebReplayPlayer';
 import { formatGeoDisplay } from '~/shared/lib/geoDisplay';
 import { formatDeviceModel } from '~/shared/lib/deviceModelNames';
+import { getWebSessionEnvironment } from '~/shared/lib/webSessionEnvironment';
+import {
+    buildCompressedBackgroundGaps,
+    compressReplayEvents,
+    compressReplayTimestamp,
+} from '~/shared/lib/replayTimeCompression';
 import { useSessionData } from '~/shared/providers/SessionContext';
 
 // ============================================================================
@@ -58,6 +66,11 @@ interface SessionEvent {
     properties?: Record<string, any>;
     payload?: Record<string, any>;
     screen?: string;
+    screenName?: string;
+    url?: string;
+    path?: string;
+    urlPath?: string;
+    urlHost?: string;
     gestureType?: string;
     frustrationKind?: string;
     targetLabel?: string;
@@ -93,14 +106,20 @@ interface FullSession {
     userId: string;
     platform?: string;
     appVersion?: string;
+    sdkVersion?: string;
     hasRecording?: boolean;
-    /** 'screenshots' | 'none' - determines playback mode */
-    playbackMode?: 'screenshots' | 'none';
+    /** Determines the visual replay renderer. */
+    playbackMode?: 'screenshots' | 'rrweb' | 'none';
     deviceInfo: {
         model?: string;
         systemName?: string;
         os?: string;
         systemVersion?: string;
+        osVersion?: string;
+        browser?: string;
+        browserVersion?: string;
+        sdkVersion?: string;
+        userAgent?: string;
         screenWidth?: number;
         screenHeight?: number;
         appVersion?: string;
@@ -135,6 +154,20 @@ interface FullSession {
     screenshotFrameCount?: number;
     screenshotFramesProcessedSegments?: number;
     screenshotFramesTotalSegments?: number;
+    rrwebReplay?: {
+        events: any[];
+        eventCount: number;
+        segments: Array<{
+            index: number;
+            startTime: number | null;
+            endTime: number | null;
+            eventCount: number;
+            sizeBytes: number | null;
+            url: string | null;
+        }>;
+        page?: Record<string, unknown> | null;
+        viewport?: Record<string, unknown> | null;
+    };
     hierarchySnapshots?: {
         timestamp: number;
         screenName: string | null;
@@ -196,11 +229,102 @@ interface FullSession {
     };
     screenCount?: number;
     screensVisited?: string[];
+    webReferral?: string | null;
+    webLandingRoute?: string | null;
+    metadata?: Record<string, unknown>;
 }
 
 // ============================================================================
 // Event Styling
 // ============================================================================
+
+function readSessionMetadataString(session: any, keys: string[]): string | null {
+    const metadata = session?.metadata;
+    if (!metadata || typeof metadata !== 'object') return null;
+    for (const key of keys) {
+        const value = metadata[key];
+        if (value === null || value === undefined) continue;
+        const normalized = String(value).trim();
+        if (normalized) return normalized;
+    }
+    return null;
+}
+
+function getWebReferral(session: any): string | null {
+    return session?.webReferral ||
+        readSessionMetadataString(session, ['webReferral', 'webReferrerDomain', 'webAttributionSource']) ||
+        null;
+}
+
+function normalizeReplayUrlLabel(value: unknown): string | null {
+    if (value === null || value === undefined) return null;
+    const raw = String(value).trim();
+    if (!raw) return null;
+
+    try {
+        const parsed = new URL(raw);
+        return `${parsed.host}${parsed.pathname}${parsed.search}${parsed.hash}`;
+    } catch {
+        return raw;
+    }
+}
+
+function getInitialRrwebReplayUrl(session: any): string | null {
+    const rrwebEvents = session?.rrwebReplay?.events;
+    if (!Array.isArray(rrwebEvents)) return null;
+
+    for (const event of rrwebEvents) {
+        const data = event?.data && typeof event.data === 'object' ? event.data : null;
+        const normalized = normalizeReplayUrlLabel(data?.href ?? data?.url);
+        if (normalized) return normalized;
+    }
+
+    return null;
+}
+
+function getWebReplayUrlFallback(session: any): string {
+    const candidates = [
+        session?.webEntryUrl,
+        readSessionMetadataString(session, ['webEntryUrl']),
+        getInitialRrwebReplayUrl(session),
+        session?.webLandingRoute,
+        readSessionMetadataString(session, ['webLandingRoute', 'webEntryPath']),
+    ];
+
+    for (const candidate of candidates) {
+        const normalized = normalizeReplayUrlLabel(candidate);
+        if (normalized) return normalized;
+    }
+
+    return '/';
+}
+
+function getReplayUrlFromEvent(event: SessionEvent): string | null {
+    const properties = event.properties && typeof event.properties === 'object' ? event.properties : {};
+    const payload = event.payload && typeof event.payload === 'object' ? event.payload : {};
+    const candidates = [
+        event.url,
+        properties.url,
+        payload.url,
+        event.path,
+        properties.path,
+        payload.path,
+        event.urlPath,
+        properties.urlPath,
+        payload.urlPath,
+        event.screenName,
+        properties.screenName,
+        payload.screenName,
+        event.screen,
+    ];
+
+    for (const candidate of candidates) {
+        const normalized = normalizeReplayUrlLabel(candidate);
+        if (normalized) return normalized;
+    }
+
+    return null;
+}
 
 const EVENT_COLORS = {
     error: '#ef4444',
@@ -695,6 +819,7 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
     const [currentFrameIndex, setCurrentFrameIndex] = useState(0);
     const screenshotFrameCacheRef = useRef<Map<string, HTMLImageElement>>(new Map());
     const screenshotAnimationRef = useRef<number | null>(null);
+    const webReplayAnimationRef = useRef<number | null>(null);
     const lastFrameTimeRef = useRef<number>(0);
     const lastPreloadCenterIndexRef = useRef<number>(-1);
 
@@ -1171,6 +1296,15 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
             }
         }
 
+        const rrwebEvents = fullSession?.rrwebReplay?.events || [];
+        if (rrwebEvents.length > 0) {
+            const lastReplayEvent = rrwebEvents[rrwebEvents.length - 1];
+            const rrwebDuration = ((lastReplayEvent?.timestamp || sessionStart) - sessionStart) / 1000;
+            if (rrwebDuration > 0) {
+                candidates.push(rrwebDuration);
+            }
+        }
+
         // Session end time (fallback, may include background time)
         if (fullSession?.endTime && fullSession.endTime > sessionStart) {
             let duration = (fullSession.endTime - sessionStart) / 1000;
@@ -1187,8 +1321,15 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
             if (statsDur > 0) candidates.push(statsDur);
         }
 
-        // Last event time - critical for ensuring all events fit on timeline
-        if (allTimelineEvents.length > 0) {
+        const hasVisualReplayEvidence =
+            (fullSession?.screenshotFrames && fullSession.screenshotFrames.length > 0) ||
+            rrwebEvents.length > 0;
+
+        // For event-only sessions, let the event stream define the timeline.
+        // For visual replay, telemetry-only events can arrive after the final
+        // playable frame (for example an idle/background close marker). Those
+        // should not stretch the player into a blank tail.
+        if (!hasVisualReplayEvidence && allTimelineEvents.length > 0) {
             const lastEvent = allTimelineEvents[allTimelineEvents.length - 1];
             if (lastEvent?.timestamp && lastEvent.timestamp > sessionStart) {
                 candidates.push((lastEvent.timestamp - sessionStart) / 1000);
@@ -1203,52 +1344,6 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
         // Use the maximum so all events fit on the timeline
         return Math.max(...candidates);
     }, [fullSession, session, allTimelineEvents]);
-
-    // Density chart data - MUST be before early returns
-    const densityData = useMemo(() => {
-        if (durationSeconds <= 0) return { touchDensity: [], apiDensity: [] };
-
-        const bucketCount = 40;
-        const bucketSize = (durationSeconds * 1000) / bucketCount;
-        const touchBuckets = Array(bucketCount).fill(0);
-        const apiBuckets = Array(bucketCount).fill(0);
-
-        // DEBUG: Track bucket distribution
-        const touchEventTimes: number[] = [];
-        const apiEventTimes: number[] = [];
-
-        allTimelineEvents.forEach((e) => {
-            const elapsed = e.timestamp - replayBaseTime;
-            const idx = Math.min(Math.floor(elapsed / bucketSize), bucketCount - 1);
-            if (idx < 0) return;
-
-            const type = e.type?.toLowerCase() || '';
-            const gestureType = (e.gestureType || e.properties?.gestureType || '').toLowerCase();
-
-            if (type === 'network_request') {
-                apiBuckets[idx]++;
-                apiEventTimes.push(elapsed / 1000);
-            } else if (
-                type === 'gesture' || type === 'tap' || type === 'touch' || type === 'scroll' ||
-                type === 'input' || // Include keyboard input in interaction density
-                gestureType.includes('tap') || gestureType.includes('scroll')
-            ) {
-                touchBuckets[idx]++;
-                touchEventTimes.push(elapsed / 1000);
-            }
-        });
-
-        // Density buckets for visualization
-
-        const maxTouch = Math.max(...touchBuckets, 1);
-        const maxApi = Math.max(...apiBuckets, 1);
-
-        return {
-            touchDensity: touchBuckets.map(v => v / maxTouch),
-            apiDensity: apiBuckets.map(v => v / maxApi),
-        };
-    }, [allTimelineEvents, durationSeconds, replayBaseTime]);
-
 
     // Screenshot frames (primary playback mode for iOS)
     // Normalize timestamps to be relative to session start time.
@@ -1278,6 +1373,60 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
         (fullSession?.screenshotFramesStatus === 'preparing' || isFramesLoading) &&
         screenshotFrames.length === 0
     );
+    const rrwebReplayEvents = fullSession?.rrwebReplay?.events || [];
+    const webReplayRawEndMs = useMemo(() => {
+        const sessionStart = fullSession?.startTime || 0;
+        if (!sessionStart) return null;
+
+        const candidates: number[] = [];
+        const addCandidate = (value: unknown) => {
+            if (typeof value === 'number' && Number.isFinite(value) && value > sessionStart) {
+                candidates.push(value);
+            }
+        };
+
+        const explicitEndMs = typeof fullSession?.endTime === 'number' && Number.isFinite(fullSession.endTime)
+            ? fullSession.endTime
+            : null;
+
+        addCandidate(explicitEndMs);
+        addCandidate(sessionStart + durationSeconds * 1000);
+        if (typeof fullSession?.backgroundTime === 'number' && Number.isFinite(fullSession.backgroundTime) && fullSession.backgroundTime > 0) {
+            addCandidate(sessionStart + (durationSeconds + fullSession.backgroundTime) * 1000);
+        }
+        for (const event of rrwebReplayEvents) addCandidate(event?.timestamp);
+        if (explicitEndMs === null && rrwebReplayEvents.length === 0) {
+            for (const event of allTimelineEvents) addCandidate(event?.timestamp);
+        }
+
+        return candidates.length > 0 ? Math.max(...candidates) : null;
+    }, [allTimelineEvents, durationSeconds, fullSession?.backgroundTime, fullSession?.endTime, fullSession?.startTime, rrwebReplayEvents]);
+    const webReplayBackgroundGaps = useMemo(() => (
+        buildCompressedBackgroundGaps(allTimelineEvents, fullSession?.startTime || 0, undefined, {
+            terminalEndMs: webReplayRawEndMs,
+        })
+    ), [allTimelineEvents, fullSession?.startTime, webReplayRawEndMs]);
+    const compressedRrwebReplayEvents = useMemo(() => (
+        compressReplayEvents(rrwebReplayEvents, webReplayBackgroundGaps)
+    ), [rrwebReplayEvents, webReplayBackgroundGaps]);
+    const webReplayCompressedEndMs = useMemo(() => (
+        typeof webReplayRawEndMs === 'number'
+            ? compressReplayTimestamp(webReplayRawEndMs, webReplayBackgroundGaps)
+            : null
+    ), [webReplayBackgroundGaps, webReplayRawEndMs]);
+    const webReplayDurationSeconds = useMemo(() => {
+        const firstTimestamp = Number(compressedRrwebReplayEvents[0]?.timestamp);
+        const replayStart = Number.isFinite(firstTimestamp) ? firstTimestamp : replayBaseTime;
+        const candidates: number[] = [];
+        const lastTimestamp = Number(compressedRrwebReplayEvents[compressedRrwebReplayEvents.length - 1]?.timestamp);
+        if (Number.isFinite(lastTimestamp) && lastTimestamp > replayStart) {
+            candidates.push((lastTimestamp - replayStart) / 1000);
+        }
+        if (typeof webReplayCompressedEndMs === 'number' && Number.isFinite(webReplayCompressedEndMs) && webReplayCompressedEndMs > replayStart) {
+            candidates.push((webReplayCompressedEndMs - replayStart) / 1000);
+        }
+        return Math.max(0, ...candidates);
+    }, [compressedRrwebReplayEvents, replayBaseTime, webReplayCompressedEndMs]);
 
     const displayedFrameCount = Math.max(
         screenshotFrames.length,
@@ -1298,8 +1447,11 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
             : null;
     const secondaryDataLoading = isTimelineLoading || isHierarchyLoading || isStatsLoading;
 
-    // Determine playback mode (screenshot-only)
+    // Determine playback mode.
     const playbackMode = useMemo(() => {
+        if (fullSession?.playbackMode === 'rrweb' && rrwebReplayEvents.length > 0) {
+            return 'rrweb' as const;
+        }
         if (fullSession?.playbackMode === 'screenshots' && (screenshotFrames.length > 0 || visualReplayPreparing)) {
             return 'screenshots' as const;
         }
@@ -1307,7 +1459,64 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
             return 'screenshots' as const;
         }
         return 'none' as const;
-    }, [fullSession?.playbackMode, screenshotFrames, visualReplayPreparing]);
+    }, [fullSession?.playbackMode, rrwebReplayEvents.length, screenshotFrames, visualReplayPreparing]);
+
+    const playbackDurationSeconds = playbackMode === 'rrweb' ? webReplayDurationSeconds : durationSeconds;
+    const replayClockBaseTime = playbackMode === 'rrweb'
+        ? Number(compressedRrwebReplayEvents[0]?.timestamp) || replayBaseTime
+        : replayBaseTime;
+    const eventTimestampToPlaybackSeconds = useCallback((timestamp: number) => {
+        const playbackTimestamp = playbackMode === 'rrweb'
+            ? compressReplayTimestamp(timestamp, webReplayBackgroundGaps)
+            : timestamp;
+        return Math.max(0, (playbackTimestamp - replayClockBaseTime) / 1000);
+    }, [playbackMode, replayClockBaseTime, webReplayBackgroundGaps]);
+    const eventFitsPlaybackWindow = useCallback((event: SessionEvent) => {
+        if (playbackDurationSeconds <= 0) return false;
+        const playbackTime = eventTimestampToPlaybackSeconds(event.timestamp);
+        return Number.isFinite(playbackTime) && playbackTime >= 0 && playbackTime <= playbackDurationSeconds + 0.05;
+    }, [eventTimestampToPlaybackSeconds, playbackDurationSeconds]);
+
+    const densityData = useMemo(() => {
+        if (playbackDurationSeconds <= 0) return { touchDensity: [], apiDensity: [] };
+
+        const bucketCount = 40;
+        const bucketSize = playbackDurationSeconds / bucketCount;
+        const touchBuckets = Array(bucketCount).fill(0);
+        const apiBuckets = Array(bucketCount).fill(0);
+
+        allTimelineEvents.forEach((event) => {
+            const elapsedSeconds = eventTimestampToPlaybackSeconds(event.timestamp);
+            if (!Number.isFinite(elapsedSeconds) || elapsedSeconds < 0 || elapsedSeconds > playbackDurationSeconds) return;
+            const idx = Math.min(Math.floor(elapsedSeconds / bucketSize), bucketCount - 1);
+            if (idx < 0) return;
+
+            const type = event.type?.toLowerCase() || '';
+            const gestureType = (event.gestureType || event.properties?.gestureType || '').toLowerCase();
+
+            if (type === 'network_request') {
+                apiBuckets[idx]++;
+            } else if (
+                type === 'gesture' ||
+                type === 'tap' ||
+                type === 'touch' ||
+                type === 'scroll' ||
+                type === 'input' ||
+                gestureType.includes('tap') ||
+                gestureType.includes('scroll')
+            ) {
+                touchBuckets[idx]++;
+            }
+        });
+
+        const maxTouch = Math.max(...touchBuckets, 1);
+        const maxApi = Math.max(...apiBuckets, 1);
+
+        return {
+            touchDensity: touchBuckets.map((value) => value / maxTouch),
+            apiDensity: apiBuckets.map((value) => value / maxApi),
+        };
+    }, [allTimelineEvents, eventTimestampToPlaybackSeconds, playbackDurationSeconds]);
 
     // Has any visual recording?
     const hasRecording = playbackMode !== 'none' || visualReplayPreparing;
@@ -1357,11 +1566,16 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
             }
         }
 
-        // 4. Default fallback to common mobile dimensions
-        const platform = ((fullSession as any)?.platform || '').toLowerCase();
-        if (platform === 'android') {
-            return { width: 1080, height: 2400 }; // Common Android resolution
-        }
+	        // 4. Default fallback to common mobile dimensions
+	        const platform = ((fullSession as any)?.platform || '').toLowerCase();
+	        if (platform === 'web') {
+	            const webWidth = Number((fullSession as any)?.deviceInfo?.screenWidth) || 1440;
+	            const webHeight = Number((fullSession as any)?.deviceInfo?.screenHeight) || 900;
+	            return { width: webWidth, height: webHeight };
+	        }
+	        if (platform === 'android') {
+	            return { width: 1080, height: 2400 }; // Common Android resolution
+	        }
         return { width: 375, height: 812 }; // iPhone X/11/12/13/14 default
     }, [fullSession, hierarchySnapshots]);
 
@@ -1370,7 +1584,7 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
     const replayDeviceFitWidth = `calc(${(deviceWidth / Math.max(1, deviceHeight)) * 100}cqh + 0.25rem)`;
 
     const syncPlaybackChrome = useCallback((timeSeconds: number) => {
-        const safeDuration = Math.max(0, durationSeconds);
+        const safeDuration = Math.max(0, playbackDurationSeconds);
         const clampedTime = safeDuration > 0
             ? Math.max(0, Math.min(timeSeconds, safeDuration))
             : 0;
@@ -1389,7 +1603,7 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
             progressTimeRef.current.textContent = clockLabel;
             lastPlaybackClockLabelRef.current = clockLabel;
         }
-    }, [durationSeconds]);
+    }, [playbackDurationSeconds]);
 
     useEffect(() => {
         syncPlaybackChrome(currentPlaybackTime);
@@ -1461,7 +1675,7 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
         }
     }, [ensureScreenshotFrameImage, playbackRate, screenshotFrames]);
 
-    // Handle progress click/drag for screenshot playback
+    // Handle progress click/drag for visual playback
     const handleProgressInteraction = useCallback(
         (e: React.MouseEvent<HTMLDivElement> | MouseEvent) => {
             if (!progressRef.current) return;
@@ -1469,8 +1683,16 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
             const rect = progressRef.current.getBoundingClientRect();
             const percent = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
 
+            const newTime = percent * playbackDurationSeconds;
+            if (playbackMode === 'rrweb') {
+                setCurrentPlaybackTime(newTime);
+                currentPlaybackTimeRef.current = newTime;
+                lastPlaybackUiUpdateRef.current = performance.now();
+                syncPlaybackChrome(newTime);
+                return;
+            }
+
             if (screenshotFrames.length === 0) return;
-            const newTime = percent * durationSeconds;
             // Binary search for closest frame at or before the target time
             let left = 0;
             let right = screenshotFrames.length - 1;
@@ -1494,7 +1716,7 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
             syncPlaybackChrome(newTime);
             warmScreenshotFramesAround(left, 'high');
         },
-        [durationSeconds, screenshotFrames, syncPlaybackChrome, warmScreenshotFramesAround]
+        [playbackDurationSeconds, playbackMode, screenshotFrames, syncPlaybackChrome, warmScreenshotFramesAround]
     );
 
     const handleProgressMouseDown = useCallback(
@@ -1546,7 +1768,7 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
         [handleProgressInteraction]
     );
 
-    // Toggle play/pause for screenshot playback
+    // Toggle play/pause for visual playback
     const togglePlayPause = useCallback(() => {
         if (isPlaying) {
             setCurrentPlaybackTime(currentPlaybackTimeRef.current);
@@ -1554,15 +1776,22 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
             lastPlaybackUiUpdateRef.current = performance.now();
         }
 
-        // The screenshot animation effect handles the actual playback.
         setIsPlaying((playing) => !playing);
     }, [isPlaying, syncPlaybackChrome]);
 
-    // Skip in screenshot playback
+    // Skip in visual playback
     const skip = useCallback(
         (seconds: number) => {
+            const targetTime = Math.max(0, Math.min(currentPlaybackTimeRef.current + seconds, playbackDurationSeconds));
+            if (playbackMode === 'rrweb') {
+                setCurrentPlaybackTime(targetTime);
+                currentPlaybackTimeRef.current = targetTime;
+                lastPlaybackUiUpdateRef.current = performance.now();
+                syncPlaybackChrome(targetTime);
+                return;
+            }
+
             if (screenshotFrames.length === 0) return;
-            const targetTime = Math.max(0, Math.min(currentPlaybackTimeRef.current + seconds, durationSeconds));
             // Binary search for closest frame at or before the target time
             let left = 0;
             let right = screenshotFrames.length - 1;
@@ -1583,11 +1812,20 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
             syncPlaybackChrome(targetTime);
             warmScreenshotFramesAround(idx, 'high');
         },
-        [screenshotFrames, durationSeconds, syncPlaybackChrome, warmScreenshotFramesAround]
+        [playbackDurationSeconds, playbackMode, screenshotFrames, syncPlaybackChrome, warmScreenshotFramesAround]
     );
 
-    // Restart screenshot playback
+    // Restart visual playback
     const restart = useCallback(() => {
+        if (playbackMode === 'rrweb') {
+            setCurrentPlaybackTime(0);
+            currentPlaybackTimeRef.current = 0;
+            lastPlaybackUiUpdateRef.current = performance.now();
+            syncPlaybackChrome(0);
+            setIsPlaying(true);
+            return;
+        }
+
         if (screenshotFrames.length === 0) return;
         setCurrentFrameIndex(0);
         setCurrentPlaybackTime(0);
@@ -1597,14 +1835,14 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
         syncPlaybackChrome(0);
         warmScreenshotFramesAround(0, 'high');
         setIsPlaying(true);
-    }, [screenshotFrames, syncPlaybackChrome, warmScreenshotFramesAround]);
+    }, [playbackMode, screenshotFrames, syncPlaybackChrome, warmScreenshotFramesAround]);
 
     // Effect: Keyboard shortcut for play/pause
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
             // Ignore if user is typing in an input/textarea
             if (e.target !== document.body) return;
-            if (playbackMode !== 'screenshots') return;
+            if (playbackMode === 'none') return;
 
             if (e.code === 'Space') {
                 e.preventDefault();
@@ -1880,6 +2118,55 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
         warmScreenshotFramesAround,
     ]);
 
+    // Browser replay clock. rrweb renders its own DOM; this keeps our controls
+    // and timeline markers moving against the same playback time.
+    useEffect(() => {
+        if (playbackMode !== 'rrweb' || !isPlaying) {
+            if (webReplayAnimationRef.current) {
+                cancelAnimationFrame(webReplayAnimationRef.current);
+                webReplayAnimationRef.current = null;
+            }
+            return;
+        }
+
+        lastFrameTimeRef.current = performance.now();
+        lastPlaybackUiUpdateRef.current = lastFrameTimeRef.current;
+        syncPlaybackChrome(currentPlaybackTimeRef.current);
+
+        const tick = (now: number) => {
+            const deltaSec = ((now - lastFrameTimeRef.current) / 1000) * playbackRate;
+            lastFrameTimeRef.current = now;
+
+            const nextPlaybackTime = currentPlaybackTimeRef.current + deltaSec;
+            currentPlaybackTimeRef.current = nextPlaybackTime;
+            syncPlaybackChrome(nextPlaybackTime);
+
+            if (nextPlaybackTime >= playbackDurationSeconds) {
+                setIsPlaying(false);
+                setCurrentPlaybackTime(playbackDurationSeconds);
+                currentPlaybackTimeRef.current = playbackDurationSeconds;
+                lastPlaybackUiUpdateRef.current = now;
+                syncPlaybackChrome(playbackDurationSeconds);
+                return;
+            }
+
+            if (now - lastPlaybackUiUpdateRef.current >= PLAYBACK_STATE_COMMIT_INTERVAL_MS) {
+                setCurrentPlaybackTime(nextPlaybackTime);
+                lastPlaybackUiUpdateRef.current = now;
+            }
+
+            webReplayAnimationRef.current = requestAnimationFrame(tick);
+        };
+
+        webReplayAnimationRef.current = requestAnimationFrame(tick);
+
+        return () => {
+            if (webReplayAnimationRef.current) {
+                cancelAnimationFrame(webReplayAnimationRef.current);
+            }
+        };
+    }, [isPlaying, playbackDurationSeconds, playbackMode, playbackRate, syncPlaybackChrome]);
+
     // Draw current screenshot frame to canvas
     useEffect(() => {
         drawScreenshotFrame(currentFrameIndex);
@@ -1915,14 +2202,21 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
 
     // Seek helper used by timeline and activity interactions
     const handleSeekToTime = useCallback((time: number) => {
-        const clampedTime = Math.max(0, Math.min(time, durationSeconds));
+        const clampedTime = Math.max(0, Math.min(time, playbackDurationSeconds));
+        if (playbackMode === 'rrweb') {
+            setCurrentPlaybackTime(clampedTime);
+            currentPlaybackTimeRef.current = clampedTime;
+            lastPlaybackUiUpdateRef.current = performance.now();
+            syncPlaybackChrome(clampedTime);
+            return;
+        }
         seekToScreenshotFrame(clampedTime);
-    }, [seekToScreenshotFrame, durationSeconds]);
+    }, [playbackDurationSeconds, playbackMode, seekToScreenshotFrame, syncPlaybackChrome]);
 
     const formatPlaybackTime = formatPlaybackClock;
 
     // Progress percentage
-    const effectiveDuration = durationSeconds;
+    const effectiveDuration = playbackDurationSeconds;
     const progressPercent = effectiveDuration > 0 ? (currentPlaybackTime / effectiveDuration) * 100 : 0;
 
     const activityTabs = useMemo(() => {
@@ -2028,23 +2322,21 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
 
     const activeActivityIndex = useMemo(() => {
         if (filteredActivity.length === 0) return -1;
-        const playbackTimestamp = replayBaseTime + currentPlaybackTime * 1000;
-        let left = 0;
-        let right = filteredActivity.length - 1;
         let result = -1;
 
-        while (left <= right) {
-            const mid = Math.floor((left + right) / 2);
-            if ((filteredActivity[mid]?.timestamp || 0) <= playbackTimestamp) {
-                result = mid;
-                left = mid + 1;
-            } else {
-                right = mid - 1;
+        for (let index = 0; index < filteredActivity.length; index++) {
+            const event = filteredActivity[index];
+            if (!event) continue;
+            const playbackTime = eventTimestampToPlaybackSeconds(event.timestamp);
+            if (playbackTime <= currentPlaybackTime + 0.05) {
+                result = index;
+                continue;
             }
+            break;
         }
 
         return result >= 0 ? result : 0;
-    }, [filteredActivity, currentPlaybackTime, replayBaseTime]);
+    }, [currentPlaybackTime, eventTimestampToPlaybackSeconds, filteredActivity]);
 
     const visibleActivityWindow = useMemo(() => {
         if (filteredActivity.length <= MAX_ACTIVITY_ROWS) {
@@ -2073,17 +2365,19 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
     }, [activeActivityIndex, filteredActivity]);
 
     const timelineMarkers = useMemo(() => {
-        if (filteredActivity.length <= MAX_TIMELINE_MARKERS || durationSeconds <= 0) {
-            return filteredActivity.map((event, index) => ({ event, sourceIndex: index, clusteredCount: 1 }));
+        const markerActivity = filteredActivity.filter(eventFitsPlaybackWindow);
+
+        if (markerActivity.length <= MAX_TIMELINE_MARKERS || playbackDurationSeconds <= 0) {
+            return markerActivity.map((event, index) => ({ event, sourceIndex: index, clusteredCount: 1 }));
         }
 
         const buckets = new Map<number, { event: SessionEvent; sourceIndex: number; priority: number; clusteredCount: number }>();
-        filteredActivity.forEach((event, index) => {
-            const time = (event.timestamp - replayBaseTime) / 1000;
-            if (time < 0) return;
+        markerActivity.forEach((event, index) => {
+            const time = eventTimestampToPlaybackSeconds(event.timestamp);
+            if (time < 0 || time > playbackDurationSeconds + 0.05) return;
             const bucket = Math.max(
                 0,
-                Math.min(MAX_TIMELINE_MARKERS - 1, Math.floor((time / durationSeconds) * MAX_TIMELINE_MARKERS))
+                Math.min(MAX_TIMELINE_MARKERS - 1, Math.floor((time / playbackDurationSeconds) * MAX_TIMELINE_MARKERS))
             );
             const priority = getTimelineMarkerPriority(event);
             const existing = buckets.get(bucket);
@@ -2100,7 +2394,7 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
         });
 
         return Array.from(buckets.values()).sort((a, b) => a.sourceIndex - b.sourceIndex);
-    }, [durationSeconds, filteredActivity, replayBaseTime]);
+    }, [eventFitsPlaybackWindow, eventTimestampToPlaybackSeconds, filteredActivity, playbackDurationSeconds]);
 
     // Keep the activity stream synced with playback. Only scroll the inner
     // timeline pane so the main replay layout stays stable.
@@ -2131,6 +2425,54 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
             behavior: isPlaying ? 'smooth' : 'auto',
         });
     }, [activeWorkbenchTab, activeActivityIndex, isPlaying]);
+
+    const rawDeviceModel = fullSession?.deviceInfo?.model || session?.deviceModel || 'Unknown';
+    const deviceModel = formatDeviceModel(rawDeviceModel, 'Unknown');
+    const platform = (
+        fullSession?.platform ||
+        fullSession?.deviceInfo?.systemName ||
+        fullSession?.deviceInfo?.os ||
+        session?.platform ||
+        'unknown'
+    ).toLowerCase();
+    const isWebSession = platform === 'web';
+    const webEnvironment = isWebSession ? getWebSessionEnvironment(fullSession || session) : null;
+    const appVersion = fullSession?.appVersion || fullSession?.deviceInfo?.appVersion || session?.appVersion || '';
+    const headerDeviceLabel = isWebSession && webEnvironment
+        ? `${webEnvironment.browserLabel} on ${webEnvironment.osLabel}`
+        : deviceModel;
+    const headerDeviceTitle = isWebSession && webEnvironment
+        ? `${webEnvironment.browserTitle} on ${webEnvironment.osTitle}${webEnvironment.sdkVersionLabel ? ` · ${webEnvironment.sdkVersionLabel}` : ''}`
+        : rawDeviceModel;
+    const webReferral = getWebReferral(fullSession || session);
+    const webOsChrome: 'macos' | 'windows' | 'other' | null = isWebSession
+        ? (webEnvironment?.osLabel?.toLowerCase().startsWith('macos')
+            ? 'macos'
+            : webEnvironment?.osLabel?.toLowerCase().startsWith('windows')
+                ? 'windows'
+                : 'other')
+        : null;
+    const currentReplayUrl = useMemo(() => {
+        const fallback = getWebReplayUrlFallback(fullSession || session);
+        if (!isWebSession) return fallback;
+        let bestUrl: string | null = null;
+        for (const event of allTimelineEvents) {
+            const playbackTime = eventTimestampToPlaybackSeconds(event.timestamp);
+            if (playbackTime > currentPlaybackTime + 0.05) {
+                break;
+            }
+            if (
+                event.type !== 'navigation' &&
+                event.type !== 'screen_view' &&
+                event.type !== 'app_foreground' &&
+                event.type !== 'app_background'
+            ) {
+                continue;
+            }
+            bestUrl = getReplayUrlFromEvent(event) || bestUrl;
+        }
+        return bestUrl || fallback;
+    }, [isWebSession, currentPlaybackTime, eventTimestampToPlaybackSeconds, allTimelineEvents, fullSession, session]);
 
     // ========================================================================
     // EARLY RETURNS (after all hooks)
@@ -2169,16 +2511,6 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
     const durationMinutes = Math.floor(durationSeconds / 60);
     const durationSecs = Math.floor(durationSeconds % 60);
 
-    const rawDeviceModel = fullSession?.deviceInfo?.model || session?.deviceModel || 'Unknown';
-    const deviceModel = formatDeviceModel(rawDeviceModel, 'Unknown');
-    const platform = (
-        fullSession?.platform ||
-        fullSession?.deviceInfo?.systemName ||
-        fullSession?.deviceInfo?.os ||
-        session?.platform ||
-        'unknown'
-    ).toLowerCase();
-    const appVersion = fullSession?.appVersion || fullSession?.deviceInfo?.appVersion || session?.appVersion || '';
     const geoLocation = fullSession?.geoLocation || fullSession?.geoInfo || session?.geoLocation || null;
     const geoDisplay = formatGeoDisplay(geoLocation);
     const sessionLocationWithFlag = `${geoDisplay.flagEmoji} ${geoDisplay.fullLabel}`;
@@ -2556,9 +2888,13 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
                                 <h1 className="w-full truncate text-sm font-black uppercase text-black sm:w-auto sm:text-base md:text-lg">Replay Workbench</h1>
                                 <div className="flex w-full min-w-0 flex-wrap items-center gap-1.5 sm:w-auto">
                                     <span className="border-2 border-black bg-[#67e8f9] px-2 py-0.5 font-mono text-[9px] font-black uppercase text-black shadow-neo-sm md:text-[10px]">
-                                        {platform.toUpperCase()}
+                                        {isWebSession ? webEnvironment?.browserLabel : platform.toUpperCase()}
                                     </span>
-                                    {appVersion && (
+                                    {isWebSession && webEnvironment ? (
+                                        <span className="border-2 border-black bg-[#f9a8d4] px-2 py-0.5 font-mono text-[9px] font-black uppercase text-black shadow-neo-sm md:text-[10px]">
+                                            {webEnvironment.osLabel}
+                                        </span>
+                                    ) : appVersion && (
                                         <span className="border-2 border-black bg-[#f9a8d4] px-2 py-0.5 font-mono text-[9px] font-black uppercase text-black shadow-neo-sm md:text-[10px]">
                                             v{appVersion}
                                         </span>
@@ -2623,8 +2959,8 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
                                     <span className="min-w-0 truncate">{new Date(startTime).toLocaleString()}</span>
                                 </div>
                                 <div className="flex min-w-0 max-w-full items-center gap-1.5">
-                                    <Smartphone className="h-3.5 w-3.5" />
-                                    <span className="min-w-0 truncate" title={rawDeviceModel}>{deviceModel}</span>
+	                                    {isWebSession ? <MonitorSmartphone className="h-3.5 w-3.5" /> : <Smartphone className="h-3.5 w-3.5" />}
+                                    <span className="min-w-0 truncate" title={headerDeviceTitle}>{headerDeviceLabel}</span>
                                 </div>
                                 <div className="flex min-w-0 max-w-full items-center gap-1.5">
                                     <MapPin className="h-3.5 w-3.5" />
@@ -2668,27 +3004,32 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
 
             <div className="replay-workbench-main mx-auto flex w-full max-w-[1920px] flex-col gap-4 px-3 py-3 sm:px-4 sm:py-4 xl:min-h-0 xl:flex-1 xl:gap-3 xl:overflow-hidden xl:py-3">
                 <div className="replay-workbench-grid grid grid-cols-1 gap-4 xl:min-h-0 xl:flex-1 xl:grid-cols-12 xl:gap-3">
-                    <section className="replay-theater-section flex min-w-0 max-w-full flex-col overflow-hidden border border-black bg-white shadow-neo-sm xl:col-span-7 xl:h-full xl:min-h-0">
+                    <section className={`replay-theater-section flex min-w-0 max-w-full flex-col overflow-hidden border border-black bg-white shadow-neo-sm xl:h-full xl:min-h-0 ${isWebSession ? 'xl:col-span-8' : 'xl:col-span-7'}`}>
+                        {!isWebSession && (
                         <div className="border-b border-black bg-white px-3 py-2.5 text-black sm:px-4">
                             <div className="flex flex-wrap items-center justify-between gap-2">
-                                <div className="flex min-w-0 items-center gap-2">
-                                    <span className="flex h-6 w-6 shrink-0 items-center justify-center border border-black bg-[#67e8f9]">
-                                        <Monitor className="h-3.5 w-3.5" />
-                                    </span>
-                                    <p className="truncate text-[11px] font-black uppercase text-black">Replay Theater</p>
-                                </div>
-                                <div className="dashboard-mobile-scroll flex max-w-full flex-nowrap items-center gap-1.5 overflow-x-auto text-[9px] font-black uppercase text-slate-700 sm:flex-wrap sm:overflow-visible md:text-[10px]">
-                                    {secondaryDataLoading ? (
+	                                <div className="flex min-w-0 items-center gap-2">
+	                                    <span className="flex h-6 w-6 shrink-0 items-center justify-center border border-black bg-[#67e8f9]">
+	                                        <Monitor className="h-3.5 w-3.5" />
+	                                    </span>
+	                                    <p className="truncate text-[11px] font-black uppercase text-black">
+	                                        Replay Theater
+	                                    </p>
+	                                </div>
+	                                <div className="dashboard-mobile-scroll flex max-w-full flex-nowrap items-center gap-1.5 overflow-x-auto text-[9px] font-black uppercase text-slate-700 sm:flex-wrap sm:overflow-visible md:text-[10px]">
+	                                    {secondaryDataLoading ? (
                                         <span className="border border-black bg-[#ecfeff] px-2 py-1 text-black">
                                             Syncing
                                         </span>
                                     ) : null}
-                                    <span className="border border-black bg-[#67e8f9] px-2 py-1 text-black">
-                                        {screenshotFrames.length > 0
-                                            ? `Frame ${Math.min(currentFrameIndex + 1, screenshotFrames.length)}/${screenshotFrames.length}`
-                                            : `${displayedFrameCount} FR`}
-                                    </span>
-                                    <span
+		                                    {playbackMode !== 'rrweb' ? (
+		                                        <span className="border border-black bg-[#67e8f9] px-2 py-1 text-black">
+		                                            {screenshotFrames.length > 0
+		                                                ? `Frame ${Math.min(currentFrameIndex + 1, screenshotFrames.length)}/${screenshotFrames.length}`
+		                                                : `${displayedFrameCount} FR`}
+		                                        </span>
+		                                    ) : null}
+	                                    <span
                                         className="border border-black bg-[#f8fafc] px-2 py-1"
                                         title="Compressed S3 storage for this session"
                                     >
@@ -2706,36 +3047,108 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
                                 </div>
                             </div>
                         </div>
+                        )}
 
                         <div className="replay-theater-stage relative border-b border-black bg-white px-3 py-5 sm:px-5 sm:py-7 xl:flex xl:min-h-0 xl:flex-1 xl:items-center xl:justify-center xl:overflow-hidden xl:px-4 xl:py-3">
-                            <div
-                                className="mx-auto flex w-full max-w-[360px] items-center justify-center xl:h-full xl:min-h-0 xl:max-w-none"
-                                style={{ '--replay-device-fit-width': replayDeviceFitWidth } as React.CSSProperties}
-                            >
-                                {(isReplayExpired || replayUnavailableReason || !hasRecording) ? (
-                                    <div className="replay-device-placeholder flex aspect-[9/18.5] w-full max-w-[320px] flex-col items-center justify-center border-2 border-dashed border-black bg-white p-6 text-center shadow-neo-sm">
-                                        <VideoOff className="h-10 w-10 text-slate-400" />
-                                        <p className="mt-3 text-sm font-bold text-slate-900">Replay Not Available</p>
-                                        {replayUnavailableReason === 'deleted' ? (
-                                            <p className="mt-2 text-xs leading-5 text-slate-600">
-                                                Visual media was removed by retention policy, but timeline events, logs, and network traces are still available.
-                                            </p>
-                                        ) : replayUnavailableReason === 'no_recording_data' ? (
-                                            <p className="mt-2 text-xs leading-5 text-slate-600">
-                                                No screenshot recording was successfully uploaded for this session. You can still inspect all telemetry.
-                                            </p>
-                                        ) : (
-                                            <p className="mt-2 text-xs leading-5 text-slate-600">
-                                                No visual frames were uploaded for this session.
+	                            <div
+		                                className={`mx-auto flex w-full items-center justify-center xl:h-full xl:min-h-0 ${playbackMode === 'rrweb' ? 'max-w-none' : isWebSession ? 'max-w-[1080px] xl:max-w-[1120px]' : 'max-w-[360px] xl:max-w-none'}`}
+	                                style={{ '--replay-device-fit-width': replayDeviceFitWidth } as React.CSSProperties}
+	                            >
+	                                {(isReplayExpired || replayUnavailableReason || !hasRecording) ? (
+	                                    <div className={`replay-device-placeholder flex w-full flex-col items-center justify-center border-2 border-dashed border-black bg-white p-6 text-center shadow-neo-sm ${isWebSession ? 'aspect-[16/10] max-w-[920px]' : 'aspect-[9/18.5] max-w-[320px]'}`}>
+	                                        {isWebSession ? <MonitorSmartphone className="h-10 w-10 text-slate-400" /> : <VideoOff className="h-10 w-10 text-slate-400" />}
+	                                        <p className="mt-3 text-sm font-bold text-slate-900">{isWebSession ? 'Browser Replay Not Available' : 'Replay Not Available'}</p>
+	                                        {replayUnavailableReason === 'deleted' ? (
+	                                            <p className="mt-2 text-xs leading-5 text-slate-600">
+	                                                Visual media was removed by retention policy, but timeline events, logs, and network traces are still available.
+	                                            </p>
+	                                        ) : replayUnavailableReason === 'no_recording_data' ? (
+	                                            <p className="mt-2 text-xs leading-5 text-slate-600">
+	                                                {isWebSession
+	                                                    ? 'No browser replay was successfully uploaded for this session. You can still inspect all telemetry.'
+	                                                    : 'No screenshot recording was successfully uploaded for this session. You can still inspect all telemetry.'}
+	                                            </p>
+	                                        ) : (
+	                                            <p className="mt-2 text-xs leading-5 text-slate-600">
+	                                                No visual frames were uploaded for this session.
                                             </p>
                                         )}
+	                                    </div>
+                                ) : playbackMode === 'rrweb' ? (
+                                    <div className="replay-device-shell relative flex h-full min-h-[420px] w-full justify-center xl:min-h-0 xl:items-stretch">
+                                        <div className="relative flex h-full min-h-[420px] w-full flex-col overflow-hidden border border-black bg-white shadow-[0_18px_45px_rgba(15,23,42,0.12)] xl:min-h-0">
+                                            {/* macOS window chrome */}
+                                            {webOsChrome === 'macos' && (
+                                                <div className="flex shrink-0 items-center gap-3 border-b border-black/10 bg-[#e8e8e8] px-3 py-2">
+                                                    <div className="flex items-center gap-[6px]">
+                                                        <span className="h-3 w-3 rounded-full bg-[#FF5F57] shadow-[inset_0_0_0_0.5px_rgba(0,0,0,0.15)]" />
+                                                        <span className="h-3 w-3 rounded-full bg-[#FFBD2E] shadow-[inset_0_0_0_0.5px_rgba(0,0,0,0.15)]" />
+                                                        <span className="h-3 w-3 rounded-full bg-[#28C840] shadow-[inset_0_0_0_0.5px_rgba(0,0,0,0.15)]" />
+                                                    </div>
+                                                    <div className="flex min-w-0 flex-1 justify-center">
+                                                        <div className="flex w-full max-w-sm items-center gap-1.5 rounded bg-white/80 px-2.5 py-0.5 text-[11px] text-slate-400 shadow-[inset_0_0_0_1px_rgba(0,0,0,0.12)]">
+                                                            <Globe className="h-3 w-3 shrink-0 text-slate-400" />
+                                                            <span className="truncate" title={currentReplayUrl}>{currentReplayUrl}</span>
+                                                        </div>
+                                                    </div>
+                                                    <div className="flex shrink-0 items-center gap-2 text-[9px] font-black uppercase text-slate-400">
+                                                        {secondaryDataLoading && <span className="text-sky-500">Syncing</span>}
+                                                        {webReferral && <span className="max-w-[8rem] truncate" title={webReferral}>↩ {webReferral}</span>}
+                                                        <span title="Compressed S3 storage">{compressedStorageLabel}</span>
+                                                    </div>
+                                                </div>
+                                            )}
+                                            {/* Windows window chrome */}
+                                            {webOsChrome === 'windows' && (
+                                                <div className="flex shrink-0 items-center border-b border-black/10 bg-[#f3f3f3]">
+                                                    <div className="flex min-w-0 flex-1 items-center gap-2 px-3 py-1.5 text-[11px] text-slate-500">
+                                                        <Globe className="h-3 w-3 shrink-0 text-slate-400" />
+                                                        <span className="truncate" title={currentReplayUrl}>{currentReplayUrl}</span>
+                                                        {webReferral && <span className="shrink-0 text-slate-400" title={webReferral}>· ↩ {webReferral}</span>}
+                                                        {secondaryDataLoading && <span className="shrink-0 text-[9px] font-black uppercase text-sky-500">Syncing</span>}
+                                                    </div>
+                                                    <div className="shrink-0 px-3 text-[9px] font-black uppercase text-slate-400">{compressedStorageLabel}</div>
+                                                    <div className="flex shrink-0 items-stretch text-slate-500">
+                                                        <span className="flex h-8 w-10 items-center justify-center text-sm hover:bg-black/5">&#x2013;</span>
+                                                        <span className="flex h-8 w-10 items-center justify-center text-xs hover:bg-black/5">&#x25A1;</span>
+                                                        <span className="flex h-8 w-10 items-center justify-center text-sm hover:bg-[#c42b1c] hover:text-white">&#x2715;</span>
+                                                    </div>
+                                                </div>
+                                            )}
+                                            {/* Linux / other browser chrome */}
+                                            {webOsChrome === 'other' && (
+                                                <div className="flex shrink-0 items-center gap-3 border-b border-black/10 bg-[#f0f0f0] px-3 py-2">
+                                                    <div className="flex min-w-0 flex-1 justify-center">
+                                                        <div className="flex w-full max-w-sm items-center gap-1.5 rounded bg-white/80 px-2.5 py-0.5 text-[11px] text-slate-400 shadow-[inset_0_0_0_1px_rgba(0,0,0,0.12)]">
+                                                            <Globe className="h-3 w-3 shrink-0 text-slate-400" />
+                                                            <span className="truncate" title={currentReplayUrl}>{currentReplayUrl}</span>
+                                                        </div>
+                                                    </div>
+                                                    <div className="flex shrink-0 items-center gap-2 text-[9px] font-black uppercase text-slate-400">
+                                                        {secondaryDataLoading && <span className="text-sky-500">Syncing</span>}
+                                                        {webReferral && <span className="max-w-[8rem] truncate" title={webReferral}>↩ {webReferral}</span>}
+                                                        <span>{compressedStorageLabel}</span>
+                                                    </div>
+                                                </div>
+                                            )}
+                                            <div className="min-h-0 flex-1">
+                                                <WebReplayPlayer
+                                                    events={compressedRrwebReplayEvents}
+                                                    currentTime={currentPlaybackTime}
+                                                    isPlaying={isPlaying}
+                                                    playbackRate={playbackRate}
+                                                    durationSeconds={webReplayDurationSeconds}
+                                                    backgroundGaps={webReplayBackgroundGaps}
+                                                />
+                                            </div>
+                                        </div>
                                     </div>
                                 ) : (
                                     <div className="replay-device-shell relative flex w-full justify-center xl:h-full xl:min-h-0 xl:items-center">
-                                        <div className="replay-device-frame relative overflow-hidden rounded-[2rem] border border-slate-950 bg-[#070b14] p-1.5 shadow-[0_18px_45px_rgba(15,23,42,0.18)]">
-                                            <div className="rounded-[1.75rem] bg-slate-900 p-1">
+                                        <div className="replay-device-frame relative overflow-hidden rounded-[2rem] border border-slate-950 bg-[#070b14] p-[5px] shadow-[0_18px_45px_rgba(15,23,42,0.18)]">
+                                            <div className="rounded-[1.7rem] bg-slate-900 p-[2px]">
                                                 <div
-                                                    className="relative overflow-hidden rounded-[1.45rem] bg-slate-900"
+                                                    className="relative overflow-hidden rounded-[1.55rem] bg-slate-900"
                                                     style={{ aspectRatio: `${deviceWidth} / ${deviceHeight}` }}
                                                 >
                                                     {visualReplayPreparing && (
@@ -2750,7 +3163,7 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
                                                                 Timeline, logs, and network are ready. Frames appear here as soon as processing finishes.
                                                             </p>
                                                             {replayPreparationProgressPercent !== null ? (
-                                                            <p className="mt-3 text-[11px] font-black uppercase text-[#67e8f9]">
+                                                                <p className="mt-3 text-[11px] font-black uppercase text-[#67e8f9]">
                                                                     {replayPreparationProgressPercent}% complete
                                                                 </p>
                                                             ) : null}
@@ -2804,7 +3217,7 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
                             </div>
                         </div>
 
-                        {playbackMode === 'screenshots' ? (
+                        {playbackMode !== 'none' ? (
                             <>
                                 <div className="border-b-2 border-black bg-white px-3 py-2 xl:shrink-0 xl:px-4 xl:py-1.5">
                                     <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
@@ -2868,17 +3281,19 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
                                                 <span ref={progressTimeRef}>{formatPlaybackTime(currentPlaybackTime)}</span> / {formatPlaybackTime(effectiveDuration)}
                                             </span>
 
-                                            <button
-                                                onClick={() => setShowTouchOverlay(!showTouchOverlay)}
-                                                onMouseDown={(event) => event.preventDefault()}
-                                                className={`flex h-7 items-center gap-1 border-2 px-2 text-xs font-bold uppercase transition ${showTouchOverlay
-                                                    ? 'border-black bg-[#67e8f9] text-black shadow-neo-sm'
-                                                    : 'border-black bg-white text-black shadow-neo-sm hover:-translate-y-0.5 hover:bg-[#ecfeff] hover:shadow-neo'
-                                                    }`}
-                                            >
-                                                <Hand className="h-3 w-3" />
-                                                <span className="hidden xs:inline">Touches</span>
-                                            </button>
+                                            {playbackMode === 'screenshots' ? (
+                                                <button
+                                                    onClick={() => setShowTouchOverlay(!showTouchOverlay)}
+                                                    onMouseDown={(event) => event.preventDefault()}
+                                                    className={`flex h-7 items-center gap-1 border-2 px-2 text-xs font-bold uppercase transition ${showTouchOverlay
+                                                        ? 'border-black bg-[#67e8f9] text-black shadow-neo-sm'
+                                                        : 'border-black bg-white text-black shadow-neo-sm hover:-translate-y-0.5 hover:bg-[#ecfeff] hover:shadow-neo'
+                                                        }`}
+                                                >
+                                                    <Hand className="h-3 w-3" />
+                                                    <span className="hidden xs:inline">Touches</span>
+                                                </button>
+                                            ) : null}
 
                                             <div className="relative">
                                                 <button
@@ -3016,9 +3431,9 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
                                         </div>
 
                                         {timelineMarkers.map(({ event, sourceIndex, clusteredCount }) => {
-                                            const time = (event.timestamp - replayBaseTime) / 1000;
-                                            if (time < 0 || durationSeconds <= 0) return null;
-                                            const percent = Math.min(100, Math.max(0, (time / durationSeconds) * 100));
+                                            const time = eventTimestampToPlaybackSeconds(event.timestamp);
+                                            if (time < 0 || playbackDurationSeconds <= 0) return null;
+                                            const percent = Math.min(100, Math.max(0, (time / playbackDurationSeconds) * 100));
                                             const markerKey = `marker-${sourceIndex}-${event.timestamp}`;
                                             const color = getEventColor(event);
                                             const isFrustration =
@@ -3079,7 +3494,7 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
                     </section>
 
 
-                    <section className="replay-side-panel flex min-h-[400px] flex-col overflow-hidden border-2 border-black bg-white shadow-neo xl:col-span-5 xl:h-full xl:min-h-0">
+                    <section className={`replay-side-panel flex min-h-[400px] flex-col overflow-hidden border-2 border-black bg-white shadow-neo xl:h-full xl:min-h-0 ${isWebSession ? 'xl:col-span-4' : 'xl:col-span-5'}`}>
                         <div className="replay-workbench-tabs dashboard-mobile-scroll flex shrink-0 overflow-x-auto border-b-2 border-black bg-[#f8fafc] no-scrollbar">
                             <button
                                 onClick={() => setActiveWorkbenchTab('timeline')}
@@ -3214,7 +3629,7 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
                                                 const color = getEventColor(event);
                                                 const Icon = getEventIcon(event);
                                                 const timeStr = formatEventTime(event.timestamp);
-                                                const seekTime = Math.max(0, (event.timestamp - replayBaseTime) / 1000);
+                                                const seekTime = eventTimestampToPlaybackSeconds(event.timestamp);
                                                 const isHighlighted = index === activeActivityIndex;
                                                 const title = isNetwork
                                                     ? `${event.name || event.properties?.method || 'API Request'}`

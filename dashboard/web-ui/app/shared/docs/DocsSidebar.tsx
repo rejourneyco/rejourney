@@ -3,6 +3,7 @@ import { cn } from "~/shared/lib/cn";
 import { ChevronDown, ChevronRight, Hash } from "lucide-react";
 import { useState, useEffect } from "react";
 import { getAllDocs } from "~/shared/lib/docsConfig";
+import { getContentLocaleCopy } from "~/shared/lib/contentLocalization";
 import { getLocalizedPublicPath, getMarketingLocaleFromPathname, stripMarketingLocaleFromPathname } from "~/shared/lib/internationalMarketing";
 
 type NavLink = { label: string; href: string; isRoute?: boolean };
@@ -15,8 +16,27 @@ const selfhostedDocs = markdownDocs.filter(doc => doc.category === 'Self-Hosting
 const communityDocs = markdownDocs.filter(doc => doc.category === 'Community' || doc.category === 'Development');
 const archDocs = markdownDocs.filter(doc => doc.category === 'Architecture');
 const swiftDocs = markdownDocs.filter(doc => doc.category === 'Swift (iOS)');
+const webDocs = markdownDocs.filter(doc => doc.category === 'Web');
 
 const NAVIGATION: NavCategory[] = [
+    ...(webDocs.length > 0 ? [{
+        category: "Web",
+        sections: [
+            {
+                title: "Getting Started",
+                links: [
+                    { label: "Getting Started", href: "/docs/web/getting-started", isRoute: true },
+                    { label: "Installation", href: "/docs/web/getting-started#installation", isRoute: false },
+                    { label: "Basic Setup", href: "/docs/web/getting-started#basic-setup", isRoute: false },
+                    { label: "Route Tracking", href: "/docs/web/getting-started#route-tracking", isRoute: false },
+                    { label: "User Identification", href: "/docs/web/getting-started#user-identification", isRoute: false },
+                    { label: "Custom Events", href: "/docs/web/getting-started#custom-events", isRoute: false },
+                    { label: "Metadata", href: "/docs/web/getting-started#metadata", isRoute: false },
+                    { label: "Privacy Controls", href: "/docs/web/getting-started#privacy-controls", isRoute: false },
+                ]
+            }
+        ]
+    }] : []),
     {
         category: "React Native",
         sections: [
@@ -99,8 +119,32 @@ const NAVIGATION: NavCategory[] = [
 export function DocsSidebar({ className }: { className?: string }) {
     const location = useLocation();
     const locale = getMarketingLocaleFromPathname(location.pathname);
-    const [expandedCategories, setExpandedCategories] = useState<string[]>(["React Native", "Swift (iOS)", "Self-Hosting", "Community", "Architecture"]);
+    const copy = getContentLocaleCopy(locale);
+    const [expandedCategories, setExpandedCategories] = useState<string[]>(["Web", "React Native", "Swift (iOS)", "Self-Hosting", "Community", "Architecture"]);
     const [activeHash, setActiveHash] = useState<string>("");
+    const navigation = NAVIGATION.map((cat) => {
+        if (cat.category !== "Web") {
+            return cat;
+        }
+
+        return {
+            ...cat,
+            sections: cat.sections.map((section) => ({
+                ...section,
+                title: copy.docsNavGettingStarted,
+                links: [
+                    { label: copy.docsNavGettingStarted, href: "/docs/web/getting-started", isRoute: true },
+                    { label: copy.docsNavInstallation, href: "/docs/web/getting-started#installation", isRoute: false },
+                    { label: copy.docsNavBasicSetup, href: "/docs/web/getting-started#basic-setup", isRoute: false },
+                    { label: copy.docsNavRouteTracking, href: "/docs/web/getting-started#route-tracking", isRoute: false },
+                    { label: copy.docsNavUserIdentification, href: "/docs/web/getting-started#user-identification", isRoute: false },
+                    { label: copy.docsNavCustomEvents, href: "/docs/web/getting-started#custom-events", isRoute: false },
+                    { label: copy.docsNavMetadata, href: "/docs/web/getting-started#metadata", isRoute: false },
+                    { label: copy.docsNavPrivacyControls, href: "/docs/web/getting-started#privacy-controls", isRoute: false },
+                ],
+            })),
+        };
+    });
 
     // Scroll Spy implementation
     useEffect(() => {
@@ -193,15 +237,14 @@ export function DocsSidebar({ className }: { className?: string }) {
     };
 
     return (
-        <aside className={cn("w-64 flex-shrink-0 border-r-2 border-black hidden md:block bg-[#f4f4f5] self-stretch", className)}>
-            <div className="sticky top-[64px]">
-            <div className="p-6">
-                {NAVIGATION.map((cat) => (
+        <aside className={cn("sticky top-[64px] z-20 hidden w-72 flex-shrink-0 h-[calc(100vh-64px)] border-r-2 border-black bg-white/95 shadow-[5px_0_0_0_rgba(0,0,0,1)] md:block", className)}>
+            <div className="h-full overflow-y-auto p-5">
+                {navigation.map((cat) => (
                     <div key={cat.category} className="mb-6 last:mb-0">
                         {/* Category Header */}
                         <button
                             onClick={() => toggleCategory(cat.category)}
-                            className="w-full flex items-center justify-between py-2 text-sm font-bold text-black border-b-2 border-black mb-3 hover:bg-white hover:pl-2 transition-all uppercase tracking-wide group"
+                            className="group mb-3 flex w-full items-center justify-between border-b-2 border-black py-2 text-sm font-black uppercase tracking-normal text-black transition-all hover:bg-[#fefce8] hover:pl-2"
                         >
                             <span>{cat.category}</span>
                             {expandedCategories.includes(cat.category)
@@ -230,10 +273,10 @@ export function DocsSidebar({ className }: { className?: string }) {
                                                 );
 
                                                 const className = cn(
-                                                    "block px-3 py-1.5 text-sm transition-all border border-transparent rounded-sm",
+                                                    "block px-3 py-2 text-sm font-semibold transition-all border border-transparent",
                                                     active
-                                                        ? "text-black font-bold bg-white border-black shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] translate-x-1"
-                                                        : "text-gray-600 hover:text-black hover:bg-gray-200 hover:border-gray-300"
+                                                        ? "text-black bg-[#fff08a] border-black shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] translate-x-1"
+                                                        : "text-slate-600 hover:text-black hover:bg-slate-100 hover:border-slate-300"
                                                 );
 
                                                 const localizedHref = getLocalizedPublicPath(locale, link.href);
@@ -280,7 +323,6 @@ export function DocsSidebar({ className }: { className?: string }) {
                         )}
                     </div>
                 ))}
-            </div>
             </div>
         </aside>
     );

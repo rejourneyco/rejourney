@@ -28,3 +28,30 @@ export function MarkExpo(props: React.SVGProps<SVGSVGElement>) {
         </svg>
     );
 }
+
+export function MarkNextJs(props: React.SVGProps<SVGSVGElement>) {
+    return (
+        <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden {...props}>
+            <circle cx="12" cy="12" r="10"/>
+            <path d="M9 7h1.5l4.5 7V7H16.5v10H15l-4.5-7v7H9V7z" fill="white"/>
+        </svg>
+    );
+}
+
+export function MarkVue(props: React.SVGProps<SVGSVGElement>) {
+    return (
+        <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden {...props}>
+            <path d="M12 21.5L1.5 2.5H6L12 13 18 2.5h4.5L12 21.5z"/>
+            <path d="M12 13.5L6 2.5h3.5L12 7.5l2.5-5H18L12 13.5z" fill="white" opacity="0.85"/>
+        </svg>
+    );
+}
+
+export function MarkNuxt(props: React.SVGProps<SVGSVGElement>) {
+    return (
+        <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden {...props}>
+            <path d="M13.5 3.5L21.5 18H14l-2-3.5 2-3.5 2 3.5H19L13.5 5.5 13.5 3.5z"/>
+            <path d="M9 8.5L2.5 20H16l-2-3.5H6.5L9 12.5 10.5 15l2-3.5L9 8.5z"/>
+        </svg>
+    );
+}

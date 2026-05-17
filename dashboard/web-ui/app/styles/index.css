@@ -1,6 +1,15 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+.web-rrweb-player .replayer-wrapper {
+  background: #fff;
+}
+
+.web-rrweb-player .replayer-mouse,
+.web-rrweb-player iframe {
+  max-width: none;
+}
 /* Fonts loaded via non-blocking link tags in index.html */
 
 @layer base {
@@ -238,10 +247,12 @@
     border-radius: 0 !important;
     background: #ffffff !important;
     box-shadow: var(--dashboard-kpi-shadow) !important;
+    transition: box-shadow 0.2s ease, transform 0.2s ease;
   }
 
   .dashboard-kpi-card:hover {
     box-shadow: var(--dashboard-kpi-shadow-hover) !important;
+    transform: translate(-1px, -1px);
   }
 
   .dashboard-kpi-card :where(.dashboard-kpi-accent, .dashboard-kpi-delta) {
@@ -555,6 +566,25 @@
   .hover-glow:hover {
     box-shadow: 0 0 20px rgba(93, 173, 236, 0.3), 8px 8px 0px 0px rgba(0, 0, 0, 1);
   }
+
+  /* Retro neon glow utilities */
+  .retro-glow-cyan {
+    box-shadow: 0 0 12px rgba(0, 200, 255, 0.35), 0 0 30px rgba(0, 200, 255, 0.12);
+  }
+  .retro-glow-pink {
+    box-shadow: 0 0 12px rgba(244, 63, 94, 0.35), 0 0 30px rgba(244, 63, 94, 0.12);
+  }
+  .retro-glow-green {
+    box-shadow: 0 0 12px rgba(34, 197, 94, 0.35), 0 0 30px rgba(34, 197, 94, 0.12);
+  }
+
+  @keyframes retro-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.65; }
+  }
+  .retro-pulse {
+    animation: retro-pulse 2.4s ease-in-out infinite;
+  }
 }
 
 /* Unified dashboard shell theme */
@@ -642,6 +672,444 @@
 
 .firebase-general-page :where(a) {
   color: #1a73e8;
+}
+
+:where(.firebase-billing-settings-page, .firebase-project-settings-page) {
+  background: #f8fafd !important;
+  color: #202124;
+}
+
+:where(.firebase-billing-settings-page, .firebase-project-settings-page) .settings-layout-content {
+  max-width: 1480px;
+  padding-top: 1rem;
+  padding-bottom: 1.5rem;
+}
+
+:where(.firebase-billing-settings-page, .firebase-project-settings-page) .settings-layout-content > :not([hidden]) ~ :not([hidden]) {
+  margin-top: 1rem;
+}
+
+:where(.firebase-billing-settings-page, .firebase-project-settings-page) :where(.dashboard-surface, .dashboard-panel) {
+  background: #ffffff !important;
+  border: 1px solid #dadce0 !important;
+  border-radius: 8px !important;
+  box-shadow: 0 1px 2px rgba(60, 64, 67, 0.1), 0 1px 3px rgba(60, 64, 67, 0.08) !important;
+  transform: none !important;
+}
+
+:where(.firebase-billing-settings-page, .firebase-project-settings-page) :where(.dashboard-inner-surface) {
+  background: #f8fafd !important;
+  border: 1px solid #e8eaed !important;
+  border-radius: 6px !important;
+  box-shadow: none !important;
+}
+
+:where(.firebase-billing-settings-page, .firebase-project-settings-page) :where(h2, h3) {
+  color: #202124 !important;
+  font-weight: 600 !important;
+  letter-spacing: 0 !important;
+  text-transform: none !important;
+}
+
+:where(.firebase-billing-settings-page, .firebase-project-settings-page) :where(.font-black) {
+  font-weight: 650;
+}
+
+:where(.firebase-billing-settings-page, .firebase-project-settings-page) :where(.border-black, .border-slate-900) {
+  border-color: #dadce0 !important;
+}
+
+:where(.firebase-billing-settings-page, .firebase-project-settings-page) :where(.border-2, .border-4) {
+  border-width: 1px !important;
+}
+
+:where(.firebase-billing-settings-page, .firebase-project-settings-page) :where(.border-b-2, .border-b-4) {
+  border-bottom-width: 1px !important;
+}
+
+:where(.firebase-billing-settings-page, .firebase-project-settings-page) :where(.border-t-2, .border-t-4) {
+  border-top-width: 1px !important;
+}
+
+:where(.firebase-billing-settings-page, .firebase-project-settings-page) :where(.shadow-neo-sm, .shadow-neo, .shadow-neo-lg, [class*="shadow-[2px"], [class*="shadow-[4px"], [class*="shadow-[8px"]) {
+  box-shadow: none !important;
+}
+
+:where(.firebase-billing-settings-page, .firebase-project-settings-page) :where(button:hover) {
+  transform: none !important;
+}
+
+:where(.firebase-billing-settings-page, .firebase-project-settings-page) :where(button.rounded-none, .rounded-none) {
+  border-radius: 6px !important;
+}
+
+:where(.firebase-billing-settings-page, .firebase-project-settings-page) :where(input:not([type="checkbox"]):not([type="range"]), textarea, select) {
+  background: #ffffff !important;
+  border-color: #dadce0 !important;
+  border-radius: 6px !important;
+  box-shadow: none !important;
+  color: #202124 !important;
+}
+
+:where(.firebase-billing-settings-page, .firebase-project-settings-page) :where(input:not([type="checkbox"]):not([type="range"]):focus, textarea:focus, select:focus) {
+  border-color: #1a73e8 !important;
+  box-shadow: 0 0 0 1px #1a73e8 !important;
+  outline: none;
+}
+
+:where(.firebase-billing-settings-page, .firebase-project-settings-page) :where(input[type="range"]) {
+  accent-color: #1a73e8;
+}
+
+:where(.firebase-billing-settings-page, .firebase-project-settings-page) :where(.bg-\[\#f8fafc\], .bg-slate-50) {
+  background-color: #f8fafd !important;
+}
+
+:where(.firebase-billing-settings-page, .firebase-project-settings-page) :where(.bg-\[\#67e8f9\], .bg-cyan-50, .bg-blue-50) {
+  background-color: #e8f0fe !important;
+}
+
+:where(.firebase-billing-settings-page, .firebase-project-settings-page) :where(.bg-\[\#86efac\], .bg-emerald-50) {
+  background-color: #e6f4ea !important;
+}
+
+:where(.firebase-billing-settings-page, .firebase-project-settings-page) :where(.bg-\[\#f9a8d4\], .bg-rose-50) {
+  background-color: #fce8e6 !important;
+}
+
+:where(.firebase-billing-settings-page, .firebase-project-settings-page) :where(.text-black) {
+  color: #202124 !important;
+}
+
+:where(.firebase-billing-settings-page, .firebase-project-settings-page) :where(.bg-black, .bg-slate-950) {
+  background-color: #1a73e8 !important;
+}
+
+:where(.firebase-billing-settings-page, .firebase-project-settings-page) :where(.hover\:bg-slate-800:hover) {
+  background-color: #1765cc !important;
+}
+
+:where(.firebase-billing-settings-page, .firebase-project-settings-page) :where(.inline-flex.border-2.border-black.font-black) {
+  border-color: #dadce0 !important;
+  border-radius: 999px !important;
+  box-shadow: none !important;
+  letter-spacing: 0 !important;
+}
+
+.firebase-billing-settings-page .billing-progress-track {
+  height: 0.75rem;
+  overflow: hidden;
+  border: 1px solid #dadce0;
+  border-radius: 999px;
+  background: #eef2f7;
+}
+
+.firebase-billing-settings-page .billing-progress-fill {
+  height: 100%;
+  border-radius: inherit;
+  transition: width 0.5s ease;
+}
+
+.firebase-billing-settings-page .billing-plan-card {
+  position: relative;
+  overflow: hidden;
+  background: #ffffff !important;
+  transition: border-color 0.18s ease, box-shadow 0.18s ease;
+}
+
+.firebase-billing-settings-page .billing-plan-card:hover {
+  border-color: #c7d2fe !important;
+  box-shadow: 0 2px 6px rgba(60, 64, 67, 0.14) !important;
+}
+
+.firebase-billing-settings-page .billing-plan-card-current {
+  border-color: #1a73e8 !important;
+  box-shadow: 0 0 0 1px rgba(26, 115, 232, 0.16), 0 1px 3px rgba(60, 64, 67, 0.1) !important;
+}
+
+.firebase-billing-settings-page .billing-plan-accent {
+  height: 0.25rem;
+  width: 100%;
+  background: var(--plan-accent, #1a73e8);
+}
+
+.firebase-billing-settings-page .billing-modal-panel {
+  border: 1px solid #dadce0 !important;
+  border-radius: 8px !important;
+  box-shadow: 0 18px 36px rgba(60, 64, 67, 0.18) !important;
+}
+
+.firebase-project-settings-page .settings-option-card {
+  min-height: 8.75rem;
+  background: #ffffff !important;
+}
+
+.firebase-project-settings-page .settings-option-card[aria-pressed="true"] {
+  border-color: #1a73e8 !important;
+  background: #e8f0fe !important;
+  box-shadow: 0 0 0 1px rgba(26, 115, 232, 0.16) !important;
+}
+
+.firebase-project-settings-page .project-settings-rail {
+  align-self: start;
+  position: sticky;
+  top: 1rem;
+}
+
+.firebase-project-settings-page .project-settings-rail-item {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 0.75rem;
+  border-radius: 6px;
+  padding: 0.65rem;
+  color: inherit;
+  text-decoration: none;
+  transition: background-color 0.16s ease, border-color 0.16s ease;
+}
+
+.firebase-project-settings-page .project-settings-rail-item:hover {
+  background: #f1f5f9;
+}
+
+.firebase-project-settings-page .project-settings-rail-icon,
+.firebase-project-settings-page .project-settings-section-icon,
+.firebase-project-settings-page .project-settings-row-icon {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid #dadce0;
+  border-radius: 6px;
+}
+
+.firebase-project-settings-page .project-settings-rail-icon {
+  height: 2rem;
+  width: 2rem;
+}
+
+.firebase-project-settings-page .project-settings-section-icon {
+  height: 2.25rem;
+  width: 2.25rem;
+}
+
+.firebase-project-settings-page .project-settings-row-icon {
+  height: 1.75rem;
+  width: 1.75rem;
+  background: #f8fafd;
+  color: #5f6368;
+}
+
+.firebase-project-settings-page .project-settings-section {
+  position: relative;
+}
+
+.firebase-project-settings-page .project-settings-section-accent {
+  height: 3px;
+  width: 100%;
+}
+
+.firebase-project-settings-page .project-settings-row:hover {
+  background: #fbfdff;
+}
+
+.firebase-project-settings-page .project-settings-status-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 1.65rem;
+  border: 1px solid #dadce0;
+  border-radius: 999px;
+  padding: 0.2rem 0.65rem;
+  font-size: 0.72rem;
+  font-weight: 650;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.firebase-project-settings-page .project-settings-platform-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  border: 1px solid #dadce0;
+  border-radius: 999px;
+  background: #ffffff;
+  padding: 0.35rem 0.65rem;
+  color: #3c4043;
+  font-size: 0.75rem;
+  font-weight: 650;
+}
+
+.firebase-project-settings-page .project-settings-switch {
+  position: relative;
+  display: inline-flex;
+  height: 1.75rem;
+  width: 3rem;
+  flex-shrink: 0;
+  cursor: pointer;
+  align-items: center;
+  border: 1px solid #cbd5e1;
+  border-radius: 999px;
+  background: #e2e8f0;
+  padding: 0;
+  transition: background-color 0.16s ease, border-color 0.16s ease;
+}
+
+.firebase-project-settings-page .project-settings-switch span {
+  display: inline-block;
+  height: 1.25rem;
+  width: 1.25rem;
+  transform: translateX(0.2rem);
+  border: 1px solid #cbd5e1;
+  border-radius: 999px;
+  background: #ffffff;
+  box-shadow: 0 1px 2px rgba(60, 64, 67, 0.18);
+  transition: transform 0.16s ease;
+}
+
+.firebase-project-settings-page .project-settings-switch-on {
+  border-color: #188038;
+  background: #34a853;
+}
+
+.firebase-project-settings-page .project-settings-switch-on span {
+  transform: translateX(1.42rem);
+}
+
+.firebase-project-settings-page .project-settings-switch:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.firebase-project-settings-page .project-settings-range-card,
+.firebase-project-settings-page .project-settings-field-card,
+.firebase-project-settings-page .project-settings-toggle-card,
+.firebase-project-settings-page .project-settings-code-row {
+  background: #ffffff !important;
+}
+
+.firebase-project-settings-page .project-settings-range-card input[type="range"] {
+  accent-color: #1a73e8;
+}
+
+.firebase-project-settings-page .project-settings-stepper {
+  display: inline-grid;
+  grid-template-columns: 2rem minmax(4.75rem, auto) 2rem;
+  flex-shrink: 0;
+  align-items: center;
+  overflow: hidden;
+  border: 1px solid #cfd8e3;
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: 0 1px 2px rgba(60, 64, 67, 0.08);
+}
+
+.firebase-project-settings-page .project-settings-stepper button {
+  display: inline-flex;
+  height: 2rem;
+  width: 2rem;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  background: #f8fafd;
+  color: #1a73e8;
+  cursor: pointer;
+}
+
+.firebase-project-settings-page .project-settings-stepper button:hover:not(:disabled) {
+  background: #e8f0fe;
+}
+
+.firebase-project-settings-page .project-settings-stepper button:disabled {
+  cursor: not-allowed;
+  color: #9aa6b2;
+  opacity: 0.65;
+}
+
+.firebase-project-settings-page .project-settings-stepper-value {
+  min-width: 0;
+  border-left: 1px solid #e8eaed;
+  border-right: 1px solid #e8eaed;
+  padding: 0 0.75rem;
+  color: #111827;
+  font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.92rem;
+  font-weight: 700;
+  line-height: 2rem;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.firebase-project-settings-page .project-settings-range-input {
+  appearance: none;
+  width: 100%;
+  height: 0.7rem;
+  border-radius: 999px;
+  background: linear-gradient(to right, #1a73e8 0%, #1a73e8 var(--range-progress), #dbe7f6 var(--range-progress), #dbe7f6 100%);
+  cursor: pointer;
+}
+
+.firebase-project-settings-page .project-settings-range-input:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.firebase-project-settings-page .project-settings-range-input::-webkit-slider-runnable-track {
+  height: 0.7rem;
+  border-radius: 999px;
+  background: transparent;
+}
+
+.firebase-project-settings-page .project-settings-range-input::-webkit-slider-thumb {
+  appearance: none;
+  height: 1.45rem;
+  width: 1.45rem;
+  margin-top: -0.4rem;
+  border: 3px solid #ffffff;
+  border-radius: 999px;
+  background: #1a73e8;
+  box-shadow: 0 1px 3px rgba(60, 64, 67, 0.32), 0 0 0 1px rgba(26, 115, 232, 0.32);
+}
+
+.firebase-project-settings-page .project-settings-range-input::-moz-range-track {
+  height: 0.7rem;
+  border-radius: 999px;
+  background: transparent;
+}
+
+.firebase-project-settings-page .project-settings-range-input::-moz-range-thumb {
+  height: 1.2rem;
+  width: 1.2rem;
+  border: 3px solid #ffffff;
+  border-radius: 999px;
+  background: #1a73e8;
+  box-shadow: 0 1px 3px rgba(60, 64, 67, 0.32), 0 0 0 1px rgba(26, 115, 232, 0.32);
+}
+
+.firebase-project-settings-page .project-settings-copy-button {
+  display: inline-flex;
+  height: 2rem;
+  width: 2rem;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid #dadce0;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #5f6368;
+  transition: background-color 0.16s ease, color 0.16s ease, border-color 0.16s ease;
+}
+
+.firebase-project-settings-page .project-settings-copy-button:hover {
+  border-color: #1a73e8;
+  background: #e8f0fe;
+  color: #1a73e8;
+}
+
+@media (max-width: 1279px) {
+  .firebase-project-settings-page .project-settings-rail {
+    position: static;
+  }
 }
 
 .firebase-api-page {
@@ -1119,6 +1587,23 @@
   border: 0 !important;
 }
 
+.firebase-heatmaps-page :where(.heatmap-browser-frame) {
+  border-color: #202124 !important;
+  box-shadow: 0 14px 26px rgba(60, 64, 67, 0.16) !important;
+}
+
+.firebase-heatmaps-page :where(.heatmap-browser-chrome) {
+  border-color: #dadce0 !important;
+}
+
+.firebase-heatmaps-page :where(.heatmap-browser-screen) {
+  min-height: 340px;
+}
+
+.firebase-heatmaps-page :where(.heatmap-web-tile-screen) {
+  min-height: 0;
+}
+
 .firebase-heatmaps-page :where(.heatmap-tile-screen) {
   border-color: #dadce0 !important;
   border-radius: 12px;
@@ -1168,7 +1653,7 @@
 }
 
 .firebase-heatmaps-page :where(.heatmap-version-card) {
-  width: 190px;
+  width: 220px;
   flex: 0 0 auto;
   border: 1px solid #dadce0;
   border-radius: 8px;
@@ -1176,6 +1661,10 @@
   padding: 0.75rem;
   cursor: pointer;
   transition: background 0.16s ease, border-color 0.16s ease, box-shadow 0.16s ease;
+}
+
+.firebase-heatmaps-page :where(.heatmap-version-card:has(.heatmap-web-tile-screen)) {
+  width: 300px;
 }
 
 .firebase-heatmaps-page :where(.heatmap-version-card:hover) {
@@ -1943,7 +2432,7 @@
 }
 
 .dashboard-topbar :where(button, a) {
-  border-radius: 999px;
+  border-radius: 0;
 }
 
 .dashboard-topbar :where(.shadow-sm) {
@@ -2155,6 +2644,11 @@
   max-width: 100%;
 }
 
+.replay-browser-frame {
+  width: min(920px, 92vw);
+  max-width: 100%;
+}
+
 @media (min-width: 1280px) {
   .replay-workbench-page,
   .replay-workbench-main,
@@ -2178,6 +2672,12 @@
     flex: 0 0 auto;
     max-height: 100%;
     width: min(clamp(240px, 56cqw, 520px), var(--replay-device-fit-width, 520px));
+  }
+
+  .replay-browser-frame {
+    flex: 0 1 auto;
+    max-height: 100%;
+    width: min(100%, clamp(560px, 86cqw, 1040px));
   }
 
   .replay-device-placeholder {

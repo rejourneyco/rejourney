@@ -1,4 +1,5 @@
 import { eq, sql } from 'drizzle-orm';
+import { gunzipSync } from 'zlib';
 import { db, projects, recordingArtifacts, sessionMetrics, sessions } from '../db/client.js';
 import { downloadFromS3ForArtifact, getObjectSizeBytesForArtifact } from '../db/s3.js';
 import { logger } from '../logger.js';
@@ -51,6 +52,43 @@ async function loadArtifactObjectSize(context: ArtifactProcessorContext): Promis
         context.job.kind,
         await getObjectSizeBytesForArtifact(context.projectId, context.s3Key, context.artifact.endpointId),
     );
+}
+
+function parseMaybeGzippedJson(data: Buffer, s3ObjectKey?: string | null): any {
+    const isGzipped = (data.length > 2 && data[0] === 0x1f && data[1] === 0x8b) ||
+        Boolean(s3ObjectKey?.endsWith('.gz'));
+
+    if (!isGzipped) return JSON.parse(data.toString('utf8'));
+
+    try {
+        return JSON.parse(gunzipSync(data).toString('utf8'));
+    } catch {
+        return JSON.parse(data.toString('utf8'));
+    }
+}
+
+function validateRrwebArtifactPayload(data: Buffer, s3ObjectKey?: string | null): number {
+    const parsed = parseMaybeGzippedJson(data, s3ObjectKey);
+    const events = Array.isArray(parsed) ? parsed : parsed?.events;
+
+    if (!Array.isArray(events) || events.length === 0) {
+        throw new Error('rrweb artifact payload must contain at least one event');
+    }
+
+    if (!Array.isArray(parsed) && parsed?.format !== 'rrweb') {
+        throw new Error('rrweb artifact payload missing rrweb format marker');
+    }
+
+    const invalidEvent = events.find((event) => (
+        !event ||
+        typeof event !== 'object' ||
+        !Number.isFinite(Number((event as { timestamp?: unknown }).timestamp))
+    ));
+    if (invalidEvent) {
+        throw new Error('rrweb artifact payload contains an event without a numeric timestamp');
+    }
+
+    return events.length;
 }
 
 export const artifactProcessors: Record<string, ArtifactProcessor> = {
@@ -113,11 +151,26 @@ export const artifactProcessors: Record<string, ArtifactProcessor> = {
         });
         return { sizeBytes };
     },
+    rrweb: async (context) => {
+        const sizeBytes = await loadArtifactObjectSize(context);
+        const data = await downloadFromS3ForArtifact(context.projectId, context.s3Key, context.artifact.endpointId);
+        if (!data) throw new Error('Artifact payload missing from S3 for rrweb');
+        const eventCount = validateRrwebArtifactPayload(data, context.s3Key);
+        context.log.info({ eventCount }, 'RRWeb artifact verified');
+        return { sizeBytes };
+    },
 };
 
 export function getArtifactProcessor(kind: string | null | undefined): ArtifactProcessor | null {
     if (!kind) return null;
     return artifactProcessors[kind] ?? null;
+}
+
+function shouldRepairReadyEventsArtifact(
+    kind: string | null | undefined,
+    artifact: typeof recordingArtifacts.$inferSelect,
+): boolean {
+    return kind === 'events' && (artifact.startTime == null || artifact.endTime == null);
 }
 
 export async function runArtifactProcessorByKind(
@@ -217,14 +270,38 @@ export async function processArtifactJobFromBullMQ(
     });
 
     // If the artifact is already in ready state, just run completion effects.
+    // Some buffered web event artifacts can reach ready without their derived
+    // client timing fields. Repair those once so lifecycle math and metrics do
+    // not miss foreground/background evidence.
     if (artifact.status === 'ready') {
+        if (shouldRepairReadyEventsArtifact(kind, artifact)) {
+            const { sizeBytes } = await runArtifactProcessorByKind(kind, {
+                artifact,
+                job: jobCtx,
+                log: artifactLog,
+                metrics,
+                projectId,
+                s3Key: s3ObjectKey,
+                session,
+            });
+            await db.update(recordingArtifacts)
+                .set({
+                    sizeBytes: artifact.sizeBytes ?? sizeBytes,
+                    verifiedAt: artifact.verifiedAt ?? new Date(),
+                })
+                .where(eq(recordingArtifacts.id, artifactId));
+            artifactLog.info(
+                { event: 'artifact.ready_event_repaired', actualObjectSize: sizeBytes },
+                'artifact.ready_event_repaired',
+            );
+        }
         const reconcileResult = await reconcileSessionState(session.id);
         await runArtifactCompletionEffects({
             kind,
             replayAvailable: Boolean(reconcileResult?.replayAvailable),
             sessionId: session.id,
         });
-        artifactLog.info('Artifact already ready; running completion effects without reprocessing');
+        artifactLog.info('Artifact already ready; running completion effects');
         return;
     }
 
@@ -271,7 +348,7 @@ export async function processArtifactJobFromBullMQ(
     artifactLog.info(
         {
             event: 'artifact.processed',
-            replayArtifact: kind === 'screenshots' || kind === 'hierarchy',
+            replayArtifact: kind === 'screenshots' || kind === 'hierarchy' || kind === 'rrweb',
             actualObjectSize: sizeBytes,
         },
         'artifact.processed',

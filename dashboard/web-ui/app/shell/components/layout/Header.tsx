@@ -2,7 +2,7 @@ import React from 'react';
 import { Link, useLocation } from 'react-router';
 import { Button } from '~/shared/ui/core/Button';
 import { useAuth } from '~/shared/providers/AuthContext';
-import { ExternalLink } from 'lucide-react';
+import { Github } from 'lucide-react';
 import { getLocalizedPublicPath, getMarketingHomeCopy, getMarketingLocaleFromPathname } from '~/shared/lib/internationalMarketing';
 
 export const Header: React.FC = () => {
@@ -11,9 +11,10 @@ export const Header: React.FC = () => {
   const locale = getMarketingLocaleFromPathname(location.pathname);
   const copy = getMarketingHomeCopy(location.pathname).header;
   const engineeringPath = getLocalizedPublicPath(locale, "/engineering");
-  const docsPath = getLocalizedPublicPath(locale, "/docs/reactnative/overview");
+  const docsPath = getLocalizedPublicPath(locale, "/docs/web/getting-started");
   const pricingPath = getLocalizedPublicPath(locale, "/pricing");
   const selfHostedPath = getLocalizedPublicPath(locale, "/docs/selfhosted");
+  const roadmapPath = getLocalizedPublicPath(locale, "/roadmap");
   const publicNavLinkClass = "text-base font-bold uppercase tracking-wide hover:underline decoration-2 underline-offset-4 decoration-slate-900 text-slate-900 font-mono";
   const mobileNavLinkClass = "inline-flex shrink-0 items-center gap-1.5 border border-slate-300 bg-white px-3 py-1.5 font-mono text-[11px] font-black uppercase text-slate-900 shadow-sm transition hover:border-black hover:bg-[#ecfeff]";
 
@@ -42,20 +43,20 @@ export const Header: React.FC = () => {
               {copy.docs}
             </Link>
             <Link
+              to={roadmapPath}
+              className={`relative ${publicNavLinkClass}`}
+            >
+              {copy.roadmap}
+              <span className="absolute -right-4 -top-2 rotate-12 border border-black bg-[#f9a8d4] px-1 py-[1px] text-[8px] font-black uppercase leading-none text-black shadow-[2px_2px_0_0_rgba(0,0,0,1)]">
+                {copy.newBadge}
+              </span>
+            </Link>
+            <Link
               to={pricingPath}
               className={publicNavLinkClass}
             >
               {copy.pricing}
             </Link>
-            <a
-              href="https://github.com/rejourneyco/rejourney"
-              target="_blank"
-              rel="noopener noreferrer"
-              className={`inline-flex items-center gap-2 ${publicNavLinkClass}`}
-            >
-              <ExternalLink className="w-5 h-5" />
-              {copy.github}
-            </a>
           </nav>
 
           <div className="flex items-center gap-2 sm:gap-4">
@@ -64,6 +65,15 @@ export const Header: React.FC = () => {
                 {copy.selfHosted}
               </Button>
             </Link>
+            <a
+              href="https://github.com/rejourneyco/rejourney"
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-label={copy.github}
+              className="hidden h-10 w-10 items-center justify-center border-2 border-transparent text-slate-900 transition-all hover:border-black hover:bg-[#ecfeff] md:inline-flex"
+            >
+              <Github className="h-5 w-5" />
+            </a>
             <Link to={isAuthenticated ? "/dashboard/general" : "/login"}>
               <Button variant="ghost" className="font-mono uppercase font-black text-xs sm:text-sm px-3 sm:px-6 py-2 border-2 border-black bg-white text-black hover:bg-white hover:text-black hover:shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] hover:translate-x-[-2px] hover:translate-y-[-2px] transition-all rounded-none">
                 {isAuthenticated ? copy.dashboard : copy.login}
@@ -71,13 +81,19 @@ export const Header: React.FC = () => {
             </Link>
           </div>
         </div>
-        <nav className="border-t border-slate-200 bg-white/90 lg:hidden" aria-label={`${copy.ariaLabel} mobile links`}>
+        <nav className="border-t border-slate-200 bg-white/90 lg:hidden" aria-label={copy.mobileAriaLabel}>
           <div className="no-scrollbar mx-auto flex w-full max-w-7xl gap-2 overflow-x-auto px-4 py-2 sm:px-6">
             <Link to={engineeringPath} className={mobileNavLinkClass}>
               {copy.engineering}
             </Link>
             <Link to={docsPath} className={mobileNavLinkClass}>
               {copy.docs}
+            </Link>
+            <Link to={roadmapPath} className={`relative ${mobileNavLinkClass}`}>
+              {copy.roadmap}
+              <span className="ml-0.5 border border-black bg-[#f9a8d4] px-1 text-[8px] font-black leading-none text-black">
+                {copy.newBadge}
+              </span>
             </Link>
             <Link to={pricingPath} className={mobileNavLinkClass}>
               {copy.pricing}
@@ -89,10 +105,10 @@ export const Header: React.FC = () => {
               href="https://github.com/rejourneyco/rejourney"
               target="_blank"
               rel="noopener noreferrer"
-              className={mobileNavLinkClass}
+              className="inline-flex h-[31px] w-[34px] shrink-0 items-center justify-center border border-slate-300 bg-white text-slate-900 shadow-sm transition hover:border-black hover:bg-[#ecfeff]"
+              aria-label={copy.github}
             >
-              <ExternalLink className="h-3.5 w-3.5" />
-              {copy.github}
+              <Github className="h-3.5 w-3.5" />
             </a>
           </div>
         </nav>

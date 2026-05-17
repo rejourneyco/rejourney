@@ -5,7 +5,125 @@
  * All copy buttons should reference these constants to ensure consistency.
  */
 
-export const AI_INTEGRATION_PROMPT = `FIRST: Detect whether this project is a Swift (native iOS) app or a React Native app by checking imports and file types. Then follow ONLY the matching section below.
+export const AI_INTEGRATION_PROMPT = `FIRST: Detect whether this project is a Web app, a React Native app, or a Swift (native iOS) app by checking imports, dependencies, and file types. Then follow ONLY the matching section below.
+
+==========================================================
+IF WEB — follow this section:
+==========================================================
+
+Integrate Rejourney session replay into this browser/web app based on the official documentation below.
+
+INSTALLATION:
+npm install @rejourneyco/browser
+
+SETUP (add to the app entry point - main.tsx, main.jsx, app/layout.tsx, _app.tsx, or equivalent):
+import { Rejourney } from '@rejourneyco/browser';
+
+await Rejourney.init('PUBLIC_KEY_HERE'); // initializes SDK and fetches remote config
+await Rejourney.start(); // starts the session and recording
+
+FRAMEWORK INTEGRATIONS:
+Use the dedicated entry point if this project uses a supported framework:
+
+React:
+import { RejourneyProvider, useRejourney } from '@rejourneyco/browser/react';
+<RejourneyProvider publicKey="PUBLIC_KEY_HERE" startOnMount>
+  <App />
+</RejourneyProvider>
+
+Next.js:
+import { RejourneyNext } from '@rejourneyco/browser/next';
+<RejourneyNext publicKey="PUBLIC_KEY_HERE" />
+
+Also check for Vue, Nuxt, SvelteKit, Remix, Gatsby, Astro, and Angular integrations if the app uses those frameworks.
+
+ROUTE TRACKING:
+- If using a framework integration, prefer its built-in route tracking.
+- If using the vanilla browser API in a single-page app, call trackRoute after navigation changes:
+import { Rejourney } from '@rejourneyco/browser';
+Rejourney.trackRoute(window.location.pathname);
+
+USER IDENTITY (Hook this up immediately using a non-PII ID like a UUID):
+import { Rejourney } from '@rejourneyco/browser';
+// After login:
+Rejourney.setUserIdentity('user_abc123');
+// On logout:
+Rejourney.clearUserIdentity();
+
+CUSTOM EVENTS — Track actions that happened (timestamped, can occur multiple times per session):
+
+API: Rejourney.logEvent(name: string, properties?: Record<string, unknown>)
+
+// Simple event (name only)
+Rejourney.logEvent('signup_completed');
+
+// Event with properties — attach context to each occurrence
+Rejourney.logEvent('button_clicked', { buttonName: 'signup', page: 'pricing' });
+Rejourney.logEvent('checkout_completed', { plan: 'pro', amount: 29.99, currency: 'USD' });
+Rejourney.logEvent('onboarding_step', { step: 3, stepName: 'profile_setup', skipped: false });
+Rejourney.logEvent('feature_used', { feature: 'dashboard_filter', enabled: true });
+Rejourney.logEvent('api_error_seen', { endpoint: '/api/checkout', status: 500 });
+
+Rules for events:
+- Use snake_case for event names (e.g. 'button_clicked' not 'Button Clicked')
+- Property values should be simple types: strings, numbers, booleans (no nested objects)
+- Focus on actions that matter for debugging or analytics — don't log every click
+- Events appear as markers on the replay timeline AND are filterable in the session archive
+- You can filter by event name, by property key, by property key+value, and by event count
+
+METADATA — Describe who the user is / what state they're in (session-level, one value per key):
+
+API: Rejourney.setMetadata(key: string, value: string | number | boolean)
+API: Rejourney.setMetadata(properties: Record<string, string | number | boolean>)
+
+// Single property
+Rejourney.setMetadata('plan', 'premium');
+
+// Multiple properties at once
+Rejourney.setMetadata({
+  role: 'admin',
+  segment: 'enterprise',
+  ab_variant: 'checkout_v2'
+});
+
+Rules for metadata:
+- Use for traits: plan, role, team, A/B variant, locale, browser cohort, etc.
+- NOT for actions — use logEvent for those
+- Capped at 100 properties per session
+- Setting the same key again overwrites the previous value
+
+WHEN TO USE EVENTS VS METADATA:
+- "User purchased a plan" → logEvent('checkout_completed', { plan: 'pro' })
+- "User is on the pro plan" → setMetadata('plan', 'pro')
+- "User clicked signup" → logEvent('button_clicked', { buttonName: 'signup' })
+- "User is an admin" → setMetadata('role', 'admin')
+Rule of thumb: If it describes SOMETHING THAT HAPPENED, use logEvent. If it describes WHO THE USER IS, use setMetadata.
+
+PRIVACY CONTROLS:
+- Do not send PII (emails, names, passwords) via logEvent or setMetadata.
+- Mask sensitive DOM areas using the browser SDK's masking utilities or documented privacy attributes/classes if present in the app.
+- Gate Rejourney.start() behind consent if this product requires explicit analytics/session replay consent.
+
+GOOD PRACTICES:
+- Wrap SDK calls in try-catch for safety
+- Never track PII via logEvent or setMetadata
+- Use internal IDs or UUIDs for setUserIdentity
+- Initialize once near the app root, not inside frequently re-rendered components
+
+IMPORTANT:
+- Replace PUBLIC_KEY_HERE with the actual key from the Rejourney dashboard. Not a secret.
+- Recording starts after Rejourney.start().
+- Remind the user to put their project key in the init/provider function.
+- Remind the user it is up to them to ensure privacy and consent beyond this simple integration.
+
+POST-INTEGRATION STEPS:
+Once the integration is successfully implemented:
+1. Inform the user that the Rejourney Web integration is now complete and active.
+2. Proactively ask the user if they would like to enrich their session data with custom events and metadata.
+3. Analyze the user's code and suggest 3-5 specific examples of:
+   - Events with properties that would be valuable to track (e.g., 'checkout_completed' with { total: amount, items: count })
+   - Metadata that would help filter sessions (e.g., subscription_tier, user_role, app_theme)
+   Base your suggestions on the actual business logic you see in the user's code.
 
 ==========================================================
 IF REACT NATIVE — follow this section:

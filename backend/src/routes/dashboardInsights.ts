@@ -6,7 +6,7 @@
  */
 
 import { Router } from 'express';
-import { eq, gte, lte, and, desc, asc, inArray, sql } from 'drizzle-orm';
+import { eq, gte, lte, and, desc, asc, inArray, sql, type SQL } from 'drizzle-orm';
 import { db, sessions, sessionMetrics, projects, teamMembers, appDailyStats, recordingArtifacts, screenTouchHeatmaps, apiEndpointDailyStats } from '../db/client.js';
 import { getRedis } from '../db/redis.js';
 import { asyncHandler, ApiError } from '../middleware/index.js';
@@ -74,6 +74,12 @@ function getTimeFilter(timeRange?: string): Date | undefined {
     return undefined;
 }
 
+function buildSessionPlatformCondition(platform?: string): SQL | undefined {
+    if (!platform || platform === 'all') return undefined;
+    if (platform === 'mobile') return inArray(sessions.platform, ['ios', 'android']);
+    return eq(sessions.platform, platform);
+}
+
 // Helper to verify project access
 async function verifyProjectAccess(projectId: string, userId: string): Promise<boolean> {
     const [project] = await db
@@ -125,6 +131,9 @@ router.get(
     asyncHandler(async (req, res) => {
         const { projectId, timeRange, realtime } = req.query;
         const isRealtime = realtime === 'true';
+        const platform = typeof req.query.platform === 'string' && req.query.platform !== 'all'
+            ? req.query.platform
+            : undefined;
 
         const projectIds = projectId
             ? [projectId as string]
@@ -139,7 +148,7 @@ router.get(
             throw ApiError.forbidden('Access denied');
         }
 
-        const cacheKey = `insights:friction:${projectIds.sort().join(',')}:${isRealtime ? 'realtime' : (timeRange || '7d')}`;
+        const cacheKey = `insights:friction:${projectIds.sort().join(',')}:${isRealtime ? 'realtime' : (timeRange || '7d')}:${platform || 'all'}:v2`;
 
         // For realtime, use shorter cache TTL
         if (!isRealtime) {
@@ -161,6 +170,8 @@ router.get(
         // Get session data with screens visited
         const conditions = [inArray(sessions.projectId, projectIds)];
         if (startedAfter) conditions.push(gte(sessions.startedAt, startedAfter));
+        const platformCondition = buildSessionPlatformCondition(platform);
+        if (platformCondition) conditions.push(platformCondition);
 
         const sessionData = await db
             .select({
@@ -270,6 +281,7 @@ router.get(
                     totalTouches: screenTouchHeatmaps.totalTouches,
                     totalRageTaps: screenTouchHeatmaps.totalRageTaps,
                     sampleSessionId: screenTouchHeatmaps.sampleSessionId,
+                    screenFirstSeenMs: screenTouchHeatmaps.screenFirstSeenMs,
                 })
                 .from(screenTouchHeatmaps)
                 .where(and(
@@ -286,6 +298,7 @@ router.get(
             totalTouches: number;
             totalRageTaps: number;
             sampleSessionId: string | null;
+            screenFirstSeenMs: number | null;
         }>();
 
         for (const row of heatmapData) {
@@ -302,6 +315,10 @@ router.get(
                 }
                 existing.totalTouches += row.totalTouches;
                 existing.totalRageTaps += row.totalRageTaps;
+                if (!existing.sampleSessionId && row.sampleSessionId) {
+                    existing.sampleSessionId = row.sampleSessionId;
+                    existing.screenFirstSeenMs = row.screenFirstSeenMs;
+                }
             } else {
                 screenHeatmapMap.set(row.screenName, {
                     touchBuckets: { ...(row.touchBuckets as Record<string, number> || {}) },
@@ -309,6 +326,7 @@ router.get(
                     totalTouches: row.totalTouches,
                     totalRageTaps: row.totalRageTaps,
                     sampleSessionId: row.sampleSessionId,
+                    screenFirstSeenMs: row.screenFirstSeenMs,
                 });
             }
         }
@@ -417,6 +435,9 @@ router.get(
                     screenshotUrl = `/api/session/thumbnail/${heatmap.sampleSessionId}`;
                 }
             }
+            const sessionIds = heatmap?.sampleSessionId
+                ? [heatmap.sampleSessionId, ...screen.sessionIds.filter((sessionId) => sessionId !== heatmap.sampleSessionId)]
+                : screen.sessionIds;
 
             return {
                 name: screen.name,
@@ -431,8 +452,9 @@ router.get(
                 estimatedAffectedSessions: screen.estimatedAffectedSessions,
                 primarySignal: screen.primarySignal,
                 confidence: screen.confidence,
-                sessionIds: screen.sessionIds,
+                sessionIds,
                 screenshotUrl,
+                screenFirstSeenMs: heatmap?.screenFirstSeenMs ?? null,
                 touchHotspots,
             };
         });
@@ -476,7 +498,7 @@ router.get(
             throw ApiError.forbidden('Access denied');
         }
 
-        const cacheKey = `insights:alltime-heatmap:${projectIds.sort().join(',')}`;
+        const cacheKey = `insights:alltime-heatmap:${projectIds.sort().join(',')}:v2`;
         const cached = await redis.get(cacheKey);
         if (cached) {
             res.json(JSON.parse(cached));
@@ -710,6 +732,8 @@ router.get(
                     exitRate: 0, // Not available
                     frictionScore: data.totalRageTaps * 3,
                     screenshotUrl,
+                    sessionIds: data.sampleSessionId ? [data.sampleSessionId] : [],
+                    screenFirstSeenMs: data.screenFirstSeenMs ?? null,
                     touchHotspots,
                 };
             })
@@ -849,9 +873,12 @@ router.get(
         }
 
         const normalizedTimeRange = typeof timeRange === 'string' ? timeRange : undefined;
+        const normalizedPlatform = typeof req.query.platform === 'string' && req.query.platform !== 'all'
+            ? req.query.platform
+            : undefined;
 
         // Redis caching for fast page loads
-        const cacheKey = `insights:trends:${projectIds.sort().join(',')}:${normalizedTimeRange || '30d'}:v5-country-dau`;
+        const cacheKey = `insights:trends:${projectIds.sort().join(',')}:${normalizedTimeRange || '30d'}:${normalizedPlatform || 'all'}:v6-country-dau`;
         const cached = await redis.get(cacheKey);
         if (cached) {
             res.json(JSON.parse(cached));
@@ -876,6 +903,189 @@ router.get(
         }
 
         const lastRolledUpDate = await getLastRolledUpDate();
+
+        if (normalizedPlatform) {
+            type TrendDay = {
+                sessions: number;
+                crashes: number;
+                rageTaps: number;
+                deadTaps: number;
+                avgUxScore: number;
+                uniqueUserIds: Set<string>;
+                avgApiResponseMs: number;
+                apiErrorRate: number;
+                avgDurationSeconds: number;
+                errorCount: number;
+                appVersionBreakdown: Record<string, number>;
+                appVersionDauBreakdown: Record<string, number>;
+                countryDauBreakdown: Record<string, number>;
+                totalApiCalls: number;
+            };
+            const ensureDay = (map: Record<string, TrendDay>, date: string): TrendDay => {
+                if (!map[date]) {
+                    map[date] = {
+                        sessions: 0,
+                        crashes: 0,
+                        rageTaps: 0,
+                        deadTaps: 0,
+                        avgUxScore: 0,
+                        uniqueUserIds: new Set<string>(),
+                        avgApiResponseMs: 0,
+                        apiErrorRate: 0,
+                        avgDurationSeconds: 0,
+                        errorCount: 0,
+                        appVersionBreakdown: {},
+                        appVersionDauBreakdown: {},
+                        countryDauBreakdown: {},
+                        totalApiCalls: 0,
+                    };
+                }
+                return map[date];
+            };
+
+            const sessionDate = sql<string>`(${sessions.startedAt}::date)::text`;
+            const identitySql = sql<string>`coalesce(
+                nullif(trim(${sessions.userDisplayId}), ''),
+                nullif(trim(${sessions.anonymousHash}), ''),
+                nullif(trim(${sessions.anonymousDisplayId}), ''),
+                nullif(trim(${sessions.deviceId}), ''),
+                ${sessions.id}
+            )`;
+            const platformCondition = buildSessionPlatformCondition(normalizedPlatform);
+            const rawConditions: SQL[] = [
+                inArray(sessions.projectId, projectIds),
+                sql`${sessionDate} <= ${lastRolledUpDate}`,
+            ];
+            if (startStr) rawConditions.push(sql`${sessionDate} >= ${startStr}`);
+            if (platformCondition) rawConditions.push(platformCondition);
+
+            const rawDailyRows = await db
+                .select({
+                    date: sessionDate,
+                    sessions: sql<number>`count(*)::int`,
+                    crashes: sql<number>`sum(coalesce(${sessionMetrics.crashCount}, 0))::int`,
+                    rageTaps: sql<number>`sum(coalesce(${sessionMetrics.rageTapCount}, 0))::int`,
+                    deadTaps: sql<number>`sum(coalesce(${sessionMetrics.deadTapCount}, 0))::int`,
+                    avgUxScore: sql<number>`avg(coalesce(${sessionMetrics.uxScore}, 0))`,
+                    avgDurationSeconds: sql<number>`avg(coalesce(${sessions.durationSeconds}, 0))`,
+                    errorCount: sql<number>`sum(coalesce(${sessionMetrics.errorCount}, 0))::int`,
+                    totalApiCalls: sql<number>`sum(coalesce(${sessionMetrics.apiTotalCount}, 0))::int`,
+                    apiErrors: sql<number>`sum(coalesce(${sessionMetrics.apiErrorCount}, 0))::int`,
+                    weightedApiResponseMs: sql<number>`sum(coalesce(${sessionMetrics.apiAvgResponseMs}, 0)::numeric * coalesce(${sessionMetrics.apiTotalCount}, 0)::numeric)`,
+                })
+                .from(sessions)
+                .leftJoin(sessionMetrics, eq(sessions.id, sessionMetrics.sessionId))
+                .where(and(...rawConditions))
+                .groupBy(sessionDate)
+                .orderBy(asc(sessionDate));
+
+            const normalizedVersion = sql<string>`COALESCE(NULLIF(${sessions.appVersion}, ''), 'Unknown')`;
+            const versionRows = await db
+                .select({
+                    date: sessionDate,
+                    version: normalizedVersion,
+                    sessions: sql<number>`count(*)::int`,
+                    uniqueUsers: sql<number>`count(distinct ${identitySql})::int`,
+                })
+                .from(sessions)
+                .where(and(...rawConditions))
+                .groupBy(sessionDate, normalizedVersion);
+
+            const normalizedCountry = sql<string>`COALESCE(NULLIF(${sessions.geoCountry}, ''), 'Unknown')`;
+            const countryRows = await db
+                .select({
+                    date: sessionDate,
+                    country: normalizedCountry,
+                    uniqueUsers: sql<number>`count(distinct ${identitySql})::int`,
+                })
+                .from(sessions)
+                .where(and(...rawConditions, sql`${sessions.geoCountry} IS NOT NULL`))
+                .groupBy(sessionDate, normalizedCountry);
+
+            const userRows = await db
+                .select({
+                    date: sessionDate,
+                    userKey: identitySql,
+                })
+                .from(sessions)
+                .where(and(...rawConditions, sql`${identitySql} IS NOT NULL`))
+                .groupBy(sessionDate, identitySql);
+
+            const dailyMap: Record<string, TrendDay> = {};
+            for (const row of rawDailyRows) {
+                const day = ensureDay(dailyMap, row.date);
+                const totalApiCalls = Number(row.totalApiCalls || 0);
+                day.sessions = Number(row.sessions || 0);
+                day.crashes = Number(row.crashes || 0);
+                day.rageTaps = Number(row.rageTaps || 0);
+                day.deadTaps = Number(row.deadTaps || 0);
+                day.avgUxScore = Number(row.avgUxScore || 0);
+                day.avgDurationSeconds = Number(row.avgDurationSeconds || 0);
+                day.errorCount = Number(row.errorCount || 0);
+                day.totalApiCalls = totalApiCalls;
+                day.avgApiResponseMs = totalApiCalls > 0
+                    ? Math.round(Number(row.weightedApiResponseMs || 0) / totalApiCalls)
+                    : 0;
+                day.apiErrorRate = totalApiCalls > 0 ? Number(row.apiErrors || 0) / totalApiCalls : 0;
+            }
+            for (const row of versionRows) {
+                const day = ensureDay(dailyMap, row.date);
+                day.appVersionBreakdown[row.version] = Number(row.sessions || 0);
+                day.appVersionDauBreakdown[row.version] = Number(row.uniqueUsers || 0);
+            }
+            for (const row of countryRows) {
+                ensureDay(dailyMap, row.date).countryDauBreakdown[row.country] = Number(row.uniqueUsers || 0);
+            }
+            for (const row of userRows) {
+                ensureDay(dailyMap, row.date).uniqueUserIds.add(row.userKey);
+            }
+
+            const allDates = Object.keys(dailyMap).sort();
+            const dateIndex = new Map(allDates.map((date, index) => [date, index]));
+            const daily = allDates
+                .filter(date => !queryStartStr || date >= queryStartStr)
+                .map(date => {
+                    const data = dailyMap[date];
+                    const mauSet = new Set<string>();
+                    const currentIndex = dateIndex.get(date) ?? 0;
+                    for (let i = currentIndex; i >= 0; i--) {
+                        const lookbackDate = allDates[i];
+                        const daysDiff = (new Date(date).getTime() - new Date(lookbackDate).getTime()) / (1000 * 60 * 60 * 24);
+                        if (daysDiff <= 30) {
+                            dailyMap[lookbackDate]?.uniqueUserIds.forEach(uid => mauSet.add(uid));
+                        } else {
+                            break;
+                        }
+                    }
+
+                    return {
+                        date,
+                        sessions: data.sessions,
+                        crashes: data.crashes,
+                        rageTaps: data.rageTaps,
+                        deadTaps: data.deadTaps,
+                        avgUxScore: Math.round(data.avgUxScore),
+                        dau: data.uniqueUserIds.size,
+                        mau: mauSet.size,
+                        avgApiResponseMs: data.avgApiResponseMs,
+                        apiErrorRate: data.apiErrorRate,
+                        avgDurationSeconds: Math.round(data.avgDurationSeconds),
+                        errorCount: data.errorCount,
+                        appVersionBreakdown: data.appVersionBreakdown,
+                        appVersionDauBreakdown: data.appVersionDauBreakdown,
+                        countryDauBreakdown: data.countryDauBreakdown,
+                        totalApiCalls: data.totalApiCalls,
+                    };
+                });
+
+            const response = { daily, dataCompleteThrough: lastRolledUpDate };
+            await redis.set(cacheKey, JSON.stringify(response), 'EX', CACHE_TTL);
+            res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+            res.setHeader('Pragma', 'no-cache');
+            res.setHeader('Expires', '0');
+            res.json(response);
+            return;
+        }
 
         const dailyConditions = [inArray(appDailyStats.projectId, projectIds), lte(appDailyStats.date, lastRolledUpDate)];
         if (startStr) {

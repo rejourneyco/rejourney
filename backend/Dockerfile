@@ -10,6 +10,7 @@ COPY package.json package-lock.json ./
 COPY backend/package.json backend/
 COPY dashboard/web-ui/package.json dashboard/web-ui/
 COPY packages/react-native/package.json packages/react-native/
+COPY packages/browser/package.json packages/browser/
 # Install all dependencies (from root)
 RUN npm ci --ignore-scripts
 
@@ -41,6 +42,7 @@ COPY package.json package-lock.json ./
 COPY backend/package.json backend/
 COPY dashboard/web-ui/package.json dashboard/web-ui/
 COPY packages/react-native/package.json packages/react-native/
+COPY packages/browser/package.json packages/browser/
 
 # Install production dependencies only (from root)
 RUN npm ci --omit=dev --ignore-scripts

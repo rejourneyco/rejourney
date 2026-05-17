@@ -9,8 +9,14 @@ docker/.env
 # Build outputs
 .build/
 .swiftpm/
+**/.next/
+**/.nuxt/
+**/.output/
+**/.svelte-kit/
 packages/**/lib/
+packages/**/dist/
 packages/react-native/*.tgz
+*.tsbuildinfo
 
 # iOS
 *.xcworkspace

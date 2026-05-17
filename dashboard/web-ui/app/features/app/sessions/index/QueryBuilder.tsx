@@ -1,8 +1,9 @@
 import React, { useState, useRef, useEffect } from 'react';
 import {
   Plus, ChevronDown, Loader, AlertOctagon, Calendar, LayoutGrid, Zap,
-  Tag, Users, Smartphone, Route, GitMerge, Trash2, MousePointerClick,
+  Tag, Users, Route, GitMerge, Trash2, MousePointerClick,
   Timer, UserPlus, CheckCircle, AlertCircle, Search,
+  MonitorSmartphone,
 } from 'lucide-react';
 import { buildSessionQueryFromPrompt } from '~/shared/api/client';
 import {
@@ -39,7 +40,7 @@ const ADD_MENU: { type: ConditionType; label: string; desc: string; icon: React.
   { type: 'lifecycle', label: 'Lifecycle',         desc: 'First-time or returning users',       icon: <Users className="w-4 h-4" /> },
   { type: 'date',      label: 'Date / Time',       desc: 'When the session occurred',           icon: <Calendar className="w-4 h-4" /> },
   { type: 'metadata',  label: 'Metadata',          desc: 'Session metadata key=value',          icon: <Tag className="w-4 h-4" /> },
-  { type: 'platform',  label: 'Platform',          desc: 'iOS or Android',                      icon: <Smartphone className="w-4 h-4" /> },
+  { type: 'platform',  label: 'Platform',          desc: 'iOS, Android, or Web',                 icon: <MonitorSmartphone className="w-4 h-4" /> },
 ];
 
 const BG: Record<ConditionType, string> = {
@@ -289,7 +290,7 @@ export function QueryBuilder({ groups, onGroupsChange, onClearQueries, available
                 }}
                 maxLength={500}
                 rows={1}
-                placeholder="Example: returning Android users who opened Checkout and then exited in the last 7 days"
+                placeholder="Example: web sessions referred by www.google.com in the last 7 days"
                 className="min-h-[44px] flex-1 resize-none border-2 border-black bg-white px-3 py-2 text-sm font-semibold text-slate-900 outline-none transition focus:ring-2 focus:ring-black placeholder:text-slate-500"
               />
               <button

@@ -114,6 +114,61 @@ describe('backup-quality evaluator', () => {
         expect(result.qualityReason.expectedArtifactKinds).toEqual(['events', 'hierarchy']);
     });
 
+    it('marks web rrweb backups as high quality without screenshot artifacts', () => {
+        const result = evaluateBackupQuality({
+            manifest: buildManifest({
+                session: {
+                    platform: 'web',
+                },
+                artifacts: [
+                    { kind: 'events', startTime: 0, endTime: 4_000 },
+                    { kind: 'rrweb', startTime: 0, endTime: 4_000 },
+                ],
+                backupArtifacts: [
+                    { kind: 'events', status: 'copied', repairStatus: 'unchanged', backupFormat: 'mirrored_source', frameCount: 0 },
+                    { kind: 'rrweb', status: 'copied', repairStatus: 'unchanged', backupFormat: 'mirrored_source', frameCount: 10 },
+                ],
+            }),
+            plannedArtifactCount: 2,
+            artifactCount: 2,
+            actualR2ArtifactCount: 2,
+            actualR2ObjectCount: 3,
+            manifestPresent: true,
+        });
+
+        expect(result.highQuality).toBe(true);
+        expect(result.qualityTier).toBe('high_quality');
+        expect(result.qualityReason.reasons).toEqual([]);
+        expect(result.qualityReason.expectedArtifactKinds).toEqual(['events', 'rrweb']);
+    });
+
+    it('classifies web observe-only backups as event-only', () => {
+        const result = evaluateBackupQuality({
+            manifest: buildManifest({
+                session: {
+                    platform: 'web',
+                    observeOnly: true,
+                },
+                artifacts: [
+                    { kind: 'events', startTime: 0, endTime: 4_000 },
+                ],
+                backupArtifacts: [
+                    { kind: 'events', status: 'copied', repairStatus: 'unchanged', backupFormat: 'mirrored_source', frameCount: 0 },
+                ],
+            }),
+            plannedArtifactCount: 1,
+            artifactCount: 1,
+            actualR2ArtifactCount: 1,
+            actualR2ObjectCount: 2,
+            manifestPresent: true,
+        });
+
+        expect(result.highQuality).toBe(false);
+        expect(result.qualityTier).toBe('observe_only');
+        expect(result.qualityReason.reasons).toEqual([]);
+        expect(result.qualityReason.expectedArtifactKinds).toEqual(['events']);
+    });
+
     it('marks observe-only backups with screenshots as broken', () => {
         const result = evaluateBackupQuality({
             manifest: buildManifest({

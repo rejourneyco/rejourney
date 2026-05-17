@@ -3,7 +3,7 @@
  */
 
 import type { Route } from "./+types/route";
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { useNavigate, Link, useSearchParams } from "react-router";
 import { Input } from "~/shared/ui/core/Input";
 import { Button } from "~/shared/ui/core/Button";
@@ -53,8 +53,48 @@ export default function LoginPage() {
     const [error, setError] = useState<string | null>(null);
     const [isLoading, setIsLoading] = useState(false);
     const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
+    const [turnstileRenderKey, setTurnstileRenderKey] = useState(0);
     const turnstileRef = useRef<HTMLDivElement>(null);
     const turnstileWidgetId = useRef<string | null>(null);
+
+    const removeTurnstileWidget = useCallback(() => {
+        if (typeof window !== 'undefined' && window.turnstile && turnstileWidgetId.current) {
+            try {
+                window.turnstile.remove(turnstileWidgetId.current);
+            } catch (err) {
+                console.debug('Unable to remove Turnstile widget:', err);
+            }
+        }
+
+        turnstileWidgetId.current = null;
+        turnstileRef.current?.replaceChildren();
+        setTurnstileToken(null);
+    }, []);
+
+    const requestFreshTurnstileWidget = useCallback(() => {
+        removeTurnstileWidget();
+        setTurnstileRenderKey((key) => key + 1);
+    }, [removeTurnstileWidget]);
+
+    const resetTurnstileWidget = useCallback(() => {
+        if (typeof window === 'undefined') {
+            setTurnstileToken(null);
+            return;
+        }
+
+        if (!window.turnstile || !turnstileWidgetId.current) {
+            requestFreshTurnstileWidget();
+            return;
+        }
+
+        try {
+            window.turnstile.reset(turnstileWidgetId.current);
+            setTurnstileToken(null);
+        } catch (err) {
+            console.debug('Unable to reset Turnstile widget:', err);
+            requestFreshTurnstileWidget();
+        }
+    }, [requestFreshTurnstileWidget]);
 
     useEffect(() => {
         if (typeof window === 'undefined') return;
@@ -128,41 +168,112 @@ export default function LoginPage() {
 
     // Initialize Turnstile widget
     useEffect(() => {
-        if (step === 'email' && turnstileRef.current && !turnstileWidgetId.current) {
-            const checkTurnstile = setInterval(() => {
-                if (window.turnstile && turnstileRef.current) {
+        if (step !== 'email' || typeof window === 'undefined') {
+            return;
+        }
+
+        let didUnmount = false;
+
+        const renderTurnstile = () => {
+            if (didUnmount || !window.turnstile || !turnstileRef.current) {
+                return false;
+            }
+
+            if (turnstileWidgetId.current && turnstileRef.current.childElementCount > 0) {
+                return true;
+            }
+
+            if (turnstileWidgetId.current) {
+                turnstileWidgetId.current = null;
+                setTurnstileToken(null);
+            }
+
+            try {
+                turnstileRef.current.replaceChildren();
+                const widgetId = window.turnstile.render(turnstileRef.current, {
+                    sitekey: TURNSTILE_SITE_KEY,
+                    callback: (token: string) => setTurnstileToken(token),
+                    'error-callback': () => {
+                        setError('Security verification reset. Please try again.');
+                        requestFreshTurnstileWidget();
+                    },
+                    'expired-callback': requestFreshTurnstileWidget,
+                });
+                turnstileWidgetId.current = widgetId;
+                return true;
+            } catch (err) {
+                console.error('Failed to render Turnstile widget:', err);
+                turnstileWidgetId.current = null;
+                setTurnstileToken(null);
+                return false;
+            }
+        };
+
+        let checkTurnstile: ReturnType<typeof setInterval> | null = null;
+        let timeout: ReturnType<typeof setTimeout> | null = null;
+
+        if (!renderTurnstile()) {
+            checkTurnstile = setInterval(() => {
+                if (renderTurnstile() && checkTurnstile) {
                     clearInterval(checkTurnstile);
-                    try {
-                        const widgetId = window.turnstile.render(turnstileRef.current, {
-                            sitekey: TURNSTILE_SITE_KEY,
-                            callback: (token: string) => setTurnstileToken(token),
-                            'error-callback': () => {
-                                setError('Turnstile verification failed. Please refresh the page.');
-                                setTurnstileToken(null);
-                            },
-                            'expired-callback': () => setTurnstileToken(null),
-                        });
-                        turnstileWidgetId.current = widgetId;
-                    } catch (err) {
-                        console.error('Failed to render Turnstile widget:', err);
-                    }
+                    checkTurnstile = null;
                 }
             }, 100);
 
-            const timeout = setTimeout(() => clearInterval(checkTurnstile), 10000);
-            return () => {
-                clearInterval(checkTurnstile);
-                clearTimeout(timeout);
-            };
+            timeout = setTimeout(() => {
+                if (checkTurnstile) {
+                    clearInterval(checkTurnstile);
+                    checkTurnstile = null;
+                }
+            }, 10000);
         }
-    }, [step]);
+
+        return () => {
+            didUnmount = true;
+            if (checkTurnstile) {
+                clearInterval(checkTurnstile);
+            }
+            if (timeout) {
+                clearTimeout(timeout);
+            }
+        };
+    }, [step, turnstileRenderKey, requestFreshTurnstileWidget]);
 
     useEffect(() => {
-        if (step === 'email' && turnstileWidgetId.current && window.turnstile) {
-            window.turnstile.reset(turnstileWidgetId.current);
-            setTurnstileToken(null);
+        if (step !== 'email') {
+            removeTurnstileWidget();
         }
-    }, [step]);
+    }, [step, removeTurnstileWidget]);
+
+    useEffect(() => {
+        if (step !== 'email' || typeof window === 'undefined') {
+            return;
+        }
+
+        const shouldRefreshTurnstile = () => (
+            !turnstileWidgetId.current || !turnstileRef.current || turnstileRef.current.childElementCount === 0
+        );
+
+        const handlePageShow = (event: PageTransitionEvent) => {
+            if (event.persisted || shouldRefreshTurnstile()) {
+                requestFreshTurnstileWidget();
+            }
+        };
+
+        const handleVisibilityChange = () => {
+            if (document.visibilityState === 'visible' && shouldRefreshTurnstile()) {
+                requestFreshTurnstileWidget();
+            }
+        };
+
+        window.addEventListener('pageshow', handlePageShow);
+        document.addEventListener('visibilitychange', handleVisibilityChange);
+
+        return () => {
+            window.removeEventListener('pageshow', handlePageShow);
+            document.removeEventListener('visibilitychange', handleVisibilityChange);
+        };
+    }, [step, requestFreshTurnstileWidget]);
 
     const handleSendOtp = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -176,23 +287,13 @@ export default function LoginPage() {
             const success = await sendOtp(email, turnstileToken);
             if (success) {
                 setStep('otp');
-                setTurnstileToken(null);
-                if (turnstileWidgetId.current && window.turnstile) {
-                    window.turnstile.reset(turnstileWidgetId.current);
-                }
             } else {
                 setError(authError || 'Failed to send verification code');
-                if (turnstileWidgetId.current && window.turnstile) {
-                    window.turnstile.reset(turnstileWidgetId.current);
-                    setTurnstileToken(null);
-                }
+                resetTurnstileWidget();
             }
         } catch (err) {
             setError(err instanceof Error ? err.message : 'Failed to send verification code');
-            if (turnstileWidgetId.current && window.turnstile) {
-                window.turnstile.reset(turnstileWidgetId.current);
-                setTurnstileToken(null);
-            }
+            resetTurnstileWidget();
         } finally {
             setIsLoading(false);
         }
@@ -222,11 +323,14 @@ export default function LoginPage() {
         setStep('email');
         setOtp('');
         setError(null);
-        if (turnstileWidgetId.current && window.turnstile) {
-            window.turnstile.remove(turnstileWidgetId.current);
-            turnstileWidgetId.current = null;
-        }
-        setTurnstileToken(null);
+        requestFreshTurnstileWidget();
+    };
+
+    const handleChangeEmail = () => {
+        setStep('email');
+        setOtp('');
+        setError(null);
+        requestFreshTurnstileWidget();
     };
 
     // Show loading state while checking authentication
@@ -305,7 +409,7 @@ export default function LoginPage() {
 
                                 {/* Cloudflare Turnstile Widget */}
                                 <div className="flex justify-center my-4">
-                                    <div ref={turnstileRef} id="turnstile-widget"></div>
+                                    <div ref={turnstileRef} id="turnstile-widget" key={turnstileRenderKey}></div>
                                 </div>
 
                                 {error && (
@@ -364,11 +468,7 @@ export default function LoginPage() {
                                 <div className="flex justify-between items-center text-xs font-mono font-bold uppercase pt-2">
                                     <button
                                         type="button"
-                                        onClick={() => {
-                                            setStep('email');
-                                            setOtp('');
-                                            setError(null);
-                                        }}
+                                        onClick={handleChangeEmail}
                                         className="text-gray-500 hover:text-black hover:underline decoration-2 underline-offset-4"
                                     >
                                         ← Change email

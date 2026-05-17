@@ -2,13 +2,15 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Globe, ShieldAlert } from 'lucide-react';
 import { useSessionData } from '~/shared/providers/SessionContext';
 import { DashboardPageHeader } from '~/shared/ui/core/DashboardPageHeader';
-import { TimeFilter, TimeRange, DEFAULT_TIME_RANGE } from '~/shared/ui/core/TimeFilter';
+import { DashboardLensControls } from '~/shared/ui/core/DashboardLensControls';
+import { useSharedRejourneyTimeRange } from '~/shared/hooks/useSharedRejourneyTimeRange';
 import { useDemoMode } from '~/shared/providers/DemoModeContext';
 import {
     getGeoOverview,
     type ApiLatencyByLocationResponse,
     type GeoIssuesSummary,
 } from '~/shared/api/client';
+import { useSharedPlatformLens, platformLensToSessionPlatform } from '~/shared/hooks/useSharedPlatformLens';
 import { DashboardGhostLoader } from '~/shared/ui/core/DashboardGhostLoader';
 import { disableMapboxTelemetry, isMapboxConfigured } from '~/shared/integrations/mapbox';
 import { getMapboxToken } from '~/shared/config/runtimeEnv';
@@ -248,12 +250,14 @@ function renderLatencyFace(face: MarkerStyle['face']) {
 export const Geo: React.FC = () => {
     const { selectedProject } = useSessionData();
     const { isDemoMode } = useDemoMode();
+    const { platformLens } = useSharedPlatformLens(selectedProject?.id, selectedProject?.platforms);
+    const platform = platformLensToSessionPlatform(platformLens);
     const mapRef = React.useRef<any>(null);
     const isHoverPausedRef = React.useRef(false);
     const isInteractionPausedRef = React.useRef(false);
     const resumeRotationTimerRef = React.useRef<number | null>(null);
 
-    const [timeRange, setTimeRange] = useState<TimeRange>(DEFAULT_TIME_RANGE);
+    const { timeRange, setTimeRange } = useSharedRejourneyTimeRange(selectedProject?.id);
     const [issues, setIssues] = useState<GeoIssuesSummary>(EMPTY_ISSUES);
     const [latencyByLocation, setLatencyByLocation] = useState<ApiLatencyByLocationResponse>(EMPTY_LATENCY);
     const [isLoading, setIsLoading] = useState(true);
@@ -278,7 +282,7 @@ export const Geo: React.FC = () => {
         setIsLoading(true);
         setLoadError(null);
 
-        void getGeoOverview(selectedProject.id, timeRange)
+        void getGeoOverview(selectedProject.id, timeRange, platform)
             .then((overview) => {
                 if (isCancelled) return;
                 setIssues(overview.issues);
@@ -299,7 +303,7 @@ export const Geo: React.FC = () => {
         return () => {
             isCancelled = true;
         };
-    }, [selectedProject?.id, timeRange]);
+    }, [selectedProject?.id, timeRange, platform]);
 
     const latencyByCountry = useMemo(() => {
         const countryToLatency = new Map<string, number>();
@@ -422,7 +426,7 @@ export const Geo: React.FC = () => {
                     icon={<Globe className="w-6 h-6" />}
                     iconColor="bg-[#dbeafe]"
                 >
-                    <TimeFilter value={timeRange} onChange={setTimeRange} />
+                    <DashboardLensControls timeRange={timeRange} onTimeRangeChange={setTimeRange} />
                 </DashboardPageHeader>
             </div>
 
@@ -432,7 +436,7 @@ export const Geo: React.FC = () => {
                 ) : !isMapboxConfigured() ? (
                     <div className="absolute inset-0 flex items-center justify-center text-center text-sm text-rose-500 px-4">
                         <ShieldAlert className="h-5 w-5 mr-2" />
-                        <span>Missing VITE_MAPBOX_TOKEN</span>
+                        <span>404 - New World Not Discovered Yet</span>
                     </div>
                 ) : (isDemoMode && !ENABLE_MAPBOX_IN_DEMO) ? (
                     <div className="absolute inset-0 flex items-center justify-center text-center p-8">

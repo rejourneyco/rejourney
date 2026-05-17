@@ -82,7 +82,15 @@ run_ci_checks() {
         npx eslint src/services/stripe.ts src/services/stripeProducts.ts src/utils/billing.ts --max-warnings=0
     )
 
-    log "Running web checks"
+    log "Running web SDK checks"
+    (
+        cd "$ROOT_DIR/packages/browser"
+        npm run typecheck
+        npm test
+        npm run prepack
+    )
+
+    log "Running dashboard web checks"
     (
         cd "$ROOT_DIR/dashboard/web-ui"
         ls -R app/shared/lib || true

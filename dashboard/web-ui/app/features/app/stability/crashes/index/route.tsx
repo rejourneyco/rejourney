@@ -21,7 +21,9 @@ import { useNavigate, useSearchParams } from 'react-router';
 import { useSessionData } from '~/shared/providers/SessionContext';
 import { usePathPrefix } from '~/shell/routing/usePathPrefix';
 import { api, CrashReport, getCrashesOverview, type CrashOverviewGroup } from '~/shared/api/client';
-import { TimeFilter, TimeRange, DEFAULT_TIME_RANGE } from '~/shared/ui/core/TimeFilter';
+import { DashboardLensControls } from '~/shared/ui/core/DashboardLensControls';
+import { platformLensToSessionPlatform, useSharedPlatformLens } from '~/shared/hooks/useSharedPlatformLens';
+import { useSharedRejourneyTimeRange } from '~/shared/hooks/useSharedRejourneyTimeRange';
 import { formatAge, formatLastSeen } from '~/shared/lib/formatDates';
 import { formatDeviceModel, getDeviceModelSearchText } from '~/shared/lib/deviceModelNames';
 import { DashboardPageHeader } from '~/shared/ui/core/DashboardPageHeader';
@@ -45,10 +47,12 @@ export const CrashesList: React.FC = () => {
   const [crashGroups, setCrashGroups] = useState<CrashOverviewGroup[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [expandedGroup, setExpandedGroup] = useState<string | null>(null);
-  const [timeRange, setTimeRange] = useState<TimeRange>(DEFAULT_TIME_RANGE);
+  const { timeRange, setTimeRange } = useSharedRejourneyTimeRange(selectedProject?.id);
   const [searchQuery, setSearchQuery] = useState('');
   const [crashDetails, setCrashDetails] = useState<Record<string, CrashReport | null>>({});
   const [copiedStack, setCopiedStack] = useState<string | null>(null);
+  const { platformLens } = useSharedPlatformLens(selectedProject?.id, selectedProject?.platforms);
+  const platform = platformLensToSessionPlatform(platformLens);
 
   useEffect(() => {
     if (!selectedProject?.id) {
@@ -60,7 +64,7 @@ export const CrashesList: React.FC = () => {
     let cancelled = false;
     setIsLoading(true);
 
-    getCrashesOverview(selectedProject.id, timeRange).then((response) => {
+    getCrashesOverview(selectedProject.id, timeRange, platform).then((response) => {
       if (cancelled) return;
       setCrashGroups(response.groups || []);
     }).catch((err) => {
@@ -74,7 +78,7 @@ export const CrashesList: React.FC = () => {
     return () => {
        cancelled = true;
     };
-  }, [selectedProject?.id, timeRange]);
+  }, [selectedProject?.id, timeRange, platform]);
 
   useEffect(() => {
     window.scrollTo(0, 0);
@@ -158,7 +162,7 @@ export const CrashesList: React.FC = () => {
         icon={<Bug className="h-5 w-5" />}
         iconColor="bg-[#ffe4e6]"
       >
-        <TimeFilter value={timeRange} onChange={setTimeRange} />
+        <DashboardLensControls timeRange={timeRange} onTimeRangeChange={setTimeRange} />
       </DashboardPageHeader>
 
       <div className="mx-auto w-full max-w-[1800px] space-y-4 px-6 pt-6">

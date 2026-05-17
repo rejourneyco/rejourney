@@ -10,10 +10,11 @@ import {
     Search,
     X,
 } from 'lucide-react';
-import { DataWatermarkBanner } from '~/features/app/shared/dashboard/DataWatermarkBanner';
 import { DashboardPageHeader } from '~/shared/ui/core/DashboardPageHeader';
 import { useSessionData } from '~/shared/providers/SessionContext';
-import { TimeFilter, TimeRange, DEFAULT_TIME_RANGE } from '~/shared/ui/core/TimeFilter';
+import { DashboardLensControls } from '~/shared/ui/core/DashboardLensControls';
+import { useSharedPlatformLens, platformLensToSessionPlatform } from '~/shared/hooks/useSharedPlatformLens';
+import { useSharedRejourneyTimeRange } from '~/shared/hooks/useSharedRejourneyTimeRange';
 import { SankeyJourney, type SankeyEvidenceSession, type SankeyFlow } from '~/features/app/analytics/journeys/components/SankeyJourney';
 import { KpiCardItem, KpiCardsGrid, computePeriodDeltaFromSeries } from '~/features/app/shared/dashboard/KpiCardsGrid';
 import { DashboardGhostLoader } from '~/shared/ui/core/DashboardGhostLoader';
@@ -350,7 +351,9 @@ export const Journeys: React.FC = () => {
     const { selectedProject } = useSessionData();
     const pathPrefix = usePathPrefix();
     const navigate = useNavigate();
-    const [timeRange, setTimeRange] = useState<TimeRange>(DEFAULT_TIME_RANGE);
+    const { platformLens } = useSharedPlatformLens(selectedProject?.id, selectedProject?.platforms);
+    const platform = platformLensToSessionPlatform(platformLens);
+    const { timeRange, setTimeRange } = useSharedRejourneyTimeRange(selectedProject?.id);
     const [data, setData] = useState<ObservabilityJourneySummary | null>(null);
     const [trends, setTrends] = useState<InsightsTrends | null>(null);
     const [partialError, setPartialError] = useState<string | null>(null);
@@ -402,7 +405,7 @@ export const Journeys: React.FC = () => {
         setIsLoading(true);
         setPartialError(null);
 
-        void getJourneysOverview(selectedProject.id, timeRange, 'full')
+        void getJourneysOverview(selectedProject.id, timeRange, 'full', platform)
             .then((overview) => {
                 if (isCancelled) return;
                 setData(overview.journey);
@@ -424,7 +427,7 @@ export const Journeys: React.FC = () => {
         return () => {
             isCancelled = true;
         };
-    }, [selectedProject?.id, timeRange]);
+    }, [selectedProject?.id, timeRange, platform]);
 
     const totalSessions = useMemo(() => {
         if (!data) return 0;
@@ -893,10 +896,7 @@ export const Journeys: React.FC = () => {
                 icon={<Route className="w-6 h-6" />}
                 iconColor="bg-[#fce7f3]"
             >
-                <div className="flex min-w-0 max-w-full flex-wrap items-center gap-3">
-                    <DataWatermarkBanner dataCompleteThrough={trends?.dataCompleteThrough} />
-                    <TimeFilter value={timeRange} onChange={setTimeRange} />
-                </div>
+                <DashboardLensControls timeRange={timeRange} onTimeRangeChange={setTimeRange} />
             </DashboardPageHeader>
 
             <div className="mx-auto w-full max-w-[1600px] space-y-6 px-4 py-6 sm:px-6">

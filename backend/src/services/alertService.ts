@@ -16,6 +16,7 @@ import {
     sendErrorSpikeAlertEmail,
     sendApiDegradationAlertEmail,
 } from './email.js';
+import { shouldSendForEmailRules } from './emailAlertRules.js';
 
 // Rate limiting constants
 const SAME_ISSUE_COOLDOWN_MS = 60 * 60 * 1000; // 1 hour
@@ -199,6 +200,10 @@ export async function triggerCrashAlert(
             logger.debug({ projectId }, 'Crash alerts disabled');
             return;
         }
+        if (!shouldSendForEmailRules(settings, 'crash', { affectedUsers })) {
+            logger.debug({ projectId, affectedUsers }, 'Crash alert did not match email rules');
+            return;
+        }
 
         const rateCheck = await shouldSendAlert(projectId, 'crash', fingerprint);
         if (!rateCheck.canSend) {
@@ -312,6 +317,10 @@ export async function triggerAnrAlert(
             logger.debug({ projectId }, 'ANR alerts disabled');
             return;
         }
+        if (!shouldSendForEmailRules(settings, 'anr', { durationMs, affectedUsers })) {
+            logger.debug({ projectId, durationMs, affectedUsers }, 'ANR alert did not match email rules');
+            return;
+        }
 
         const rateCheck = await shouldSendAlert(projectId, 'anr', fingerprint);
         if (!rateCheck.canSend) {
@@ -419,9 +428,8 @@ export async function triggerErrorSpikeAlert(
             ? ((currentRate - previousRate) / previousRate) * 100
             : 100;
 
-        // Check if increase exceeds threshold
-        if (percentIncrease < (settings.errorSpikeThresholdPercent ?? 50)) {
-            logger.debug({ projectId, percentIncrease }, 'Error spike below threshold');
+        if (!shouldSendForEmailRules(settings, 'error_spike', { percentIncrease })) {
+            logger.debug({ projectId, percentIncrease }, 'Error spike did not match email rules');
             return;
         }
 
@@ -499,9 +507,11 @@ export async function triggerApiDegradationAlert(
             ? ((currentLatencyMs - previousLatencyMs) / previousLatencyMs) * 100
             : 100;
 
-        // Check if increase exceeds threshold (default 100% = 2x slower)
-        if (percentIncrease < (settings.apiDegradationThresholdPercent ?? 100)) {
-            logger.debug({ projectId, percentIncrease }, 'API degradation below threshold');
+        if (!shouldSendForEmailRules(settings, 'api_degradation', {
+            latencyMs: currentLatencyMs,
+            percentIncrease,
+        })) {
+            logger.debug({ projectId, currentLatencyMs, percentIncrease }, 'API degradation did not match email rules');
             return;
         }
 

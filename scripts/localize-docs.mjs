@@ -137,6 +137,41 @@ async function walkMarkdownFiles(dir) {
   return files.sort();
 }
 
+function normalizeDocPath(value) {
+  return value
+    .trim()
+    .replaceAll("\\", "/")
+    .replace(/^docs\//, "")
+    .replace(/^\/+/, "");
+}
+
+function envList(name) {
+  return (process.env[name] ?? "")
+    .split(",")
+    .map(normalizeDocPath)
+    .filter(Boolean);
+}
+
+function filterMarkdownFiles(markdownFiles) {
+  const docFilter = new Set(envList("DOCS"));
+  if (docFilter.size === 0) {
+    return markdownFiles;
+  }
+
+  const filtered = markdownFiles.filter((file) => {
+    const relativePath = path.relative(docsRoot, file).split(path.sep).join("/");
+    return docFilter.has(relativePath);
+  });
+
+  const found = new Set(filtered.map((file) => path.relative(docsRoot, file).split(path.sep).join("/")));
+  const missing = [...docFilter].filter((docPath) => !found.has(docPath));
+  if (missing.length > 0) {
+    throw new Error(`DOCS filter did not match: ${missing.join(", ")}`);
+  }
+
+  return filtered;
+}
+
 function makeProtector() {
   const protectedValues = [];
   const protect = (value) => {
@@ -439,7 +474,7 @@ async function translateMarkdown(content, targetLanguage) {
 }
 
 async function main() {
-  const markdownFiles = await walkMarkdownFiles(docsRoot);
+  const markdownFiles = filterMarkdownFiles(await walkMarkdownFiles(docsRoot));
   const localeFilter = new Set(
     (process.env.LOCALES ?? "")
       .split(",")
@@ -451,6 +486,9 @@ async function main() {
     : locales;
 
   console.log(`Localizing ${markdownFiles.length} markdown docs into ${selectedLocales.length} locales.`);
+  if (process.env.DOCS) {
+    console.log(`DOCS=${markdownFiles.map((file) => path.relative(docsRoot, file).split(path.sep).join("/")).join(",")}`);
+  }
 
   for (const [locale, targetLanguage] of selectedLocales) {
     for (const sourcePath of markdownFiles) {

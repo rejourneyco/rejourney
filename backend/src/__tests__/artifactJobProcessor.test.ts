@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { gzipSync } from 'zlib';
 
 const {
     downloadFromS3ForArtifactMock,
@@ -105,5 +106,34 @@ describe('artifactJobProcessor routing', () => {
         expect(processEventsArtifactMock).not.toHaveBeenCalled();
         expect(processCrashesArtifactMock).not.toHaveBeenCalled();
         expect(processAnrsArtifactMock).not.toHaveBeenCalled();
+    });
+
+    it('validates gzipped rrweb artifacts before marking them ready', async () => {
+        downloadFromS3ForArtifactMock.mockResolvedValue(gzipSync(JSON.stringify({
+            format: 'rrweb',
+            events: [{ type: 2, timestamp: 1_771_000_000_000 }],
+        })));
+
+        await runArtifactProcessorByKind('rrweb', {
+            ...baseContext,
+            job: { ...baseContext.job, kind: 'rrweb' },
+            s3Key: 'artifacts/1771000000000.rrweb.json.gz',
+        } as any);
+
+        expect(downloadFromS3ForArtifactMock).toHaveBeenCalledTimes(1);
+        expect(processRecoveredReplayArtifactMock).not.toHaveBeenCalled();
+    });
+
+    it('rejects malformed rrweb artifacts', async () => {
+        downloadFromS3ForArtifactMock.mockResolvedValue(gzipSync(JSON.stringify({
+            format: 'rrweb',
+            events: [],
+        })));
+
+        await expect(runArtifactProcessorByKind('rrweb', {
+            ...baseContext,
+            job: { ...baseContext.job, kind: 'rrweb' },
+            s3Key: 'artifacts/1771000000000.rrweb.json.gz',
+        } as any)).rejects.toThrow('rrweb artifact payload must contain at least one event');
     });
 });

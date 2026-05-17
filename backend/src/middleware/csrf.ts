@@ -116,15 +116,12 @@ export function originValidation(
             const allowedOrigin = allowedUrl.origin;
             const allowedBaseDomain = getBaseDomain(allowedUrl.hostname);
 
-            // Also allow localhost for local docker development
-            const isLocalhostOrigin = origin === 'http://localhost:8080' || origin === 'http://127.0.0.1:8080';
-
             if (origin) {
                 try {
                     const originUrl = new URL(origin);
                     const originBaseDomain = getBaseDomain(originUrl.hostname);
 
-                    if (origin !== allowedOrigin && !isLocalhostOrigin && originBaseDomain !== allowedBaseDomain) {
+                    if (origin !== allowedOrigin && originBaseDomain !== allowedBaseDomain) {
                         res.status(403).json({
                             error: 'Forbidden',
                             message: 'Invalid origin',
@@ -147,9 +144,7 @@ export function originValidation(
                     const refererOrigin = refererUrl.origin;
                     const refererBaseDomain = getBaseDomain(refererUrl.hostname);
 
-                    const isLocalhostReferer = refererOrigin === 'http://localhost:8080' || refererOrigin === 'http://127.0.0.1:8080';
-
-                    if (refererOrigin !== allowedOrigin && !isLocalhostReferer && refererBaseDomain !== allowedBaseDomain) {
+                    if (refererOrigin !== allowedOrigin && refererBaseDomain !== allowedBaseDomain) {
                         res.status(403).json({
                             error: 'Forbidden',
                             message: 'Invalid referer',

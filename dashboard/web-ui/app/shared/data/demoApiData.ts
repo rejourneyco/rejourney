@@ -726,6 +726,37 @@ const generateDailyHealth = () => {
     return data;
 };
 
+const generateDailyCustomEvents = () => {
+    const eventNames = ['product_viewed', 'add_to_cart', 'checkout_started', 'signup_completed', 'search_submitted'];
+    const data: Array<{ date: string; events: Record<string, number> }> = [];
+    const now = new Date();
+    for (let i = 29; i >= 0; i--) {
+        const date = new Date(now);
+        date.setDate(date.getDate() - i);
+        const dateStr = date.toISOString().split('T')[0];
+        const growth = 30 - i;
+        data.push({
+            date: dateStr,
+            events: {
+                [eventNames[0]]: 120 + growth * 3 + Math.round(Math.random() * 18),
+                [eventNames[1]]: 72 + growth * 2 + Math.round(Math.random() * 12),
+                [eventNames[2]]: 42 + growth + Math.round(Math.random() * 9),
+                [eventNames[3]]: 18 + Math.round(growth * 0.6) + Math.round(Math.random() * 6),
+                [eventNames[4]]: 50 + Math.round(growth * 1.4) + Math.round(Math.random() * 10),
+            },
+        });
+    }
+    return data;
+};
+
+const demoDailyCustomEvents = generateDailyCustomEvents();
+const demoCustomEventTotals = demoDailyCustomEvents.reduce<Record<string, number>>((totals, row) => {
+    for (const [name, count] of Object.entries(row.events)) {
+        totals[name] = (totals[name] || 0) + count;
+    }
+    return totals;
+}, {});
+
 export const demoGrowthObservability: GrowthObservability = {
     sessionHealth: {
         clean: 9234,
@@ -791,6 +822,10 @@ export const demoGrowthObservability: GrowthObservability = {
         },
     ],
     dailyHealth: generateDailyHealth(),
+    customEvents: Object.entries(demoCustomEventTotals)
+        .map(([name, count]) => ({ name, count }))
+        .sort((a, b) => b.count - a.count),
+    dailyCustomEvents: demoDailyCustomEvents,
 };
 
 // ================================================================================

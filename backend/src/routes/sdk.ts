@@ -4,21 +4,35 @@
  * SDK initialization and project resolution
  */
 
-import { Router } from 'express';
+import { Router, type Request } from 'express';
 import { eq } from 'drizzle-orm';
 import { db, projects } from '../db/client.js';
 import { getRedis } from '../db/redis.js';
 import { asyncHandler, ApiError } from '../middleware/index.js';
 import { buildSdkConfigResponse } from '../services/sdkConfig.js';
+import { isWebOriginAllowed } from '../utils/webAllowedDomains.js';
 
 
 const router = Router();
+
+function isWebSdkRequest(req: Request): boolean {
+    return String(req.headers['x-platform'] ?? '').toLowerCase() === 'web' ||
+        typeof req.headers.origin === 'string';
+}
+
+function getWebRequestOrigin(req: Request): string | undefined {
+    const origin = req.headers.origin;
+    if (typeof origin === 'string' && origin) return origin;
+    const referer = req.headers.referer;
+    if (typeof referer === 'string' && referer) return referer;
+    return undefined;
+}
 
 /**
  * Get project config via public key header
  * GET /api/sdk/config
  * 
- * Unified endpoint for iOS and Android SDKs to fetch project configuration.
+ * Unified endpoint for mobile and web SDKs to fetch project configuration.
  * Uses x-public-key header for authentication.
  */
 router.get(
@@ -31,18 +45,21 @@ router.get(
         }
 
         // Find project by public key (cached)
-        const cacheKey = `sdk:config:v3:${publicKey}`;
+        const cacheKey = `sdk:config:v5:${publicKey}`;
         let project:
             | {
                 id: string;
                 teamId: string;
                 name: string;
+                webDomain?: string | null;
+                webAllowedDomains?: string[] | null;
                 rejourneyEnabled: boolean;
                 recordingEnabled: boolean;
                 textInputMasking?: string | null;
                 recordingFps: number;
                 sampleRate: number;
                 maxRecordingMinutes: number;
+                webMaxObservabilityMinutes: number;
                 deletedAt: Date | null;
             }
             | undefined;
@@ -62,12 +79,15 @@ router.get(
                     id: projects.id,
                     teamId: projects.teamId,
                     name: projects.name,
+                    webDomain: projects.webDomain,
+                    webAllowedDomains: projects.webAllowedDomains,
                     rejourneyEnabled: projects.rejourneyEnabled,
                     recordingEnabled: projects.recordingEnabled,
                     textInputMasking: projects.textInputMasking,
                     recordingFps: projects.recordingFps,
                     sampleRate: projects.sampleRate,
                     maxRecordingMinutes: projects.maxRecordingMinutes,
+                    webMaxObservabilityMinutes: projects.webMaxObservabilityMinutes,
                     deletedAt: projects.deletedAt,
                 })
                 .from(projects)
@@ -95,6 +115,13 @@ router.get(
 
         if (!project) {
             throw ApiError.unauthorized('Invalid public key');
+        }
+
+        if (isWebSdkRequest(req) && !isWebOriginAllowed([
+            ...(project.webAllowedDomains ?? []),
+            ...(project.webDomain ? [project.webDomain] : []),
+        ], getWebRequestOrigin(req))) {
+            throw ApiError.forbidden('Domain is not allowed for this project');
         }
 
         // If Rejourney is disabled, return early with disabled flag

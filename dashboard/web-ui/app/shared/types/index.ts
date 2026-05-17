@@ -1,5 +1,5 @@
 export type Plan = "free" | "paid";
-export type Platform = "ios" | "android";
+export type Platform = "ios" | "android" | "web";
 export type SessionStatus = "recording" | "pending" | "processing" | "ready" | "error" | "failed" | "deleted";
 
 // Time range options for filtering sessions and stats (align with components/ui/TimeFilter)
@@ -33,6 +33,8 @@ export interface Project {
   platforms: Platform[];
   bundleId: string;
   packageName?: string;
+  webDomain?: string | null;
+  webAllowedDomains?: string[];
   teamId?: string;
   publicKey: string;
   rejourneyEnabled?: boolean;
@@ -41,6 +43,7 @@ export interface Project {
   recordingFps?: number;
   sampleRate?: number;
   maxRecordingMinutes?: number;
+  webMaxObservabilityMinutes?: number;
   createdAt: string;
   sessionsLast7Days: number;
   errorsLast7Days: number;
@@ -54,8 +57,12 @@ export interface RecordingSession {
   durationSeconds: number;
   platform: Platform;
   appVersion: string;
+  sdkVersion?: string;
   deviceModel: string;
   osVersion?: string;
+  webReferral?: string | null;
+  webLandingRoute?: string | null;
+  metadata?: Record<string, unknown>;
   userId?: string;
   anonymousId?: string;
   anonymousDisplayName?: string; // Human-readable name like "FluffyPanda3A8B72"

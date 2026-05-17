@@ -45,6 +45,7 @@ import {
     assertSessionAcceptsNewIngestWork,
     isSessionIngestImmutable,
 } from '../services/sessionIngestImmutability.js';
+import { selectMaxObservabilityMinutes } from '../services/sessionTiming.js';
 const router = Router();
 
 function logIngestPresignSkip(meta: {
@@ -237,7 +238,12 @@ router.post(
             deviceModel: data.deviceModel,
             appVersion: data.appVersion,
             osVersion: data.osVersion,
+            os: data.os,
+            browser: data.browser,
+            browserVersion: data.browserVersion,
             networkType: data.networkType,
+            effectiveConnectionType: data.effectiveConnectionType,
+            connectionSaveData: data.connectionSaveData,
             deviceId: deviceAuthId || undefined,
             sdkVersion: typeof data.sdkVersion === 'string' ? data.sdkVersion : undefined,
         }, undefined, existingSession);
@@ -403,6 +409,378 @@ router.post(
             alreadyCompleted: completion.alreadyCompleted,
             ignored: completion.ignored,
         }, 'Batch completed');
+
+        res.json({
+            success: true,
+            queued: completion.queued,
+            alreadyCompleted: completion.alreadyCompleted,
+        });
+    })
+);
+
+router.post(
+    '/rrweb/presign',
+    apiKeyAuth,
+    requireScope('ingest'),
+    ingestSegmentProjectRateLimiter,
+    ingestSegmentDeviceRateLimiter,
+    asyncHandler(async (req, res) => {
+        const data = req.body;
+        const projectId = req.project!.id;
+        const teamId = req.project!.teamId;
+
+        if (!data.sessionId || data.sequence === undefined || data.startTime === undefined || data.sizeBytes === undefined) {
+            throw ApiError.badRequest('Missing required fields: sessionId, sequence, startTime, sizeBytes');
+        }
+
+        const requestedSizeBytes = parseRequestedSizeBytes(data.sizeBytes);
+        const idempotencyKey = req.headers['idempotency-key'] as string;
+        if (idempotencyKey) {
+            const existing = await getIdempotencyStatus(projectId, idempotencyKey);
+            if (existing?.status === 'done') {
+                logIngestPresignSkip({
+                    route: '/api/ingest/rrweb/presign',
+                    projectId,
+                    reason: 'idempotency_already_done',
+                    sessionId: data.sessionId,
+                    kind: 'rrweb',
+                    deduplicated: true,
+                });
+                res.json({
+                    skipUpload: true,
+                    deduplicated: true,
+                    sessionId: data.sessionId,
+                    reason: 'Already processed',
+                });
+                return;
+            }
+            if (existing?.status === 'processing') {
+                logger.info(
+                    {
+                        event: 'ingest.presign_idempotency_processing',
+                        route: '/api/ingest/rrweb/presign',
+                        projectId,
+                        sessionId: data.sessionId,
+                        kind: 'rrweb',
+                        ...getRedisDiagnosticsForLog(),
+                    },
+                    'ingest.presign_idempotency_processing',
+                );
+                res.status(202).json({ message: 'Processing', retryAfter: 5 });
+                return;
+            }
+        }
+
+        const deviceId = extractDeviceIdFromUploadToken(req);
+        const [, [project], existingSession] = await Promise.all([
+            enforceIngestByteBudget({
+                projectId,
+                deviceId,
+                clientIp: getRequestIp(req),
+                bytes: requestedSizeBytes,
+                endpoint: 'segment/presign',
+            }),
+            db.select().from(projects).where(eq(projects.id, projectId)).limit(1),
+            findExistingProjectSession(projectId, data.sessionId),
+        ]);
+
+        if (!project) {
+            throw ApiError.notFound('Project not found');
+        }
+
+        if (!project.rejourneyEnabled) {
+            throw ApiError.forbidden('Rejourney is disabled for this project');
+        }
+
+        const sampleSkipReason = samplingSkipReason(project, data, req);
+        if (sampleSkipReason) {
+            logIngestPresignSkip({
+                route: '/api/ingest/rrweb/presign',
+                projectId,
+                reason: sampleSkipReason,
+                sessionId: data.sessionId,
+                kind: 'rrweb',
+            });
+            res.json({
+                skipUpload: true,
+                sessionId: data.sessionId,
+                reason: 'Session sampled out - recording disabled for this session',
+            });
+            return;
+        }
+
+        if (!project.recordingEnabled) {
+            logIngestPresignSkip({
+                route: '/api/ingest/rrweb/presign',
+                projectId,
+                reason: 'recording_disabled_for_project',
+                sessionId: data.sessionId,
+                kind: 'rrweb',
+            });
+            res.json({
+                skipUpload: true,
+                sessionId: data.sessionId,
+                reason: 'Recording disabled for project',
+            });
+            return;
+        }
+
+        if (!existingSession) {
+            const [billingStatus] = await Promise.all([
+                checkBillingStatus(teamId),
+                checkAndEnforceSessionLimit(teamId),
+            ]);
+            if (!billingStatus.canRecord) {
+                throw ApiError.paymentRequired(billingStatus.reason || 'Recording blocked - billing issue');
+            }
+        }
+
+        let { session, created: isNewSession } = await ensureIngestSession(projectId, data.sessionId, req, {
+            platform: 'web',
+            deviceModel: data.deviceModel || 'browser',
+            appVersion: data.appVersion,
+            osVersion: data.osVersion,
+            os: data.os,
+            browser: data.browser,
+            browserVersion: data.browserVersion,
+            networkType: data.networkType,
+            effectiveConnectionType: data.effectiveConnectionType,
+            connectionSaveData: data.connectionSaveData,
+            deviceId: deviceId || undefined,
+            sdkVersion: typeof data.sdkVersion === 'string' ? data.sdkVersion : undefined,
+        }, undefined, existingSession);
+
+        const startTimeInt = Math.floor(Number(data.startTime));
+        const endTimeInt = data.endTime ? Math.floor(Number(data.endTime)) : startTimeInt;
+        const backfilledSession = await maybeBackfillSessionStartedAt(session.id, startTimeInt, session);
+        if (backfilledSession) {
+            session = backfilledSession;
+        }
+
+        assertSessionAcceptsNewIngestWork(session);
+
+        const sessionStartMs = session.startedAt instanceof Date
+            ? session.startedAt.getTime()
+            : new Date(session.startedAt).getTime();
+        if (Number.isFinite(sessionStartMs)) {
+            const maxObservabilityMinutes = selectMaxObservabilityMinutes(project, 'web');
+            const maxObservabilityMs = maxObservabilityMinutes * 60 * 1000;
+            const wallGraceMs = 120_000;
+            const elapsedStartMs = startTimeInt - sessionStartMs;
+            const elapsedEndMs = endTimeInt - sessionStartMs;
+
+            if (elapsedStartMs > maxObservabilityMs) {
+                logIngestPresignSkip({
+                    route: '/api/ingest/rrweb/presign',
+                    projectId,
+                    reason: 'exceeds_web_max_observability_duration',
+                    sessionId: data.sessionId,
+                    kind: 'rrweb',
+                    extra: {
+                        startTimeInt,
+                        endTimeInt,
+                        sessionStartMs,
+                        elapsedStartMs,
+                        maxObservabilityMs,
+                        maxObservabilityMinutes,
+                    },
+                });
+
+                res.json({
+                    skipUpload: true,
+                    sessionId: data.sessionId,
+                    reason: `Web observability limit exceeded (${maxObservabilityMinutes} minutes max)`,
+                });
+                return;
+            }
+
+            if (elapsedEndMs > maxObservabilityMs + wallGraceMs) {
+                logIngestPresignSkip({
+                    route: '/api/ingest/rrweb/presign',
+                    projectId,
+                    reason: 'exceeds_web_max_observability_duration_end',
+                    sessionId: data.sessionId,
+                    kind: 'rrweb',
+                    extra: {
+                        startTimeInt,
+                        endTimeInt,
+                        sessionStartMs,
+                        elapsedEndMs,
+                        maxObservabilityMs,
+                        wallGraceMs,
+                        maxObservabilityMinutes,
+                    },
+                });
+
+                res.json({
+                    skipUpload: true,
+                    sessionId: data.sessionId,
+                    reason: `Web observability limit exceeded (${maxObservabilityMinutes} minutes max)`,
+                });
+                return;
+            }
+        }
+
+        if (isNewSession && project.rejourneyEnabled) {
+            incrementProjectSessionCount(projectId, teamId, 1)
+                .then(() => {
+                    logger.debug({ projectId, teamId, sessionId: session.id }, 'Session counted for billing');
+                })
+                .catch((err) => {
+                    logger.warn({ err, projectId, teamId, sessionId: session.id }, 'Failed to increment project session count');
+                });
+
+            updateDeviceUsage(deviceId || session.deviceId || null, projectId, {
+                sessionsStarted: 1,
+            }).catch(() => {});
+        }
+
+        if (deviceId) {
+            updateDeviceUsage(deviceId, projectId, { requestCount: 1 }).catch(() => {});
+        }
+
+        const uploadId = buildReplaySegmentId({
+            sessionId: session.id,
+            kind: 'rrweb',
+            startTime: startTimeInt,
+            endTime: endTimeInt,
+            frameCount: Number.isFinite(Number(data.eventCount)) ? Number(data.eventCount) : null,
+            declaredSizeBytes: requestedSizeBytes,
+        });
+        const filename = `${startTimeInt}.rrweb.json.gz`;
+        const s3Key = generateS3Key(teamId, projectId, session.id, 'rrweb', filename);
+        const endpoint = await getEndpointForSession(session.id, projectId);
+
+        const preparation = await prepareReplayArtifactForUpload({
+            projectId,
+            sessionId: session.id,
+            kind: 'rrweb',
+            s3ObjectKey: s3Key,
+            endpointId: endpoint.id,
+            clientUploadId: uploadId,
+            declaredSizeBytes: requestedSizeBytes,
+            timestamp: startTimeInt,
+            startTime: startTimeInt,
+            endTime: endTimeInt,
+            frameCount: Number.isFinite(Number(data.eventCount)) ? Number(data.eventCount) : null,
+        });
+
+        if (preparation.action === 'skip') {
+            if (idempotencyKey) {
+                await setIdempotencyStatus(projectId, idempotencyKey, 'done', uploadId);
+            }
+            res.json({
+                skipUpload: true,
+                deduplicated: true,
+                sessionId: session.id,
+                uploadId,
+                segmentId: uploadId,
+                reason: 'Already processed',
+            });
+            return;
+        }
+
+        const artifact = preparation.artifact;
+        const presignedUrl = buildArtifactUploadRelayUrl({
+            artifactId: artifact.id,
+            projectId,
+            sessionId: session.id,
+            kind: 'rrweb',
+        });
+
+        if (idempotencyKey) {
+            await setIdempotencyStatus(projectId, idempotencyKey, 'processing');
+        }
+
+        logger.info({
+            event: 'ingest.rrweb_relay_url_issued',
+            sessionId: session.id,
+            projectId,
+            artifactId: artifact.id,
+            uploadId,
+            sequence: data.sequence,
+            eventCount: data.eventCount,
+            sizeBytes: requestedSizeBytes,
+            endpointId: endpoint.id,
+        }, 'RRWeb presigned URL generated');
+
+        res.json({
+            presignedUrl,
+            uploadId,
+            segmentId: uploadId,
+            sessionId: session.id,
+            s3Key,
+            endpointId: endpoint.id,
+        });
+    })
+);
+
+router.post(
+    '/rrweb/complete',
+    apiKeyAuth,
+    requireScope('ingest'),
+    ingestSegmentProjectRateLimiter,
+    asyncHandler(async (req, res) => {
+        const { uploadId, segmentId, actualSizeBytes, eventCount, sdkTelemetry } = req.body;
+        const projectId = req.project!.id;
+        const resolvedUploadId = uploadId || segmentId;
+        const normalizedSdkTelemetry = normalizeSdkTelemetry(sdkTelemetry);
+
+        if (!resolvedUploadId) {
+            throw ApiError.badRequest('uploadId is required');
+        }
+
+        const { sessionId, kind, startTime } = parseSegmentId(resolvedUploadId);
+        const log = logger.child({
+            route: '/api/ingest/rrweb/complete',
+            projectId,
+            sessionId,
+            uploadId: resolvedUploadId,
+            kind,
+            startTime,
+        });
+
+        const [session] = await db
+            .select()
+            .from(sessions)
+            .where(and(eq(sessions.id, sessionId), eq(sessions.projectId, projectId)))
+            .limit(1);
+        const sessionOpen = Boolean(session && !isSessionIngestImmutable(session));
+        if (normalizedSdkTelemetry && sessionOpen) {
+            const sdkUpdates = buildSdkTelemetryMergeSet(normalizedSdkTelemetry);
+            if (Object.keys(sdkUpdates).length > 0) {
+                await db.update(sessionMetrics)
+                    .set(sdkUpdates)
+                    .where(eq(sessionMetrics.sessionId, sessionId));
+            }
+        }
+
+        const completion = await completeArtifactUpload({
+            projectId,
+            clientUploadId: resolvedUploadId,
+            actualSizeBytes: actualSizeBytes ?? null,
+            frameCount: eventCount ?? null,
+        });
+
+        const deviceId = extractDeviceIdFromUploadToken(req);
+        updateDeviceUsage(deviceId, projectId, {
+            bytesUploaded: actualSizeBytes || 0,
+            requestCount: 1,
+        }).catch(() => {});
+
+        const idempotencyKey = req.headers['idempotency-key'] as string;
+        if (idempotencyKey) {
+            await setIdempotencyStatus(projectId, idempotencyKey, 'done', resolvedUploadId);
+        }
+
+        log.info({
+            actualSizeBytes,
+            eventCount,
+            hadSdkTelemetry: Boolean(normalizedSdkTelemetry && sessionOpen),
+            queued: completion.queued,
+            alreadyCompleted: completion.alreadyCompleted,
+            ignored: completion.ignored,
+        }, 'RRWeb segment completed');
 
         res.json({
             success: true,

@@ -14,10 +14,16 @@ import { parseSessionStartedAt, parseSessionStartedAtOrNull } from './sessionId.
 export type IngestSessionMetadata = {
     userId?: string;
     platform?: string;
+    os?: string;
     deviceModel?: string;
     appVersion?: string;
     osVersion?: string;
+    browser?: string;
+    browserVersion?: string;
     networkType?: string;
+    effectiveConnectionType?: string;
+    connectionSaveData?: boolean;
+    userAgent?: string;
     deviceId?: string;
     /** Mobile SDK semver (optional; older clients omit — backward compatible) */
     sdkVersion?: string;
@@ -102,6 +108,35 @@ function inferSessionShape(req?: any, metadata?: IngestSessionMetadata) {
     };
 }
 
+function normalizeMetadataValue(value: unknown, maxLength = 512): string | boolean | null {
+    if (typeof value === 'boolean') return value;
+    if (value === null || value === undefined) return null;
+    const normalized = String(value).trim();
+    if (!normalized) return null;
+    return normalized.slice(0, maxLength);
+}
+
+function buildSessionJsonMetadata(metadata?: IngestSessionMetadata): Record<string, string | boolean> {
+    const updates: Record<string, string | boolean> = {};
+    const assign = (key: string, value: unknown, maxLength = 512) => {
+        const normalized = normalizeMetadataValue(value, maxLength);
+        if (normalized !== null) updates[key] = normalized;
+    };
+
+    assign('browser', metadata?.browser, 128);
+    assign('browserVersion', metadata?.browserVersion, 128);
+    assign('os', metadata?.os, 128);
+    assign('osVersion', metadata?.osVersion, 128);
+    assign('networkType', metadata?.networkType, 128);
+    assign('effectiveConnectionType', metadata?.effectiveConnectionType, 128);
+    assign('connectionSaveData', metadata?.connectionSaveData);
+    assign('sdkVersion', normalizeIngestSdkVersion(metadata?.sdkVersion), MAX_INGEST_SDK_VERSION_LEN);
+    assign('appVersion', metadata?.appVersion, 128);
+    assign('userAgent', metadata?.userAgent, 2048);
+
+    return updates;
+}
+
 // ---------------------------------------------------------------------------
 // Per-project retention cache (in-process, 30-minute TTL).
 //
@@ -181,6 +216,11 @@ function buildMetadataUpdates(existing: any, metadata: IngestSessionMetadata | u
     // once set — observeOnly is a one-way latch.
     if (!existing.observeOnly && req?.headers?.['x-rj-observe-only'] === '1') {
         updates.observeOnly = true;
+    }
+
+    const jsonMetadata = buildSessionJsonMetadata(metadata);
+    if (Object.keys(jsonMetadata).length > 0) {
+        updates.metadata = sql`${sessions.metadata} || ${JSON.stringify(jsonMetadata)}::jsonb`;
     }
 
     return updates;

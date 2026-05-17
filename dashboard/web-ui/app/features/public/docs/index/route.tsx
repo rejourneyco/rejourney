@@ -70,7 +70,7 @@ export async function loader({ request }: Route.LoaderArgs) {
     }
 
     const locale = getMarketingLocaleFromPathname(new URL(request.url).pathname);
-    return redirect(getLocalizedPublicPath(locale, "/docs/reactnative/overview"));
+    return redirect(getLocalizedPublicPath(locale, "/docs/web/getting-started"));
 }
 
 export default function Docs() {

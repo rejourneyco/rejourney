@@ -267,14 +267,14 @@ export const TopBar: React.FC<TopBarProps> = ({ currentProject }) => {
         {/* Contact Devs Button */}
         <button
           onClick={handleCopyContactEmail}
-          className="group hidden h-8 w-8 shrink-0 items-center justify-center border border-slate-200 bg-white shadow-sm transition-all hover:border-slate-300 hover:bg-slate-50 active:shadow-none sm:flex"
+          className="group hidden h-8 w-8 shrink-0 items-center justify-center border border-[#2563eb] bg-[#3b82f6] shadow-sm transition-all hover:border-[#1d4ed8] hover:bg-[#2563eb] active:shadow-none sm:flex"
           title="Copy developer contact email: contact@rejourney.co"
           aria-label="Copy developer contact email"
         >
           {copiedContactEmail ? (
-            <Check className="h-4 w-4 text-black stroke-[3]" />
+            <Check className="h-4 w-4 text-white stroke-[3]" />
           ) : (
-            <Mail className="h-4 w-4 text-black transition-colors group-hover:text-[#5dadec] stroke-[2]" />
+            <Mail className="h-4 w-4 text-white stroke-[2.5]" />
           )}
         </button>
 

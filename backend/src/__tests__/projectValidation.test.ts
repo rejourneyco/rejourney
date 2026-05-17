@@ -128,4 +128,70 @@ describe('Project Validation', () => {
             expect(updateProjectSchema.safeParse({ sampleRate: 101 }).success).toBe(false);
         });
     });
+
+    describe('Observability duration', () => {
+        it('defaults mobile duration to 10 minutes and web duration to 30 minutes', () => {
+            const result = createProjectSchema.parse({ name: 'Test' });
+            expect(result.maxRecordingMinutes).toBe(10);
+            expect(result.webMaxObservabilityMinutes).toBe(30);
+        });
+
+        it('accepts 1-10 minute mobile and 1-30 minute web durations for project create and update', () => {
+            [1, 5, 10].forEach((minutes) => {
+                expect(createProjectSchema.safeParse({ name: 'Test', maxRecordingMinutes: minutes }).success).toBe(true);
+                expect(updateProjectSchema.safeParse({ maxRecordingMinutes: minutes }).success).toBe(true);
+                expect(createProjectSchema.safeParse({ name: 'Test', webMaxObservabilityMinutes: minutes }).success).toBe(true);
+                expect(updateProjectSchema.safeParse({ webMaxObservabilityMinutes: minutes }).success).toBe(true);
+            });
+            [15, 30].forEach((minutes) => {
+                expect(createProjectSchema.safeParse({ name: 'Test', webMaxObservabilityMinutes: minutes }).success).toBe(true);
+                expect(updateProjectSchema.safeParse({ webMaxObservabilityMinutes: minutes }).success).toBe(true);
+            });
+        });
+
+        it('rejects mobile and web durations outside their remote ranges', () => {
+            expect(createProjectSchema.safeParse({ name: 'Test', maxRecordingMinutes: 0 }).success).toBe(false);
+            expect(updateProjectSchema.safeParse({ maxRecordingMinutes: 11 }).success).toBe(false);
+            expect(createProjectSchema.safeParse({ name: 'Test', webMaxObservabilityMinutes: 0 }).success).toBe(false);
+            expect(updateProjectSchema.safeParse({ webMaxObservabilityMinutes: 31 }).success).toBe(false);
+        });
+    });
+
+    describe('Web allowed domains', () => {
+        it('normalizes allowed domains for web project creation', () => {
+            const result = createProjectSchema.parse({
+                name: 'Web App',
+                platforms: ['web'],
+                webAllowedDomains: ['https://App.Example.com/path', '*.shop.example.com', 'localhost:3000'],
+            });
+
+            expect(result.webAllowedDomains).toEqual(['app.example.com', '*.shop.example.com', 'localhost:3000']);
+            expect(result.webDomain).toBeUndefined();
+        });
+
+        it('requires an allowed domain when web is selected', () => {
+            const result = createProjectSchema.safeParse({
+                name: 'Web App',
+                platforms: ['web'],
+                webAllowedDomains: [],
+            });
+
+            expect(result.success).toBe(false);
+        });
+
+        it('accepts the legacy webDomain field as the first web allowed domain', () => {
+            const result = createProjectSchema.parse({
+                name: 'Web App',
+                platforms: ['web'],
+                webDomain: 'https://www.example.com/docs',
+            });
+
+            expect(result.webDomain).toBe('www.example.com');
+        });
+
+        it('accepts clearing web domains on project update', () => {
+            expect(updateProjectSchema.safeParse({ webAllowedDomains: [] }).success).toBe(true);
+            expect(updateProjectSchema.safeParse({ webDomain: null }).success).toBe(true);
+        });
+    });
 });

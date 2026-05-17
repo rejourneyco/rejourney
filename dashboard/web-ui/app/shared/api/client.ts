@@ -4,6 +4,7 @@ import {
   RecordingSession,
   SessionEvent,
   ApiCall,
+  Platform,
   TimeRange,
   ProjectDailyStats,
   Issue,
@@ -222,10 +223,17 @@ export interface ApiSession {
     manufacturer?: string;
     os?: string;
     osVersion?: string;
+    systemVersion?: string;
+    browser?: string;
+    browserVersion?: string;
     screenWidth?: number;
     screenHeight?: number;
     pixelRatio?: number;
     appVersion?: string;
+    sdkVersion?: string;
+    userAgent?: string;
+    networkType?: string;
+    effectiveConnectionType?: string;
     locale?: string;
     timezone?: string;
   };
@@ -242,6 +250,7 @@ export interface ApiSession {
   startTime: number;
   endTime?: number;
   duration?: number;
+  sdkVersion?: string;
   events: any[];
   networkRequests: any[];
   batches: any[];
@@ -254,7 +263,24 @@ export interface ApiSession {
   screenshotFrameCount?: number;
   screenshotFramesProcessedSegments?: number;
   screenshotFramesTotalSegments?: number;
-  playbackMode?: 'screenshots' | 'video' | 'none';
+  playbackMode?: 'screenshots' | 'rrweb' | 'video' | 'none';
+  rrwebReplay?: {
+    events: any[];
+    eventCount: number;
+    segments: Array<{
+      index: number;
+      startTime: number | null;
+      endTime: number | null;
+      eventCount: number;
+      sizeBytes: number | null;
+      url: string | null;
+    }>;
+    page?: Record<string, unknown> | null;
+    viewport?: Record<string, unknown> | null;
+  };
+  webReferral?: string | null;
+  webLandingRoute?: string | null;
+  metadata?: Record<string, unknown>;
   stats: {
     duration: string;
     durationMinutes: string;
@@ -318,7 +344,12 @@ export interface ApiSessionSummary {
   durationSeconds?: number;
   platform?: string;
   appVersion?: string;
+  sdkVersion?: string;
   deviceModel?: string;
+  osVersion?: string;
+  webReferral?: string | null;
+  webLandingRoute?: string | null;
+  metadata?: Record<string, unknown>;
   touchCount?: number;
   scrollCount?: number;
   gestureCount?: number;
@@ -614,6 +645,32 @@ export async function getDashboardStatsWithTimeRange(timeRange: string): Promise
 /**
  * Transform API session to web-ui RecordingSession format
  */
+function normalizeApiPlatform(value: unknown, fallback?: unknown): Platform {
+  const normalized = String(value || fallback || '').trim().toLowerCase();
+  if (normalized === 'web') return 'web';
+  if (normalized === 'android') return 'android';
+  return 'ios';
+}
+
+function matchesPlatformFilter(value: unknown, platform?: string): boolean {
+  if (!platform || platform === 'all') return true;
+  const normalized = normalizeApiPlatform(value);
+  if (platform === 'mobile') return normalized === 'ios' || normalized === 'android';
+  return normalized === platform;
+}
+
+function readMetadataString(metadata: unknown, keys: string[]): string | null {
+  if (!metadata || typeof metadata !== 'object') return null;
+  const record = metadata as Record<string, unknown>;
+  for (const key of keys) {
+    const value = record[key];
+    if (value === null || value === undefined) continue;
+    const normalized = String(value).trim();
+    if (normalized) return normalized;
+  }
+  return null;
+}
+
 export function transformToRecordingSession(session: ApiSession | ApiSessionSummary): any {
   // Handle both old format (startTime as number) and new format (startedAt as ISO string)
   const startedAtValue = (session as any).startedAt || (session as any).startTime;
@@ -692,6 +749,9 @@ export function transformToRecordingSession(session: ApiSession | ApiSessionSumm
   const rageTapCount = summary.rageTapCount ?? metrics.rageTapCount ?? 0;
   const interactionScore = summary.interactionScore ?? metrics.interactionScore ?? 50;
   const explorationScore = summary.explorationScore ?? metrics.explorationScore ?? 50;
+  const metadata = (session as any).metadata;
+  const webReferral = (session as any).webReferral ?? readMetadataString(metadata, ['webReferral', 'webReferrerDomain', 'webAttributionSource']);
+  const webLandingRoute = (session as any).webLandingRoute ?? readMetadataString(metadata, ['webLandingRoute', 'webEntryPath']);
 
   const screensVisited = summary.screensVisited?.length
     ? summary.screensVisited
@@ -708,10 +768,14 @@ export function transformToRecordingSession(session: ApiSession | ApiSessionSumm
     startedAt,
     endedAt,
     durationSeconds,
-    platform: (session as any).platform || (session.deviceInfo?.os?.toLowerCase() as 'ios' | 'android') || 'ios',
+    platform: normalizeApiPlatform((session as any).platform, session.deviceInfo?.os),
     appVersion: (session as any).appVersion || session.deviceInfo?.appVersion || 'Unknown',
+    sdkVersion: (session as any).sdkVersion || session.deviceInfo?.sdkVersion || undefined,
     deviceModel: (session as any).deviceModel || session.deviceInfo?.model || 'Unknown Device',
     osVersion: (session as any).osVersion || session.deviceInfo?.osVersion || undefined,
+    webReferral,
+    webLandingRoute,
+    metadata,
     userId: session.userId !== 'anonymous' ? session.userId : undefined,
     anonymousId: session.userId === 'anonymous' ? session.userId : undefined,
     anonymousDisplayName: (session as any).anonymousDisplayName || undefined,
@@ -911,7 +975,11 @@ export async function getSessionsArchiveTotalCount(
   params: Omit<SessionArchiveQuery, 'cursor' | 'limit' | 'includeTotal'>
 ): Promise<number> {
   if (isDemoMode()) {
-    return demoSessions.length;
+    return demoSessions.filter((session) => {
+      if (params.projectId && session.projectId !== params.projectId) return false;
+      if (!matchesPlatformFilter(session.platform, params.platform)) return false;
+      return true;
+    }).length;
   }
 
   const queryParams = buildSessionArchiveQueryString({ ...params, countOnly: true, limit: 1 });
@@ -932,14 +1000,20 @@ export async function getSessionsArchiveTotalCount(
 export async function getSessionsPaginated(
   params: SessionArchiveQuery
 ): Promise<{ sessions: any[]; nextCursor: string | null; hasMore: boolean; totalCount: number | null }> {
-  // Demo mode: return static demo sessions
+  // Demo mode: return the broad demo session pool for dashboards.
   if (isDemoMode()) {
     const includeTotal = params.includeTotal !== false;
+    const filteredSessions = demoSessions.filter((session) => {
+      if (params.projectId && session.projectId !== params.projectId) return false;
+      if (!matchesPlatformFilter(session.platform, params.platform)) return false;
+      return true;
+    });
+    const limit = params.limit && params.limit > 0 ? params.limit : filteredSessions.length;
     return {
-      sessions: demoSessions,
+      sessions: filteredSessions.slice(0, limit),
       nextCursor: null,
       hasMore: false,
-      totalCount: includeTotal ? demoSessions.length : null,
+      totalCount: includeTotal ? filteredSessions.length : null,
     };
   }
 
@@ -1014,7 +1088,8 @@ export interface ApiProject {
   bundleId?: string;
   packageName?: string;
   teamId?: string;
-  webDomain?: string;
+  webDomain?: string | null;
+  webAllowedDomains?: string[];
   platforms: string[];
   publicKey: string;
   rejourneyEnabled?: boolean;
@@ -1023,6 +1098,7 @@ export interface ApiProject {
   recordingFps?: number;
   sampleRate: number;
   maxRecordingMinutes?: number;
+  webMaxObservabilityMinutes?: number;
   sessionsTotal?: number;
   sessionsLast7Days?: number;
   errorsLast7Days?: number;
@@ -1044,6 +1120,7 @@ export interface CreateProjectRequest {
   packageName?: string;
   teamId?: string;
   webDomain?: string;
+  webAllowedDomains?: string[];
   platforms?: string[];
   rejourneyEnabled?: boolean;
   recordingEnabled?: boolean;
@@ -1051,6 +1128,7 @@ export interface CreateProjectRequest {
   recordingFps?: number;
   sampleRate?: number;
   maxRecordingMinutes?: number;
+  webMaxObservabilityMinutes?: number;
 }
 
 /**
@@ -1104,7 +1182,7 @@ export async function getProject(projectId: string): Promise<ApiProject> {
 /**
  * Update a project
  */
-export async function updateProject(projectId: string, data: { name?: string; maxRecordingMinutes?: number; sampleRate?: number; recordingFps?: number; recordingEnabled?: boolean; rejourneyEnabled?: boolean; textInputMasking?: 'all' | 'secure_only'; bundleId?: string; packageName?: string }): Promise<ApiProject> {
+export async function updateProject(projectId: string, data: { name?: string; maxRecordingMinutes?: number; webMaxObservabilityMinutes?: number; sampleRate?: number; recordingFps?: number; recordingEnabled?: boolean; rejourneyEnabled?: boolean; textInputMasking?: 'all' | 'secure_only'; bundleId?: string; packageName?: string; webDomain?: string | null; webAllowedDomains?: string[] | null }): Promise<ApiProject> {
   const response = await fetchJson<{ project: ApiProject }>(`/api/projects/${projectId}`, {
     method: 'PUT',
     body: JSON.stringify(data),
@@ -1951,7 +2029,7 @@ export async function getCrash(projectId: string, crashId: string): Promise<Cras
 /**
  * Get ANRs for a project
  */
-export async function getANRs(projectId: string, options?: { limit?: number; offset?: number; timeRange?: string }): Promise<{ anrs: ANRRecord[]; totalGroups?: number; totalEvents?: number }> {
+export async function getANRs(projectId: string, options?: { limit?: number; offset?: number; timeRange?: string; platform?: string }): Promise<{ anrs: ANRRecord[]; totalGroups?: number; totalEvents?: number }> {
   if (isDemoMode()) {
     return demoApiData.demoANRsResponse;
   }
@@ -1959,6 +2037,7 @@ export async function getANRs(projectId: string, options?: { limit?: number; off
   params.set('limit', String(options?.limit ?? 100));
   if (options?.offset) params.set('offset', String(options.offset));
   if (options?.timeRange) params.set('timeRange', options.timeRange);
+  if (options?.platform && options.platform !== 'all') params.set('platform', options.platform);
   return fetchJson<{ anrs: ANRRecord[]; totalGroups?: number; totalEvents?: number }>(`/api/projects/${projectId}/anrs?${params.toString()}`);
 }
 
@@ -2067,6 +2146,7 @@ export interface HeatmapOverviewScreen {
   frictionScore: number;
   screenshotUrl: string | null;
   sessionIds?: string[];
+  screenFirstSeenMs?: number | null;
   touchHotspots?: Array<{ x: number; y: number; intensity: number; isRageTap: boolean }>;
   rangeVisits: number;
   rangeRageTaps: number;
@@ -2087,6 +2167,7 @@ export interface HeatmapOverviewScreen {
 export interface HeatmapIterationScreen {
   name: string;
   screenshotUrl: string | null;
+  screenFirstSeenMs?: number | null;
   touchHotspots?: Array<{ x: number; y: number; intensity: number; isRageTap: boolean }>;
   visits: number;
   touches: number;
@@ -2258,42 +2339,50 @@ export interface ApiLatencyByLocationResponse {
 /**
  * Get API latency aggregated by geographic location
  */
-export async function getApiLatencyByLocation(projectId?: string, timeRange?: string): Promise<ApiLatencyByLocationResponse> {
+export async function getApiLatencyByLocation(projectId?: string, timeRange?: string, platform?: string): Promise<ApiLatencyByLocationResponse> {
   // Demo mode: return mock data
   if (isDemoMode()) {
     return demoApiData.demoApiLatencyByLocation;
   }
 
+  const normalizedPlatform = platform && platform !== 'all' ? platform : undefined;
   const params = new URLSearchParams();
   if (projectId) params.set('projectId', projectId);
   if (timeRange) params.set('timeRange', timeRange);
-  return fetchWithCache<ApiLatencyByLocationResponse>(`/api/analytics/latency-by-location?${params.toString()}`);
+  if (normalizedPlatform) params.set('platform', normalizedPlatform);
+  const endpoint = `/api/analytics/latency-by-location?${params.toString()}`;
+  const cacheKey = `analytics:latency-location:${projectId || 'all'}:${timeRange || 'all'}:${normalizedPlatform || 'all'}`;
+  return fetchWithCache<ApiLatencyByLocationResponse>(endpoint, {}, cacheKey);
 }
 
 /**
  * Get insights trends (for charts)
  */
-export async function getInsightsTrends(projectId?: string, timeRange?: string): Promise<InsightsTrends> {
+export async function getInsightsTrends(projectId?: string, timeRange?: string, platform?: string): Promise<InsightsTrends> {
   // Demo mode: return mock data
   if (isDemoMode()) {
     return demoApiData.demoInsightsTrends;
   }
 
+  const normalizedPlatform = platform && platform !== 'all' ? platform : undefined;
   const params = new URLSearchParams();
   if (projectId) params.set('projectId', projectId);
   if (timeRange) params.set('timeRange', timeRange);
+  if (normalizedPlatform) params.set('platform', normalizedPlatform);
   const endpoint = `/api/insights/trends?${params.toString()}`;
   // 2 min cache - KPI cards depend on this, keep warm for snappy tab switching
-  return fetchWithCache<InsightsTrends>(endpoint, {}, endpoint, 120000);
+  const cacheKey = `insights:trends:${projectId || 'all'}:${timeRange || 'all'}:${normalizedPlatform || 'all'}`;
+  return fetchWithCache<InsightsTrends>(endpoint, {}, cacheKey, 120000);
 }
 
-export async function getDashboardOverview(projectId?: string, timeRange?: string): Promise<DashboardOverviewResponse> {
+export async function getDashboardOverview(projectId?: string, timeRange?: string, platform?: string): Promise<DashboardOverviewResponse> {
+  const normalizedPlatform = platform && platform !== 'all' ? platform : undefined;
   if (isDemoMode()) {
     const [trends, overviewObs, deepMetrics, engagementTrends, geoSummary, retention, issuesResponse] = await Promise.all([
-      getInsightsTrends(projectId, timeRange),
-      getGrowthObservability(projectId, timeRange === 'all' ? undefined : timeRange, 'summary'),
-      getObservabilityDeepMetrics(projectId, timeRange === 'all' ? undefined : timeRange, 'summary'),
-      getUserEngagementTrends(projectId, timeRange === 'all' ? undefined : timeRange),
+      getInsightsTrends(projectId, timeRange, normalizedPlatform),
+      getGrowthObservability(projectId, timeRange === 'all' ? undefined : timeRange, 'summary', normalizedPlatform),
+      getObservabilityDeepMetrics(projectId, timeRange === 'all' ? undefined : timeRange, 'summary', normalizedPlatform),
+      getUserEngagementTrends(projectId, timeRange === 'all' ? undefined : timeRange, normalizedPlatform),
       getGeoSummary(projectId, timeRange === 'all' ? undefined : timeRange),
       getRetentionCohorts(projectId, timeRange),
       getIssues(projectId || 'demo-project', timeRange || '30d'),
@@ -2314,16 +2403,19 @@ export async function getDashboardOverview(projectId?: string, timeRange?: strin
   const params = new URLSearchParams();
   if (projectId) params.set('projectId', projectId);
   if (timeRange) params.set('timeRange', timeRange);
+  if (normalizedPlatform) params.set('platform', normalizedPlatform);
   const endpoint = `/api/overview/general?${params.toString()}`;
-  const cacheKey = `overview:general:${projectId || 'all'}:${timeRange || 'all'}`;
+  const cacheKey = `overview:general:${projectId || 'all'}:${timeRange || 'all'}:${normalizedPlatform || 'all'}`;
   return fetchWithCache<DashboardOverviewResponse>(endpoint, {}, cacheKey, 60000);
 }
 
-export async function getDashboardOverviewHeavy(projectId?: string, timeRange?: string): Promise<DashboardHeavyResponse> {
+export async function getDashboardOverviewHeavy(projectId?: string, timeRange?: string, platform?: string): Promise<DashboardHeavyResponse> {
+  const normalizedPlatform = platform && platform !== 'all' ? platform : undefined;
   if (isDemoMode()) {
     const sessionsResponse = await getSessionsPaginated({
       projectId,
       timeRange,
+      platform: normalizedPlatform,
       limit: 30,
       includeTotal: false,
     });
@@ -2337,22 +2429,24 @@ export async function getDashboardOverviewHeavy(projectId?: string, timeRange?: 
   const params = new URLSearchParams();
   if (projectId) params.set('projectId', projectId);
   if (timeRange) params.set('timeRange', timeRange);
+  if (normalizedPlatform) params.set('platform', normalizedPlatform);
   const endpoint = `/api/overview/general/heavy?${params.toString()}`;
-  const cacheKey = `overview:general:heavy:${projectId || 'all'}:${timeRange || 'all'}`;
+  const cacheKey = `overview:general:heavy:${projectId || 'all'}:${timeRange || 'all'}:${normalizedPlatform || 'all'}`;
   return fetchWithCache<DashboardHeavyResponse>(endpoint, {}, cacheKey, 60000);
 }
 
-export async function getApiOverview(projectId: string, timeRange?: string): Promise<ApiOverviewResponse> {
+export async function getApiOverview(projectId: string, timeRange?: string, platform?: string): Promise<ApiOverviewResponse> {
+  const normalizedPlatform = platform && platform !== 'all' ? platform : undefined;
   if (isDemoMode()) {
     const range = timeRange === 'all' ? undefined : timeRange;
     const trendsRange = timeRange === '24h' ? '7d' : (timeRange || '30d');
     const regionRange = timeRange === '24h' ? '7d' : (timeRange || '30d');
     const [endpointStats, deepMetrics, regionStats, latencyByLocation, trends] = await Promise.all([
-      getApiEndpointStats(projectId, range),
-      getObservabilityDeepMetrics(projectId, range, 'full'),
-      getRegionPerformance(projectId, regionRange),
-      getApiLatencyByLocation(projectId, range),
-      getInsightsTrends(projectId, trendsRange),
+      getApiEndpointStats(projectId, range, normalizedPlatform),
+      getObservabilityDeepMetrics(projectId, range, 'full', normalizedPlatform),
+      getRegionPerformance(projectId, regionRange, normalizedPlatform),
+      getApiLatencyByLocation(projectId, range, normalizedPlatform),
+      getInsightsTrends(projectId, trendsRange, normalizedPlatform),
     ]);
 
     return {
@@ -2367,12 +2461,14 @@ export async function getApiOverview(projectId: string, timeRange?: string): Pro
 
   const params = new URLSearchParams({ projectId });
   if (timeRange) params.set('timeRange', timeRange);
+  if (normalizedPlatform) params.set('platform', normalizedPlatform);
   const endpoint = `/api/overview/api?${params.toString()}`;
-  const cacheKey = `overview:api:${projectId}:${timeRange || 'all'}`;
+  const cacheKey = `overview:api:${projectId}:${timeRange || 'all'}:${normalizedPlatform || 'all'}`;
   return fetchWithCache<ApiOverviewResponse>(endpoint, {}, cacheKey, ANALYTICS_BOOTSTRAP_CACHE_TTL);
 }
 
-export async function getDevicesOverview(projectId: string, timeRange?: string): Promise<DevicesOverviewResponse> {
+export async function getDevicesOverview(projectId: string, timeRange?: string, platform?: string): Promise<DevicesOverviewResponse> {
+  const normalizedPlatform = platform && platform !== 'all' ? platform : undefined;
   if (isDemoMode()) {
     const range = timeRange === 'all' ? undefined : timeRange;
     const deviceRange = timeRange === 'all' ? 'max' : timeRange;
@@ -2385,10 +2481,10 @@ export async function getDevicesOverview(projectId: string, timeRange?: string):
           : (timeRange || '30d');
 
     const [summary, deepMetrics, matrix, trends] = await Promise.all([
-      getDeviceSummary(projectId, deviceRange),
-      getObservabilityDeepMetrics(projectId, range, 'summary'),
-      getDeviceIssueMatrix(projectId, deviceRange),
-      getInsightsTrends(projectId, trendsRange),
+      getDeviceSummary(projectId, deviceRange, normalizedPlatform),
+      getObservabilityDeepMetrics(projectId, range, 'summary', normalizedPlatform),
+      getDeviceIssueMatrix(projectId, deviceRange, normalizedPlatform),
+      getInsightsTrends(projectId, trendsRange, normalizedPlatform),
     ]);
 
     return {
@@ -2402,17 +2498,19 @@ export async function getDevicesOverview(projectId: string, timeRange?: string):
 
   const params = new URLSearchParams({ projectId });
   if (timeRange) params.set('timeRange', timeRange);
+  if (normalizedPlatform) params.set('platform', normalizedPlatform);
   const endpoint = `/api/overview/devices?${params.toString()}`;
-  const cacheKey = `overview:devices:${projectId}:${timeRange || 'all'}`;
+  const cacheKey = `overview:devices:${projectId}:${timeRange || 'all'}:${normalizedPlatform || 'all'}`;
   return fetchWithCache<DevicesOverviewResponse>(endpoint, {}, cacheKey, ANALYTICS_BOOTSTRAP_CACHE_TTL);
 }
 
-export async function getGeoOverview(projectId: string, timeRange?: string): Promise<GeoOverviewResponse> {
+export async function getGeoOverview(projectId: string, timeRange?: string, platform?: string): Promise<GeoOverviewResponse> {
+  const normalizedPlatform = platform && platform !== 'all' ? platform : undefined;
   if (isDemoMode()) {
     const range = timeRange === 'all' ? undefined : timeRange;
     const [issues, latencyByLocation] = await Promise.all([
-      getGeoIssues(projectId, range),
-      getApiLatencyByLocation(projectId, range),
+      getGeoIssues(projectId, range, normalizedPlatform),
+      getApiLatencyByLocation(projectId, range, normalizedPlatform),
     ]);
 
     return {
@@ -2424,12 +2522,14 @@ export async function getGeoOverview(projectId: string, timeRange?: string): Pro
 
   const params = new URLSearchParams({ projectId });
   if (timeRange) params.set('timeRange', timeRange);
+  if (normalizedPlatform) params.set('platform', normalizedPlatform);
   const endpoint = `/api/overview/geo?${params.toString()}`;
-  const cacheKey = `overview:geo:${projectId}:${timeRange || 'all'}`;
+  const cacheKey = `overview:geo:${projectId}:${timeRange || 'all'}:${normalizedPlatform || 'all'}`;
   return fetchWithCache<GeoOverviewResponse>(endpoint, {}, cacheKey, ANALYTICS_BOOTSTRAP_CACHE_TTL);
 }
 
-export async function getJourneysOverview(projectId: string, timeRange?: string, mode: 'summary' | 'full' = 'summary'): Promise<JourneysOverviewResponse> {
+export async function getJourneysOverview(projectId: string, timeRange?: string, mode: 'summary' | 'full' = 'summary', platform?: string): Promise<JourneysOverviewResponse> {
+  const normalizedPlatform = platform && platform !== 'all' ? platform : undefined;
   if (isDemoMode()) {
     const journeyRange = timeRange === 'all' ? undefined : timeRange;
     const trendsRange = timeRange === '24h'
@@ -2441,9 +2541,9 @@ export async function getJourneysOverview(projectId: string, timeRange?: string,
           : (timeRange || '30d');
 
     const [journey, userEngagement, trends] = await Promise.all([
-      getJourneyObservability(projectId, journeyRange, mode),
-      getUserEngagementTrends(projectId, journeyRange),
-      getInsightsTrends(projectId, trendsRange),
+      getJourneyObservability(projectId, journeyRange, mode, normalizedPlatform),
+      getUserEngagementTrends(projectId, journeyRange, normalizedPlatform),
+      getInsightsTrends(projectId, trendsRange, normalizedPlatform),
     ]);
 
     return {
@@ -2464,21 +2564,23 @@ export async function getJourneysOverview(projectId: string, timeRange?: string,
           ? '90d'
           : (timeRange || '30d');
     const [journey, userEngagement, trends] = await Promise.all([
-      getJourneyObservability(projectId, journeyRange, 'full'),
-      getUserEngagementTrends(projectId, journeyRange),
-      getInsightsTrends(projectId, trendsRange),
+      getJourneyObservability(projectId, journeyRange, 'full', normalizedPlatform),
+      getUserEngagementTrends(projectId, journeyRange, normalizedPlatform),
+      getInsightsTrends(projectId, trendsRange, normalizedPlatform),
     ]);
     return { journey, userEngagement, trends, failedSections: [] };
   }
 
   const params = new URLSearchParams({ projectId });
   if (timeRange) params.set('timeRange', timeRange);
+  if (normalizedPlatform) params.set('platform', normalizedPlatform);
   const endpoint = `/api/overview/journeys?${params.toString()}`;
-  const cacheKey = `overview:journeys:${projectId}:${timeRange || 'all'}`;
+  const cacheKey = `overview:journeys:${projectId}:${timeRange || 'all'}:${normalizedPlatform || 'all'}`;
   return fetchWithCache<JourneysOverviewResponse>(endpoint, {}, cacheKey, ANALYTICS_BOOTSTRAP_CACHE_TTL);
 }
 
-export async function getHeatmapsOverview(projectId: string, timeRange?: string): Promise<HeatmapOverviewResponse> {
+export async function getHeatmapsOverview(projectId: string, timeRange?: string, platform?: string): Promise<HeatmapOverviewResponse> {
+  const normalizedPlatform = platform && platform !== 'all' ? platform : undefined;
   if (isDemoMode()) {
     const [alltime, friction] = await Promise.all([
       getAlltimeHeatmap(projectId),
@@ -2551,14 +2653,16 @@ export async function getHeatmapsOverview(projectId: string, timeRange?: string)
 
   const params = new URLSearchParams({ projectId });
   if (timeRange) params.set('timeRange', timeRange);
+  if (normalizedPlatform) params.set('platform', normalizedPlatform);
   const endpoint = `/api/overview/heatmaps?${params.toString()}`;
-  const cacheKey = `overview:heatmaps:${projectId}:${timeRange || 'all'}:v4`;
+  const cacheKey = `overview:heatmaps:${projectId}:${timeRange || 'all'}:${normalizedPlatform || 'all'}:v6`;
   return fetchWithCache<HeatmapOverviewResponse>(endpoint, {}, cacheKey, ANALYTICS_BOOTSTRAP_CACHE_TTL);
 }
 
-export async function getHeatmapScreenOverview(projectId: string, screenName: string, timeRange?: string): Promise<HeatmapScreenOverviewResponse> {
+export async function getHeatmapScreenOverview(projectId: string, screenName: string, timeRange?: string, platform?: string): Promise<HeatmapScreenOverviewResponse> {
+  const normalizedPlatform = platform && platform !== 'all' ? platform : undefined;
   if (isDemoMode()) {
-    const overview = await getHeatmapsOverview(projectId, timeRange);
+    const overview = await getHeatmapsOverview(projectId, timeRange, normalizedPlatform);
     return {
       screen: overview.screens.find((screen) => screen.name === screenName) || null,
       failedSections: [],
@@ -2567,16 +2671,21 @@ export async function getHeatmapScreenOverview(projectId: string, screenName: st
 
   const params = new URLSearchParams({ projectId, screenName });
   if (timeRange) params.set('timeRange', timeRange);
+  if (normalizedPlatform) params.set('platform', normalizedPlatform);
   const endpoint = `/api/overview/heatmaps/screen?${params.toString()}`;
-  const cacheKey = `overview:heatmaps:screen:${projectId}:${screenName}:${timeRange || 'all'}`;
+  const cacheKey = `overview:heatmaps:screen:${projectId}:${screenName}:${timeRange || 'all'}:${normalizedPlatform || 'all'}:v3`;
   return fetchWithCache<HeatmapScreenOverviewResponse>(endpoint, {}, cacheKey, ANALYTICS_BOOTSTRAP_CACHE_TTL);
 }
 
-export async function getErrorsOverview(projectId: string, timeRange?: string): Promise<ErrorsOverviewResponse> {
+export async function getErrorsOverview(projectId: string, timeRange?: string, platform?: string): Promise<ErrorsOverviewResponse> {
+  const normalizedPlatform = platform && platform !== 'all' ? platform : undefined;
   if (isDemoMode()) {
     const response = await getErrors(projectId, { timeRange });
+    const filteredGrouped = (response.grouped || []).filter((group: any) => (
+      !normalizedPlatform || matchesPlatformFilter(group.sampleError?.platform ?? group.platform, normalizedPlatform)
+    ));
     return {
-      groups: (response.grouped || []).map((group, index) => ({
+      groups: filteredGrouped.map((group, index) => ({
         fingerprint: `${group.errorName}:${group.message}:${index}`,
         errorName: group.errorName,
         message: group.message,
@@ -2598,9 +2707,9 @@ export async function getErrorsOverview(projectId: string, timeRange?: string): 
         },
       })),
       summary: {
-        issues: response.grouped?.length || 0,
-        events: response.summary?.total || 0,
-        users: response.grouped?.length || 0,
+        issues: filteredGrouped.length,
+        events: filteredGrouped.reduce((sum, group) => sum + Number(group.count || 0), 0),
+        users: filteredGrouped.length,
       },
       truncated: false,
     };
@@ -2608,12 +2717,14 @@ export async function getErrorsOverview(projectId: string, timeRange?: string): 
 
   const params = new URLSearchParams({ projectId });
   if (timeRange) params.set('timeRange', timeRange);
+  if (normalizedPlatform) params.set('platform', normalizedPlatform);
   const endpoint = `/api/overview/errors?${params.toString()}`;
-  const cacheKey = `overview:errors:${projectId}:${timeRange || 'all'}`;
+  const cacheKey = `overview:errors:${projectId}:${timeRange || 'all'}:${normalizedPlatform || 'all'}`;
   return fetchWithCache<ErrorsOverviewResponse>(endpoint, {}, cacheKey, ANALYTICS_BOOTSTRAP_CACHE_TTL);
 }
 
-export async function getCrashesOverview(projectId: string, timeRange?: string): Promise<CrashesOverviewResponse> {
+export async function getCrashesOverview(projectId: string, timeRange?: string, platform?: string): Promise<CrashesOverviewResponse> {
+  const normalizedPlatform = platform && platform !== 'all' ? platform : undefined;
   if (isDemoMode()) {
     return {
       groups: [],
@@ -2624,28 +2735,34 @@ export async function getCrashesOverview(projectId: string, timeRange?: string):
 
   const params = new URLSearchParams({ projectId });
   if (timeRange) params.set('timeRange', timeRange);
+  if (normalizedPlatform) params.set('platform', normalizedPlatform);
   const endpoint = `/api/overview/crashes?${params.toString()}`;
-  const cacheKey = `overview:crashes:${projectId}:${timeRange || 'all'}`;
+  const cacheKey = `overview:crashes:${projectId}:${timeRange || 'all'}:${normalizedPlatform || 'all'}`;
   return fetchWithCache<CrashesOverviewResponse>(endpoint, {}, cacheKey, ANALYTICS_BOOTSTRAP_CACHE_TTL);
 }
 
-export async function getANRsOverview(projectId: string, timeRange?: string): Promise<ANRsOverviewResponse> {
+export async function getANRsOverview(projectId: string, timeRange?: string, platform?: string): Promise<ANRsOverviewResponse> {
+  const normalizedPlatform = platform && platform !== 'all' ? platform : undefined;
   if (isDemoMode()) {
     const response = await getANRs(projectId, { timeRange });
+    const filteredAnrs = (response.anrs || []).filter((anr: any) => (
+      !normalizedPlatform || matchesPlatformFilter(anr.platform ?? anr.deviceMetadata?.platform ?? anr.deviceMetadata?.os, normalizedPlatform)
+    ));
     return {
-      anrs: response.anrs || [],
+      anrs: filteredAnrs,
       summary: {
-        issues: response.totalGroups || response.anrs.length,
-        events: response.totalEvents || response.anrs.reduce((sum, anr) => sum + Number(anr.occurrenceCount || 0), 0),
-        users: response.anrs.reduce((sum, anr) => sum + Number(anr.userCount || 0), 0),
+        issues: filteredAnrs.length,
+        events: filteredAnrs.reduce((sum, anr) => sum + Number(anr.occurrenceCount || 0), 0),
+        users: filteredAnrs.reduce((sum, anr) => sum + Number(anr.userCount || 0), 0),
       },
     };
   }
 
   const params = new URLSearchParams({ projectId });
   if (timeRange) params.set('timeRange', timeRange);
+  if (normalizedPlatform) params.set('platform', normalizedPlatform);
   const endpoint = `/api/overview/anrs?${params.toString()}`;
-  const cacheKey = `overview:anrs:${projectId}:${timeRange || 'all'}`;
+  const cacheKey = `overview:anrs:${projectId}:${timeRange || 'all'}:${normalizedPlatform || 'all'}`;
   return fetchWithCache<ANRsOverviewResponse>(endpoint, {}, cacheKey, ANALYTICS_BOOTSTRAP_CACHE_TTL);
 }
 
@@ -2843,6 +2960,7 @@ export interface AlltimeHeatmapScreen {
   frictionScore: number;
   screenshotUrl: string | null;
   sessionIds?: string[];
+  screenFirstSeenMs?: number | null;
   touchHotspots: Array<{ x: number; y: number; intensity: number; isRageTap: boolean }>;
 }
 // Added sessionIds to fix lint errors in Realtime.tsx
@@ -3274,17 +3392,19 @@ export interface GeoIssuesSummary {
 /**
  * Get geo issues summary
  */
-export async function getGeoIssues(projectId?: string, timeRange?: string): Promise<GeoIssuesSummary> {
+export async function getGeoIssues(projectId?: string, timeRange?: string, platform?: string): Promise<GeoIssuesSummary> {
   // Demo mode: return mock data
   if (isDemoMode()) {
     return demoApiData.demoGeoIssues;
   }
 
+  const normalizedPlatform = platform && platform !== 'all' ? platform : undefined;
   const params = new URLSearchParams();
   if (projectId) params.set('projectId', projectId);
   if (timeRange) params.set('timeRange', timeRange);
+  if (normalizedPlatform) params.set('platform', normalizedPlatform);
   const qs = params.toString() ? `?${params.toString()}` : '';
-  const cacheKey = `analytics:geo-issues:${projectId || 'all'}:${timeRange || 'all'}`;
+  const cacheKey = `analytics:geo-issues:${projectId || 'all'}:${timeRange || 'all'}:${normalizedPlatform || 'all'}`;
   const data = await fetchWithCache<GeoIssuesSummary>(`/api/analytics/geo-issues${qs}`, {}, cacheKey);
   return data;
 }
@@ -3310,15 +3430,17 @@ export interface RegionPerformance {
 /**
  * Get API performance by region (fastest/slowest regions)
  */
-export async function getRegionPerformance(projectId: string, timeRange?: string): Promise<RegionPerformance> {
+export async function getRegionPerformance(projectId: string, timeRange?: string, platform?: string): Promise<RegionPerformance> {
   // Demo mode: return mock data
   if (isDemoMode()) {
     return demoApiData.demoRegionPerformance;
   }
 
+  const normalizedPlatform = platform && platform !== 'all' ? platform : undefined;
   const params = new URLSearchParams({ projectId });
   if (timeRange) params.set('timeRange', timeRange);
-  const cacheKey = `analytics:region-performance:${projectId}:${timeRange || 'all'}`;
+  if (normalizedPlatform) params.set('platform', normalizedPlatform);
+  const cacheKey = `analytics:region-performance:${projectId}:${timeRange || 'all'}:${normalizedPlatform || 'all'}`;
   return fetchWithCache<RegionPerformance>(`/api/analytics/region-performance?${params.toString()}`, {}, cacheKey);
 }
 
@@ -3359,15 +3481,17 @@ export interface ApiEndpointStats {
 /**
  * Get API endpoint performance stats
  */
-export async function getApiEndpointStats(projectId: string, timeRange?: string): Promise<ApiEndpointStats> {
+export async function getApiEndpointStats(projectId: string, timeRange?: string, platform?: string): Promise<ApiEndpointStats> {
   // Demo mode: return mock data
   if (isDemoMode()) {
     return demoApiData.demoApiEndpointStats;
   }
 
+  const normalizedPlatform = platform && platform !== 'all' ? platform : undefined;
   const params = new URLSearchParams({ projectId });
   if (timeRange) params.set('timeRange', timeRange);
-  const cacheKey = `analytics:api-endpoint-stats:v2:${projectId}:${timeRange || 'all'}`;
+  if (normalizedPlatform) params.set('platform', normalizedPlatform);
+  const cacheKey = `analytics:api-endpoint-stats:v2:${projectId}:${timeRange || 'all'}:${normalizedPlatform || 'all'}`;
   return fetchWithCache<ApiEndpointStats>(`/api/analytics/api-endpoint-stats?${params.toString()}`, {}, cacheKey);
 }
 
@@ -3396,7 +3520,7 @@ export interface DeviceSummary {
   totalSessions: number;
 }
 
-export async function getDeviceSummary(projectId?: string, timeRange?: string): Promise<DeviceSummary> {
+export async function getDeviceSummary(projectId?: string, timeRange?: string, platform?: string): Promise<DeviceSummary> {
   // Demo mode: return mock data
   if (isDemoMode()) {
     return demoApiData.demoDeviceSummary;
@@ -3405,8 +3529,9 @@ export async function getDeviceSummary(projectId?: string, timeRange?: string): 
   const params = new URLSearchParams();
   if (projectId) params.set('projectId', projectId);
   if (timeRange) params.set('timeRange', timeRange);
+  if (platform) params.set('platform', platform);
   const qs = params.toString() ? `?${params.toString()}` : '';
-  const cacheKey = `analytics:device-summary:${projectId || 'all'}:${timeRange || 'all'}`;
+  const cacheKey = `analytics:device-summary:${projectId || 'all'}:${timeRange || 'all'}:${platform || 'all'}`;
   return fetchWithCache<DeviceSummary>(`/api/analytics/device-summary${qs}`, {}, cacheKey);
 }
 
@@ -3422,7 +3547,7 @@ export interface DeviceIssueMatrix {
   versions: string[];
 }
 
-export async function getDeviceIssueMatrix(projectId?: string, timeRange?: string): Promise<DeviceIssueMatrix> {
+export async function getDeviceIssueMatrix(projectId?: string, timeRange?: string, platform?: string): Promise<DeviceIssueMatrix> {
   // Demo mode: return mock data
   if (isDemoMode()) {
     return demoApiData.demoDeviceIssueMatrix;
@@ -3431,8 +3556,9 @@ export async function getDeviceIssueMatrix(projectId?: string, timeRange?: strin
   const params = new URLSearchParams();
   if (projectId) params.set('projectId', projectId);
   if (timeRange) params.set('timeRange', timeRange);
+  if (platform) params.set('platform', platform);
   const qs = params.toString() ? `?${params.toString()}` : '';
-  const cacheKey = `analytics:device-issues-matrix:${projectId || 'all'}:${timeRange || 'all'}`;
+  const cacheKey = `analytics:device-issues-matrix:${projectId || 'all'}:${timeRange || 'all'}:${platform || 'all'}`;
   return fetchWithCache<DeviceIssueMatrix>(`/api/analytics/device-issues-matrix${qs}`, {}, cacheKey);
 }
 
@@ -3544,18 +3670,21 @@ export async function getJourneyObservability(
   projectId?: string,
   timeRange?: string,
   mode: 'full' | 'summary' = 'full',
+  platform?: string,
 ): Promise<ObservabilityJourneySummary> {
   // Demo mode: return mock data
   if (isDemoMode()) {
     return demoApiData.demoJourneyObservability;
   }
 
+  const normalizedPlatform = platform && platform !== 'all' ? platform : undefined;
   const params = new URLSearchParams();
   if (projectId) params.set('projectId', projectId);
   if (timeRange) params.set('timeRange', timeRange);
   if (mode !== 'full') params.set('mode', mode);
+  if (normalizedPlatform) params.set('platform', normalizedPlatform);
   const qs = params.toString() ? `?${params.toString()}` : '';
-  const cacheKey = `analytics:journey-observability:${projectId || 'all'}:${timeRange || 'all'}:${mode}`;
+  const cacheKey = `analytics:journey-observability:${projectId || 'all'}:${timeRange || 'all'}:${mode}:${normalizedPlatform || 'all'}`;
   return fetchWithCache<ObservabilityJourneySummary>(`/api/analytics/journey-observability${qs}`, {}, cacheKey);
 }
 
@@ -3607,24 +3736,31 @@ export interface GrowthObservability {
     name: string;
     count: number;
   }>;
+  dailyCustomEvents?: Array<{
+    date: string;
+    events: Record<string, number>;
+  }>;
 }
 
 export async function getGrowthObservability(
   projectId?: string,
   timeRange?: string,
   mode: 'full' | 'summary' = 'full',
+  platform?: string,
 ): Promise<GrowthObservability> {
   // Demo mode: return mock data
   if (isDemoMode()) {
     return demoApiData.demoGrowthObservability;
   }
 
+  const normalizedPlatform = platform && platform !== 'all' ? platform : undefined;
   const params = new URLSearchParams();
   if (projectId) params.set('projectId', projectId);
   if (timeRange) params.set('timeRange', timeRange);
   if (mode !== 'full') params.set('mode', mode);
+  if (normalizedPlatform) params.set('platform', normalizedPlatform);
   const qs = params.toString() ? `?${params.toString()}` : '';
-  const cacheKey = `analytics:growth-observability:${projectId || 'all'}:${timeRange || 'all'}:${mode}`;
+  const cacheKey = `analytics:growth-observability:${projectId || 'all'}:${timeRange || 'all'}:${mode}:${normalizedPlatform || 'all'}`;
   return fetchWithCache<GrowthObservability>(`/api/analytics/growth-observability${qs}`, {}, cacheKey);
 }
 
@@ -3709,17 +3845,20 @@ export async function getObservabilityDeepMetrics(
   projectId?: string,
   timeRange?: string,
   mode: 'full' | 'summary' = 'full',
+  platform?: string,
 ): Promise<ObservabilityDeepMetrics> {
   if (isDemoMode()) {
     return demoApiData.demoObservabilityDeepMetrics;
   }
 
+  const normalizedPlatform = platform && platform !== 'all' ? platform : undefined;
   const params = new URLSearchParams();
   if (projectId) params.set('projectId', projectId);
   if (timeRange) params.set('timeRange', timeRange);
   if (mode !== 'full') params.set('mode', mode);
+  if (normalizedPlatform) params.set('platform', normalizedPlatform);
   const qs = params.toString() ? `?${params.toString()}` : '';
-  const cacheKey = `analytics:observability-deep-metrics:${projectId || 'all'}:${timeRange || 'all'}:${mode}`;
+  const cacheKey = `analytics:observability-deep-metrics:${projectId || 'all'}:${timeRange || 'all'}:${mode}:${normalizedPlatform || 'all'}`;
   return fetchWithCache<ObservabilityDeepMetrics>(`/api/analytics/observability-deep-metrics${qs}`, {}, cacheKey);
 }
 
@@ -3743,17 +3882,19 @@ export interface UserEngagementTrends {
   };
 }
 
-export async function getUserEngagementTrends(projectId?: string, timeRange?: string): Promise<UserEngagementTrends> {
+export async function getUserEngagementTrends(projectId?: string, timeRange?: string, platform?: string): Promise<UserEngagementTrends> {
   // Demo mode: return mock data
   if (isDemoMode()) {
     return demoApiData.demoUserEngagementTrends;
   }
 
+  const normalizedPlatform = platform && platform !== 'all' ? platform : undefined;
   const params = new URLSearchParams();
   if (projectId) params.set('projectId', projectId);
   if (timeRange) params.set('timeRange', timeRange);
+  if (normalizedPlatform) params.set('platform', normalizedPlatform);
   const qs = params.toString() ? `?${params.toString()}` : '';
-  const cacheKey = `analytics:user-engagement-trends:${projectId || 'all'}:${timeRange || 'all'}`;
+  const cacheKey = `analytics:user-engagement-trends:${projectId || 'all'}:${timeRange || 'all'}:${normalizedPlatform || 'all'}`;
   return fetchWithCache<UserEngagementTrends>(`/api/analytics/user-engagement-trends${qs}`, {}, cacheKey);
 }
 
@@ -3867,6 +4008,66 @@ export async function getError(projectId: string, errorId: string): Promise<any>
 // =============================================================================
 // Funnel Stats
 // =============================================================================
+
+// =============================================================================
+// Public Roadmap
+// =============================================================================
+
+export interface RoadmapPost {
+  id: string;
+  authorUserId: string | null;
+  authorName: string;
+  title: string;
+  details: string;
+  status: string;
+  developerComment: string | null;
+  votes: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface RoadmapVoteResponse {
+  post: RoadmapPost;
+  voted: boolean;
+  alreadyVoted: boolean;
+}
+
+export async function getRoadmapPosts(): Promise<RoadmapPost[]> {
+  const data = await fetchJson<{ posts: RoadmapPost[] }>('/api/roadmap');
+  return data.posts;
+}
+
+export async function getRoadmapVotePostIds(): Promise<string[]> {
+  const data = await fetchJson<{ postIds: string[] }>('/api/roadmap/me/votes');
+  return data.postIds;
+}
+
+export async function createRoadmapPost(input: { title: string; details: string }): Promise<RoadmapPost> {
+  const data = await fetchJson<{ post: RoadmapPost }>('/api/roadmap', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+  return data.post;
+}
+
+export async function setRoadmapVote(postId: string, voted: boolean): Promise<RoadmapVoteResponse> {
+  if (!voted) {
+    try {
+      return await fetchJson<RoadmapVoteResponse>(`/api/roadmap/${postId}/unvote`, {
+        method: 'POST',
+        body: JSON.stringify({ voted: false }),
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : '';
+      if (!/404|not found/i.test(message)) throw err;
+    }
+  }
+
+  return fetchJson<RoadmapVoteResponse>(`/api/roadmap/${postId}/vote`, {
+    method: 'POST',
+    body: JSON.stringify({ voted }),
+  });
+}
 
 // =============================================================================
 // Workspace API (Tab State Persistence)
@@ -4008,6 +4209,10 @@ export const api = {
   getTeam,
   getErrors,
   getError,
+  getRoadmapPosts,
+  getRoadmapVotePostIds,
+  createRoadmapPost,
+  setRoadmapVote,
   getCrashes,
   getCrash,
   getANRs,

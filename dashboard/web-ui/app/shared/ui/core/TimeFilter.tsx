@@ -21,28 +21,23 @@ interface TimeFilterProps {
 
 export const TimeFilter: React.FC<TimeFilterProps> = ({ value, onChange, className = '' }) => {
     return (
-        <div className={`min-w-0 max-w-full ${className}`.trim()}>
-            <div className="max-w-full overflow-x-auto overflow-y-hidden border-2 border-black bg-white shadow-neo-sm no-scrollbar">
-                <div className="inline-flex min-w-max items-center overflow-hidden">
-                {TIME_RANGE_OPTIONS.map((option, index) => (
-                    <button
-                        key={option.value}
-                        type="button"
-                        onClick={() => onChange(option.value)}
-                        aria-pressed={value === option.value}
-                        className={`shrink-0 px-2.5 py-1.5 text-[11px] font-semibold uppercase leading-none transition-colors 
-                        ${value === option.value
-                                ? 'bg-black text-white'
-                                : 'bg-white text-slate-700 hover:bg-[#ecfeff]'
-                            }
-                        ${index !== TIME_RANGE_OPTIONS.length - 1 ? 'border-r-2 border-black' : ''}
-                        `}
-                    >
-                        {option.label}
-                    </button>
-                ))}
-                </div>
-            </div>
+        <div className={`min-w-0 max-w-full sm:w-auto ${className}`.trim()}>
+            <label className="flex min-w-0 flex-col gap-1 sm:flex-row sm:items-center">
+                <span className="shrink-0 text-[10px] font-black uppercase leading-none text-slate-500">
+                    Range
+                </span>
+                <select
+                    value={value}
+                    onChange={(event) => onChange(event.target.value as TimeRange)}
+                    className="h-9 min-w-[88px] rounded-md border border-slate-300 bg-white px-2.5 pr-8 text-[11px] font-bold uppercase leading-none text-slate-700 shadow-sm outline-none transition-colors hover:border-slate-500 focus:border-slate-950 focus:ring-2 focus:ring-slate-200"
+                >
+                    {TIME_RANGE_OPTIONS.map((option) => (
+                        <option key={option.value} value={option.value}>
+                            {option.label}
+                        </option>
+                    ))}
+                </select>
+            </label>
         </div>
     );
 };

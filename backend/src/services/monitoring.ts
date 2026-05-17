@@ -48,6 +48,7 @@ interface QueueHealth {
     replayPendingByKind: {
         screenshots: number;
         hierarchy: number;
+        rrweb: number;
     };
     stalePendingReplayArtifacts: number;
     oldestStalePendingReplayArtifactAge: number | null;
@@ -209,11 +210,15 @@ export async function checkQueueHealth(): Promise<QueueHealth> {
         const processingJobs = ingestCounts.active + replayCounts.active + flushCounts.active;
         const dlqJobs        = ingestCounts.failed + replayCounts.failed + flushCounts.failed;
         const failedJobs     = dlqJobs; // same concept in BullMQ — exhausted jobs
+        const replayWaiting = replayCounts.waiting + replayCounts.delayed;
+        const replayKindBase = Math.floor(replayWaiting / 3);
+        const replayKindRemainder = replayWaiting % 3;
         const replayPendingByKind = {
-            // All replay-queue waiting jobs are screenshots or hierarchy — we
-            // report half each as an approximation (exact split requires job scan).
-            screenshots: Math.ceil((replayCounts.waiting + replayCounts.delayed) / 2),
-            hierarchy:   Math.floor((replayCounts.waiting + replayCounts.delayed) / 2),
+            // Replay-queue waiting jobs can be screenshots, hierarchy, or rrweb.
+            // Report an approximation here; exact split would require a job scan.
+            rrweb: replayKindBase + (replayKindRemainder > 0 ? 1 : 0),
+            screenshots: replayKindBase + (replayKindRemainder > 1 ? 1 : 0),
+            hierarchy: replayKindBase,
         };
         // Oldest-pending-age is not cheaply available from BullMQ getJobCounts;
         // set to null to avoid a full job scan on every heartbeat.
@@ -228,7 +233,7 @@ export async function checkQueueHealth(): Promise<QueueHealth> {
             FROM recording_artifacts
             WHERE status = 'pending'
               AND upload_completed_at IS NULL
-              AND kind IN ('screenshots', 'hierarchy')
+              AND kind IN ('screenshots', 'hierarchy', 'rrweb')
               AND created_at <= NOW() - (${staleReplayArtifactCutoffSeconds} * interval '1 second')
         `);
 
@@ -253,6 +258,7 @@ export async function checkQueueHealth(): Promise<QueueHealth> {
             || (oldestPendingAge && oldestPendingAge > 600)
             || replayPendingByKind.screenshots > 100
             || replayPendingByKind.hierarchy > 100
+            || replayPendingByKind.rrweb > 100
             || stalePendingReplayArtifacts > 50
             || (oldestStalePendingReplayArtifactAge && oldestStalePendingReplayArtifactAge > staleReplayArtifactCutoffSeconds)
         ) {
@@ -290,6 +296,7 @@ export async function checkQueueHealth(): Promise<QueueHealth> {
             replayPendingByKind: {
                 screenshots: 0,
                 hierarchy: 0,
+                rrweb: 0,
             },
             status: 'critical',
         };
@@ -305,7 +312,7 @@ export async function pingIngestWorkerWithQueueHealth(
 ): Promise<void> {
     const queueHealth = await checkQueueHealth();
 
-    const message = `pending=${queueHealth.pendingJobs},dlq=${queueHealth.dlqJobs},replay_screenshots=${queueHealth.replayPendingByKind.screenshots},replay_hierarchy=${queueHealth.replayPendingByKind.hierarchy},stale_replay_pending=${queueHealth.stalePendingReplayArtifacts}`;
+    const message = `pending=${queueHealth.pendingJobs},dlq=${queueHealth.dlqJobs},replay_screenshots=${queueHealth.replayPendingByKind.screenshots},replay_hierarchy=${queueHealth.replayPendingByKind.hierarchy},replay_rrweb=${queueHealth.replayPendingByKind.rrweb},stale_replay_pending=${queueHealth.stalePendingReplayArtifacts}`;
 
     await pingWorker('ingestWorker', status, message, processingTime);
 

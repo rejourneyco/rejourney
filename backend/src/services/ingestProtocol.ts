@@ -70,7 +70,7 @@ export function parseBatchId(batchId: string): {
 
 export function buildReplaySegmentId(params: {
     sessionId: string;
-    kind: 'screenshots' | 'hierarchy';
+    kind: 'screenshots' | 'hierarchy' | 'rrweb';
     startTime: number;
     endTime?: number | null;
     frameCount?: number | null;
@@ -98,7 +98,7 @@ export function parseSegmentId(segmentId: string): {
     startTime: number;
     endTime?: number | null;
 } {
-    const match = /^seg_(.+)_(screenshots|hierarchy)_(\d+)(?:_(\d+|na))?(?:_([0-9a-f]+))?$/i.exec(segmentId);
+    const match = /^seg_(.+)_(screenshots|hierarchy|rrweb)_(\d+)(?:_(\d+|na))?(?:_([0-9a-f]+))?$/i.exec(segmentId);
     if (match) {
         const sessionId = match[1] || '';
         const kind = match[2] || '';

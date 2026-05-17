@@ -141,6 +141,39 @@ export const teamInvitations = pgTable(
     ]
 );
 
+export const roadmapPosts = pgTable(
+    'roadmap_posts',
+    {
+        id: uuid('id').primaryKey().defaultRandom(),
+        authorUserId: uuid('author_user_id').references(() => users.id, { onDelete: 'set null' }),
+        title: varchar('title', { length: 160 }).notNull(),
+        details: text('details').notNull(),
+        status: varchar('status', { length: 32 }).default('open').notNull(),
+        developerComment: text('developer_comment'),
+        createdAt: timestamp('created_at').defaultNow().notNull(),
+        updatedAt: timestamp('updated_at').defaultNow().notNull(),
+    },
+    (table) => [
+        index('roadmap_posts_author_user_id_idx').on(table.authorUserId),
+        index('roadmap_posts_status_created_at_idx').on(table.status, table.createdAt),
+    ]
+);
+
+export const roadmapVotes = pgTable(
+    'roadmap_votes',
+    {
+        id: uuid('id').primaryKey().defaultRandom(),
+        postId: uuid('post_id').notNull().references(() => roadmapPosts.id, { onDelete: 'cascade' }),
+        userId: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+        createdAt: timestamp('created_at').defaultNow().notNull(),
+    },
+    (table) => [
+        uniqueIndex('roadmap_votes_post_user_unique').on(table.postId, table.userId),
+        index('roadmap_votes_post_id_idx').on(table.postId),
+        index('roadmap_votes_user_id_idx').on(table.userId),
+    ]
+);
+
 // =============================================================================
 // Project Models
 // =============================================================================
@@ -155,6 +188,7 @@ export const projects = pgTable(
         bundleId: varchar('bundle_id', { length: 255 }),
         packageName: varchar('package_name', { length: 255 }),
         webDomain: varchar('web_domain', { length: 255 }),
+        webAllowedDomains: text('web_allowed_domains').array().default(sql`ARRAY[]::text[]`).notNull(),
         publicKey: varchar('public_key', { length: 64 }).notNull(),
         sampleRate: integer('sample_rate').default(100).notNull(),
         rejourneyEnabled: boolean('rejourney_enabled').default(true).notNull(),
@@ -162,6 +196,7 @@ export const projects = pgTable(
         textInputMasking: varchar('text_input_masking', { length: 32 }).default('all').notNull(),
         recordingFps: integer('recording_fps').default(1).notNull(),
         maxRecordingMinutes: integer('max_recording_minutes').default(10).notNull(),
+        webMaxObservabilityMinutes: integer('web_max_observability_minutes').default(30).notNull(),
         deletedAt: timestamp('deleted_at'),
         createdAt: timestamp('created_at').defaultNow().notNull(),
         updatedAt: timestamp('updated_at').defaultNow().notNull(),
@@ -169,6 +204,7 @@ export const projects = pgTable(
     (table) => [
         index('projects_team_id_idx').on(table.teamId),
         uniqueIndex('projects_public_key_idx').on(table.publicKey),
+        index('projects_web_allowed_domains_gin_idx').using('gin', table.webAllowedDomains),
     ]
 );
 
@@ -321,6 +357,7 @@ export const sessions = pgTable(
         userDisplayId: varchar('user_display_id', { length: 255 }), // User ID for dashboard display
         anonymousHash: varchar('anonymous_hash', { length: 255 }),
         anonymousDisplayId: varchar('anonymous_display_id', { length: 255 }), // Original anonymousId for display
+        webReferral: varchar('web_referral', { length: 255 }),
         startedAt: timestamp('started_at').defaultNow().notNull(),
         endedAt: timestamp('ended_at'),
         explicitEndedAt: timestamp('explicit_ended_at'),
@@ -394,6 +431,9 @@ export const sessions = pgTable(
             table.startedAt,
             table.id
         ),
+        index('sessions_project_web_referral_started_idx')
+            .on(table.projectId, table.webReferral, table.startedAt)
+            .where(sql`${table.webReferral} IS NOT NULL`),
         index('sessions_user_display_id_idx').on(table.userDisplayId),
         index('sessions_anonymous_hash_idx').on(table.anonymousHash),
         index('sessions_events_idx').using('gin', table.events),
@@ -1111,6 +1151,27 @@ export const projectFunnelStats = pgTable(
 /**
  * Alert settings per project - controls which alerts are enabled and thresholds
  */
+export type EmailAlertRuleAlertType = 'crash' | 'anr' | 'error_spike' | 'api_degradation';
+export type EmailAlertRuleMetric = 'affected_users' | 'duration_ms' | 'percent_increase' | 'latency_ms';
+export type EmailAlertRuleOperator = 'gt' | 'gte' | 'lt' | 'lte';
+export type EmailAlertRuleSeverity = 'critical' | 'high' | 'watch';
+export type EmailAlertRuleSource = 'default' | 'custom';
+
+export interface EmailAlertRule {
+    id: string;
+    name: string;
+    description?: string;
+    alertType: EmailAlertRuleAlertType;
+    metric: EmailAlertRuleMetric;
+    operator: EmailAlertRuleOperator;
+    threshold: number;
+    windowMinutes: number;
+    severity: EmailAlertRuleSeverity;
+    enabled: boolean;
+    source: EmailAlertRuleSource;
+    updatedAt: string;
+}
+
 export const alertSettings = pgTable('alert_settings', {
     id: uuid('id').primaryKey().defaultRandom(),
     projectId: uuid('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
@@ -1125,6 +1186,7 @@ export const alertSettings = pgTable('alert_settings', {
     errorSpikeThresholdPercent: integer('error_spike_threshold_percent').default(50), // 50% increase triggers alert
     apiDegradationThresholdPercent: integer('api_degradation_threshold_percent').default(100), // 100% (2x) increase triggers alert
     apiLatencyThresholdMs: integer('api_latency_threshold_ms').default(3000), // 3 seconds
+    emailRules: jsonb('email_rules').$type<EmailAlertRule[]>().default(sql`'[]'::jsonb`).notNull(),
 
     createdAt: timestamp('created_at').defaultNow().notNull(),
     updatedAt: timestamp('updated_at').defaultNow().notNull(),
@@ -1220,6 +1282,8 @@ export const usersRelations = relations(users, ({ many }) => ({
     teamInvitations: many(teamInvitations),
     otpTokens: many(otpTokens),
     sessions: many(userSessions),
+    roadmapPosts: many(roadmapPosts),
+    roadmapVotes: many(roadmapVotes),
 }));
 
 export const teamsRelations = relations(teams, ({ one, many }) => ({
@@ -1238,6 +1302,16 @@ export const teamMembersRelations = relations(teamMembers, ({ one }) => ({
 export const teamInvitationsRelations = relations(teamInvitations, ({ one }) => ({
     team: one(teams, { fields: [teamInvitations.teamId], references: [teams.id] }),
     inviter: one(users, { fields: [teamInvitations.invitedBy], references: [users.id] }),
+}));
+
+export const roadmapPostsRelations = relations(roadmapPosts, ({ one, many }) => ({
+    author: one(users, { fields: [roadmapPosts.authorUserId], references: [users.id] }),
+    votes: many(roadmapVotes),
+}));
+
+export const roadmapVotesRelations = relations(roadmapVotes, ({ one }) => ({
+    post: one(roadmapPosts, { fields: [roadmapVotes.postId], references: [roadmapPosts.id] }),
+    user: one(users, { fields: [roadmapVotes.userId], references: [users.id] }),
 }));
 
 export const projectsRelations = relations(projects, ({ one, many }) => ({

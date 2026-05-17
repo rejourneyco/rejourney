@@ -34,11 +34,11 @@ export const INGEST_ARTIFACT_WORKER: ArtifactWorkerDefinition = {
 };
 
 export const REPLAY_ARTIFACT_WORKER: ArtifactWorkerDefinition = {
-    allowedKinds: ['screenshots', 'hierarchy'],
+    allowedKinds: ['screenshots', 'hierarchy', 'rrweb'],
     defaultBatchSize: 40,
     defaultJobProcessConcurrency: 8,
     defaultMaxRunnablePerSession: 4,
-    kindPriority: ['screenshots', 'hierarchy', 'events', 'crashes', 'anrs'],
+    kindPriority: ['screenshots', 'hierarchy', 'rrweb', 'events', 'crashes', 'anrs'],
     mode: 'artifact',
     ownedResponsibilities: ['artifact-queue-drain', 'replay-artifact-processing'],
     workerName: 'replayWorker',
