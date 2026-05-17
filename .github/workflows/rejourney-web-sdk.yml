@@ -129,7 +129,7 @@ jobs:
              echo "Version $CURRENT_VERSION is already published. Skipping."
           fi
 
-  release-web-tag:
+  release-browser-tag:
     needs: [publish-web-sdk, web-version]
     if: success() && github.ref == 'refs/heads/main' && needs.web-version.outputs.changed == 'true'
     runs-on: ubuntu-latest
@@ -138,13 +138,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Create and push Web SDK release tag
+      - name: Create and push Browser SDK release tag
         env:
           VERSION: ${{ needs.web-version.outputs.version }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           echo "::add-mask::$GH_TOKEN"
-          TAG="web/v${VERSION}"
+          TAG="browser/v${VERSION}"
 
           if [ "$VERSION" = "0.0.0" ]; then
             echo "Refusing to tag bootstrap version 0.0.0."
@@ -161,13 +161,13 @@ jobs:
           git tag "$TAG"
           git push origin "$TAG"
 
-          NOTES_FILE=".github/releases/web-${VERSION}.md"
+          NOTES_FILE=".github/releases/browser-${VERSION}.md"
           NOTES_ARGS=(--notes "Published to npm as \`@rejourneyco/browser@${VERSION}\`." --generate-notes)
           if [ -f "$NOTES_FILE" ]; then
             NOTES_ARGS=(--notes-file "$NOTES_FILE")
           fi
 
           gh release create "$TAG" \
-            --title "Web SDK v${VERSION}" \
+            --title "Browser SDK v${VERSION}" \
             "${NOTES_ARGS[@]}" \
             --verify-tag
