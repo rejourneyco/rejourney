@@ -67,6 +67,18 @@ describe('web config', () => {
     expect(isDomainAllowed('example.net', config.allowedDomains)).toBe(false);
   });
 
+  it('applies remote secure-only text input masking', () => {
+    const local = mergeWebConfig('rj_live_test');
+    const config = applyRemoteConfig(local, {
+      textInputMasking: 'secure_only',
+    });
+
+    expect(config.maskAllInputs).toBe(false);
+    expect(config.maskInputOptions?.password).toBe(true);
+    expect(config.maskInputOptions?.email).toBe(true);
+    expect(config.maskInputOptions?.text).toBe(false);
+  });
+
   it('denies browser domains when no allowlist is configured', () => {
     expect(isDomainAllowed('app.example.com', [])).toBe(false);
   });

@@ -638,58 +638,58 @@
   line-height: 1.05;
 }
 
-.firebase-general-page :where(.dashboard-label) {
+.rejourney-general-page :where(.dashboard-label) {
   color: #6f7785;
   font-size: 0.76rem;
   font-weight: 600;
   letter-spacing: 0.02em;
 }
 
-.firebase-general-page :where(.dashboard-value-lg) {
+.rejourney-general-page :where(.dashboard-value-lg) {
   color: #202124;
   font-size: 2rem;
   font-weight: 400;
 }
 
-.firebase-general-page :where(.dashboard-value-md) {
+.rejourney-general-page :where(.dashboard-value-md) {
   color: #3c4043;
   font-size: 1.35rem;
   font-weight: 500;
 }
 
-.firebase-general-card {
+.rejourney-general-card {
   border-radius: 8px;
 }
 
-.firebase-general-card :where(.recharts-cartesian-axis-tick-value) {
+.rejourney-general-card :where(.recharts-cartesian-axis-tick-value) {
   fill: #5f6368 !important;
   font-weight: 500 !important;
 }
 
-.firebase-general-page :where(.recharts-cartesian-grid line) {
+.rejourney-general-page :where(.recharts-cartesian-grid line) {
   stroke: #edf0f3 !important;
 }
 
-.firebase-general-page :where(a) {
+.rejourney-general-page :where(a) {
   color: #1a73e8;
 }
 
-:where(.firebase-billing-settings-page, .firebase-project-settings-page) {
+:where(.rejourney-billing-settings-page, .rejourney-project-settings-page) {
   background: #f8fafd !important;
   color: #202124;
 }
 
-:where(.firebase-billing-settings-page, .firebase-project-settings-page) .settings-layout-content {
+:where(.rejourney-billing-settings-page, .rejourney-project-settings-page) .settings-layout-content {
   max-width: 1480px;
   padding-top: 1rem;
   padding-bottom: 1.5rem;
 }
 
-:where(.firebase-billing-settings-page, .firebase-project-settings-page) .settings-layout-content > :not([hidden]) ~ :not([hidden]) {
+:where(.rejourney-billing-settings-page, .rejourney-project-settings-page) .settings-layout-content > :not([hidden]) ~ :not([hidden]) {
   margin-top: 1rem;
 }
 
-:where(.firebase-billing-settings-page, .firebase-project-settings-page) :where(.dashboard-surface, .dashboard-panel) {
+:where(.rejourney-billing-settings-page, .rejourney-project-settings-page) :where(.dashboard-surface, .dashboard-panel) {
   background: #ffffff !important;
   border: 1px solid #dadce0 !important;
   border-radius: 8px !important;
@@ -697,53 +697,53 @@
   transform: none !important;
 }
 
-:where(.firebase-billing-settings-page, .firebase-project-settings-page) :where(.dashboard-inner-surface) {
+:where(.rejourney-billing-settings-page, .rejourney-project-settings-page) :where(.dashboard-inner-surface) {
   background: #f8fafd !important;
   border: 1px solid #e8eaed !important;
   border-radius: 6px !important;
   box-shadow: none !important;
 }
 
-:where(.firebase-billing-settings-page, .firebase-project-settings-page) :where(h2, h3) {
+:where(.rejourney-billing-settings-page, .rejourney-project-settings-page) :where(h2, h3) {
   color: #202124 !important;
   font-weight: 600 !important;
   letter-spacing: 0 !important;
   text-transform: none !important;
 }
 
-:where(.firebase-billing-settings-page, .firebase-project-settings-page) :where(.font-black) {
+:where(.rejourney-billing-settings-page, .rejourney-project-settings-page) :where(.font-black) {
   font-weight: 650;
 }
 
-:where(.firebase-billing-settings-page, .firebase-project-settings-page) :where(.border-black, .border-slate-900) {
+:where(.rejourney-billing-settings-page, .rejourney-project-settings-page) :where(.border-black, .border-slate-900) {
   border-color: #dadce0 !important;
 }
 
-:where(.firebase-billing-settings-page, .firebase-project-settings-page) :where(.border-2, .border-4) {
+:where(.rejourney-billing-settings-page, .rejourney-project-settings-page) :where(.border-2, .border-4) {
   border-width: 1px !important;
 }
 
-:where(.firebase-billing-settings-page, .firebase-project-settings-page) :where(.border-b-2, .border-b-4) {
+:where(.rejourney-billing-settings-page, .rejourney-project-settings-page) :where(.border-b-2, .border-b-4) {
   border-bottom-width: 1px !important;
 }
 
-:where(.firebase-billing-settings-page, .firebase-project-settings-page) :where(.border-t-2, .border-t-4) {
+:where(.rejourney-billing-settings-page, .rejourney-project-settings-page) :where(.border-t-2, .border-t-4) {
   border-top-width: 1px !important;
 }
 
-:where(.firebase-billing-settings-page, .firebase-project-settings-page) :where(.shadow-neo-sm, .shadow-neo, .shadow-neo-lg, [class*="shadow-[2px"], [class*="shadow-[4px"], [class*="shadow-[8px"]) {
+:where(.rejourney-billing-settings-page, .rejourney-project-settings-page) :where(.shadow-neo-sm, .shadow-neo, .shadow-neo-lg, [class*="shadow-[2px"], [class*="shadow-[4px"], [class*="shadow-[8px"]) {
   box-shadow: none !important;
 }
 
-:where(.firebase-billing-settings-page, .firebase-project-settings-page) :where(button:hover) {
+:where(.rejourney-billing-settings-page, .rejourney-project-settings-page) :where(button:hover) {
   transform: none !important;
 }
 
-:where(.firebase-billing-settings-page, .firebase-project-settings-page) :where(button.rounded-none, .rounded-none) {
+:where(.rejourney-billing-settings-page, .rejourney-project-settings-page) :where(button.rounded-none, .rounded-none) {
   border-radius: 6px !important;
 }
 
-:where(.firebase-billing-settings-page, .firebase-project-settings-page) :where(input:not([type="checkbox"]):not([type="range"]), textarea, select) {
+:where(.rejourney-billing-settings-page, .rejourney-project-settings-page) :where(input:not([type="checkbox"]):not([type="range"]), textarea, select) {
   background: #ffffff !important;
   border-color: #dadce0 !important;
   border-radius: 6px !important;
@@ -751,52 +751,52 @@
   color: #202124 !important;
 }
 
-:where(.firebase-billing-settings-page, .firebase-project-settings-page) :where(input:not([type="checkbox"]):not([type="range"]):focus, textarea:focus, select:focus) {
+:where(.rejourney-billing-settings-page, .rejourney-project-settings-page) :where(input:not([type="checkbox"]):not([type="range"]):focus, textarea:focus, select:focus) {
   border-color: #1a73e8 !important;
   box-shadow: 0 0 0 1px #1a73e8 !important;
   outline: none;
 }
 
-:where(.firebase-billing-settings-page, .firebase-project-settings-page) :where(input[type="range"]) {
+:where(.rejourney-billing-settings-page, .rejourney-project-settings-page) :where(input[type="range"]) {
   accent-color: #1a73e8;
 }
 
-:where(.firebase-billing-settings-page, .firebase-project-settings-page) :where(.bg-\[\#f8fafc\], .bg-slate-50) {
+:where(.rejourney-billing-settings-page, .rejourney-project-settings-page) :where(.bg-\[\#f8fafc\], .bg-slate-50) {
   background-color: #f8fafd !important;
 }
 
-:where(.firebase-billing-settings-page, .firebase-project-settings-page) :where(.bg-\[\#67e8f9\], .bg-cyan-50, .bg-blue-50) {
+:where(.rejourney-billing-settings-page, .rejourney-project-settings-page) :where(.bg-\[\#67e8f9\], .bg-cyan-50, .bg-blue-50) {
   background-color: #e8f0fe !important;
 }
 
-:where(.firebase-billing-settings-page, .firebase-project-settings-page) :where(.bg-\[\#86efac\], .bg-emerald-50) {
+:where(.rejourney-billing-settings-page, .rejourney-project-settings-page) :where(.bg-\[\#86efac\], .bg-emerald-50) {
   background-color: #e6f4ea !important;
 }
 
-:where(.firebase-billing-settings-page, .firebase-project-settings-page) :where(.bg-\[\#f9a8d4\], .bg-rose-50) {
+:where(.rejourney-billing-settings-page, .rejourney-project-settings-page) :where(.bg-\[\#f9a8d4\], .bg-rose-50) {
   background-color: #fce8e6 !important;
 }
 
-:where(.firebase-billing-settings-page, .firebase-project-settings-page) :where(.text-black) {
+:where(.rejourney-billing-settings-page, .rejourney-project-settings-page) :where(.text-black) {
   color: #202124 !important;
 }
 
-:where(.firebase-billing-settings-page, .firebase-project-settings-page) :where(.bg-black, .bg-slate-950) {
+:where(.rejourney-billing-settings-page, .rejourney-project-settings-page) :where(.bg-black, .bg-slate-950) {
   background-color: #1a73e8 !important;
 }
 
-:where(.firebase-billing-settings-page, .firebase-project-settings-page) :where(.hover\:bg-slate-800:hover) {
+:where(.rejourney-billing-settings-page, .rejourney-project-settings-page) :where(.hover\:bg-slate-800:hover) {
   background-color: #1765cc !important;
 }
 
-:where(.firebase-billing-settings-page, .firebase-project-settings-page) :where(.inline-flex.border-2.border-black.font-black) {
+:where(.rejourney-billing-settings-page, .rejourney-project-settings-page) :where(.inline-flex.border-2.border-black.font-black) {
   border-color: #dadce0 !important;
   border-radius: 999px !important;
   box-shadow: none !important;
   letter-spacing: 0 !important;
 }
 
-.firebase-billing-settings-page .billing-progress-track {
+.rejourney-billing-settings-page .billing-progress-track {
   height: 0.75rem;
   overflow: hidden;
   border: 1px solid #dadce0;
@@ -804,59 +804,59 @@
   background: #eef2f7;
 }
 
-.firebase-billing-settings-page .billing-progress-fill {
+.rejourney-billing-settings-page .billing-progress-fill {
   height: 100%;
   border-radius: inherit;
   transition: width 0.5s ease;
 }
 
-.firebase-billing-settings-page .billing-plan-card {
+.rejourney-billing-settings-page .billing-plan-card {
   position: relative;
   overflow: hidden;
   background: #ffffff !important;
   transition: border-color 0.18s ease, box-shadow 0.18s ease;
 }
 
-.firebase-billing-settings-page .billing-plan-card:hover {
+.rejourney-billing-settings-page .billing-plan-card:hover {
   border-color: #c7d2fe !important;
   box-shadow: 0 2px 6px rgba(60, 64, 67, 0.14) !important;
 }
 
-.firebase-billing-settings-page .billing-plan-card-current {
+.rejourney-billing-settings-page .billing-plan-card-current {
   border-color: #1a73e8 !important;
   box-shadow: 0 0 0 1px rgba(26, 115, 232, 0.16), 0 1px 3px rgba(60, 64, 67, 0.1) !important;
 }
 
-.firebase-billing-settings-page .billing-plan-accent {
+.rejourney-billing-settings-page .billing-plan-accent {
   height: 0.25rem;
   width: 100%;
   background: var(--plan-accent, #1a73e8);
 }
 
-.firebase-billing-settings-page .billing-modal-panel {
+.rejourney-billing-settings-page .billing-modal-panel {
   border: 1px solid #dadce0 !important;
   border-radius: 8px !important;
   box-shadow: 0 18px 36px rgba(60, 64, 67, 0.18) !important;
 }
 
-.firebase-project-settings-page .settings-option-card {
+.rejourney-project-settings-page .settings-option-card {
   min-height: 8.75rem;
   background: #ffffff !important;
 }
 
-.firebase-project-settings-page .settings-option-card[aria-pressed="true"] {
+.rejourney-project-settings-page .settings-option-card[aria-pressed="true"] {
   border-color: #1a73e8 !important;
   background: #e8f0fe !important;
   box-shadow: 0 0 0 1px rgba(26, 115, 232, 0.16) !important;
 }
 
-.firebase-project-settings-page .project-settings-rail {
+.rejourney-project-settings-page .project-settings-rail {
   align-self: start;
   position: sticky;
   top: 1rem;
 }
 
-.firebase-project-settings-page .project-settings-rail-item {
+.rejourney-project-settings-page .project-settings-rail-item {
   display: flex;
   min-width: 0;
   align-items: center;
@@ -868,13 +868,13 @@
   transition: background-color 0.16s ease, border-color 0.16s ease;
 }
 
-.firebase-project-settings-page .project-settings-rail-item:hover {
+.rejourney-project-settings-page .project-settings-rail-item:hover {
   background: #f1f5f9;
 }
 
-.firebase-project-settings-page .project-settings-rail-icon,
-.firebase-project-settings-page .project-settings-section-icon,
-.firebase-project-settings-page .project-settings-row-icon {
+.rejourney-project-settings-page .project-settings-rail-icon,
+.rejourney-project-settings-page .project-settings-section-icon,
+.rejourney-project-settings-page .project-settings-row-icon {
   display: inline-flex;
   flex-shrink: 0;
   align-items: center;
@@ -883,37 +883,37 @@
   border-radius: 6px;
 }
 
-.firebase-project-settings-page .project-settings-rail-icon {
+.rejourney-project-settings-page .project-settings-rail-icon {
   height: 2rem;
   width: 2rem;
 }
 
-.firebase-project-settings-page .project-settings-section-icon {
+.rejourney-project-settings-page .project-settings-section-icon {
   height: 2.25rem;
   width: 2.25rem;
 }
 
-.firebase-project-settings-page .project-settings-row-icon {
+.rejourney-project-settings-page .project-settings-row-icon {
   height: 1.75rem;
   width: 1.75rem;
   background: #f8fafd;
   color: #5f6368;
 }
 
-.firebase-project-settings-page .project-settings-section {
+.rejourney-project-settings-page .project-settings-section {
   position: relative;
 }
 
-.firebase-project-settings-page .project-settings-section-accent {
+.rejourney-project-settings-page .project-settings-section-accent {
   height: 3px;
   width: 100%;
 }
 
-.firebase-project-settings-page .project-settings-row:hover {
+.rejourney-project-settings-page .project-settings-row:hover {
   background: #fbfdff;
 }
 
-.firebase-project-settings-page .project-settings-status-pill {
+.rejourney-project-settings-page .project-settings-status-pill {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -927,7 +927,7 @@
   white-space: nowrap;
 }
 
-.firebase-project-settings-page .project-settings-platform-pill {
+.rejourney-project-settings-page .project-settings-platform-pill {
   display: inline-flex;
   align-items: center;
   gap: 0.35rem;
@@ -940,7 +940,7 @@
   font-weight: 650;
 }
 
-.firebase-project-settings-page .project-settings-switch {
+.rejourney-project-settings-page .project-settings-switch {
   position: relative;
   display: inline-flex;
   height: 1.75rem;
@@ -955,7 +955,7 @@
   transition: background-color 0.16s ease, border-color 0.16s ease;
 }
 
-.firebase-project-settings-page .project-settings-switch span {
+.rejourney-project-settings-page .project-settings-switch span {
   display: inline-block;
   height: 1.25rem;
   width: 1.25rem;
@@ -967,32 +967,62 @@
   transition: transform 0.16s ease;
 }
 
-.firebase-project-settings-page .project-settings-switch-on {
+.rejourney-project-settings-page .project-settings-switch-on {
   border-color: #188038;
   background: #34a853;
 }
 
-.firebase-project-settings-page .project-settings-switch-on span {
+.rejourney-project-settings-page .project-settings-switch-on span {
   transform: translateX(1.42rem);
 }
 
-.firebase-project-settings-page .project-settings-switch:disabled {
+.rejourney-project-settings-page .project-settings-switch:disabled {
   cursor: not-allowed;
   opacity: 0.55;
 }
 
-.firebase-project-settings-page .project-settings-range-card,
-.firebase-project-settings-page .project-settings-field-card,
-.firebase-project-settings-page .project-settings-toggle-card,
-.firebase-project-settings-page .project-settings-code-row {
+.rejourney-project-settings-page .project-settings-range-card,
+.rejourney-project-settings-page .project-settings-field-card,
+.rejourney-project-settings-page .project-settings-toggle-card,
+.rejourney-project-settings-page .project-settings-code-row {
   background: #ffffff !important;
 }
 
-.firebase-project-settings-page .project-settings-range-card input[type="range"] {
+.rejourney-project-settings-page .project-settings-range-card {
+  container-type: inline-size;
+  min-width: 0;
+}
+
+.rejourney-project-settings-page .project-settings-range-header {
+  display: grid;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.rejourney-project-settings-page .project-settings-range-label {
+  display: flex;
+  min-width: 0;
+  align-items: flex-start;
+  gap: 0.45rem;
+  line-height: 1.35;
+}
+
+.rejourney-project-settings-page .project-settings-range-label-text {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.rejourney-project-settings-page .project-settings-range-tooltip {
+  display: inline-flex;
+  flex: 0 0 auto;
+  padding-top: 0.1rem;
+}
+
+.rejourney-project-settings-page .project-settings-range-card input[type="range"] {
   accent-color: #1a73e8;
 }
 
-.firebase-project-settings-page .project-settings-stepper {
+.rejourney-project-settings-page .project-settings-stepper {
   display: inline-grid;
   grid-template-columns: 2rem minmax(4.75rem, auto) 2rem;
   flex-shrink: 0;
@@ -1004,7 +1034,7 @@
   box-shadow: 0 1px 2px rgba(60, 64, 67, 0.08);
 }
 
-.firebase-project-settings-page .project-settings-stepper button {
+.rejourney-project-settings-page .project-settings-stepper button {
   display: inline-flex;
   height: 2rem;
   width: 2rem;
@@ -1016,17 +1046,17 @@
   cursor: pointer;
 }
 
-.firebase-project-settings-page .project-settings-stepper button:hover:not(:disabled) {
+.rejourney-project-settings-page .project-settings-stepper button:hover:not(:disabled) {
   background: #e8f0fe;
 }
 
-.firebase-project-settings-page .project-settings-stepper button:disabled {
+.rejourney-project-settings-page .project-settings-stepper button:disabled {
   cursor: not-allowed;
   color: #9aa6b2;
   opacity: 0.65;
 }
 
-.firebase-project-settings-page .project-settings-stepper-value {
+.rejourney-project-settings-page .project-settings-stepper-value {
   min-width: 0;
   border-left: 1px solid #e8eaed;
   border-right: 1px solid #e8eaed;
@@ -1040,7 +1070,18 @@
   white-space: nowrap;
 }
 
-.firebase-project-settings-page .project-settings-range-input {
+@container (min-width: 31rem) {
+  .rejourney-project-settings-page .project-settings-range-header {
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: start;
+  }
+
+  .rejourney-project-settings-page .project-settings-stepper {
+    justify-self: end;
+  }
+}
+
+.rejourney-project-settings-page .project-settings-range-input {
   appearance: none;
   width: 100%;
   height: 0.7rem;
@@ -1049,18 +1090,18 @@
   cursor: pointer;
 }
 
-.firebase-project-settings-page .project-settings-range-input:disabled {
+.rejourney-project-settings-page .project-settings-range-input:disabled {
   cursor: not-allowed;
   opacity: 0.6;
 }
 
-.firebase-project-settings-page .project-settings-range-input::-webkit-slider-runnable-track {
+.rejourney-project-settings-page .project-settings-range-input::-webkit-slider-runnable-track {
   height: 0.7rem;
   border-radius: 999px;
   background: transparent;
 }
 
-.firebase-project-settings-page .project-settings-range-input::-webkit-slider-thumb {
+.rejourney-project-settings-page .project-settings-range-input::-webkit-slider-thumb {
   appearance: none;
   height: 1.45rem;
   width: 1.45rem;
@@ -1071,13 +1112,13 @@
   box-shadow: 0 1px 3px rgba(60, 64, 67, 0.32), 0 0 0 1px rgba(26, 115, 232, 0.32);
 }
 
-.firebase-project-settings-page .project-settings-range-input::-moz-range-track {
+.rejourney-project-settings-page .project-settings-range-input::-moz-range-track {
   height: 0.7rem;
   border-radius: 999px;
   background: transparent;
 }
 
-.firebase-project-settings-page .project-settings-range-input::-moz-range-thumb {
+.rejourney-project-settings-page .project-settings-range-input::-moz-range-thumb {
   height: 1.2rem;
   width: 1.2rem;
   border: 3px solid #ffffff;
@@ -1086,7 +1127,7 @@
   box-shadow: 0 1px 3px rgba(60, 64, 67, 0.32), 0 0 0 1px rgba(26, 115, 232, 0.32);
 }
 
-.firebase-project-settings-page .project-settings-copy-button {
+.rejourney-project-settings-page .project-settings-copy-button {
   display: inline-flex;
   height: 2rem;
   width: 2rem;
@@ -1100,38 +1141,38 @@
   transition: background-color 0.16s ease, color 0.16s ease, border-color 0.16s ease;
 }
 
-.firebase-project-settings-page .project-settings-copy-button:hover {
+.rejourney-project-settings-page .project-settings-copy-button:hover {
   border-color: #1a73e8;
   background: #e8f0fe;
   color: #1a73e8;
 }
 
 @media (max-width: 1279px) {
-  .firebase-project-settings-page .project-settings-rail {
+  .rejourney-project-settings-page .project-settings-rail {
     position: static;
   }
 }
 
-.firebase-api-page {
+.rejourney-api-page {
   background: #f8fafd !important;
   color: #202124;
 }
 
-.firebase-api-page :where(.dashboard-surface) {
+.rejourney-api-page :where(.dashboard-surface) {
   background: #ffffff !important;
   border: 1px solid #dadce0 !important;
   border-radius: 8px;
   box-shadow: 0 1px 2px rgba(60, 64, 67, 0.1), 0 1px 3px rgba(60, 64, 67, 0.08) !important;
 }
 
-.firebase-api-page :where(.dashboard-inner-surface) {
+.rejourney-api-page :where(.dashboard-inner-surface) {
   background: #f8fafd !important;
   border: 1px solid #dadce0 !important;
   border-radius: 6px;
   box-shadow: none !important;
 }
 
-.firebase-api-page :where(.dashboard-kpi-card) {
+.rejourney-api-page :where(.dashboard-kpi-card) {
   background: #ffffff !important;
   border: 1px solid #dadce0 !important;
   border-radius: 8px !important;
@@ -1139,102 +1180,102 @@
   transform: none !important;
 }
 
-.firebase-api-page :where(.dashboard-kpi-card:hover) {
+.rejourney-api-page :where(.dashboard-kpi-card:hover) {
   box-shadow: 0 2px 6px rgba(60, 64, 67, 0.14) !important;
   transform: none !important;
 }
 
-.firebase-api-page :where(.dashboard-kpi-accent) {
+.rejourney-api-page :where(.dashboard-kpi-accent) {
   height: 3px !important;
   border: 0 !important;
   border-radius: 999px;
 }
 
-.firebase-api-page :where(.dashboard-kpi-delta) {
+.rejourney-api-page :where(.dashboard-kpi-delta) {
   border: 1px solid #dadce0 !important;
   border-radius: 999px;
   box-shadow: none !important;
   background: #ffffff !important;
 }
 
-.firebase-api-page :where(.dashboard-label) {
+.rejourney-api-page :where(.dashboard-label) {
   color: #6f7785;
   font-size: 0.76rem;
   font-weight: 600;
 }
 
-.firebase-api-page :where(.dashboard-value-lg, .dashboard-value-md) {
+.rejourney-api-page :where(.dashboard-value-lg, .dashboard-value-md) {
   color: #202124;
   font-weight: 500;
 }
 
-.firebase-api-page :where(h2, h3) {
+.rejourney-api-page :where(h2, h3) {
   color: #202124 !important;
   font-weight: 600 !important;
   letter-spacing: 0 !important;
   text-transform: none !important;
 }
 
-.firebase-api-page :where(.font-black) {
+.rejourney-api-page :where(.font-black) {
   font-weight: 650;
 }
 
-.firebase-api-page :where(.border-black) {
+.rejourney-api-page :where(.border-black) {
   border-color: #dadce0 !important;
 }
 
-.firebase-api-page :where(.border-2) {
+.rejourney-api-page :where(.border-2) {
   border-width: 1px !important;
 }
 
-.firebase-api-page :where(.shadow-neo-sm, .shadow-neo, .shadow-neo-lg, [class*="shadow-[2px"], [class*="shadow-[4px"], [class*="shadow-[8px"]) {
+.rejourney-api-page :where(.shadow-neo-sm, .shadow-neo, .shadow-neo-lg, [class*="shadow-[2px"], [class*="shadow-[4px"], [class*="shadow-[8px"]) {
   box-shadow: none !important;
 }
 
-.firebase-api-page :where(.bg-\[\#67e8f9\]) {
+.rejourney-api-page :where(.bg-\[\#67e8f9\]) {
   background-color: #e8f0fe !important;
 }
 
-.firebase-api-page :where(.bg-\[\#86efac\], .bg-emerald-900) {
+.rejourney-api-page :where(.bg-\[\#86efac\], .bg-emerald-900) {
   background-color: #1a73e8 !important;
 }
 
-.firebase-api-page :where(.text-emerald-700, .text-emerald-800) {
+.rejourney-api-page :where(.text-emerald-700, .text-emerald-800) {
   color: #188038 !important;
 }
 
-.firebase-api-page :where(input, select) {
+.rejourney-api-page :where(input, select) {
   border-color: #dadce0 !important;
   border-radius: 4px !important;
   box-shadow: none !important;
 }
 
-.firebase-api-page :where(input:focus, select:focus) {
+.rejourney-api-page :where(input:focus, select:focus) {
   border-color: #1a73e8 !important;
   box-shadow: 0 0 0 1px #1a73e8 !important;
   outline: none;
 }
 
-.firebase-api-page :where(button:hover) {
+.rejourney-api-page :where(button:hover) {
   transform: none !important;
 }
 
-.firebase-api-page :where(.recharts-cartesian-axis-tick-value) {
+.rejourney-api-page :where(.recharts-cartesian-axis-tick-value) {
   fill: #5f6368 !important;
   font-size: 12px !important;
   font-weight: 500 !important;
 }
 
-.firebase-api-page :where(.recharts-cartesian-grid line) {
+.rejourney-api-page :where(.recharts-cartesian-grid line) {
   stroke: #edf0f3 !important;
 }
 
-.firebase-api-page :where(.recharts-legend-item-text) {
+.rejourney-api-page :where(.recharts-legend-item-text) {
   color: #5f6368 !important;
   font-size: 12px !important;
 }
 
-.firebase-api-page :where(table thead, table thead th) {
+.rejourney-api-page :where(table thead, table thead th) {
   background: #f8fafd !important;
   color: #5f6368 !important;
   font-family: var(--font-sans) !important;
@@ -1243,56 +1284,56 @@
   letter-spacing: 0 !important;
 }
 
-.firebase-api-page :where(table tbody tr:nth-child(odd)) {
+.rejourney-api-page :where(table tbody tr:nth-child(odd)) {
   background: #ffffff !important;
 }
 
-.firebase-api-page :where(table tbody tr:nth-child(even)) {
+.rejourney-api-page :where(table tbody tr:nth-child(even)) {
   background: #f3f6fa !important;
 }
 
-.firebase-api-page :where(table tbody tr:hover) {
+.rejourney-api-page :where(table tbody tr:hover) {
   background: #eef4ff !important;
 }
 
-.firebase-api-page :where(table tbody) {
+.rejourney-api-page :where(table tbody) {
   color: #3c4043;
 }
 
-.firebase-api-page :where(.overflow-x-auto[style]) {
+.rejourney-api-page :where(.overflow-x-auto[style]) {
   box-shadow: none !important;
   border-color: #dadce0 !important;
   border-radius: 8px;
 }
 
-.firebase-api-page :where(.rounded-xl) {
+.rejourney-api-page :where(.rounded-xl) {
   border-radius: 6px;
 }
 
-.firebase-api-page :where(.rounded-2xl) {
+.rejourney-api-page :where(.rounded-2xl) {
   border-radius: 8px;
 }
 
-.firebase-journeys-page {
+.rejourney-journeys-page {
   background: #f8fafd !important;
   color: #202124;
 }
 
-.firebase-journeys-page :where(.dashboard-surface) {
+.rejourney-journeys-page :where(.dashboard-surface) {
   background: #ffffff !important;
   border: 1px solid #dadce0 !important;
   border-radius: 8px;
   box-shadow: 0 1px 2px rgba(60, 64, 67, 0.1), 0 1px 3px rgba(60, 64, 67, 0.08) !important;
 }
 
-.firebase-journeys-page :where(.dashboard-inner-surface) {
+.rejourney-journeys-page :where(.dashboard-inner-surface) {
   background: #f8fafd !important;
   border: 1px solid #dadce0 !important;
   border-radius: 6px;
   box-shadow: none !important;
 }
 
-.firebase-journeys-page :where(.dashboard-kpi-card) {
+.rejourney-journeys-page :where(.dashboard-kpi-card) {
   background: #ffffff !important;
   border: 1px solid #dadce0 !important;
   border-radius: 8px !important;
@@ -1300,62 +1341,62 @@
   transform: none !important;
 }
 
-.firebase-journeys-page :where(.dashboard-kpi-card:hover) {
+.rejourney-journeys-page :where(.dashboard-kpi-card:hover) {
   box-shadow: 0 2px 6px rgba(60, 64, 67, 0.14) !important;
   transform: none !important;
 }
 
-.firebase-journeys-page :where(.dashboard-kpi-accent) {
+.rejourney-journeys-page :where(.dashboard-kpi-accent) {
   height: 3px !important;
   border: 0 !important;
   border-radius: 999px;
 }
 
-.firebase-journeys-page :where(.dashboard-kpi-delta) {
+.rejourney-journeys-page :where(.dashboard-kpi-delta) {
   border: 1px solid #dadce0 !important;
   border-radius: 999px;
   box-shadow: none !important;
   background: #ffffff !important;
 }
 
-.firebase-journeys-page :where(.dashboard-label) {
+.rejourney-journeys-page :where(.dashboard-label) {
   color: #6f7785;
   font-size: 0.76rem;
   font-weight: 600;
 }
 
-.firebase-journeys-page :where(.font-black) {
+.rejourney-journeys-page :where(.font-black) {
   font-weight: 650;
 }
 
-.firebase-journeys-page :where(h2, h3) {
+.rejourney-journeys-page :where(h2, h3) {
   color: #202124 !important;
   font-weight: 600 !important;
   letter-spacing: 0 !important;
   text-transform: none !important;
 }
 
-.firebase-journeys-page :where(.border-black) {
+.rejourney-journeys-page :where(.border-black) {
   border-color: #dadce0 !important;
 }
 
-.firebase-journeys-page :where(.border-2) {
+.rejourney-journeys-page :where(.border-2) {
   border-width: 1px !important;
 }
 
-.firebase-journeys-page :where(.border-b-2) {
+.rejourney-journeys-page :where(.border-b-2) {
   border-bottom-width: 1px !important;
 }
 
-.firebase-journeys-page :where(.border-t-2) {
+.rejourney-journeys-page :where(.border-t-2) {
   border-top-width: 1px !important;
 }
 
-.firebase-journeys-page :where(.shadow-neo-sm, .shadow-neo, .shadow-neo-lg, [class*="shadow-[2px"], [class*="shadow-[4px"], [class*="shadow-[8px"]) {
+.rejourney-journeys-page :where(.shadow-neo-sm, .shadow-neo, .shadow-neo-lg, [class*="shadow-[2px"], [class*="shadow-[4px"], [class*="shadow-[8px"]) {
   box-shadow: none !important;
 }
 
-.firebase-journeys-page :where(input:not([type="checkbox"]), select) {
+.rejourney-journeys-page :where(input:not([type="checkbox"]), select) {
   background: #ffffff !important;
   border-color: #dadce0 !important;
   border-radius: 4px !important;
@@ -1363,72 +1404,72 @@
   color: #202124 !important;
 }
 
-.firebase-journeys-page :where(input:not([type="checkbox"]):focus, select:focus) {
+.rejourney-journeys-page :where(input:not([type="checkbox"]):focus, select:focus) {
   border-color: #1a73e8 !important;
   box-shadow: 0 0 0 1px #1a73e8 !important;
   outline: none;
 }
 
-.firebase-journeys-page :where(button:hover) {
+.rejourney-journeys-page :where(button:hover) {
   transform: none !important;
 }
 
-.firebase-journeys-page :where(.bg-\[\#f8fafc\], .bg-slate-50) {
+.rejourney-journeys-page :where(.bg-\[\#f8fafc\], .bg-slate-50) {
   background-color: #f8fafd !important;
 }
 
-.firebase-journeys-page :where(.bg-\[\#67e8f9\], .bg-cyan-50) {
+.rejourney-journeys-page :where(.bg-\[\#67e8f9\], .bg-cyan-50) {
   background-color: #e8f0fe !important;
 }
 
-.firebase-journeys-page :where(.bg-\[\#86efac\], .bg-emerald-50) {
+.rejourney-journeys-page :where(.bg-\[\#86efac\], .bg-emerald-50) {
   background-color: #e6f4ea !important;
 }
 
-.firebase-journeys-page :where(.bg-\[\#f9a8d4\]) {
+.rejourney-journeys-page :where(.bg-\[\#f9a8d4\]) {
   background-color: #fce8f1 !important;
 }
 
-.firebase-journeys-page :where(.bg-\[\#fecaca\], .bg-rose-50) {
+.rejourney-journeys-page :where(.bg-\[\#fecaca\], .bg-rose-50) {
   background-color: #fce8e6 !important;
 }
 
-.firebase-journeys-page :where(.text-black) {
+.rejourney-journeys-page :where(.text-black) {
   color: #202124 !important;
 }
 
-.firebase-journeys-page :where(.rounded-xl) {
+.rejourney-journeys-page :where(.rounded-xl) {
   border-radius: 8px;
 }
 
-.firebase-journeys-page :where(.rounded-2xl) {
+.rejourney-journeys-page :where(.rounded-2xl) {
   border-radius: 8px;
 }
 
-.firebase-journeys-page :where(.journey-sankey-card, .journey-sankey-empty) {
+.rejourney-journeys-page :where(.journey-sankey-card, .journey-sankey-empty) {
   border: 1px solid #dadce0 !important;
   border-radius: 8px;
   box-shadow: none !important;
 }
 
-.firebase-journeys-page :where(.journey-filter-grid) {
+.rejourney-journeys-page :where(.journey-filter-grid) {
   background: #ffffff;
   border: 1px solid #dadce0;
   border-radius: 8px;
   padding: 0.75rem;
 }
 
-.firebase-journeys-page :where(.journey-filter-grid label) {
+.rejourney-journeys-page :where(.journey-filter-grid label) {
   min-width: 0;
 }
 
-.firebase-journeys-page :where(.journey-filter-grid label > span:first-child) {
+.rejourney-journeys-page :where(.journey-filter-grid label > span:first-child) {
   color: #5f6368 !important;
   font-size: 0.72rem;
   font-weight: 600 !important;
 }
 
-.firebase-journeys-page :where(.journey-evidence-toggle) {
+.rejourney-journeys-page :where(.journey-evidence-toggle) {
   height: 100%;
   min-height: 3.65rem;
   border-color: #dadce0 !important;
@@ -1436,7 +1477,7 @@
   box-shadow: none !important;
 }
 
-.firebase-journeys-page :where(.journey-count-pill) {
+.rejourney-journeys-page :where(.journey-count-pill) {
   border-color: #dadce0 !important;
   border-radius: 999px;
   background: #ffffff !important;
@@ -1445,20 +1486,20 @@
   text-transform: none !important;
 }
 
-.firebase-journeys-page :where(.journey-sankey-card > div:first-child, .journey-sankey-card > div:last-child) {
+.rejourney-journeys-page :where(.journey-sankey-card > div:first-child, .journey-sankey-card > div:last-child) {
   background: #ffffff !important;
   border-color: #dadce0 !important;
 }
 
-.firebase-journeys-page :where(.journey-sankey-card > div:nth-child(2)) {
+.rejourney-journeys-page :where(.journey-sankey-card > div:nth-child(2)) {
   background: #ffffff !important;
 }
 
-.firebase-journeys-page :where(.journey-sankey-card > div:nth-child(2) > div:first-child) {
+.rejourney-journeys-page :where(.journey-sankey-card > div:nth-child(2) > div:first-child) {
   background: linear-gradient(180deg, #ffffff 0%, #f8fafd 52%, #ffffff 100%) !important;
 }
 
-.firebase-journeys-page :where(table thead, table thead tr, table thead th) {
+.rejourney-journeys-page :where(table thead, table thead tr, table thead th) {
   background: #f8fafd !important;
   color: #5f6368 !important;
   font-size: 0.72rem !important;
@@ -1466,74 +1507,74 @@
   letter-spacing: 0 !important;
 }
 
-.firebase-journeys-page :where(table tbody tr:nth-child(odd)) {
+.rejourney-journeys-page :where(table tbody tr:nth-child(odd)) {
   background: #ffffff !important;
 }
 
-.firebase-journeys-page :where(table tbody tr:nth-child(even)) {
+.rejourney-journeys-page :where(table tbody tr:nth-child(even)) {
   background: #f3f6fa !important;
 }
 
-.firebase-journeys-page :where(table tbody tr:hover) {
+.rejourney-journeys-page :where(table tbody tr:hover) {
   background: #eef4ff !important;
 }
 
-.firebase-journeys-page :where(.divide-slate-100 > :not([hidden]) ~ :not([hidden])) {
+.rejourney-journeys-page :where(.divide-slate-100 > :not([hidden]) ~ :not([hidden])) {
   border-color: #edf0f3 !important;
 }
 
-.firebase-journeys-page :where(.bg-slate-950) {
+.rejourney-journeys-page :where(.bg-slate-950) {
   background-color: #1a73e8 !important;
 }
 
-.firebase-journeys-page :where(.hover\:bg-slate-800:hover) {
+.rejourney-journeys-page :where(.hover\:bg-slate-800:hover) {
   background-color: #1765cc !important;
 }
 
-.firebase-heatmaps-page {
+.rejourney-heatmaps-page {
   background: #f8fafd !important;
   color: #202124;
 }
 
-.firebase-heatmaps-page :where(.heatmap-workspace) {
+.rejourney-heatmaps-page :where(.heatmap-workspace) {
   background: #ffffff !important;
   border: 1px solid #dadce0 !important;
   border-radius: 8px;
   box-shadow: 0 1px 2px rgba(60, 64, 67, 0.1), 0 1px 3px rgba(60, 64, 67, 0.08) !important;
 }
 
-.firebase-heatmaps-page :where(.border-black) {
+.rejourney-heatmaps-page :where(.border-black) {
   border-color: #dadce0 !important;
 }
 
-.firebase-heatmaps-page :where(.border-2) {
+.rejourney-heatmaps-page :where(.border-2) {
   border-width: 1px !important;
 }
 
-.firebase-heatmaps-page :where(.shadow-neo-sm, .shadow-neo, .shadow-neo-lg, [class*="shadow-[2px"], [class*="shadow-[4px"], [class*="shadow-[8px"]) {
+.rejourney-heatmaps-page :where(.shadow-neo-sm, .shadow-neo, .shadow-neo-lg, [class*="shadow-[2px"], [class*="shadow-[4px"], [class*="shadow-[8px"]) {
   box-shadow: none !important;
 }
 
-.firebase-heatmaps-page :where(h2, h3) {
+.rejourney-heatmaps-page :where(h2, h3) {
   color: #202124 !important;
   font-weight: 600 !important;
   letter-spacing: 0 !important;
   text-transform: none !important;
 }
 
-.firebase-heatmaps-page :where(.font-black) {
+.rejourney-heatmaps-page :where(.font-black) {
   font-weight: 650;
 }
 
-.firebase-heatmaps-page :where(.text-black) {
+.rejourney-heatmaps-page :where(.text-black) {
   color: #202124 !important;
 }
 
-.firebase-heatmaps-page :where(.heatmap-workspace-header) {
+.rejourney-heatmaps-page :where(.heatmap-workspace-header) {
   border-color: #dadce0 !important;
 }
 
-.firebase-heatmaps-page :where(.heatmap-stat-pill) {
+.rejourney-heatmaps-page :where(.heatmap-stat-pill) {
   min-width: 6.25rem;
   border: 1px solid #dadce0;
   border-radius: 999px;
@@ -1541,7 +1582,7 @@
   padding: 0.45rem 0.75rem;
 }
 
-.firebase-heatmaps-page :where(.heatmap-stat-pill span, .heatmap-metric span) {
+.rejourney-heatmaps-page :where(.heatmap-stat-pill span, .heatmap-metric span) {
   display: block;
   color: #6f7785;
   font-size: 0.66rem;
@@ -1549,7 +1590,7 @@
   line-height: 1;
 }
 
-.firebase-heatmaps-page :where(.heatmap-stat-pill strong, .heatmap-metric strong) {
+.rejourney-heatmaps-page :where(.heatmap-stat-pill strong, .heatmap-metric strong) {
   display: block;
   margin-top: 0.25rem;
   color: #202124;
@@ -1558,17 +1599,17 @@
   line-height: 1;
 }
 
-.firebase-heatmaps-page :where(.heatmap-focus-panel, .heatmap-priority-panel, .heatmap-version-comparison) {
+.rejourney-heatmaps-page :where(.heatmap-focus-panel, .heatmap-priority-panel, .heatmap-version-comparison) {
   border-color: #dadce0 !important;
   border-radius: 8px;
   box-shadow: none !important;
 }
 
-.firebase-heatmaps-page :where(.heatmap-focus-panel > div:first-child, .heatmap-priority-panel > div:first-child, .heatmap-version-comparison > div:first-child) {
+.rejourney-heatmaps-page :where(.heatmap-focus-panel > div:first-child, .heatmap-priority-panel > div:first-child, .heatmap-version-comparison > div:first-child) {
   border-color: #dadce0 !important;
 }
 
-.firebase-heatmaps-page :where(.heatmap-metric) {
+.rejourney-heatmaps-page :where(.heatmap-metric) {
   min-width: 5.75rem;
   border: 1px solid #edf0f3;
   border-radius: 6px;
@@ -1576,41 +1617,41 @@
   padding: 0.55rem 0.65rem;
 }
 
-.firebase-heatmaps-page :where(.heatmap-phone-frame) {
+.rejourney-heatmaps-page :where(.heatmap-phone-frame) {
   max-width: 320px;
   margin-inline: auto;
   border-color: #202124 !important;
   box-shadow: 0 14px 26px rgba(60, 64, 67, 0.22) !important;
 }
 
-.firebase-heatmaps-page :where(.heatmap-phone-screen) {
+.rejourney-heatmaps-page :where(.heatmap-phone-screen) {
   border: 0 !important;
 }
 
-.firebase-heatmaps-page :where(.heatmap-browser-frame) {
+.rejourney-heatmaps-page :where(.heatmap-browser-frame) {
   border-color: #202124 !important;
   box-shadow: 0 14px 26px rgba(60, 64, 67, 0.16) !important;
 }
 
-.firebase-heatmaps-page :where(.heatmap-browser-chrome) {
+.rejourney-heatmaps-page :where(.heatmap-browser-chrome) {
   border-color: #dadce0 !important;
 }
 
-.firebase-heatmaps-page :where(.heatmap-browser-screen) {
+.rejourney-heatmaps-page :where(.heatmap-browser-screen) {
   min-height: 340px;
 }
 
-.firebase-heatmaps-page :where(.heatmap-web-tile-screen) {
+.rejourney-heatmaps-page :where(.heatmap-web-tile-screen) {
   min-height: 0;
 }
 
-.firebase-heatmaps-page :where(.heatmap-tile-screen) {
+.rejourney-heatmaps-page :where(.heatmap-tile-screen) {
   border-color: #dadce0 !important;
   border-radius: 12px;
   box-shadow: none !important;
 }
 
-.firebase-heatmaps-page :where(.heatmap-screen-row) {
+.rejourney-heatmaps-page :where(.heatmap-screen-row) {
   display: flex;
   width: 100%;
   align-items: center;
@@ -1621,23 +1662,23 @@
   transition: background 0.16s ease, box-shadow 0.16s ease;
 }
 
-.firebase-heatmaps-page :where(.heatmap-screen-row:hover) {
+.rejourney-heatmaps-page :where(.heatmap-screen-row:hover) {
   background: #f8fafd;
 }
 
-.firebase-heatmaps-page :where(.heatmap-screen-row-selected) {
+.rejourney-heatmaps-page :where(.heatmap-screen-row-selected) {
   background: #e8f0fe !important;
   box-shadow: inset 3px 0 0 #1a73e8;
 }
 
-.firebase-heatmaps-page :where(.heatmap-screen-rank) {
+.rejourney-heatmaps-page :where(.heatmap-screen-rank) {
   color: #9aa0a6;
   font-family: var(--font-mono);
   font-size: 0.72rem;
   font-weight: 700;
 }
 
-.firebase-heatmaps-page :where(.heatmap-impact-score) {
+.rejourney-heatmaps-page :where(.heatmap-impact-score) {
   min-width: 2.25rem;
   border-radius: 999px;
   background: #ffffff;
@@ -1648,11 +1689,11 @@
   text-align: center;
 }
 
-.firebase-heatmaps-page :where(.heatmap-version-strip) {
+.rejourney-heatmaps-page :where(.heatmap-version-strip) {
   padding-bottom: 0.125rem;
 }
 
-.firebase-heatmaps-page :where(.heatmap-version-card) {
+.rejourney-heatmaps-page :where(.heatmap-version-card) {
   width: 220px;
   flex: 0 0 auto;
   border: 1px solid #dadce0;
@@ -1663,21 +1704,21 @@
   transition: background 0.16s ease, border-color 0.16s ease, box-shadow 0.16s ease;
 }
 
-.firebase-heatmaps-page :where(.heatmap-version-card:has(.heatmap-web-tile-screen)) {
+.rejourney-heatmaps-page :where(.heatmap-version-card:has(.heatmap-web-tile-screen)) {
   width: 300px;
 }
 
-.firebase-heatmaps-page :where(.heatmap-version-card:hover) {
+.rejourney-heatmaps-page :where(.heatmap-version-card:hover) {
   border-color: #c7d2fe !important;
   background: #f8fafd;
 }
 
-.firebase-heatmaps-page :where(.heatmap-version-card-selected) {
+.rejourney-heatmaps-page :where(.heatmap-version-card-selected) {
   border-color: #1a73e8 !important;
   box-shadow: inset 0 3px 0 #1a73e8 !important;
 }
 
-.firebase-heatmaps-page :where(.heatmap-version-card-header) {
+.rejourney-heatmaps-page :where(.heatmap-version-card-header) {
   margin-bottom: 0.625rem;
   display: flex;
   align-items: baseline;
@@ -1685,20 +1726,20 @@
   gap: 0.75rem;
 }
 
-.firebase-heatmaps-page :where(.heatmap-version-card-header strong) {
+.rejourney-heatmaps-page :where(.heatmap-version-card-header strong) {
   color: #202124;
   font-size: 0.9rem;
   font-weight: 650;
 }
 
-.firebase-heatmaps-page :where(.heatmap-version-card-header span) {
+.rejourney-heatmaps-page :where(.heatmap-version-card-header span) {
   color: #6f7785;
   font-size: 0.72rem;
   font-weight: 500;
   white-space: nowrap;
 }
 
-.firebase-heatmaps-page :where(.heatmap-version-metrics) {
+.rejourney-heatmaps-page :where(.heatmap-version-metrics) {
   margin-top: 0.625rem;
   display: flex;
   align-items: center;
@@ -1710,7 +1751,7 @@
   font-weight: 700;
 }
 
-.firebase-heatmaps-page :where(.heatmap-tile) {
+.rejourney-heatmaps-page :where(.heatmap-tile) {
   border-color: #dadce0 !important;
   border-radius: 8px;
   box-shadow: none !important;
@@ -1718,87 +1759,87 @@
   transform: none !important;
 }
 
-.firebase-heatmaps-page :where(.heatmap-tile:hover) {
+.rejourney-heatmaps-page :where(.heatmap-tile:hover) {
   background: #ffffff;
   box-shadow: 0 1px 4px rgba(60, 64, 67, 0.14) !important;
   transform: none !important;
 }
 
-.firebase-heatmaps-page :where(.heatmap-tile-selected) {
+.rejourney-heatmaps-page :where(.heatmap-tile-selected) {
   box-shadow: inset 3px 0 0 #1a73e8 !important;
 }
 
-.firebase-heatmaps-page :where(.heatmap-tile .border-b) {
+.rejourney-heatmaps-page :where(.heatmap-tile .border-b) {
   border-color: #edf0f3 !important;
 }
 
-.firebase-heatmaps-page :where(.bg-\[\#ecfeff\]) {
+.rejourney-heatmaps-page :where(.bg-\[\#ecfeff\]) {
   background-color: #e8f0fe !important;
 }
 
-.firebase-heatmaps-page :where(.bg-\[\#fce7f3\]) {
+.rejourney-heatmaps-page :where(.bg-\[\#fce7f3\]) {
   background-color: #fce8f1 !important;
 }
 
-.firebase-heatmaps-page :where(.bg-\[\#c4b5fd\]) {
+.rejourney-heatmaps-page :where(.bg-\[\#c4b5fd\]) {
   background-color: #f8fafd !important;
 }
 
-.firebase-devices-page {
+.rejourney-devices-page {
   background: #f8fafd !important;
   color: #202124;
 }
 
-.firebase-devices-page :where(.dashboard-surface, .dashboard-kpi-card, .devices-panel, .devices-summary-card, .devices-tech-card) {
+.rejourney-devices-page :where(.dashboard-surface, .dashboard-kpi-card, .devices-panel, .devices-summary-card, .devices-tech-card) {
   background: #ffffff !important;
   border: 1px solid #dadce0 !important;
   border-radius: 8px;
   box-shadow: 0 1px 2px rgba(60, 64, 67, 0.1), 0 1px 3px rgba(60, 64, 67, 0.08) !important;
 }
 
-.firebase-devices-page :where(.border-black) {
+.rejourney-devices-page :where(.border-black) {
   border-color: #dadce0 !important;
 }
 
-.firebase-devices-page :where(.border-2) {
+.rejourney-devices-page :where(.border-2) {
   border-width: 1px !important;
 }
 
-.firebase-devices-page :where(.shadow-neo-sm, .shadow-neo, .shadow-neo-lg, [class*="shadow-[2px"], [class*="shadow-[4px"], [class*="shadow-[8px"]) {
+.rejourney-devices-page :where(.shadow-neo-sm, .shadow-neo, .shadow-neo-lg, [class*="shadow-[2px"], [class*="shadow-[4px"], [class*="shadow-[8px"]) {
   box-shadow: none !important;
 }
 
-.firebase-devices-page :where(h2, h3) {
+.rejourney-devices-page :where(h2, h3) {
   color: #202124 !important;
   font-weight: 600 !important;
   letter-spacing: 0 !important;
   text-transform: none !important;
 }
 
-.firebase-devices-page :where(.font-black) {
+.rejourney-devices-page :where(.font-black) {
   font-weight: 650;
 }
 
-.firebase-devices-page :where(.text-black) {
+.rejourney-devices-page :where(.text-black) {
   color: #202124 !important;
 }
 
-.firebase-devices-page :where(.devices-card-accent) {
+.rejourney-devices-page :where(.devices-card-accent) {
   height: 3px !important;
   border: 0 !important;
   border-radius: 999px;
 }
 
-.firebase-devices-page :where(.devices-summary-card, .devices-tech-card) {
+.rejourney-devices-page :where(.devices-summary-card, .devices-tech-card) {
   transform: none !important;
 }
 
-.firebase-devices-page :where(.devices-summary-card:hover, .devices-tech-card:hover) {
+.rejourney-devices-page :where(.devices-summary-card:hover, .devices-tech-card:hover) {
   transform: none !important;
   box-shadow: 0 2px 6px rgba(60, 64, 67, 0.14) !important;
 }
 
-.firebase-devices-page :where(.dashboard-label) {
+.rejourney-devices-page :where(.dashboard-label) {
   color: #6f7785 !important;
   font-size: 0.72rem;
   font-weight: 600;
@@ -1806,118 +1847,118 @@
   text-transform: none;
 }
 
-.firebase-devices-page :where(.devices-panel-header) {
+.rejourney-devices-page :where(.devices-panel-header) {
   border-color: #dadce0 !important;
   background: #ffffff !important;
   padding: 1rem 1.125rem;
 }
 
-.firebase-devices-page :where(.devices-panel-header svg) {
+.rejourney-devices-page :where(.devices-panel-header svg) {
   color: #5f6368 !important;
   stroke-width: 2;
 }
 
-.firebase-devices-page :where(.devices-panel-body) {
+.rejourney-devices-page :where(.devices-panel-body) {
   padding: 1rem 1.125rem;
 }
 
-.firebase-devices-page :where(.devices-ranking-row) {
+.rejourney-devices-page :where(.devices-ranking-row) {
   border-color: #edf0f3 !important;
   border-radius: 6px;
   box-shadow: none !important;
 }
 
-.firebase-devices-page :where(.devices-ranking-row:hover) {
+.rejourney-devices-page :where(.devices-ranking-row:hover) {
   background: #f8fafd;
 }
 
-.firebase-devices-page :where(.devices-rank-badge) {
+.rejourney-devices-page :where(.devices-rank-badge) {
   border-radius: 999px;
   background: #e8f0fe !important;
   color: #1a73e8 !important;
   font-weight: 700;
 }
 
-.firebase-devices-page :where(.devices-platform-card) {
+.rejourney-devices-page :where(.devices-platform-card) {
   border-color: #dadce0 !important;
   border-radius: 8px;
   box-shadow: none !important;
 }
 
-.firebase-devices-page :where(.devices-platform-track) {
+.rejourney-devices-page :where(.devices-platform-track) {
   overflow: hidden;
   border-radius: 999px;
   background: #edf0f3 !important;
 }
 
-.firebase-devices-page :where(.devices-data-table thead) {
+.rejourney-devices-page :where(.devices-data-table thead) {
   color: #6f7785 !important;
   font-weight: 600;
   letter-spacing: 0;
 }
 
-.firebase-devices-page :where(.devices-data-table th) {
+.rejourney-devices-page :where(.devices-data-table th) {
   border-bottom: 1px solid #dadce0;
   padding-bottom: 0.75rem;
 }
 
-.firebase-devices-page :where(.devices-data-table td) {
+.rejourney-devices-page :where(.devices-data-table td) {
   padding-top: 0.8rem;
   padding-bottom: 0.8rem;
 }
 
-.firebase-devices-page :where(.devices-data-table tbody tr:nth-child(odd)) {
+.rejourney-devices-page :where(.devices-data-table tbody tr:nth-child(odd)) {
   background: #ffffff !important;
 }
 
-.firebase-devices-page :where(.devices-data-table tbody tr:nth-child(even)) {
+.rejourney-devices-page :where(.devices-data-table tbody tr:nth-child(even)) {
   background: #f3f6fa !important;
 }
 
-.firebase-devices-page :where(.devices-data-table tbody tr:hover) {
+.rejourney-devices-page :where(.devices-data-table tbody tr:hover) {
   background: #eef4ff !important;
 }
 
-.firebase-devices-page :where(.divide-slate-100 > :not([hidden]) ~ :not([hidden])) {
+.rejourney-devices-page :where(.divide-slate-100 > :not([hidden]) ~ :not([hidden])) {
   border-color: #edf0f3 !important;
 }
 
-.firebase-devices-page :where(.bg-\[\#e0e7ff\]) {
+.rejourney-devices-page :where(.bg-\[\#e0e7ff\]) {
   background-color: #e8f0fe !important;
 }
 
-.firebase-devices-page :where(.bg-\[\#67e8f9\]) {
+.rejourney-devices-page :where(.bg-\[\#67e8f9\]) {
   background-color: #7dd3fc !important;
 }
 
-.firebase-devices-page :where(.bg-\[\#86efac\]) {
+.rejourney-devices-page :where(.bg-\[\#86efac\]) {
   background-color: #86efac !important;
 }
 
-.firebase-devices-page :where(.bg-\[\#f9a8d4\]) {
+.rejourney-devices-page :where(.bg-\[\#f9a8d4\]) {
   background-color: #f9a8d4 !important;
 }
 
-.firebase-devices-page :where(.bg-\[\#fef08a\]) {
+.rejourney-devices-page :where(.bg-\[\#fef08a\]) {
   background-color: #fde68a !important;
 }
 
-.firebase-settings-page,
-.firebase-alerts-page {
+.rejourney-settings-page,
+.rejourney-alerts-page {
   background: #f8fafd !important;
   color: #202124;
 }
 
-.firebase-settings-page :where(.settings-layout-content) {
+.rejourney-settings-page :where(.settings-layout-content) {
   gap: 0;
 }
 
-.firebase-settings-page :where(.settings-layout-content > :not([hidden]) ~ :not([hidden])) {
+.rejourney-settings-page :where(.settings-layout-content > :not([hidden]) ~ :not([hidden])) {
   margin-top: 1.5rem !important;
 }
 
-.firebase-settings-page :where(.dashboard-panel, .dashboard-surface, .dashboard-card-surface),
-.firebase-alerts-page :where(.dashboard-panel, .dashboard-surface, .dashboard-card-surface) {
+.rejourney-settings-page :where(.dashboard-panel, .dashboard-surface, .dashboard-card-surface),
+.rejourney-alerts-page :where(.dashboard-panel, .dashboard-surface, .dashboard-card-surface) {
   background: #ffffff !important;
   border: 1px solid #dadce0 !important;
   border-radius: 8px;
@@ -1925,34 +1966,34 @@
   transform: none !important;
 }
 
-.firebase-settings-page :where(.dashboard-panel:hover, .dashboard-surface:hover),
-.firebase-alerts-page :where(.dashboard-panel:hover, .dashboard-surface:hover) {
+.rejourney-settings-page :where(.dashboard-panel:hover, .dashboard-surface:hover),
+.rejourney-alerts-page :where(.dashboard-panel:hover, .dashboard-surface:hover) {
   box-shadow: 0 2px 6px rgba(60, 64, 67, 0.14) !important;
   transform: none !important;
 }
 
-.firebase-settings-page :where(.border-black),
-.firebase-alerts-page :where(.border-black) {
+.rejourney-settings-page :where(.border-black),
+.rejourney-alerts-page :where(.border-black) {
   border-color: #dadce0 !important;
 }
 
-.firebase-settings-page :where(.border-2, .border-4),
-.firebase-alerts-page :where(.border-2, .border-4) {
+.rejourney-settings-page :where(.border-2, .border-4),
+.rejourney-alerts-page :where(.border-2, .border-4) {
   border-width: 1px !important;
 }
 
-.firebase-settings-page :where(.border-b-2, .border-t-2),
-.firebase-alerts-page :where(.border-b-2, .border-t-2) {
+.rejourney-settings-page :where(.border-b-2, .border-t-2),
+.rejourney-alerts-page :where(.border-b-2, .border-t-2) {
   border-width: 1px !important;
 }
 
-.firebase-settings-page :where(.shadow-neo-sm, .shadow-neo, .shadow-neo-lg, [class*="shadow-[2px"], [class*="shadow-[3px"], [class*="shadow-[4px"], [class*="shadow-[8px"]),
-.firebase-alerts-page :where(.shadow-neo-sm, .shadow-neo, .shadow-neo-lg, [class*="shadow-[2px"], [class*="shadow-[3px"], [class*="shadow-[4px"], [class*="shadow-[8px"]) {
+.rejourney-settings-page :where(.shadow-neo-sm, .shadow-neo, .shadow-neo-lg, [class*="shadow-[2px"], [class*="shadow-[3px"], [class*="shadow-[4px"], [class*="shadow-[8px"]),
+.rejourney-alerts-page :where(.shadow-neo-sm, .shadow-neo, .shadow-neo-lg, [class*="shadow-[2px"], [class*="shadow-[3px"], [class*="shadow-[4px"], [class*="shadow-[8px"]) {
   box-shadow: none !important;
 }
 
-.firebase-settings-page :where(section > h2),
-.firebase-alerts-page :where(section > h2, .space-y-6 > .flex > h2) {
+.rejourney-settings-page :where(section > h2),
+.rejourney-alerts-page :where(section > h2, .space-y-6 > .flex > h2) {
   color: #202124 !important;
   font-size: 1rem !important;
   font-weight: 600 !important;
@@ -1960,171 +2001,171 @@
   text-transform: none !important;
 }
 
-.firebase-settings-page :where(.font-black),
-.firebase-alerts-page :where(.font-black) {
+.rejourney-settings-page :where(.font-black),
+.rejourney-alerts-page :where(.font-black) {
   font-weight: 650;
 }
 
-.firebase-settings-page :where(.text-black),
-.firebase-alerts-page :where(.text-black) {
+.rejourney-settings-page :where(.text-black),
+.rejourney-alerts-page :where(.text-black) {
   color: #202124 !important;
 }
 
-.firebase-settings-page :where(input, select, textarea),
-.firebase-alerts-page :where(input, select, textarea) {
+.rejourney-settings-page :where(input, select, textarea),
+.rejourney-alerts-page :where(input, select, textarea) {
   border: 1px solid #dadce0 !important;
   border-radius: 6px !important;
   background: #ffffff !important;
   box-shadow: none !important;
 }
 
-.firebase-settings-page :where(input:focus, select:focus, textarea:focus),
-.firebase-alerts-page :where(input:focus, select:focus, textarea:focus) {
+.rejourney-settings-page :where(input:focus, select:focus, textarea:focus),
+.rejourney-alerts-page :where(input:focus, select:focus, textarea:focus) {
   border-color: #1a73e8 !important;
   outline: none !important;
   box-shadow: 0 0 0 1px #1a73e8 !important;
 }
 
-.firebase-settings-page :where(button.border-2, a.border-2),
-.firebase-alerts-page :where(button.border-2, a.border-2) {
+.rejourney-settings-page :where(button.border-2, a.border-2),
+.rejourney-alerts-page :where(button.border-2, a.border-2) {
   border-radius: 6px;
   box-shadow: none !important;
   transform: none !important;
 }
 
-.firebase-settings-page :where(button.bg-black),
-.firebase-alerts-page :where(button.bg-black) {
+.rejourney-settings-page :where(button.bg-black),
+.rejourney-alerts-page :where(button.bg-black) {
   background-color: #1a73e8 !important;
 }
 
-.firebase-settings-page :where(.bg-\[\#f4f4f5\]),
-.firebase-alerts-page :where(.bg-\[\#f4f4f5\]) {
+.rejourney-settings-page :where(.bg-\[\#f4f4f5\]),
+.rejourney-alerts-page :where(.bg-\[\#f4f4f5\]) {
   background-color: #f8fafd !important;
 }
 
-.firebase-settings-page :where(.bg-\[\#ecfeff\]),
-.firebase-alerts-page :where(.bg-\[\#ecfeff\]) {
+.rejourney-settings-page :where(.bg-\[\#ecfeff\]),
+.rejourney-alerts-page :where(.bg-\[\#ecfeff\]) {
   background-color: #e8f0fe !important;
 }
 
-.firebase-settings-page :where(.bg-slate-900),
-.firebase-alerts-page :where(.bg-slate-900) {
+.rejourney-settings-page :where(.bg-slate-900),
+.rejourney-alerts-page :where(.bg-slate-900) {
   background-color: #3c4043 !important;
 }
 
-.firebase-settings-page :where(.bg-slate-50),
-.firebase-alerts-page :where(.bg-slate-50) {
+.rejourney-settings-page :where(.bg-slate-50),
+.rejourney-alerts-page :where(.bg-slate-50) {
   background-color: #f8fafd !important;
 }
 
-.firebase-settings-page :where(.divide-slate-100 > :not([hidden]) ~ :not([hidden])),
-.firebase-alerts-page :where(.divide-slate-100 > :not([hidden]) ~ :not([hidden])) {
+.rejourney-settings-page :where(.divide-slate-100 > :not([hidden]) ~ :not([hidden])),
+.rejourney-alerts-page :where(.divide-slate-100 > :not([hidden]) ~ :not([hidden])) {
   border-color: #edf0f3 !important;
 }
 
-.firebase-settings-page :where(table thead),
-.firebase-alerts-page :where(table thead) {
+.rejourney-settings-page :where(table thead),
+.rejourney-alerts-page :where(table thead) {
   color: #6f7785 !important;
   font-weight: 600;
   letter-spacing: 0;
 }
 
-.firebase-settings-page :where(table th),
-.firebase-alerts-page :where(table th) {
+.rejourney-settings-page :where(table th),
+.rejourney-alerts-page :where(table th) {
   border-bottom: 1px solid #dadce0;
 }
 
-.firebase-settings-page :where(table tbody tr:nth-child(even)),
-.firebase-alerts-page :where(table tbody tr:nth-child(even)) {
+.rejourney-settings-page :where(table tbody tr:nth-child(even)),
+.rejourney-alerts-page :where(table tbody tr:nth-child(even)) {
   background: #f3f6fa !important;
 }
 
-.firebase-settings-page :where(table tbody tr:hover),
-.firebase-alerts-page :where(table tbody tr:hover) {
+.rejourney-settings-page :where(table tbody tr:hover),
+.rejourney-alerts-page :where(table tbody tr:hover) {
   background: #eef4ff !important;
 }
 
-.firebase-settings-page :where(.bg-rose-50),
-.firebase-alerts-page :where(.bg-rose-50) {
+.rejourney-settings-page :where(.bg-rose-50),
+.rejourney-alerts-page :where(.bg-rose-50) {
   background-color: #fef2f2 !important;
 }
 
-.firebase-settings-page :where(.bg-emerald-50),
-.firebase-alerts-page :where(.bg-emerald-50) {
+.rejourney-settings-page :where(.bg-emerald-50),
+.rejourney-alerts-page :where(.bg-emerald-50) {
   background-color: #f0fdf4 !important;
 }
 
-.firebase-settings-page :where(.bg-blue-50),
-.firebase-alerts-page :where(.bg-blue-50) {
+.rejourney-settings-page :where(.bg-blue-50),
+.rejourney-alerts-page :where(.bg-blue-50) {
   background-color: #eff6ff !important;
 }
 
-.firebase-alerts-page :where(.rounded-xl, .rounded-lg, .rounded-md) {
+.rejourney-alerts-page :where(.rounded-xl, .rounded-lg, .rounded-md) {
   border-radius: 8px !important;
 }
 
-.firebase-replays-page,
-.firebase-replay-workbench {
+.rejourney-replays-page,
+.rejourney-replay-workbench {
   background: #f8fafd !important;
   color: #202124;
 }
 
-.firebase-replays-page :where(.border-black, .divide-black\/15 > :not([hidden]) ~ :not([hidden])),
-.firebase-replay-workbench :where(.border-black, .divide-black\/15 > :not([hidden]) ~ :not([hidden])) {
+.rejourney-replays-page :where(.border-black, .divide-black\/15 > :not([hidden]) ~ :not([hidden])),
+.rejourney-replay-workbench :where(.border-black, .divide-black\/15 > :not([hidden]) ~ :not([hidden])) {
   border-color: #dadce0 !important;
 }
 
-.firebase-replays-page :where(.border-2),
-.firebase-replay-workbench :where(.border-2) {
+.rejourney-replays-page :where(.border-2),
+.rejourney-replay-workbench :where(.border-2) {
   border-width: 1px !important;
 }
 
-.firebase-replays-page :where(.border-t-2),
-.firebase-replay-workbench :where(.border-t-2) {
+.rejourney-replays-page :where(.border-t-2),
+.rejourney-replay-workbench :where(.border-t-2) {
   border-top-width: 1px !important;
 }
 
-.firebase-replays-page :where(.border-r-2),
-.firebase-replay-workbench :where(.border-r-2) {
+.rejourney-replays-page :where(.border-r-2),
+.rejourney-replay-workbench :where(.border-r-2) {
   border-right-width: 1px !important;
 }
 
-.firebase-replays-page :where(.border-b-2),
-.firebase-replay-workbench :where(.border-b-2) {
+.rejourney-replays-page :where(.border-b-2),
+.rejourney-replay-workbench :where(.border-b-2) {
   border-bottom-width: 1px !important;
 }
 
-.firebase-replays-page :where(.border-l-2),
-.firebase-replay-workbench :where(.border-l-2) {
+.rejourney-replays-page :where(.border-l-2),
+.rejourney-replay-workbench :where(.border-l-2) {
   border-left-width: 1px !important;
 }
 
-.firebase-replays-page :where(.shadow-neo-sm, .shadow-neo, .shadow-neo-lg, [class*="shadow-[2px"], [class*="shadow-[4px"], [class*="shadow-[8px"]),
-.firebase-replay-workbench :where(.shadow-neo-sm, .shadow-neo, .shadow-neo-lg, [class*="shadow-[2px"], [class*="shadow-[4px"], [class*="shadow-[8px"]) {
+.rejourney-replays-page :where(.shadow-neo-sm, .shadow-neo, .shadow-neo-lg, [class*="shadow-[2px"], [class*="shadow-[4px"], [class*="shadow-[8px"]),
+.rejourney-replay-workbench :where(.shadow-neo-sm, .shadow-neo, .shadow-neo-lg, [class*="shadow-[2px"], [class*="shadow-[4px"], [class*="shadow-[8px"]) {
   box-shadow: none !important;
 }
 
-.firebase-replays-page :where(button, input, select, .dashboard-pill) {
+.rejourney-replays-page :where(button, input, select, .dashboard-pill) {
   border-radius: 999px;
 }
 
-.firebase-replay-workbench :where(input, select, .dashboard-pill) {
+.rejourney-replay-workbench :where(input, select, .dashboard-pill) {
   border-radius: 4px;
 }
 
-.firebase-replays-page :where(article, .overflow-hidden.border-black, .border-2.border-black.bg-white, .border.border-black.bg-white),
-.firebase-replay-workbench :where(.replay-theater-section, .replay-side-panel, .overflow-hidden.border-black, .border-2.border-black.bg-white, .border.border-black.bg-white) {
+.rejourney-replays-page :where(article, .overflow-hidden.border-black, .border-2.border-black.bg-white, .border.border-black.bg-white),
+.rejourney-replay-workbench :where(.replay-theater-section, .replay-side-panel, .overflow-hidden.border-black, .border-2.border-black.bg-white, .border.border-black.bg-white) {
   border-color: #dadce0 !important;
   border-radius: 8px;
   box-shadow: 0 1px 2px rgba(60, 64, 67, 0.1), 0 1px 3px rgba(60, 64, 67, 0.08) !important;
 }
 
-.firebase-replays-page :where(article:hover, tr:hover),
-.firebase-replay-workbench :where(button:hover) {
+.rejourney-replays-page :where(article:hover, tr:hover),
+.rejourney-replay-workbench :where(button:hover) {
   transform: none !important;
 }
 
-.firebase-replays-page :where(thead tr, thead th) {
+.rejourney-replays-page :where(thead tr, thead th) {
   background: #f8fafd !important;
   color: #5f6368 !important;
   font-size: 0.72rem !important;
@@ -2132,69 +2173,69 @@
   text-transform: uppercase;
 }
 
-.firebase-replays-page :where(tbody) {
+.rejourney-replays-page :where(tbody) {
   background: #ffffff;
 }
 
-.firebase-replays-page :where(tbody > tr:nth-child(odd)) {
+.rejourney-replays-page :where(tbody > tr:nth-child(odd)) {
   background: #ffffff !important;
 }
 
-.firebase-replays-page :where(tbody > tr:nth-child(even)) {
+.rejourney-replays-page :where(tbody > tr:nth-child(even)) {
   background: #f3f6fa !important;
 }
 
-.firebase-replays-page :where(tbody tr) {
+.rejourney-replays-page :where(tbody tr) {
   border-color: #edf0f3 !important;
 }
 
-.firebase-replays-page :where(tbody tr:hover) {
+.rejourney-replays-page :where(tbody tr:hover) {
   background: #eef4ff !important;
 }
 
-.firebase-replays-page :where(td[colspan]) {
+.rejourney-replays-page :where(td[colspan]) {
   background: #f8fafd !important;
 }
 
-.firebase-replays-page :where(td, th) {
+.rejourney-replays-page :where(td, th) {
   color: #3c4043;
 }
 
-.firebase-replays-page :where(.bg-\[\#dbeafe\], .bg-\[\#ecfeff\]) {
+.rejourney-replays-page :where(.bg-\[\#dbeafe\], .bg-\[\#ecfeff\]) {
   background-color: #f8fafd !important;
 }
 
-.firebase-replays-page :where(.bg-\[\#67e8f9\]),
-.firebase-replay-workbench :where(.bg-\[\#67e8f9\]) {
+.rejourney-replays-page :where(.bg-\[\#67e8f9\]),
+.rejourney-replay-workbench :where(.bg-\[\#67e8f9\]) {
   background-color: #e8f0fe !important;
 }
 
-.firebase-replays-page :where(.bg-\[\#86efac\]),
-.firebase-replay-workbench :where(.bg-\[\#86efac\]) {
+.rejourney-replays-page :where(.bg-\[\#86efac\]),
+.rejourney-replay-workbench :where(.bg-\[\#86efac\]) {
   background-color: #e6f4ea !important;
 }
 
-.firebase-replays-page :where(.bg-\[\#f9a8d4\]),
-.firebase-replay-workbench :where(.bg-\[\#f9a8d4\]) {
+.rejourney-replays-page :where(.bg-\[\#f9a8d4\]),
+.rejourney-replay-workbench :where(.bg-\[\#f9a8d4\]) {
   background-color: #fce8f1 !important;
 }
 
-.firebase-replays-page :where(.bg-\[\#fecaca\]),
-.firebase-replay-workbench :where(.bg-\[\#fecaca\]) {
+.rejourney-replays-page :where(.bg-\[\#fecaca\]),
+.rejourney-replay-workbench :where(.bg-\[\#fecaca\]) {
   background-color: #fce8e6 !important;
 }
 
-.firebase-replays-page :where(.text-black),
-.firebase-replay-workbench :where(.text-black) {
+.rejourney-replays-page :where(.text-black),
+.rejourney-replay-workbench :where(.text-black) {
   color: #202124 !important;
 }
 
-.firebase-replays-page :where(.font-black),
-.firebase-replay-workbench :where(.font-black) {
+.rejourney-replays-page :where(.font-black),
+.rejourney-replay-workbench :where(.font-black) {
   font-weight: 650;
 }
 
-.firebase-replays-page :where(input, select) {
+.rejourney-replays-page :where(input, select) {
   background: #ffffff !important;
   border-color: #dadce0 !important;
   color: #202124 !important;
@@ -2203,59 +2244,59 @@
   text-transform: none !important;
 }
 
-.firebase-replays-page :where(input:focus, select:focus),
-.firebase-replay-workbench :where(input:focus, select:focus) {
+.rejourney-replays-page :where(input:focus, select:focus),
+.rejourney-replay-workbench :where(input:focus, select:focus) {
   border-color: #1a73e8 !important;
   box-shadow: 0 0 0 1px #1a73e8 !important;
   outline: none;
 }
 
-.firebase-replays-page :where(.soft-border-scope span, .soft-border-scope button) {
+.rejourney-replays-page :where(.soft-border-scope span, .soft-border-scope button) {
   border-radius: 999px;
 }
 
-.firebase-replays-page :where(.dashboard-page-header) {
+.rejourney-replays-page :where(.dashboard-page-header) {
   background: #f8fafd !important;
 }
 
-.firebase-replay-workbench .replay-workbench-header {
+.rejourney-replay-workbench .replay-workbench-header {
   background: #ffffff !important;
   border-color: #dadce0 !important;
   box-shadow: none;
 }
 
-.firebase-replay-workbench .replay-workbench-main {
+.rejourney-replay-workbench .replay-workbench-main {
   background: #f8fafd;
 }
 
-.firebase-replay-workbench .replay-theater-section,
-.firebase-replay-workbench .replay-side-panel {
+.rejourney-replay-workbench .replay-theater-section,
+.rejourney-replay-workbench .replay-side-panel {
   background: #ffffff !important;
   border-color: #dadce0 !important;
 }
 
-.firebase-replay-workbench .replay-theater-section > div:first-child,
-.firebase-replay-workbench .replay-workbench-tabs {
+.rejourney-replay-workbench .replay-theater-section > div:first-child,
+.rejourney-replay-workbench .replay-workbench-tabs {
   background: #ffffff !important;
   border-color: #dadce0 !important;
 }
 
-.firebase-replay-workbench .replay-theater-stage {
+.rejourney-replay-workbench .replay-theater-stage {
   background: #f8fafd !important;
   border-color: #dadce0 !important;
 }
 
-.firebase-replay-workbench .replay-device-placeholder {
+.rejourney-replay-workbench .replay-device-placeholder {
   border-color: #c7cbd1 !important;
   border-radius: 12px;
   background: #ffffff !important;
 }
 
-.firebase-replay-workbench .replay-device-frame {
+.rejourney-replay-workbench .replay-device-frame {
   filter: drop-shadow(0 14px 26px rgba(60, 64, 67, 0.22));
 }
 
-.firebase-replay-workbench .replay-workbench-tabs button {
+.rejourney-replay-workbench .replay-workbench-tabs button {
   min-width: 6.5rem;
   border-bottom-color: transparent !important;
   border-radius: 0 !important;
@@ -2266,69 +2307,69 @@
   text-transform: none;
 }
 
-.firebase-replay-workbench .replay-workbench-tabs button[class*="bg-white"] {
+.rejourney-replay-workbench .replay-workbench-tabs button[class*="bg-white"] {
   background: #ffffff !important;
   color: #202124 !important;
   box-shadow: inset 0 -3px 0 #1a73e8 !important;
 }
 
-.firebase-replay-workbench :where(.replay-controls-primary button, .replay-controls-secondary button) {
+.rejourney-replay-workbench :where(.replay-controls-primary button, .replay-controls-secondary button) {
   background: #ffffff !important;
   border-color: #dadce0 !important;
   border-radius: 999px;
   color: #3c4043 !important;
 }
 
-.firebase-replay-workbench :where(.replay-controls-primary button:hover, .replay-controls-secondary button:hover) {
+.rejourney-replay-workbench :where(.replay-controls-primary button:hover, .replay-controls-secondary button:hover) {
   background: #f8fafd !important;
 }
 
-.firebase-replay-workbench :where(.replay-controls-primary button:disabled, .replay-controls-secondary button:disabled) {
+.rejourney-replay-workbench :where(.replay-controls-primary button:disabled, .replay-controls-secondary button:disabled) {
   background: #f1f3f4 !important;
   color: #9aa0a6 !important;
 }
 
-.firebase-replay-workbench :where(.replay-controls-primary button[class*="bg-[#67e8f9]"], .replay-controls-primary button[class*="bg-[#f9a8d4]"]) {
+.rejourney-replay-workbench :where(.replay-controls-primary button[class*="bg-[#67e8f9]"], .replay-controls-primary button[class*="bg-[#f9a8d4]"]) {
   background: #1a73e8 !important;
   border-color: #1a73e8 !important;
   color: #ffffff !important;
 }
 
-.firebase-replay-workbench :where(.replay-side-panel .bg-slate-950) {
+.rejourney-replay-workbench :where(.replay-side-panel .bg-slate-950) {
   background: #202124 !important;
 }
 
-.firebase-replay-workbench :where(.replay-side-panel .bg-\[\#f8fafc\], .replay-side-panel .bg-slate-50) {
+.rejourney-replay-workbench :where(.replay-side-panel .bg-\[\#f8fafc\], .replay-side-panel .bg-slate-50) {
   background: #f8fafd !important;
 }
 
-.firebase-replay-workbench :where(.replay-side-panel table thead) {
+.rejourney-replay-workbench :where(.replay-side-panel table thead) {
   background: #f8fafd !important;
   color: #5f6368 !important;
 }
 
-.firebase-replay-workbench :where(.replay-side-panel table th) {
+.rejourney-replay-workbench :where(.replay-side-panel table th) {
   border-color: #dadce0 !important;
   font-weight: 600 !important;
 }
 
-.firebase-replay-workbench :where(.replay-side-panel [data-activity-index]) {
+.rejourney-replay-workbench :where(.replay-side-panel [data-activity-index]) {
   border-color: #edf0f3 !important;
   border-radius: 0 !important;
   box-shadow: none !important;
 }
 
-.firebase-replay-workbench :where(.replay-side-panel [data-activity-index]:hover) {
+.rejourney-replay-workbench :where(.replay-side-panel [data-activity-index]:hover) {
   background: #f8fafd !important;
 }
 
-.firebase-replay-workbench :where(.replay-side-panel [data-activity-index][class*="border-l-4"]) {
+.rejourney-replay-workbench :where(.replay-side-panel [data-activity-index][class*="border-l-4"]) {
   border-left-color: #1a73e8 !important;
   background: #f8fafd !important;
   box-shadow: inset 3px 0 0 #1a73e8 !important;
 }
 
-.firebase-replay-workbench :where(.replay-panel-actions button) {
+.rejourney-replay-workbench :where(.replay-panel-actions button) {
   border-radius: 999px;
 }
 

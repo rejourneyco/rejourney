@@ -14,7 +14,7 @@ export const Heatmaps: React.FC = () => {
     const platform = platformLensToSessionPlatform(platformLens);
 
     return (
-        <div className="firebase-heatmaps-page min-h-screen bg-[#f8fafd] pb-12 font-sans text-slate-900">
+        <div className="rejourney-heatmaps-page min-h-screen bg-[#f8fafd] pb-12 font-sans text-slate-900">
             <DashboardPageHeader
                 title="Heatmaps"
                 icon={<MousePointer2 className="w-6 h-6" />}

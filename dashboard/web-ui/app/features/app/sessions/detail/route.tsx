@@ -2871,7 +2871,7 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
     };
 
     return (
-        <div className="firebase-replay-workbench replay-workbench-page flex min-h-screen flex-col bg-[#f8fafd] xl:h-full xl:min-h-0 xl:overflow-hidden">
+        <div className="rejourney-replay-workbench replay-workbench-page flex min-h-screen flex-col bg-[#f8fafd] xl:h-full xl:min-h-0 xl:overflow-hidden">
             <div className="replay-workbench-header border-b-2 border-black bg-[#f8fafc] md:sticky md:top-0 md:z-40 xl:shrink-0">
                 <div className="mx-auto flex w-full max-w-[1920px] flex-col gap-3 px-3 py-3 sm:px-4 xl:flex-row xl:items-center xl:justify-between xl:gap-2 xl:py-2">
                     <div className="flex w-full min-w-0 flex-1 items-start gap-3">

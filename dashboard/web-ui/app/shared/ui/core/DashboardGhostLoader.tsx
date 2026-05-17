@@ -400,7 +400,7 @@ const AlertsGhostBody: React.FC = () => (
 export const DashboardGhostLoader: React.FC<DashboardGhostLoaderProps> = ({ variant = 'analytics' }) => {
   if (variant === 'general') {
     return (
-      <div className="firebase-general-page min-h-screen bg-[#f8fafd] pb-12 font-sans text-black">
+      <div className="rejourney-general-page min-h-screen bg-[#f8fafd] pb-12 font-sans text-black">
         <PageHeaderGhost withControls />
         <GeneralGhostBody />
       </div>
@@ -444,7 +444,7 @@ export const DashboardGhostLoader: React.FC<DashboardGhostLoaderProps> = ({ vari
   }
 
   return (
-    <div className="firebase-api-page min-h-screen bg-[#f8fafd] font-sans text-black">
+    <div className="rejourney-api-page min-h-screen bg-[#f8fafd] font-sans text-black">
       <PageHeaderGhost withControls />
       <AnalyticsGhostBody kpiCount={4} />
     </div>

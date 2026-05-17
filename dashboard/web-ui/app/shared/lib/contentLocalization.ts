@@ -160,7 +160,7 @@ const englishContentCopy: ContentLocaleCopy = {
     ariaLabel: "Pricing",
     heading: "Pricing",
     intro:
-      "Fixed monthly plans for mobile session replay and analytics. Choose by session volume; the core feature set stays included.",
+      "Easy pricing based on session count. Every Session includes all core features.",
     contactEyebrow: "Contact devs",
     contactHeading: "Need a new feature?",
     copied: "Copied",
@@ -170,7 +170,7 @@ const englishContentCopy: ContentLocaleCopy = {
       free: "For early projects and production validation.",
       starter: "For apps starting to see regular traffic.",
       growth: "For growing teams with heavier replay volume.",
-      pro: "For high-traffic apps and mature mobile teams.",
+      pro: "For high-traffic apps and mature web and mobile teams.",
       fallback: "For mobile teams building with Rejourney.",
     },
     sharedFeatures: [

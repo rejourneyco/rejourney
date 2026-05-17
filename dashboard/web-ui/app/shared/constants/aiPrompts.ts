@@ -115,6 +115,7 @@ IMPORTANT:
 - Recording starts after Rejourney.start().
 - Remind the user to put their project key in the init/provider function.
 - Remind the user it is up to them to ensure privacy and consent beyond this simple integration.
+- Remind the user they must add their domain to allowed domains in project settings if not done via project creation already.
 
 POST-INTEGRATION STEPS:
 Once the integration is successfully implemented:

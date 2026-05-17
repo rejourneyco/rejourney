@@ -497,7 +497,7 @@ export const BillingSettings: React.FC = () => {
 
   if (!currentTeam) {
     return (
-      <SettingsLayout className="firebase-settings-page firebase-billing-settings-page" title="Billing" description="Select a team to manage billing" icon={<CreditCard className="w-6 h-6" />} iconColor="bg-[#f4f4f5]">
+      <SettingsLayout className="rejourney-settings-page rejourney-billing-settings-page" title="Billing" description="Select a team to manage billing" icon={<CreditCard className="w-6 h-6" />} iconColor="bg-[#f4f4f5]">
         <div className="p-12 text-center border-2 border-dashed border-slate-300 bg-slate-50">
           <Building className="w-12 h-12 text-slate-300 mx-auto mb-3" />
           <h2 className="text-lg font-bold text-slate-900 mb-1">No Team Selected</h2>
@@ -510,7 +510,7 @@ export const BillingSettings: React.FC = () => {
   if (isDemoMode) {
     return (
       <SettingsLayout
-        className="firebase-settings-page firebase-billing-settings-page"
+        className="rejourney-settings-page rejourney-billing-settings-page"
         title="Billing"
         description={`Demo billing preview for ${currentTeam.name}`}
         icon={<CreditCard className="w-6 h-6" />}
@@ -545,7 +545,7 @@ export const BillingSettings: React.FC = () => {
   if (stripeStatus?.selfHosted) {
     return (
       <SettingsLayout
-        className="firebase-settings-page firebase-billing-settings-page"
+        className="rejourney-settings-page rejourney-billing-settings-page"
         title="Billing"
         description={`Enterprise billing for ${currentTeam.name}`}
         icon={<CreditCard className="w-6 h-6" />}
@@ -592,7 +592,7 @@ export const BillingSettings: React.FC = () => {
 
   return (
     <SettingsLayout
-      className="firebase-settings-page firebase-billing-settings-page"
+      className="rejourney-settings-page rejourney-billing-settings-page"
       title="Billing"
       description={`Plan & usage for ${currentTeam.name}`}
       icon={<CreditCard className="w-6 h-6" />}

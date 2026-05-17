@@ -199,10 +199,10 @@ const RangeSetting: React.FC<RangeSettingProps> = ({
 
   return (
     <div className="project-settings-range-card dashboard-inner-surface bg-white p-4">
-      <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <label className="flex min-w-0 items-center gap-2 text-sm font-semibold text-slate-900">
-          <span>{label}</span>
-          {tooltip}
+      <div className="project-settings-range-header">
+        <label className="project-settings-range-label text-sm font-semibold text-slate-900">
+          <span className="project-settings-range-label-text">{label}</span>
+          {tooltip ? <span className="project-settings-range-tooltip">{tooltip}</span> : null}
         </label>
         <div className="project-settings-stepper" aria-label={`${label} value`}>
           <button
@@ -1051,7 +1051,7 @@ export const ProjectSettings: React.FC<SettingsProps> = ({ projectId: propProjec
   if (error || !project) {
     return (
       <SettingsLayout
-        className="firebase-settings-page firebase-project-settings-page"
+        className="rejourney-settings-page rejourney-project-settings-page"
         title="Project Settings"
         description="Configure project"
         icon={<Settings className="w-6 h-6" />}
@@ -1117,7 +1117,7 @@ export const ProjectSettings: React.FC<SettingsProps> = ({ projectId: propProjec
 
   return (
     <SettingsLayout
-      className="firebase-settings-page firebase-project-settings-page"
+      className="rejourney-settings-page rejourney-project-settings-page"
       title="Project Settings"
       description={`Configure ${project.name}`}
       icon={<Settings className="w-6 h-6" />}

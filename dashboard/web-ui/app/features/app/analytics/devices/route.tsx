@@ -578,7 +578,7 @@ export const Devices: React.FC = () => {
     }
 
     return (
-        <div className="firebase-devices-page min-h-screen bg-[#f8fafd] pb-12 font-sans text-slate-900">
+        <div className="rejourney-devices-page min-h-screen bg-[#f8fafd] pb-12 font-sans text-slate-900">
             <DashboardPageHeader
                 title="Devices"
                 icon={<Smartphone className="h-6 w-6" />}

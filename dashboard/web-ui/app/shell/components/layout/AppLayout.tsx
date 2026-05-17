@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { useLocation, useNavigate } from 'react-router';
+import { Link, useLocation, useNavigate } from 'react-router';
 import { Sidebar } from './Sidebar';
 import { TopBar } from './TopBar';
 import { Project, Platform } from '~/shared/types';
@@ -7,12 +7,16 @@ import { ApiProject } from '~/shared/api/client';
 import { useTeam } from '~/shared/providers/TeamContext';
 import { useSessionData } from '~/shared/providers/SessionContext';
 import { DASHBOARD_MANUAL_REFRESH_COMPLETE } from '~/shared/constants/events';
-import { FolderPlus, Layers3 } from 'lucide-react';
+import { FolderPlus, Layers3, Megaphone, X } from 'lucide-react';
 
 interface AppLayoutProps {
   children: React.ReactNode;
   pathPrefix?: string; // Path prefix for navigation (e.g., '/app' or '/demo')
 }
+
+const WEB_SDK_ANNOUNCEMENT_STORAGE_KEY = 'rejourney.dashboard.announcement.webSdkHere.v1';
+
+let hasSeenWebSdkAnnouncementThisRuntime = false;
 
 // Convert API project to Project type
 function apiProjectToProject(apiProject: ApiProject): Project {
@@ -37,6 +41,75 @@ function apiProjectToProject(apiProject: ApiProject): Project {
     sessionsLast7Days: apiProject.sessionsLast7Days || 0,
     errorsLast7Days: apiProject.errorsLast7Days || 0,
   };
+}
+
+function WebSdkAnnouncement() {
+  const [isVisible, setIsVisible] = useState(false);
+
+  useEffect(() => {
+    if (hasSeenWebSdkAnnouncementThisRuntime) return;
+
+    try {
+      if (window.localStorage.getItem(WEB_SDK_ANNOUNCEMENT_STORAGE_KEY) === '1') {
+        hasSeenWebSdkAnnouncementThisRuntime = true;
+        return;
+      }
+    } catch {
+      if (hasSeenWebSdkAnnouncementThisRuntime) return;
+    }
+
+    setIsVisible(true);
+
+    const markSeenTimer = window.setTimeout(() => {
+      hasSeenWebSdkAnnouncementThisRuntime = true;
+
+      try {
+        window.localStorage.setItem(WEB_SDK_ANNOUNCEMENT_STORAGE_KEY, '1');
+      } catch {
+        // Runtime memory still prevents repeats when storage is unavailable.
+      }
+    }, 0);
+    const hideTimer = window.setTimeout(() => setIsVisible(false), 9000);
+    return () => {
+      window.clearTimeout(markSeenTimer);
+      window.clearTimeout(hideTimer);
+    };
+  }, []);
+
+  if (!isVisible) return null;
+
+  return (
+    <aside
+      aria-live="polite"
+      className="pointer-events-none fixed bottom-3 right-3 z-40 w-[min(22rem,calc(100vw-1.5rem))] sm:bottom-4 sm:right-4"
+    >
+      <div className="pointer-events-auto flex items-start gap-3 border-2 border-black bg-white p-3 text-black shadow-neo-sm">
+        <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center border-2 border-black bg-[#67e8f9]">
+          <Megaphone className="h-4 w-4 stroke-[3]" aria-hidden="true" />
+        </div>
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-extrabold leading-tight text-black">Web SDK is now here.</p>
+          <p className="mt-1 text-xs font-semibold leading-snug text-slate-600">
+            Browser session replay and web analytics are ready to wire in.
+          </p>
+          <Link
+            to="/docs/web/getting-started"
+            className="mt-2 inline-flex text-xs font-extrabold uppercase text-black underline decoration-2 underline-offset-4 hover:text-slate-700"
+          >
+            View docs
+          </Link>
+        </div>
+        <button
+          type="button"
+          onClick={() => setIsVisible(false)}
+          className="flex h-7 w-7 shrink-0 items-center justify-center border-2 border-black bg-white text-black transition hover:-translate-y-0.5 hover:bg-slate-100"
+          aria-label="Dismiss Web SDK announcement"
+        >
+          <X className="h-3.5 w-3.5 stroke-[3]" aria-hidden="true" />
+        </button>
+      </div>
+    </aside>
+  );
 }
 
 export const ProjectLayout: React.FC<AppLayoutProps> = ({ children, pathPrefix = '' }) => {
@@ -214,6 +287,7 @@ export const ProjectLayout: React.FC<AppLayoutProps> = ({ children, pathPrefix =
           ) : children}
         </div>
       </div>
+      {pathPrefix === '/dashboard' && <WebSdkAnnouncement />}
     </div>
   );
 };

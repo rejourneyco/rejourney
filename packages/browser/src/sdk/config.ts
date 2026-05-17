@@ -68,10 +68,11 @@ export const DEFAULT_WEB_CONFIG: Required<
     password: true,
     email: true,
     tel: true,
-    text: true,
+    hidden: true,
+    text: false,
     number: true,
-    search: true,
-    url: true,
+    search: false,
+    url: false,
   },
   blockClass: 'rr-block',
   ignoreClass: 'rr-ignore',
@@ -216,6 +217,11 @@ export function applyRemoteConfig(local: RejourneyWebConfig, remote: RemoteSdkCo
     captureReplay: (remoteRecording ?? local.captureReplay) && local.captureReplay !== false,
     allowedDomains: remoteAllowedDomains ?? local.allowedDomains,
     maxSessionDuration,
+    ...(remote.textInputMasking === 'secure_only'
+      ? { maskAllInputs: false }
+      : remote.textInputMasking === 'all'
+        ? { maskAllInputs: true }
+        : {}),
   };
 }
 

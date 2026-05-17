@@ -890,7 +890,7 @@ export const Journeys: React.FC = () => {
     }
 
     return (
-        <div className="firebase-journeys-page min-h-screen bg-[#f8fafd] pb-12 font-sans text-slate-900">
+        <div className="rejourney-journeys-page min-h-screen bg-[#f8fafd] pb-12 font-sans text-slate-900">
             <DashboardPageHeader
                 title="User Journeys"
                 icon={<Route className="w-6 h-6" />}

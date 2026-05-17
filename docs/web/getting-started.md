@@ -3,6 +3,9 @@
 
 <!-- /AI_PROMPT_SECTION -->
 
+> [!IMPORTANT]
+> Add your site's domain to **Allowed Domains** in Project Settings or during new project setup. Web recording will not start until the domain is allowed.
+
 ## Installation
 
 Add the Rejourney package to your project using npm or yarn.

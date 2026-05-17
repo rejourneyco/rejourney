@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { mergeWebConfig } from '../sdk/config.js';
-import { sanitizeRrwebEvent } from '../sdk/domPrivacy.js';
+import { applyRemoteConfig, mergeWebConfig } from '../sdk/config.js';
+import { maskInputValue, sanitizeRrwebEvent } from '../sdk/domPrivacy.js';
 
 describe('dom privacy', () => {
   it('masks serialized input values and placeholders in rrweb snapshots', () => {
@@ -47,5 +47,26 @@ describe('dom privacy', () => {
     sanitizeRrwebEvent(event, config);
 
     expect(event.data.node.attributes.placeholder).toBe('Search products');
+  });
+
+  it('leaves plain text inputs visible in secure-only masking', () => {
+    const config = applyRemoteConfig(mergeWebConfig('rj_live_test'), {
+      textInputMasking: 'secure_only',
+    });
+    const textInput = {
+      tagName: 'INPUT',
+      type: 'text',
+      autocomplete: '',
+      matches: () => false,
+    } as unknown as HTMLElement;
+    const passwordInput = {
+      tagName: 'INPUT',
+      type: 'password',
+      autocomplete: '',
+      matches: () => false,
+    } as unknown as HTMLElement;
+
+    expect(maskInputValue('Alex Morgan', textInput, config)).toBe('Alex Morgan');
+    expect(maskInputValue('super-secret-password', passwordInput, config)).toBe('***');
   });
 });

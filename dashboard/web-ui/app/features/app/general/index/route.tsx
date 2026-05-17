@@ -736,7 +736,7 @@ const GA4Card: React.FC<{
     className?: string;
     accentClassName?: string;
 }> = ({ title, action, children, className = '', accentClassName = 'bg-[#67e8f9]' }) => (
-    <div className={`firebase-general-card flex h-full min-w-0 flex-col overflow-hidden border border-[#dadce0] bg-white shadow-none ${className}`}>
+    <div className={`rejourney-general-card flex h-full min-w-0 flex-col overflow-hidden border border-[#dadce0] bg-white shadow-none ${className}`}>
         <div className={`h-1 ${accentClassName}`} />
         <div className="flex min-h-0 flex-1 flex-col p-4 sm:p-5">
             <div className="mb-4 flex flex-wrap items-start justify-between gap-2 border-b border-[#e8eaed] pb-3">
@@ -1576,7 +1576,7 @@ export const GeneralOverview: React.FC = () => {
     }
 
     return (
-        <div className="firebase-general-page min-h-screen bg-[#f8fafd] pb-12 font-sans text-[#202124]">
+        <div className="rejourney-general-page min-h-screen bg-[#f8fafd] pb-12 font-sans text-[#202124]">
             <DashboardPageHeader
                 title="General"
                 icon={<MessageSquareWarning className="h-5 w-5" />}
@@ -1670,7 +1670,7 @@ export const GeneralOverview: React.FC = () => {
                                                 : 'text-rose-700';
 
                                         return (
-                                            <div key={card.label} className="firebase-kpi-card min-w-0 rounded-xl border border-[#dadce0] bg-white p-4 shadow-none transition-colors hover:border-[#bdc1c6] sm:p-5">
+                                            <div key={card.label} className="rejourney-kpi-card min-w-0 rounded-xl border border-[#dadce0] bg-white p-4 shadow-none transition-colors hover:border-[#bdc1c6] sm:p-5">
                                                 <div className="dashboard-label break-words text-[#5f6368]">{card.label}</div>
                                                 <div className="mt-3 break-words text-[1.6rem] font-normal leading-none text-[#202124] sm:text-[2rem]">{card.value}</div>
                                                 <div className={`mt-4 inline-flex rounded-full border border-[#dadce0] bg-white px-2.5 py-1 text-[11px] font-semibold uppercase sm:text-xs ${deltaClass}`}>

@@ -14,12 +14,21 @@ export default function Page() {
         ]}
       >
         <p>
-          This example starts the local web SDK from a Client Component and leaves input masking on.
+          This example starts the local web SDK from a Client Component and includes
+          secure and non-secure fields for replay privacy checks.
         </p>
         <form>
           <label>
+            Display name
+            <input type="text" placeholder="Alex Morgan" />
+          </label>
+          <label>
             Email
             <input type="email" placeholder="masked@example.com" />
+          </label>
+          <label>
+            Password
+            <input type="password" placeholder="super-secret-password" />
           </label>
           <label>
             Plan

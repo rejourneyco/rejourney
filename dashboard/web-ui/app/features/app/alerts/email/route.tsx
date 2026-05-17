@@ -751,7 +751,7 @@ export const AlertEmails: React.FC = () => {
     }
 
     return (
-        <div className="firebase-alerts-page min-h-screen animate-fade-in bg-[#f8fafd] pb-10 font-sans text-[#202124]">
+        <div className="rejourney-alerts-page min-h-screen animate-fade-in bg-[#f8fafd] pb-10 font-sans text-[#202124]">
             <DashboardPageHeader
                 title="Email Alerts"
                 subtitle="Choose which signals send email and who receives them"

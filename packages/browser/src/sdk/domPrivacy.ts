@@ -34,7 +34,7 @@ export function shouldMaskInput(element: HTMLElement, config: RejourneyWebConfig
   if (tag !== 'input' && tag !== 'textarea' && !element.isContentEditable) return false;
   if (config.maskAllInputs !== false) return true;
 
-  const type = (element as HTMLInputElement).type || 'text';
+  const type = ((element as HTMLInputElement).type || 'text').toLowerCase();
   return config.maskInputOptions?.[type] === true;
 }
 
@@ -73,7 +73,9 @@ function serializedNodeShouldMaskInput(tagName: string, attributes: Record<strin
     return true;
   }
 
-  return config.maskAllInputs !== false;
+  if (config.maskAllInputs !== false) return true;
+  const inputType = tag === 'textarea' ? 'text' : (type || 'text');
+  return config.maskInputOptions?.[inputType] === true;
 }
 
 function sanitizeSerializedNode(value: unknown, config: RejourneyWebConfig, seen: WeakSet<object>): void {

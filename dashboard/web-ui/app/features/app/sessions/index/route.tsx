@@ -654,7 +654,7 @@ export const RecordingsList: React.FC = () => {
   }
 
   return (
-    <div className="firebase-replays-page min-h-screen flex flex-col bg-[#f8fafd] font-sans text-slate-900">
+    <div className="rejourney-replays-page min-h-screen flex flex-col bg-[#f8fafd] font-sans text-slate-900">
       {/* Main Header — scrolls away with page */}
       <div className="shrink-0">
         <DashboardPageHeader

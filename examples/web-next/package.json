@@ -3,9 +3,12 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev -H 0.0.0.0 -p 3100",
+    "predev": "npm --prefix ../../packages/browser run build",
+    "dev": "next dev -H 0.0.0.0 -p 3101",
+    "prebuild": "npm --prefix ../../packages/browser run build",
     "build": "next build",
-    "start": "next start -H 0.0.0.0 -p 3100",
+    "prestart": "npm --prefix ../../packages/browser run build",
+    "start": "next start -H 0.0.0.0 -p 3101",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
