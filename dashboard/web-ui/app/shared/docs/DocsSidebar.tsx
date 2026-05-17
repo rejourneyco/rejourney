@@ -237,8 +237,8 @@ export function DocsSidebar({ className }: { className?: string }) {
     };
 
     return (
-        <aside className={cn("sticky top-[64px] z-20 hidden w-72 flex-shrink-0 h-[calc(100vh-64px)] border-r-2 border-black bg-white/95 shadow-[5px_0_0_0_rgba(0,0,0,1)] md:block", className)}>
-            <div className="h-full overflow-y-auto p-5">
+        <aside className={cn("relative z-20 hidden w-72 flex-shrink-0 self-stretch border-r-2 border-black bg-white/95 shadow-[5px_0_0_0_rgba(0,0,0,1)] md:block", className)}>
+            <div className="p-5">
                 {navigation.map((cat) => (
                     <div key={cat.category} className="mb-6 last:mb-0">
                         {/* Category Header */}
