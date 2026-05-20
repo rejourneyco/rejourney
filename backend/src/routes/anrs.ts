@@ -6,7 +6,7 @@
 
 import { Router } from 'express';
 import crypto from 'crypto';
-import { eq, and, desc, gte, inArray, type SQL } from 'drizzle-orm';
+import { eq, and, desc, gte, inArray, sql, type SQL } from 'drizzle-orm';
 import { db, anrs, projects, teamMembers, sessions } from '../db/client.js';
 import { sessionAuth, asyncHandler, ApiError } from '../middleware/index.js';
 import { generateANRFingerprint } from '../services/issueTracker.js';
@@ -18,6 +18,13 @@ function buildSessionPlatformCondition(platform?: string): SQL | undefined {
     if (!platform || platform === 'all') return undefined;
     if (platform === 'mobile') return inArray(sessions.platform, ['ios', 'android']);
     return eq(sessions.platform, platform);
+}
+
+function excludeWebSyntheticLongTaskAnrs(): SQL {
+    return sql`NOT (
+        ${sessions.platform} = 'web'
+        AND lower(coalesce(${anrs.threadState}, '') || ' ' || coalesce(${anrs.deviceMetadata}::text, '')) LIKE '%main_thread_long_task%'
+    )`;
 }
 
 /**
@@ -83,6 +90,7 @@ router.get(
         const conditions = [
             eq(anrs.projectId, projectId),
             cutoff ? gte(anrs.timestamp, cutoff) : undefined,
+            excludeWebSyntheticLongTaskAnrs(),
         ];
         const platformCondition = buildSessionPlatformCondition(platform);
         if (platformCondition) conditions.push(platformCondition);

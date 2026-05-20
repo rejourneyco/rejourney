@@ -14,6 +14,7 @@ import {
 import { API_BASE_URL, getCsrfToken } from '~/shared/config/appConfig';
 import { TimeRange } from '~/shared/ui/core/TimeFilter';
 import WebReplayPlayer from '~/shared/ui/core/WebReplayPlayer';
+import { demoReplayFixture as brewCoffeeReplayFixture } from '~/shared/data/demoReplayDataFrankfurt';
 
 const TOUCH_HEATMAP_DEBUG_PREFIX = '[TouchHeatmapDebug]';
 
@@ -185,6 +186,7 @@ interface EnrichedHeatmapScreen extends AlltimeHeatmapScreen {
     confidence: ConfidenceType;
     priority: PriorityType;
     evidenceSessionId: string | null;
+    platform?: string | null;
 }
 
 type VersionHeatmapScreen = HeatmapIterationScreen & {
@@ -200,6 +202,162 @@ type WebReplayPreviewState = {
 type VersionHeatmapGroup = Omit<HeatmapIterationVersion, 'screens'> & {
     screens: VersionHeatmapScreen[];
 };
+
+const clampUnit = (value: number) => Math.max(0.04, Math.min(0.96, value));
+
+function findBrewCoffeeFrameAt(timestamp: number): { timestamp: number; file: string; index: number } | null {
+    const frames = brewCoffeeReplayFixture.screenshotFrames || [];
+    if (frames.length === 0) return null;
+
+    let best = frames[0];
+    let bestDistance = Math.abs(best.timestamp - timestamp);
+    for (const frame of frames) {
+        const distance = Math.abs(frame.timestamp - timestamp);
+        if (distance < bestDistance) {
+            best = frame;
+            bestDistance = distance;
+        }
+    }
+    return best;
+}
+
+function latestBrewCoffeeScreenAt(timestamp: number, navigationEvents: any[]): string | null {
+    let current: string | null = null;
+    for (const event of navigationEvents) {
+        if (event.timestamp > timestamp) break;
+        current = event.screenName || event.screen || event.viewId || current;
+    }
+    return current;
+}
+
+function buildBrewCoffeeHotspots(events: any[], width: number, height: number): HeatmapHotspot[] {
+    const buckets = new Map<string, {
+        xTotal: number;
+        yTotal: number;
+        weight: number;
+        isRageTap: boolean;
+    }>();
+
+    for (const event of events) {
+        if (typeof event.x !== 'number' || typeof event.y !== 'number') continue;
+        const normalizedX = clampUnit(event.x / width);
+        const normalizedY = clampUnit(event.y / height);
+        const isRageTap = event.frustrationKind === 'rage_tap' || event.gestureType === 'rage_tap';
+        const weight = event.type === 'touch' ? 1.35 : event.gestureType === 'swipe' ? 1.05 : 0.72;
+        const bucketX = Math.round(normalizedX / 0.055);
+        const bucketY = Math.round(normalizedY / 0.055);
+        const key = `${bucketX}:${bucketY}:${isRageTap ? 'rage' : 'touch'}`;
+        const current = buckets.get(key) || { xTotal: 0, yTotal: 0, weight: 0, isRageTap };
+        current.xTotal += normalizedX * weight;
+        current.yTotal += normalizedY * weight;
+        current.weight += weight;
+        current.isRageTap ||= isRageTap;
+        buckets.set(key, current);
+    }
+
+    const maxWeight = Math.max(1, ...Array.from(buckets.values()).map((bucket) => bucket.weight));
+    return Array.from(buckets.values())
+        .map((bucket) => ({
+            x: bucket.xTotal / Math.max(bucket.weight, 1),
+            y: bucket.yTotal / Math.max(bucket.weight, 1),
+            intensity: Number((0.24 + (bucket.weight / maxWeight) * 0.76).toFixed(3)),
+            isRageTap: bucket.isRageTap,
+        }))
+        .sort((a, b) => b.intensity - a.intensity)
+        .slice(0, 18);
+}
+
+function buildBrewCoffeeDemoHeatmaps(): { screens: EnrichedHeatmapScreen[]; screenIteration: HeatmapIterationSummary } {
+    const sessionId = brewCoffeeReplayFixture.sessionId;
+    const width = brewCoffeeReplayFixture.deviceInfo.screenWidth || 393;
+    const height = brewCoffeeReplayFixture.deviceInfo.screenHeight || 852;
+    const navigationEvents = brewCoffeeReplayFixture.events
+        .filter((event: any) => event.type === 'navigation' && (event.screenName || event.screen || event.viewId))
+        .sort((a: any, b: any) => a.timestamp - b.timestamp);
+
+    const eventsByScreen = new Map<string, any[]>();
+    for (const event of brewCoffeeReplayFixture.events) {
+        if (event.type !== 'touch' && event.type !== 'gesture') continue;
+        const screenName = latestBrewCoffeeScreenAt(event.timestamp, navigationEvents);
+        if (!screenName) continue;
+        const list = eventsByScreen.get(screenName) || [];
+        list.push(event);
+        eventsByScreen.set(screenName, list);
+    }
+
+    const screens = navigationEvents
+        .filter((event: any, index: number, events: any[]) => events.findIndex((candidate: any) => candidate.screenName === event.screenName) === index)
+        .map((event: any, index: number): EnrichedHeatmapScreen => {
+            const name = event.screenName || event.screen || event.viewId;
+            const screenEvents = eventsByScreen.get(name) || [];
+            const touchHotspots = buildBrewCoffeeHotspots(screenEvents, width, height);
+            const rageTaps = screenEvents.filter((screenEvent) => screenEvent.frustrationKind === 'rage_tap' || screenEvent.gestureType === 'rage_tap').length;
+            const touches = Math.max(1, screenEvents.length);
+            const rangeVisits = Math.max(180, Math.round(touches * (index === 0 ? 7.2 : 5.8)));
+            const totalVisits = Math.round(rangeVisits * 3.4);
+            const exitRate = index === 0 ? 14.8 : 9.6;
+            const frictionScore = Math.min(100, Math.round(18 + touchHotspots.length * 2.4 + rageTaps * 8 + index * 7));
+            const frame = findBrewCoffeeFrameAt(event.timestamp);
+
+            return {
+                name,
+                visits: totalVisits,
+                rageTaps,
+                errors: 0,
+                exitRate,
+                frictionScore,
+                screenshotUrl: frame ? `/demo/${sessionId}/frames/${frame.file}` : null,
+                sessionIds: [sessionId],
+                screenFirstSeenMs: event.timestamp,
+                touchHotspots,
+                rangeVisits,
+                rangeRageTaps: rageTaps,
+                rangeErrors: 0,
+                rangeExitRate: exitRate,
+                rangeFrictionScore: frictionScore,
+                rangeImpactScore: Math.min(100, Math.round(frictionScore + touches / 7)),
+                rangeRageTapRatePer100: Number(((rageTaps / rangeVisits) * 100).toFixed(1)),
+                rangeErrorRatePer100: 0,
+                rangeIncidentRatePer100: Number(((rageTaps / rangeVisits) * 100).toFixed(1)),
+                rangeEstimatedAffectedSessions: Math.max(1, Math.round(rangeVisits * Math.max(0.04, rageTaps / Math.max(touches, 1)))),
+                primarySignal: rageTaps > 0 ? 'rage_taps' : 'mixed',
+                confidence: touchHotspots.length >= 8 ? 'high' : 'medium',
+                priority: frictionScore >= 42 ? 'high' : 'watch',
+                evidenceSessionId: sessionId,
+                platform: 'ios',
+            };
+        })
+        .filter((screen) => (screen.touchHotspots?.length || 0) > 0)
+        .sort((a, b) => b.rangeImpactScore - a.rangeImpactScore);
+
+    const versionScreens: HeatmapIterationScreen[] = screens.map((screen) => ({
+        name: screen.name,
+        screenshotUrl: screen.screenshotUrl,
+        screenFirstSeenMs: screen.screenFirstSeenMs,
+        visits: screen.rangeVisits,
+        touches: eventsByScreen.get(screen.name)?.length || screen.rangeVisits,
+        rageTaps: screen.rangeRageTaps,
+        errors: screen.rangeErrors,
+        incidentRatePer100: screen.rangeIncidentRatePer100,
+        lastSeenAt: new Date(brewCoffeeReplayFixture.endTime).toISOString(),
+        evidenceSessionId: screen.evidenceSessionId,
+        touchHotspots: screen.touchHotspots,
+    }));
+
+    return {
+        screens,
+        screenIteration: {
+            overall: versionScreens,
+            versions: [{
+                appVersion: brewCoffeeReplayFixture.deviceInfo.appVersion || '2.1.1',
+                firstSeenAt: new Date(brewCoffeeReplayFixture.startTime).toISOString(),
+                lastSeenAt: new Date(brewCoffeeReplayFixture.endTime).toISOString(),
+                sessions: 1,
+                screens: versionScreens,
+            }],
+        },
+    };
+}
 
 function getInsightsRangeFromTimeFilter(timeRange: TimeRange): string {
     if (timeRange === 'all') return 'all';
@@ -239,7 +397,7 @@ function resolveHeatmapViewer(
 function getDisplayRoute(screenName: string): string {
     const trimmed = screenName.trim();
     if (!trimmed) return '/';
-    if (trimmed.startsWith('http')) {
+    if (/^https?:\/\//i.test(trimmed)) {
         try {
             const url = new URL(trimmed);
             return `${url.pathname}${url.search}`;
@@ -248,6 +406,29 @@ function getDisplayRoute(screenName: string): string {
         }
     }
     return trimmed.startsWith('/') ? trimmed : `/${trimmed}`;
+}
+
+function normalizeRouteForMatch(value: string): string {
+    const displayRoute = getDisplayRoute(value);
+    const normalized = displayRoute.split('#')[0] || '/';
+    const withoutTrailingSlash = normalized.length > 1 ? normalized.replace(/\/+$/, '') : normalized;
+    return withoutTrailingSlash.toLowerCase();
+}
+
+function getRrwebEventRoute(event: any): string | null {
+    const href = event?.data?.href || event?.data?.url || event?.data?.location?.href;
+    if (typeof href !== 'string' || !href.trim()) return null;
+    return normalizeRouteForMatch(href);
+}
+
+function findRrwebRouteTimestamp(events: any[], screenName: string): number | null {
+    const targetRoute = normalizeRouteForMatch(screenName);
+    for (const event of events) {
+        if (!event || typeof event.timestamp !== 'number') continue;
+        const eventRoute = getRrwebEventRoute(event);
+        if (eventRoute && eventRoute === targetRoute) return event.timestamp;
+    }
+    return null;
 }
 
 function compareVersionLabels(a: string, b: string): number {
@@ -544,13 +725,19 @@ const HeatmapPreview: React.FC<{
 
                 const firstTimestamp = events[0]?.timestamp || session.startTime || 0;
                 const lastTimestamp = events[events.length - 1]?.timestamp || firstTimestamp;
+                const routeTargetTimestamp = findRrwebRouteTimestamp(events, screen.name);
                 const rawTargetTimestamp = typeof screen.screenFirstSeenMs === 'number' && Number.isFinite(screen.screenFirstSeenMs)
                     ? screen.screenFirstSeenMs
                     : null;
-                const targetTimestamp = rawTargetTimestamp !== null
+                const candidateTimestamp = routeTargetTimestamp ?? (rawTargetTimestamp !== null
                     && rawTargetTimestamp >= firstTimestamp - 60_000
                     && rawTargetTimestamp <= lastTimestamp + 60_000
                     ? rawTargetTimestamp
+                    : null);
+                const targetTimestamp = candidateTimestamp !== null
+                    && candidateTimestamp >= firstTimestamp - 60_000
+                    && candidateTimestamp <= lastTimestamp + 60_000
+                    ? candidateTimestamp
                     : firstTimestamp;
                 const currentTime = Math.max(0, (targetTimestamp - firstTimestamp) / 1000);
                 const durationSeconds = Math.max(1, (lastTimestamp - firstTimestamp) / 1000, currentTime + 0.5);
@@ -754,193 +941,9 @@ export const TouchHeatmapSection: React.FC<TouchHeatmapSectionProps> = ({
 
     useEffect(() => {
         if (isDemoMode) {
-            const demoScreens: EnrichedHeatmapScreen[] = [
-                {
-                    name: 'HomeScreen',
-                    visits: 4820,
-                    rageTaps: 142,
-                    errors: 38,
-                    exitRate: 12.4,
-                    frictionScore: 34,
-                    screenshotUrl: null,
-                    sessionIds: [],
-                    touchHotspots: [
-                        { x: 0.5, y: 0.3, intensity: 0.9, isRageTap: false },
-                        { x: 0.3, y: 0.6, intensity: 0.7, isRageTap: true },
-                        { x: 0.7, y: 0.5, intensity: 0.5, isRageTap: false },
-                        { x: 0.5, y: 0.8, intensity: 0.4, isRageTap: false },
-                    ],
-                    rangeVisits: 1240,
-                    rangeRageTaps: 48,
-                    rangeErrors: 12,
-                    rangeExitRate: 12.4,
-                    rangeFrictionScore: 34,
-                    rangeImpactScore: 52,
-                    rangeRageTapRatePer100: 3.9,
-                    rangeErrorRatePer100: 1.0,
-                    rangeIncidentRatePer100: 4.9,
-                    rangeEstimatedAffectedSessions: 61,
-                    primarySignal: 'rage_taps',
-                    confidence: 'high',
-                    priority: 'critical',
-                    evidenceSessionId: null,
-                },
-                {
-                    name: 'CheckoutScreen',
-                    visits: 2100,
-                    rageTaps: 89,
-                    errors: 55,
-                    exitRate: 28.1,
-                    frictionScore: 58,
-                    screenshotUrl: null,
-                    sessionIds: [],
-                    touchHotspots: [
-                        { x: 0.5, y: 0.7, intensity: 0.95, isRageTap: true },
-                        { x: 0.5, y: 0.5, intensity: 0.6, isRageTap: false },
-                        { x: 0.2, y: 0.4, intensity: 0.3, isRageTap: false },
-                    ],
-                    rangeVisits: 540,
-                    rangeRageTaps: 22,
-                    rangeErrors: 14,
-                    rangeExitRate: 28.1,
-                    rangeFrictionScore: 58,
-                    rangeImpactScore: 71,
-                    rangeRageTapRatePer100: 4.1,
-                    rangeErrorRatePer100: 2.6,
-                    rangeIncidentRatePer100: 6.7,
-                    rangeEstimatedAffectedSessions: 36,
-                    primarySignal: 'exits',
-                    confidence: 'high',
-                    priority: 'critical',
-                    evidenceSessionId: null,
-                },
-                {
-                    name: 'ProfileScreen',
-                    visits: 1850,
-                    rageTaps: 21,
-                    errors: 8,
-                    exitRate: 6.2,
-                    frictionScore: 12,
-                    screenshotUrl: null,
-                    sessionIds: [],
-                    touchHotspots: [
-                        { x: 0.5, y: 0.2, intensity: 0.6, isRageTap: false },
-                        { x: 0.5, y: 0.5, intensity: 0.4, isRageTap: false },
-                    ],
-                    rangeVisits: 480,
-                    rangeRageTaps: 5,
-                    rangeErrors: 2,
-                    rangeExitRate: 6.2,
-                    rangeFrictionScore: 12,
-                    rangeImpactScore: 18,
-                    rangeRageTapRatePer100: 1.0,
-                    rangeErrorRatePer100: 0.4,
-                    rangeIncidentRatePer100: 1.4,
-                    rangeEstimatedAffectedSessions: 7,
-                    primarySignal: 'mixed',
-                    confidence: 'medium',
-                    priority: 'watch',
-                    evidenceSessionId: null,
-                },
-                {
-                    name: 'OnboardingScreen',
-                    visits: 3200,
-                    rageTaps: 64,
-                    errors: 29,
-                    exitRate: 41.5,
-                    frictionScore: 67,
-                    screenshotUrl: null,
-                    sessionIds: [],
-                    touchHotspots: [
-                        { x: 0.5, y: 0.85, intensity: 0.88, isRageTap: true },
-                        { x: 0.5, y: 0.6, intensity: 0.5, isRageTap: false },
-                        { x: 0.8, y: 0.3, intensity: 0.3, isRageTap: false },
-                    ],
-                    rangeVisits: 820,
-                    rangeRageTaps: 16,
-                    rangeErrors: 7,
-                    rangeExitRate: 41.5,
-                    rangeFrictionScore: 67,
-                    rangeImpactScore: 63,
-                    rangeRageTapRatePer100: 2.0,
-                    rangeErrorRatePer100: 0.9,
-                    rangeIncidentRatePer100: 2.9,
-                    rangeEstimatedAffectedSessions: 24,
-                    primarySignal: 'exits',
-                    confidence: 'high',
-                    priority: 'critical',
-                    evidenceSessionId: null,
-                },
-                {
-                    name: 'SearchScreen',
-                    visits: 980,
-                    rageTaps: 12,
-                    errors: 4,
-                    exitRate: 8.3,
-                    frictionScore: 9,
-                    screenshotUrl: null,
-                    sessionIds: [],
-                    touchHotspots: [
-                        { x: 0.5, y: 0.15, intensity: 0.7, isRageTap: false },
-                        { x: 0.5, y: 0.4, intensity: 0.3, isRageTap: false },
-                    ],
-                    rangeVisits: 250,
-                    rangeRageTaps: 3,
-                    rangeErrors: 1,
-                    rangeExitRate: 8.3,
-                    rangeFrictionScore: 9,
-                    rangeImpactScore: 11,
-                    rangeRageTapRatePer100: 1.2,
-                    rangeErrorRatePer100: 0.4,
-                    rangeIncidentRatePer100: 1.6,
-                    rangeEstimatedAffectedSessions: 4,
-                    primarySignal: 'mixed',
-                    confidence: 'medium',
-                    priority: 'watch',
-                    evidenceSessionId: null,
-                },
-            ];
-
-            const demoVersion = (appVersion: string, offset: number): VersionHeatmapGroup => ({
-                appVersion,
-                firstSeenAt: null,
-                lastSeenAt: null,
-                sessions: Math.max(12, 48 - offset * 8),
-                screens: demoScreens.map((screen) => ({
-                    name: screen.name,
-                    screenshotUrl: screen.screenshotUrl,
-                    visits: Math.max(1, Math.round(screen.rangeVisits * (0.68 + offset * 0.16))),
-                    touches: Math.max(1, Math.round(screen.visits * (0.55 + offset * 0.1))),
-                    rageTaps: Math.max(0, Math.round(screen.rangeRageTaps * (1.2 - offset * 0.18))),
-                    errors: Math.max(0, Math.round(screen.rangeErrors * (1.1 - offset * 0.12))),
-                    incidentRatePer100: Math.max(0.4, Number((screen.rangeIncidentRatePer100 * (1.15 - offset * 0.18)).toFixed(1))),
-                    lastSeenAt: null,
-                    evidenceSessionId: screen.evidenceSessionId,
-                    touchHotspots: (screen.touchHotspots || []).map((spot) => ({
-                        ...spot,
-                        x: Math.max(0.08, Math.min(0.92, spot.x + (offset - 1) * 0.05)),
-                        y: Math.max(0.08, Math.min(0.92, spot.y + (offset - 1) * 0.03)),
-                        intensity: Math.max(0.2, Math.min(1, spot.intensity * (1.08 - offset * 0.08))),
-                    })),
-                })),
-            });
-
+            const { screens: demoScreens, screenIteration: demoScreenIteration } = buildBrewCoffeeDemoHeatmaps();
             setScreens(demoScreens);
-            setScreenIteration({
-                overall: demoScreens.map((screen) => ({
-                    name: screen.name,
-                    screenshotUrl: screen.screenshotUrl,
-                    visits: screen.rangeVisits,
-                    touches: screen.visits,
-                    rageTaps: screen.rangeRageTaps,
-                    errors: screen.rangeErrors,
-                    incidentRatePer100: screen.rangeIncidentRatePer100,
-                    lastSeenAt: null,
-                    evidenceSessionId: screen.evidenceSessionId,
-                    touchHotspots: screen.touchHotspots,
-                })),
-                versions: [demoVersion('1.2.0', 0), demoVersion('1.3.0', 1), demoVersion('1.4.0', 2)],
-            });
+            setScreenIteration(demoScreenIteration);
             setLastUpdated(new Date().toISOString());
             setPartialError(null);
             setIsLoading(false);

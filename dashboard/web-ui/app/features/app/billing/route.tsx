@@ -526,14 +526,7 @@ export const BillingSettings: React.FC = () => {
               <p className="text-sm font-bold text-sky-900 mb-3">
                 Billing controls are disabled in demo mode.
               </p>
-              <p className="text-sm text-slate-700 mb-4">
-                Demo routes use fixture team and project ids, so they should not call live Stripe or billing endpoints.
-              </p>
-              <div className="flex flex-wrap gap-3">
-                <NeoBadge variant="neutral">No Live Stripe Calls</NeoBadge>
-                <NeoBadge variant="neutral">No Billing Mutations</NeoBadge>
-                <NeoBadge variant="neutral">Fixture Data Only</NeoBadge>
-              </div>
+
             </div>
           </div>
         </NeoCard>

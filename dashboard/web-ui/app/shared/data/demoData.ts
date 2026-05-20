@@ -6,7 +6,8 @@
  */
 
 import { Project, RecordingSession, ProjectDailyStats } from '~/shared/types';
-import { demoReplayFixture } from './demoReplayData';
+import { demoReplayFixture as existingDemoReplayFixture } from './demoReplayData';
+import { demoReplayFixture as frankfurtDemoReplayFixture } from './demoReplayDataFrankfurt';
 
 export const DEMO_NOW = Date.UTC(2026, 4, 18, 12, 0, 0);
 export const DEMO_NOW_ISO = new Date(DEMO_NOW).toISOString();
@@ -17,8 +18,12 @@ const demoRandom = () => {
     return demoRandomSeed / 0x100000000;
 };
 
-// Featured session ID - this will use the real recording from the backend
-export const DEMO_FEATURED_SESSION_ID = 'session_1773776620852_4474dcb8c2634e99b379b6c14f0b641a';
+const demoRecordedReplayFixtures = [frankfurtDemoReplayFixture, existingDemoReplayFixture] as const;
+
+export const DEMO_REPLAY_SESSION_IDS: string[] = demoRecordedReplayFixtures.map((fixture) => fixture.sessionId);
+
+// Featured session ID - this will use the newest real recording from the demo archive.
+export const DEMO_FEATURED_SESSION_ID = frankfurtDemoReplayFixture.sessionId;
 
 // Demo team for team context
 export const DEMO_TEAM = {
@@ -40,7 +45,7 @@ export const demoProjects: Project[] = [
         webDomain: 'shopflow.example',
         webAllowedDomains: ['shopflow.example', 'checkout.shopflow.example'],
         teamId: 'demo-team',
-        publicKey: 'pk_demo_XXXXXXXX',
+        publicKey: 'rj_XXXXXXXX',
         rejourneyEnabled: true,
         recordingEnabled: true,
         recordingFps: 1,
@@ -48,16 +53,16 @@ export const demoProjects: Project[] = [
         maxRecordingMinutes: 10,
         webMaxObservabilityMinutes: 30,
         createdAt: new Date(DEMO_NOW - 90 * 24 * 60 * 60 * 1000).toISOString(),
-        sessionsLast7Days: 1247,
-        errorsLast7Days: 23,
+        sessionsLast7Days: 462,
+        errorsLast7Days: 6,
     }
 ];
 
 // Demo dashboard stats
 export const demoDashboardStats = {
-    totalSessions: 12847,
-    avgDuration: 342, // 5.7 minutes in seconds
-    errorRate: 2.3
+    totalSessions: 1842,
+    avgDuration: 389, // 6.5 minutes in seconds
+    errorRate: 1.1
 };
 
 // Generate time helpers
@@ -65,52 +70,148 @@ const now = DEMO_NOW;
 const hour = 60 * 60 * 1000;
 const day = 24 * hour;
 
-// Demo sessions - varied states to showcase different features
-const demoBaseSessions: RecordingSession[] = [
-    // Featured session with real recording
-    // Featured session with real recording
-    {
-        id: DEMO_FEATURED_SESSION_ID,
+type DemoReplayFixture = any;
+
+type DemoReplaySessionMetadata = {
+    deviceId: string;
+    anonymousDisplayName?: string;
+    isFirstSession: boolean;
+    userFirstSeenAt: string;
+    visitorSessionNumber: number;
+    visitorFinalSessionNumber: number;
+    appStartupTimeMs: number;
+    retentionDays: number;
+    retentionTier: 1 | 2 | 3 | 4 | 5 | 6;
+    sdkVersion: string;
+    networkType: NonNullable<RecordingSession['networkType']>;
+    cellularGeneration?: RecordingSession['cellularGeneration'];
+    checkoutStatus: NonNullable<RecordingSession['checkoutStatus']>;
+    metadata: Record<string, unknown>;
+};
+
+const demoReplaySessionMetadataById: Record<string, DemoReplaySessionMetadata> = {
+    [frankfurtDemoReplayFixture.sessionId]: {
+        deviceId: 'demo-device-frankfurt-001',
+        anonymousDisplayName: 'CoffeeRegular8F2A',
+        isFirstSession: true,
+        userFirstSeenAt: new Date(frankfurtDemoReplayFixture.startTime).toISOString(),
+        visitorSessionNumber: 1,
+        visitorFinalSessionNumber: 16,
+        appStartupTimeMs: 684,
+        retentionDays: 30,
+        retentionTier: 3,
+        sdkVersion: '1.1.0',
+        networkType: 'wifi',
+        checkoutStatus: 'none',
+        metadata: {
+            appName: 'Brew Coffee Labs',
+            appBundleId: 'com.example.brew',
+            demoSource: 'live-docker',
+            userSegment: 'new_user',
+            loyaltyTier: 'New',
+            acquisitionChannel: 'community',
+            plan: 'premium',
+            featureArea: 'recipe discovery',
+        },
+    },
+    [existingDemoReplayFixture.sessionId]: {
+        deviceId: 'demo-device-001',
+        anonymousDisplayName: 'AustinRegular4C1D',
+        isFirstSession: false,
+        userFirstSeenAt: new Date(DEMO_NOW - 21 * day).toISOString(),
+        visitorSessionNumber: 6,
+        visitorFinalSessionNumber: 9,
+        appStartupTimeMs: 913,
+        retentionDays: 30,
+        retentionTier: 3,
+        sdkVersion: '1.0.8',
+        networkType: 'wifi',
+        checkoutStatus: 'none',
+        metadata: {
+            appName: 'Campus Merch Live',
+            appBundleId: 'com.codeolive.Merch',
+            demoSource: 'demo-archive',
+            userSegment: 'regular',
+            loyaltyTier: 'Regular',
+            acquisitionChannel: 'direct',
+            plan: 'standard',
+            featureArea: 'map and post discovery',
+        },
+    },
+};
+
+export const getDemoReplaySessionMetadata = (sessionId: string) => demoReplaySessionMetadataById[sessionId];
+
+const buildRecordedDemoSession = (
+    fixture: DemoReplayFixture,
+    deviceId: string,
+    isFirstSession: boolean
+): RecordingSession => {
+    const startupEvent = fixture.events.find((event: any) => event.type === 'app_startup') as { durationMs?: number } | undefined;
+    const platform = fixture.deviceInfo.os?.toLowerCase() === 'android' ? 'android' : 'ios';
+    const replayMetadata = getDemoReplaySessionMetadata(fixture.sessionId);
+    const appStartupTimeMs = Math.round(startupEvent?.durationMs ?? replayMetadata?.appStartupTimeMs ?? 0);
+
+    return {
+        id: fixture.sessionId,
         projectId: 'demo-project-001',
-        startedAt: new Date(demoReplayFixture.startTime).toISOString(),
-        endedAt: new Date(demoReplayFixture.endTime).toISOString(),
-        durationSeconds: demoReplayFixture.durationSeconds,
-        platform: 'ios',
-        appVersion: demoReplayFixture.deviceInfo.appVersion,
-        deviceModel: demoReplayFixture.deviceInfo.model,
-        osVersion: demoReplayFixture.deviceInfo.osVersion,
+        startedAt: new Date(fixture.startTime).toISOString(),
+        endedAt: new Date(fixture.endTime).toISOString(),
+        durationSeconds: fixture.durationSeconds,
+        platform,
+        appVersion: fixture.deviceInfo.appVersion || '1.0.0',
+        sdkVersion: fixture.deviceInfo.sdkVersion || replayMetadata?.sdkVersion,
+        deviceModel: fixture.deviceInfo.model || 'Unknown device',
+        osVersion: fixture.deviceInfo.osVersion || 'Unknown',
+        metadata: replayMetadata?.metadata,
         userId: (
-            demoReplayFixture.events.find((event: any) => event.type === 'user_identity_changed' && event.userId)?.userId ||
+            fixture.events.find((event: any) => event.type === 'user_identity_changed' && event.userId)?.userId ||
             'demo-user'
         ),
-        deviceId: 'demo-device-001',
-        geoLocation: demoReplayFixture.geoLocation,
-        totalEvents: demoReplayFixture.metrics.totalEvents,
-        errorCount: demoReplayFixture.metrics.errorCount,
-        touchCount: demoReplayFixture.metrics.touchCount,
-        scrollCount: demoReplayFixture.metrics.scrollCount,
-        gestureCount: demoReplayFixture.metrics.gestureCount,
-        inputCount: demoReplayFixture.metrics.inputCount,
-        apiSuccessCount: demoReplayFixture.stats.networkStats.successful,
-        apiErrorCount: demoReplayFixture.stats.networkStats.failed,
-        apiTotalCount: demoReplayFixture.stats.networkStats.total,
-        apiAvgResponseMs: demoReplayFixture.stats.networkStats.avgDuration,
-        rageTapCount: 0,
-        deadTapCount: demoReplayFixture.events.filter((event: any) => event.frustrationKind === 'dead_tap').length,
-        screensVisited: demoReplayFixture.screensVisited,
-        interactionScore: 79,
-        explorationScore: 64,
-        customEventCount: demoReplayFixture.metrics.customEventCount,
-        crashCount: 0,
-        anrCount: 0,
-        appStartupTimeMs: Math.round(
-            demoReplayFixture.events.find((event: any) => event.type === 'app_startup')?.durationMs || 0
-        ),
-        networkType: 'wifi',
+        anonymousDisplayName: replayMetadata?.anonymousDisplayName,
+        deviceId: replayMetadata?.deviceId || deviceId,
+        geoLocation: fixture.geoLocation,
+        totalEvents: fixture.metrics.totalEvents,
+        errorCount: fixture.metrics.errorCount,
+        touchCount: fixture.metrics.touchCount,
+        scrollCount: fixture.metrics.scrollCount,
+        gestureCount: fixture.metrics.gestureCount,
+        inputCount: fixture.metrics.inputCount,
+        apiSuccessCount: fixture.stats.networkStats.successful,
+        apiErrorCount: fixture.stats.networkStats.failed,
+        apiTotalCount: fixture.stats.networkStats.total,
+        apiAvgResponseMs: fixture.stats.networkStats.avgDuration,
+        rageTapCount: fixture.metrics.rageTapCount ?? 0,
+        deadTapCount: fixture.metrics.deadTapCount ?? fixture.events.filter((event: any) => event.frustrationKind === 'dead_tap').length,
+        screensVisited: fixture.screensVisited,
+        interactionScore: fixture.metrics.interactionScore ?? 79,
+        explorationScore: fixture.metrics.explorationScore ?? 64,
+        customEventCount: fixture.metrics.customEventCount,
+        crashCount: fixture.metrics.crashCount ?? 0,
+        anrCount: fixture.metrics.anrCount ?? 0,
+        appStartupTimeMs,
+        networkType: fixture.metrics.networkType || replayMetadata?.networkType || 'wifi',
+        cellularGeneration: replayMetadata?.cellularGeneration,
         status: 'ready',
+        effectiveStatus: 'ready',
+        canOpenReplay: true,
+        recordingDeleted: false,
+        recordingDeletedAt: null,
+        retentionDays: replayMetadata?.retentionDays,
+        retentionTier: replayMetadata?.retentionTier,
         hasSuccessfulRecording: true,
-        isFirstSession: true,
-    },
+        isFirstSession: replayMetadata?.isFirstSession ?? isFirstSession,
+        userFirstSeenAt: replayMetadata?.userFirstSeenAt,
+        visitorSessionNumber: replayMetadata?.visitorSessionNumber,
+        visitorFinalSessionNumber: replayMetadata?.visitorFinalSessionNumber,
+        checkoutStatus: replayMetadata?.checkoutStatus,
+    };
+};
+
+// Demo sessions - varied states to showcase different features
+const demoBaseSessions: RecordingSession[] = [
+    buildRecordedDemoSession(frankfurtDemoReplayFixture, 'demo-device-frankfurt-001', true),
+    buildRecordedDemoSession(existingDemoReplayFixture, 'demo-device-001', false),
     // Session with crash
     {
         id: 'demo-session-002',
@@ -936,18 +1037,18 @@ const demoBaseSessions: RecordingSession[] = [
 ];
 
 const demoReferralSourceFixtures = [
-    { source: 'www.google.com', channel: 'organic_search', campaign: 'summer-edit', sessions: 12 },
-    { source: 'instagram.com', channel: 'paid_social', campaign: 'creator-drop', sessions: 9 },
-    { source: null, channel: 'direct', campaign: null, sessions: 7 },
-    { source: 'producthunt.com', channel: 'launch', campaign: 'spring-launch', sessions: 5 },
-    { source: 'youtube.com', channel: 'video', campaign: 'review-roundup', sessions: 4 },
-    { source: 'linkedin.com', channel: 'organic_social', campaign: 'founder-post', sessions: 4 },
-    { source: 'x.com', channel: 'social', campaign: 'shipping-thread', sessions: 3 },
-    { source: 'reddit.com', channel: 'community', campaign: 'r/ecommerce', sessions: 3 },
-    { source: 'email.newsletter.shopflow.example', channel: 'email', campaign: 'weekend-drop', sessions: 3 },
-    { source: 'tiktok.com', channel: 'paid_social', campaign: 'style-haul', sessions: 2 },
-    { source: 'bing.com', channel: 'organic_search', campaign: 'brand-search', sessions: 2 },
-    { source: 'news.ycombinator.com', channel: 'community', campaign: 'engineering-post', sessions: 2 },
+    { source: 'www.google.com', channel: 'organic_search', campaign: 'summer-edit', sessions: 24 },
+    { source: 'instagram.com', channel: 'paid_social', campaign: 'creator-drop', sessions: 18 },
+    { source: null, channel: 'direct', campaign: null, sessions: 15 },
+    { source: 'producthunt.com', channel: 'launch', campaign: 'spring-launch', sessions: 11 },
+    { source: 'youtube.com', channel: 'video', campaign: 'review-roundup', sessions: 9 },
+    { source: 'linkedin.com', channel: 'organic_social', campaign: 'founder-post', sessions: 9 },
+    { source: 'x.com', channel: 'social', campaign: 'shipping-thread', sessions: 7 },
+    { source: 'reddit.com', channel: 'community', campaign: 'r/ecommerce', sessions: 7 },
+    { source: 'email.newsletter.shopflow.example', channel: 'email', campaign: 'weekend-drop', sessions: 6 },
+    { source: 'tiktok.com', channel: 'paid_social', campaign: 'style-haul', sessions: 5 },
+    { source: 'bing.com', channel: 'organic_search', campaign: 'brand-search', sessions: 4 },
+    { source: 'news.ycombinator.com', channel: 'community', campaign: 'engineering-post', sessions: 3 },
 ] as const;
 
 const demoReferralLocations = [
@@ -1027,10 +1128,10 @@ export const demoSessions: RecordingSession[] = [
     ...demoReferralSourceSessions,
 ];
 
-// Replays page demo fixtures should only include the real recorded phone replay.
+// Replays page demo fixtures should only include the real recorded phone replays.
 export const demoReplaySessions: RecordingSession[] = demoSessions.filter(
-    (session) => session.id === DEMO_FEATURED_SESSION_ID
-);
+    (session) => DEMO_REPLAY_SESSION_IDS.includes(session.id)
+).sort((a, b) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime());
 
 // Generate daily stats for charts (last 30 days)
 export const demoDailyStats: ProjectDailyStats[] = Array.from({ length: 30 }, (_, i) => {

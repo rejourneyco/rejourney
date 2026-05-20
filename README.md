@@ -4,7 +4,7 @@
     Rejourney
   </h1>
 
-  <img src="https://rejourney.co/images/session-replay-preview.png" alt="Rejourney Session Replay" width="100%" />
+  <img src="dashboard/web-ui/public/images/landing-replay-theater.png" alt="Rejourney Session Replay" width="100%" />
 
   <p>
     <strong>Lightweight session replay and observability for Mobile and Web Apps</strong>
@@ -50,36 +50,36 @@
 True FPS video playback capturing every rendered pixel. Unlike competitors, we capture everything—including Mapbox (Metal), custom shaders, and GPU-accelerated views.
 
 ### Live Incident Stream
-![Issues Feed](https://rejourney.co/images/issues-feed.png)
+![Issues Feed](dashboard/web-ui/public/images/readme-general-demo.png)
 
 See crashes, errors, and rage taps as they happen in real-time with instant crash reporting.
 
 ### Error/ANR/Crash Detection
-![ANR Issues](https://rejourney.co/images/anr-issues.png)
+![ANR Issues](dashboard/web-ui/public/images/anr-issues.png)
 
 Automatic detection of Application Not Responding events with full thread dumps and main thread analysis.
 
 ### Journey Mapping
-![User Journeys](https://rejourney.co/images/user-journeys.png)
+![User Journeys](dashboard/web-ui/public/images/readme-user-journeys.png)
 
 Visualize how users navigate your app. Identify high-friction drop-off points and optimize conversion funnels.
 
 ### Interaction Heat Maps
-![Heatmaps](https://rejourney.co/images/heatmaps.png)
+![Heatmaps](dashboard/web-ui/public/images/heatmaps.png)
 
 **Visualize user engagement with precision.** See where they tap, swipe, and scroll to optimize UI placement.
 
 ### Global Stability
-![Geo Intelligence](https://rejourney.co/images/geo-intelligence.png)
+![Geo Intelligence](dashboard/web-ui/public/images/geo-analytics.png)
 
 Monitor performance and stability across different regions. Spot infrastructure issues before they affect your global audience.
 
 ### Growth Engines
-![Growth Engines](https://rejourney.co/images/growth-engines.png)
+![Growth Engines](dashboard/web-ui/public/images/growth-engines.png)
 Track user retention and loyalty segments. Understand how releases impact your power users versus bounce rates.
 
 ### Team Alerts
-![Team Alerts](https://rejourney.co/images/team-alerts.png)
+![Team Alerts](dashboard/web-ui/public/images/readme-alert-emails.png)
 Smart email notifications for crashes, ANRs, and error spikes. Role-based access for engineering teams.
 
 ## Documentation

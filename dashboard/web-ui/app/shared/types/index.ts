@@ -120,6 +120,12 @@ export interface RecordingSession {
   isFirstSession?: boolean;
   /** All-time first session date for this user identity, regardless of the current time-range filter. */
   userFirstSeenAt?: string;
+  /** Ordinal number of this visitor's current session; used for loyalty/returning-user labels. */
+  visitorSessionNumber?: number | null;
+  /** Total lifetime sessions known for this visitor. */
+  visitorFinalSessionNumber?: number | null;
+  /** High-level checkout outcome when available. */
+  checkoutStatus?: 'none' | 'started' | 'completed' | 'abandoned' | string | null;
   // Joined/Hydrated data
   networkRequests?: ApiCall[];
   events?: SessionEvent[];

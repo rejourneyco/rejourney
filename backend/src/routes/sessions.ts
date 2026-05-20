@@ -1314,19 +1314,16 @@ function buildSessionFaultEvents(
     return [...crashEvents, ...anrEvents, ...errorEvents];
 }
 
-function isWebShortLongTaskAnr(session: any, anrRow: any): boolean {
+function isWebSyntheticLongTaskAnr(session: any, anrRow: any): boolean {
     const platform = String(session?.platform || session?.deviceInfo?.os || '').toLowerCase();
     if (platform !== 'web') return false;
-
-    const durationMs = Number(anrRow?.durationMs);
-    if (!Number.isFinite(durationMs) || durationMs >= 1_000) return false;
 
     const threadState = String(anrRow?.threadState || anrRow?.deviceMetadata?.stack || '').toLowerCase();
     return threadState.includes('main_thread_long_task');
 }
 
 function filterDisplayAnrs(session: any, sessionAnrs: any[]) {
-    return sessionAnrs.filter((anrRow) => !isWebShortLongTaskAnr(session, anrRow));
+    return sessionAnrs.filter((anrRow) => !isWebSyntheticLongTaskAnr(session, anrRow));
 }
 
 function mapCrashRowsForPayload(sessionCrashes: any[]) {

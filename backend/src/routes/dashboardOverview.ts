@@ -31,6 +31,13 @@ const RETENTION_PREVIEW_ROWS = 4;
 const RETENTION_PREVIEW_WEEKS = 4;
 const OVERVIEW_RESPONSE_CACHE_CONTROL = 'private, max-age=30, stale-while-revalidate=60';
 
+function excludeWebSyntheticLongTaskIssue(): SQL {
+    return sql`NOT (
+        ${issues.issueType} = 'anr'
+        AND lower(coalesce(${issues.sampleStackTrace}, '')) LIKE '%main_thread_long_task%'
+    )`;
+}
+
 async function getAccessibleProjectIds(userId: string): Promise<string[]> {
     const memberships = await db
         .select({ teamId: teamMembers.teamId })
@@ -303,7 +310,7 @@ async function loadIssuePreview(projectIds: string[], timeRange?: string, platfo
     }
 
     if (platform && platform !== 'all') {
-        const conditions: SQL[] = [inArray(issues.projectId, projectIds)];
+        const conditions: SQL[] = [inArray(issues.projectId, projectIds), excludeWebSyntheticLongTaskIssue()];
         const startedAfter = buildStartedAfter(timeRange);
         if (startedAfter) {
             conditions.push(gte(issueEvents.timestamp, startedAfter));
@@ -355,7 +362,7 @@ async function loadIssuePreview(projectIds: string[], timeRange?: string, platfo
         }));
     }
 
-    const conditions = [inArray(issues.projectId, projectIds)];
+    const conditions = [inArray(issues.projectId, projectIds), excludeWebSyntheticLongTaskIssue()];
     const startedAfter = buildStartedAfter(timeRange);
     if (startedAfter) {
         conditions.push(gte(issues.lastSeen, startedAfter));
@@ -2031,7 +2038,7 @@ router.get(
     asyncHandler(async (req, res) => {
         const scope = await resolveOverviewScope(req, { requireProjectId: true });
         await respondWithOverviewCache({
-            cacheKey: buildOverviewCacheKey('heatmaps', scope.scopedProjectIds, scope.normalizedTimeRange, scope.normalizedPlatform ? `platform:${scope.normalizedPlatform}:v5` : 'v5'),
+            cacheKey: buildOverviewCacheKey('heatmaps', scope.scopedProjectIds, scope.normalizedTimeRange, scope.normalizedPlatform ? `platform:${scope.normalizedPlatform}:v6` : 'v6'),
             routeName: 'heatmaps',
             res,
             logContext: {
@@ -2054,7 +2061,7 @@ router.get(
         }
 
         await respondWithOverviewCache({
-            cacheKey: buildOverviewCacheKey(`heatmaps:screen:${screenName}`, scope.scopedProjectIds, scope.normalizedTimeRange, scope.normalizedPlatform ? `platform:${scope.normalizedPlatform}:v2` : 'v2'),
+            cacheKey: buildOverviewCacheKey(`heatmaps:screen:${screenName}`, scope.scopedProjectIds, scope.normalizedTimeRange, scope.normalizedPlatform ? `platform:${scope.normalizedPlatform}:v3` : 'v3'),
             routeName: 'heatmaps-screen',
             res,
             logContext: {
@@ -2109,7 +2116,7 @@ router.get(
     asyncHandler(async (req, res) => {
         const scope = await resolveOverviewScope(req, { requireProjectId: true });
         await respondWithOverviewCache({
-            cacheKey: buildOverviewCacheKey('anrs', scope.scopedProjectIds, scope.normalizedTimeRange, scope.normalizedPlatform ? `platform:${scope.normalizedPlatform}` : undefined),
+            cacheKey: buildOverviewCacheKey('anrs', scope.scopedProjectIds, scope.normalizedTimeRange, scope.normalizedPlatform ? `platform:${scope.normalizedPlatform}:v2` : 'v2'),
             routeName: 'anrs',
             res,
             logContext: {

@@ -61,7 +61,7 @@ export const DEFAULT_WEB_CONFIG: Required<
   autoTrackNetwork: true,
   networkCaptureSizes: false,
   trackConsoleLogs: false,
-  trackLongTasks: true,
+  trackLongTasks: false,
   trackResourceErrors: true,
   maskAllInputs: true,
   maskInputOptions: {

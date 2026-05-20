@@ -30,7 +30,7 @@ export function useSessionsApi() {
 
     const getSession = useCallback(async (sessionId: string) => {
         if (isDemoMode) {
-            return demoApiData.demoFullSession as unknown as Awaited<ReturnType<typeof api.getSession>>;
+            return demoApiData.getDemoFullSession(sessionId) as unknown as Awaited<ReturnType<typeof api.getSession>>;
         }
         return api.getSession(sessionId);
     }, [isDemoMode]);

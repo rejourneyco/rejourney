@@ -15,6 +15,13 @@ import { generateFingerprint } from '../services/issueTracker.js';
 
 const router = Router();
 
+function excludeWebSyntheticLongTaskIssue() {
+    return sql`NOT (
+        ${issues.issueType} = 'anr'
+        AND lower(coalesce(${issues.sampleStackTrace}, '')) LIKE '%main_thread_long_task%'
+    )`;
+}
+
 /**
  * GET /api/general
  * Get paginated list of issues with filtering and search
@@ -61,7 +68,7 @@ router.get(
         }
 
         // Build conditions array
-        const conditions = [eq(issues.projectId, projectId)];
+        const conditions = [eq(issues.projectId, projectId), excludeWebSyntheticLongTaskIssue()];
 
         // Status filter
         if (status) {
@@ -289,7 +296,7 @@ router.get(
                 assigneeId: issues.assigneeId,
             })
             .from(issues)
-            .where(eq(issues.id, issueId))
+            .where(and(eq(issues.id, issueId), excludeWebSyntheticLongTaskIssue()))
             .limit(1);
 
         if (!issue) {
@@ -742,6 +749,9 @@ router.post(
                 threadState: anr.threadState,
                 deviceMetadata: anr.deviceMetadata,
             });
+            if (String(stackTrace || anr.threadState || '').toLowerCase().includes('main_thread_long_task')) {
+                continue;
+            }
             const fingerprint = generateANRFingerprintFromStackTrace(stackTrace || 'blocked');
 
             // Extract device info from deviceMetadata JSONB

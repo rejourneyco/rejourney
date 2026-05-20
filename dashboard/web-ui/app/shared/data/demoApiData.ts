@@ -22,11 +22,12 @@ import {
     ObservabilityJourneySummary,
     GrowthObservability,
     ObservabilityDeepMetrics,
+    RetentionCohortsResponse,
     UserEngagementTrends,
 } from '~/shared/api/client';
 
 import { Issue, IssueSession } from '~/shared/types';
-import { DEMO_FEATURED_SESSION_ID } from './demoData';
+import { DEMO_FEATURED_SESSION_ID, getDemoReplaySessionMetadata } from './demoData';
 
 const DEMO_NOW = Date.UTC(2026, 4, 18, 12, 0, 0);
 
@@ -47,23 +48,23 @@ const demoWatermark = (() => {
 })();
 
 export const demoDashboardStatsApi: DashboardStats = {
-    totalSessions: 28456, // Sessions > MAU since users have multiple sessions
-    avgDuration: 342, // avgDuration (not avgDurationSeconds)
-    errorRate: 2.3, // error rate percentage
-    funnelCompletionRate: 45.6,
-    avgFunnelStep: 2.8,
-    activeUsers: 1234,
-    activeUsersTrend: 8.5, // % change
-    avgDurationTrend: -2.3,
-    errorRateTrend: -12.4,
-    dau: 823,
-    wau: 4567,
-    mau: 12847,
+    totalSessions: 1842,
+    avgDuration: 389, // avgDuration (not avgDurationSeconds)
+    errorRate: 1.1, // error rate percentage
+    funnelCompletionRate: 63.4,
+    avgFunnelStep: 3.4,
+    activeUsers: 684,
+    activeUsersTrend: 18.7, // % change
+    avgDurationTrend: 9.4,
+    errorRateTrend: -21.8,
+    dau: 186,
+    wau: 512,
+    mau: 684,
     engagementSegments: {
-        bouncers: 2856,
-        casuals: 9823,
-        explorers: 10456,
-        loyalists: 5321,
+        bouncers: 78,
+        casuals: 197,
+        explorers: 287,
+        loyalists: 122,
     },
     dataCompleteThrough: demoWatermark,
 };
@@ -133,34 +134,118 @@ export const demoApiEndpointStats: ApiEndpointStats = {
     },
 };
 
+type DemoApiLatencyLocation = NonNullable<ApiLatencyByLocationResponse['locations']>[number];
+
+function buildLatencyRegions(locations: DemoApiLatencyLocation[]): ApiLatencyByLocationResponse['regions'] {
+    const regions = new Map<string, {
+        country: string;
+        totalRequests: number;
+        weightedLatency: number;
+        weightedSuccessRate: number;
+        errorCount: number;
+    }>();
+
+    for (const location of locations) {
+        const current = regions.get(location.country) ?? {
+            country: location.country,
+            totalRequests: 0,
+            weightedLatency: 0,
+            weightedSuccessRate: 0,
+            errorCount: 0,
+        };
+
+        current.totalRequests += location.totalRequests;
+        current.weightedLatency += location.avgLatencyMs * location.totalRequests;
+        current.weightedSuccessRate += location.successRate * location.totalRequests;
+        current.errorCount += location.errorCount;
+        regions.set(location.country, current);
+    }
+
+    return Array.from(regions.values())
+        .map((region) => ({
+            country: region.country,
+            totalRequests: region.totalRequests,
+            avgLatencyMs: Math.round(region.weightedLatency / Math.max(region.totalRequests, 1)),
+            successRate: Number((region.weightedSuccessRate / Math.max(region.totalRequests, 1)).toFixed(1)),
+            errorCount: region.errorCount,
+        }))
+        .sort((a, b) => b.totalRequests - a.totalRequests);
+}
+
+function buildLatencySummary(locations: DemoApiLatencyLocation[]): ApiLatencyByLocationResponse['summary'] {
+    const totalRequests = locations.reduce((sum, location) => sum + location.totalRequests, 0);
+    const weightedLatency = locations.reduce(
+        (sum, location) => sum + location.avgLatencyMs * location.totalRequests,
+        0,
+    );
+
+    return {
+        avgLatency: Math.round(weightedLatency / Math.max(totalRequests, 1)),
+        totalRequests,
+    };
+}
+
+const demoApiLatencyLocations: DemoApiLatencyLocation[] = [
+    { country: 'United States', city: 'New York', lat: 40.7128, lng: -74.006, totalRequests: 64214, avgLatencyMs: 134, successRate: 99, errorCount: 642 },
+    { country: 'United States', city: 'San Francisco', lat: 37.7749, lng: -122.4194, totalRequests: 38421, avgLatencyMs: 188, successRate: 98, errorCount: 769 },
+    { country: 'United States', city: 'Austin', lat: 30.2672, lng: -97.7431, totalRequests: 27542, avgLatencyMs: 212, successRate: 98.4, errorCount: 441 },
+    { country: 'United States', city: 'Chicago', lat: 41.8781, lng: -87.6298, totalRequests: 26318, avgLatencyMs: 244, successRate: 97.9, errorCount: 553 },
+    { country: 'United States', city: 'Los Angeles', lat: 34.0522, lng: -118.2437, totalRequests: 24567, avgLatencyMs: 256, successRate: 97.8, errorCount: 540 },
+    { country: 'United States', city: 'Seattle', lat: 47.6062, lng: -122.3321, totalRequests: 22108, avgLatencyMs: 148, successRate: 98.9, errorCount: 243 },
+    { country: 'United States', city: 'Miami', lat: 25.7617, lng: -80.1918, totalRequests: 18736, avgLatencyMs: 642, successRate: 96.1, errorCount: 731 },
+    { country: 'United States', city: 'Dallas', lat: 32.7767, lng: -96.797, totalRequests: 17125, avgLatencyMs: 405, successRate: 97.3, errorCount: 462 },
+    { country: 'United States', city: 'Atlanta', lat: 33.749, lng: -84.388, totalRequests: 16204, avgLatencyMs: 338, successRate: 97.7, errorCount: 373 },
+    { country: 'United States', city: 'Denver', lat: 39.7392, lng: -104.9903, totalRequests: 14382, avgLatencyMs: 276, successRate: 98.1, errorCount: 273 },
+    { country: 'United Kingdom', city: 'London', lat: 51.5074, lng: -0.1278, totalRequests: 45678, avgLatencyMs: 178, successRate: 98.2, errorCount: 822 },
+    { country: 'Ireland', city: 'Dublin', lat: 53.3498, lng: -6.2603, totalRequests: 11342, avgLatencyMs: 268, successRate: 98.1, errorCount: 215 },
+    { country: 'Germany', city: 'Berlin', lat: 52.52, lng: 13.405, totalRequests: 34567, avgLatencyMs: 156, successRate: 98.6, errorCount: 484 },
+    { country: 'France', city: 'Paris', lat: 48.8566, lng: 2.3522, totalRequests: 22841, avgLatencyMs: 232, successRate: 97.9, errorCount: 480 },
+    { country: 'Netherlands', city: 'Amsterdam', lat: 52.3676, lng: 4.9041, totalRequests: 19836, avgLatencyMs: 205, successRate: 98.4, errorCount: 317 },
+    { country: 'Spain', city: 'Madrid', lat: 40.4168, lng: -3.7038, totalRequests: 17412, avgLatencyMs: 248, successRate: 97.8, errorCount: 383 },
+    { country: 'Italy', city: 'Rome', lat: 41.9028, lng: 12.4964, totalRequests: 15329, avgLatencyMs: 284, successRate: 97.2, errorCount: 429 },
+    { country: 'Turkey', city: 'Istanbul', lat: 41.0082, lng: 28.9784, totalRequests: 16824, avgLatencyMs: 520, successRate: 96.5, errorCount: 589 },
+    { country: 'Sweden', city: 'Stockholm', lat: 59.3293, lng: 18.0686, totalRequests: 12148, avgLatencyMs: 196, successRate: 98.8, errorCount: 146 },
+    { country: 'Poland', city: 'Warsaw', lat: 52.2297, lng: 21.0122, totalRequests: 13496, avgLatencyMs: 312, successRate: 97.4, errorCount: 351 },
+    { country: 'Switzerland', city: 'Zurich', lat: 47.3769, lng: 8.5417, totalRequests: 10875, avgLatencyMs: 174, successRate: 99, errorCount: 109 },
+    { country: 'Portugal', city: 'Lisbon', lat: 38.7223, lng: -9.1393, totalRequests: 11948, avgLatencyMs: 336, successRate: 97, errorCount: 358 },
+    { country: 'Japan', city: 'Tokyo', lat: 35.6762, lng: 139.6503, totalRequests: 23456, avgLatencyMs: 89, successRate: 99.2, errorCount: 188 },
+    { country: 'South Korea', city: 'Seoul', lat: 37.5665, lng: 126.978, totalRequests: 21974, avgLatencyMs: 142, successRate: 98.9, errorCount: 242 },
+    { country: 'Singapore', city: 'Singapore', lat: 1.3521, lng: 103.8198, totalRequests: 20436, avgLatencyMs: 104, successRate: 99.1, errorCount: 184 },
+    { country: 'United Arab Emirates', city: 'Dubai', lat: 25.2048, lng: 55.2708, totalRequests: 15792, avgLatencyMs: 428, successRate: 96.8, errorCount: 505 },
+    { country: 'Palestine', city: 'Turmus Ayya', lat: 32.0354, lng: 35.2856, totalRequests: 11284, avgLatencyMs: 112, successRate: 99.3, errorCount: 74 },
+    { country: 'India', city: 'Mumbai', lat: 19.076, lng: 72.8777, totalRequests: 12345, avgLatencyMs: 980, successRate: 94.1, errorCount: 728 },
+    { country: 'India', city: 'Bengaluru', lat: 12.9716, lng: 77.5946, totalRequests: 13216, avgLatencyMs: 640, successRate: 95.8, errorCount: 555 },
+    { country: 'India', city: 'Delhi', lat: 28.6139, lng: 77.209, totalRequests: 11892, avgLatencyMs: 1185, successRate: 92.7, errorCount: 868 },
+    { country: 'Thailand', city: 'Bangkok', lat: 13.7563, lng: 100.5018, totalRequests: 14208, avgLatencyMs: 610, successRate: 95.6, errorCount: 625 },
+    { country: 'Indonesia', city: 'Jakarta', lat: -6.2088, lng: 106.8456, totalRequests: 12975, avgLatencyMs: 860, successRate: 94.9, errorCount: 662 },
+    { country: 'Philippines', city: 'Manila', lat: 14.5995, lng: 120.9842, totalRequests: 10483, avgLatencyMs: 1020, successRate: 93.4, errorCount: 692 },
+    { country: 'Hong Kong', city: 'Hong Kong', lat: 22.3193, lng: 114.1694, totalRequests: 11672, avgLatencyMs: 146, successRate: 98.6, errorCount: 164 },
+    { country: 'Taiwan', city: 'Taipei', lat: 25.033, lng: 121.5654, totalRequests: 10938, avgLatencyMs: 164, successRate: 98.7, errorCount: 142 },
+    { country: 'Malaysia', city: 'Kuala Lumpur', lat: 3.139, lng: 101.6869, totalRequests: 9872, avgLatencyMs: 540, successRate: 96.3, errorCount: 365 },
+    { country: 'Vietnam', city: 'Ho Chi Minh City', lat: 10.8231, lng: 106.6297, totalRequests: 9124, avgLatencyMs: 740, successRate: 95.1, errorCount: 447 },
+    { country: 'Canada', city: 'Toronto', lat: 43.6532, lng: -79.3832, totalRequests: 23456, avgLatencyMs: 189, successRate: 98.1, errorCount: 446 },
+    { country: 'Canada', city: 'Vancouver', lat: 49.2827, lng: -123.1207, totalRequests: 12604, avgLatencyMs: 220, successRate: 98.3, errorCount: 214 },
+    { country: 'Canada', city: 'Montreal', lat: 45.5017, lng: -73.5673, totalRequests: 11736, avgLatencyMs: 260, successRate: 97.6, errorCount: 282 },
+    { country: 'Australia', city: 'Sydney', lat: -33.8688, lng: 151.2093, totalRequests: 18765, avgLatencyMs: 1280, successRate: 92.4, errorCount: 1426 },
+    { country: 'Australia', city: 'Melbourne', lat: -37.8136, lng: 144.9631, totalRequests: 13482, avgLatencyMs: 720, successRate: 95.8, errorCount: 566 },
+    { country: 'New Zealand', city: 'Auckland', lat: -36.8485, lng: 174.7633, totalRequests: 8456, avgLatencyMs: 380, successRate: 97.4, errorCount: 220 },
+    { country: 'Brazil', city: 'São Paulo', lat: -23.5505, lng: -46.6333, totalRequests: 15678, avgLatencyMs: 720, successRate: 95.8, errorCount: 658 },
+    { country: 'Mexico', city: 'Mexico City', lat: 19.4326, lng: -99.1332, totalRequests: 14658, avgLatencyMs: 840, successRate: 94.8, errorCount: 762 },
+    { country: 'Argentina', city: 'Buenos Aires', lat: -34.6037, lng: -58.3816, totalRequests: 9476, avgLatencyMs: 790, successRate: 95.2, errorCount: 455 },
+    { country: 'Colombia', city: 'Bogota', lat: 4.711, lng: -74.0721, totalRequests: 8765, avgLatencyMs: 930, successRate: 93.9, errorCount: 535 },
+    { country: 'Chile', city: 'Santiago', lat: -33.4489, lng: -70.6693, totalRequests: 8064, avgLatencyMs: 620, successRate: 96.2, errorCount: 306 },
+    { country: 'Peru', city: 'Lima', lat: -12.0464, lng: -77.0428, totalRequests: 7218, avgLatencyMs: 1150, successRate: 92.8, errorCount: 520 },
+    { country: 'South Africa', city: 'Cape Town', lat: -33.9249, lng: 18.4241, totalRequests: 6842, avgLatencyMs: 760, successRate: 94.7, errorCount: 363 },
+    { country: 'Nigeria', city: 'Lagos', lat: 6.5244, lng: 3.3792, totalRequests: 6157, avgLatencyMs: 1320, successRate: 91.6, errorCount: 517 },
+    { country: 'Kenya', city: 'Nairobi', lat: -1.2921, lng: 36.8219, totalRequests: 5864, avgLatencyMs: 880, successRate: 94.1, errorCount: 346 },
+    { country: 'Egypt', city: 'Cairo', lat: 30.0444, lng: 31.2357, totalRequests: 5538, avgLatencyMs: 1080, successRate: 92.9, errorCount: 393 },
+    { country: 'South Africa', city: 'Johannesburg', lat: -26.2041, lng: 28.0473, totalRequests: 5294, avgLatencyMs: 990, successRate: 93.8, errorCount: 328 },
+];
+
 export const demoApiLatencyByLocation: ApiLatencyByLocationResponse = {
-    locations: [
-        { country: 'United States', city: 'New York', lat: 40.7128, lng: -74.006, totalRequests: 64214, avgLatencyMs: 134, successRate: 99, errorCount: 642 },
-        { country: 'United States', city: 'San Francisco', lat: 37.7749, lng: -122.4194, totalRequests: 38421, avgLatencyMs: 188, successRate: 98, errorCount: 769 },
-        { country: 'United Kingdom', city: 'London', lat: 51.5074, lng: -0.1278, totalRequests: 45678, avgLatencyMs: 178, successRate: 98, errorCount: 822 },
-        { country: 'Germany', city: 'Berlin', lat: 52.52, lng: 13.405, totalRequests: 34567, avgLatencyMs: 156, successRate: 99, errorCount: 484 },
-        { country: 'Japan', city: 'Tokyo', lat: 35.6762, lng: 139.6503, totalRequests: 23456, avgLatencyMs: 89, successRate: 99, errorCount: 188 },
-        { country: 'Canada', city: 'Toronto', lat: 43.6532, lng: -79.3832, totalRequests: 23456, avgLatencyMs: 189, successRate: 98, errorCount: 446 },
-        { country: 'Palestine', city: 'Turmus Ayya', lat: 32.0354, lng: 35.2856, totalRequests: 11284, avgLatencyMs: 112, successRate: 99, errorCount: 74 },
-        { country: 'Australia', city: 'Sydney', lat: -33.8688, lng: 151.2093, totalRequests: 18765, avgLatencyMs: 1280, successRate: 92, errorCount: 1426 },
-        { country: 'Brazil', city: 'São Paulo', lat: -23.5505, lng: -46.6333, totalRequests: 15678, avgLatencyMs: 720, successRate: 96, errorCount: 658 },
-        { country: 'India', city: 'Mumbai', lat: 19.076, lng: 72.8777, totalRequests: 12345, avgLatencyMs: 980, successRate: 94, errorCount: 728 },
-    ],
-    regions: [
-        { country: 'United States', totalRequests: 156789, avgLatencyMs: 134, successRate: 98.8, errorCount: 1881 },
-        { country: 'United Kingdom', totalRequests: 45678, avgLatencyMs: 178, successRate: 98.2, errorCount: 822 },
-        { country: 'Germany', totalRequests: 34567, avgLatencyMs: 156, successRate: 98.6, errorCount: 484 },
-        { country: 'Japan', totalRequests: 23456, avgLatencyMs: 89, successRate: 99.2, errorCount: 188 },
-        { country: 'Canada', totalRequests: 23456, avgLatencyMs: 189, successRate: 98.1, errorCount: 446 },
-        { country: 'Palestine', totalRequests: 11284, avgLatencyMs: 112, successRate: 99.3, errorCount: 74 },
-        { country: 'Australia', totalRequests: 18765, avgLatencyMs: 1280, successRate: 92.4, errorCount: 1426 },
-        { country: 'Brazil', totalRequests: 15678, avgLatencyMs: 720, successRate: 95.8, errorCount: 658 },
-        { country: 'India', totalRequests: 12345, avgLatencyMs: 980, successRate: 94.1, errorCount: 728 },
-    ],
-    summary: {
-        avgLatency: 262,
-        totalRequests: 342018,
-    },
+    locations: demoApiLatencyLocations,
+    regions: buildLatencyRegions(demoApiLatencyLocations),
+    summary: buildLatencySummary(demoApiLatencyLocations),
 };
 
 // ================================================================================
@@ -174,40 +259,92 @@ export const demoInsightsTrends: InsightsTrends = {
     daily: Array.from({ length: 30 }, (_, i) => {
         const date = new Date(now - (29 - i) * day);
         const isWeekend = date.getDay() === 0 || date.getDay() === 6;
-        const baseSessions = isWeekend ? 800 : 1200; // More sessions per day
-        const variance = demoRandom() * 0.2 + 0.9;
+        const progress = i / 29;
+        const weekendFactor = isWeekend ? 0.84 : 1;
+        const dau = Math.round((74 + progress * 104) * weekendFactor + demoRandom() * 8);
+        const mau = Math.round(412 + progress * 252 + demoRandom() * 18);
+        const sessions = Math.round(dau * (1.46 + demoRandom() * 0.24));
+        const apiErrorRate = Math.max(0.55, 1.85 - progress * 0.95 + (demoRandom() - 0.5) * 0.22);
+        const avgDurationSeconds = Math.round(304 + progress * 86 + demoRandom() * 34);
+        const productViews = Math.round(62 + progress * 136 + demoRandom() * 16);
+        const mobileDau = Math.round(dau * 0.64);
+        const webDau = dau - mobileDau;
 
         return {
             date: date.toISOString().split('T')[0],
-            sessions: Math.round(baseSessions * variance), // Sessions per day (800-1200)
-            crashes: Math.round(1 + demoRandom() * 3),
-            rageTaps: Math.round(5 + demoRandom() * 10),
-            dau: Math.round(200 + demoRandom() * 100), // DAU (200-300) < sessions
-            mau: Math.round(850 + (demoRandom() - 0.5) * 50), // MAU varies slightly (825-875)
-            // NEW: Additional metrics for overview graphs
-            avgApiResponseMs: Math.round(150 + demoRandom() * 100), // 150-250ms
-            apiErrorRate: Math.round((1 + demoRandom() * 4) * 100) / 100, // 1-5%
-            avgDurationSeconds: Math.round(180 + demoRandom() * 120), // 180-300 seconds
-            errorCount: Math.round(5 + demoRandom() * 15), // 5-20 errors per day
-            // App version breakdown - simulating gradual adoption of newer versions
+            sessions,
+            crashes: i % 11 === 0 ? 1 : 0,
+            rageTaps: Math.round(1 + demoRandom() * 4),
+            dau,
+            mau,
+            avgApiResponseMs: Math.round(188 - progress * 38 + demoRandom() * 24),
+            apiErrorRate: Math.round(apiErrorRate * 100) / 100,
+            avgDurationSeconds,
+            errorCount: Math.round(2 + (1 - progress) * 5 + demoRandom() * 4),
             appVersionBreakdown: {
-                '2.3.1': Math.round(40 + i * 3 + demoRandom() * 10), // Newest, growing
-                '2.3.0': Math.round(60 - i * 1.5 + demoRandom() * 10), // Previous, declining
-                '2.2.9': Math.round(30 - i * 0.8 + demoRandom() * 5), // Older, declining
-                '2.2.8': Math.round(15 - i * 0.4 + demoRandom() * 3), // Even older
-                '2.2.5': Math.round(5 + demoRandom() * 2), // Long-tail users
+                '2.5.0': Math.round(12 + i * 4.1 + demoRandom() * 5),
+                '2.4.1': Math.max(18, Math.round(82 - i * 1.7 + demoRandom() * 5)),
+                '2.4.0': Math.max(8, Math.round(42 - i * 0.9 + demoRandom() * 3)),
+                'web-2026.05.1': Math.round(14 + i * 1.8 + demoRandom() * 4),
+                'web-2026.05.0': Math.max(6, Math.round(28 - i * 0.4 + demoRandom() * 2)),
+            },
+            appVersionDauBreakdown: {
+                '2.5.0': Math.round(mobileDau * (0.16 + progress * 0.48)),
+                '2.4.1': Math.round(mobileDau * Math.max(0.22, 0.62 - progress * 0.28)),
+                '2.4.0': Math.round(mobileDau * Math.max(0.05, 0.22 - progress * 0.12)),
+                'web-2026.05.1': Math.round(webDau * (0.48 + progress * 0.26)),
+                'web-2026.05.0': Math.round(webDau * Math.max(0.12, 0.52 - progress * 0.26)),
             },
             countryDauBreakdown: {
-                'United States': Math.round(110 + i * 1.8 + demoRandom() * 16),
-                'United Kingdom': Math.round(42 + i * 0.9 + demoRandom() * 8),
-                Germany: Math.round(34 + i * 0.6 + demoRandom() * 7),
-                Japan: Math.round(24 + i * 0.4 + demoRandom() * 5),
-                Canada: Math.round(18 + i * 0.3 + demoRandom() * 4),
+                'United States': Math.round(dau * 0.48),
+                'United Kingdom': Math.round(dau * 0.13),
+                Germany: Math.round(dau * 0.1),
+                Canada: Math.round(dau * 0.08),
+                Japan: Math.round(dau * 0.07),
             },
-            totalApiCalls: Math.round(baseSessions * (15 + demoRandom() * 5)),
+            totalApiCalls: Math.round(sessions * (10 + demoRandom() * 4) + productViews),
         };
     }),
     dataCompleteThrough: demoWatermark,
+};
+
+// ================================================================================
+// Retention Cohorts (for General page)
+// ================================================================================
+
+export const demoRetentionCohorts: RetentionCohortsResponse = {
+    rows: [
+        {
+            weekStartKey: '2026-04-12',
+            users: 74,
+            retention: [100, 67.6, 55.4, 46.0, 38.0, 32.4],
+        },
+        {
+            weekStartKey: '2026-04-19',
+            users: 88,
+            retention: [100, 65.9, 53.4, 43.2, 36.4, null],
+        },
+        {
+            weekStartKey: '2026-04-26',
+            users: 103,
+            retention: [100, 63.1, 50.5, 40.8, null, null],
+        },
+        {
+            weekStartKey: '2026-05-03',
+            users: 121,
+            retention: [100, 61.2, 48.8, null, null, null],
+        },
+        {
+            weekStartKey: '2026-05-10',
+            users: 139,
+            retention: [100, 58.3, null, null, null, null],
+        },
+        {
+            weekStartKey: '2026-05-17',
+            users: 154,
+            retention: [100, null, null, null, null, null],
+        },
+    ],
 };
 
 // ================================================================================
@@ -218,105 +355,105 @@ export const demoGeoSummary: GeoSummary = {
     countries: [
         {
             country: 'United States',
-            count: 6234,
+            count: 842,
             latitude: 37.0902,
             longitude: -95.7129,
-            crashCount: 23,
-            rageTapCount: 156,
+            crashCount: 3,
+            rageTapCount: 22,
             topCities: [
-                { city: 'Austin', count: 987, latitude: 30.2672, longitude: -97.7431 },
-                { city: 'San Francisco', count: 876, latitude: 37.7749, longitude: -122.4194 },
-                { city: 'New York', count: 765, latitude: 40.7128, longitude: -74.0060 },
-                { city: 'Los Angeles', count: 654, latitude: 34.0522, longitude: -118.2437 },
-                { city: 'Chicago', count: 543, latitude: 41.8781, longitude: -87.6298 },
+                { city: 'Austin', count: 164, latitude: 30.2672, longitude: -97.7431 },
+                { city: 'San Francisco', count: 142, latitude: 37.7749, longitude: -122.4194 },
+                { city: 'New York', count: 128, latitude: 40.7128, longitude: -74.0060 },
+                { city: 'Los Angeles', count: 116, latitude: 34.0522, longitude: -118.2437 },
+                { city: 'Chicago', count: 84, latitude: 41.8781, longitude: -87.6298 },
             ],
         },
         {
             country: 'United Kingdom',
-            count: 1876,
+            count: 214,
             latitude: 55.3781,
             longitude: -3.4360,
-            crashCount: 8,
-            rageTapCount: 67,
+            crashCount: 1,
+            rageTapCount: 7,
             topCities: [
-                { city: 'London', count: 876, latitude: 51.5074, longitude: -0.1278 },
-                { city: 'Manchester', count: 234, latitude: 53.4808, longitude: -2.2426 },
+                { city: 'London', count: 128, latitude: 51.5074, longitude: -0.1278 },
+                { city: 'Manchester', count: 34, latitude: 53.4808, longitude: -2.2426 },
             ],
         },
         {
             country: 'Germany',
-            count: 1245,
+            count: 176,
             latitude: 51.1657,
             longitude: 10.4515,
-            crashCount: 5,
-            rageTapCount: 45,
+            crashCount: 1,
+            rageTapCount: 5,
             topCities: [
-                { city: 'Berlin', count: 456, latitude: 52.5200, longitude: 13.4050 },
-                { city: 'Munich', count: 234, latitude: 48.1351, longitude: 11.5820 },
+                { city: 'Berlin', count: 78, latitude: 52.5200, longitude: 13.4050 },
+                { city: 'Munich', count: 41, latitude: 48.1351, longitude: 11.5820 },
             ],
         },
         {
             country: 'Japan',
-            count: 987,
+            count: 118,
             latitude: 36.2048,
             longitude: 138.2529,
-            crashCount: 2,
-            rageTapCount: 23,
+            crashCount: 0,
+            rageTapCount: 4,
             topCities: [
-                { city: 'Tokyo', count: 654, latitude: 35.6762, longitude: 139.6503 },
-                { city: 'Osaka', count: 198, latitude: 34.6937, longitude: 135.5023 },
+                { city: 'Tokyo', count: 82, latitude: 35.6762, longitude: 139.6503 },
+                { city: 'Osaka', count: 19, latitude: 34.6937, longitude: 135.5023 },
             ],
         },
         {
             country: 'Canada',
-            count: 756,
+            count: 132,
             latitude: 56.1304,
             longitude: -106.3468,
-            crashCount: 3,
-            rageTapCount: 34,
+            crashCount: 0,
+            rageTapCount: 4,
             topCities: [
-                { city: 'Toronto', count: 345, latitude: 43.6532, longitude: -79.3832 },
-                { city: 'Vancouver', count: 198, latitude: 49.2827, longitude: -123.1207 },
+                { city: 'Toronto', count: 72, latitude: 43.6532, longitude: -79.3832 },
+                { city: 'Vancouver', count: 31, latitude: 49.2827, longitude: -123.1207 },
             ],
         },
         {
             country: 'Australia',
-            count: 654,
+            count: 84,
             latitude: -25.2744,
             longitude: 133.7751,
-            crashCount: 4,
-            rageTapCount: 45,
+            crashCount: 1,
+            rageTapCount: 5,
             topCities: [
-                { city: 'Sydney', count: 345, latitude: -33.8688, longitude: 151.2093 },
-                { city: 'Melbourne', count: 198, latitude: -37.8136, longitude: 144.9631 },
+                { city: 'Sydney', count: 48, latitude: -33.8688, longitude: 151.2093 },
+                { city: 'Melbourne', count: 22, latitude: -37.8136, longitude: 144.9631 },
             ],
         },
         {
             country: 'Brazil',
-            count: 543,
+            count: 63,
             latitude: -14.2350,
             longitude: -51.9253,
-            crashCount: 6,
-            rageTapCount: 78,
+            crashCount: 1,
+            rageTapCount: 7,
             topCities: [
-                { city: 'São Paulo', count: 287, latitude: -23.5505, longitude: -46.6333 },
-                { city: 'Rio de Janeiro', count: 156, latitude: -22.9068, longitude: -43.1729 },
+                { city: 'São Paulo', count: 36, latitude: -23.5505, longitude: -46.6333 },
+                { city: 'Rio de Janeiro', count: 14, latitude: -22.9068, longitude: -43.1729 },
             ],
         },
         {
             country: 'India',
-            count: 432,
+            count: 55,
             latitude: 20.5937,
             longitude: 78.9629,
-            crashCount: 8,
-            rageTapCount: 89,
+            crashCount: 1,
+            rageTapCount: 8,
             topCities: [
-                { city: 'Mumbai', count: 198, latitude: 19.0760, longitude: 72.8777 },
-                { city: 'Bangalore', count: 145, latitude: 12.9716, longitude: 77.5946 },
+                { city: 'Mumbai', count: 24, latitude: 19.0760, longitude: 72.8777 },
+                { city: 'Bangalore', count: 18, latitude: 12.9716, longitude: 77.5946 },
             ],
         },
     ],
-    totalWithGeo: 11837,
+    totalWithGeo: 1684,
 };
 
 export const demoGeoRegionalValue: GeoRegionalValue = {
@@ -415,54 +552,128 @@ export const demoGeoRegionalValue: GeoRegionalValue = {
 // Geographic Issues (for Geo page issues view)
 // ================================================================================
 
-export const demoGeoIssues: GeoIssuesSummary = {
-    locations: [
-        { city: 'New York', country: 'United States', lat: 40.7128, lng: -74.006, sessions: 1245, uniqueUsers: 913, issues: { total: 245, crashes: 8, anrs: 3, errors: 89, rageTaps: 135, apiErrors: 10 }, growthRate: 14.3 },
-        { city: 'London', country: 'United Kingdom', lat: 51.5074, lng: -0.1278, sessions: 876, uniqueUsers: 642, issues: { total: 189, crashes: 5, anrs: 2, errors: 67, rageTaps: 105, apiErrors: 10 }, growthRate: 6.2 },
-        { city: 'San Francisco', country: 'United States', lat: 37.7749, lng: -122.4194, sessions: 765, uniqueUsers: 561, issues: { total: 156, crashes: 6, anrs: 2, errors: 56, rageTaps: 85, apiErrors: 7 }, growthRate: 11.5 },
-        { city: 'Berlin', country: 'Germany', lat: 52.52, lng: 13.405, sessions: 654, uniqueUsers: 488, issues: { total: 123, crashes: 4, anrs: 1, errors: 45, rageTaps: 66, apiErrors: 7 }, growthRate: -1.2 },
-        { city: 'Tokyo', country: 'Japan', lat: 35.6762, lng: 139.6503, sessions: 543, uniqueUsers: 401, issues: { total: 89, crashes: 3, anrs: 0, errors: 34, rageTaps: 48, apiErrors: 4 }, growthRate: 3.8 },
-        { city: 'Toronto', country: 'Canada', lat: 43.6532, lng: -79.3832, sessions: 432, uniqueUsers: 319, issues: { total: 98, crashes: 4, anrs: 1, errors: 36, rageTaps: 52, apiErrors: 5 }, growthRate: 16.7 },
-        { city: 'Turmus Ayya', country: 'Palestine', lat: 32.0354, lng: 35.2856, sessions: 386, uniqueUsers: 291, issues: { total: 24, crashes: 0, anrs: 0, errors: 7, rageTaps: 13, apiErrors: 4 }, growthRate: 24.6 },
-        { city: 'Sydney', country: 'Australia', lat: -33.8688, lng: 151.2093, sessions: 321, uniqueUsers: 236, issues: { total: 76, crashes: 2, anrs: 1, errors: 28, rageTaps: 42, apiErrors: 3 }, growthRate: 5.1 },
-        { city: 'São Paulo', country: 'Brazil', lat: -23.5505, lng: -46.6333, sessions: 210, uniqueUsers: 161, issues: { total: 112, crashes: 8, anrs: 4, errors: 45, rageTaps: 49, apiErrors: 6 }, growthRate: 18.9 },
-        { city: 'Mumbai', country: 'India', lat: 19.076, lng: 72.8777, sessions: 189, uniqueUsers: 148, issues: { total: 98, crashes: 7, anrs: 3, errors: 42, rageTaps: 38, apiErrors: 8 }, growthRate: 42.1 },
-        { city: 'Paris', country: 'France', lat: 48.8566, lng: 2.3522, sessions: 412, uniqueUsers: 302, issues: { total: 82, crashes: 2, anrs: 1, errors: 31, rageTaps: 45, apiErrors: 3 }, growthRate: 2.4 },
-        { city: 'Singapore', country: 'Singapore', lat: 1.3521, lng: 103.8198, sessions: 378, uniqueUsers: 284, issues: { total: 34, crashes: 1, anrs: 0, errors: 12, rageTaps: 16, apiErrors: 5 }, growthRate: 8.9 },
-        { city: 'Dubai', country: 'United Arab Emirates', lat: 25.2048, lng: 55.2708, sessions: 289, uniqueUsers: 213, issues: { total: 56, crashes: 3, anrs: 1, errors: 22, rageTaps: 27, apiErrors: 3 }, growthRate: 21.3 },
-        { city: 'Austin', country: 'United States', lat: 30.2672, lng: -97.7431, sessions: 512, uniqueUsers: 375, issues: { total: 89, crashes: 2, anrs: 1, errors: 34, rageTaps: 48, apiErrors: 4 }, growthRate: 9.8 },
-        { city: 'Amsterdam', country: 'Netherlands', lat: 52.3676, lng: 4.9041, sessions: 345, uniqueUsers: 255, issues: { total: 67, crashes: 2, anrs: 0, errors: 28, rageTaps: 35, apiErrors: 2 }, growthRate: 4.5 },
-        { city: 'Cape Town', country: 'South Africa', lat: -33.9249, lng: 18.4241, sessions: 156, uniqueUsers: 116, issues: { total: 45, crashes: 4, anrs: 2, errors: 18, rageTaps: 19, apiErrors: 2 }, growthRate: 12.4 },
-        { city: 'Seoul', country: 'South Korea', lat: 37.5665, lng: 126.9780, sessions: 467, uniqueUsers: 348, issues: { total: 78, crashes: 3, anrs: 1, errors: 29, rageTaps: 41, apiErrors: 4 }, growthRate: 7.6 },
-        { city: 'Mexico City', country: 'Mexico', lat: 19.4326, lng: -99.1332, sessions: 398, uniqueUsers: 297, issues: { total: 134, crashes: 9, anrs: 5, errors: 56, rageTaps: 59, apiErrors: 5 }, growthRate: 15.2 },
-        { city: 'Buenos Aires', country: 'Argentina', lat: -34.6037, lng: -58.3816, sessions: 245, uniqueUsers: 181, issues: { total: 87, crashes: 5, anrs: 2, errors: 38, rageTaps: 39, apiErrors: 3 }, growthRate: 8.7 },
-        { city: 'Lagos', country: 'Nigeria', lat: 6.5244, lng: 3.3792, sessions: 134, uniqueUsers: 101, issues: { total: 56, crashes: 4, anrs: 3, errors: 24, rageTaps: 22, apiErrors: 3 }, growthRate: 34.5 },
-        { city: 'Jakarta', country: 'Indonesia', lat: -6.2088, lng: 106.8456, sessions: 287, uniqueUsers: 217, issues: { total: 92, crashes: 6, anrs: 2, errors: 36, rageTaps: 44, apiErrors: 4 }, growthRate: 19.8 },
-        { city: 'Chicago', country: 'United States', lat: 41.8781, lng: -87.6298, sessions: 489, uniqueUsers: 357, issues: { total: 95, crashes: 3, anrs: 1, errors: 42, rageTaps: 45, apiErrors: 4 }, growthRate: 3.2 },
-        { city: 'Rome', country: 'Italy', lat: 41.9028, lng: 12.4964, sessions: 276, uniqueUsers: 205, issues: { total: 58, crashes: 2, anrs: 1, errors: 23, rageTaps: 29, apiErrors: 3 }, growthRate: 1.4 },
-        { city: 'Madrid', country: 'Spain', lat: 40.4168, lng: -3.7038, sessions: 312, uniqueUsers: 231, issues: { total: 64, crashes: 2, anrs: 0, errors: 26, rageTaps: 34, apiErrors: 2 }, growthRate: 5.6 },
-        { city: 'Istanbul', country: 'Turkey', lat: 41.0082, lng: 28.9784, sessions: 356, uniqueUsers: 266, issues: { total: 82, crashes: 4, anrs: 2, errors: 35, rageTaps: 38, apiErrors: 3 }, growthRate: 11.2 },
-        { city: 'Bangkok', country: 'Thailand', lat: 13.7563, lng: 100.5018, sessions: 324, uniqueUsers: 241, issues: { total: 76, crashes: 3, anrs: 1, errors: 31, rageTaps: 38, apiErrors: 3 }, growthRate: 14.8 }
-    ],
-    countries: [
-        { country: 'United Kingdom', sessions: 1876, uniqueUsers: 1374, crashes: 8, anrs: 4, errors: 67, rageTaps: 89, apiErrors: 34, totalIssues: 202, issueRate: 0.11 },
-        { country: 'Australia', sessions: 654, uniqueUsers: 481, crashes: 4, anrs: 3, errors: 32, rageTaps: 45, apiErrors: 18, totalIssues: 102, issueRate: 0.16 },
-        { country: 'Germany', sessions: 1245, uniqueUsers: 925, crashes: 5, anrs: 2, errors: 45, rageTaps: 56, apiErrors: 19, totalIssues: 127, issueRate: 0.10 },
-        { country: 'Japan', sessions: 987, uniqueUsers: 726, crashes: 2, anrs: 1, errors: 23, rageTaps: 28, apiErrors: 9, totalIssues: 63, issueRate: 0.06 },
-        { country: 'Canada', sessions: 756, uniqueUsers: 559, crashes: 3, anrs: 2, errors: 28, rageTaps: 34, apiErrors: 12, totalIssues: 79, issueRate: 0.10 },
-        { country: 'France', sessions: 512, uniqueUsers: 377, crashes: 3, anrs: 2, errors: 25, rageTaps: 33, apiErrors: 12, totalIssues: 75, issueRate: 0.15 },
-        { country: 'Singapore', sessions: 378, uniqueUsers: 284, crashes: 1, anrs: 0, errors: 12, rageTaps: 16, apiErrors: 5, totalIssues: 34, issueRate: 0.09 },
-    ],
-    summary: {
-        totalIssues: 1559,
-        byType: {
-            crashes: 65,
-            anrs: 37,
-            errors: 503,
-            rageTaps: 691,
-            apiErrors: 263,
+type DemoGeoIssueLocation = GeoIssuesSummary['locations'][number];
+
+function buildGeoIssueCountries(locations: DemoGeoIssueLocation[]): GeoIssuesSummary['countries'] {
+    const countries = new Map<string, Omit<GeoIssuesSummary['countries'][number], 'issueRate'>>();
+
+    for (const location of locations) {
+        const current = countries.get(location.country) ?? {
+            country: location.country,
+            sessions: 0,
+            uniqueUsers: 0,
+            crashes: 0,
+            anrs: 0,
+            errors: 0,
+            rageTaps: 0,
+            apiErrors: 0,
+            totalIssues: 0,
+        };
+
+        current.sessions += location.sessions;
+        current.uniqueUsers += location.uniqueUsers;
+        current.crashes += location.issues.crashes;
+        current.anrs += location.issues.anrs;
+        current.errors += location.issues.errors;
+        current.rageTaps += location.issues.rageTaps;
+        current.apiErrors += location.issues.apiErrors;
+        current.totalIssues += location.issues.total;
+        countries.set(location.country, current);
+    }
+
+    return Array.from(countries.values())
+        .map((country) => ({
+            ...country,
+            issueRate: Number((country.totalIssues / Math.max(country.sessions, 1)).toFixed(2)),
+        }))
+        .sort((a, b) => b.sessions - a.sessions);
+}
+
+function buildGeoIssueSummary(locations: DemoGeoIssueLocation[]): GeoIssuesSummary['summary'] {
+    return locations.reduce<GeoIssuesSummary['summary']>(
+        (summary, location) => {
+            summary.totalIssues += location.issues.total;
+            summary.byType.crashes += location.issues.crashes;
+            summary.byType.anrs += location.issues.anrs;
+            summary.byType.errors += location.issues.errors;
+            summary.byType.rageTaps += location.issues.rageTaps;
+            summary.byType.apiErrors += location.issues.apiErrors;
+            return summary;
         },
-    },
+        {
+            totalIssues: 0,
+            byType: {
+                crashes: 0,
+                anrs: 0,
+                errors: 0,
+                rageTaps: 0,
+                apiErrors: 0,
+            },
+        },
+    );
+}
+
+const demoGeoIssueLocations: DemoGeoIssueLocation[] = [
+    { city: 'New York', country: 'United States', lat: 40.7128, lng: -74.006, sessions: 1245, uniqueUsers: 913, issues: { total: 245, crashes: 8, anrs: 3, errors: 89, rageTaps: 135, apiErrors: 10 }, growthRate: 14.3 },
+    { city: 'London', country: 'United Kingdom', lat: 51.5074, lng: -0.1278, sessions: 876, uniqueUsers: 642, issues: { total: 189, crashes: 5, anrs: 2, errors: 67, rageTaps: 105, apiErrors: 10 }, growthRate: 6.2 },
+    { city: 'San Francisco', country: 'United States', lat: 37.7749, lng: -122.4194, sessions: 765, uniqueUsers: 561, issues: { total: 156, crashes: 6, anrs: 2, errors: 56, rageTaps: 85, apiErrors: 7 }, growthRate: 11.5 },
+    { city: 'Berlin', country: 'Germany', lat: 52.52, lng: 13.405, sessions: 654, uniqueUsers: 488, issues: { total: 123, crashes: 4, anrs: 1, errors: 45, rageTaps: 66, apiErrors: 7 }, growthRate: -1.2 },
+    { city: 'Tokyo', country: 'Japan', lat: 35.6762, lng: 139.6503, sessions: 543, uniqueUsers: 401, issues: { total: 89, crashes: 3, anrs: 0, errors: 34, rageTaps: 48, apiErrors: 4 }, growthRate: 3.8 },
+    { city: 'Toronto', country: 'Canada', lat: 43.6532, lng: -79.3832, sessions: 432, uniqueUsers: 319, issues: { total: 98, crashes: 4, anrs: 1, errors: 36, rageTaps: 52, apiErrors: 5 }, growthRate: 16.7 },
+    { city: 'Turmus Ayya', country: 'Palestine', lat: 32.0354, lng: 35.2856, sessions: 386, uniqueUsers: 291, issues: { total: 24, crashes: 0, anrs: 0, errors: 7, rageTaps: 13, apiErrors: 4 }, growthRate: 24.6 },
+    { city: 'Sydney', country: 'Australia', lat: -33.8688, lng: 151.2093, sessions: 321, uniqueUsers: 236, issues: { total: 76, crashes: 2, anrs: 1, errors: 28, rageTaps: 42, apiErrors: 3 }, growthRate: 5.1 },
+    { city: 'São Paulo', country: 'Brazil', lat: -23.5505, lng: -46.6333, sessions: 210, uniqueUsers: 161, issues: { total: 112, crashes: 8, anrs: 4, errors: 45, rageTaps: 49, apiErrors: 6 }, growthRate: 18.9 },
+    { city: 'Mumbai', country: 'India', lat: 19.076, lng: 72.8777, sessions: 189, uniqueUsers: 148, issues: { total: 98, crashes: 7, anrs: 3, errors: 42, rageTaps: 38, apiErrors: 8 }, growthRate: 42.1 },
+    { city: 'Paris', country: 'France', lat: 48.8566, lng: 2.3522, sessions: 412, uniqueUsers: 302, issues: { total: 82, crashes: 2, anrs: 1, errors: 31, rageTaps: 45, apiErrors: 3 }, growthRate: 2.4 },
+    { city: 'Singapore', country: 'Singapore', lat: 1.3521, lng: 103.8198, sessions: 378, uniqueUsers: 284, issues: { total: 34, crashes: 1, anrs: 0, errors: 12, rageTaps: 16, apiErrors: 5 }, growthRate: 8.9 },
+    { city: 'Dubai', country: 'United Arab Emirates', lat: 25.2048, lng: 55.2708, sessions: 289, uniqueUsers: 213, issues: { total: 56, crashes: 3, anrs: 1, errors: 22, rageTaps: 27, apiErrors: 3 }, growthRate: 21.3 },
+    { city: 'Austin', country: 'United States', lat: 30.2672, lng: -97.7431, sessions: 512, uniqueUsers: 375, issues: { total: 89, crashes: 2, anrs: 1, errors: 34, rageTaps: 48, apiErrors: 4 }, growthRate: 9.8 },
+    { city: 'Amsterdam', country: 'Netherlands', lat: 52.3676, lng: 4.9041, sessions: 345, uniqueUsers: 255, issues: { total: 67, crashes: 2, anrs: 0, errors: 28, rageTaps: 35, apiErrors: 2 }, growthRate: 4.5 },
+    { city: 'Cape Town', country: 'South Africa', lat: -33.9249, lng: 18.4241, sessions: 156, uniqueUsers: 116, issues: { total: 45, crashes: 4, anrs: 2, errors: 18, rageTaps: 19, apiErrors: 2 }, growthRate: 12.4 },
+    { city: 'Seoul', country: 'South Korea', lat: 37.5665, lng: 126.9780, sessions: 467, uniqueUsers: 348, issues: { total: 78, crashes: 3, anrs: 1, errors: 29, rageTaps: 41, apiErrors: 4 }, growthRate: 7.6 },
+    { city: 'Mexico City', country: 'Mexico', lat: 19.4326, lng: -99.1332, sessions: 398, uniqueUsers: 297, issues: { total: 134, crashes: 9, anrs: 5, errors: 56, rageTaps: 59, apiErrors: 5 }, growthRate: 15.2 },
+    { city: 'Buenos Aires', country: 'Argentina', lat: -34.6037, lng: -58.3816, sessions: 245, uniqueUsers: 181, issues: { total: 87, crashes: 5, anrs: 2, errors: 38, rageTaps: 39, apiErrors: 3 }, growthRate: 8.7 },
+    { city: 'Lagos', country: 'Nigeria', lat: 6.5244, lng: 3.3792, sessions: 134, uniqueUsers: 101, issues: { total: 56, crashes: 4, anrs: 3, errors: 24, rageTaps: 22, apiErrors: 3 }, growthRate: 34.5 },
+    { city: 'Jakarta', country: 'Indonesia', lat: -6.2088, lng: 106.8456, sessions: 287, uniqueUsers: 217, issues: { total: 92, crashes: 6, anrs: 2, errors: 36, rageTaps: 44, apiErrors: 4 }, growthRate: 19.8 },
+    { city: 'Chicago', country: 'United States', lat: 41.8781, lng: -87.6298, sessions: 489, uniqueUsers: 357, issues: { total: 95, crashes: 3, anrs: 1, errors: 42, rageTaps: 45, apiErrors: 4 }, growthRate: 3.2 },
+    { city: 'Rome', country: 'Italy', lat: 41.9028, lng: 12.4964, sessions: 276, uniqueUsers: 205, issues: { total: 58, crashes: 2, anrs: 1, errors: 23, rageTaps: 29, apiErrors: 3 }, growthRate: 1.4 },
+    { city: 'Madrid', country: 'Spain', lat: 40.4168, lng: -3.7038, sessions: 312, uniqueUsers: 231, issues: { total: 64, crashes: 2, anrs: 0, errors: 26, rageTaps: 34, apiErrors: 2 }, growthRate: 5.6 },
+    { city: 'Istanbul', country: 'Turkey', lat: 41.0082, lng: 28.9784, sessions: 356, uniqueUsers: 266, issues: { total: 82, crashes: 4, anrs: 2, errors: 35, rageTaps: 38, apiErrors: 3 }, growthRate: 11.2 },
+    { city: 'Bangkok', country: 'Thailand', lat: 13.7563, lng: 100.5018, sessions: 324, uniqueUsers: 241, issues: { total: 76, crashes: 3, anrs: 1, errors: 31, rageTaps: 38, apiErrors: 3 }, growthRate: 14.8 },
+    { city: 'Seattle', country: 'United States', lat: 47.6062, lng: -122.3321, sessions: 438, uniqueUsers: 322, issues: { total: 62, crashes: 1, anrs: 0, errors: 25, rageTaps: 34, apiErrors: 2 }, growthRate: 6.4 },
+    { city: 'Los Angeles', country: 'United States', lat: 34.0522, lng: -118.2437, sessions: 602, uniqueUsers: 444, issues: { total: 118, crashes: 4, anrs: 1, errors: 48, rageTaps: 60, apiErrors: 5 }, growthRate: 10.7 },
+    { city: 'Miami', country: 'United States', lat: 25.7617, lng: -80.1918, sessions: 366, uniqueUsers: 271, issues: { total: 104, crashes: 5, anrs: 2, errors: 42, rageTaps: 51, apiErrors: 4 }, growthRate: 13.6 },
+    { city: 'Dallas', country: 'United States', lat: 32.7767, lng: -96.7970, sessions: 341, uniqueUsers: 253, issues: { total: 72, crashes: 2, anrs: 1, errors: 29, rageTaps: 37, apiErrors: 3 }, growthRate: 7.1 },
+    { city: 'Atlanta', country: 'United States', lat: 33.7490, lng: -84.3880, sessions: 318, uniqueUsers: 238, issues: { total: 69, crashes: 2, anrs: 1, errors: 27, rageTaps: 36, apiErrors: 3 }, growthRate: 5.9 },
+    { city: 'Denver', country: 'United States', lat: 39.7392, lng: -104.9903, sessions: 292, uniqueUsers: 216, issues: { total: 48, crashes: 1, anrs: 0, errors: 19, rageTaps: 26, apiErrors: 2 }, growthRate: 4.3 },
+    { city: 'Vancouver', country: 'Canada', lat: 49.2827, lng: -123.1207, sessions: 274, uniqueUsers: 204, issues: { total: 43, crashes: 1, anrs: 0, errors: 17, rageTaps: 23, apiErrors: 2 }, growthRate: 5.2 },
+    { city: 'Montreal', country: 'Canada', lat: 45.5017, lng: -73.5673, sessions: 258, uniqueUsers: 192, issues: { total: 51, crashes: 2, anrs: 1, errors: 20, rageTaps: 26, apiErrors: 2 }, growthRate: 8.4 },
+    { city: 'Dublin', country: 'Ireland', lat: 53.3498, lng: -6.2603, sessions: 236, uniqueUsers: 178, issues: { total: 37, crashes: 1, anrs: 0, errors: 14, rageTaps: 20, apiErrors: 2 }, growthRate: 3.9 },
+    { city: 'Stockholm', country: 'Sweden', lat: 59.3293, lng: 18.0686, sessions: 224, uniqueUsers: 169, issues: { total: 31, crashes: 1, anrs: 0, errors: 12, rageTaps: 17, apiErrors: 1 }, growthRate: 2.6 },
+    { city: 'Warsaw', country: 'Poland', lat: 52.2297, lng: 21.0122, sessions: 248, uniqueUsers: 185, issues: { total: 55, crashes: 2, anrs: 1, errors: 22, rageTaps: 27, apiErrors: 3 }, growthRate: 7.8 },
+    { city: 'Zurich', country: 'Switzerland', lat: 47.3769, lng: 8.5417, sessions: 215, uniqueUsers: 162, issues: { total: 29, crashes: 1, anrs: 0, errors: 11, rageTaps: 16, apiErrors: 1 }, growthRate: 1.8 },
+    { city: 'Lisbon', country: 'Portugal', lat: 38.7223, lng: -9.1393, sessions: 231, uniqueUsers: 174, issues: { total: 44, crashes: 1, anrs: 1, errors: 17, rageTaps: 23, apiErrors: 2 }, growthRate: 6.6 },
+    { city: 'Bengaluru', country: 'India', lat: 12.9716, lng: 77.5946, sessions: 302, uniqueUsers: 228, issues: { total: 82, crashes: 5, anrs: 2, errors: 34, rageTaps: 37, apiErrors: 4 }, growthRate: 24.5 },
+    { city: 'Delhi', country: 'India', lat: 28.6139, lng: 77.2090, sessions: 276, uniqueUsers: 209, issues: { total: 109, crashes: 8, anrs: 4, errors: 47, rageTaps: 44, apiErrors: 6 }, growthRate: 31.2 },
+    { city: 'Manila', country: 'Philippines', lat: 14.5995, lng: 120.9842, sessions: 268, uniqueUsers: 203, issues: { total: 96, crashes: 6, anrs: 3, errors: 39, rageTaps: 43, apiErrors: 5 }, growthRate: 20.9 },
+    { city: 'Hong Kong', country: 'Hong Kong', lat: 22.3193, lng: 114.1694, sessions: 254, uniqueUsers: 192, issues: { total: 38, crashes: 1, anrs: 0, errors: 14, rageTaps: 21, apiErrors: 2 }, growthRate: 4.7 },
+    { city: 'Taipei', country: 'Taiwan', lat: 25.0330, lng: 121.5654, sessions: 241, uniqueUsers: 181, issues: { total: 35, crashes: 1, anrs: 0, errors: 13, rageTaps: 19, apiErrors: 2 }, growthRate: 4.1 },
+    { city: 'Kuala Lumpur', country: 'Malaysia', lat: 3.1390, lng: 101.6869, sessions: 226, uniqueUsers: 171, issues: { total: 58, crashes: 3, anrs: 1, errors: 23, rageTaps: 28, apiErrors: 3 }, growthRate: 12.7 },
+    { city: 'Ho Chi Minh City', country: 'Vietnam', lat: 10.8231, lng: 106.6297, sessions: 218, uniqueUsers: 164, issues: { total: 74, crashes: 4, anrs: 2, errors: 30, rageTaps: 35, apiErrors: 3 }, growthRate: 17.3 },
+    { city: 'Melbourne', country: 'Australia', lat: -37.8136, lng: 144.9631, sessions: 264, uniqueUsers: 197, issues: { total: 57, crashes: 2, anrs: 1, errors: 22, rageTaps: 30, apiErrors: 2 }, growthRate: 6.8 },
+    { city: 'Auckland', country: 'New Zealand', lat: -36.8485, lng: 174.7633, sessions: 196, uniqueUsers: 148, issues: { total: 33, crashes: 1, anrs: 0, errors: 12, rageTaps: 18, apiErrors: 2 }, growthRate: 5.4 },
+    { city: 'Bogota', country: 'Colombia', lat: 4.7110, lng: -74.0721, sessions: 219, uniqueUsers: 166, issues: { total: 81, crashes: 5, anrs: 2, errors: 34, rageTaps: 36, apiErrors: 4 }, growthRate: 18.1 },
+    { city: 'Santiago', country: 'Chile', lat: -33.4489, lng: -70.6693, sessions: 207, uniqueUsers: 157, issues: { total: 63, crashes: 3, anrs: 1, errors: 26, rageTaps: 30, apiErrors: 3 }, growthRate: 10.8 },
+    { city: 'Lima', country: 'Peru', lat: -12.0464, lng: -77.0428, sessions: 188, uniqueUsers: 143, issues: { total: 91, crashes: 6, anrs: 3, errors: 39, rageTaps: 39, apiErrors: 4 }, growthRate: 23.6 },
+    { city: 'Nairobi', country: 'Kenya', lat: -1.2921, lng: 36.8219, sessions: 177, uniqueUsers: 134, issues: { total: 69, crashes: 4, anrs: 2, errors: 28, rageTaps: 32, apiErrors: 3 }, growthRate: 21.4 },
+    { city: 'Cairo', country: 'Egypt', lat: 30.0444, lng: 31.2357, sessions: 169, uniqueUsers: 128, issues: { total: 85, crashes: 6, anrs: 3, errors: 36, rageTaps: 36, apiErrors: 4 }, growthRate: 25.1 },
+    { city: 'Johannesburg', country: 'South Africa', lat: -26.2041, lng: 28.0473, sessions: 153, uniqueUsers: 115, issues: { total: 66, crashes: 4, anrs: 2, errors: 26, rageTaps: 31, apiErrors: 3 }, growthRate: 14.2 },
+];
+
+export const demoGeoIssues: GeoIssuesSummary = {
+    locations: demoGeoIssueLocations,
+    countries: buildGeoIssueCountries(demoGeoIssueLocations),
+    summary: buildGeoIssueSummary(demoGeoIssueLocations),
 };
 
 // ================================================================================
@@ -564,44 +775,68 @@ export const demoDeviceIssueMatrix: DeviceIssueMatrix = {
 // Journey Summary (for Journeys page)
 // ================================================================================
 
+const demoJourneySessionIds = (prefix: string, count: number) => Array.from(
+    { length: count },
+    (_, index) => `demo-journey-${prefix}-${String(index + 1).padStart(3, '0')}`,
+);
+
 export const demoJourneySummary: JourneySummary = {
     topScreens: [
-        { screen: 'Home', visits: 12847 },
-        { screen: 'Products', visits: 9823 },
-        { screen: 'Product Detail', visits: 7456 },
-        { screen: 'Cart', visits: 4567 },
-        { screen: 'Search', visits: 3456 },
-        { screen: 'Checkout', visits: 2345 },
-        { screen: 'Order Confirmation', visits: 1876 },
-        { screen: 'Wishlist', visits: 1234 },
-        { screen: 'Profile', visits: 987 },
-        { screen: 'Settings', visits: 543 },
+        { screen: 'Home', visits: 21560 },
+        { screen: 'Product Detail', visits: 15840 },
+        { screen: 'New Arrivals', visits: 8280 },
+        { screen: 'Search', visits: 6180 },
+        { screen: 'Cart', visits: 5780 },
+        { screen: 'Style Quiz', visits: 3840 },
+        { screen: 'Shipping', visits: 3820 },
+        { screen: 'Payment', visits: 3260 },
+        { screen: 'Reviews', visits: 3320 },
+        { screen: 'Order Confirmation', visits: 2870 },
+        { screen: 'Size Guide', visits: 2860 },
+        { screen: 'Promo Code', visits: 2280 },
     ],
     flows: [
-        { from: 'Home', to: 'Products', count: 6234 },
-        { from: 'Products', to: 'Product Detail', count: 5678 },
-        { from: 'Product Detail', to: 'Cart', count: 3456 },
-        { from: 'Cart', to: 'Checkout', count: 2345 },
-        { from: 'Checkout', to: 'Order Confirmation', count: 1876 },
-        { from: 'Home', to: 'Search', count: 2345 },
-        { from: 'Search', to: 'Products', count: 1987 },
-        { from: 'Product Detail', to: 'Wishlist', count: 876 },
-        { from: 'Products', to: 'Home', count: 1234 },
-        { from: 'Cart', to: 'Products', count: 987 },
+        { from: 'Launch', to: 'Home', count: 21560 },
+        { from: 'Home', to: 'New Arrivals', count: 8280 },
+        { from: 'New Arrivals', to: 'Product Detail', count: 7320 },
+        { from: 'Product Detail', to: 'Cart', count: 5120 },
+        { from: 'Cart', to: 'Shipping', count: 3820 },
+        { from: 'Shipping', to: 'Payment', count: 3260 },
+        { from: 'Payment', to: 'Order Confirmation', count: 2870 },
+        { from: 'Home', to: 'Search', count: 6180 },
+        { from: 'Search', to: 'Product Detail', count: 4580 },
+        { from: 'Home', to: 'Style Quiz', count: 3840 },
+        { from: 'Style Quiz', to: 'Quiz Results', count: 3020 },
+        { from: 'Quiz Results', to: 'Collections', count: 2560 },
+        { from: 'Collections', to: 'Product Detail', count: 2160 },
+        { from: 'Product Detail', to: 'Reviews', count: 3320 },
+        { from: 'Reviews', to: 'Cart', count: 1880 },
+        { from: 'Product Detail', to: 'Size Guide', count: 2860 },
+        { from: 'Size Guide', to: 'Cart', count: 1720 },
+        { from: 'Cart', to: 'Promo Code', count: 2280 },
+        { from: 'Promo Code', to: 'Shipping', count: 1460 },
+        { from: 'Payment', to: '3-D Secure', count: 960 },
+        { from: '3-D Secure', to: 'Order Confirmation', count: 720 },
+        { from: 'Home', to: 'Saved Looks', count: 2420 },
+        { from: 'Saved Looks', to: 'Product Detail', count: 1780 },
+        { from: 'Product Detail', to: 'Wishlist', count: 1540 },
+        { from: 'Wishlist', to: 'Cart', count: 720 },
+        { from: 'Shipping', to: 'Support Chat', count: 740 },
+        { from: 'Support Chat', to: 'Payment', count: 430 },
     ],
     entryPoints: [
-        { screen: 'Home', count: 9876 },
-        { screen: 'Product Detail', count: 1876 },
-        { screen: 'Products', count: 654 },
-        { screen: 'Cart', count: 234 },
-        { screen: 'Search', count: 207 },
+        { screen: 'Launch', count: 21560 },
+        { screen: 'Product Detail', count: 1860 },
+        { screen: 'Search', count: 920 },
+        { screen: 'Cart', count: 540 },
+        { screen: 'Style Quiz', count: 410 },
     ],
     exitPoints: [
-        { screen: 'Order Confirmation', count: 1876 },
-        { screen: 'Home', count: 2345 },
-        { screen: 'Product Detail', count: 1234 },
-        { screen: 'Cart', count: 987 },
-        { screen: 'Checkout', count: 456 },
+        { screen: 'Order Confirmation', count: 3590 },
+        { screen: 'Search Exit', count: 720 },
+        { screen: 'Sizing Exit', count: 620 },
+        { screen: 'Promo Exit', count: 580 },
+        { screen: 'Payment Exit', count: 600 },
     ],
 };
 
@@ -611,97 +846,130 @@ export const demoJourneySummary: JourneySummary = {
 
 export const demoJourneyObservability: ObservabilityJourneySummary = {
     healthSummary: {
-        healthy: 9234,
-        degraded: 2156,
-        problematic: 1457,
+        healthy: 18420,
+        degraded: 5310,
+        problematic: 2460,
     },
     flows: [
-        { from: 'Home', to: 'Products', count: 6234, apiErrors: 12, apiErrorRate: 0.2, avgApiLatencyMs: 145, rageTapCount: 23, crashCount: 0, anrCount: 0, health: 'healthy', replayCount: 45, sampleSessionIds: ['demo-happy-001', 'demo-happy-002', 'demo-happy-003'] },
-        { from: 'Products', to: 'Product Detail', count: 5678, apiErrors: 8, apiErrorRate: 0.1, avgApiLatencyMs: 189, rageTapCount: 18, crashCount: 0, anrCount: 0, health: 'healthy', replayCount: 38, sampleSessionIds: ['demo-happy-002', 'demo-happy-003', 'demo-008'] },
-        { from: 'Product Detail', to: 'Cart', count: 3456, apiErrors: 45, apiErrorRate: 1.3, avgApiLatencyMs: 234, rageTapCount: 67, crashCount: 2, anrCount: 0, health: 'degraded', replayCount: 28, sampleSessionIds: ['demo-006', 'demo-008', 'demo-009'] },
-        { from: 'Cart', to: 'Checkout', count: 2345, apiErrors: 156, apiErrorRate: 6.7, avgApiLatencyMs: 876, rageTapCount: 234, crashCount: 5, anrCount: 2, health: 'problematic', replayCount: 67, sampleSessionIds: ['demo-001', 'demo-002', 'demo-010'] },
-        { from: 'Checkout', to: 'Order Confirmation', count: 1876, apiErrors: 89, apiErrorRate: 4.7, avgApiLatencyMs: 1234, rageTapCount: 123, crashCount: 3, anrCount: 1, health: 'problematic', replayCount: 45, sampleSessionIds: ['demo-010', 'demo-011', 'demo-happy-001'] },
-        { from: 'Home', to: 'Search', count: 2345, apiErrors: 5, apiErrorRate: 0.2, avgApiLatencyMs: 98, rageTapCount: 12, crashCount: 0, anrCount: 0, health: 'healthy', replayCount: 12, sampleSessionIds: ['demo-004', 'demo-005', 'demo-err-006'] },
-        { from: 'Search', to: 'Products', count: 1987, apiErrors: 23, apiErrorRate: 1.2, avgApiLatencyMs: 345, rageTapCount: 45, crashCount: 0, anrCount: 0, health: 'degraded', replayCount: 18, sampleSessionIds: ['demo-004', 'demo-005', 'demo-err-006'] },
-        { from: 'Product Detail', to: 'Wishlist', count: 876, apiErrors: 3, apiErrorRate: 0.3, avgApiLatencyMs: 112, rageTapCount: 8, crashCount: 0, anrCount: 0, health: 'healthy', replayCount: 5, sampleSessionIds: ['demo-009', 'demo-happy-003'] },
-        { from: 'Products', to: 'Home', count: 1234, apiErrors: 2, apiErrorRate: 0.2, avgApiLatencyMs: 78, rageTapCount: 5, crashCount: 0, anrCount: 0, health: 'healthy', replayCount: 8, sampleSessionIds: ['demo-003', 'demo-007'] },
-        { from: 'Cart', to: 'Products', count: 987, apiErrors: 15, apiErrorRate: 1.5, avgApiLatencyMs: 167, rageTapCount: 34, crashCount: 0, anrCount: 0, health: 'degraded', replayCount: 12, sampleSessionIds: ['demo-err-003', 'demo-err-004', 'demo-006'] },
+        { from: 'Launch', to: 'Home', count: 21560, apiErrors: 9, apiErrorRate: 0.04, avgApiLatencyMs: 92, rageTapCount: 12, crashCount: 0, anrCount: 0, health: 'healthy', replayCount: 72, sampleSessionIds: demoJourneySessionIds('launch-home', 6) },
+        { from: 'Home', to: 'New Arrivals', count: 8280, apiErrors: 18, apiErrorRate: 0.2, avgApiLatencyMs: 138, rageTapCount: 24, crashCount: 0, anrCount: 0, health: 'healthy', replayCount: 58, sampleSessionIds: demoJourneySessionIds('home-arrivals', 6) },
+        { from: 'New Arrivals', to: 'Product Detail', count: 7320, apiErrors: 22, apiErrorRate: 0.3, avgApiLatencyMs: 166, rageTapCount: 31, crashCount: 0, anrCount: 0, health: 'healthy', replayCount: 54, sampleSessionIds: demoJourneySessionIds('arrivals-detail', 6) },
+        { from: 'Product Detail', to: 'Cart', count: 5120, apiErrors: 74, apiErrorRate: 1.4, avgApiLatencyMs: 286, rageTapCount: 96, crashCount: 2, anrCount: 0, health: 'degraded', replayCount: 49, sampleSessionIds: demoJourneySessionIds('detail-cart', 6) },
+        { from: 'Cart', to: 'Shipping', count: 3820, apiErrors: 116, apiErrorRate: 3.0, avgApiLatencyMs: 438, rageTapCount: 154, crashCount: 2, anrCount: 1, health: 'degraded', replayCount: 61, sampleSessionIds: demoJourneySessionIds('cart-shipping', 6) },
+        { from: 'Shipping', to: 'Payment', count: 3260, apiErrors: 132, apiErrorRate: 4.0, avgApiLatencyMs: 620, rageTapCount: 188, crashCount: 3, anrCount: 1, health: 'degraded', replayCount: 67, sampleSessionIds: demoJourneySessionIds('shipping-payment', 6) },
+        { from: 'Payment', to: 'Order Confirmation', count: 2870, apiErrors: 28, apiErrorRate: 1.0, avgApiLatencyMs: 241, rageTapCount: 34, crashCount: 0, anrCount: 0, health: 'healthy', replayCount: 52, sampleSessionIds: demoJourneySessionIds('payment-confirmed', 6) },
+        { from: 'Home', to: 'Search', count: 6180, apiErrors: 14, apiErrorRate: 0.2, avgApiLatencyMs: 118, rageTapCount: 26, crashCount: 0, anrCount: 0, health: 'healthy', replayCount: 38, sampleSessionIds: demoJourneySessionIds('home-search', 5) },
+        { from: 'Search', to: 'Product Detail', count: 4580, apiErrors: 92, apiErrorRate: 2.0, avgApiLatencyMs: 366, rageTapCount: 88, crashCount: 1, anrCount: 0, health: 'degraded', replayCount: 46, sampleSessionIds: demoJourneySessionIds('search-detail', 5) },
+        { from: 'Search', to: 'Search Exit', count: 720, apiErrors: 86, apiErrorRate: 11.9, avgApiLatencyMs: 1160, rageTapCount: 144, crashCount: 1, anrCount: 0, health: 'problematic', replayCount: 28, sampleSessionIds: demoJourneySessionIds('search-exit', 5) },
+        { from: 'Home', to: 'Style Quiz', count: 3840, apiErrors: 16, apiErrorRate: 0.4, avgApiLatencyMs: 154, rageTapCount: 21, crashCount: 0, anrCount: 0, health: 'healthy', replayCount: 34, sampleSessionIds: demoJourneySessionIds('home-quiz', 5) },
+        { from: 'Style Quiz', to: 'Quiz Results', count: 3020, apiErrors: 24, apiErrorRate: 0.8, avgApiLatencyMs: 224, rageTapCount: 41, crashCount: 0, anrCount: 0, health: 'healthy', replayCount: 33, sampleSessionIds: demoJourneySessionIds('quiz-results', 5) },
+        { from: 'Quiz Results', to: 'Collections', count: 2560, apiErrors: 36, apiErrorRate: 1.4, avgApiLatencyMs: 292, rageTapCount: 54, crashCount: 0, anrCount: 0, health: 'healthy', replayCount: 31, sampleSessionIds: demoJourneySessionIds('quiz-collections', 5) },
+        { from: 'Collections', to: 'Product Detail', count: 2160, apiErrors: 31, apiErrorRate: 1.4, avgApiLatencyMs: 305, rageTapCount: 62, crashCount: 0, anrCount: 0, health: 'healthy', replayCount: 27, sampleSessionIds: demoJourneySessionIds('collections-detail', 5) },
+        { from: 'Home', to: 'Saved Looks', count: 2420, apiErrors: 8, apiErrorRate: 0.3, avgApiLatencyMs: 142, rageTapCount: 17, crashCount: 0, anrCount: 0, health: 'healthy', replayCount: 24, sampleSessionIds: demoJourneySessionIds('home-saved', 5) },
+        { from: 'Saved Looks', to: 'Product Detail', count: 1780, apiErrors: 19, apiErrorRate: 1.1, avgApiLatencyMs: 238, rageTapCount: 42, crashCount: 0, anrCount: 0, health: 'healthy', replayCount: 23, sampleSessionIds: demoJourneySessionIds('saved-detail', 5) },
+        { from: 'Product Detail', to: 'Reviews', count: 3320, apiErrors: 27, apiErrorRate: 0.8, avgApiLatencyMs: 210, rageTapCount: 39, crashCount: 0, anrCount: 0, health: 'healthy', replayCount: 35, sampleSessionIds: demoJourneySessionIds('detail-reviews', 5) },
+        { from: 'Reviews', to: 'Cart', count: 1880, apiErrors: 21, apiErrorRate: 1.1, avgApiLatencyMs: 196, rageTapCount: 24, crashCount: 0, anrCount: 0, health: 'healthy', replayCount: 24, sampleSessionIds: demoJourneySessionIds('reviews-cart', 5) },
+        { from: 'Product Detail', to: 'Size Guide', count: 2860, apiErrors: 104, apiErrorRate: 3.6, avgApiLatencyMs: 670, rageTapCount: 203, crashCount: 1, anrCount: 1, health: 'degraded', replayCount: 44, sampleSessionIds: demoJourneySessionIds('detail-size', 5) },
+        { from: 'Size Guide', to: 'Cart', count: 1720, apiErrors: 66, apiErrorRate: 3.8, avgApiLatencyMs: 522, rageTapCount: 126, crashCount: 1, anrCount: 0, health: 'degraded', replayCount: 33, sampleSessionIds: demoJourneySessionIds('size-cart', 5) },
+        { from: 'Size Guide', to: 'Sizing Exit', count: 620, apiErrors: 128, apiErrorRate: 20.6, avgApiLatencyMs: 1480, rageTapCount: 286, crashCount: 4, anrCount: 2, health: 'problematic', replayCount: 55, sampleSessionIds: demoJourneySessionIds('sizing-exit', 6) },
+        { from: 'Product Detail', to: 'Wishlist', count: 1540, apiErrors: 18, apiErrorRate: 1.2, avgApiLatencyMs: 180, rageTapCount: 19, crashCount: 0, anrCount: 0, health: 'healthy', replayCount: 17, sampleSessionIds: demoJourneySessionIds('detail-wishlist', 4) },
+        { from: 'Wishlist', to: 'Cart', count: 720, apiErrors: 9, apiErrorRate: 1.3, avgApiLatencyMs: 188, rageTapCount: 12, crashCount: 0, anrCount: 0, health: 'healthy', replayCount: 13, sampleSessionIds: demoJourneySessionIds('wishlist-cart', 4) },
+        { from: 'Cart', to: 'Promo Code', count: 2280, apiErrors: 112, apiErrorRate: 4.9, avgApiLatencyMs: 770, rageTapCount: 246, crashCount: 1, anrCount: 1, health: 'degraded', replayCount: 61, sampleSessionIds: demoJourneySessionIds('cart-promo', 6) },
+        { from: 'Promo Code', to: 'Shipping', count: 1460, apiErrors: 88, apiErrorRate: 6.0, avgApiLatencyMs: 812, rageTapCount: 177, crashCount: 2, anrCount: 1, health: 'degraded', replayCount: 48, sampleSessionIds: demoJourneySessionIds('promo-shipping', 5) },
+        { from: 'Promo Code', to: 'Promo Exit', count: 580, apiErrors: 154, apiErrorRate: 26.6, avgApiLatencyMs: 1735, rageTapCount: 338, crashCount: 5, anrCount: 3, health: 'problematic', replayCount: 64, sampleSessionIds: demoJourneySessionIds('promo-exit', 6) },
+        { from: 'Shipping', to: 'Support Chat', count: 740, apiErrors: 76, apiErrorRate: 10.3, avgApiLatencyMs: 1230, rageTapCount: 149, crashCount: 1, anrCount: 1, health: 'degraded', replayCount: 37, sampleSessionIds: demoJourneySessionIds('shipping-support', 5) },
+        { from: 'Support Chat', to: 'Payment', count: 430, apiErrors: 32, apiErrorRate: 7.4, avgApiLatencyMs: 980, rageTapCount: 83, crashCount: 1, anrCount: 0, health: 'degraded', replayCount: 29, sampleSessionIds: demoJourneySessionIds('support-payment', 5) },
+        { from: 'Payment', to: '3-D Secure', count: 960, apiErrors: 114, apiErrorRate: 11.9, avgApiLatencyMs: 1290, rageTapCount: 226, crashCount: 2, anrCount: 1, health: 'degraded', replayCount: 58, sampleSessionIds: demoJourneySessionIds('payment-3ds', 6) },
+        { from: '3-D Secure', to: 'Order Confirmation', count: 720, apiErrors: 31, apiErrorRate: 4.3, avgApiLatencyMs: 484, rageTapCount: 44, crashCount: 0, anrCount: 0, health: 'healthy', replayCount: 28, sampleSessionIds: demoJourneySessionIds('3ds-confirmed', 5) },
+        { from: '3-D Secure', to: 'Payment Exit', count: 210, apiErrors: 82, apiErrorRate: 39.0, avgApiLatencyMs: 2200, rageTapCount: 164, crashCount: 3, anrCount: 2, health: 'problematic', replayCount: 43, sampleSessionIds: demoJourneySessionIds('3ds-exit', 6) },
+        { from: 'Payment', to: 'Payment Exit', count: 390, apiErrors: 129, apiErrorRate: 33.1, avgApiLatencyMs: 1960, rageTapCount: 271, crashCount: 5, anrCount: 3, health: 'problematic', replayCount: 69, sampleSessionIds: demoJourneySessionIds('payment-exit', 6) },
+        { from: 'Home', to: 'Account', count: 1260, apiErrors: 7, apiErrorRate: 0.6, avgApiLatencyMs: 166, rageTapCount: 14, crashCount: 0, anrCount: 0, health: 'healthy', replayCount: 16, sampleSessionIds: demoJourneySessionIds('home-account', 4) },
+        { from: 'Account', to: 'Saved Looks', count: 640, apiErrors: 8, apiErrorRate: 1.3, avgApiLatencyMs: 254, rageTapCount: 18, crashCount: 0, anrCount: 0, health: 'healthy', replayCount: 13, sampleSessionIds: demoJourneySessionIds('account-saved', 4) },
+        { from: 'Account', to: 'Support Chat', count: 380, apiErrors: 41, apiErrorRate: 10.8, avgApiLatencyMs: 1090, rageTapCount: 72, crashCount: 1, anrCount: 0, health: 'degraded', replayCount: 21, sampleSessionIds: demoJourneySessionIds('account-support', 4) },
+        { from: 'Cart', to: 'Support Chat', count: 520, apiErrors: 83, apiErrorRate: 16.0, avgApiLatencyMs: 1350, rageTapCount: 141, crashCount: 3, anrCount: 1, health: 'problematic', replayCount: 46, sampleSessionIds: demoJourneySessionIds('cart-support', 5) },
     ],
     problematicJourneys: [
-        { path: ['Home', 'Products', 'Cart', 'Checkout'], sessionCount: 456, crashes: 8, anrs: 3, apiErrors: 189, rageTaps: 312, failureScore: 94, sampleSessionIds: ['demo-001', 'demo-002', 'demo-003'] },
-        { path: ['Home', 'Search', 'Products', 'Cart', 'Checkout'], sessionCount: 234, crashes: 5, anrs: 2, apiErrors: 123, rageTaps: 187, failureScore: 67, sampleSessionIds: ['demo-004', 'demo-005'] },
-        { path: ['Product Detail', 'Cart', 'Checkout'], sessionCount: 189, crashes: 4, anrs: 1, apiErrors: 98, rageTaps: 145, failureScore: 52, sampleSessionIds: ['demo-006', 'demo-007'] },
-        { path: ['Home', 'Products', 'Product Detail', 'Cart'], sessionCount: 356, crashes: 3, anrs: 0, apiErrors: 67, rageTaps: 89, failureScore: 38, sampleSessionIds: ['demo-008', 'demo-009'] },
-        { path: ['Cart', 'Checkout', 'Order Confirmation'], sessionCount: 278, crashes: 2, anrs: 1, apiErrors: 45, rageTaps: 67, failureScore: 28, sampleSessionIds: ['demo-010', 'demo-011'] },
+        { path: ['Launch', 'Home', 'New Arrivals', 'Product Detail', 'Cart', 'Promo Code', 'Promo Exit'], sessionCount: 580, crashes: 5, anrs: 3, apiErrors: 154, rageTaps: 338, failureScore: 168, sampleSessionIds: demoJourneySessionIds('promo-exit', 4) },
+        { path: ['Launch', 'Home', 'Search', 'Search Exit'], sessionCount: 720, crashes: 1, anrs: 0, apiErrors: 86, rageTaps: 144, failureScore: 133, sampleSessionIds: demoJourneySessionIds('search-exit', 4) },
+        { path: ['Launch', 'Home', 'New Arrivals', 'Product Detail', 'Size Guide', 'Sizing Exit'], sessionCount: 620, crashes: 4, anrs: 2, apiErrors: 128, rageTaps: 286, failureScore: 154, sampleSessionIds: demoJourneySessionIds('sizing-exit', 4) },
+        { path: ['Launch', 'Home', 'New Arrivals', 'Product Detail', 'Cart', 'Shipping', 'Payment', 'Payment Exit'], sessionCount: 390, crashes: 5, anrs: 3, apiErrors: 129, rageTaps: 271, failureScore: 161, sampleSessionIds: demoJourneySessionIds('payment-exit', 4) },
+        { path: ['Launch', 'Home', 'New Arrivals', 'Product Detail', 'Cart', 'Shipping', 'Payment', '3-D Secure', 'Payment Exit'], sessionCount: 210, crashes: 3, anrs: 2, apiErrors: 82, rageTaps: 164, failureScore: 119, sampleSessionIds: demoJourneySessionIds('3ds-exit', 4) },
+        { path: ['Launch', 'Home', 'Style Quiz', 'Quiz Results', 'Collections', 'Product Detail', 'Size Guide'], sessionCount: 420, crashes: 1, anrs: 1, apiErrors: 82, rageTaps: 156, failureScore: 91, sampleSessionIds: demoJourneySessionIds('quiz-size', 4) },
+        { path: ['Launch', 'Home', 'Cart', 'Support Chat'], sessionCount: 520, crashes: 3, anrs: 1, apiErrors: 83, rageTaps: 141, failureScore: 104, sampleSessionIds: demoJourneySessionIds('cart-support', 4) },
     ],
     happyPathJourney: {
-        path: ['Home', 'Products', 'Product Detail', 'Cart', 'Checkout', 'Order Confirmation'],
-        sessionCount: 1128,
+        path: ['Launch', 'Home', 'New Arrivals', 'Product Detail', 'Cart', 'Shipping', 'Payment', 'Order Confirmation'],
+        sessionCount: 2870,
         crashes: 0,
         anrs: 0,
-        apiErrors: 0,
-        rageTaps: 0,
+        apiErrors: 28,
+        rageTaps: 34,
         failureScore: 0,
         health: 'healthy',
-        sampleSessionIds: ['demo-happy-001', 'demo-happy-002', 'demo-happy-003'],
+        sampleSessionIds: demoJourneySessionIds('happy', 6),
     },
     configuredHappyPath: {
         projectId: 'demo-project',
-        path: ['Home', 'Products', 'Product Detail', 'Cart', 'Checkout', 'Order Confirmation'],
+        path: ['Launch', 'Home', 'New Arrivals', 'Product Detail', 'Cart', 'Shipping', 'Payment', 'Order Confirmation'],
         targetScreen: 'Order Confirmation',
-        confidence: 0.71,
-        sampleSize: 750,
+        confidence: 0.83,
+        sampleSize: 1840,
         updatedAt: new Date(DEMO_NOW - 6 * 60 * 60 * 1000).toISOString(),
     },
     exitAfterError: [
-        { screen: 'Checkout', exitCount: 456, errorTypes: { api: 312, crash: 45, rage: 234 }, sampleSessionIds: ['demo-err-001', 'demo-err-002'] },
-        { screen: 'Cart', exitCount: 234, errorTypes: { api: 145, crash: 23, rage: 156 }, sampleSessionIds: ['demo-err-003', 'demo-err-004'] },
-        { screen: 'Product Detail', exitCount: 123, errorTypes: { api: 67, crash: 12, rage: 89 }, sampleSessionIds: ['demo-err-005'] },
-        { screen: 'Search', exitCount: 89, errorTypes: { api: 45, crash: 5, rage: 67 }, sampleSessionIds: ['demo-err-006'] },
-        { screen: 'Home', exitCount: 67, errorTypes: { api: 23, crash: 3, rage: 45 }, sampleSessionIds: ['demo-err-007'] },
+        { screen: 'Promo Code', exitCount: 580, errorTypes: { api: 154, crash: 5, rage: 338 }, sampleSessionIds: demoJourneySessionIds('promo-exit', 4) },
+        { screen: 'Size Guide', exitCount: 620, errorTypes: { api: 128, crash: 4, rage: 286 }, sampleSessionIds: demoJourneySessionIds('sizing-exit', 4) },
+        { screen: 'Payment', exitCount: 390, errorTypes: { api: 129, crash: 5, rage: 271 }, sampleSessionIds: demoJourneySessionIds('payment-exit', 4) },
+        { screen: '3-D Secure', exitCount: 210, errorTypes: { api: 82, crash: 3, rage: 164 }, sampleSessionIds: demoJourneySessionIds('3ds-exit', 4) },
+        { screen: 'Search', exitCount: 720, errorTypes: { api: 86, crash: 1, rage: 144 }, sampleSessionIds: demoJourneySessionIds('search-exit', 4) },
+        { screen: 'Support Chat', exitCount: 260, errorTypes: { api: 62, crash: 2, rage: 116 }, sampleSessionIds: demoJourneySessionIds('support-exit', 4) },
     ],
     timeToFailure: {
-        avgTimeBeforeFirstErrorMs: 45000,
-        avgScreensBeforeCrash: 3.2,
-        avgInteractionsBeforeRageTap: 12,
+        avgTimeBeforeFirstErrorMs: 78000,
+        avgScreensBeforeCrash: 4.6,
+        avgInteractionsBeforeRageTap: 16,
     },
     screenHealth: [
-        { name: 'Home', visits: 12847, health: 'healthy', crashes: 3, anrs: 0, apiErrors: 45, rageTaps: 23, replayAvailable: true },
-        { name: 'Products', visits: 9823, health: 'healthy', crashes: 5, anrs: 0, apiErrors: 67, rageTaps: 34, replayAvailable: true },
-        { name: 'Product Detail', visits: 7456, health: 'degraded', crashes: 8, anrs: 2, apiErrors: 123, rageTaps: 89, replayAvailable: true },
-        { name: 'Cart', visits: 4567, health: 'degraded', crashes: 12, anrs: 3, apiErrors: 189, rageTaps: 156, replayAvailable: true },
-        { name: 'Search', visits: 3456, health: 'healthy', crashes: 2, anrs: 0, apiErrors: 34, rageTaps: 23, replayAvailable: true },
-        { name: 'Checkout', visits: 2345, health: 'problematic', crashes: 23, anrs: 8, apiErrors: 345, rageTaps: 234, replayAvailable: true },
-        { name: 'Order Confirmation', visits: 1876, health: 'degraded', crashes: 5, anrs: 1, apiErrors: 67, rageTaps: 45, replayAvailable: true },
-        { name: 'Wishlist', visits: 1234, health: 'healthy', crashes: 1, anrs: 0, apiErrors: 12, rageTaps: 8, replayAvailable: false },
-        { name: 'Profile', visits: 987, health: 'healthy', crashes: 0, anrs: 0, apiErrors: 5, rageTaps: 3, replayAvailable: false },
-        { name: 'Settings', visits: 543, health: 'healthy', crashes: 0, anrs: 0, apiErrors: 2, rageTaps: 2, replayAvailable: false },
+        { name: 'Launch', visits: 21560, health: 'healthy', crashes: 0, anrs: 0, apiErrors: 9, rageTaps: 12, replayAvailable: true },
+        { name: 'Home', visits: 21560, health: 'healthy', crashes: 0, anrs: 0, apiErrors: 63, rageTaps: 114, replayAvailable: true },
+        { name: 'New Arrivals', visits: 8280, health: 'healthy', crashes: 0, anrs: 0, apiErrors: 40, rageTaps: 55, replayAvailable: true },
+        { name: 'Product Detail', visits: 15840, health: 'degraded', crashes: 4, anrs: 2, apiErrors: 274, rageTaps: 461, replayAvailable: true },
+        { name: 'Search', visits: 6180, health: 'degraded', crashes: 2, anrs: 0, apiErrors: 178, rageTaps: 258, replayAvailable: true },
+        { name: 'Size Guide', visits: 2860, health: 'problematic', crashes: 5, anrs: 3, apiErrors: 232, rageTaps: 489, replayAvailable: true },
+        { name: 'Cart', visits: 5780, health: 'degraded', crashes: 9, anrs: 3, apiErrors: 394, rageTaps: 541, replayAvailable: true },
+        { name: 'Promo Code', visits: 2280, health: 'problematic', crashes: 7, anrs: 4, apiErrors: 354, rageTaps: 515, replayAvailable: true },
+        { name: 'Shipping', visits: 3820, health: 'degraded', crashes: 4, anrs: 2, apiErrors: 208, rageTaps: 337, replayAvailable: true },
+        { name: 'Payment', visits: 3260, health: 'problematic', crashes: 10, anrs: 6, apiErrors: 403, rageTaps: 531, replayAvailable: true },
+        { name: '3-D Secure', visits: 960, health: 'problematic', crashes: 3, anrs: 2, apiErrors: 113, rageTaps: 208, replayAvailable: true },
+        { name: 'Order Confirmation', visits: 3590, health: 'healthy', crashes: 0, anrs: 0, apiErrors: 59, rageTaps: 78, replayAvailable: true },
     ],
     topScreens: [
-        { screen: 'Home', visits: 12847 },
-        { screen: 'Products', visits: 9823 },
-        { screen: 'Product Detail', visits: 7456 },
-        { screen: 'Cart', visits: 4567 },
-        { screen: 'Search', visits: 3456 },
-        { screen: 'Checkout', visits: 2345 },
-        { screen: 'Order Confirmation', visits: 1876 },
-        { screen: 'Wishlist', visits: 1234 },
-        { screen: 'Profile', visits: 987 },
-        { screen: 'Settings', visits: 543 },
+        { screen: 'Home', visits: 21560 },
+        { screen: 'Product Detail', visits: 15840 },
+        { screen: 'New Arrivals', visits: 8280 },
+        { screen: 'Search', visits: 6180 },
+        { screen: 'Cart', visits: 5780 },
+        { screen: 'Style Quiz', visits: 3840 },
+        { screen: 'Shipping', visits: 3820 },
+        { screen: 'Payment', visits: 3260 },
+        { screen: 'Reviews', visits: 3320 },
+        { screen: 'Order Confirmation', visits: 2870 },
+        { screen: 'Size Guide', visits: 2860 },
+        { screen: 'Promo Code', visits: 2280 },
     ],
     entryPoints: [
-        { screen: 'Home', count: 9876 },
-        { screen: 'Product Detail', count: 1876 },
-        { screen: 'Products', count: 654 },
-        { screen: 'Cart', count: 234 },
-        { screen: 'Search', count: 207 },
+        { screen: 'Launch', count: 21560 },
+        { screen: 'Product Detail', count: 1860 },
+        { screen: 'Search', count: 920 },
+        { screen: 'Cart', count: 540 },
+        { screen: 'Style Quiz', count: 410 },
     ],
     exitPoints: [
-        { screen: 'Order Confirmation', count: 1876 },
-        { screen: 'Home', count: 2345 },
-        { screen: 'Product Detail', count: 1234 },
-        { screen: 'Cart', count: 987 },
-        { screen: 'Checkout', count: 456 },
+        { screen: 'Order Confirmation', count: 3590 },
+        { screen: 'Search Exit', count: 720 },
+        { screen: 'Sizing Exit', count: 620 },
+        { screen: 'Promo Exit', count: 580 },
+        { screen: 'Payment Exit', count: 600 },
     ],
 };
 
@@ -717,11 +985,12 @@ const generateDailyHealth = () => {
         const date = new Date(now);
         date.setDate(date.getDate() - i);
         const dateStr = date.toISOString().split('T')[0];
-        const baseClean = 600 + Math.round(demoRandom() * 200);
-        const baseError = 40 + Math.round(demoRandom() * 30);
-        const baseRage = 30 + Math.round(demoRandom() * 20);
-        const baseSlow = 20 + Math.round(demoRandom() * 15);
-        const baseCrash = 5 + Math.round(demoRandom() * 5);
+        const progress = (29 - i) / 29;
+        const baseClean = 34 + Math.round(progress * 44 + demoRandom() * 8);
+        const baseError = Math.max(1, Math.round(6 - progress * 3 + demoRandom() * 2));
+        const baseRage = Math.max(0, Math.round(4 - progress * 2 + demoRandom() * 2));
+        const baseSlow = Math.max(0, Math.round(3 - progress * 1.5 + demoRandom() * 2));
+        const baseCrash = i % 13 === 0 ? 1 : 0;
         data.push({
             date: dateStr,
             clean: baseClean,
@@ -735,7 +1004,15 @@ const generateDailyHealth = () => {
 };
 
 const generateDailyCustomEvents = () => {
-    const eventNames = ['product_viewed', 'add_to_cart', 'checkout_started', 'signup_completed', 'search_submitted'];
+    const eventNames = [
+        'product_viewed',
+        'search_submitted',
+        'add_to_cart',
+        'wishlist_added',
+        'checkout_started',
+        'order_completed',
+        'signup_completed',
+    ];
     const data: Array<{ date: string; events: Record<string, number> }> = [];
     const now = new Date(DEMO_NOW);
     for (let i = 29; i >= 0; i--) {
@@ -746,11 +1023,13 @@ const generateDailyCustomEvents = () => {
         data.push({
             date: dateStr,
             events: {
-                [eventNames[0]]: 120 + growth * 3 + Math.round(demoRandom() * 18),
-                [eventNames[1]]: 72 + growth * 2 + Math.round(demoRandom() * 12),
-                [eventNames[2]]: 42 + growth + Math.round(demoRandom() * 9),
-                [eventNames[3]]: 18 + Math.round(growth * 0.6) + Math.round(demoRandom() * 6),
-                [eventNames[4]]: 50 + Math.round(growth * 1.4) + Math.round(demoRandom() * 10),
+                [eventNames[0]]: 62 + growth * 4 + Math.round(demoRandom() * 14),
+                [eventNames[1]]: 28 + Math.round(growth * 2.1) + Math.round(demoRandom() * 8),
+                [eventNames[2]]: 24 + Math.round(growth * 1.9) + Math.round(demoRandom() * 7),
+                [eventNames[3]]: 14 + Math.round(growth * 1.1) + Math.round(demoRandom() * 5),
+                [eventNames[4]]: 13 + Math.round(growth * 1.2) + Math.round(demoRandom() * 5),
+                [eventNames[5]]: 8 + Math.round(growth * 0.78) + Math.round(demoRandom() * 4),
+                [eventNames[6]]: 5 + Math.round(growth * 0.46) + Math.round(demoRandom() * 3),
             },
         });
     }
@@ -767,64 +1046,64 @@ const demoCustomEventTotals = demoDailyCustomEvents.reduce<Record<string, number
 
 export const demoGrowthObservability: GrowthObservability = {
     sessionHealth: {
-        clean: 9234,
-        error: 1456,
-        rage: 876,
-        slow: 543,
-        crash: 234,
+        clean: 1647,
+        error: 86,
+        rage: 52,
+        slow: 43,
+        crash: 6,
     },
-    firstSessionSuccessRate: 72,
+    firstSessionSuccessRate: 84.1,
     firstSessionStats: {
-        total: 2456,
-        clean: 1768,
-        withCrash: 89,
-        withAnr: 45,
-        withRageTaps: 234,
-        withSlowApi: 320,
+        total: 226,
+        clean: 190,
+        withCrash: 2,
+        withAnr: 1,
+        withRageTaps: 11,
+        withSlowApi: 19,
     },
     newUserGrowth: {
-        acquiredUsers: 2456,
-        activeUsers: 8432,
-        acquisitionRate: 29.1,
-        returnedUsers: 1284,
-        returnRate: 52.3,
+        acquiredUsers: 226,
+        activeUsers: 684,
+        acquisitionRate: 33.0,
+        returnedUsers: 401,
+        returnRate: 58.6,
     },
     growthKillers: [
         {
-            reason: 'API errors on Checkout',
-            affectedSessions: 456,
-            percentOfTotal: 3.7,
-            deltaVsPrevious: 12,
+            reason: 'Checkout payment retries',
+            affectedSessions: 34,
+            percentOfTotal: 1.8,
+            deltaVsPrevious: -18,
             relatedScreen: 'Checkout',
             sampleSessionIds: ['demo-gk-001', 'demo-gk-002', 'demo-gk-003'],
         },
         {
-            reason: 'Slow startup (>3s API latency)',
-            affectedSessions: 320,
-            percentOfTotal: 2.6,
-            deltaVsPrevious: -5,
+            reason: 'Slow first paint on older Android',
+            affectedSessions: 27,
+            percentOfTotal: 1.5,
+            deltaVsPrevious: -9,
             relatedScreen: 'Home',
             sampleSessionIds: ['demo-gk-004', 'demo-gk-005'],
         },
         {
-            reason: 'Crash on first session',
-            affectedSessions: 89,
-            percentOfTotal: 0.7,
-            deltaVsPrevious: 0,
+            reason: 'First-session crash',
+            affectedSessions: 2,
+            percentOfTotal: 0.1,
+            deltaVsPrevious: -4,
             sampleSessionIds: ['demo-gk-006', 'demo-gk-007'],
         },
         {
-            reason: 'Rage taps on Cart',
-            affectedSessions: 234,
-            percentOfTotal: 1.9,
-            deltaVsPrevious: 8,
+            reason: 'Promo code rage taps',
+            affectedSessions: 18,
+            percentOfTotal: 1.0,
+            deltaVsPrevious: -6,
             relatedScreen: 'Cart',
             sampleSessionIds: ['demo-gk-008', 'demo-gk-009'],
         },
         {
             reason: 'ANR on first session',
-            affectedSessions: 45,
-            percentOfTotal: 0.4,
+            affectedSessions: 1,
+            percentOfTotal: 0.1,
             deltaVsPrevious: -2,
             sampleSessionIds: ['demo-gk-010'],
         },
@@ -842,85 +1121,90 @@ export const demoGrowthObservability: GrowthObservability = {
 
 export const demoObservabilityDeepMetrics: ObservabilityDeepMetrics = {
     dataWindow: {
-        totalSessions: 12847,
-        analyzedSessions: 12847,
+        totalSessions: 1842,
+        analyzedSessions: 1842,
         sampled: false,
-        visualReplayCoverageRate: 88.4,
-        analyticsCoverageRate: 97.2,
+        visualReplayCoverageRate: 91.6,
+        analyticsCoverageRate: 98.7,
     },
     reliability: {
-        crashFreeSessionRate: 98.1,
-        anrFreeSessionRate: 99.2,
-        errorFreeSessionRate: 87.6,
-        frustrationFreeSessionRate: 90.4,
-        degradedSessionRate: 21.3,
-        apiFailureRate: 1.84,
+        crashFreeSessionRate: 99.7,
+        anrFreeSessionRate: 99.8,
+        errorFreeSessionRate: 95.4,
+        frustrationFreeSessionRate: 96.9,
+        degradedSessionRate: 10.1,
+        apiFailureRate: 0.92,
+        platformBreakdown: [
+            { platform: 'ios', crashFreeSessionRate: 99.8, anrFreeSessionRate: 99.9 },
+            { platform: 'android', crashFreeSessionRate: 99.5, anrFreeSessionRate: 99.7 },
+            { platform: 'web', crashFreeSessionRate: 100, anrFreeSessionRate: 100 },
+        ],
     },
     performance: {
-        apiApdex: 0.874,
-        p50ApiResponseMs: 168,
-        p95ApiResponseMs: 912,
-        p99ApiResponseMs: 1430,
-        slowApiSessionRate: 7.6,
-        p50StartupMs: 980,
-        p95StartupMs: 3210,
-        slowStartupRate: 12.8,
+        apiApdex: 0.934,
+        p50ApiResponseMs: 142,
+        p95ApiResponseMs: 612,
+        p99ApiResponseMs: 1040,
+        slowApiSessionRate: 3.9,
+        p50StartupMs: 780,
+        p95StartupMs: 2140,
+        slowStartupRate: 5.8,
     },
     impact: {
-        uniqueUsers: 8432,
-        affectedUsers: 1276,
-        affectedUserRate: 15.13,
-        issueReoccurrenceRate: 71.4,
+        uniqueUsers: 684,
+        affectedUsers: 87,
+        affectedUserRate: 12.72,
+        issueReoccurrenceRate: 28.4,
     },
     ingestHealth: {
-        sdkUploadSuccessRate: 96.8,
-        sessionsWithUploadFailures: 214,
-        sessionsWithOfflinePersist: 167,
-        sessionsWithMemoryEvictions: 73,
-        sessionsWithCircuitBreakerOpen: 41,
-        sessionsWithHeavyRetries: 92,
+        sdkUploadSuccessRate: 99.1,
+        sessionsWithUploadFailures: 12,
+        sessionsWithOfflinePersist: 28,
+        sessionsWithMemoryEvictions: 3,
+        sessionsWithCircuitBreakerOpen: 0,
+        sessionsWithHeavyRetries: 5,
     },
     networkBreakdown: [
-        { networkType: 'wifi', sessions: 7421, apiCalls: 221879, apiErrorRate: 1.24, avgLatencyMs: 172 },
-        { networkType: 'cellular', sessions: 4022, apiCalls: 96444, apiErrorRate: 3.19, avgLatencyMs: 336 },
-        { networkType: '5g', sessions: 612, apiCalls: 18890, apiErrorRate: 1.72, avgLatencyMs: 241 },
-        { networkType: '4g', sessions: 504, apiCalls: 14492, apiErrorRate: 2.88, avgLatencyMs: 382 },
-        { networkType: 'unknown', sessions: 288, apiCalls: 6710, apiErrorRate: 2.06, avgLatencyMs: 298 },
+        { networkType: 'wifi', sessions: 1036, apiCalls: 12644, apiErrorRate: 0.62, avgLatencyMs: 136 },
+        { networkType: 'cellular', sessions: 516, apiCalls: 5921, apiErrorRate: 1.36, avgLatencyMs: 248 },
+        { networkType: '5g', sessions: 178, apiCalls: 2194, apiErrorRate: 0.88, avgLatencyMs: 188 },
+        { networkType: '4g', sessions: 86, apiCalls: 913, apiErrorRate: 1.74, avgLatencyMs: 312 },
+        { networkType: 'unknown', sessions: 26, apiCalls: 244, apiErrorRate: 1.23, avgLatencyMs: 231 },
     ],
     releaseRisk: [
         {
-            version: '2.4.1',
-            sessions: 3456,
-            degradedSessions: 973,
-            failureRate: 28.15,
-            deltaVsOverall: 6.85,
-            crashCount: 51,
-            anrCount: 19,
-            errorCount: 514,
+            version: '2.5.0',
+            sessions: 612,
+            degradedSessions: 49,
+            failureRate: 8.01,
+            deltaVsOverall: -2.09,
+            crashCount: 1,
+            anrCount: 0,
+            errorCount: 34,
             firstSeen: new Date(DEMO_NOW - 18 * day).toISOString(),
             latestSeen: new Date(DEMO_NOW - 2 * day).toISOString(),
         },
         {
-            version: '2.4.0',
-            sessions: 2988,
-            degradedSessions: 648,
-            failureRate: 21.69,
-            deltaVsOverall: 0.39,
-            crashCount: 32,
-            anrCount: 11,
-            errorCount: 376,
+            version: '2.4.1',
+            sessions: 734,
+            degradedSessions: 82,
+            failureRate: 11.17,
+            deltaVsOverall: 1.07,
+            crashCount: 3,
+            anrCount: 2,
+            errorCount: 48,
             firstSeen: new Date(DEMO_NOW - 31 * day).toISOString(),
             latestSeen: new Date(DEMO_NOW - 5 * day).toISOString(),
         },
         {
-            version: '2.3.9',
-            sessions: 2701,
-            degradedSessions: 463,
-            failureRate: 17.14,
-            deltaVsOverall: -4.16,
-            crashCount: 19,
-            anrCount: 7,
-            errorCount: 292,
+            version: 'web-2026.05.1',
+            sessions: 366,
+            degradedSessions: 28,
+            failureRate: 7.65,
+            deltaVsOverall: -2.45,
+            crashCount: 0,
+            anrCount: 0,
+            errorCount: 22,
             firstSeen: new Date(DEMO_NOW - 54 * day).toISOString(),
             latestSeen: new Date(DEMO_NOW - 9 * day).toISOString(),
         },
@@ -930,35 +1214,35 @@ export const demoObservabilityDeepMetrics: ObservabilityDeepMetrics = {
             title: 'Crash/ANR outliers',
             description: 'Highest fatal stability impact sessions.',
             metric: 'stability',
-            value: '2,734 degraded sessions',
+            value: '6 crash sessions',
             sessionIds: ['demo-obs-001', 'demo-obs-002', 'demo-obs-003'],
         },
         {
             title: 'API degradation outliers',
             description: 'High latency or high API failure sessions.',
             metric: 'api',
-            value: '1.84% API failure rate',
+            value: '0.92% API failure rate',
             sessionIds: ['demo-obs-004', 'demo-obs-005', 'demo-obs-006'],
         },
         {
             title: 'Frustration hotspots',
             description: 'Sessions with strong rage/dead tap signals.',
             metric: 'ux-friction',
-            value: '9.60% friction sessions',
+            value: '3.10% friction sessions',
             sessionIds: ['demo-obs-007', 'demo-obs-008', 'demo-obs-009'],
         },
         {
             title: 'Slow startup evidence',
             description: 'Cold starts above 3 seconds.',
             metric: 'startup',
-            value: '12.80% slow startup',
+            value: '5.80% slow startup',
             sessionIds: ['demo-obs-010', 'demo-obs-011', 'demo-obs-012'],
         },
         {
             title: 'SDK upload pipeline failures',
             description: 'Sessions where ingestion reliability degraded.',
             metric: 'ingest',
-            value: '214 sessions with upload failures',
+            value: '12 sessions with upload failures',
             sessionIds: ['demo-obs-013', 'demo-obs-014', 'demo-obs-015'],
         },
     ],
@@ -977,10 +1261,11 @@ const generateUserEngagementTrends = (): UserEngagementTrends => {
         const date = new Date(now);
         date.setDate(date.getDate() - i);
         const dateStr = date.toISOString().split('T')[0];
-        const bouncers = 80 + Math.round(demoRandom() * 40);
-        const casuals = 150 + Math.round(demoRandom() * 60);
-        const explorers = 200 + Math.round(demoRandom() * 80);
-        const loyalists = 120 + Math.round(demoRandom() * 50);
+        const progress = (29 - i) / 29;
+        const bouncers = Math.round(42 - progress * 15 + demoRandom() * 7);
+        const casuals = Math.round(74 + progress * 44 + demoRandom() * 10);
+        const explorers = Math.round(86 + progress * 76 + demoRandom() * 13);
+        const loyalists = Math.round(32 + progress * 54 + demoRandom() * 9);
         totalBouncers += bouncers;
         totalCasuals += casuals;
         totalExplorers += explorers;
@@ -1246,121 +1531,306 @@ export const demoFrictionHeatmap: FrictionHeatmap = {
 // Detailed Session Data (for RecordingDetail page)
 // ================================================================================
 
-import { demoReplayFixture } from './demoReplayData';
+import { demoReplayFixture as existingDemoReplayFixture } from './demoReplayData';
+import { demoReplayFixture as frankfurtDemoReplayFixture } from './demoReplayDataFrankfurt';
 
-const networkRequests = demoReplayFixture.networkRequests;
-const sessionEvents = demoReplayFixture.events;
-const screenshotFrames = demoReplayFixture.screenshotFrames.map((frame: any) => ({
-    timestamp: frame.timestamp,
-    url: `/demo/${DEMO_FEATURED_SESSION_ID}/frames/${frame.file}`,
-    index: frame.index,
-}));
-const identifiedUserId =
-    demoReplayFixture.events.find((event: any) => event.type === 'user_identity_changed' && event.userId)?.userId ||
-    'demo-user';
-const deadTapCount = demoReplayFixture.events.filter((event: any) => event.frustrationKind === 'dead_tap').length;
-const explorationScore = Math.min(100, 40 + demoReplayFixture.screensVisited.length * 5);
-const interactionScore = Math.min(
-    100,
-    45 + Math.round((demoReplayFixture.metrics.touchCount + demoReplayFixture.metrics.gestureCount) / 5)
-);
+const demoReplayFixtures: any[] = [frankfurtDemoReplayFixture, existingDemoReplayFixture];
+const defaultDemoReplayFixture =
+    demoReplayFixtures.find((fixture) => fixture.sessionId === DEMO_FEATURED_SESSION_ID) ||
+    frankfurtDemoReplayFixture;
 
-export const demoFullSession = {
-    id: DEMO_FEATURED_SESSION_ID,
-    userId: identifiedUserId,
-    hasRecording: true,
-    hasSuccessfulRecording: true,
-    playbackMode: 'screenshots' as const,
-    deviceInfo: demoReplayFixture.deviceInfo,
-    geoLocation: demoReplayFixture.geoLocation,
-    startTime: demoReplayFixture.startTime,
-    endTime: demoReplayFixture.endTime,
-    duration: demoReplayFixture.durationSeconds,
-    hierarchySnapshots: demoReplayFixture.hierarchySnapshots,
-    screenshotFrames,
-    screenshotFramesStatus: 'ready' as const,
-    screenshotFrameCount: demoReplayFixture.screenshotFrameCount,
-    screenshotFramesProcessedSegments: demoReplayFixture.screenshotFramesProcessedSegments,
-    screenshotFramesTotalSegments: demoReplayFixture.screenshotFramesTotalSegments,
-    events: sessionEvents,
-    networkRequests,
-    batches: [],
-    stats: demoReplayFixture.stats,
-    metrics: {
-        ...demoReplayFixture.metrics,
-        rageTapCount: 0,
-        deadTapCount,
-        apiSuccessCount: networkRequests.filter((request: any) => request.success).length,
-        apiErrorCount: networkRequests.filter((request: any) => !request.success).length,
-        apiTotalCount: networkRequests.length,
-        screensVisited: demoReplayFixture.screensVisited,
-        uniqueScreensCount: demoReplayFixture.screensVisited.length,
-        interactionScore,
-        explorationScore,
-    },
+const buildDemoFullSession = (demoReplayFixture: any) => {
+    const networkRequests = demoReplayFixture.networkRequests;
+    const sessionEvents = demoReplayFixture.events;
+    const replayMetadata = getDemoReplaySessionMetadata(demoReplayFixture.sessionId);
+    const startupEvent = sessionEvents.find((event: any) => event.type === 'app_startup') as { durationMs?: number } | undefined;
+    const appStartupTimeMs = Math.round(startupEvent?.durationMs ?? replayMetadata?.appStartupTimeMs ?? 0);
+    const platform = demoReplayFixture.deviceInfo.os?.toLowerCase() === 'android' ? 'android' : 'ios';
+    const screenshotFrames = demoReplayFixture.screenshotFrames.map((frame: any) => ({
+        timestamp: frame.timestamp,
+        url: `/demo/${demoReplayFixture.sessionId}/frames/${frame.file}`,
+        index: frame.index,
+    }));
+    const identifiedUserId =
+        demoReplayFixture.events.find((event: any) => event.type === 'user_identity_changed' && event.userId)?.userId ||
+        'demo-user';
+    const deadTapCount =
+        demoReplayFixture.metrics.deadTapCount ??
+        demoReplayFixture.events.filter((event: any) => event.frustrationKind === 'dead_tap').length;
+    const explorationScore = demoReplayFixture.metrics.explorationScore ?? Math.min(100, 40 + demoReplayFixture.screensVisited.length * 5);
+    const interactionScore = demoReplayFixture.metrics.interactionScore ?? Math.min(
+        100,
+        45 + Math.round((demoReplayFixture.metrics.touchCount + demoReplayFixture.metrics.gestureCount) / 5)
+    );
+
+    return {
+        id: demoReplayFixture.sessionId,
+        projectId: 'demo-project-001',
+        userId: identifiedUserId,
+        anonymousDisplayName: replayMetadata?.anonymousDisplayName,
+        deviceId: replayMetadata?.deviceId,
+        hasRecording: true,
+        hasSuccessfulRecording: true,
+        canOpenReplay: true,
+        status: 'ready',
+        effectiveStatus: 'ready',
+        playbackMode: 'screenshots' as const,
+        platform,
+        appVersion: demoReplayFixture.deviceInfo.appVersion || '1.0.0',
+        sdkVersion: demoReplayFixture.deviceInfo.sdkVersion || replayMetadata?.sdkVersion,
+        deviceInfo: demoReplayFixture.deviceInfo,
+        geoLocation: demoReplayFixture.geoLocation,
+        metadata: replayMetadata?.metadata,
+        startTime: demoReplayFixture.startTime,
+        endTime: demoReplayFixture.endTime,
+        duration: demoReplayFixture.durationSeconds,
+        durationSeconds: demoReplayFixture.durationSeconds,
+        appStartupTimeMs,
+        networkType: demoReplayFixture.metrics.networkType || replayMetadata?.networkType || 'wifi',
+        cellularGeneration: replayMetadata?.cellularGeneration,
+        recordingDeleted: false,
+        recordingDeletedAt: null,
+        retentionDays: replayMetadata?.retentionDays,
+        retentionTier: replayMetadata?.retentionTier,
+        isFirstSession: replayMetadata?.isFirstSession,
+        userFirstSeenAt: replayMetadata?.userFirstSeenAt,
+        visitorSessionNumber: replayMetadata?.visitorSessionNumber,
+        visitorFinalSessionNumber: replayMetadata?.visitorFinalSessionNumber,
+        checkoutStatus: replayMetadata?.checkoutStatus,
+        hierarchySnapshots: demoReplayFixture.hierarchySnapshots,
+        screenshotFrames,
+        screenshotFramesStatus: 'ready' as const,
+        screenshotFrameCount: demoReplayFixture.screenshotFrameCount,
+        screenshotFramesProcessedSegments: demoReplayFixture.screenshotFramesProcessedSegments,
+        screenshotFramesTotalSegments: demoReplayFixture.screenshotFramesTotalSegments,
+        events: sessionEvents,
+        networkRequests,
+        batches: [],
+        stats: demoReplayFixture.stats,
+        metrics: {
+            ...demoReplayFixture.metrics,
+            rageTapCount: demoReplayFixture.metrics.rageTapCount ?? 0,
+            deadTapCount,
+            apiSuccessCount: networkRequests.filter((request: any) => request.success).length,
+            apiErrorCount: networkRequests.filter((request: any) => !request.success).length,
+            apiTotalCount: networkRequests.length,
+            screensVisited: demoReplayFixture.screensVisited,
+            uniqueScreensCount: demoReplayFixture.screensVisited.length,
+            interactionScore,
+            explorationScore,
+            appStartupTimeMs,
+        },
+    };
 };
+
+export const demoFullSessionsById = Object.fromEntries(
+    demoReplayFixtures.map((fixture) => [fixture.sessionId, buildDemoFullSession(fixture)])
+) as Record<string, ReturnType<typeof buildDemoFullSession>>;
+
+export const demoFullSession =
+    demoFullSessionsById[DEMO_FEATURED_SESSION_ID] ||
+    buildDemoFullSession(defaultDemoReplayFixture);
+
+export const getDemoFullSession = (sessionId?: string) => (
+    (sessionId ? demoFullSessionsById[sessionId] : null) ||
+    demoFullSession
+);
 
 // ================================================================================
 // Issues Data (for Issues Feed)
 // ================================================================================
 
-export const demoIssuesResponse: { issues: Issue[], stats: any, total: number } = {
-    issues: [
-        {
-            id: 'issue-1',
-            projectId: 'demo-project',
-            fingerprint: 'fp-1',
-            issueType: 'crash',
-            title: 'NSRangeException',
-            subtitle: 'main.m in -[AppDelegate application:didFinishLaunchingWithOptions:]',
-            culprit: 'AppDelegate.m:42',
-            status: 'unresolved',
-            firstSeen: new Date(DEMO_NOW - 7 * day).toISOString(),
-            lastSeen: new Date(DEMO_NOW).toISOString(),
-            eventCount: 124,
-            userCount: 89,
-            events24h: 12,
-            events90d: 456,
-        },
-        {
-            id: 'issue-2',
-            projectId: 'demo-project',
-            fingerprint: 'fp-2',
-            issueType: 'error',
-            title: 'Network Error: 404',
-            subtitle: '/api/v1/auth/login',
-            culprit: 'NetworkClient.ts:156',
-            status: 'unresolved',
-            firstSeen: new Date(DEMO_NOW - 3 * day).toISOString(),
-            lastSeen: new Date(DEMO_NOW).toISOString(),
-            eventCount: 2456,
-            userCount: 1234,
-            events24h: 312,
-            events90d: 8900,
-        },
-        {
-            id: 'issue-3',
-            projectId: 'demo-project',
-            fingerprint: 'fp-3',
-            issueType: 'rage_tap',
-            title: 'Rage Taps on "Checkout" button',
-            subtitle: 'CartScreen',
-            status: 'ongoing',
-            firstSeen: new Date(DEMO_NOW - 1 * day).toISOString(),
-            lastSeen: new Date(DEMO_NOW).toISOString(),
-            eventCount: 45,
-            userCount: 32,
-            events24h: 15,
-            events90d: 120,
-        },
-    ],
-    stats: {
-        totalIssues: 3,
-        unresolvedCount: 2,
-        ongoingCount: 1,
-        resolvedCount: 0,
+const demoUserIds = (prefix: string, count: number) =>
+    Array.from({ length: count }, (_, index) => `${prefix}-user-${String(index + 1).padStart(3, '0')}`);
+
+const demoIssueItems: Issue[] = [
+    {
+        id: 'issue-crash-1',
+        projectId: 'demo-project',
+        fingerprint: 'crash-nsinvalidargument-checkout-total',
+        issueType: 'crash',
+        title: 'NSInvalidArgumentException',
+        subtitle: 'CartTotalView recomputed a removed price node',
+        culprit: 'CartTotalView.swift:88',
+        status: 'unresolved',
+        firstSeen: new Date(DEMO_NOW - 10 * day).toISOString(),
+        lastSeen: new Date(DEMO_NOW - 18 * 60 * 1000).toISOString(),
+        eventCount: 24,
+        userCount: 18,
+        events24h: 3,
+        events90d: 71,
+        sampleSessionId: 'demo-crash-session-001',
+        sampleAppVersion: '2.5.0',
+        affectedDevices: { 'iPhone 15 Pro': 10, 'iPhone 14': 7, 'iPhone 13': 4, 'iPad Pro 12.9"': 3 },
+        affectedVersions: { '2.5.0': 13, '2.4.1': 8, '2.4.0': 3 },
     },
-    total: 3,
+    {
+        id: 'issue-crash-2',
+        projectId: 'demo-project',
+        fingerprint: 'crash-android-null-product-card',
+        issueType: 'crash',
+        title: 'NullPointerException',
+        subtitle: 'ProductCardFragment.bindPrice(ProductCardFragment.kt:214)',
+        culprit: 'ProductCardFragment.kt:214',
+        status: 'unresolved',
+        firstSeen: new Date(DEMO_NOW - 8 * day).toISOString(),
+        lastSeen: new Date(DEMO_NOW - 41 * 60 * 1000).toISOString(),
+        eventCount: 18,
+        userCount: 14,
+        events24h: 2,
+        events90d: 48,
+        sampleSessionId: 'demo-crash-session-002',
+        sampleAppVersion: '2.5.0',
+        affectedDevices: { 'Samsung Galaxy S24': 7, 'Pixel 8 Pro': 5, 'Samsung Galaxy S23': 4, 'OnePlus 12': 2 },
+        affectedVersions: { '2.5.0': 10, '2.4.1': 6, '2.4.0': 2 },
+    },
+    {
+        id: 'issue-crash-3',
+        projectId: 'demo-project',
+        fingerprint: 'crash-exc-bad-access-image-cache',
+        issueType: 'crash',
+        title: 'EXC_BAD_ACCESS KERN_INVALID_ADDRESS',
+        subtitle: 'ImageCache.releaseSurface while replay thumbnail unloads',
+        culprit: 'ImageCache.mm:143',
+        status: 'ongoing',
+        firstSeen: new Date(DEMO_NOW - 6 * day).toISOString(),
+        lastSeen: new Date(DEMO_NOW - 64 * 60 * 1000).toISOString(),
+        eventCount: 11,
+        userCount: 9,
+        events24h: 1,
+        events90d: 33,
+        sampleSessionId: 'demo-crash-session-003',
+        sampleAppVersion: '2.4.1',
+        affectedDevices: { 'iPhone 15 Pro': 5, 'iPhone 15': 3, 'iPhone 14': 2, 'iPad Pro 12.9"': 1 },
+        affectedVersions: { '2.4.1': 7, '2.4.0': 4 },
+    },
+    {
+        id: 'issue-anr-1',
+        projectId: 'demo-project',
+        fingerprint: 'anr-main-thread-checkout-shipping-rates',
+        issueType: 'anr',
+        title: 'Main thread blocked fetching shipping rates',
+        subtitle: 'CheckoutActivity waits on /api/shipping/rates',
+        culprit: 'CheckoutActivity.kt:332',
+        status: 'ongoing',
+        firstSeen: new Date(DEMO_NOW - 5 * day).toISOString(),
+        lastSeen: new Date(DEMO_NOW - 22 * 60 * 1000).toISOString(),
+        eventCount: 15,
+        userCount: 12,
+        events24h: 2,
+        events90d: 39,
+        sampleSessionId: 'demo-anr-session-001',
+        sampleAppVersion: '2.5.0',
+        affectedDevices: { 'Samsung Galaxy S24': 6, 'Pixel 8 Pro': 4, 'Samsung Galaxy S23': 3, 'Pixel 7': 2 },
+        affectedVersions: { '2.5.0': 9, '2.4.1': 6 },
+    },
+    {
+        id: 'issue-anr-2',
+        projectId: 'demo-project',
+        fingerprint: 'anr-ios-main-thread-image-decode',
+        issueType: 'anr',
+        title: 'Main thread blocked decoding collection images',
+        subtitle: 'HomeFeedViewController renders 24 oversized tiles',
+        culprit: 'HomeFeedViewController.swift:411',
+        status: 'unresolved',
+        firstSeen: new Date(DEMO_NOW - 4 * day).toISOString(),
+        lastSeen: new Date(DEMO_NOW - 57 * 60 * 1000).toISOString(),
+        eventCount: 9,
+        userCount: 7,
+        events24h: 1,
+        events90d: 24,
+        sampleSessionId: 'demo-anr-session-002',
+        sampleAppVersion: '2.4.1',
+        affectedDevices: { 'iPhone 14': 4, 'iPhone 13': 2, 'iPhone 15 Pro': 2, 'iPad Pro 12.9"': 1 },
+        affectedVersions: { '2.4.1': 6, '2.4.0': 3 },
+    },
+    {
+        id: 'issue-error-1',
+        projectId: 'demo-project',
+        fingerprint: 'error-checkout-lineitems-undefined',
+        issueType: 'error',
+        title: 'TypeError',
+        subtitle: 'Cannot read properties of undefined (reading "lineItems")',
+        culprit: 'CheckoutSummary.tsx:74',
+        status: 'unresolved',
+        firstSeen: new Date(DEMO_NOW - 7 * day).toISOString(),
+        lastSeen: new Date(DEMO_NOW - 12 * 60 * 1000).toISOString(),
+        eventCount: 68,
+        userCount: 42,
+        events24h: 8,
+        events90d: 196,
+        sampleSessionId: 'demo-error-session-001',
+        sampleAppVersion: 'web-2026.05.1',
+        affectedDevices: { 'Chrome on Windows': 25, 'Safari on iPhone': 17, 'Chrome on macOS': 15, 'Firefox on Linux': 11 },
+        affectedVersions: { 'web-2026.05.1': 41, 'web-2026.05.0': 27 },
+    },
+    {
+        id: 'issue-error-2',
+        projectId: 'demo-project',
+        fingerprint: 'error-payment-intent-rejected',
+        issueType: 'error',
+        title: 'PaymentIntentError',
+        subtitle: 'Payment validation rejected stale cart token',
+        culprit: 'PaymentSheet.tsx:188',
+        status: 'ongoing',
+        firstSeen: new Date(DEMO_NOW - 5 * day).toISOString(),
+        lastSeen: new Date(DEMO_NOW - 31 * 60 * 1000).toISOString(),
+        eventCount: 41,
+        userCount: 29,
+        events24h: 5,
+        events90d: 128,
+        sampleSessionId: 'demo-error-session-002',
+        sampleAppVersion: 'web-2026.05.1',
+        affectedDevices: { 'Chrome on Android': 15, 'Safari on iPhone': 12, 'Chrome on Windows': 8, 'Chrome on macOS': 6 },
+        affectedVersions: { 'web-2026.05.1': 28, 'web-2026.05.0': 13 },
+    },
+    {
+        id: 'issue-error-3',
+        projectId: 'demo-project',
+        fingerprint: 'error-inventory-promise-rejection',
+        issueType: 'error',
+        title: 'Unhandled Promise Rejection',
+        subtitle: 'Inventory refresh timed out after product variant change',
+        culprit: 'InventoryClient.ts:129',
+        status: 'unresolved',
+        firstSeen: new Date(DEMO_NOW - 3 * day).toISOString(),
+        lastSeen: new Date(DEMO_NOW - 45 * 60 * 1000).toISOString(),
+        eventCount: 37,
+        userCount: 25,
+        events24h: 4,
+        events90d: 104,
+        sampleSessionId: 'demo-error-session-003',
+        sampleAppVersion: 'web-2026.05.0',
+        affectedDevices: { 'Chrome on Windows': 14, 'Edge on Windows': 9, 'Chrome on Android': 8, 'Safari on iPhone': 6 },
+        affectedVersions: { 'web-2026.05.0': 23, 'web-2026.04.2': 14 },
+    },
+    {
+        id: 'issue-rage-1',
+        projectId: 'demo-project',
+        fingerprint: 'rage-tap-checkout-button',
+        issueType: 'rage_tap',
+        title: 'Rage Taps on "Checkout" button',
+        subtitle: 'CartScreen',
+        status: 'ongoing',
+        firstSeen: new Date(DEMO_NOW - 1 * day).toISOString(),
+        lastSeen: new Date(DEMO_NOW).toISOString(),
+        eventCount: 22,
+        userCount: 17,
+        events24h: 3,
+        events90d: 64,
+        sampleSessionId: 'demo-err-001',
+    },
+];
+
+export const demoIssuesResponse: { issues: Issue[], stats: any, total: number } = {
+    issues: demoIssueItems,
+    stats: {
+        totalIssues: demoIssueItems.length,
+        unresolvedCount: demoIssueItems.filter((issue) => issue.status === 'unresolved').length,
+        ongoingCount: demoIssueItems.filter((issue) => issue.status === 'ongoing').length,
+        resolvedCount: demoIssueItems.filter((issue) => issue.status === 'resolved').length,
+    },
+    total: demoIssueItems.length,
 };
 
 export const demoIssueSessions: IssueSession[] = [
@@ -1383,88 +1853,651 @@ export const demoIssueSessions: IssueSession[] = [
 ];
 
 // ================================================================================
-// Errors & ANRs (for Errors and ANRs pages)
+// Crashes, Errors & ANRs (for Stability pages)
 // ================================================================================
 
-export const demoErrorsResponse: any = {
-    errors: [
-        {
-            id: 'err-1',
-            sessionId: 'session-1',
-            projectId: 'demo-project',
-            timestamp: new Date(DEMO_NOW - 15 * 60 * 1000).toISOString(),
-            errorType: 'JS Error',
-            errorName: 'TypeError',
-            message: 'Cannot read property "map" of undefined',
-            stack: `TypeError: Cannot read property 'map' of undefined
-    at ProductList.render (ProductList.tsx:42:18)
-    at renderWithHooks (react-dom.development.js:14985:18)
-    at mountIndeterminateComponent (react-dom.development.js:17811:13)
-    at beginWork (react-dom.development.js:19049:16)
-    at HTMLUnknownElement.callCallback (react-dom.development.js:3945:14)
-    at invokeGuardedCallbackDev (react-dom.development.js:3994:16)
-    at invokeGuardedCallback (react-dom.development.js:4056:31)
-    at beginWork$1 (react-dom.development.js:23964:7)
-    at performUnitOfWork (react-dom.development.js:22776:12)
-    at workLoopSync (react-dom.development.js:22707:5)`,
-            screenName: 'Products',
-            deviceModel: 'iPhone 14 Pro',
-            appVersion: '2.4.1'
-        },
-        {
-            id: 'err-2',
-            sessionId: 'session-2',
-            projectId: 'demo-project',
-            timestamp: new Date(DEMO_NOW - 45 * 60 * 1000).toISOString(),
-            errorType: 'JS Error',
-            errorName: 'ReferenceError',
-            message: 'config is not defined',
-            stack: `ReferenceError: config is not defined
-    at initializeApp (App.tsx:12:3)
-    at Object.456 (index.tsx:5:1)
-    at __webpack_require__ (bootstrap:19:1)
-    at startup:4:1
-    at index.tsx:10:1`,
-            screenName: 'Home',
-            deviceModel: 'Pixel 7',
-            appVersion: '2.4.0'
-        }
-    ],
+const demoCrashOverviewGroups = [
+    {
+        id: 'crash-group-nsinvalidargument-checkout-total',
+        name: 'NSInvalidArgumentException',
+        sampleCrashId: 'crash-nsinvalidargument-checkout-total',
+        sampleSessionId: 'demo-crash-session-001',
+        count: 312,
+        users: demoUserIds('crash-checkout-total', 184),
+        firstSeen: new Date(DEMO_NOW - 10 * day).toISOString(),
+        lastOccurred: new Date(DEMO_NOW - 18 * 60 * 1000).toISOString(),
+        affectedDevices: { 'iPhone 15 Pro': 132, 'iPhone 14': 92, 'iPhone 13': 50, 'iPad Pro 12.9"': 38 },
+        affectedVersions: { '2.5.0': 171, '2.4.1': 96, '2.4.0': 45 },
+        platform: 'ios',
+    },
+    {
+        id: 'crash-group-android-null-product-card',
+        name: 'NullPointerException',
+        sampleCrashId: 'crash-android-null-product-card',
+        sampleSessionId: 'demo-crash-session-002',
+        count: 228,
+        users: demoUserIds('crash-null-card', 137),
+        firstSeen: new Date(DEMO_NOW - 8 * day).toISOString(),
+        lastOccurred: new Date(DEMO_NOW - 41 * 60 * 1000).toISOString(),
+        affectedDevices: { 'Samsung Galaxy S24': 88, 'Pixel 8 Pro': 61, 'Samsung Galaxy S23': 49, 'OnePlus 12': 30 },
+        affectedVersions: { '2.5.0': 119, '2.4.1': 79, '2.4.0': 30 },
+        platform: 'android',
+    },
+    {
+        id: 'crash-group-exc-bad-access-image-cache',
+        name: 'EXC_BAD_ACCESS KERN_INVALID_ADDRESS',
+        sampleCrashId: 'crash-exc-bad-access-image-cache',
+        sampleSessionId: 'demo-crash-session-003',
+        count: 176,
+        users: demoUserIds('crash-image-cache', 112),
+        firstSeen: new Date(DEMO_NOW - 6 * day).toISOString(),
+        lastOccurred: new Date(DEMO_NOW - 64 * 60 * 1000).toISOString(),
+        affectedDevices: { 'iPhone 15 Pro': 72, 'iPhone 15': 44, 'iPhone 14': 39, 'iPad Pro 12.9"': 21 },
+        affectedVersions: { '2.4.1': 101, '2.4.0': 75 },
+        platform: 'ios',
+    },
+    {
+        id: 'crash-group-sigabrt-collection-mutated',
+        name: 'SIGABRT Collection was mutated while being enumerated',
+        sampleCrashId: 'crash-sigabrt-collection-mutated',
+        sampleSessionId: 'demo-crash-session-004',
+        count: 143,
+        users: demoUserIds('crash-collection-mutated', 88),
+        firstSeen: new Date(DEMO_NOW - 5 * day).toISOString(),
+        lastOccurred: new Date(DEMO_NOW - 2 * 60 * 60 * 1000).toISOString(),
+        affectedDevices: { 'iPhone 14': 57, 'iPhone 13': 36, 'iPhone 15': 29, 'iPhone 12': 21 },
+        affectedVersions: { '2.4.1': 84, '2.4.0': 59 },
+        platform: 'ios',
+    },
+    {
+        id: 'crash-group-kotlin-lateinit-session',
+        name: 'UninitializedPropertyAccessException',
+        sampleCrashId: 'crash-kotlin-lateinit-session',
+        sampleSessionId: 'demo-crash-session-005',
+        count: 118,
+        users: demoUserIds('crash-lateinit-session', 76),
+        firstSeen: new Date(DEMO_NOW - 4 * day).toISOString(),
+        lastOccurred: new Date(DEMO_NOW - 3 * 60 * 60 * 1000).toISOString(),
+        affectedDevices: { 'Samsung Galaxy S23': 42, 'Samsung Galaxy S24': 31, 'Pixel 8 Pro': 27, 'Pixel 7': 18 },
+        affectedVersions: { '2.5.0': 67, '2.4.1': 51 },
+        platform: 'android',
+    },
+    {
+        id: 'crash-group-index-out-of-bounds-carousel',
+        name: 'IndexOutOfBoundsException',
+        sampleCrashId: 'crash-index-out-of-bounds-carousel',
+        sampleSessionId: 'demo-crash-session-006',
+        count: 96,
+        users: demoUserIds('crash-carousel-index', 61),
+        firstSeen: new Date(DEMO_NOW - 3 * day).toISOString(),
+        lastOccurred: new Date(DEMO_NOW - 4 * 60 * 60 * 1000).toISOString(),
+        affectedDevices: { 'Pixel 8 Pro': 34, 'Samsung Galaxy S24': 28, 'OnePlus 12': 21, 'Samsung Galaxy S23': 13 },
+        affectedVersions: { '2.5.0': 62, '2.4.1': 34 },
+        platform: 'android',
+    },
+    {
+        id: 'crash-group-swift-decoding-corrupted',
+        name: 'DecodingError.dataCorrupted',
+        sampleCrashId: 'crash-swift-decoding-corrupted',
+        sampleSessionId: 'demo-crash-session-007',
+        count: 74,
+        users: demoUserIds('crash-decoding-corrupted', 49),
+        firstSeen: new Date(DEMO_NOW - 2 * day).toISOString(),
+        lastOccurred: new Date(DEMO_NOW - 5 * 60 * 60 * 1000).toISOString(),
+        affectedDevices: { 'iPhone 15 Pro': 29, 'iPhone 14': 25, 'iPhone 13': 20 },
+        affectedVersions: { '2.5.0': 43, '2.4.1': 31 },
+        platform: 'ios',
+    },
+    {
+        id: 'crash-group-react-native-fatal-bridge',
+        name: 'ReactNativeFatalException',
+        sampleCrashId: 'crash-react-native-fatal-bridge',
+        sampleSessionId: 'demo-crash-session-008',
+        count: 58,
+        users: demoUserIds('crash-rn-bridge', 37),
+        firstSeen: new Date(DEMO_NOW - day).toISOString(),
+        lastOccurred: new Date(DEMO_NOW - 7 * 60 * 60 * 1000).toISOString(),
+        affectedDevices: { 'iPhone 15 Pro': 21, 'Pixel 8 Pro': 18, 'Samsung Galaxy S24': 12, 'iPhone 14': 7 },
+        affectedVersions: { '2.5.0': 39, '2.4.1': 19 },
+        platform: 'mobile',
+    },
+];
+
+export const demoCrashReports: any[] = [
+    {
+        id: 'crash-nsinvalidargument-checkout-total',
+        sessionId: 'demo-crash-session-001',
+        projectId: 'demo-project',
+        timestamp: new Date(DEMO_NOW - 18 * 60 * 1000).toISOString(),
+        exceptionName: 'NSInvalidArgumentException',
+        reason: '-[__NSCFNumber lineItems]: unrecognized selector sent to instance while recalculating checkout totals',
+        status: 'new',
+        occurrenceCount: 312,
+        deviceMetadata: { model: 'iPhone 15 Pro', systemName: 'iOS', systemVersion: '18.1', appVersion: '2.5.0', freeMemory: 178257920, orientation: 'portrait', platform: 'ios' },
+        stackTrace: `Fatal Exception: NSInvalidArgumentException
+0   CoreFoundation                 0x0000000184a2e12c __exceptionPreprocess
+1   libobjc.A.dylib                0x0000000181d3fabc objc_exception_throw
+2   CoreFoundation                 0x0000000184b281dc -[NSObject(NSObject) doesNotRecognizeSelector:]
+3   RejourneyDemo                  0x0000000102f84a18 CartTotalView.recalculateTotals() + 88
+4   RejourneyDemo                  0x0000000102f83ef0 CheckoutViewController.refreshSummary() + 214
+5   RejourneyDemo                  0x0000000102f80d74 CheckoutCoordinator.applyPromotion(_:) + 119
+6   UIKitCore                      0x0000000188cf6c90 -[UIApplication sendAction:to:from:forEvent:]`,
+    },
+    {
+        id: 'crash-android-null-product-card',
+        sessionId: 'demo-crash-session-002',
+        projectId: 'demo-project',
+        timestamp: new Date(DEMO_NOW - 41 * 60 * 1000).toISOString(),
+        exceptionName: 'NullPointerException',
+        reason: 'Attempt to invoke virtual method Money.toDisplayString() on a null price',
+        status: 'new',
+        occurrenceCount: 228,
+        deviceMetadata: { model: 'Samsung Galaxy S24', systemName: 'Android', systemVersion: '14', osVersion: 'Android 14', appVersion: '2.5.0', freeMemory: 251658240, orientation: 'portrait', platform: 'android' },
+        stackTrace: `Fatal Exception: java.lang.NullPointerException
+    at com.rejourney.demo.product.ProductCardFragment.bindPrice(ProductCardFragment.kt:214)
+    at com.rejourney.demo.product.ProductCardFragment.bind(ProductCardFragment.kt:166)
+    at com.rejourney.demo.collections.CollectionAdapter.onBindViewHolder(CollectionAdapter.kt:87)
+    at androidx.recyclerview.widget.RecyclerView$Adapter.bindViewHolder(RecyclerView.java:7847)
+    at androidx.recyclerview.widget.RecyclerView$Recycler.tryBindViewHolderByDeadline(RecyclerView.java:6646)
+    at android.os.Looper.loopOnce(Looper.java:226)
+    at android.app.ActivityThread.main(ActivityThread.java:8910)`,
+    },
+    {
+        id: 'crash-exc-bad-access-image-cache',
+        sessionId: 'demo-crash-session-003',
+        projectId: 'demo-project',
+        timestamp: new Date(DEMO_NOW - 64 * 60 * 1000).toISOString(),
+        exceptionName: 'EXC_BAD_ACCESS KERN_INVALID_ADDRESS',
+        reason: 'ImageCache released a thumbnail surface while the replay preview was still drawing',
+        status: 'investigating',
+        occurrenceCount: 176,
+        deviceMetadata: { model: 'iPhone 15 Pro', systemName: 'iOS', systemVersion: '18.0', appVersion: '2.4.1', freeMemory: 96468992, orientation: 'landscape', platform: 'ios' },
+        stackTrace: `Exception Type: EXC_BAD_ACCESS (SIGSEGV)
+Exception Subtype: KERN_INVALID_ADDRESS at 0x0000000000000018
+0   RejourneyDemo                  0x00000001031112a4 ImageCache.releaseSurface(_:) + 143
+1   RejourneyDemo                  0x0000000103110ef8 ReplayThumbnailCell.prepareForReuse() + 52
+2   UIKitCore                      0x00000001892c41c8 -[UICollectionView _createPreparedCellForItemAtIndexPath:]
+3   UIKitCore                      0x00000001892c6cd0 -[UICollectionView _updateVisibleCellsNow:]
+4   QuartzCore                     0x000000018831571c CA::Transaction::commit()`,
+    },
+    {
+        id: 'crash-sigabrt-collection-mutated',
+        sessionId: 'demo-crash-session-004',
+        projectId: 'demo-project',
+        timestamp: new Date(DEMO_NOW - 2 * 60 * 60 * 1000).toISOString(),
+        exceptionName: 'SIGABRT',
+        reason: 'Collection was mutated while being enumerated during saved-items sync',
+        status: 'investigating',
+        occurrenceCount: 143,
+        deviceMetadata: { model: 'iPhone 14', systemName: 'iOS', systemVersion: '17.6', appVersion: '2.4.1', freeMemory: 132120576, orientation: 'portrait', platform: 'ios' },
+        stackTrace: `Fatal Exception: NSGenericException
+0   CoreFoundation                 0x0000000184a2e12c __exceptionPreprocess
+1   libobjc.A.dylib                0x0000000181d3fabc objc_exception_throw
+2   CoreFoundation                 0x0000000184a50b8c __NSFastEnumerationMutationHandler
+3   RejourneyDemo                  0x0000000102f549b0 SavedItemsStore.mergeRemoteChanges(_:) + 201
+4   RejourneyDemo                  0x0000000102f52a08 WishlistSyncOperation.main() + 77`,
+    },
+    {
+        id: 'crash-kotlin-lateinit-session',
+        sessionId: 'demo-crash-session-005',
+        projectId: 'demo-project',
+        timestamp: new Date(DEMO_NOW - 3 * 60 * 60 * 1000).toISOString(),
+        exceptionName: 'UninitializedPropertyAccessException',
+        reason: 'lateinit property sessionRecorder has not been initialized',
+        status: 'new',
+        occurrenceCount: 118,
+        deviceMetadata: { model: 'Samsung Galaxy S23', systemName: 'Android', systemVersion: '14', osVersion: 'Android 14', appVersion: '2.5.0', freeMemory: 188743680, orientation: 'portrait', platform: 'android' },
+        stackTrace: `Fatal Exception: kotlin.UninitializedPropertyAccessException
+    lateinit property sessionRecorder has not been initialized
+    at com.rejourney.demo.SessionBridge.getSessionRecorder(SessionBridge.kt:39)
+    at com.rejourney.demo.checkout.CheckoutActivity.onCreate(CheckoutActivity.kt:121)
+    at android.app.Activity.performCreate(Activity.java:8595)
+    at android.app.ActivityThread.performLaunchActivity(ActivityThread.java:4091)
+    at android.app.ActivityThread.handleLaunchActivity(ActivityThread.java:4258)`,
+    },
+    {
+        id: 'crash-index-out-of-bounds-carousel',
+        sessionId: 'demo-crash-session-006',
+        projectId: 'demo-project',
+        timestamp: new Date(DEMO_NOW - 4 * 60 * 60 * 1000).toISOString(),
+        exceptionName: 'IndexOutOfBoundsException',
+        reason: 'Index 6 out of bounds for length 6 after carousel diff update',
+        status: 'new',
+        occurrenceCount: 96,
+        deviceMetadata: { model: 'Pixel 8 Pro', systemName: 'Android', systemVersion: '15', osVersion: 'Android 15', appVersion: '2.5.0', freeMemory: 222298112, orientation: 'portrait', platform: 'android' },
+        stackTrace: `Fatal Exception: java.lang.IndexOutOfBoundsException
+    Index 6 out of bounds for length 6
+    at java.util.ArrayList.get(ArrayList.java:437)
+    at com.rejourney.demo.home.HeroCarouselAdapter.onBindViewHolder(HeroCarouselAdapter.kt:72)
+    at androidx.recyclerview.widget.RecyclerView$Adapter.bindViewHolder(RecyclerView.java:7847)
+    at androidx.recyclerview.widget.GapWorker.prefetchPositionWithDeadline(GapWorker.java:288)`,
+    },
+    {
+        id: 'crash-swift-decoding-corrupted',
+        sessionId: 'demo-crash-session-007',
+        projectId: 'demo-project',
+        timestamp: new Date(DEMO_NOW - 5 * 60 * 60 * 1000).toISOString(),
+        exceptionName: 'DecodingError.dataCorrupted',
+        reason: 'Product recommendations payload contained an invalid ISO-8601 timestamp',
+        status: 'new',
+        occurrenceCount: 74,
+        deviceMetadata: { model: 'iPhone 15 Pro', systemName: 'iOS', systemVersion: '18.1', appVersion: '2.5.0', freeMemory: 151519232, orientation: 'portrait', platform: 'ios' },
+        stackTrace: `Fatal error: DecodingError.dataCorrupted
+0   RejourneyDemo                  0x0000000102f7369c RecommendationsClient.decodeResponse(_:) + 99
+1   RejourneyDemo                  0x0000000102f71a4c RecommendationsClient.fetchNextBatch() + 152
+2   RejourneyDemo                  0x0000000102f24d10 ProductDetailViewModel.loadRecommendations() + 67
+3   libswift_Concurrency.dylib     0x00000001a0bb1f44 completeTaskWithClosure(swift::AsyncContext*)`,
+    },
+    {
+        id: 'crash-react-native-fatal-bridge',
+        sessionId: 'demo-crash-session-008',
+        projectId: 'demo-project',
+        timestamp: new Date(DEMO_NOW - 7 * 60 * 60 * 1000).toISOString(),
+        exceptionName: 'ReactNativeFatalException',
+        reason: 'Malformed native payload passed through CheckoutBridge.applyDiscount',
+        status: 'investigating',
+        occurrenceCount: 58,
+        deviceMetadata: { model: 'Pixel 8 Pro', systemName: 'Android', systemVersion: '15', osVersion: 'Android 15', appVersion: '2.5.0', freeMemory: 201326592, orientation: 'portrait', platform: 'android' },
+        stackTrace: `Fatal Exception: com.facebook.react.common.JavascriptException
+    TypeError: Cannot convert undefined value to object
+    at applyDiscount (CheckoutBridge.ts:44:21)
+    at onPress (PromoCodeSheet.tsx:109:18)
+    at _performTransitionSideEffects (Pressability.js:757:18)
+    at com.facebook.react.modules.core.ExceptionsManagerModule.reportFatalException(ExceptionsManagerModule.java:88)`,
+    },
+];
+
+export const demoCrashesOverview: any = {
+    groups: demoCrashOverviewGroups,
     summary: {
-        total: 2,
-        jsErrors: 2,
-        promiseRejections: 0,
-        unhandledExceptions: 0
-    }
+        issues: demoCrashOverviewGroups.length,
+        events: demoCrashOverviewGroups.reduce((sum, group) => sum + group.count, 0),
+        users: demoCrashOverviewGroups.reduce((sum, group) => sum + group.users.length, 0),
+    },
+    truncated: false,
 };
 
-export const demoANRsResponse: any = {
-    anrs: [
-        {
-            id: 'anr-1',
-            sessionId: 'session-1',
-            projectId: 'demo-project',
-            timestamp: new Date(DEMO_NOW - 20 * 60 * 1000).toISOString(),
-            durationMs: 5400,
-            threadState: `Thread[main,5,main]
-    at android.view.ViewRootImpl.draw(ViewRootImpl.java:4567)
-    at android.view.ViewRootImpl.performDraw(ViewRootImpl.java:4231)
+const demoErrorRecords = [
+    {
+        id: 'err-checkout-lineitems',
+        sessionId: 'demo-error-session-001',
+        projectId: 'demo-project',
+        timestamp: new Date(DEMO_NOW - 12 * 60 * 1000).toISOString(),
+        firstSeen: new Date(DEMO_NOW - 7 * day).toISOString(),
+        lastSeen: new Date(DEMO_NOW - 12 * 60 * 1000).toISOString(),
+        errorType: 'js_error',
+        errorName: 'TypeError',
+        message: 'Cannot read properties of undefined (reading "lineItems")',
+        stack: `TypeError: Cannot read properties of undefined (reading 'lineItems')
+    at CheckoutSummary (CheckoutSummary.tsx:74:31)
+    at renderWithHooks (react-dom.development.js:16305:18)
+    at updateFunctionComponent (react-dom.development.js:19588:20)
+    at beginWork (react-dom.development.js:21601:16)
+    at performUnitOfWork (react-dom.development.js:26557:12)
+    at workLoopSync (react-dom.development.js:26466:5)`,
+        screenName: 'Checkout',
+        deviceModel: 'Chrome on Windows',
+        osVersion: 'Windows 11',
+        appVersion: 'web-2026.05.1',
+        fingerprint: 'error-checkout-lineitems-undefined',
+        status: 'open',
+        createdAt: new Date(DEMO_NOW - 7 * day).toISOString(),
+        platform: 'web',
+        occurrenceCount: 684,
+        userCount: 321,
+        affectedDevices: { 'Chrome on Windows': 253, 'Safari on iPhone': 176, 'Chrome on macOS': 152, 'Firefox on Linux': 103 },
+        affectedVersions: { 'web-2026.05.1': 411, 'web-2026.05.0': 273 },
+    },
+    {
+        id: 'err-payment-intent',
+        sessionId: 'demo-error-session-002',
+        projectId: 'demo-project',
+        timestamp: new Date(DEMO_NOW - 31 * 60 * 1000).toISOString(),
+        firstSeen: new Date(DEMO_NOW - 5 * day).toISOString(),
+        lastSeen: new Date(DEMO_NOW - 31 * 60 * 1000).toISOString(),
+        errorType: 'unhandled_exception',
+        errorName: 'PaymentIntentError',
+        message: 'Payment validation rejected stale cart token',
+        stack: `PaymentIntentError: Payment validation rejected stale cart token
+    at confirmPaymentIntent (PaymentSheet.tsx:188:17)
+    at async submitCheckout (CheckoutForm.tsx:241:9)
+    at async onSubmit (CheckoutForm.tsx:318:5)
+    at async HTMLFormElement.dispatchSubmit (forms.ts:42:13)`,
+        screenName: 'Payment',
+        deviceModel: 'Safari on iPhone',
+        osVersion: 'iOS 18',
+        appVersion: 'web-2026.05.1',
+        fingerprint: 'error-payment-intent-rejected',
+        status: 'investigating',
+        createdAt: new Date(DEMO_NOW - 5 * day).toISOString(),
+        platform: 'web',
+        occurrenceCount: 472,
+        userCount: 258,
+        affectedDevices: { 'Chrome on Android': 171, 'Safari on iPhone': 132, 'Chrome on Windows': 96, 'Chrome on macOS': 73 },
+        affectedVersions: { 'web-2026.05.1': 318, 'web-2026.05.0': 154 },
+    },
+    {
+        id: 'err-inventory-timeout',
+        sessionId: 'demo-error-session-003',
+        projectId: 'demo-project',
+        timestamp: new Date(DEMO_NOW - 45 * 60 * 1000).toISOString(),
+        firstSeen: new Date(DEMO_NOW - 3 * day).toISOString(),
+        lastSeen: new Date(DEMO_NOW - 45 * 60 * 1000).toISOString(),
+        errorType: 'promise_rejection',
+        errorName: 'Unhandled Promise Rejection',
+        message: 'Inventory refresh timed out after product variant change',
+        stack: `UnhandledPromiseRejection: Inventory refresh timed out after product variant change
+    at InventoryClient.refreshVariant (InventoryClient.ts:129:13)
+    at async ProductDetailPage.onVariantChange (ProductDetailPage.tsx:211:7)
+    at async VariantSelector.handleSelect (VariantSelector.tsx:58:5)`,
+        screenName: 'Product Detail',
+        deviceModel: 'Chrome on Windows',
+        osVersion: 'Windows 11',
+        appVersion: 'web-2026.05.0',
+        fingerprint: 'error-inventory-promise-rejection',
+        status: 'open',
+        createdAt: new Date(DEMO_NOW - 3 * day).toISOString(),
+        platform: 'web',
+        occurrenceCount: 356,
+        userCount: 204,
+        affectedDevices: { 'Chrome on Windows': 142, 'Edge on Windows': 88, 'Chrome on Android': 74, 'Safari on iPhone': 52 },
+        affectedVersions: { 'web-2026.05.0': 229, 'web-2026.04.2': 127 },
+    },
+    {
+        id: 'err-search-abort',
+        sessionId: 'demo-error-session-004',
+        projectId: 'demo-project',
+        timestamp: new Date(DEMO_NOW - 58 * 60 * 1000).toISOString(),
+        firstSeen: new Date(DEMO_NOW - 4 * day).toISOString(),
+        lastSeen: new Date(DEMO_NOW - 58 * 60 * 1000).toISOString(),
+        errorType: 'js_error',
+        errorName: 'AbortError',
+        message: 'Search request was aborted after filter reset',
+        stack: `AbortError: Search request was aborted after filter reset
+    at SearchClient.fetchResults (SearchClient.ts:88:11)
+    at async SearchResults.useEffect.load (SearchResults.tsx:132:19)
+    at async flushPassiveEffectsImpl (react-dom.development.js:27039:9)`,
+        screenName: 'Search',
+        deviceModel: 'Firefox on Linux',
+        osVersion: 'Ubuntu 24.04',
+        appVersion: 'web-2026.05.1',
+        fingerprint: 'error-search-abort-filter-reset',
+        status: 'open',
+        createdAt: new Date(DEMO_NOW - 4 * day).toISOString(),
+        platform: 'web',
+        occurrenceCount: 244,
+        userCount: 139,
+        affectedDevices: { 'Firefox on Linux': 91, 'Chrome on macOS': 74, 'Chrome on Windows': 48, 'Safari on iPhone': 31 },
+        affectedVersions: { 'web-2026.05.1': 162, 'web-2026.05.0': 82 },
+    },
+    {
+        id: 'err-profile-json',
+        sessionId: 'demo-error-session-005',
+        projectId: 'demo-project',
+        timestamp: new Date(DEMO_NOW - 76 * 60 * 1000).toISOString(),
+        firstSeen: new Date(DEMO_NOW - 2 * day).toISOString(),
+        lastSeen: new Date(DEMO_NOW - 76 * 60 * 1000).toISOString(),
+        errorType: 'js_error',
+        errorName: 'SyntaxError',
+        message: 'Unexpected end of JSON input while loading saved addresses',
+        stack: `SyntaxError: Unexpected end of JSON input
+    at JSON.parse (<anonymous>)
+    at parseSavedAddresses (ProfileAddresses.ts:42:15)
+    at async AccountPage.loadProfile (AccountPage.tsx:119:21)
+    at async AccountPage.tsx:151:7`,
+        screenName: 'Account',
+        deviceModel: 'Chrome on Android',
+        osVersion: 'Android 14',
+        appVersion: 'web-2026.05.1',
+        fingerprint: 'error-profile-address-json',
+        status: 'open',
+        createdAt: new Date(DEMO_NOW - 2 * day).toISOString(),
+        platform: 'web',
+        occurrenceCount: 193,
+        userCount: 121,
+        affectedDevices: { 'Chrome on Android': 83, 'Safari on iPhone': 61, 'Chrome on Windows': 49 },
+        affectedVersions: { 'web-2026.05.1': 118, 'web-2026.05.0': 75 },
+    },
+    {
+        id: 'err-carousel-range',
+        sessionId: 'demo-error-session-006',
+        projectId: 'demo-project',
+        timestamp: new Date(DEMO_NOW - 2 * 60 * 60 * 1000).toISOString(),
+        firstSeen: new Date(DEMO_NOW - day).toISOString(),
+        lastSeen: new Date(DEMO_NOW - 2 * 60 * 60 * 1000).toISOString(),
+        errorType: 'js_error',
+        errorName: 'RangeError',
+        message: 'Invalid array length while hydrating recommendation carousel',
+        stack: `RangeError: Invalid array length
+    at buildCarouselPages (RecommendationCarousel.tsx:57:23)
+    at RecommendationCarousel (RecommendationCarousel.tsx:92:17)
+    at renderWithHooks (react-dom.development.js:16305:18)
+    at mountIndeterminateComponent (react-dom.development.js:20074:13)`,
+        screenName: 'Home',
+        deviceModel: 'Safari on iPhone',
+        osVersion: 'iOS 18',
+        appVersion: 'web-2026.05.1',
+        fingerprint: 'error-carousel-range',
+        status: 'open',
+        createdAt: new Date(DEMO_NOW - day).toISOString(),
+        platform: 'web',
+        occurrenceCount: 126,
+        userCount: 83,
+        affectedDevices: { 'Safari on iPhone': 52, 'Chrome on macOS': 39, 'Chrome on Windows': 35 },
+        affectedVersions: { 'web-2026.05.1': 126 },
+    },
+];
+
+const demoErrorGroups = demoErrorRecords.map((error) => ({
+    errorName: error.errorName,
+    message: error.message,
+    count: error.occurrenceCount,
+    firstSeen: error.firstSeen,
+    lastSeen: error.lastSeen,
+    sampleSessionId: error.sessionId,
+    platform: error.platform,
+    users: demoUserIds(error.id, error.userCount),
+    affectedDevices: error.affectedDevices,
+    affectedVersions: error.affectedVersions,
+    screens: [error.screenName],
+    sampleError: {
+        id: error.id,
+        sessionId: error.sessionId,
+        timestamp: error.timestamp,
+        deviceModel: error.deviceModel,
+        appVersion: error.appVersion,
+        stack: error.stack,
+        screenName: error.screenName,
+        platform: error.platform,
+    },
+}));
+
+export const demoErrorsResponse: any = {
+    errors: demoErrorRecords,
+    grouped: demoErrorGroups,
+    summary: {
+        total: demoErrorRecords.reduce((sum, error) => sum + error.occurrenceCount, 0),
+        jsErrors: demoErrorRecords
+            .filter((error) => error.errorType === 'js_error')
+            .reduce((sum, error) => sum + error.occurrenceCount, 0),
+        promiseRejections: demoErrorRecords
+            .filter((error) => error.errorType === 'promise_rejection')
+            .reduce((sum, error) => sum + error.occurrenceCount, 0),
+        unhandledExceptions: demoErrorRecords
+            .filter((error) => error.errorType === 'unhandled_exception')
+            .reduce((sum, error) => sum + error.occurrenceCount, 0),
+    },
+    pagination: {
+        offset: 0,
+        limit: 100,
+        total: demoErrorRecords.length,
+    },
+};
+
+const demoAnrRecords = [
+    {
+        id: 'anr-checkout-shipping-rates',
+        sessionId: 'demo-anr-session-001',
+        projectId: 'demo-project',
+        timestamp: new Date(DEMO_NOW - 22 * 60 * 1000).toISOString(),
+        durationMs: 9400,
+        threadState: `Thread[main,5,main]
+    at java.lang.Object.wait(Native Method)
+    at okhttp3.internal.connection.RealCall.getResponseWithInterceptorChain(RealCall.kt:201)
+    at com.rejourney.demo.checkout.ShippingRepository.fetchRatesBlocking(ShippingRepository.kt:64)
+    at com.rejourney.demo.checkout.CheckoutActivity.renderShippingOptions(CheckoutActivity.kt:332)
     at android.view.ViewRootImpl.performTraversals(ViewRootImpl.java:3123)
-    at android.view.ViewRootImpl.doTraversal(ViewRootImpl.java:2121)
-    at android.view.Choreographer$FrameDisplayEventReceiver.run(Choreographer.java:1123)
-    at android.os.Handler.handleCallback(Handler.java:938)
-    at android.os.Handler.dispatchMessage(Handler.java:99)
-    at android.os.Looper.loop(Looper.java:223)
-    at android.app.ActivityThread.main(ActivityThread.java:7656)
-    at java.lang.reflect.Method.invoke(Native Method)`,
-            deviceMetadata: {
-                deviceModel: 'Samsung Galaxy S23',
-                osVersion: 'Android 14',
-                appVersion: '2.4.1'
-            },
-            status: 'open',
-            occurrenceCount: 1,
-            userCount: 1
-        }
-    ]
+    at android.os.Looper.loopOnce(Looper.java:226)
+    at android.app.ActivityThread.main(ActivityThread.java:8910)`,
+        deviceMetadata: {
+            deviceModel: 'Samsung Galaxy S24',
+            model: 'Samsung Galaxy S24',
+            osVersion: 'Android 14',
+            appVersion: '2.5.0',
+            platform: 'android',
+            os: 'android',
+        },
+        platform: 'android',
+        status: 'open',
+        occurrenceCount: 164,
+        userCount: 97,
+        groupKey: 'checkout-shipping-rates',
+    },
+    {
+        id: 'anr-home-image-decode',
+        sessionId: 'demo-anr-session-002',
+        projectId: 'demo-project',
+        timestamp: new Date(DEMO_NOW - 57 * 60 * 1000).toISOString(),
+        durationMs: 7200,
+        threadState: `Thread[main,5,main]
+    at ImageIO_PNG_Data::decodeImage(void*, unsigned long)
+    at UIKitCore UIImage._initWithData(_:scale:)
+    at RejourneyDemo HomeFeedViewController.renderHeroTiles(HomeFeedViewController.swift:411)
+    at RejourneyDemo HomeFeedViewController.collectionView(_:cellForItemAt:)
+    at UIKitCore -[UICollectionView _createPreparedCellForItemAtIndexPath:]
+    at CoreFoundation __CFRUNLOOP_IS_CALLING_OUT_TO_A_SOURCE0_PERFORM_FUNCTION__`,
+        deviceMetadata: {
+            deviceModel: 'iPhone 14',
+            model: 'iPhone 14',
+            osVersion: 'iOS 17.6',
+            appVersion: '2.4.1',
+            platform: 'ios',
+            os: 'ios',
+        },
+        platform: 'ios',
+        status: 'open',
+        occurrenceCount: 118,
+        userCount: 73,
+        groupKey: 'home-image-decode',
+    },
+    {
+        id: 'anr-cart-diffable-snapshot',
+        sessionId: 'demo-anr-session-003',
+        projectId: 'demo-project',
+        timestamp: new Date(DEMO_NOW - 81 * 60 * 1000).toISOString(),
+        durationMs: 6100,
+        threadState: `Thread[main,5,main]
+    at RejourneyDemo CartDiffableDataSource.applySnapshot(_:animatingDifferences:)
+    at RejourneyDemo CartViewController.rebuildSnapshot(CartViewController.swift:266)
+    at RejourneyDemo CartViewModel.reconcilePromotions(CartViewModel.swift:183)
+    at libdispatch.dylib _dispatch_main_queue_callback_4CF
+    at CoreFoundation __CFRUNLOOP_IS_SERVICING_THE_MAIN_DISPATCH_QUEUE__`,
+        deviceMetadata: {
+            deviceModel: 'iPhone 15 Pro',
+            model: 'iPhone 15 Pro',
+            osVersion: 'iOS 18.1',
+            appVersion: '2.5.0',
+            platform: 'ios',
+            os: 'ios',
+        },
+        platform: 'ios',
+        status: 'investigating',
+        occurrenceCount: 92,
+        userCount: 61,
+        groupKey: 'cart-diffable-snapshot',
+    },
+    {
+        id: 'anr-search-room-migration',
+        sessionId: 'demo-anr-session-004',
+        projectId: 'demo-project',
+        timestamp: new Date(DEMO_NOW - 2 * 60 * 60 * 1000).toISOString(),
+        durationMs: 12800,
+        threadState: `Thread[main,5,main]
+    at androidx.room.RoomOpenHelper.onUpgrade(RoomOpenHelper.kt:96)
+    at android.database.sqlite.SQLiteOpenHelper.getDatabaseLocked(SQLiteOpenHelper.java:416)
+    at com.rejourney.demo.search.SearchHistoryStore.readRecentQueries(SearchHistoryStore.kt:58)
+    at com.rejourney.demo.search.SearchActivity.onCreate(SearchActivity.kt:102)
+    at android.app.Activity.performCreate(Activity.java:8595)`,
+        deviceMetadata: {
+            deviceModel: 'Pixel 8 Pro',
+            model: 'Pixel 8 Pro',
+            osVersion: 'Android 15',
+            appVersion: '2.5.0',
+            platform: 'android',
+            os: 'android',
+        },
+        platform: 'android',
+        status: 'open',
+        occurrenceCount: 86,
+        userCount: 54,
+        groupKey: 'search-room-migration',
+    },
+    {
+        id: 'anr-product-main-thread-sort',
+        sessionId: 'demo-anr-session-005',
+        projectId: 'demo-project',
+        timestamp: new Date(DEMO_NOW - 3 * 60 * 60 * 1000).toISOString(),
+        durationMs: 5600,
+        threadState: `Thread[main,5,main]
+    at java.util.TimSort.sort(TimSort.java:245)
+    at java.util.Arrays.sort(Arrays.java:1344)
+    at kotlin.collections.CollectionsKt___CollectionsKt.sortedWith(_Collections.kt:1075)
+    at com.rejourney.demo.product.ProductGridPresenter.sortVisibleProducts(ProductGridPresenter.kt:149)
+    at com.rejourney.demo.product.ProductGridFragment.onFilterChanged(ProductGridFragment.kt:221)`,
+        deviceMetadata: {
+            deviceModel: 'Samsung Galaxy S23',
+            model: 'Samsung Galaxy S23',
+            osVersion: 'Android 14',
+            appVersion: '2.4.1',
+            platform: 'android',
+            os: 'android',
+        },
+        platform: 'android',
+        status: 'open',
+        occurrenceCount: 73,
+        userCount: 49,
+        groupKey: 'product-main-thread-sort',
+    },
+    {
+        id: 'anr-profile-keychain-read',
+        sessionId: 'demo-anr-session-006',
+        projectId: 'demo-project',
+        timestamp: new Date(DEMO_NOW - 5 * 60 * 60 * 1000).toISOString(),
+        durationMs: 6800,
+        threadState: `Thread[main,5,main]
+    at Security SecItemCopyMatching
+    at RejourneyDemo SecureTokenStore.readToken(SecureTokenStore.swift:47)
+    at RejourneyDemo AccountCoordinator.restoreSession(AccountCoordinator.swift:88)
+    at RejourneyDemo ProfileViewController.viewDidAppear(ProfileViewController.swift:133)
+    at UIKitCore -[UIViewController _setViewAppearState:isAnimating:]`,
+        deviceMetadata: {
+            deviceModel: 'iPhone 13',
+            model: 'iPhone 13',
+            osVersion: 'iOS 17.5',
+            appVersion: '2.4.0',
+            platform: 'ios',
+            os: 'ios',
+        },
+        platform: 'ios',
+        status: 'investigating',
+        occurrenceCount: 61,
+        userCount: 42,
+        groupKey: 'profile-keychain-read',
+    },
+];
+
+export const demoANRsResponse: any = {
+    anrs: demoAnrRecords,
+    totalGroups: demoAnrRecords.length,
+    totalEvents: demoAnrRecords.reduce((sum, anr) => sum + anr.occurrenceCount, 0),
 };

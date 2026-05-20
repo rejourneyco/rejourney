@@ -13,7 +13,7 @@ import {
 import { isUuid } from "~/shared/lib/ids";
 import { isPublicRoutePath } from "~/shared/lib/publicRoutePaths";
 import * as demoApiData from '~/shared/data/demoApiData';
-import { demoSessions } from '~/shared/data/demoData';
+import { demoProjects, demoSessions } from '~/shared/data/demoData';
 
 // Re-export types for consumers
 export type { IssueSession };
@@ -516,7 +516,7 @@ export async function getSessions(): Promise<ApiSessionSummary[]> {
 export async function getSession(sessionId: string): Promise<ApiSession> {
   // Demo mode: check for mock session
   if (isDemoMode()) {
-    return demoApiData.demoFullSession as unknown as ApiSession;
+    return demoApiData.getDemoFullSession(sessionId) as unknown as ApiSession;
   }
   return fetchWithCache<ApiSession>(`/api/session/${sessionId}`);
 }
@@ -561,7 +561,7 @@ export async function getSessionCore(
   options?: { frameUrlMode?: 'signed' | 'proxy' | 'none' }
 ): Promise<ApiSession> {
   if (isDemoMode()) {
-    return demoApiData.demoFullSession as unknown as ApiSession;
+    return demoApiData.getDemoFullSession(sessionId) as unknown as ApiSession;
   }
   const params = new URLSearchParams();
   if (options?.frameUrlMode) params.set('frameUrlMode', options.frameUrlMode);
@@ -601,7 +601,7 @@ export async function getSessionFrames(
   options?: { frameUrlMode?: 'signed' | 'proxy' | 'none' }
 ): Promise<ApiSessionFrames> {
   if (isDemoMode()) {
-    const demo = demoApiData.demoFullSession as any;
+    const demo = demoApiData.getDemoFullSession(sessionId) as any;
     return {
       screenshotFrames: demo.screenshotFrames || [],
       screenshotFramesStatus: demo.screenshotFramesStatus || 'none',
@@ -681,7 +681,7 @@ async function getDemoSessionWithRealHierarchy(sessionId: string): Promise<any> 
     }
 
     return {
-      ...demoApiData.demoFullSession,
+      ...demoApiData.getDemoFullSession(sessionId),
       hierarchySnapshots: hierarchySnapshots.map(snap => ({
         timestamp: snap.timestamp,
         screenName: null,
@@ -690,7 +690,7 @@ async function getDemoSessionWithRealHierarchy(sessionId: string): Promise<any> 
     };
   } catch (err) {
     console.error('Failed to load real hierarchy for demo session:', err);
-    return demoApiData.demoFullSession as unknown as ApiSession;
+    return demoApiData.getDemoFullSession(sessionId) as unknown as ApiSession;
   }
 }
 
@@ -1228,10 +1228,23 @@ export interface CreateProjectRequest {
   webMaxObservabilityMinutes?: number;
 }
 
+function demoProjectToApiProject(project: Project): ApiProject {
+  return {
+    ...project,
+    platforms: project.platforms,
+    recordingEnabled: project.recordingEnabled,
+    sampleRate: project.sampleRate ?? 100,
+  };
+}
+
 /**
  * Get all projects
  */
 export async function getProjects(): Promise<ApiProject[]> {
+  if (isDemoMode()) {
+    return demoProjects.map(demoProjectToApiProject);
+  }
+
   const data = await fetchWithCache<{ projects: ApiProject[] | ApiProject | undefined }>(
     '/api/projects',
     {},
@@ -1273,6 +1286,14 @@ export async function createProject(projectData: CreateProjectRequest): Promise<
  * Get a specific project by ID
  */
 export async function getProject(projectId: string): Promise<ApiProject> {
+  if (isDemoMode()) {
+    const project = demoProjects.find((demoProject) => demoProject.id === projectId) || demoProjects[0];
+    if (!project) {
+      throw new Error('Demo project not found');
+    }
+    return demoProjectToApiProject(project);
+  }
+
   return fetchJson<ApiProject>(`/api/projects/${projectId}`);
 }
 
@@ -1280,6 +1301,19 @@ export async function getProject(projectId: string): Promise<ApiProject> {
  * Update a project
  */
 export async function updateProject(projectId: string, data: { name?: string; maxRecordingMinutes?: number; webMaxObservabilityMinutes?: number; sampleRate?: number; recordingFps?: number; recordingEnabled?: boolean; rejourneyEnabled?: boolean; textInputMasking?: 'all' | 'secure_only'; bundleId?: string; packageName?: string; webDomain?: string | null; webAllowedDomains?: string[] | null }): Promise<ApiProject> {
+  if (isDemoMode()) {
+    const project = demoProjects.find((demoProject) => demoProject.id === projectId) || demoProjects[0];
+    if (!project) {
+      throw new Error('Demo project not found');
+    }
+    return {
+      ...demoProjectToApiProject(project),
+      ...data,
+      webDomain: data.webDomain === undefined ? project.webDomain : data.webDomain,
+      webAllowedDomains: data.webAllowedDomains ?? project.webAllowedDomains,
+    };
+  }
+
   const response = await fetchJson<{ project: ApiProject }>(`/api/projects/${projectId}`, {
     method: 'PUT',
     body: JSON.stringify(data),
@@ -2127,7 +2161,18 @@ export interface CrashReport {
  */
 export async function getCrashes(projectId: string, page: number = 1, limit: number = 20): Promise<{ crashes: CrashMetadata[], totalPages: number }> {
   if (isDemoMode()) {
-    return { crashes: (demoApiData.demoIssuesResponse.issues as any[]).filter(i => i.issueType === 'crash'), totalPages: 1 };
+    const crashes = (demoApiData.demoCrashReports as CrashReport[]).map((crash) => ({
+      id: crash.id,
+      sessionId: crash.sessionId,
+      projectId: crash.projectId,
+      timestamp: crash.timestamp,
+      exceptionName: crash.exceptionName,
+      reason: crash.reason,
+      deviceMetadata: crash.deviceMetadata,
+      status: crash.status,
+      occurrenceCount: crash.occurrenceCount || 1,
+    }));
+    return { crashes, totalPages: Math.max(1, Math.ceil(crashes.length / limit)) };
   }
   const params = new URLSearchParams({ page: page.toString(), limit: limit.toString() });
   return fetchJson<{ crashes: CrashMetadata[], totalPages: number }>(`/api/projects/${projectId}/crashes?${params.toString()}`);
@@ -2138,8 +2183,10 @@ export async function getCrashes(projectId: string, page: number = 1, limit: num
  */
 export async function getCrash(projectId: string, crashId: string): Promise<CrashReport> {
   if (isDemoMode()) {
-    const issue = (demoApiData.demoIssuesResponse.issues as any[]).find(i => i.id === crashId);
-    return issue || (demoApiData.demoIssuesResponse.issues[0] as any);
+    return (
+      (demoApiData.demoCrashReports as CrashReport[]).find((crash) => crash.id === crashId)
+      || (demoApiData.demoCrashReports[0] as CrashReport)
+    );
   }
   return fetchJson<CrashReport>(`/api/projects/${projectId}/crashes/${crashId}`);
 }
@@ -2773,7 +2820,7 @@ export async function getHeatmapsOverview(projectId: string, timeRange?: string,
   if (timeRange) params.set('timeRange', timeRange);
   if (normalizedPlatform) params.set('platform', normalizedPlatform);
   const endpoint = `/api/overview/heatmaps?${params.toString()}`;
-  const cacheKey = `overview:heatmaps:${projectId}:${timeRange || 'all'}:${normalizedPlatform || 'all'}:v6`;
+  const cacheKey = `overview:heatmaps:${projectId}:${timeRange || 'all'}:${normalizedPlatform || 'all'}:v7`;
   return fetchWithCache<HeatmapOverviewResponse>(endpoint, {}, cacheKey, ANALYTICS_BOOTSTRAP_CACHE_TTL);
 }
 
@@ -2791,7 +2838,7 @@ export async function getHeatmapScreenOverview(projectId: string, screenName: st
   if (timeRange) params.set('timeRange', timeRange);
   if (normalizedPlatform) params.set('platform', normalizedPlatform);
   const endpoint = `/api/overview/heatmaps/screen?${params.toString()}`;
-  const cacheKey = `overview:heatmaps:screen:${projectId}:${screenName}:${timeRange || 'all'}:${normalizedPlatform || 'all'}:v3`;
+  const cacheKey = `overview:heatmaps:screen:${projectId}:${screenName}:${timeRange || 'all'}:${normalizedPlatform || 'all'}:v4`;
   return fetchWithCache<HeatmapScreenOverviewResponse>(endpoint, {}, cacheKey, ANALYTICS_BOOTSTRAP_CACHE_TTL);
 }
 
@@ -2799,35 +2846,36 @@ export async function getErrorsOverview(projectId: string, timeRange?: string, p
   const normalizedPlatform = platform && platform !== 'all' ? platform : undefined;
   if (isDemoMode()) {
     const response = await getErrors(projectId, { timeRange });
-    const filteredGrouped = (response.grouped || []).filter((group: any) => (
+    const grouped = (response.grouped || []) as any[];
+    const filteredGrouped = grouped.filter((group) => (
       !normalizedPlatform || matchesPlatformFilter(group.sampleError?.platform ?? group.platform, normalizedPlatform)
     ));
     return {
       groups: filteredGrouped.map((group, index) => ({
-        fingerprint: `${group.errorName}:${group.message}:${index}`,
+        fingerprint: group.fingerprint || `${group.errorName}:${group.message}:${index}`,
         errorName: group.errorName,
         message: group.message,
         count: group.count,
-        users: group.sampleSessionId ? [group.sampleSessionId] : [],
+        users: group.users || (group.sampleSessionId ? [group.sampleSessionId] : []),
         firstSeen: group.firstSeen,
         lastOccurred: group.lastSeen,
-        affectedDevices: {},
-        affectedVersions: {},
-        screens: [],
+        affectedDevices: group.affectedDevices || {},
+        affectedVersions: group.affectedVersions || {},
+        screens: group.screens || [],
         sampleError: {
-          id: group.sampleSessionId || `demo-error-${index}`,
-          sessionId: group.sampleSessionId,
-          timestamp: group.lastSeen,
-          deviceModel: null,
-          appVersion: null,
-          stack: null,
-          screenName: null,
+          id: group.sampleError?.id || group.sampleSessionId || `demo-error-${index}`,
+          sessionId: group.sampleError?.sessionId ?? group.sampleSessionId,
+          timestamp: group.sampleError?.timestamp || group.lastSeen,
+          deviceModel: group.sampleError?.deviceModel ?? null,
+          appVersion: group.sampleError?.appVersion ?? null,
+          stack: group.sampleError?.stack ?? null,
+          screenName: group.sampleError?.screenName ?? null,
         },
       })),
       summary: {
         issues: filteredGrouped.length,
         events: filteredGrouped.reduce((sum, group) => sum + Number(group.count || 0), 0),
-        users: filteredGrouped.length,
+        users: filteredGrouped.reduce((sum, group) => sum + (group.users?.length || (group.sampleSessionId ? 1 : 0)), 0),
       },
       truncated: false,
     };
@@ -2844,9 +2892,16 @@ export async function getErrorsOverview(projectId: string, timeRange?: string, p
 export async function getCrashesOverview(projectId: string, timeRange?: string, platform?: string): Promise<CrashesOverviewResponse> {
   const normalizedPlatform = platform && platform !== 'all' ? platform : undefined;
   if (isDemoMode()) {
+    const groups = (demoApiData.demoCrashesOverview.groups || []).filter((group: any) => (
+      !normalizedPlatform || matchesPlatformFilter(group.platform, normalizedPlatform)
+    ));
     return {
-      groups: [],
-      summary: { issues: 0, events: 0, users: 0 },
+      groups,
+      summary: {
+        issues: groups.length,
+        events: groups.reduce((sum: number, group: CrashOverviewGroup) => sum + Number(group.count || 0), 0),
+        users: groups.reduce((sum: number, group: CrashOverviewGroup) => sum + (group.users?.length || 0), 0),
+      },
       truncated: false,
     };
   }
@@ -2880,82 +2935,13 @@ export async function getANRsOverview(projectId: string, timeRange?: string, pla
   if (timeRange) params.set('timeRange', timeRange);
   if (normalizedPlatform) params.set('platform', normalizedPlatform);
   const endpoint = `/api/overview/anrs?${params.toString()}`;
-  const cacheKey = `overview:anrs:${projectId}:${timeRange || 'all'}:${normalizedPlatform || 'all'}`;
+  const cacheKey = `overview:anrs:${projectId}:${timeRange || 'all'}:${normalizedPlatform || 'all'}:v2`;
   return fetchWithCache<ANRsOverviewResponse>(endpoint, {}, cacheKey, ANALYTICS_BOOTSTRAP_CACHE_TTL);
 }
 
 export async function getRetentionCohorts(projectId?: string, timeRange?: string): Promise<RetentionCohortsResponse> {
   if (isDemoMode()) {
-    const weeklyActiveUsers = new Map<string, Set<string>>();
-    const userFirstWeek = new Map<string, string>();
-
-    for (const session of demoSessions) {
-      const userKey = session.userId || session.anonymousId || session.anonymousDisplayName || session.deviceId;
-      if (!userKey) continue;
-
-      const startedAt = new Date(session.startedAt);
-      if (Number.isNaN(startedAt.getTime())) continue;
-
-      const utcDate = new Date(Date.UTC(
-        startedAt.getUTCFullYear(),
-        startedAt.getUTCMonth(),
-        startedAt.getUTCDate()
-      ));
-      utcDate.setUTCDate(utcDate.getUTCDate() - utcDate.getUTCDay());
-      const weekStartKey = utcDate.toISOString().slice(0, 10);
-
-      if (!weeklyActiveUsers.has(weekStartKey)) {
-        weeklyActiveUsers.set(weekStartKey, new Set<string>());
-      }
-      weeklyActiveUsers.get(weekStartKey)!.add(userKey);
-
-      const existingFirstWeek = userFirstWeek.get(userKey);
-      if (!existingFirstWeek || weekStartKey < existingFirstWeek) {
-        userFirstWeek.set(userKey, weekStartKey);
-      }
-    }
-
-    const weekKeys = Array.from(weeklyActiveUsers.keys()).sort((a, b) => a.localeCompare(b));
-    const weekIndex = new Map(weekKeys.map((key, index) => [key, index]));
-    const cohortMembers = new Map<string, Set<string>>();
-
-    for (const [userKey, firstWeek] of userFirstWeek.entries()) {
-      if (!cohortMembers.has(firstWeek)) {
-        cohortMembers.set(firstWeek, new Set<string>());
-      }
-      cohortMembers.get(firstWeek)!.add(userKey);
-    }
-
-    return {
-      rows: weekKeys
-        .map((cohortWeek) => {
-          const members = cohortMembers.get(cohortWeek);
-          const index = weekIndex.get(cohortWeek);
-          if (!members || index === undefined) return null;
-
-          return {
-            weekStartKey: cohortWeek,
-            users: members.size,
-            retention: Array.from({ length: 6 }, (_, offset) => {
-              const targetWeek = weekKeys[index + offset];
-              if (!targetWeek) return null;
-              if (offset === 0) return 100;
-
-              const activeUsers = weeklyActiveUsers.get(targetWeek);
-              if (!activeUsers) return 0;
-
-              let retained = 0;
-              for (const userKey of members) {
-                if (activeUsers.has(userKey)) retained += 1;
-              }
-
-              return (retained / members.size) * 100;
-            }),
-          };
-        })
-        .filter((row): row is RetentionCohortRow => Boolean(row))
-        .slice(-6),
-    };
+    return demoApiData.demoRetentionCohorts;
   }
 
   const params = new URLSearchParams();

@@ -15,7 +15,6 @@ import {
 } from './sessionClientEvidence.js';
 const MAX_SCREEN_PATH_LENGTH = 200;
 const UNKNOWN_STATUS_CODE_KEY = 'unknown';
-const WEB_LONG_TASK_ANR_THRESHOLD_MS = 1_000;
 const WEB_ATTRIBUTION_METADATA_KEYS = [
     'webReferral',
     'webReferrer',
@@ -255,9 +254,93 @@ export async function processEventsArtifact(job: any, session: any, metrics: any
         return `${bucketX.toFixed(2)},${bucketY.toFixed(2)}`;
     };
 
-    // Default screen dimensions (can be overridden by device info)
-    const screenWidth = deviceInfo?.screenWidth || 375;
-    const screenHeight = deviceInfo?.screenHeight || 812;
+    const eventTimestampMs = (event: any): number | null => {
+        const eventAt = coerceTimestampToDate(event?.timestamp);
+        return eventAt ? Math.round(eventAt.getTime()) : null;
+    };
+
+    const normalizedScreenFromEvent = (event: any): string | null => {
+        const rawScreenName =
+            event?.screen ||
+            event?.screenName ||
+            event?.payload?.screenName ||
+            event?.payload?.name ||
+            event?.payload?.route;
+        if (!rawScreenName) return null;
+        const trimmed = String(rawScreenName).trim();
+        return trimmed.length > 0 ? trimmed : null;
+    };
+
+    const ensureHeatmapStats = (screenName: string, firstSeenMs: number | null) => {
+        if (!screenHeatmapData[screenName]) {
+            screenHeatmapData[screenName] = {
+                touchBuckets: {},
+                rageTapBuckets: {},
+                totalTouches: 0,
+                totalRageTaps: 0,
+                firstSeenMs,
+            };
+        } else if (!screenHeatmapData[screenName].firstSeenMs && firstSeenMs) {
+            screenHeatmapData[screenName].firstSeenMs = firstSeenMs;
+        }
+        return screenHeatmapData[screenName];
+    };
+
+    const recordScreenSeen = (screenName: string | null, firstSeenMs: number | null): string | null => {
+        if (!screenName) return null;
+        if (screenPath.length === 0 || screenPath[screenPath.length - 1] !== screenName) {
+            screenPath.push(screenName);
+        }
+        currentScreen = screenName;
+        ensureHeatmapStats(screenName, firstSeenMs);
+        return screenName;
+    };
+
+    const getCoordinateFrame = (event: any): { width: number; height: number } => {
+        const width = Number(
+            event?.viewportWidth ??
+            event?.payload?.viewportWidth ??
+            deviceInfo?.viewportWidth ??
+            deviceInfo?.screenWidth ??
+            375
+        );
+        const height = Number(
+            event?.viewportHeight ??
+            event?.payload?.viewportHeight ??
+            deviceInfo?.viewportHeight ??
+            deviceInfo?.screenHeight ??
+            812
+        );
+        return {
+            width: Number.isFinite(width) && width > 0 ? width : 375,
+            height: Number.isFinite(height) && height > 0 ? height : 812,
+        };
+    };
+
+    const addHeatmapTouch = (
+        screenName: string | null,
+        x: unknown,
+        y: unknown,
+        event: any,
+        isRageTap: boolean,
+        firstSeenMs: number | null,
+    ) => {
+        if (!screenName) return;
+        const tapX = Number(x);
+        const tapY = Number(y);
+        if (!Number.isFinite(tapX) || !Number.isFinite(tapY) || tapX < 0 || tapY < 0) return;
+
+        const { width, height } = getCoordinateFrame(event);
+        const bucket = bucketCoordinate(tapX, tapY, width, height);
+        const stats = ensureHeatmapStats(screenName, firstSeenMs);
+        stats.touchBuckets[bucket] = (stats.touchBuckets[bucket] || 0) + 1;
+        stats.totalTouches++;
+
+        if (isRageTap) {
+            stats.rageTapBuckets[bucket] = (stats.rageTapBuckets[bucket] || 0) + 1;
+            stats.totalRageTaps++;
+        }
+    };
 
     for (const event of eventsData) {
         const eventAt = coerceTimestampToDate(event.timestamp);
@@ -268,46 +351,15 @@ export async function processEventsArtifact(job: any, session: any, metrics: any
         const gestureType = (event.gestureType || '').toLowerCase();
 
         if (type === 'navigation') {
-            const screenName = event.screen || event.screenName || event.payload?.screenName || event.payload?.name || event.payload?.route;
-            if (screenName) {
-                const trimmedScreen = String(screenName).trim();
-                if (!trimmedScreen) {
-                    continue;
-                }
-                if (screenPath.length === 0 || screenPath[screenPath.length - 1] !== trimmedScreen) {
-                    screenPath.push(trimmedScreen);
-                }
-                currentScreen = trimmedScreen;
-                // Initialize heatmap data for this screen if not exists (capture first-seen timestamp)
-                if (!screenHeatmapData[trimmedScreen]) {
-                    // Extract timestamp from event - it could be in various formats
-                    let eventTimestampMs: number | null = null;
-                    if (event.timestamp) {
-                        // Timestamp could be ms since epoch or Date string
-                        const ts = event.timestamp;
-                        if (typeof ts === 'number') {
-                            // If timestamp is less than year 2000 in ms, it's probably seconds
-                            eventTimestampMs = ts > 946684800000 ? ts : ts * 1000;
-                        } else if (typeof ts === 'string') {
-                            const parsed = Date.parse(ts);
-                            if (!isNaN(parsed)) eventTimestampMs = parsed;
-                        }
-                    }
-                    screenHeatmapData[trimmedScreen] = {
-                        touchBuckets: {},
-                        rageTapBuckets: {},
-                        totalTouches: 0,
-                        totalRageTaps: 0,
-                        firstSeenMs: eventTimestampMs ? Math.round(eventTimestampMs) : null,
-                    };
-                }
-            }
+            recordScreenSeen(normalizedScreenFromEvent(event), eventTimestampMs(event));
         }
 
         if (type === 'motion' || type === 'scroll_motion' || type === 'pan_motion') {
             if (type.includes('scroll')) scrollCount++;
-        } else if (type === 'touch' || type === 'tap' || gestureType === 'tap' || gestureType === 'single_tap') {
+        } else if (type === 'touch' || type === 'tap' || type === 'click' || gestureType === 'tap' || gestureType === 'single_tap') {
             touchCount++;
+            const firstSeenMs = eventTimestampMs(event);
+            const touchScreen = recordScreenSeen(normalizedScreenFromEvent(event), firstSeenMs) || currentScreen;
             const tapX = event.x || event.touches?.[0]?.x || 0;
             const tapY = event.y || event.touches?.[0]?.y || 0;
             const tapTime = event.timestamp || 0;
@@ -320,27 +372,7 @@ export async function processEventsArtifact(job: any, session: any, metrics: any
             recentTaps.push({ x: tapX, y: tapY, timestamp: tapTime });
 
             // Record touch coordinate for heatmap (if we have a current screen)
-            if (currentScreen && tapX > 0 && tapY > 0) {
-                const bucket = bucketCoordinate(tapX, tapY, screenWidth, screenHeight);
-                if (!screenHeatmapData[currentScreen]) {
-                    screenHeatmapData[currentScreen] = {
-                        touchBuckets: {},
-                        rageTapBuckets: {},
-                        totalTouches: 0,
-                        totalRageTaps: 0,
-                        firstSeenMs: null, // Will be set by navigation event
-                    };
-                }
-                screenHeatmapData[currentScreen].touchBuckets[bucket] =
-                    (screenHeatmapData[currentScreen].touchBuckets[bucket] || 0) + 1;
-                screenHeatmapData[currentScreen].totalTouches++;
-
-                if (isRageTap) {
-                    screenHeatmapData[currentScreen].rageTapBuckets[bucket] =
-                        (screenHeatmapData[currentScreen].rageTapBuckets[bucket] || 0) + 1;
-                    screenHeatmapData[currentScreen].totalRageTaps++;
-                }
-            }
+            addHeatmapTouch(touchScreen, tapX, tapY, event, isRageTap, firstSeenMs);
         } else if (type === 'scroll') {
             scrollCount++;
         } else if (type === 'gesture') {
@@ -350,6 +382,8 @@ export async function processEventsArtifact(job: any, session: any, metrics: any
             } else if (gestureType.includes('scroll') || gestureType.includes('swipe')) {
                 scrollCount++;
             }
+            const firstSeenMs = eventTimestampMs(event);
+            const gestureScreen = recordScreenSeen(normalizedScreenFromEvent(event), firstSeenMs) || currentScreen;
             // Extract touch coordinates from gesture events (iOS SDK sends touches in the touches array)
             // This is critical for heatmap data - gestures with tap-like types have coordinate data
             if (gestureType === 'tap' || gestureType === 'single_tap' || gestureType === 'double_tap' ||
@@ -363,30 +397,15 @@ export async function processEventsArtifact(job: any, session: any, metrics: any
                         const tapY = touch.y || 0;
                         const tapTime = touch.timestamp || event.timestamp || 0;
 
-                        if (currentScreen && tapX > 0 && tapY > 0) {
-                            const bucket = bucketCoordinate(tapX, tapY, screenWidth, screenHeight);
-                            if (!screenHeatmapData[currentScreen]) {
-                                screenHeatmapData[currentScreen] = {
-                                    touchBuckets: {},
-                                    rageTapBuckets: {},
-                                    totalTouches: 0,
-                                    totalRageTaps: 0,
-                                    firstSeenMs: null,
-                                };
-                            }
-                            screenHeatmapData[currentScreen].touchBuckets[bucket] =
-                                (screenHeatmapData[currentScreen].touchBuckets[bucket] || 0) + 1;
-                            screenHeatmapData[currentScreen].totalTouches++;
-
+                        if (gestureScreen) {
                             // Track for rage tap detection
                             while (recentTaps.length > 0 && tapTime - recentTaps[0].timestamp > 500) recentTaps.shift();
                             const nearbyTaps = recentTaps.filter(t => Math.abs(t.x - tapX) < 50 && Math.abs(t.y - tapY) < 50);
-                            if (nearbyTaps.length >= 1) {
+                            const isRageTap = nearbyTaps.length >= 1;
+                            if (isRageTap) {
                                 rageTapCount++;
-                                screenHeatmapData[currentScreen].rageTapBuckets[bucket] =
-                                    (screenHeatmapData[currentScreen].rageTapBuckets[bucket] || 0) + 1;
-                                screenHeatmapData[currentScreen].totalRageTaps++;
                             }
+                            addHeatmapTouch(gestureScreen, tapX, tapY, event, isRageTap, firstSeenMs);
                             recentTaps.push({ x: tapX, y: tapY, timestamp: tapTime });
                         }
                     }
@@ -394,43 +413,17 @@ export async function processEventsArtifact(job: any, session: any, metrics: any
                     // Fallback: try to get coordinates from event directly
                     const tapX = event.x || 0;
                     const tapY = event.y || 0;
-                    if (currentScreen && tapX > 0 && tapY > 0) {
-                        const bucket = bucketCoordinate(tapX, tapY, screenWidth, screenHeight);
-                        if (!screenHeatmapData[currentScreen]) {
-                            screenHeatmapData[currentScreen] = {
-                                touchBuckets: {},
-                                rageTapBuckets: {},
-                                totalTouches: 0,
-                                totalRageTaps: 0,
-                                firstSeenMs: null,
-                            };
-                        }
-                        screenHeatmapData[currentScreen].touchBuckets[bucket] =
-                            (screenHeatmapData[currentScreen].touchBuckets[bucket] || 0) + 1;
-                        screenHeatmapData[currentScreen].totalTouches++;
-                    }
+                    addHeatmapTouch(gestureScreen, tapX, tapY, event, false, firstSeenMs);
                 }
             }
-        } else if (type === 'rage_tap') {
+        } else if (type === 'rage_tap' || type === 'rage_click') {
             rageTapCount++;
             // Also record rage tap coordinates for heatmap
+            const firstSeenMs = eventTimestampMs(event);
+            const rageScreen = recordScreenSeen(normalizedScreenFromEvent(event), firstSeenMs) || currentScreen;
             const tapX = event.x || event.touches?.[0]?.x || 0;
             const tapY = event.y || event.touches?.[0]?.y || 0;
-            if (currentScreen && tapX > 0 && tapY > 0) {
-                const bucket = bucketCoordinate(tapX, tapY, screenWidth, screenHeight);
-                if (!screenHeatmapData[currentScreen]) {
-                    screenHeatmapData[currentScreen] = {
-                        touchBuckets: {},
-                        rageTapBuckets: {},
-                        totalTouches: 0,
-                        totalRageTaps: 0,
-                        firstSeenMs: null,
-                    };
-                }
-                screenHeatmapData[currentScreen].rageTapBuckets[bucket] =
-                    (screenHeatmapData[currentScreen].rageTapBuckets[bucket] || 0) + 1;
-                screenHeatmapData[currentScreen].totalRageTaps++;
-            }
+            addHeatmapTouch(rageScreen, tapX, tapY, event, true, firstSeenMs);
         } else if (type === 'dead_tap' || gestureType === 'dead_tap') {
             deadTapCount++;
         } else if (type === 'api_call' || type === 'network_request') {
@@ -495,13 +488,11 @@ export async function processEventsArtifact(job: any, session: any, metrics: any
         } else if (type === 'anr' || type === 'long_task' || type === 'ui_freeze') {
             const durationMs = Math.max(0, Math.round(Number(event.durationMs) || 0));
             const threadState = typeof event.threadState === 'string' ? event.threadState : '';
-            const isWebShortLongTask =
+            const isWebLongTask =
                 deviceInfo?.platform === 'web' &&
-                (type === 'long_task' || threadState === 'main_thread_long_task') &&
-                durationMs > 0 &&
-                durationMs < WEB_LONG_TASK_ANR_THRESHOLD_MS;
+                (type === 'long_task' || threadState === 'main_thread_long_task');
 
-            if (isWebShortLongTask) {
+            if (isWebLongTask) {
                 continue;
             }
 

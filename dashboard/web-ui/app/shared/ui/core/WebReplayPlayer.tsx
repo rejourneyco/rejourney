@@ -92,9 +92,10 @@ export default function WebReplayPlayer({
                     UNSAFE_replayCanvas: true,
                     triggerFocus: false,
                 });
+                const initialOffsetMs = Math.max(0, Math.min(currentTime, durationSeconds || currentTime) * 1000);
                 replayerRef.current = replayer;
                 playerIsPlayingRef.current = false;
-                replayer.pause(0);
+                replayer.pause(initialOffsetMs);
             } catch (error) {
                 if (!cancelled) {
                     console.error('Failed to initialize rrweb replay:', error);
