@@ -22,4 +22,15 @@ describe('web network interceptor ignores Rejourney internals', () => {
     expect(shouldIgnoreNetworkUrl('http://app.example.com/api/orders', config)).toBe(false);
     expect(shouldIgnoreNetworkUrl('http://app.example.com/healthz', config)).toBe(true);
   });
+
+  it('does not ignore non-Rejourney app API traffic on the configured apiUrl host', () => {
+    const config = mergeWebConfig('rj_live_test', {
+      apiUrl: 'https://app.example.com',
+    });
+
+    expect(shouldIgnoreNetworkUrl('https://app.example.com/api/orders', config)).toBe(false);
+    expect(shouldIgnoreNetworkUrl('https://app.example.com/api/projects?team=alpha', config)).toBe(false);
+    expect(shouldIgnoreNetworkUrl('https://app.example.com/api/sdk/config', config)).toBe(true);
+    expect(shouldIgnoreNetworkUrl('https://app.example.com/api/ingest/presign', config)).toBe(true);
+  });
 });

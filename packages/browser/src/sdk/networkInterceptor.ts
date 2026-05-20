@@ -38,14 +38,12 @@ export function shouldIgnoreNetworkUrl(url: string, config: RejourneyWebConfig):
     return true;
   }
 
-  const ignoreUrls = [
-    config.apiUrl || '',
-    ...(config.networkIgnoreUrls || []),
-  ];
+  const ignoreUrls = config.networkIgnoreUrls || [];
 
   return ignoreUrls.some((pattern) => {
     if (!pattern) return false;
     if (typeof pattern === 'string') return url.includes(pattern);
+    pattern.lastIndex = 0;
     return pattern.test(url);
   });
 }
