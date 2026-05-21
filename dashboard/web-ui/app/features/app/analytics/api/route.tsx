@@ -307,6 +307,33 @@ const getRiskBadgeClass = (riskScore: number): string => {
     return 'border-emerald-300 bg-emerald-50 text-emerald-700';
 };
 
+const getFailurePresetButtonClass = (selected: boolean): string =>
+    selected
+        ? 'border-emerald-300 bg-emerald-50 text-emerald-800'
+        : 'border-transparent bg-transparent text-slate-500 hover:bg-[#f8fafc] hover:text-slate-800';
+
+const getFailureCodeFilterClass = (code: string, selected: boolean): string => {
+    if (selected) return 'border-emerald-300 bg-emerald-50 text-emerald-800';
+
+    const statusCode = parseStatusCode(code);
+    if (statusCode !== null && statusCode >= 500) {
+        return 'border-slate-200 bg-white text-slate-600 hover:border-rose-200 hover:bg-rose-50 hover:text-rose-800';
+    }
+    if (statusCode !== null && statusCode >= 400) {
+        return 'border-slate-200 bg-white text-slate-600 hover:border-amber-200 hover:bg-amber-50 hover:text-amber-800';
+    }
+    return 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-[#f8fafc]';
+};
+
+const getFailureCodeCountClass = (code: string, selected: boolean): string => {
+    if (selected) return 'text-emerald-700';
+
+    const statusCode = parseStatusCode(code);
+    if (statusCode !== null && statusCode >= 500) return 'text-rose-500';
+    if (statusCode !== null && statusCode >= 400) return 'text-amber-600';
+    return 'text-slate-400';
+};
+
 const parseScaledNumber = (rawValue: string): number | null => {
     const match = rawValue.trim().match(/^(\d+(?:\.\d+)?)(k|m|ms|%)?$/i);
     if (!match) return null;
@@ -1150,75 +1177,82 @@ export const ApiAnalytics: React.FC = () => {
 
                                 <div className="mt-4 grid gap-3 xl:grid-cols-[minmax(0,1fr)_minmax(260px,0.46fr)]">
                                     <div className="dashboard-inner-surface p-3">
-                                        <div className="mb-2 flex items-center gap-2 text-[11px] font-semibold uppercase text-slate-500">
-                                            <Filter className="h-3.5 w-3.5" />
-                                            Failure codes
-                                            <span className="ml-auto text-slate-400">{failureCodeSummary}</span>
+                                        <div className="mb-2 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2">
+                                            <div className="flex min-w-0 items-center gap-2 text-[11px] font-semibold uppercase text-slate-500">
+                                                <Filter className="h-3.5 w-3.5" />
+                                                Failure codes
+                                            </div>
+                                            <span className="min-w-0 truncate text-xs font-medium text-slate-500">{failureCodeSummary}</span>
                                         </div>
-                                        <div className="flex flex-wrap gap-2">
-                                            <button
-                                                type="button"
-                                                onClick={() => setSelectedFailureCodes(availableFailureCodes.map(({ code }) => code))}
-                                                className={`border px-2.5 py-1.5 text-xs font-semibold ${
-                                                    matchesSelectedFailureCodes(availableFailureCodes.map(({ code }) => code)) && availableFailureCodes.length > 0
-                                                        ? 'border-blue-700 bg-blue-700 text-white'
-                                                        : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
-                                                }`}
-                                            >
-                                                All
-                                            </button>
-                                            <button
-                                                type="button"
-                                                onClick={() => setSelectedFailureCodes(serverFailureCodes)}
-                                                disabled={serverFailureCodes.length === 0}
-                                                className={`border px-2.5 py-1.5 text-xs font-semibold ${
-                                                    matchesSelectedFailureCodes(serverFailureCodes) && serverFailureCodes.length > 0
-                                                        ? 'border-blue-700 bg-blue-700 text-white'
-                                                        : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
-                                                } disabled:pointer-events-none disabled:opacity-40`}
-                                            >
-                                                5xx
-                                            </button>
-                                            {has400FailureCode && (
+
+                                        <div className="flex flex-wrap items-center gap-1.5">
+                                            <div className="mr-1 flex items-center gap-1 border-r border-slate-200 pr-2">
                                                 <button
                                                     type="button"
-                                                    onClick={() => setSelectedFailureCodes(non400FailureCodes)}
-                                                    className={`border px-2.5 py-1.5 text-xs font-semibold ${
-                                                        matchesSelectedFailureCodes(non400FailureCodes)
-                                                            ? 'border-blue-700 bg-blue-700 text-white'
-                                                            : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
-                                                    }`}
+                                                    onClick={() => {
+                                                        const allCodesSelected = matchesSelectedFailureCodes(availableFailureCodeValues) && availableFailureCodeValues.length > 0;
+                                                        setSelectedFailureCodes(allCodesSelected ? [] : availableFailureCodeValues);
+                                                    }}
+                                                    className={`inline-flex h-7 items-center border px-2.5 text-xs font-medium transition ${getFailurePresetButtonClass(
+                                                        matchesSelectedFailureCodes(availableFailureCodeValues) && availableFailureCodeValues.length > 0,
+                                                    )}`}
                                                 >
-                                                    No 400
+                                                    All
                                                 </button>
-                                            )}
-                                            {availableFailureCodes.map(({ code, total }) => {
-                                                const selected = selectedFailureCodeSet.has(code);
-                                                return (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setSelectedFailureCodes(serverFailureCodes)}
+                                                    disabled={serverFailureCodes.length === 0}
+                                                    className={`inline-flex h-7 items-center border px-2.5 text-xs font-medium transition ${getFailurePresetButtonClass(
+                                                        matchesSelectedFailureCodes(serverFailureCodes) && serverFailureCodes.length > 0,
+                                                    )} disabled:pointer-events-none disabled:opacity-40`}
+                                                >
+                                                    5xx
+                                                </button>
+                                                {has400FailureCode && (
                                                     <button
-                                                        key={code}
                                                         type="button"
-                                                        onClick={() => {
-                                                            setSelectedFailureCodes((current) => {
-                                                                const next = new Set(current);
-                                                                if (next.has(code)) next.delete(code);
-                                                                else next.add(code);
-                                                                return availableFailureCodes
-                                                                    .map((option) => option.code)
-                                                                    .filter((optionCode) => next.has(optionCode));
-                                                            });
-                                                        }}
-                                                        className={`inline-flex items-center gap-2 border px-2.5 py-1.5 text-xs font-semibold ${
-                                                            selected
-                                                                ? 'border-blue-700 bg-blue-700 text-white'
-                                                                : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
-                                                        }`}
+                                                        onClick={() => setSelectedFailureCodes(non400FailureCodes)}
+                                                        disabled={non400FailureCodes.length === 0}
+                                                        className={`inline-flex h-7 items-center border px-2.5 text-xs font-medium transition ${getFailurePresetButtonClass(
+                                                            matchesSelectedFailureCodes(non400FailureCodes) && non400FailureCodes.length > 0,
+                                                        )} disabled:pointer-events-none disabled:opacity-40`}
                                                     >
-                                                        <span>{formatStatusCodeLabel(code)}</span>
-                                                        <span className={selected ? 'text-blue-100' : 'text-slate-400'}>{formatCompact(total)}</span>
+                                                        No 400
                                                     </button>
-                                                );
-                                            })}
+                                                )}
+                                            </div>
+
+                                            {availableFailureCodes.length === 0 ? (
+                                                <span className="px-2 py-1 text-xs font-medium text-slate-400">No captured failure codes</span>
+                                            ) : (
+                                                availableFailureCodes.map(({ code, total }) => {
+                                                    const selected = selectedFailureCodeSet.has(code);
+                                                    return (
+                                                        <button
+                                                            key={code}
+                                                            type="button"
+                                                            title={`${formatStatusCodeLabel(code)}: ${total.toLocaleString()} failures`}
+                                                            onClick={() => {
+                                                                setSelectedFailureCodes((current) => {
+                                                                    const next = new Set(current);
+                                                                    if (next.has(code)) next.delete(code);
+                                                                    else next.add(code);
+                                                                    return availableFailureCodes
+                                                                        .map((option) => option.code)
+                                                                        .filter((optionCode) => next.has(optionCode));
+                                                                });
+                                                            }}
+                                                            className={`inline-flex h-7 items-center gap-1.5 border px-2.5 text-xs font-medium transition ${getFailureCodeFilterClass(code, selected)}`}
+                                                        >
+                                                            <span className="font-mono font-semibold">{formatStatusCodeLabel(code)}</span>
+                                                            <span className={`font-mono text-[10px] ${getFailureCodeCountClass(code, selected)}`}>
+                                                                {formatCompact(total)}
+                                                            </span>
+                                                        </button>
+                                                    );
+                                                })
+                                            )}
                                         </div>
                                     </div>
 
@@ -1351,12 +1385,9 @@ export const ApiAnalytics: React.FC = () => {
                                             paginatedEndpoints.map((endpoint) => {
                                                 const { method, path } = splitEndpointLabel(endpoint.endpoint);
                                                 const topCodes = getTopStatusCodes(endpoint.statusCodeBreakdown);
-                                                const callShare = endpointDatabaseSummary.totalCalls > 0
-                                                    ? Math.min(100, Math.max(2, (endpoint.totalCalls / endpointDatabaseSummary.totalCalls) * 100))
-                                                    : 0;
 
                                                 return (
-                                                    <tr key={endpoint.endpoint} className="transition-colors hover:bg-blue-50/60">
+                                                    <tr key={endpoint.endpoint} className="transition-colors">
                                                         <td className="max-w-[540px] px-4 py-3">
                                                             <div className="flex min-w-0 items-center gap-2">
                                                                 {method && (
@@ -1368,12 +1399,7 @@ export const ApiAnalytics: React.FC = () => {
                                                             </div>
                                                         </td>
                                                         <td className="px-4 py-3 text-right">
-                                                            <div className="ml-auto w-28">
-                                                                <div className="text-sm font-semibold tabular-nums text-slate-900">{formatCompact(endpoint.totalCalls)}</div>
-                                                                <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-slate-100">
-                                                                    <div className="h-full rounded-full bg-blue-500" style={{ width: `${callShare}%` }} />
-                                                                </div>
-                                                            </div>
+                                                            <div className="text-sm font-semibold tabular-nums text-slate-900">{formatCompact(endpoint.totalCalls)}</div>
                                                         </td>
                                                         <td className="px-4 py-3 text-right font-semibold tabular-nums text-slate-800">
                                                             {formatCompact(endpoint.filteredErrorCount)}

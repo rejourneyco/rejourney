@@ -1488,11 +1488,15 @@
 }
 
 .rejourney-api-page :where(table tbody tr:nth-child(even)) {
-  background: #f3f6fa !important;
+  background: #f8fafc !important;
 }
 
-.rejourney-api-page :where(table tbody tr:hover) {
-  background: #eef4ff !important;
+.rejourney-api-page :where(table tbody tr:nth-child(odd):hover) {
+  background: #f8fafc !important;
+}
+
+.rejourney-api-page :where(table tbody tr:nth-child(even):hover) {
+  background: rgba(236, 254, 255, 0.45) !important;
 }
 
 .rejourney-api-page :where(table tbody) {

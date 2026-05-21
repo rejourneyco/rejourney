@@ -40,6 +40,10 @@ function prepareClusterStatement(statement: string): string {
         .replace(
             /^CREATE\s+TABLE\s+IF\s+NOT\s+EXISTS\s+([A-Za-z0-9_.]+)\s*\(/i,
             `CREATE TABLE IF NOT EXISTS $1${onCluster}\n(`,
+        )
+        .replace(
+            /^ALTER\s+TABLE\s+([A-Za-z0-9_.]+)\b/i,
+            `ALTER TABLE $1${onCluster}`,
         );
 
     if (/\bapi_endpoint_request_events\b/i.test(prepared)) {

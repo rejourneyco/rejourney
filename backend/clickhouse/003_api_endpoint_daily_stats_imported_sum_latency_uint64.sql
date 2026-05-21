@@ -1,0 +1,2 @@
+ALTER TABLE rejourney.api_endpoint_daily_stats_imported
+MODIFY COLUMN sum_latency_ms UInt64;

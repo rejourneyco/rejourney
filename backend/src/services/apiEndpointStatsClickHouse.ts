@@ -94,9 +94,9 @@ export async function queryApiEndpointStatusRowsFromClickHouse(params: {
             SELECT
                 endpoint,
                 toUInt16(0) AS statusCode,
-                sum(total_calls) AS totalCalls,
-                sum(total_errors) AS totalErrors,
-                sum(sum_latency_ms) AS sumLatencyMs,
+                toUInt64(sum(total_calls)) AS totalCalls,
+                toUInt64(sum(total_errors)) AS totalErrors,
+                toUInt64(sum(sum_latency_ms)) AS sumLatencyMs,
                 status_code_breakdown_json AS statusCodeBreakdownJson
             FROM api_endpoint_daily_stats_imported FINAL
             WHERE project_id IN {projectIds:Array(UUID)}
@@ -109,9 +109,9 @@ export async function queryApiEndpointStatusRowsFromClickHouse(params: {
             SELECT
                 endpoint,
                 status_code AS statusCode,
-                count() AS totalCalls,
-                countIf(is_error = 1) AS totalErrors,
-                sum(duration_ms) AS sumLatencyMs,
+                toUInt64(count()) AS totalCalls,
+                toUInt64(countIf(is_error = 1)) AS totalErrors,
+                toUInt64(sum(duration_ms)) AS sumLatencyMs,
                 '' AS statusCodeBreakdownJson
             FROM api_endpoint_request_events
             WHERE project_id IN {projectIds:Array(UUID)}
@@ -123,9 +123,9 @@ export async function queryApiEndpointStatusRowsFromClickHouse(params: {
             SELECT
                 endpoint,
                 status_code AS statusCode,
-                count() AS totalCalls,
-                countIf(is_error = 1) AS totalErrors,
-                sum(duration_ms) AS sumLatencyMs,
+                toUInt64(count()) AS totalCalls,
+                toUInt64(countIf(is_error = 1)) AS totalErrors,
+                toUInt64(sum(duration_ms)) AS sumLatencyMs,
                 '' AS statusCodeBreakdownJson
             FROM api_endpoint_request_events
             WHERE project_id IN {projectIds:Array(UUID)}
@@ -163,14 +163,14 @@ export async function queryRegionStatsFromClickHouse(params: {
         ? `
             SELECT
                 region,
-                sum(totalCalls) AS totalCalls,
-                sum(sumLatencyMs) AS sumLatencyMs
+                toUInt64(sum(totalCalls)) AS totalCalls,
+                toUInt64(sum(sumLatencyMs)) AS sumLatencyMs
             FROM
             (
                 SELECT
                     region,
-                    sum(total_calls) AS totalCalls,
-                    sum(sum_latency_ms) AS sumLatencyMs
+                    toUInt64(sum(total_calls)) AS totalCalls,
+                    toUInt64(sum(sum_latency_ms)) AS sumLatencyMs
                 FROM api_endpoint_daily_stats_imported FINAL
                 WHERE project_id = {projectId:UUID}
                   AND date < {cutoverDate:Date}
@@ -181,8 +181,8 @@ export async function queryRegionStatsFromClickHouse(params: {
 
                 SELECT
                     region,
-                    count() AS totalCalls,
-                    sum(duration_ms) AS sumLatencyMs
+                    toUInt64(count()) AS totalCalls,
+                    toUInt64(sum(duration_ms)) AS sumLatencyMs
                 FROM api_endpoint_request_events
                 WHERE project_id = {projectId:UUID}
                   ${buildRawCutoverCondition(rawReadsAfter)}
@@ -194,8 +194,8 @@ export async function queryRegionStatsFromClickHouse(params: {
         : `
             SELECT
                 region,
-                count() AS totalCalls,
-                sum(duration_ms) AS sumLatencyMs
+                toUInt64(count()) AS totalCalls,
+                toUInt64(sum(duration_ms)) AS sumLatencyMs
             FROM api_endpoint_request_events
             WHERE project_id = {projectId:UUID}
               AND event_date >= {startDate:Date}
