@@ -35,8 +35,16 @@ COPY dashboard/web-ui/package.json dashboard/web-ui/
 COPY packages/react-native/package.json packages/react-native/
 COPY packages/browser/package.json packages/browser/
 
-# Install dependencies (from root)
-RUN --mount=type=cache,target=/root/.npm npm ci --legacy-peer-deps --ignore-scripts
+# Install dependencies (from root). Retry the whole install because npm can
+# still exit on transient registry ECONNRESETs after its internal fetch retries.
+RUN --mount=type=cache,target=/root/.npm \
+    for attempt in 1 2 3; do \
+      npm ci --legacy-peer-deps --ignore-scripts && break; \
+      status=$?; \
+      if [ "$attempt" -eq 3 ]; then exit "$status"; fi; \
+      echo "npm ci failed (attempt ${attempt}/3); retrying..."; \
+      sleep $((attempt * 15)); \
+    done
 
 # Build the local browser SDK used by the dashboard.
 COPY packages/browser/ packages/browser/
@@ -75,8 +83,15 @@ COPY dashboard/web-ui/package.json dashboard/web-ui/
 COPY packages/react-native/package.json packages/react-native/
 COPY packages/browser/package.json packages/browser/
 
-# Install production dependencies only (from root)
-RUN --mount=type=cache,target=/root/.npm npm ci --legacy-peer-deps --omit=dev --ignore-scripts
+# Install production dependencies only (from root).
+RUN --mount=type=cache,target=/root/.npm \
+    for attempt in 1 2 3; do \
+      npm ci --legacy-peer-deps --omit=dev --ignore-scripts && break; \
+      status=$?; \
+      if [ "$attempt" -eq 3 ]; then exit "$status"; fi; \
+      echo "npm ci --omit=dev failed (attempt ${attempt}/3); retrying..."; \
+      sleep $((attempt * 15)); \
+    done
 
 # Runtime installs link @rejourneyco/browser to the local workspace package.
 # Carry over the compiled SDK files required by its package exports.

@@ -3,11 +3,25 @@ FROM node:24-bookworm-slim
 
 WORKDIR /app
 
+ENV NPM_CONFIG_FETCH_RETRIES=5 \
+    NPM_CONFIG_FETCH_RETRY_FACTOR=2 \
+    NPM_CONFIG_FETCH_RETRY_MINTIMEOUT=20000 \
+    NPM_CONFIG_FETCH_RETRY_MAXTIMEOUT=120000 \
+    NPM_CONFIG_FETCH_TIMEOUT=300000 \
+    NPM_CONFIG_AUDIT=false \
+    NPM_CONFIG_FUND=false
+
 # Install required system dependencies (if any)
 RUN apt-get update && apt-get install -y ca-certificates && rm -rf /var/lib/apt/lists/*
 
 # Install global tools
-RUN npm install -g drizzle-kit@beta tsx
+RUN for attempt in 1 2 3; do \
+      npm install -g drizzle-kit@beta tsx && break; \
+      status=$?; \
+      if [ "$attempt" -eq 3 ]; then exit "$status"; fi; \
+      echo "global npm install failed (attempt ${attempt}/3); retrying..."; \
+      sleep $((attempt * 15)); \
+    done
 
 # Copy source, config, and bootstrap scripts
 COPY backend/drizzle.config.ts .
@@ -19,7 +33,13 @@ COPY backend/scripts ./scripts
 
 # Install ALL production dependencies locally (zod, drizzle-orm, pg, etc.)
 # This ensures seed scripts have everything they need
-RUN npm install --omit=dev --legacy-peer-deps
+RUN for attempt in 1 2 3; do \
+      npm install --omit=dev --legacy-peer-deps && break; \
+      status=$?; \
+      if [ "$attempt" -eq 3 ]; then exit "$status"; fi; \
+      echo "npm install --omit=dev failed (attempt ${attempt}/3); retrying..."; \
+      sleep $((attempt * 15)); \
+    done
 
 # Set environment
 ENV NODE_ENV=production
