@@ -12,26 +12,28 @@ type WebReplayPlayerProps = {
     backgroundGaps?: CompressedBackgroundGap[];
 };
 
-function applyScale(root: HTMLElement) {
+function applyScale(root: HTMLElement): boolean {
     const wrapper = root.querySelector<HTMLElement>('.replayer-wrapper');
     const iframe = root.querySelector<HTMLIFrameElement>('iframe');
-    if (!wrapper || !iframe) return;
+    if (!wrapper || !iframe) return false;
     const iframeW = Number(iframe.getAttribute('width')) || iframe.offsetWidth;
-    if (!iframeW) return;
+    if (!iframeW) return false;
     const containerW = root.clientWidth;
     const containerH = root.clientHeight;
+    if (containerW <= 0 || containerH <= 0) return false;
     const iframeH = Number(iframe.getAttribute('height')) || iframe.offsetHeight;
+    if (iframeH <= 0) return false;
     // contain: scale so neither dimension overflows
-    const scale = iframeH
-        ? Math.min(containerW / iframeW, containerH / iframeH)
-        : containerW / iframeW;
+    const scale = Math.min(containerW / iframeW, containerH / iframeH);
+    if (!Number.isFinite(scale) || scale <= 0) return false;
     const scaledW = iframeW * scale;
-    const scaledH = iframeH ? iframeH * scale : containerH;
+    const scaledH = iframeH * scale;
     wrapper.style.transformOrigin = 'top left';
     wrapper.style.transform = `scale(${scale})`;
     wrapper.style.position = 'absolute';
     wrapper.style.left = `${(containerW - scaledW) / 2}px`;
     wrapper.style.top = `${(containerH - scaledH) / 2}px`;
+    return true;
 }
 
 export default function WebReplayPlayer({
@@ -128,7 +130,18 @@ export default function WebReplayPlayer({
         const root = rootRef.current;
         if (!root) return;
 
-        const rescale = () => applyScale(root);
+        let raf = 0;
+        let retryTimer = 0;
+        const rescale = () => {
+            if (raf) cancelAnimationFrame(raf);
+            if (retryTimer) window.clearTimeout(retryTimer);
+            raf = requestAnimationFrame(() => {
+                raf = 0;
+                if (!applyScale(root) && root.isConnected) {
+                    retryTimer = window.setTimeout(rescale, 50);
+                }
+            });
+        };
 
         const resizeObserver = new ResizeObserver(rescale);
         resizeObserver.observe(root);
@@ -136,10 +149,17 @@ export default function WebReplayPlayer({
         // Re-scale when rrweb adds/mutates the iframe (e.g. on viewport resize events).
         const mutationObserver = new MutationObserver(rescale);
         mutationObserver.observe(root, { childList: true, subtree: true, attributes: true, attributeFilter: ['width', 'height'] });
+        window.addEventListener('resize', rescale);
+        window.addEventListener('orientationchange', rescale);
+        rescale();
 
         return () => {
+            if (raf) cancelAnimationFrame(raf);
+            if (retryTimer) window.clearTimeout(retryTimer);
             resizeObserver.disconnect();
             mutationObserver.disconnect();
+            window.removeEventListener('resize', rescale);
+            window.removeEventListener('orientationchange', rescale);
         };
     }, []);
 
@@ -191,7 +211,7 @@ export default function WebReplayPlayer({
 
     return (
         <div className={`web-rrweb-player relative h-full w-full overflow-hidden bg-white ${displayedBackgroundGap ? 'grayscale' : ''}`}>
-            <div ref={rootRef} className="h-full w-full" />
+            <div ref={rootRef} className="h-full min-h-[320px] w-full" />
             {displayedBackgroundGap ? (
                 <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center bg-slate-950/70 px-6 text-center text-white">
                     <div className="border border-white/20 bg-slate-950 px-5 py-4 shadow-2xl">

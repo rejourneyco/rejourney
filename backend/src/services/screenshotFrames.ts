@@ -27,7 +27,12 @@
 import { eq, and } from 'drizzle-orm';
 import { gunzipSync } from 'zlib';
 import { db, recordingArtifacts, sessions } from '../db/client.js';
-import { downloadFromS3ForArtifact, getSignedDownloadUrlForProject } from '../db/s3.js';
+import {
+    downloadFromS3ForArtifact,
+    getSignedDownloadUrl,
+    getSignedDownloadUrlForProject,
+    uploadToS3ForArtifact,
+} from '../db/s3.js';
 import { getRedis } from '../db/redis.js';
 import { logger } from '../logger.js';
 
@@ -81,6 +86,7 @@ export interface SessionScreenshotFrames {
     frames: Array<{
         timestamp: number;
         url: string;
+        proxyUrl?: string | null;
         index: number;
     }>;
     /** Whether frames were served from cache */
@@ -97,6 +103,7 @@ export type ScreenshotFrameUrlMode = 'signed' | 'proxy' | 'none';
 interface ScreenshotFrameResponse {
     timestamp: number;
     url: string;
+    proxyUrl?: string | null;
     index: number;
 }
 
@@ -404,9 +411,11 @@ export async function extractFramesFromArchive(
 // Redis Caching
 // ============================================================================
 
-const FRAME_CACHE_PREFIX = 'screenshot_frames:';
-const FRAME_CACHE_TTL = Number(process.env.RJ_SCREENSHOT_FRAME_CACHE_TTL_SECONDS ?? 86_400); // 24h default
+const FRAME_CACHE_PREFIX = 'screenshot_frames:v2:';
+const FRAME_CACHE_TTL = Number(process.env.RJ_SCREENSHOT_FRAME_CACHE_TTL_SECONDS ?? 604_800); // 7d default
 const URL_SIGN_CONCURRENCY = Number(process.env.RJ_SCREENSHOT_URL_SIGN_CONCURRENCY ?? 16);
+const FRAME_UPLOAD_CONCURRENCY = Number(process.env.RJ_SCREENSHOT_FRAME_UPLOAD_CONCURRENCY ?? 4);
+const MATERIALIZE_FRAME_OBJECTS = process.env.RJ_SCREENSHOT_FRAME_OBJECTS_ENABLED !== 'false';
 const frameBuildInFlight = new Set<string>();
 
 interface CachedFrameIndex {
@@ -418,7 +427,9 @@ interface CachedFrameIndex {
     totalSegments: number;
     frames: Array<{
         timestamp: number;
-        s3Key: string;
+        s3Key: string | null;
+        endpointId?: string | null;
+        directReady?: boolean;
         index: number;
         sizeBytes: number;
     }>;
@@ -507,7 +518,7 @@ export async function getScreenshotSegments(sessionId: string): Promise<Screensh
 async function buildFrameResponses(
     projectId: string,
     sessionId: string,
-    frames: Array<{ timestamp: number; s3Key: string; index: number }>,
+    frames: Array<{ timestamp: number; s3Key: string | null; endpointId?: string | null; directReady?: boolean; index: number }>,
     urlMode: ScreenshotFrameUrlMode
 ): Promise<ScreenshotFrameResponse[]> {
     if (urlMode === 'none') {
@@ -517,7 +528,7 @@ async function buildFrameResponses(
     if (urlMode === 'proxy') {
         return frames.map((f) => ({
             timestamp: f.timestamp,
-            // Use the archive-backed extractor route; individual frame JPEGs are no longer uploaded to S3.
+            // Use the archive-backed extractor route as the compatibility path.
             url: `/api/session/frame/${sessionId}/${f.timestamp}`,
             index: f.index,
         }));
@@ -527,15 +538,26 @@ async function buildFrameResponses(
         frames,
         URL_SIGN_CONCURRENCY,
         async (f) => {
-            const url = await getSignedDownloadUrlForProject(projectId, f.s3Key);
+            const proxyUrl = `/api/session/frame/${sessionId}/${f.timestamp}`;
+            const directUrl = f.directReady && f.s3Key
+                ? f.endpointId
+                    ? await getSignedDownloadUrl(f.endpointId, f.s3Key)
+                    : await getSignedDownloadUrlForProject(projectId, f.s3Key)
+                : null;
+
             return {
                 timestamp: f.timestamp,
-                url: url || '',
+                url: directUrl || proxyUrl,
+                proxyUrl,
                 index: f.index,
             };
         }
     );
     return signed.filter((f) => Boolean(f.url));
+}
+
+function buildMaterializedFrameKey(sessionId: string, timestamp: number): string {
+    return `sessions/${sessionId}/frames/${timestamp}.jpg`;
 }
 
 /**
@@ -645,7 +667,9 @@ export async function getSessionScreenshotFrames(
     // Extract frames from all archives
     const allFrames: Array<{
         timestamp: number;
-        s3Key: string;
+        s3Key: string | null;
+        endpointId?: string | null;
+        directReady?: boolean;
         index: number;
         sizeBytes: number;
     }> = [];
@@ -674,15 +698,52 @@ export async function getSessionScreenshotFrames(
         // Extract frames (pass sessionStartTime for Android binary format)
         const frames = await extractFramesFromArchive(archiveData, sessionStartTime);
         
-        // Map extracted frames to the expected cache structure without uploading to S3
-        const uploadedFrames = frames.map(frame => ({
-            timestamp: frame.timestamp,
-            s3Key: `sessions/${sessionId}/frames/${frame.timestamp}.jpg`, // Keep virtual path for proxy identification if needed
-            index: 0,
-            sizeBytes: frame.data.length,
-        }));
+        const materializedFrames = MATERIALIZE_FRAME_OBJECTS
+            ? await mapWithConcurrency(
+                frames,
+                FRAME_UPLOAD_CONCURRENCY,
+                async (frame) => {
+                    const s3Key = buildMaterializedFrameKey(sessionId, frame.timestamp);
+                    const upload = await uploadToS3ForArtifact(
+                        session.projectId,
+                        s3Key,
+                        frame.data,
+                        'image/jpeg',
+                        {
+                            session_id: sessionId,
+                            kind: 'screenshot_frame',
+                            timestamp: String(frame.timestamp),
+                        },
+                        segment.endpointId,
+                    );
 
-        for (const uploaded of uploadedFrames) {
+                    if (!upload.success) {
+                        logger.warn(
+                            { sessionId, s3Key, error: upload.error },
+                            '[screenshotFrames] Failed to materialize screenshot frame object; proxy fallback will be used'
+                        );
+                    }
+
+                    return {
+                        timestamp: frame.timestamp,
+                        s3Key: upload.success ? s3Key : null,
+                        endpointId: upload.success ? upload.endpointId : null,
+                        directReady: upload.success,
+                        index: 0,
+                        sizeBytes: frame.data.length,
+                    };
+                }
+            )
+            : frames.map((frame) => ({
+                timestamp: frame.timestamp,
+                s3Key: null,
+                endpointId: null,
+                directReady: false,
+                index: 0,
+                sizeBytes: frame.data.length,
+            }));
+
+        for (const uploaded of materializedFrames) {
             uploaded.index = globalIndex;
             allFrames.push(uploaded);
             globalIndex++;

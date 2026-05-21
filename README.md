@@ -94,6 +94,7 @@ Full integration guides and API reference: https://rejourney.co/docs/reactnative
 ### Operations (K8s / Tailscale / admin hostnames)
 
 - [Cloud architecture + Tailscale diagrams](dev_docs/allthingscloud.md) — deployment overview, public vs tailnet admin path.
+- [ClickHouse API endpoint stats migration](dev_docs/clickhouse-api-endpoint-daily-stats-migration.md) — analytics scale-out plan and backfill/cutover runbook.
 - [Network exposure and Tailscale](dev_docs/network-exposure-and-tailscale.md) — which `rejourney.co` hosts stay public; kube API on tailnet.
 - [Admin tools without public URLs](dev_docs/admin-tools-private-access.md) — pgweb, Redis Commander, Netdata, Traefik, Uptime Kuma via `kubectl port-forward`.
 

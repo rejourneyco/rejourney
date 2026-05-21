@@ -1,6 +1,6 @@
 # Production S3 and R2 Backup Formats
 
-Last updated: 2026-03-12
+Last updated: 2026-05-21
 
 This document describes the real artifact formats used by production ingest, retention, and backup.
 
@@ -22,8 +22,16 @@ tenant/{teamId}/project/{projectId}/sessions/{sessionId}/
 │   └── events_{batchIndex}_{timestamp}.json.gz
 ├── hierarchy/
 │   └── {timestamp}.json.gz
+├── rrweb/
+│   └── rrweb_{sequence}_{startTime}.json.gz
 └── screenshots/
     └── {timestamp}.tar.gz
+```
+
+Derived screenshot replay frame objects may also be materialized outside the canonical tenant prefix for fast playback:
+
+```text
+sessions/{sessionId}/frames/{timestamp}.jpg
 ```
 
 Older sessions may still use the legacy prefix:
@@ -49,6 +57,7 @@ backups/sessions/{sessionId}/...
 | --- | --- | --- | --- | --- |
 | Events | `.json.gz` | Real gzip-compressed JSON | Same as S3 | Yes |
 | Hierarchy | `.json.gz` | Real gzip JSON now; some older objects were raw JSON mislabeled as gzip | Real gzip JSON after a fresh backup with the current repair logic | Yes, after repair |
+| rrweb | `.json.gz` | Real gzip JSON event chunks | Same as S3 | Yes |
 | Screenshots | `.tar.gz` | Usually `gzip(custom binary frame bundle)`; some very old iOS artifacts are real `tar.gz` | Real `tar.gz` archive of JPEG files | Yes, after fresh backup |
 
 ## Current Behavior by Artifact
@@ -74,18 +83,35 @@ Result:
 - Old sessions can be corrected by rerunning backup with the current job code.
 - After that repair, hierarchy files in both source S3 and fresh R2 backups are real gzip files and should unzip normally.
 
+### rrweb
+
+- Web replay chunks are stored as gzip JSON under `rrweb/`.
+- The dashboard does not need the API to concatenate every chunk before playback. It requests `/api/session/:id/replay-manifest`, then progressively fetches signed segment URLs from the object-storage endpoint.
+- Each manifest segment also includes a same-origin proxy URL (`/api/session/rrweb-segment/:sessionId/:artifactId`) for CORS, CSP, expiry, or provider reachability failures.
+- Small rrweb sessions may still be inlined by `/core`, but the manifest path forces segment mode so replay opens do not compute timeline, stats, network, or full replay payloads in one request.
+
+Result:
+
+- Warm rrweb opens should be limited mostly by the first segment download and rrweb player startup.
+- Cold opens are protected by Redis manifest caching and request coalescing so many developers opening the same replay do not trigger many identical manifest builds.
+- The API proxy is a fallback, not the normal fast path.
+
 ### Screenshots
 
 - The key suffix is still `.tar.gz`.
 - For current iOS and Android SDKs, the payload inside gzip is a custom binary frame bundle, not a tar archive.
 - Very old iOS sessions may still contain a real tarball of JPEG files.
 - Replay, thumbnails, and retention depend on this existing key contract in production S3, so live storage keeps the current naming and payload behavior.
+- Replay manifests now prefer derived individual JPEG frame objects for playback. When `RJ_SCREENSHOT_FRAME_OBJECTS_ENABLED` is not `false`, frame extraction materializes objects at `sessions/{sessionId}/frames/{timestamp}.jpg`.
+- Derived frame upload concurrency is controlled by `RJ_SCREENSHOT_FRAME_UPLOAD_CONCURRENCY` (default `4`). The extracted frame index is cached in Redis under `screenshot_frames:v2:*` for 7 days by default.
+- Frame responses include both a signed direct JPEG URL and a same-origin proxy URL (`/api/session/frame/:sessionId/:timestamp`). If materialization fails or a session is not warm yet, the direct URL can intentionally be the proxy URL.
 
 Result:
 
 - Screenshot artifacts are valid for the product.
 - Production S3 screenshot artifacts are not guaranteed to open in Archive Utility.
 - Fresh R2 backups are repacked to real `tar.gz` archives and should open normally.
+- Warm screenshot replay opens avoid repeated archive extraction and avoid streaming every image through the API.
 
 ## What the Backup Job Repairs
 
@@ -154,6 +180,7 @@ For normal replay and product behavior, use the backend readers and services. Th
 For offline backup inspection:
 
 - `events/*.json.gz` and repaired `hierarchy/*.json.gz`: use Archive Utility, `gunzip`, or `gzip -d`
+- `rrweb/*.json.gz`: use Archive Utility, `gunzip`, or `gzip -d`; expect an envelope with replay metadata and an `events` array
 - production S3 `screenshots/*.tar.gz`: use the extraction helper instead of Archive Utility
 - fresh R2 backup `screenshots/*.tar.gz`: Archive Utility should work, and the extraction helper still works too
 
@@ -166,7 +193,9 @@ node scripts/extract-session-backup.mjs ./session-dir/ --out ./frames/
 - Treat production S3 as the canonical runtime storage.
 - Treat R2 `backups/` as a backup copy optimized for recoverability and human download.
 - Expect `events` and `hierarchy` downloads to behave like normal gzip files after the current repair path runs.
+- Expect `rrweb` downloads to behave like normal gzip JSON replay chunks.
 - Expect production S3 screenshots to require Rejourney-aware extraction, but fresh R2 screenshot backups to be standard `tar.gz` archives.
+- Expect dashboard replay to prefer signed object-storage reads for rrweb segments and materialized screenshot frames, with API proxy routes only as fallback.
 
 ## March 2026 Backup Changes
 

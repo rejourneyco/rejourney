@@ -27,6 +27,7 @@
     "@stripe/stripe-js": "^8.6.1",
     "cookie-parser": "^1.4.7",
     "express": "^4.22.2",
+    "fflate": "^0.8.3",
     "framer-motion": "^12.24.10",
     "heic2any": "^0.0.4",
     "helmet": "^8.0.0",

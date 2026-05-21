@@ -67,6 +67,16 @@ create_or_update_secret postgres-secret \
 create_or_update_secret redis-secret \
     --from-literal=REDIS_URL="redis://redis:6379/0"
 
+create_or_update_secret clickhouse-secret \
+    --from-literal=CLICKHOUSE_ENABLED="${CLICKHOUSE_ENABLED:-true}" \
+    --from-literal=CLICKHOUSE_DUAL_WRITE_ENABLED="${CLICKHOUSE_DUAL_WRITE_ENABLED:-true}" \
+    --from-literal=CLICKHOUSE_READS_ENABLED="${CLICKHOUSE_READS_ENABLED:-true}" \
+    --from-literal=CLICKHOUSE_URL="${CLICKHOUSE_K8S_URL:-http://clickhouse:8123}" \
+    --from-literal=CLICKHOUSE_USER="${CLICKHOUSE_USER:-rejourney}" \
+    --from-literal=CLICKHOUSE_PASSWORD="${CLICKHOUSE_PASSWORD:-rejourney}" \
+    --from-literal=CLICKHOUSE_DATABASE="${CLICKHOUSE_DATABASE:-rejourney}" \
+    --from-literal=CLICKHOUSE_CUTOVER_DATE="${CLICKHOUSE_CUTOVER_DATE:-}"
+
 create_or_update_secret s3-secret \
     --from-literal=S3_ENDPOINT="http://minio:9000" \
     --from-literal=S3_PUBLIC_ENDPOINT="${S3_PUBLIC_ENDPOINT:-http://127.0.0.1:9000}" \

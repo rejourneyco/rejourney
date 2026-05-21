@@ -149,6 +149,7 @@ interface FullSession {
     screenshotFrames?: {
         timestamp: number;
         url: string;
+        proxyUrl?: string | null;
         index: number;
     }[];
     screenshotFramesStatus?: 'ready' | 'preparing' | 'none';
@@ -759,16 +760,78 @@ const INSIGHT_LEVEL_STYLES: Record<InsightLevel, { badge: string; value: string;
 };
 
 const PLAYBACK_STATE_COMMIT_INTERVAL_MS = 250;
-const STARTUP_FRAME_PRELOAD_COUNT = 10;
-const FRAME_PRELOAD_LOOKAHEAD_COUNT = 45;
-const FRAME_PRELOAD_LOOKBEHIND_COUNT = 3;
-const FRAME_CACHE_RETAIN_BEHIND_COUNT = 90;
-const FRAME_CACHE_RETAIN_AHEAD_COUNT = 120;
-const FRAME_CACHE_PRUNE_THRESHOLD = 240;
 const MAX_TIMELINE_MARKERS = 900;
 const MAX_ACTIVITY_ROWS = 900;
 
 type SessionLoadErrorKind = 'forbidden' | 'not_found' | 'unavailable' | 'unknown';
+type ScreenshotPreloadProfile = {
+    startup: number;
+    lookahead: number;
+    lookbehind: number;
+    retainBehind: number;
+    retainAhead: number;
+    pruneThreshold: number;
+};
+
+function getScreenshotPreloadProfile(playbackRate: number): ScreenshotPreloadProfile {
+    const nav = typeof navigator !== 'undefined'
+        ? navigator as Navigator & {
+            connection?: { effectiveType?: string; saveData?: boolean };
+            deviceMemory?: number;
+        }
+        : null;
+    const effectiveType = nav?.connection?.effectiveType?.toLowerCase();
+    const saveData = Boolean(nav?.connection?.saveData);
+    const slowNetwork = saveData || effectiveType === 'slow-2g' || effectiveType === '2g' || effectiveType === '3g';
+    const coarsePointer = typeof window !== 'undefined' && Boolean(window.matchMedia?.('(pointer: coarse)').matches);
+    const lowMemory = typeof nav?.deviceMemory === 'number' && nav.deviceMemory <= 4;
+
+    const base = slowNetwork
+        ? { startup: 2, lookahead: 6, retainAhead: 28, pruneThreshold: 72 }
+        : coarsePointer || lowMemory
+            ? { startup: 3, lookahead: 10, retainAhead: 44, pruneThreshold: 104 }
+            : { startup: 4, lookahead: 18, retainAhead: 72, pruneThreshold: 160 };
+    const rateMultiplier = Math.max(1, Math.min(2, playbackRate || 1));
+
+    return {
+        startup: base.startup,
+        lookahead: Math.ceil(base.lookahead * rateMultiplier),
+        lookbehind: 2,
+        retainBehind: 36,
+        retainAhead: Math.ceil(base.retainAhead * rateMultiplier),
+        pruneThreshold: base.pruneThreshold,
+    };
+}
+
+function scheduleDashboardIdleTask(callback: () => void, timeoutMs: number): () => void {
+    if (typeof window === 'undefined') {
+        callback();
+        return () => undefined;
+    }
+
+    const browserWindow = window as Window & typeof globalThis & {
+        requestIdleCallback?: (cb: () => void, options?: { timeout: number }) => number;
+        cancelIdleCallback?: (id: number) => void;
+    };
+    let cancelled = false;
+    const run = () => {
+        if (!cancelled) callback();
+    };
+
+    if (typeof browserWindow.requestIdleCallback === 'function') {
+        const idleId = browserWindow.requestIdleCallback(run, { timeout: timeoutMs });
+        return () => {
+            cancelled = true;
+            browserWindow.cancelIdleCallback?.(idleId);
+        };
+    }
+
+    const timeoutId = browserWindow.setTimeout(run, Math.min(timeoutMs, 350));
+    return () => {
+        cancelled = true;
+        browserWindow.clearTimeout(timeoutId);
+    };
+}
 
 function classifySessionLoadError(error: unknown): SessionLoadErrorKind {
     const message = error instanceof Error ? error.message.toLowerCase() : '';
@@ -776,6 +839,10 @@ function classifySessionLoadError(error: unknown): SessionLoadErrorKind {
     if (message.includes('not found')) return 'not_found';
     if (message.includes('temporarily unavailable') || message.includes('failed to fetch')) return 'unavailable';
     return 'unknown';
+}
+
+function isAbortError(error: unknown): boolean {
+    return (error as { name?: string } | null)?.name === 'AbortError';
 }
 
 // ============================================================================
@@ -808,6 +875,7 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
     const [isHierarchyLoading, setIsHierarchyLoading] = useState(true);
     const [isStatsLoading, setIsStatsLoading] = useState(true);
     const [isFramesLoading, setIsFramesLoading] = useState(false);
+    const [isReplayManifestLoading, setIsReplayManifestLoading] = useState(false);
     const [sessionLoadError, setSessionLoadError] = useState<SessionLoadErrorKind | null>(null);
     const [activityFilter, setActivityFilter] = useState<string>('all');
     const [currentPlaybackTime, setCurrentPlaybackTime] = useState<number>(0);
@@ -852,7 +920,9 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
     const activityViewportRef = useRef<HTMLDivElement>(null);
     const terminalViewportRef = useRef<HTMLDivElement>(null);
     const activeReplayRequestRef = useRef(0);
+    const activeReplayAbortRef = useRef<AbortController | null>(null);
     const framePollTimeoutRef = useRef<number | null>(null);
+    const replayDeferredTaskCleanupsRef = useRef<Array<() => void>>([]);
 
     // Ref-based playback state to avoid stale closures in animation loop
     const currentPlaybackTimeRef = useRef<number>(0);
@@ -880,6 +950,21 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
         if (!id) return;
         const requestId = activeReplayRequestRef.current + 1;
         activeReplayRequestRef.current = requestId;
+        activeReplayAbortRef.current?.abort();
+        const requestController = new AbortController();
+        activeReplayAbortRef.current = requestController;
+        const requestSignal = requestController.signal;
+
+        for (const cleanup of replayDeferredTaskCleanupsRef.current) cleanup();
+        replayDeferredTaskCleanupsRef.current = [];
+
+        const scheduleReplayTask = (task: () => void, timeoutMs: number) => {
+            const cancel = scheduleDashboardIdleTask(() => {
+                if (requestSignal.aborted || activeReplayRequestRef.current !== requestId) return;
+                task();
+            }, timeoutMs);
+            replayDeferredTaskCleanupsRef.current.push(cancel);
+        };
 
         if (framePollTimeoutRef.current) {
             window.clearTimeout(framePollTimeoutRef.current);
@@ -927,8 +1012,9 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
                 }
 
                 framePollTimeoutRef.current = window.setTimeout(async () => {
+                    if (requestSignal.aborted || activeReplayRequestRef.current !== requestId) return;
                     try {
-                        const framesResult = await api.getSessionFrames(id, { frameUrlMode: 'proxy' });
+                        const framesResult = await api.getSessionFrames(id, { frameUrlMode: 'signed', signal: requestSignal });
                         if (activeReplayRequestRef.current !== requestId) return;
 
                         setFullSession((prev) => {
@@ -951,6 +1037,7 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
                             framePollTimeoutRef.current = null;
                         }
                     } catch (err) {
+                        if (requestSignal.aborted || isAbortError(err)) return;
                         if (activeReplayRequestRef.current !== requestId) return;
                         console.error('Failed to fetch session frames:', err);
                         setIsFramesLoading(true);
@@ -960,51 +1047,131 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
             };
 
             try {
-                const bootstrapResult = await api.getSessionBootstrap(id, { frameUrlMode: 'proxy' });
+                const coreResult = await api.getSessionCore(id, { frameUrlMode: 'signed', includeReplay: false, signal: requestSignal });
                 if (activeReplayRequestRef.current !== requestId) return;
 
                 if (typeof performance !== 'undefined') {
-                    performance.measure(`replay:getSessionBootstrap:${id}`, coreMark);
+                    performance.measure(`replay:getSessionCore:${id}`, coreMark);
                 }
 
-                setFullSession({
-                    ...(bootstrapResult.core as any),
-                    deviceInfo: {
-                        ...((bootstrapResult.core as any).deviceInfo || {}),
-                        ...((bootstrapResult.timeline as any).deviceInfo || {}),
-                    },
-                    events: bootstrapResult.timeline.events || [],
-                    networkRequests: bootstrapResult.timeline.networkRequests || [],
-                    crashes: bootstrapResult.timeline.crashes || [],
-                    anrs: bootstrapResult.timeline.anrs || [],
-                    stats: bootstrapResult.stats || bootstrapResult.core.stats,
-                } as any);
-                const preparingFrames =
-                    bootstrapResult.core.playbackMode === 'screenshots' &&
-                    bootstrapResult.core.screenshotFramesStatus === 'preparing';
-                setIsFramesLoading(preparingFrames);
-                if (preparingFrames) {
-                    scheduleFramePoll(0);
-                }
+                setFullSession(coreResult as any);
+                setIsCoreLoading(false);
             } catch (err) {
+                if (requestSignal.aborted || isAbortError(err)) return;
                 if (activeReplayRequestRef.current !== requestId) return;
                 const errorKind = classifySessionLoadError(err);
                 setSessionLoadError(errorKind);
                 setIsHierarchyLoading(false);
+                setIsReplayManifestLoading(false);
+                setIsTimelineLoading(false);
+                setIsStatsLoading(false);
                 if (errorKind === 'unknown' || errorKind === 'unavailable') {
                     console.error('Failed to fetch session core:', err);
                 }
                 return;
-            } finally {
-                if (activeReplayRequestRef.current === requestId) {
-                    setIsCoreLoading(false);
-                    setIsTimelineLoading(false);
-                    setIsStatsLoading(false);
-                }
             }
 
-            window.requestAnimationFrame(() => {
-                void api.getSessionHierarchy(id)
+            setIsReplayManifestLoading(true);
+            void api.getSessionReplayManifest(id, { frameUrlMode: 'signed', signal: requestSignal })
+                .then((manifest) => {
+                    if (activeReplayRequestRef.current !== requestId) return;
+                    setFullSession((prev) => {
+                        if (!prev || prev.id !== id) return prev;
+                        const playbackMode = manifest.playbackMode === 'video'
+                            ? prev.playbackMode
+                            : manifest.playbackMode;
+                        return {
+                            ...prev,
+                            hasRecording: manifest.hasRecording,
+                            playbackMode,
+                            screenshotFrames: manifest.screenshotFrames || [],
+                            screenshotFramesStatus: manifest.screenshotFramesStatus,
+                            screenshotFrameCount: manifest.screenshotFrameCount,
+                            screenshotFramesProcessedSegments: manifest.screenshotFramesProcessedSegments,
+                            screenshotFramesTotalSegments: manifest.screenshotFramesTotalSegments,
+                            rrwebReplay: manifest.rrwebReplay,
+                        };
+                    });
+
+                    const preparingFrames =
+                        manifest.playbackMode === 'screenshots' &&
+                        manifest.screenshotFramesStatus === 'preparing';
+                    setIsFramesLoading(preparingFrames);
+                    if (preparingFrames) {
+                        scheduleFramePoll(0);
+                    }
+                })
+                .catch((err) => {
+                    if (requestSignal.aborted || isAbortError(err)) return;
+                    if (activeReplayRequestRef.current !== requestId) return;
+                    console.error('Failed to fetch replay manifest:', err);
+                })
+                .finally(() => {
+                    if (activeReplayRequestRef.current === requestId && !requestSignal.aborted) {
+                        setIsReplayManifestLoading(false);
+                    }
+                });
+
+            scheduleReplayTask(() => {
+                void api.getSessionTimeline(id, { signal: requestSignal })
+                    .then((timelineResult) => {
+                        if (activeReplayRequestRef.current !== requestId) return;
+                        setFullSession((prev) => {
+                            if (!prev || prev.id !== id) return prev;
+                            return {
+                                ...prev,
+                                deviceInfo: {
+                                    ...(prev.deviceInfo || {}),
+                                    ...((timelineResult as any).deviceInfo || {}),
+                                },
+                                events: timelineResult.events || [],
+                                networkRequests: timelineResult.networkRequests || [],
+                                crashes: timelineResult.crashes || [],
+                                anrs: timelineResult.anrs || [],
+                            } as any;
+                        });
+                    })
+                    .catch((err) => {
+                        if (requestSignal.aborted || isAbortError(err)) return;
+                        if (activeReplayRequestRef.current !== requestId) return;
+                        console.error('Failed to fetch session timeline:', err);
+                    })
+                    .finally(() => {
+                        if (activeReplayRequestRef.current === requestId && !requestSignal.aborted) {
+                            setIsTimelineLoading(false);
+                        }
+                    });
+            }, 350);
+
+            scheduleReplayTask(() => {
+                void api.getSessionStats(id, { signal: requestSignal })
+                    .then((statsResult) => {
+                        if (activeReplayRequestRef.current !== requestId) return;
+                        setFullSession((prev) => {
+                            if (!prev || prev.id !== id) return prev;
+                            return {
+                                ...prev,
+                                stats: {
+                                    ...prev.stats,
+                                    ...((statsResult.stats || {}) as any),
+                                },
+                            };
+                        });
+                    })
+                    .catch((err) => {
+                        if (requestSignal.aborted || isAbortError(err)) return;
+                        if (activeReplayRequestRef.current !== requestId) return;
+                        console.error('Failed to fetch session stats:', err);
+                    })
+                    .finally(() => {
+                        if (activeReplayRequestRef.current === requestId && !requestSignal.aborted) {
+                            setIsStatsLoading(false);
+                        }
+                    });
+            }, 700);
+
+            scheduleReplayTask(() => {
+                void api.getSessionHierarchy(id, { signal: requestSignal })
                     .then((hierarchyResult) => {
                         if (activeReplayRequestRef.current !== requestId) return;
                         setFullSession((prev) => {
@@ -1018,15 +1185,16 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
                         });
                     })
                     .catch((err) => {
+                        if (requestSignal.aborted || isAbortError(err)) return;
                         if (activeReplayRequestRef.current !== requestId) return;
                         console.error('Failed to fetch session hierarchy:', err);
                     })
                     .finally(() => {
-                        if (activeReplayRequestRef.current === requestId) {
+                        if (activeReplayRequestRef.current === requestId && !requestSignal.aborted) {
                             setIsHierarchyLoading(false);
                         }
                     });
-            });
+            }, 1000);
         } catch (err) {
             console.error('Failed to fetch session:', err);
         }
@@ -1064,15 +1232,22 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
             }
         };
 
-        void loadNeighborSessions();
+        const cancelIdleLoad = scheduleDashboardIdleTask(() => {
+            void loadNeighborSessions();
+        }, 1500);
 
         return () => {
             cancelled = true;
+            cancelIdleLoad();
         };
     }, [contextSessions.length, fullSession?.projectId, id, selectedProject?.id]);
 
     useEffect(() => {
         return () => {
+            activeReplayAbortRef.current?.abort();
+            activeReplayAbortRef.current = null;
+            for (const cleanup of replayDeferredTaskCleanupsRef.current) cleanup();
+            replayDeferredTaskCleanupsRef.current = [];
             if (framePollTimeoutRef.current) {
                 window.clearTimeout(framePollTimeoutRef.current);
                 framePollTimeoutRef.current = null;
@@ -1407,10 +1582,8 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
         events: rrwebReplayEvents,
         isLoading: rrwebSegmentsLoading,
         progress: rrwebSegmentProgress,
+        error: rrwebSegmentError,
     } = useRrwebReplayEvents(fullSession?.rrwebReplay);
-    // Mark intentionally-unused for downstream UI; surface later as a progress bar.
-    void rrwebSegmentsLoading;
-    void rrwebSegmentProgress;
     const webReplayRawEndMs = useMemo(() => {
         const sessionStart = fullSession?.startTime || 0;
         if (!sessionStart) return null;
@@ -1482,7 +1655,42 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
                 )
             )
             : null;
-    const secondaryDataLoading = isTimelineLoading || isHierarchyLoading || isStatsLoading;
+    const rrwebReplaySegmentCount = fullSession?.rrwebReplay?.segments?.length ?? 0;
+    const rrwebReplayEventCountHint = fullSession?.rrwebReplay?.eventCount ?? 0;
+    const rrwebReplayExpectedSegmentCount = fullSession?.playbackMode === 'rrweb'
+        ? Math.max(rrwebReplaySegmentCount, fullSession?.screenshotFramesTotalSegments ?? 0)
+        : 0;
+    const hasRrwebReplayReference = Boolean(
+        fullSession?.playbackMode === 'rrweb' &&
+        (
+            rrwebReplayEvents.length > 0 ||
+            rrwebReplaySegmentCount > 0 ||
+            rrwebReplayExpectedSegmentCount > 0 ||
+            rrwebReplayEventCountHint > 0 ||
+            fullSession?.rrwebReplay?.loadMode === 'segments'
+        )
+    );
+    const rrwebReplayFailed = Boolean(
+        fullSession?.playbackMode === 'rrweb' &&
+        rrwebReplayEvents.length === 0 &&
+        rrwebSegmentError &&
+        !isReplayManifestLoading &&
+        !rrwebSegmentsLoading
+    );
+    const rrwebReplayPreparing = Boolean(
+        fullSession?.playbackMode === 'rrweb' &&
+        rrwebReplayEvents.length === 0 &&
+        !rrwebReplayFailed &&
+        (
+            isReplayManifestLoading ||
+            rrwebSegmentsLoading ||
+            rrwebReplaySegmentCount > 0 ||
+            rrwebReplayExpectedSegmentCount > 0 ||
+            rrwebReplayEventCountHint > 0 ||
+            fullSession?.rrwebReplay?.loadMode === 'segments'
+        )
+    );
+    const secondaryDataLoading = isTimelineLoading || isHierarchyLoading || isStatsLoading || isReplayManifestLoading || rrwebSegmentsLoading;
 
     // Determine playback mode.
     const playbackMode = useMemo(() => {
@@ -1556,7 +1764,7 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
     }, [allTimelineEvents, eventTimestampToPlaybackSeconds, playbackDurationSeconds]);
 
     // Has any visual recording?
-    const hasRecording = playbackMode !== 'none' || visualReplayPreparing;
+    const hasRecording = playbackMode !== 'none' || visualReplayPreparing || rrwebReplayPreparing || rrwebReplayFailed || hasRrwebReplayReference;
 
     // Get device dimensions - try multiple fallbacks for Android compatibility
     // Android may not always have deviceInfo.screenWidth/Height or hierarchy snapshots
@@ -1647,13 +1855,14 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
     }, [currentPlaybackTime, syncPlaybackChrome]);
 
     const ensureScreenshotFrameImage = useCallback((
-        frame: { url?: string } | undefined,
+        frame: { url?: string; proxyUrl?: string | null } | undefined,
         fetchPriority: 'high' | 'low' | 'auto' = 'auto'
     ): HTMLImageElement | null => {
         if (!frame?.url) return null;
 
         const cache = screenshotFrameCacheRef.current;
-        const cachedImg = cache.get(frame.url);
+        const cacheKey = `${frame.url}|${frame.proxyUrl || ''}`;
+        const cachedImg = cache.get(cacheKey);
         if (cachedImg) return cachedImg;
 
         const img = new Image();
@@ -1664,8 +1873,16 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
         } catch {
             // fetchPriority is a best-effort browser hint.
         }
+        if (frame.proxyUrl && frame.proxyUrl !== frame.url) {
+            img.addEventListener('error', () => {
+                const currentSrc = img.currentSrc || img.src;
+                if (!currentSrc.endsWith(frame.proxyUrl || '') && img.src !== frame.proxyUrl) {
+                    img.src = frame.proxyUrl!;
+                }
+            }, { once: true });
+        }
         img.src = frame.url;
-        cache.set(frame.url, img);
+        cache.set(cacheKey, img);
         return img;
     }, []);
 
@@ -1679,30 +1896,28 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
         }
 
         lastPreloadCenterIndexRef.current = centerIndex;
-        const lookaheadCount = Math.min(
-            160,
-            Math.max(FRAME_PRELOAD_LOOKAHEAD_COUNT, Math.ceil(FRAME_PRELOAD_LOOKAHEAD_COUNT * playbackRate))
-        );
-        const startIndex = Math.max(0, centerIndex - FRAME_PRELOAD_LOOKBEHIND_COUNT);
+        const preloadProfile = getScreenshotPreloadProfile(playbackRate);
+        const startIndex = Math.max(0, centerIndex - preloadProfile.lookbehind);
         const endIndex = Math.min(
             screenshotFrames.length - 1,
-            centerIndex + lookaheadCount
+            centerIndex + preloadProfile.lookahead
         );
 
         for (let index = startIndex; index <= endIndex; index++) {
-            ensureScreenshotFrameImage(screenshotFrames[index], fetchPriority);
+            const priority = index === centerIndex ? fetchPriority : (fetchPriority === 'high' ? 'auto' : fetchPriority);
+            ensureScreenshotFrameImage(screenshotFrames[index], priority);
         }
 
         const cache = screenshotFrameCacheRef.current;
-        if (cache.size > FRAME_CACHE_PRUNE_THRESHOLD) {
-            const retainStart = Math.max(0, centerIndex - FRAME_CACHE_RETAIN_BEHIND_COUNT);
+        if (cache.size > preloadProfile.pruneThreshold) {
+            const retainStart = Math.max(0, centerIndex - preloadProfile.retainBehind);
             const retainEnd = Math.min(
                 screenshotFrames.length - 1,
-                centerIndex + FRAME_CACHE_RETAIN_AHEAD_COUNT
+                centerIndex + preloadProfile.retainAhead
             );
             const retainedUrls = new Set<string>();
             for (let index = retainStart; index <= retainEnd; index++) {
-                retainedUrls.add(screenshotFrames[index].url);
+                retainedUrls.add(`${screenshotFrames[index].url}|${screenshotFrames[index].proxyUrl || ''}`);
             }
             for (const url of cache.keys()) {
                 if (!retainedUrls.has(url)) {
@@ -1921,7 +2136,8 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
         lastPreloadCenterIndexRef.current = -1;
 
         // Preload a small startup window immediately so opening replay paints fast.
-        const preloadCount = Math.min(STARTUP_FRAME_PRELOAD_COUNT, screenshotFrames.length);
+        const preloadProfile = getScreenshotPreloadProfile(playbackRate);
+        const preloadCount = Math.min(preloadProfile.startup, screenshotFrames.length);
         for (let index = 0; index < preloadCount; index++) {
             ensureScreenshotFrameImage(
                 screenshotFrames[index],
@@ -1949,7 +2165,7 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
                 (globalThis as any).clearTimeout(timeoutId);
             }
         };
-    }, [ensureScreenshotFrameImage, playbackMode, screenshotFrames, warmScreenshotFramesAround]);
+    }, [ensureScreenshotFrameImage, playbackMode, playbackRate, screenshotFrames, warmScreenshotFramesAround]);
 
     // Update touch overlay for screenshot playback mode
     useEffect(() => {
@@ -3152,6 +3368,25 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
                                             </p>
                                         )}
 	                                    </div>
+                                ) : rrwebReplayPreparing ? (
+                                    <div className="flex aspect-[16/10] w-full max-w-[920px] flex-col items-center justify-center border-2 border-dashed border-black bg-white p-6 text-center shadow-neo-sm">
+                                        <RefreshCw className="h-8 w-8 animate-spin text-sky-500" />
+                                        <p className="mt-3 text-sm font-bold text-slate-900">Loading browser replay</p>
+                                        {rrwebSegmentProgress.total > 0 ? (
+                                            <p className="mt-2 text-xs font-black uppercase text-slate-500">
+                                                {rrwebSegmentProgress.loaded}/{rrwebSegmentProgress.total} segments
+                                            </p>
+                                        ) : null}
+                                    </div>
+                                ) : rrwebReplayFailed ? (
+                                    <div className="flex aspect-[16/10] w-full max-w-[920px] flex-col items-center justify-center border-2 border-dashed border-black bg-white p-6 text-center shadow-neo-sm">
+                                        <MonitorSmartphone className="h-10 w-10 text-slate-400" />
+                                        <p className="mt-3 text-sm font-bold text-slate-900">Browser replay failed to load</p>
+                                        <p className="mt-2 max-w-md text-xs leading-5 text-slate-600">
+                                            Timeline, logs, and network evidence are available, but the rrweb replay segment download failed.
+                                            Refreshing the replay will request a fresh manifest and signed segment URLs.
+                                        </p>
+                                    </div>
                                 ) : playbackMode === 'rrweb' ? (
                                     <div className="replay-device-shell relative flex h-full min-h-[420px] w-full justify-center xl:min-h-0 xl:items-stretch">
                                         <div className="relative flex h-full min-h-[420px] w-full flex-col overflow-hidden border border-black bg-white shadow-[0_18px_45px_rgba(15,23,42,0.12)] xl:min-h-0">
@@ -3212,7 +3447,7 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
                                                     </div>
                                                 </div>
                                             )}
-                                            <div className="min-h-0 flex-1">
+                                            <div className="min-h-[360px] flex-1 xl:min-h-0">
                                                 <WebReplayPlayer
                                                     events={compressedRrwebReplayEvents}
                                                     currentTime={currentPlaybackTime}
@@ -3224,7 +3459,7 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
                                             </div>
                                         </div>
                                     </div>
-                                ) : (
+                                ) : playbackMode === 'screenshots' || visualReplayPreparing ? (
                                     <div className="replay-device-shell relative flex w-full justify-center xl:h-full xl:min-h-0 xl:items-center">
                                         <div className="replay-device-frame relative overflow-hidden rounded-[2rem] border border-slate-950 bg-[#070b14] p-[5px] shadow-[0_18px_45px_rgba(15,23,42,0.18)]">
                                             <div className="rounded-[1.7rem] bg-slate-900 p-[2px]">
@@ -3267,6 +3502,13 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
                                                             alt=""
                                                             loading="eager"
                                                             decoding="async"
+                                                            onError={(event) => {
+                                                                const fallbackUrl = screenshotFrames[0]?.proxyUrl;
+                                                                if (fallbackUrl && event.currentTarget.dataset.fallbackApplied !== 'true') {
+                                                                    event.currentTarget.dataset.fallbackApplied = 'true';
+                                                                    event.currentTarget.src = fallbackUrl;
+                                                                }
+                                                            }}
                                                             className="absolute inset-0 h-full w-full object-cover"
                                                             style={{ zIndex: 0 }}
                                                         />
@@ -3293,6 +3535,14 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
                                                 </div>
                                             </div>
                                         </div>
+                                    </div>
+                                ) : (
+                                    <div className={`replay-device-placeholder flex w-full flex-col items-center justify-center border-2 border-dashed border-black bg-white p-6 text-center shadow-neo-sm ${isWebSession ? 'aspect-[16/10] max-w-[920px]' : 'aspect-[9/18.5] max-w-[320px]'}`}>
+                                        {isWebSession ? <MonitorSmartphone className="h-10 w-10 text-slate-400" /> : <VideoOff className="h-10 w-10 text-slate-400" />}
+                                        <p className="mt-3 text-sm font-bold text-slate-900">{isWebSession ? 'Browser Replay Not Available' : 'Replay Not Available'}</p>
+                                        <p className="mt-2 text-xs leading-5 text-slate-600">
+                                            No visual frames were uploaded for this session.
+                                        </p>
                                     </div>
                                 )}
                             </div>

@@ -41,6 +41,17 @@ describe('artifactCompletionEffects', () => {
             'session_core:session-123',
             'session_timeline:session-123',
             'session_hierarchy:session-123',
+            'v5:session_bootstrap:session-123',
+            'v5:session_core:session-123',
+            'v5:session_core_lite:session-123',
+            'v5:session_timeline:session-123',
+            'v5:session_hierarchy:session-123',
+            'v5:session_replay_manifest:session-123:proxy',
+            'v5:session_replay_manifest:session-123:signed',
+            'v5:session_replay_manifest:session-123:none',
+            'v5:session_frames:session-123:proxy',
+            'v5:session_frames:session-123:signed',
+            'v5:session_frames:session-123:none',
         );
         expect(prewarmSessionScreenshotFramesMock).toHaveBeenCalledWith('session-123');
     });

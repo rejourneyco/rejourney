@@ -12,6 +12,8 @@ PID_DIR="$STATE_DIR/pids"
 DASHBOARD_HOST_PORT="${DASHBOARD_HOST_PORT:-8080}"
 HOST_STARTUP_WAIT_SECONDS="${HOST_STARTUP_WAIT_SECONDS:-30}"
 HOST_PORTS=(3000 3001 "$DASHBOARD_HOST_PORT")
+CLICKHOUSE_HOST_PORT="${CLICKHOUSE_HOST_PORT:-30123}"
+CLICKHOUSE_NATIVE_HOST_PORT="${CLICKHOUSE_NATIVE_HOST_PORT:-30124}"
 
 mkdir -p "$LOG_DIR" "$PID_DIR"
 
@@ -170,6 +172,7 @@ cleanup_stale_host_processes() {
         "node --import tsx src/worker/alertWorker.ts"
         "node dist/index.js"
         "node dist/uploadServer.js"
+        "kubectl -n rejourney-local port-forward svc/clickhouse"
         "react-router dev --host 0.0.0.0 --port 8080"
         "react-router dev --host 0.0.0.0 --port $DASHBOARD_HOST_PORT"
     )
@@ -233,6 +236,45 @@ source_env() {
     set +a
 }
 
+ensure_clickhouse_host_port() {
+    local pid
+
+    if [ "${CLICKHOUSE_ENABLED:-false}" != "true" ]; then
+        return
+    fi
+
+    if curl -fsS "http://127.0.0.1:$CLICKHOUSE_HOST_PORT/ping" >/dev/null 2>&1; then
+        return
+    fi
+
+    while IFS= read -r pid; do
+        [ -n "$pid" ] || continue
+        if ! pid_belongs_to_repo "$pid"; then
+            echo "[local-k8s] ERROR: ClickHouse host port :$CLICKHOUSE_HOST_PORT is occupied but does not answer /ping." >&2
+            echo "[local-k8s] Free :$CLICKHOUSE_HOST_PORT or set CLICKHOUSE_HOST_PORT before starting host services." >&2
+            exit 1
+        fi
+    done < <(lsof -tiTCP:"$CLICKHOUSE_HOST_PORT" -sTCP:LISTEN 2>/dev/null || true)
+
+    start_process \
+        "clickhouse-port-forward" \
+        "$CLICKHOUSE_HOST_PORT" \
+        "kubectl -n rejourney-local port-forward svc/clickhouse $CLICKHOUSE_HOST_PORT:8123 $CLICKHOUSE_NATIVE_HOST_PORT:9000"
+
+    local attempts=$((HOST_STARTUP_WAIT_SECONDS * 2))
+    for ((attempt = 1; attempt <= attempts; attempt++)); do
+        if curl -fsS "http://127.0.0.1:$CLICKHOUSE_HOST_PORT/ping" >/dev/null 2>&1; then
+            echo "[local-k8s] ClickHouse HTTP is reachable on :$CLICKHOUSE_HOST_PORT"
+            return
+        fi
+        sleep 0.5
+    done
+
+    echo "[local-k8s] ERROR: ClickHouse did not answer on :$CLICKHOUSE_HOST_PORT" >&2
+    tail -n 40 "$LOG_DIR/clickhouse-port-forward.log" >&2 || true
+    exit 1
+}
+
 setup_db() {
     source_env
     (
@@ -270,6 +312,7 @@ start_host_services() {
     select_dashboard_port
     cleanup_stale_host_processes
     cleanup_stale_host_ports
+    ensure_clickhouse_host_port
 
     start_process "api" "3000" "cd '$ROOT_DIR/backend' && set -a && source '$ENV_FILE' && set +a && node --import tsx src/index.ts"
     start_process "upload" "3001" "cd '$ROOT_DIR/backend' && set -a && source '$ENV_FILE' && set +a && PORT=3001 node --import tsx src/uploadServer.ts"
@@ -313,11 +356,12 @@ destroy() {
 print_status() {
     echo ""
     echo "[local-k8s] Hybrid development is running."
-    echo "[local-k8s] API: http://127.0.0.1:3000"
+    echo "[local-k8s] API: ${PUBLIC_API_URL:-http://127.0.0.1:3000}"
     echo "[local-k8s] Upload relay: http://127.0.0.1:3001"
     echo "[local-k8s] Dashboard: http://127.0.0.1:$DASHBOARD_HOST_PORT"
     echo "[local-k8s] MinIO: http://127.0.0.1:9000"
     echo "[local-k8s] MinIO Console: http://127.0.0.1:9001"
+    echo "[local-k8s] ClickHouse HTTP: http://127.0.0.1:$CLICKHOUSE_HOST_PORT"
     echo "[local-k8s] Logs: $LOG_DIR"
 }
 

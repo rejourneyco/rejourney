@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { buildWebAttributionMetadata } from '../services/ingestEventArtifactProcessor.js';
+import { buildClickHouseApiEndpointEventRow } from '../services/clickhouseApiStatsSink.js';
 
 describe('ingest event artifact processor attribution metadata', () => {
     it('maps web attribution and UTM query values into session metadata', () => {
@@ -88,6 +89,42 @@ describe('ingest event artifact processor attribution metadata', () => {
             utm_source: 'Google',
             utm_medium: 'cpc',
             utm_campaign: 'Brand',
+        });
+    });
+});
+
+describe('ClickHouse API endpoint event rows', () => {
+    it('normalizes network events into deterministic fact rows', () => {
+        const row = buildClickHouseApiEndpointEventRow({
+            projectId: '3f4f7d8a-7660-4a78-b944-442051c62eca',
+            sessionId: 'sess_123',
+            artifactId: 'artifact_456',
+            eventIndex: 17,
+            method: 'post',
+            path: '/api/fixture',
+            statusCode: 503,
+            isError: true,
+            durationMs: 123.6,
+            eventAt: new Date('2026-05-21T14:15:16.789Z'),
+            region: null,
+        });
+
+        expect(row).toMatchObject({
+            project_id: '3f4f7d8a-7660-4a78-b944-442051c62eca',
+            event_date: '2026-05-21',
+            event_time: '2026-05-21 14:15:16.789',
+            session_id: 'sess_123',
+            artifact_id: 'artifact_456',
+            event_index: 17,
+            method: 'POST',
+            path: '/api/fixture',
+            endpoint: 'POST /api/fixture',
+            region: 'unknown',
+            status_code: 503,
+            is_error: 1,
+            duration_ms: 124,
+            source: 'event_artifact',
+            schema_version: 1,
         });
     });
 });

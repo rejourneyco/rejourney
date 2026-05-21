@@ -81,15 +81,11 @@ if (isProduction) {
         fontSrc: ["'self'", "data:", "https://fonts.gstatic.com"],
         connectSrc: [
           "'self'",
-          "https://api.rejourney.co",
+          // Replay manifests can point at any operator-managed S3-compatible
+          // endpoint from storage_endpoints. Use the HTTPS scheme instead of
+          // hardcoding provider hostnames.
+          "https:",
           "wss://api.rejourney.co",
-          "https://ingest.rejourney.co",
-          "https://api.stripe.com",
-          "https://m.stripe.network",
-          "https://cloudflareinsights.com",
-          "https://api.mapbox.com",
-          "https://events.mapbox.com",
-          "https://*.tiles.mapbox.com",
         ],
         workerSrc: ["'self'", "blob:"],
         frameSrc: ["'self'", "https://challenges.cloudflare.com", "https://js.stripe.com", "https://hooks.stripe.com"],

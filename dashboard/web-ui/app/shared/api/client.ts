@@ -162,6 +162,9 @@ async function fetchJson<T>(endpoint: string, options: RequestInit = {}): Promis
   try {
     response = await fetch(`${API_BASE_URL}${endpoint}`, requestInit);
   } catch (error) {
+    if ((error as { name?: string } | null)?.name === 'AbortError') {
+      throw error;
+    }
     if (typeof window !== 'undefined') {
       console.error('[fetchJson] API network error', { method, endpoint, error });
     }
@@ -236,6 +239,7 @@ async function fetchJsonWithTransientRetry<T>(
     try {
       return await fetchJson<T>(endpoint, options);
     } catch (e) {
+      if ((e as { name?: string } | null)?.name === 'AbortError') throw e;
       last = e;
       if (attempt === maxAttempts - 1 || !isTransientApiError(e)) throw e;
       await new Promise((r) => setTimeout(r, 300 * (attempt + 1)));
@@ -246,13 +250,14 @@ async function fetchJsonWithTransientRetry<T>(
 
 // Cache for API responses
 const cache = new Map<string, { data: any; timestamp: number }>();
+const inFlightGetRequests = new Map<string, Promise<any>>();
 const CACHE_TTL = 60000; // 60 seconds - helps tab switching feel instant when returning
 const PROJECTS_CACHE_TTL = 30000;
 const WORKSPACE_CACHE_TTL = 120000; // 2 minutes - workspace rarely changes
 const ANALYTICS_BOOTSTRAP_CACHE_TTL = 60000;
 const ARCHIVE_CACHE_TTL = 30000;
 const SESSION_BOOTSTRAP_CACHE_TTL = 15000;
-const SESSION_DETAIL_CACHE_VERSION = 'v2';
+const SESSION_DETAIL_CACHE_VERSION = 'v4';
 
 /**
  * Fetch with caching and error handling
@@ -273,14 +278,31 @@ async function fetchWithCache<T>(
   }
 
   const method = (options.method ?? 'GET').toUpperCase();
-  const data = method === 'GET' || method === 'HEAD'
-    ? await fetchJsonWithTransientRetry<T>(endpoint, options)
-    : await fetchJson<T>(endpoint, options);
+  const canShareInFlight = (method === 'GET' || method === 'HEAD') && !options.signal;
+  if (canShareInFlight) {
+    const inFlight = inFlightGetRequests.get(key);
+    if (inFlight) {
+      return inFlight as Promise<T>;
+    }
+  }
 
-  // Cache successful responses
-  cache.set(key, { data, timestamp: Date.now() });
+  const requestPromise = method === 'GET' || method === 'HEAD'
+    ? fetchJsonWithTransientRetry<T>(endpoint, options)
+    : fetchJson<T>(endpoint, options);
 
-  return data as T;
+  if (canShareInFlight) {
+    inFlightGetRequests.set(key, requestPromise);
+  }
+
+  try {
+    const data = await requestPromise;
+    cache.set(key, { data, timestamp: Date.now() });
+    return data as T;
+  } finally {
+    if (canShareInFlight) {
+      inFlightGetRequests.delete(key);
+    }
+  }
 }
 
 /**
@@ -354,6 +376,7 @@ export interface ApiSession {
   screenshotFrames?: Array<{
     timestamp: number;
     url: string;
+    proxyUrl?: string | null;
     index: number;
   }>;
   screenshotFramesStatus?: 'ready' | 'preparing' | 'none';
@@ -365,15 +388,18 @@ export interface ApiSession {
     events: any[];
     eventCount: number;
     segments: Array<{
+      artifactId?: string;
       index: number;
       startTime: number | null;
       endTime: number | null;
       eventCount: number;
       sizeBytes: number | null;
       url: string | null;
+      proxyUrl?: string | null;
     }>;
     page?: Record<string, unknown> | null;
     viewport?: Record<string, unknown> | null;
+    loadMode?: 'inline' | 'segments';
   };
   webReferral?: string | null;
   webLandingRoute?: string | null;
@@ -541,12 +567,29 @@ export interface ApiSessionFrames {
   screenshotFrames: Array<{
     timestamp: number;
     url: string;
+    proxyUrl?: string | null;
     index: number;
   }>;
   screenshotFramesStatus: 'ready' | 'preparing' | 'none';
   screenshotFrameCount: number;
   screenshotFramesProcessedSegments: number;
   screenshotFramesTotalSegments: number;
+}
+
+export interface ApiSessionReplayManifest {
+  hasRecording: boolean;
+  playbackMode: 'screenshots' | 'rrweb' | 'video' | 'none';
+  screenshotFrames: Array<{
+    timestamp: number;
+    url: string;
+    proxyUrl?: string | null;
+    index: number;
+  }>;
+  screenshotFramesStatus: 'ready' | 'preparing' | 'none';
+  screenshotFrameCount: number;
+  screenshotFramesProcessedSegments: number;
+  screenshotFramesTotalSegments: number;
+  rrwebReplay: NonNullable<ApiSession['rrwebReplay']>;
 }
 
 export interface ApiSessionBootstrapResponse {
@@ -558,15 +601,16 @@ export interface ApiSessionBootstrapResponse {
 
 export async function getSessionCore(
   sessionId: string,
-  options?: { frameUrlMode?: 'signed' | 'proxy' | 'none' }
+  options?: { frameUrlMode?: 'signed' | 'proxy' | 'none'; includeReplay?: boolean; signal?: AbortSignal }
 ): Promise<ApiSession> {
   if (isDemoMode()) {
     return demoApiData.getDemoFullSession(sessionId) as unknown as ApiSession;
   }
   const params = new URLSearchParams();
   if (options?.frameUrlMode) params.set('frameUrlMode', options.frameUrlMode);
+  if (options?.includeReplay === false) params.set('includeReplay', 'false');
   const suffix = params.toString() ? `?${params.toString()}` : '';
-  return fetchWithCache<ApiSession>(`/api/session/${sessionId}/core${suffix}`);
+  return fetchWithCache<ApiSession>(`/api/session/${sessionId}/core${suffix}`, { signal: options?.signal });
 }
 
 export async function getSessionBootstrap(
@@ -598,7 +642,7 @@ export async function getSessionBootstrap(
 
 export async function getSessionFrames(
   sessionId: string,
-  options?: { frameUrlMode?: 'signed' | 'proxy' | 'none' }
+  options?: { frameUrlMode?: 'signed' | 'proxy' | 'none'; signal?: AbortSignal }
 ): Promise<ApiSessionFrames> {
   if (isDemoMode()) {
     const demo = demoApiData.getDemoFullSession(sessionId) as any;
@@ -613,10 +657,45 @@ export async function getSessionFrames(
   const params = new URLSearchParams();
   if (options?.frameUrlMode) params.set('frameUrlMode', options.frameUrlMode);
   const suffix = params.toString() ? `?${params.toString()}` : '';
-  return fetchJson<ApiSessionFrames>(`/api/session/${sessionId}/frames${suffix}`);
+  return fetchWithCache<ApiSessionFrames>(
+    `/api/session/${sessionId}/frames${suffix}`,
+    { signal: options?.signal },
+    `session:frames:${SESSION_DETAIL_CACHE_VERSION}:${sessionId}:${options?.frameUrlMode || 'default'}`,
+    1500,
+  );
 }
 
-export async function getSessionTimeline(sessionId: string): Promise<ApiSessionTimeline> {
+export async function getSessionReplayManifest(
+  sessionId: string,
+  options?: { frameUrlMode?: 'signed' | 'proxy' | 'none'; signal?: AbortSignal }
+): Promise<ApiSessionReplayManifest> {
+  if (isDemoMode()) {
+    const demo = demoApiData.getDemoFullSession(sessionId) as any;
+    return {
+      hasRecording: Boolean(demo.hasRecording),
+      playbackMode: demo.playbackMode || 'none',
+      screenshotFrames: demo.screenshotFrames || [],
+      screenshotFramesStatus: demo.screenshotFramesStatus || 'none',
+      screenshotFrameCount: demo.screenshotFrameCount || demo.screenshotFrames?.length || 0,
+      screenshotFramesProcessedSegments: demo.screenshotFramesProcessedSegments || 0,
+      screenshotFramesTotalSegments: demo.screenshotFramesTotalSegments || 0,
+      rrwebReplay: demo.rrwebReplay || { events: [], eventCount: 0, segments: [], page: null, viewport: null, loadMode: 'inline' },
+    };
+  }
+
+  const params = new URLSearchParams();
+  if (options?.frameUrlMode) params.set('frameUrlMode', options.frameUrlMode);
+  const suffix = params.toString() ? `?${params.toString()}` : '';
+  const cacheKey = `session:replay-manifest:${SESSION_DETAIL_CACHE_VERSION}:${sessionId}:${options?.frameUrlMode || 'default'}`;
+  return fetchWithCache<ApiSessionReplayManifest>(
+    `/api/session/${sessionId}/replay-manifest${suffix}`,
+    { signal: options?.signal },
+    cacheKey,
+    SESSION_BOOTSTRAP_CACHE_TTL,
+  );
+}
+
+export async function getSessionTimeline(sessionId: string, options?: { signal?: AbortSignal }): Promise<ApiSessionTimeline> {
   if (isDemoMode()) {
     const demo = (await getSessionCore(sessionId)) as any;
     return {
@@ -628,12 +707,12 @@ export async function getSessionTimeline(sessionId: string): Promise<ApiSessionT
   }
   return fetchWithCache<ApiSessionTimeline>(
     `/api/session/${sessionId}/timeline`,
-    {},
+    { signal: options?.signal },
     `session:timeline:${SESSION_DETAIL_CACHE_VERSION}:${sessionId}`,
   );
 }
 
-export async function getSessionHierarchy(sessionId: string): Promise<ApiSessionHierarchy> {
+export async function getSessionHierarchy(sessionId: string, options?: { signal?: AbortSignal }): Promise<ApiSessionHierarchy> {
   if (isDemoMode()) {
     const demo = (await getSessionCore(sessionId)) as any;
     return {
@@ -642,19 +721,24 @@ export async function getSessionHierarchy(sessionId: string): Promise<ApiSession
   }
   return fetchWithCache<ApiSessionHierarchy>(
     `/api/session/${sessionId}/hierarchy`,
-    {},
+    { signal: options?.signal },
     `session:hierarchy:${SESSION_DETAIL_CACHE_VERSION}:${sessionId}`,
   );
 }
 
-export async function getSessionStats(sessionId: string): Promise<ApiSessionStats> {
+export async function getSessionStats(sessionId: string, options?: { signal?: AbortSignal }): Promise<ApiSessionStats> {
   if (isDemoMode()) {
     const demo = (await getSessionCore(sessionId)) as any;
     return {
       stats: demo.stats,
     };
   }
-  return fetchWithCache<ApiSessionStats>(`/api/session/${sessionId}/stats`);
+  return fetchWithCache<ApiSessionStats>(
+    `/api/session/${sessionId}/stats`,
+    { signal: options?.signal },
+    `session:stats:${SESSION_DETAIL_CACHE_VERSION}:${sessionId}`,
+    SESSION_BOOTSTRAP_CACHE_TTL,
+  );
 }
 
 /**
@@ -1260,7 +1344,12 @@ export async function getProjects(): Promise<ApiProject[]> {
  * Get available custom events and metadata for a project
  */
 export async function getAvailableFilters(projectId: string): Promise<{ events: string[]; eventPropertyKeys: string[]; screens: string[]; metadata: Record<string, string[]> }> {
-  return fetchJson<{ events: string[]; eventPropertyKeys: string[]; screens: string[]; metadata: Record<string, string[]> }>(`/api/projects/${projectId}/available-filters`);
+  return fetchWithCache<{ events: string[]; eventPropertyKeys: string[]; screens: string[]; metadata: Record<string, string[]> }>(
+    `/api/projects/${projectId}/available-filters`,
+    {},
+    `projects:available-filters:${projectId}`,
+    300000,
+  );
 }
 
 export async function buildSessionQueryFromPrompt(projectId: string, prompt: string): Promise<{ groups: any[]; explanation: string }> {
@@ -4297,6 +4386,7 @@ export const api = {
   getSessionBootstrap,
   getSessionCore,
   getSessionFrames,
+  getSessionReplayManifest,
   getSessionTimeline,
   getSessionHierarchy,
   getSessionStats,

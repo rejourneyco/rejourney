@@ -20,6 +20,12 @@ dump_db_setup_diagnostics() {
     kubectl logs job/db-setup -n "$NAMESPACE" -c setup --tail=100 || true
 }
 
+dump_clickhouse_setup_diagnostics() {
+    kubectl describe job clickhouse-setup -n "$NAMESPACE" || true
+    kubectl logs job/clickhouse-setup -n "$NAMESPACE" -c wait-clickhouse --tail=50 || true
+    kubectl logs job/clickhouse-setup -n "$NAMESPACE" -c setup --tail=100 || true
+}
+
 wait_for_db_setup() {
     local deadline
     deadline=$(( $(date +%s) + 240 ))
@@ -44,6 +50,36 @@ wait_for_db_setup() {
         if [ "$(date +%s)" -ge "$deadline" ]; then
             dump_db_setup_diagnostics
             error "db-setup timed out"
+        fi
+
+        sleep 5
+    done
+}
+
+wait_for_clickhouse_setup() {
+    local deadline
+    deadline=$(( $(date +%s) + 240 ))
+
+    while true; do
+        local succeeded failed
+        succeeded="$(kubectl get job clickhouse-setup -n "$NAMESPACE" -o jsonpath='{.status.succeeded}' 2>/dev/null || true)"
+        failed="$(kubectl get job clickhouse-setup -n "$NAMESPACE" -o jsonpath='{.status.failed}' 2>/dev/null || true)"
+
+        succeeded="${succeeded:-0}"
+        failed="${failed:-0}"
+
+        if [ "$succeeded" = "1" ]; then
+            return 0
+        fi
+
+        if [ "$failed" != "0" ]; then
+            dump_clickhouse_setup_diagnostics
+            error "clickhouse-setup failed"
+        fi
+
+        if [ "$(date +%s)" -ge "$deadline" ]; then
+            dump_clickhouse_setup_diagnostics
+            error "clickhouse-setup timed out"
         fi
 
         sleep 5
@@ -102,7 +138,9 @@ create_cluster() {
         -p "5432:30432@server:0" \
         -p "6379:30379@server:0" \
         -p "9000:30900@server:0" \
-        -p "9001:30901@server:0"
+        -p "9001:30901@server:0" \
+        -p "30123:30123@server:0" \
+        -p "30124:30124@server:0"
 }
 
 apply_file() {
@@ -116,6 +154,7 @@ wait_infra() {
     kubectl rollout status deployment/redis -n "$NAMESPACE" --timeout=180s
     kubectl rollout status deployment/minio -n "$NAMESPACE" --timeout=180s
     kubectl wait --for=condition=complete job/minio-setup -n "$NAMESPACE" --timeout=180s || true
+    kubectl wait --for=condition=ready pod -l app=clickhouse -n "$NAMESPACE" --timeout=240s
 }
 
 wait_full() {
@@ -128,10 +167,12 @@ wait_full() {
     kubectl wait --for=condition=available deployment/retention-worker -n "$NAMESPACE" --timeout=240s
     kubectl wait --for=condition=available deployment/alert-worker -n "$NAMESPACE" --timeout=240s
     wait_for_db_setup
+    wait_for_clickhouse_setup
 }
 
 apply_apps() {
     kubectl delete job db-setup -n "$NAMESPACE" --ignore-not-found >/dev/null 2>&1 || true
+    kubectl delete job clickhouse-setup -n "$NAMESPACE" --ignore-not-found >/dev/null 2>&1 || true
     apply_file "$LOCAL_K8S_DIR/api.yaml"
     apply_file "$LOCAL_K8S_DIR/web.yaml"
     apply_file "$LOCAL_K8S_DIR/workers.yaml"
@@ -173,6 +214,7 @@ infra() {
     apply_file "$LOCAL_K8S_DIR/redis.yaml"
     kubectl delete job minio-setup -n "$NAMESPACE" --ignore-not-found >/dev/null 2>&1 || true
     apply_file "$LOCAL_K8S_DIR/minio.yaml"
+    apply_file "$LOCAL_K8S_DIR/clickhouse.yaml"
     wait_infra
     apply_file "$LOCAL_K8S_DIR/pgbouncer.yaml"
     kubectl rollout status deployment/pgbouncer -n "$NAMESPACE" --timeout=60s
@@ -211,7 +253,10 @@ logs() {
         redis|minio|web|api|ingest-upload|ingest-worker|replay-worker|session-lifecycle-worker|retention-worker|alert-worker)
             kubectl logs -f deployment/"$target" -n "$NAMESPACE" --tail=100
             ;;
-        db-setup|minio-setup)
+        clickhouse)
+            kubectl logs -f statefulset/clickhouse -n "$NAMESPACE" --tail=100
+            ;;
+        db-setup|minio-setup|clickhouse-setup|clickhouse-backfill-api-stats)
             kubectl logs -f job/"$target" -n "$NAMESPACE" --tail=100
             ;;
         *)

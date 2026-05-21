@@ -19,6 +19,11 @@ import {
     excludeInternalToolEndpointTraffic,
 } from '../utils/internalToolEndpointFilter.js';
 import { ANALYTICS_LONG_WINDOW_DAYS, boundedTimeRangeToDays } from '../utils/analyticsTimeRange.js';
+import {
+    canReadApiEndpointStatsFromClickHouse,
+    queryApiEndpointStatusRowsFromClickHouse,
+    queryRegionStatsFromClickHouse,
+} from '../services/apiEndpointStatsClickHouse.js';
 
 const router = Router();
 const redis = getRedis();
@@ -81,6 +86,16 @@ function normalizeErrorCodeBreakdown(value: unknown): ErrorCodeBreakdown {
     }
 
     return normalized;
+}
+
+function normalizeErrorCodeBreakdownJson(value: unknown): ErrorCodeBreakdown {
+    if (typeof value !== 'string' || value.trim() === '') return {};
+
+    try {
+        return normalizeErrorCodeBreakdown(JSON.parse(value));
+    } catch {
+        return {};
+    }
 }
 
 function mergeErrorCodeBreakdowns(target: ErrorCodeBreakdown, source: ErrorCodeBreakdown): ErrorCodeBreakdown {
@@ -2437,7 +2452,9 @@ router.get(
             return;
         }
 
-        const cacheKey = `analytics:api-endpoint-stats:${projectIds.sort().join(',')}:${timeRange || 'all'}:v9-status-code-breakdown`;
+        const sortedProjectIds = [...projectIds].sort();
+        const statsSource = canReadApiEndpointStatsFromClickHouse() ? 'clickhouse' : 'postgres';
+        const cacheKey = `analytics:api-endpoint-stats:${sortedProjectIds.join(',')}:${timeRange || 'all'}:${statsSource}:v10-status-code-breakdown`;
         const cached = await redis.get(cacheKey);
         if (cached) {
             res.json(JSON.parse(cached));
@@ -2455,31 +2472,91 @@ router.get(
             }
         }
 
-        // Import the new table
-        const { apiEndpointDailyStats } = await import('../db/client.js');
+        let stats: Array<{
+            endpoint: string;
+            totalCalls: number | bigint;
+            totalErrors: number | bigint;
+            sumLatencyMs: number | bigint;
+            statusCodeBreakdown: ErrorCodeBreakdown;
+        }>;
+        let shouldFallbackToPostgres = !canReadApiEndpointStatsFromClickHouse();
 
-        // Build query conditions
-        const lastRolledUpDate = await getLastRolledUpDate();
-        const conditions = [
-            inArray(apiEndpointDailyStats.projectId, projectIds),
-            lte(apiEndpointDailyStats.date, lastRolledUpDate),
-            excludeInternalToolEndpointTraffic(apiEndpointDailyStats.endpoint),
-        ];
-        if (startDate) {
-            conditions.push(gte(apiEndpointDailyStats.date, startDate));
+        if (canReadApiEndpointStatsFromClickHouse()) {
+            try {
+                const clickHouseRows = await queryApiEndpointStatusRowsFromClickHouse({
+                    projectIds: sortedProjectIds,
+                    startDate,
+                });
+                const rowsByEndpoint = new Map<string, {
+                    endpoint: string;
+                    totalCalls: number;
+                    totalErrors: number;
+                    sumLatencyMs: number;
+                    statusCodeBreakdown: ErrorCodeBreakdown;
+                }>();
+
+                for (const row of clickHouseRows) {
+                    const endpoint = row.endpoint;
+                    const current = rowsByEndpoint.get(endpoint) ?? {
+                        endpoint,
+                        totalCalls: 0,
+                        totalErrors: 0,
+                        sumLatencyMs: 0,
+                        statusCodeBreakdown: {},
+                    };
+                    const totalCalls = Number(row.totalCalls || 0);
+                    const totalErrors = Number(row.totalErrors || 0);
+                    const statusCode = Number(row.statusCode || 0);
+                    current.totalCalls += totalCalls;
+                    current.totalErrors += totalErrors;
+                    current.sumLatencyMs += Number(row.sumLatencyMs || 0);
+                    const importedBreakdown = normalizeErrorCodeBreakdownJson(row.statusCodeBreakdownJson);
+                    if (Object.keys(importedBreakdown).length > 0) {
+                        mergeErrorCodeBreakdowns(current.statusCodeBreakdown, importedBreakdown);
+                    } else if (totalErrors > 0) {
+                        const key = statusCode >= 400 ? String(statusCode) : UNKNOWN_STATUS_CODE_KEY;
+                        current.statusCodeBreakdown[key] = (current.statusCodeBreakdown[key] || 0) + totalErrors;
+                    }
+                    rowsByEndpoint.set(endpoint, current);
+                }
+
+                stats = [...rowsByEndpoint.values()];
+            } catch (err) {
+                logger.warn({ err }, 'ClickHouse API endpoint stats query failed; falling back to Postgres');
+                stats = [];
+                shouldFallbackToPostgres = true;
+            }
+        } else {
+            stats = [];
         }
 
-        // Query aggregated endpoint stats
-        const stats = await db
-            .select({
-                endpoint: apiEndpointDailyStats.endpoint,
-                totalCalls: apiEndpointDailyStats.totalCalls,
-                totalErrors: apiEndpointDailyStats.totalErrors,
-                sumLatencyMs: apiEndpointDailyStats.sumLatencyMs,
-                statusCodeBreakdown: apiEndpointDailyStats.statusCodeBreakdown,
-            })
-            .from(apiEndpointDailyStats)
-            .where(and(...conditions));
+        if (shouldFallbackToPostgres) {
+            // Import the new table
+            const { apiEndpointDailyStats } = await import('../db/client.js');
+
+            // Build query conditions
+            const lastRolledUpDate = await getLastRolledUpDate();
+            const conditions = [
+                inArray(apiEndpointDailyStats.projectId, projectIds),
+                lte(apiEndpointDailyStats.date, lastRolledUpDate),
+                excludeInternalToolEndpointTraffic(apiEndpointDailyStats.endpoint),
+            ];
+            if (startDate) {
+                conditions.push(gte(apiEndpointDailyStats.date, startDate));
+            }
+
+            // Query aggregated endpoint stats
+            stats = await db
+                .select({
+                    endpoint: apiEndpointDailyStats.endpoint,
+                    totalCalls: apiEndpointDailyStats.totalCalls,
+                    totalErrors: apiEndpointDailyStats.totalErrors,
+                    sumLatencyMs: apiEndpointDailyStats.sumLatencyMs,
+                    statusCodeBreakdown: apiEndpointDailyStats.statusCodeBreakdown,
+                })
+                .from(apiEndpointDailyStats)
+                .where(and(...conditions));
+        }
 
         // Aggregate across dates per endpoint
         const endpointMap: Record<string, {
@@ -2598,7 +2675,8 @@ router.get(
         }
 
         // Cache check - v2 for rollup-based implementation
-        const cacheKey = `analytics:region-performance:${projectId}:${timeRange || '30d'}:v5-long-window`;
+        const regionStatsSource = canReadApiEndpointStatsFromClickHouse() ? 'clickhouse' : 'postgres';
+        const cacheKey = `analytics:region-performance:${projectId}:${timeRange || '30d'}:${regionStatsSource}:v6-long-window`;
         const cached = await redis.get(cacheKey);
         if (cached) {
             res.json(JSON.parse(cached));
@@ -2618,25 +2696,49 @@ router.get(
         startDate.setDate(startDate.getDate() - days);
         const startDateStr = startDate.toISOString().split('T')[0];
 
-        // Import apiEndpointDailyStats
-        const { apiEndpointDailyStats } = await import('../db/client.js');
-        const lastRolledUpDate = await getLastRolledUpDate();
+        let regionStats: Array<{
+            region: string;
+            totalCalls: number | string;
+            sumLatencyMs: number | string;
+        }>;
+        let shouldFallbackRegionStatsToPostgres = !canReadApiEndpointStatsFromClickHouse();
 
-        // Query from rollup table grouped by region (SCALABLE)
-        const regionStats = await db
-            .select({
-                region: apiEndpointDailyStats.region,
-                totalCalls: sql<number>`sum(${apiEndpointDailyStats.totalCalls})::int`,
-                sumLatencyMs: sql<number>`sum(${apiEndpointDailyStats.sumLatencyMs})::bigint`,
-            })
-            .from(apiEndpointDailyStats)
-            .where(and(
-                eq(apiEndpointDailyStats.projectId, projectId),
-                gte(apiEndpointDailyStats.date, startDateStr),
-                lte(apiEndpointDailyStats.date, lastRolledUpDate),
-                excludeInternalToolEndpointTraffic(apiEndpointDailyStats.endpoint),
-            ))
-            .groupBy(apiEndpointDailyStats.region);
+        if (canReadApiEndpointStatsFromClickHouse()) {
+            try {
+                regionStats = await queryRegionStatsFromClickHouse({
+                    projectId,
+                    startDate: startDateStr,
+                });
+            } catch (err) {
+                logger.warn({ err }, 'ClickHouse region stats query failed; falling back to Postgres');
+                regionStats = [];
+                shouldFallbackRegionStatsToPostgres = true;
+            }
+        } else {
+            regionStats = [];
+        }
+
+        if (shouldFallbackRegionStatsToPostgres) {
+            // Import apiEndpointDailyStats
+            const { apiEndpointDailyStats } = await import('../db/client.js');
+            const lastRolledUpDate = await getLastRolledUpDate();
+
+            // Query from rollup table grouped by region (SCALABLE)
+            regionStats = await db
+                .select({
+                    region: apiEndpointDailyStats.region,
+                    totalCalls: sql<number>`sum(${apiEndpointDailyStats.totalCalls})::int`,
+                    sumLatencyMs: sql<number>`sum(${apiEndpointDailyStats.sumLatencyMs})::bigint`,
+                })
+                .from(apiEndpointDailyStats)
+                .where(and(
+                    eq(apiEndpointDailyStats.projectId, projectId),
+                    gte(apiEndpointDailyStats.date, startDateStr),
+                    lte(apiEndpointDailyStats.date, lastRolledUpDate),
+                    excludeInternalToolEndpointTraffic(apiEndpointDailyStats.endpoint),
+                ))
+                .groupBy(apiEndpointDailyStats.region);
+        }
 
         // Get country names
         const getCountryName = (code: string): string => {

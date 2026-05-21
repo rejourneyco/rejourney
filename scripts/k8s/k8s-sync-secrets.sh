@@ -113,6 +113,35 @@ log "Creating redis-secret..."
 create_or_update_secret redis-secret \
     --from-literal=REDIS_URL="${REDIS_URL:-redis://redis:6379/0}"
 
+# 2b. ClickHouse Secret (optional, disabled by default)
+CLICKHOUSE_ENABLED="${CLICKHOUSE_ENABLED:-false}"
+CLICKHOUSE_DUAL_WRITE_ENABLED="${CLICKHOUSE_DUAL_WRITE_ENABLED:-false}"
+CLICKHOUSE_READS_ENABLED="${CLICKHOUSE_READS_ENABLED:-false}"
+DEPLOY_CLICKHOUSE="${DEPLOY_CLICKHOUSE:-false}"
+
+if [ "$CLICKHOUSE_ENABLED" = "true" ] \
+    || [ "$CLICKHOUSE_DUAL_WRITE_ENABLED" = "true" ] \
+    || [ "$CLICKHOUSE_READS_ENABLED" = "true" ] \
+    || [ "$DEPLOY_CLICKHOUSE" = "true" ] \
+    || [ -n "${CLICKHOUSE_PASSWORD:-}" ]; then
+    if [ -z "${CLICKHOUSE_PASSWORD:-}" ]; then
+        error "CLICKHOUSE_PASSWORD is required when ClickHouse is deployed or enabled"
+    fi
+
+    log "Creating clickhouse-secret..."
+    create_or_update_secret clickhouse-secret \
+        --from-literal=CLICKHOUSE_ENABLED="$CLICKHOUSE_ENABLED" \
+        --from-literal=CLICKHOUSE_DUAL_WRITE_ENABLED="$CLICKHOUSE_DUAL_WRITE_ENABLED" \
+        --from-literal=CLICKHOUSE_READS_ENABLED="$CLICKHOUSE_READS_ENABLED" \
+        --from-literal=CLICKHOUSE_URL="${CLICKHOUSE_URL:-http://clickhouse-rejourney:8123}" \
+        --from-literal=CLICKHOUSE_USER="${CLICKHOUSE_USER:-rejourney}" \
+        --from-literal=CLICKHOUSE_PASSWORD="$CLICKHOUSE_PASSWORD" \
+        --from-literal=CLICKHOUSE_DATABASE="${CLICKHOUSE_DATABASE:-rejourney}" \
+        --from-literal=CLICKHOUSE_CUTOVER_DATE="${CLICKHOUSE_CUTOVER_DATE:-}"
+else
+    info "ClickHouse disabled and CLICKHOUSE_PASSWORD not provided, skipping clickhouse-secret"
+fi
+
 # 3. S3 Secret
 log "Creating s3-secret..."
 if [ -z "$S3_ENDPOINT" ]; then

@@ -10,6 +10,8 @@ It keeps the same plain-YAML shape as the prod manifests, but targets a local
 - `namespace.yaml`: local namespace and labels
 - `postgres.yaml`: PostgreSQL with a NodePort for host access
 - `redis.yaml`: Redis with a NodePort for host access
+- `clickhouse.yaml`: single-node local ClickHouse for analytics projection parity
+- `clickhouse-backfill-api-stats.yaml`: manual local Job for historical API endpoint stats import testing
 - `minio.yaml`: local S3-compatible storage plus bucket bootstrap job
 - `api.yaml`: API deployment and `db-setup` job for full-cluster parity
 - `web.yaml`: dashboard deployment for full-cluster parity
@@ -66,6 +68,7 @@ app topology:
 - `retention-worker`
 - `alert-worker`
 - `db-setup`
+- `clickhouse-setup`
 
 It also exposes:
 
@@ -77,6 +80,8 @@ It also exposes:
 
 - PostgreSQL: `127.0.0.1:5432`
 - Redis: `127.0.0.1:6379`
+- ClickHouse HTTP: `127.0.0.1:30123`
+- ClickHouse native: `127.0.0.1:30124`
 - MinIO API: `127.0.0.1:9000`
 - MinIO Console: `127.0.0.1:9001`
 
@@ -108,6 +113,7 @@ That flow:
 - runs web typecheck and build
 - builds/imports the local API, web, and migration images
 - reapplies the local k8s app manifests, including the same `db-setup` path as production: `migrate + conditional-seed + system-bootstrap + storage-endpoint sync`
+- applies ClickHouse infra and runs `clickhouse-setup`
 - restarts the host-side API/upload/web processes for device testing
 
 For a quicker inner loop that still rebuilds, redeploys, reruns migrations, and
@@ -146,9 +152,28 @@ which re-enqueues BullMQ jobs for any `uploaded` artifacts that lost their job
 (e.g. after a Redis restart). It must have `REDIS_URL` in its env — see
 `local-k8s/workers.yaml`.
 
+**ClickHouse local analytics parity:** Local defaults enable ClickHouse so `npm run ci:local`
+exercises the first API endpoint stats migration. Host-side processes talk to
+ClickHouse at `http://127.0.0.1:30123`; in-cluster pods use `http://clickhouse:8123`.
+The `clickhouse-setup` Job creates `api_endpoint_request_events`,
+`api_endpoint_daily_stats_imported`, and `schema_migrations`. To test historical
+import locally after the stack is running:
+
+```bash
+cd backend
+node --import tsx scripts/backfillClickHouseApiEndpointStats.ts \
+  --until 2026-05-21 \
+  --batch-size 5000
+```
+
+`--until` is exclusive and should match the cutover date you want to test. Keep
+`CLICKHOUSE_CUTOVER_DATE` empty unless you intentionally want the running API to
+serve imported history; with an empty cutover date, ClickHouse reads use raw facts
+only.
+
 ## Notes
 
-- The production `k8s/` directory is intentionally untouched.
+- The production `k8s/` directory is separate; keep local-only shortcuts in `local-k8s/` and mirror only production-relevant behavior intentionally.
 - The self-hosted Docker path is still supported through
   `docker-compose.selfhosted.yml`.
 - The old local Docker development stack is no longer part of the supported

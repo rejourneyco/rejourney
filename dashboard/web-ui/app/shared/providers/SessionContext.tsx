@@ -156,6 +156,7 @@ export function SessionDataProvider({
   const latestRequestIdRef = useRef(0);
   const lastTeamIdRef = useRef<string | null>(currentTeam?.id ?? null);
   const bootstrapConsumedRef = useRef(false);
+  const lastVisibilityProjectRefreshAtRef = useRef(0);
 
   const applyProjectsForTeam = useCallback((
     fetchedProjects: ApiProject[],
@@ -311,8 +312,9 @@ export function SessionDataProvider({
 
     const interval = setInterval(() => {
       if (isTeamLoading || isAuthLoading || !isAuthenticated || !currentTeam?.id) return;
-      void refreshProjects({ silent: true, force: true });
-    }, 30000);
+      if (document.visibilityState !== 'visible') return;
+      void refreshProjects({ silent: true, force: false });
+    }, 120000);
 
     return () => clearInterval(interval);
   }, [currentTeam?.id, demoMode.isDemoMode, isAuthLoading, isAuthenticated, isTeamLoading, refreshProjects]);
@@ -324,6 +326,9 @@ export function SessionDataProvider({
 
     const runRefetch = () => {
       if (isTeamLoading || isAuthLoading || !isAuthenticated || !currentTeam?.id) return;
+      const now = Date.now();
+      if (now - lastVisibilityProjectRefreshAtRef.current < 60000) return;
+      lastVisibilityProjectRefreshAtRef.current = now;
       clearCache('projects:list');
       void refreshUser().finally(() => {
         void refreshProjects({ silent: true, force: false });

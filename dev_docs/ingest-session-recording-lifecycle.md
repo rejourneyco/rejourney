@@ -1,6 +1,6 @@
 # Ingest + Session Recording Lifecycle (Visual)
 
-Last updated: 2026-05-17
+Last updated: 2026-05-21
 
 This doc is the ingest/runtime view: package start, upload lanes, relay, workers, Redis, and Postgres session state.
 
@@ -12,7 +12,8 @@ Shortest correct mental model:
 - The first successful presign materializes the session row and counts billing once.
 - Postgres is the source of truth for session lifecycle, artifact lifecycle, metrics, and usage.
 - Redis is the write-ahead buffer + job queue plane: tiny relay uploads land in `artifact:buf:{artifactId}` first, then BullMQ workers flush them to S3 and process them.
-- Replay becomes visible when at least one screenshot artifact reaches `ready`.
+- Replay becomes visible when at least one screenshot or rrweb artifact reaches `ready`.
+- Dashboard replay open should load the cheap session core first, then a replay manifest. rrweb segment bytes and materialized screenshot frames should normally come from signed object-storage URLs, with API proxy routes as fallback.
 - `/api/ingest/session/end` is a strong hint, but the backend must still work if the SDK never calls it.
 - The backend decides "live vs closed" from `ended_at`, `last_ingest_activity_at`, open replay work (`pending`, `buffered`, or `uploaded`), newer-session rollover, and the platform's finalization window; not from a single client callback.
 - A session stops presenting as live ingest after 60 seconds without ingest touches, or immediately once `ended_at` is set. For web, that 60-second live-badge timeout is not the same as final session closure: the row stays resumable until the web max observability window expires, unless the tab explicitly ends or a newer same-visitor session supersedes it.
@@ -395,11 +396,11 @@ Important worker nuance:
 
 - **ingest-artifact worker** ([`ingestArtifactWorker.ts`](/Users/mora/Desktop/Dev-mac/rejourney/backend/src/worker/ingestArtifactWorker.ts)) consumes from `rj-ingest-artifacts`: `events`, `crashes`, and `anrs`.
 - The same ingest-worker process also runs the `rj-artifact-flush` worker. It reads `artifact:buf:{artifactId}`, writes the bytes to the selected S3 endpoint, calls `markArtifactUploadStored()` to enqueue normal processing, then deletes the Redis buffer.
-- **replay-artifact worker** ([`replayArtifactWorker.ts`](/Users/mora/Desktop/Dev-mac/rejourney/backend/src/worker/replayArtifactWorker.ts)) consumes from `rj-replay-artifacts`: `screenshots` and `hierarchy`.
+- **replay-artifact worker** ([`replayArtifactWorker.ts`](/Users/mora/Desktop/Dev-mac/rejourney/backend/src/worker/replayArtifactWorker.ts)) consumes from `rj-replay-artifacts`: `screenshots`, `hierarchy`, and `rrweb`.
 - **session-lifecycle worker** ([`sessionLifecycleWorker.ts`](/Users/mora/Desktop/Dev-mac/rejourney/backend/src/worker/sessionLifecycleWorker.ts)) runs periodic sweeps only; it does not process artifact bytes itself.
 - `events` artifacts update session metadata, `session_metrics`, and downstream analytics side effects.
 - `crashes` and `anrs` artifacts create issue rows and increment crash/ANR counters.
-- `screenshots` and `hierarchy` mostly affect replay availability and final session presentation.
+- `screenshots`, `hierarchy`, and `rrweb` mostly affect replay availability and final session presentation.
 - BullMQ job deduplication uses `jobId = artifact-{artifactId}`. A duplicate enqueue while a job is active/waiting returns without creating a second job.
 - Flush job deduplication uses `jobId = flush-{artifactId}`. If the Redis buffer is missing after TTL expiry or Redis loss, the flush worker marks the artifact failed instead of crashing or pretending S3 has the bytes.
 - The heavy full-table artifact lifecycle backfill is manual by default. Normal worker startup skips it unless `INGEST_ENABLE_STARTUP_BACKFILL=true`.

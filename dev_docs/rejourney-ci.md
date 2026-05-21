@@ -114,19 +114,21 @@ Primary workflow file:
 │                                                                              │
 │ 1. Render manifests with the target image tag                               │
 │ 2. Apply namespace / Traefik / exporters / ingress / storage-class support  │
-│ 3. Apply the CNPG postgres-local Cluster manifest                           │
-│ 4. Verify archive.yaml matches session-backup.mjs                           │
-│ 5. Print current drizzle migration status                                   │
-│ 6. Apply/wait pgbouncer and PDB data-plane manifests                        │
-│ 7. Delete old db-setup job                                                  │
-│ 8. Apply db-setup by itself and wait for migration/bootstrap success        │
-│ 9. Print migration status again                                             │
-│ 10. Server-side apply grafana-dashboards ConfigMap                          │
-│ 11. kubectl apply rendered manifests with prune                             │
-│ 12. Reconcile the Helm-managed redis Service label/restore guard            │
-│ 13. Wait for Deployments, then colocate API with the CNPG primary           │
-│ 14. Wait for cadvisor/node-exporter                                         │
-│ 15. Cleanup imported dashboards / restart seed jobs / clean finished pods   │
+│ 3. If DEPLOY_CLICKHOUSE=true, install Altinity operator and ClickHouse CRs  │
+│ 4. Apply the CNPG postgres-local Cluster manifest                           │
+│ 5. Verify archive.yaml matches session-backup.mjs                           │
+│ 6. Print current drizzle migration status                                   │
+│ 7. Apply/wait pgbouncer and PDB data-plane manifests                        │
+│ 8. Delete old db-setup job                                                  │
+│ 9. Apply db-setup by itself and wait for migration/bootstrap success        │
+│ 10. If DEPLOY_CLICKHOUSE=true, run clickhouse-setup by itself               │
+│ 11. Print migration status again                                            │
+│ 12. Server-side apply grafana-dashboards ConfigMap                          │
+│ 13. kubectl apply rendered manifests with prune                             │
+│ 14. Reconcile the Helm-managed redis Service label/restore guard            │
+│ 15. Wait for Deployments, then colocate api-ingest with the CNPG primary    │
+│ 16. Wait for cadvisor/node-exporter                                         │
+│ 17. Cleanup imported dashboards / restart seed jobs / clean finished pods   │
 └──────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -136,6 +138,11 @@ Important deploy behavior
 set -euo pipefail is enabled in the remote deploy script
   -> if deploy-release.sh fails, the GitHub Actions job fails red
   -> later cleanup steps do not hide the real failure anymore
+
+DEPLOY_CLICKHOUSE=false by default
+  -> normal CI deploys do not create ClickHouse, install the operator, or require clickhouse-secret
+  -> when true, clickhouse.yaml and clickhouse-setup.yaml are applied explicitly and removed from the bulk prune path
+  -> historical clickhouse-backfill-api-stats is manual and is not run by deploy-release.sh
 ```
 
 Production deploy entrypoint:
@@ -224,11 +231,12 @@ deploy.sh apps
 
 create cluster if needed
   -> sync secrets
-  -> apply local postgres / redis / minio infra
+  -> apply local postgres / redis / minio / clickhouse infra
   -> run local db compatibility guard
   -> apply api / web / workers / ingress
   -> wait for deployments
   -> wait for db-setup success
+  -> wait for clickhouse-setup success
 ```
 
 Local parity nuance:
@@ -236,6 +244,8 @@ Local parity nuance:
 - `ci:local*` uses `migrate`, not `push`, so it is the production-parity path.
 - If the local DB was created by the old `push` flow and has no migration history, the deploy guard stops early with an explicit error instead of letting `db-setup` hang.
 - The one-time reset path for that old local state is `./scripts/local-k8s/deploy.sh down`.
+- Local ClickHouse is enabled by default in `.env.k8s.local` so `npm run ci:local` exercises the dual-write/read path. `CLICKHOUSE_CUTOVER_DATE` stays empty unless you intentionally want the running local API to include imported historical aggregates.
+- The local historical import check is manual: `cd backend && node --import tsx scripts/backfillClickHouseApiEndpointStats.ts --until <cutover-date> --batch-size 5000`.
 
 Relevant files:
 
@@ -258,6 +268,8 @@ Relevant files:
 │ archive.yaml must match session-backup.mjs before deploy                    │
 │ local legacy push-era DBs are blocked by the compatibility guard            │
 │ hot-table replay cleanup migration avoids wedging production traffic         │
+│ ClickHouse deploy is gated by DEPLOY_CLICKHOUSE and app flags default false │
+│ clickhouse-backfill-api-stats is manual, never part of normal deploy        │
 └──────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -282,6 +294,7 @@ npm run ci:local:checks
 npm run ci:local:deploy
 ./scripts/local-k8s/deploy.sh down
 bash scripts/k8s/deploy-release.sh <image-tag> [repository]
+cd backend && node --import tsx scripts/backfillClickHouseApiEndpointStats.ts --until <cutover-date> --batch-size 5000
 ```
 
 Primary files:
@@ -291,4 +304,9 @@ Primary files:
 - [`scripts/local-k8s/rejourney-ci.sh`](/Users/mora/Desktop/Dev-mac/rejourney/scripts/local-k8s/rejourney-ci.sh)
 - [`scripts/local-k8s/deploy.sh`](/Users/mora/Desktop/Dev-mac/rejourney/scripts/local-k8s/deploy.sh)
 - [`k8s/api.yaml`](/Users/mora/Desktop/Dev-mac/rejourney/k8s/api.yaml)
+- [`k8s/clickhouse.yaml`](/Users/mora/Desktop/Dev-mac/rejourney/k8s/clickhouse.yaml)
+- [`k8s/clickhouse-setup.yaml`](/Users/mora/Desktop/Dev-mac/rejourney/k8s/clickhouse-setup.yaml)
+- [`k8s/clickhouse-backfill-api-stats.yaml`](/Users/mora/Desktop/Dev-mac/rejourney/k8s/clickhouse-backfill-api-stats.yaml)
 - [`local-k8s/api.yaml`](/Users/mora/Desktop/Dev-mac/rejourney/local-k8s/api.yaml)
+- [`local-k8s/clickhouse.yaml`](/Users/mora/Desktop/Dev-mac/rejourney/local-k8s/clickhouse.yaml)
+- [`backend/scripts/backfillClickHouseApiEndpointStats.ts`](/Users/mora/Desktop/Dev-mac/rejourney/backend/scripts/backfillClickHouseApiEndpointStats.ts)

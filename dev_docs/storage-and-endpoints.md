@@ -175,17 +175,24 @@ This prevents `artifact_count > 0` partial backups from passing gate checks.
 
 ```mermaid
 flowchart TD
-  replayReq[ReplayFrameRequest] --> authz[AuthorizeSessionAccess]
-  authz --> archiveRoute[ArchiveAwareFrameRoute]
-  archiveRoute --> pickArtifact[SelectScreenshotArchiveByTime]
-  pickArtifact --> readByEndpoint[DownloadUsingArtifactendpoint_id]
-  readByEndpoint --> windowFilter[FilterFramesToSessionWindow]
-  windowFilter --> response[ReturnNearestFrame]
+  replayOpen["Dashboard replay open"] --> core["GET /api/session/:id/core?includeReplay=false"]
+  core --> manifest["GET /api/session/:id/replay-manifest"]
+  manifest --> cache["Redis manifest cache and build coalescing"]
+  cache --> signed["Return signed object URLs and proxy URLs"]
+  signed --> direct["Browser fetches storage endpoint directly"]
+  direct --> fallback{"Direct fetch failed?"}
+  fallback -->|No| player["Start player"]
+  fallback -->|Yes| proxy["Use same-origin proxy URL"]
+  proxy --> player
 ```
 
 Compatibility behavior:
-- Legacy frame proxy route redirects to archive-aware route.
-- Artifact-specific signed URLs are used when endpoint pinning exists.
+- rrweb manifests return ordered gzip JSON segments. The player loads the first playable segment quickly, then prefetches nearby and next segments.
+- Screenshot manifests return frame URLs. Warm paths use individually materialized JPEG frame objects under `sessions/{sessionId}/frames/{timestamp}.jpg`.
+- Every manifest item includes a signed direct object URL when possible and a same-origin proxy URL as fallback.
+- The proxy fallback routes are `/api/session/rrweb-segment/:sessionId/:artifactId` and `/api/session/frame/:sessionId/:timestamp`.
+- Artifact-specific signed URLs are generated from `recording_artifacts.endpoint_id` when endpoint pinning exists.
+- If proxy traffic is high during normal replay viewing, the likely failure is object-storage CORS, dashboard CSP, expired signed URLs, or an unreachable provider endpoint.
 
 ---
 
@@ -246,10 +253,14 @@ ORDER BY backup_coverage_percent ASC, eligible_sessions DESC;
 
 - `backend/src/db/s3.ts`
 - `backend/src/routes/ingestUploadRelay.ts`
+- `backend/src/routes/sessions.ts`
 - `backend/src/services/ingestArtifactLifecycle.ts`
+- `backend/src/services/screenshotFrames.ts`
 - `backend/src/services/sessionBackupGate.ts`
 - `backend/src/services/sessionArtifactPurge.ts`
 - `backend/src/worker/retentionWorker.ts`
+- `dashboard/web-ui/app/features/app/sessions/detail/route.tsx`
+- `dashboard/web-ui/app/shared/lib/rrwebReplayLoader.ts`
 - `scripts/k8s/session-backup.mjs`
 - `k8s/archive.yaml`
 - `docs/selfhosted/backup-recovery.md`
@@ -660,6 +671,10 @@ env:
 
 These are **fallback only**. The real endpoints come from the database.
 
+Dashboard replay downloads also depend on the same endpoint table. The API signs direct read URLs from the artifact's stored `endpoint_id`; `S3_PUBLIC_ENDPOINT` is only the global/self-hosted fallback when there is no database endpoint context.
+
+Production CSP must allow dynamic provider endpoints. Do not hardcode a finite provider host list for replay object reads: `storage_endpoints` can contain Hetzner, OVH, Scaleway, MinIO, or another S3-compatible endpoint at runtime. The dashboard and ingress should allow HTTPS object reads in `connect-src` / `media-src`; each bucket still needs CORS for dashboard origins.
+
 ### Self-Hosted Deployment
 
 In `docker-compose.selfhosted.yml`, variables are passed directly:
@@ -841,6 +856,24 @@ Result: A global shadow endpoint with priority 10 will receive copies of all rec
 3. Return presigned URL to SDK
 4. SDK downloads directly from that endpoint
 ```
+
+### Dashboard Replay Manifest Flow ([GET /api/session/{id}/replay-manifest](backend/src/routes/sessions.ts))
+
+```typescript
+1. Authorize the dashboard user for the session.
+2. Build or read the Redis cached manifest.
+3. Coalesce cold builds with a short Redis lock so concurrent opens share one manifest build.
+4. For rrweb: return ordered segment metadata plus signed direct URL and proxyUrl.
+5. For screenshots: return frame metadata plus signed direct JPEG URL and proxyUrl.
+6. Browser tries the direct object URL first, with same-origin proxy fallback on failure.
+```
+
+Operational notes:
+
+- `/core?includeReplay=false` is the cheap replay-open path. Do not re-add full replay, timeline, stats, or network artifact computation to that first request.
+- Manifest and frame cache keys are versioned separately from the older session bootstrap cache, currently under `v5:*` on the backend.
+- Screenshot frame indexes use `screenshot_frames:v2:*`. The frame byte proxy cache uses `screenshot_frame_data:*`.
+- High proxy route volume means the direct storage path is degraded. Check bucket CORS, dashboard CSP, signed URL expiry, and the `endpoint_url` / public endpoint for the artifact's `endpoint_id`.
 
 ### Endpoint Enumeration (Admin API)
 

@@ -165,6 +165,55 @@ spec:
                   name: redis-secret
                   key: REDIS_PASSWORD
                   optional: true  # key added to secret in Phase 1-B; optional so pods start before then
+            # ClickHouse analytics projection (disabled unless clickhouse-secret flags are true)
+            - name: CLICKHOUSE_ENABLED
+              valueFrom:
+                secretKeyRef:
+                  name: clickhouse-secret
+                  key: CLICKHOUSE_ENABLED
+                  optional: true
+            - name: CLICKHOUSE_DUAL_WRITE_ENABLED
+              valueFrom:
+                secretKeyRef:
+                  name: clickhouse-secret
+                  key: CLICKHOUSE_DUAL_WRITE_ENABLED
+                  optional: true
+            - name: CLICKHOUSE_READS_ENABLED
+              valueFrom:
+                secretKeyRef:
+                  name: clickhouse-secret
+                  key: CLICKHOUSE_READS_ENABLED
+                  optional: true
+            - name: CLICKHOUSE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: clickhouse-secret
+                  key: CLICKHOUSE_URL
+                  optional: true
+            - name: CLICKHOUSE_USER
+              valueFrom:
+                secretKeyRef:
+                  name: clickhouse-secret
+                  key: CLICKHOUSE_USER
+                  optional: true
+            - name: CLICKHOUSE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: clickhouse-secret
+                  key: CLICKHOUSE_PASSWORD
+                  optional: true
+            - name: CLICKHOUSE_DATABASE
+              valueFrom:
+                secretKeyRef:
+                  name: clickhouse-secret
+                  key: CLICKHOUSE_DATABASE
+                  optional: true
+            - name: CLICKHOUSE_CUTOVER_DATE
+              valueFrom:
+                secretKeyRef:
+                  name: clickhouse-secret
+                  key: CLICKHOUSE_CUTOVER_DATE
+                  optional: true
             # S3
             - name: S3_ENDPOINT
               valueFrom:
@@ -529,6 +578,55 @@ spec:
                 secretKeyRef:
                   name: redis-secret
                   key: REDIS_PASSWORD
+                  optional: true
+            # ClickHouse analytics projection (disabled unless clickhouse-secret flags are true)
+            - name: CLICKHOUSE_ENABLED
+              valueFrom:
+                secretKeyRef:
+                  name: clickhouse-secret
+                  key: CLICKHOUSE_ENABLED
+                  optional: true
+            - name: CLICKHOUSE_DUAL_WRITE_ENABLED
+              valueFrom:
+                secretKeyRef:
+                  name: clickhouse-secret
+                  key: CLICKHOUSE_DUAL_WRITE_ENABLED
+                  optional: true
+            - name: CLICKHOUSE_READS_ENABLED
+              valueFrom:
+                secretKeyRef:
+                  name: clickhouse-secret
+                  key: CLICKHOUSE_READS_ENABLED
+                  optional: true
+            - name: CLICKHOUSE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: clickhouse-secret
+                  key: CLICKHOUSE_URL
+                  optional: true
+            - name: CLICKHOUSE_USER
+              valueFrom:
+                secretKeyRef:
+                  name: clickhouse-secret
+                  key: CLICKHOUSE_USER
+                  optional: true
+            - name: CLICKHOUSE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: clickhouse-secret
+                  key: CLICKHOUSE_PASSWORD
+                  optional: true
+            - name: CLICKHOUSE_DATABASE
+              valueFrom:
+                secretKeyRef:
+                  name: clickhouse-secret
+                  key: CLICKHOUSE_DATABASE
+                  optional: true
+            - name: CLICKHOUSE_CUTOVER_DATE
+              valueFrom:
+                secretKeyRef:
+                  name: clickhouse-secret
+                  key: CLICKHOUSE_CUTOVER_DATE
                   optional: true
             - name: S3_ENDPOINT
               valueFrom:

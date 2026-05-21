@@ -77,6 +77,47 @@ spec:
                 secretKeyRef:
                   name: redis-secret
                   key: REDIS_URL
+            - name: CLICKHOUSE_ENABLED
+              valueFrom:
+                secretKeyRef:
+                  name: clickhouse-secret
+                  key: CLICKHOUSE_ENABLED
+            - name: CLICKHOUSE_DUAL_WRITE_ENABLED
+              valueFrom:
+                secretKeyRef:
+                  name: clickhouse-secret
+                  key: CLICKHOUSE_DUAL_WRITE_ENABLED
+            - name: CLICKHOUSE_READS_ENABLED
+              valueFrom:
+                secretKeyRef:
+                  name: clickhouse-secret
+                  key: CLICKHOUSE_READS_ENABLED
+            - name: CLICKHOUSE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: clickhouse-secret
+                  key: CLICKHOUSE_URL
+            - name: CLICKHOUSE_USER
+              valueFrom:
+                secretKeyRef:
+                  name: clickhouse-secret
+                  key: CLICKHOUSE_USER
+            - name: CLICKHOUSE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: clickhouse-secret
+                  key: CLICKHOUSE_PASSWORD
+            - name: CLICKHOUSE_DATABASE
+              valueFrom:
+                secretKeyRef:
+                  name: clickhouse-secret
+                  key: CLICKHOUSE_DATABASE
+            - name: CLICKHOUSE_CUTOVER_DATE
+              valueFrom:
+                secretKeyRef:
+                  name: clickhouse-secret
+                  key: CLICKHOUSE_CUTOVER_DATE
+                  optional: true
             - name: S3_ENDPOINT
               valueFrom:
                 secretKeyRef:
@@ -127,6 +168,83 @@ spec:
                 secretKeyRef:
                   name: app-secret
                   key: STORAGE_ENCRYPTION_KEY
+
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: clickhouse-setup
+  namespace: rejourney-local
+  labels:
+    app.kubernetes.io/part-of: rejourney
+spec:
+  ttlSecondsAfterFinished: 86400
+  backoffLimit: 3
+  template:
+    spec:
+      restartPolicy: OnFailure
+      initContainers:
+        - name: wait-clickhouse
+          image: curlimages/curl:8.11.1
+          command:
+            - /bin/sh
+            - -c
+            - |
+              echo "Waiting for ClickHouse to be ready..."
+              until curl -fsS http://clickhouse:8123/ping >/dev/null; do
+                echo "ClickHouse not ready, waiting 5s..."
+                sleep 5
+              done
+              echo "ClickHouse is ready!"
+      containers:
+        - name: setup
+          image: rejourney-local/migration:dev
+          imagePullPolicy: IfNotPresent
+          command: ["node", "--import", "tsx", "scripts/setupClickHouse.ts"]
+          env:
+            - name: NODE_ENV
+              value: production
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: PGBOUNCER_URL
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: app-secret
+                  key: JWT_SECRET
+            - name: INGEST_HMAC_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: app-secret
+                  key: INGEST_HMAC_SECRET
+            - name: CLICKHOUSE_ENABLED
+              value: "true"
+            - name: CLICKHOUSE_DUAL_WRITE_ENABLED
+              value: "true"
+            - name: CLICKHOUSE_READS_ENABLED
+              value: "true"
+            - name: CLICKHOUSE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: clickhouse-secret
+                  key: CLICKHOUSE_URL
+            - name: CLICKHOUSE_USER
+              valueFrom:
+                secretKeyRef:
+                  name: clickhouse-secret
+                  key: CLICKHOUSE_USER
+            - name: CLICKHOUSE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: clickhouse-secret
+                  key: CLICKHOUSE_PASSWORD
+            - name: CLICKHOUSE_DATABASE
+              valueFrom:
+                secretKeyRef:
+                  name: clickhouse-secret
+                  key: CLICKHOUSE_DATABASE
             - name: QUERY_BUILDER_KEY
               valueFrom:
                 secretKeyRef:

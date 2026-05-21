@@ -1,6 +1,6 @@
 # Web Support Implementation Plan
 
-Research checked: 2026-05-16
+Research checked: 2026-05-21
 
 This document describes how to add website session replay and general web analytics to Rejourney while preserving the end-user functionality of the existing mobile SDKs. The main recommendation is to build a first-party `@rejourneyco/browser` package on top of rrweb, not to build our own DOM recorder.
 
@@ -688,8 +688,8 @@ The current backend already has most of the mobile ingest machinery we should re
   - Comments and derived duration logic say replay end means screenshots/hierarchy.
   - Include rrweb chunk end time in the same concept.
 - `backend/src/routes/sessions.ts`
-  - Detail/bootstrap payloads are screenshot-first and hard-code screenshot availability in several places.
-  - Add rrweb chunk metadata endpoints without putting raw rrweb events into the bootstrap payload.
+  - Detail/bootstrap used to be screenshot-first; keep checking for hidden screenshot-only branches when changing replay availability.
+  - Current replay loading uses `/api/session/:id/replay-manifest` for rrweb chunk metadata and screenshot frame metadata. Keep raw rrweb events out of bootstrap/core payloads.
 - `dashboard/web-ui/app/shared/ui/core/ScreenshotReplayPlayer.tsx`
   - Keep this for mobile. Add a separate rrweb player instead of overloading the screenshot player.
 
@@ -849,34 +849,32 @@ This likely needs a migration for `session_metrics` if we want first-class colum
 
 ### 6. Session Detail API
 
-Current detail payloads are screenshot-first. Add:
+Current replay open uses a split read path:
 
-- `playbackMode: 'screenshots' | 'rrweb' | 'none'`
-- `rrwebEventChunks: Array<{ artifactId, startTime, endTime, eventCount, sizeBytes, url? }>`
-- `rrwebEventsStatus: 'ready' | 'preparing' | 'none'`
-- `rrwebEventCount`
+- `GET /api/session/:id/core?includeReplay=false` returns the cheap session shell and does not build the replay payload.
+- `GET /api/session/:id/replay-manifest?frameUrlMode=signed` returns the visual replay manifest.
+- `GET /api/session/:id/frames?frameUrlMode=signed` returns screenshot frame metadata when the player needs the frame list separately.
 
-Do not return all rrweb events in `/bootstrap` or `/core`.
+Do not return all rrweb events in `/bootstrap` or `/core`. The manifest endpoint is the current replacement for the older proposed `/rrweb/events` or `/rrweb/chunks` endpoints.
 
-Add either:
+The manifest endpoint should:
 
-- `GET /api/session/:id/rrweb/events` to stream/merge events server-side with pagination; or
-- `GET /api/session/:id/rrweb/chunks` returning signed URLs and metadata.
+- authorize via existing session auth;
+- load ready `rrweb` and `screenshots` artifacts;
+- use Redis cache and request coalescing so concurrent opens share cold builds;
+- return ordered rrweb segments with `artifactId`, time bounds, event count, signed direct URL, and `proxyUrl`;
+- return screenshot frames with timestamp, index, signed direct JPEG URL, and `proxyUrl`;
+- set short cache headers for unstable sessions and longer private cache headers for stable sessions;
+- keep payloads metadata-only so timeline, stats, network, and full replay parsing do not run just because the replay page opened.
 
-Recommendation: start with a server-side merge endpoint for access control and future redaction repair:
+The dashboard should try signed direct object-storage URLs first. The same-origin fallback routes are:
 
 ```text
-GET /api/session/:id/rrweb/events?from=0&to=600000
+GET /api/session/rrweb-segment/:sessionId/:artifactId
+GET /api/session/frame/:sessionId/:timestamp
 ```
 
-The endpoint should:
-
-- authorize via existing `sessionAuth`;
-- load ready `rrweb` artifacts;
-- stream or chunk JSON to the client;
-- optionally filter by time range;
-- set cache headers based on artifact readiness;
-- support gzip response.
+Those routes are for CORS, CSP, expired signed URLs, or object-storage reachability failures. Normal warm playback should not stream most replay bytes through `api-dashboard`.
 
 ### 7. Event Analytics Processor
 
@@ -934,7 +932,10 @@ Recommendation: use `@rrweb/replay` directly and keep current Rejourney controls
 
 Player responsibilities:
 
-- Fetch rrweb events after core payload loads.
+- Fetch the cheap core payload first, then request `/api/session/:id/replay-manifest`.
+- For rrweb, load the first playable segment before trying to initialize playback, then prefetch nearby and next segments in the background.
+- Use adaptive segment concurrency: about 6 desktop, 4 mobile, and 3 on slower mobile/network conditions.
+- Try each signed direct segment URL with `credentials: omit`; fall back to `proxyUrl` with dashboard credentials only if the direct object-storage read fails.
 - Instantiate rrweb `Replayer` inside a sandboxed container.
 - Use `skipInactive` and `inactivePeriodThreshold` to match current playback expectations.
 - Map Rejourney custom/network/error events to timeline markers.
@@ -1145,7 +1146,7 @@ For CSP:
 - Offer a self-hosted script URL.
 - Use immutable versioned CDN URLs. Never document `@latest` or floating `/v0/` URLs for production installs.
 - Publish SRI hashes per exact version and include `crossorigin="anonymous"`.
-- Document the required `connect-src` domain for `apiUrl`.
+- Document the required `connect-src` domain for `apiUrl`; for dashboard replay, also document that signed object-storage reads need provider access or a same-origin API proxy fallback.
 - Do not require `unsafe-inline` or `unsafe-eval`.
 - If a customer chooses inline config anyway, document nonce/hash-based CSP rather than relaxing the whole site.
 
@@ -1501,10 +1502,13 @@ No new Kubernetes deployment is required for the MVP if rrweb artifacts reuse th
   - CPU-only HPA may not react well to Redis queue backlog. Add queue-depth alerts even if HPA stays CPU-based.
 - `k8s/ingress.yaml`
   - Existing routing covers `/api/ingest/rrweb/*` if those routes live under `/api/ingest`.
+  - Dashboard replay reads signed rrweb segment and screenshot frame URLs directly from object storage, so production CSP must allow HTTPS object-storage reads dynamically (`connect-src 'self' https: wss://api.rejourney.co`, `media-src 'self' https: blob:`). Do not hardcode provider hostnames; active `storage_endpoints` can be Hetzner, OVH, Scaleway, MinIO, or another S3-compatible endpoint.
+  - If direct object reads fail because of CSP or bucket CORS, the dashboard falls back to `/api/session/rrweb-segment/*` and `/api/session/frame/*`, which protects playback but moves replay bytes back onto `api-dashboard`.
   - If we introduce `cdn.rejourney.co`, add a separate CDN/storage plan rather than serving versioned SDK bundles from the dashboard pod.
   - If the Rejourney marketing/dashboard site dogfoods the SDK, update CSP `script-src` for the SDK script host and `connect-src` for the API host.
 - `local-k8s/api.yaml`, `local-k8s/workers.yaml`, and `local-k8s/ingress.yaml`
   - Mirror production env flags and route assumptions.
+  - Local CSP should allow `http:` and `https:` object reads so MinIO/local providers and external test buckets work.
   - Keep local web SDK docs and Playwright fixtures pointed at the API host; ingress should route `/api/ingest/*` internally.
 - `local-k8s/env.example`
   - Add example values for any web replay env flags.
@@ -1819,7 +1823,7 @@ Production-like k8s fixtures:
 3. CDN snippet at launch.
    - Recommendation: npm first, CDN after package stabilizes and CSP/SRI docs are ready.
 4. rrweb event endpoint shape.
-   - Recommendation: server-side `/api/session/:id/rrweb/events` first; signed chunk URLs later if needed.
+   - Resolved for dashboard playback: use `/api/session/:id/replay-manifest` with signed direct segment URLs first and same-origin proxy URLs as fallback. Keep a server-side merged event endpoint only as a future repair/redaction/export tool if needed.
 5. Thumbnail strategy.
    - Recommendation: generic web thumbnail for MVP, headless renderer later.
 6. Consent API.

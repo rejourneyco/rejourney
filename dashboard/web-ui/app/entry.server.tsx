@@ -28,7 +28,10 @@ const CSP_POLICY = [
     // Session replay media is served from MinIO/S3 in self-hosted/local setups
     "media-src 'self' blob: data: http: https:",
     "frame-src 'self' https://challenges.cloudflare.com https://js.stripe.com https://hooks.stripe.com",
-    "connect-src 'self' https://challenges.cloudflare.com https://api.rejourney.co https://ingest.rejourney.co https://api.stripe.com https://m.stripe.network https://api.mapbox.com https://events.mapbox.com https://*.tiles.mapbox.com",
+    // Replay URLs are generated from operator-managed S3-compatible storage
+    // endpoints, so allow HTTPS dynamically instead of hardcoding providers.
+    // Local dev also needs HTTP for MinIO/LAN endpoints.
+    "connect-src 'self' http: https:",
     "worker-src 'self' blob:",
 ].join("; ");
 

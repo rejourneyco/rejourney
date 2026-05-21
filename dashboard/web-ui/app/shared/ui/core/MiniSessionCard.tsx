@@ -5,8 +5,6 @@ import { formatLastSeen } from '~/shared/lib/formatDates';
 import { formatDeviceModel } from '~/shared/lib/deviceModelNames';
 import { getWebSessionEnvironment } from '~/shared/lib/webSessionEnvironment';
 import { API_BASE_URL } from '~/shared/config/appConfig';
-import { getSessionCore } from '~/shared/api/client';
-import WebReplayPlayer from './WebReplayPlayer';
 
 // Dynamic import for heic2any to avoid SSR window error
 const convertHeic = async (blob: Blob): Promise<Blob> => {
@@ -14,6 +12,59 @@ const convertHeic = async (blob: Blob): Promise<Blob> => {
     const converted = await heic2any({ blob, toType: 'image/jpeg', quality: 0.8 });
     return (Array.isArray(converted) ? converted[0] : converted) as Blob;
 };
+
+const COVER_BLOB_CACHE_TTL_MS = 5 * 60 * 1000;
+const COVER_MISS_CACHE_TTL_MS = 60 * 1000;
+const COVER_BLOB_CACHE_LIMIT = 120;
+const coverBlobCache = new Map<string, { blob: Blob | null; timestamp: number }>();
+const coverBlobInFlight = new Map<string, Promise<Blob | null>>();
+
+function rememberCoverBlob(url: string, blob: Blob | null): Blob | null {
+    coverBlobCache.set(url, { blob, timestamp: Date.now() });
+    while (coverBlobCache.size > COVER_BLOB_CACHE_LIMIT) {
+        const oldestKey = coverBlobCache.keys().next().value;
+        if (!oldestKey) break;
+        coverBlobCache.delete(oldestKey);
+    }
+    return blob;
+}
+
+async function loadCoverBlob(url: string): Promise<Blob | null> {
+    const cached = coverBlobCache.get(url);
+    if (cached) {
+        const ttl = cached.blob ? COVER_BLOB_CACHE_TTL_MS : COVER_MISS_CACHE_TTL_MS;
+        if (Date.now() - cached.timestamp < ttl) return cached.blob;
+        coverBlobCache.delete(url);
+    }
+
+    const inFlight = coverBlobInFlight.get(url);
+    if (inFlight) return inFlight;
+
+    const promise = fetch(url, { credentials: 'include', redirect: 'follow' })
+        .then(async (res) => {
+            if (!res.ok) return rememberCoverBlob(url, null);
+
+            const contentType = res.headers.get('Content-Type') || '';
+            let blob = await res.blob();
+
+            if (isHeicContentType(contentType)) {
+                try {
+                    blob = await convertHeic(blob);
+                } catch {
+                    return rememberCoverBlob(url, null);
+                }
+            }
+
+            return rememberCoverBlob(url, blob);
+        })
+        .catch(() => rememberCoverBlob(url, null))
+        .finally(() => {
+            coverBlobInFlight.delete(url);
+        });
+
+    coverBlobInFlight.set(url, promise);
+    return promise;
+}
 
 function isHeicContentType(contentType: string): boolean {
     const ct = contentType.toLowerCase();
@@ -52,12 +103,6 @@ export const MiniSessionCard: React.FC<MiniSessionCardProps> = ({
 }) => {
     const [imageUrl, setImageUrl] = useState<string | null>(null);
     const [imageLoaded, setImageLoaded] = useState(false);
-    const [coverUnavailable, setCoverUnavailable] = useState(false);
-    const [webReplayPreview, setWebReplayPreview] = useState<{
-        events: any[];
-        currentTime: number;
-        durationSeconds: number;
-    } | null>(null);
     const isWebSession = String(session.platform || '').toLowerCase() === 'web';
     const webEnvironment = isWebSession ? getWebSessionEnvironment(session) : null;
     const webChrome = webEnvironment?.osLabel.toLowerCase().startsWith('windows')
@@ -90,44 +135,21 @@ export const MiniSessionCard: React.FC<MiniSessionCardProps> = ({
         if (!coverUrl) {
             setImageUrl(null);
             setImageLoaded(false);
-            setCoverUnavailable(Boolean(isWebSession && session.id));
             return;
         }
         let cancelled = false;
         let objectUrl: string | null = null;
         setImageUrl(null);
         setImageLoaded(false);
-        setCoverUnavailable(false);
 
-        fetch(coverUrl, { credentials: 'include', redirect: 'follow' })
-            .then(async res => {
-                if (!res.ok) {
-                    // Session may not have video artifacts (404 is expected for event-only sessions)
-                    if (cancelled) return;
+        loadCoverBlob(coverUrl)
+            .then((blob) => {
+                if (cancelled) return;
+                if (!blob) {
                     setImageUrl(null);
                     setImageLoaded(false);
-                    setCoverUnavailable(true);
                     return;
                 }
-                const contentType = res.headers.get('Content-Type') || '';
-                let blob = await res.blob();
-                if (cancelled) return;
-
-                // Convert HEIC to JPEG if needed (browsers don't support HEIC natively)
-                if (isHeicContentType(contentType)) {
-                    try {
-                        blob = await convertHeic(blob);
-                    } catch (heicError) {
-                        // Silently fail - will show placeholder
-                        if (cancelled) return;
-                        setImageUrl(null);
-                        setImageLoaded(false);
-                        setCoverUnavailable(true);
-                        return;
-                    }
-                }
-
-                if (cancelled) return;
                 objectUrl = URL.createObjectURL(blob);
                 setImageUrl(objectUrl);
             })
@@ -136,50 +158,13 @@ export const MiniSessionCard: React.FC<MiniSessionCardProps> = ({
                 if (cancelled) return;
                 setImageUrl(null);
                 setImageLoaded(false);
-                setCoverUnavailable(true);
             });
 
         return () => {
             cancelled = true;
             if (objectUrl) URL.revokeObjectURL(objectUrl);
         };
-    }, [coverUrl, isWebSession, session.id]);
-
-    useEffect(() => {
-        if (!isWebSession || !session.id || imageUrl || !coverUnavailable) {
-            setWebReplayPreview(null);
-            return;
-        }
-
-        let cancelled = false;
-
-        getSessionCore(session.id, { frameUrlMode: 'none' })
-            .then((fullSession) => {
-                if (cancelled) return;
-                const events = (fullSession.rrwebReplay?.events || [])
-                    .filter((event) => event && typeof event === 'object' && typeof event.timestamp === 'number');
-                if (events.length === 0) {
-                    setWebReplayPreview(null);
-                    return;
-                }
-
-                const firstTimestamp = events[0]?.timestamp || fullSession.startTime || 0;
-                const lastTimestamp = events[events.length - 1]?.timestamp || firstTimestamp;
-                const durationSeconds = Math.max(1, (lastTimestamp - firstTimestamp) / 1000);
-                setWebReplayPreview({
-                    events,
-                    currentTime: Math.min(0.75, durationSeconds),
-                    durationSeconds,
-                });
-            })
-            .catch(() => {
-                if (!cancelled) setWebReplayPreview(null);
-            });
-
-        return () => {
-            cancelled = true;
-        };
-    }, [coverUnavailable, imageUrl, isWebSession, session.id]);
+    }, [coverUrl]);
 
     const previewContent = imageUrl ? (
         <img
@@ -188,16 +173,6 @@ export const MiniSessionCard: React.FC<MiniSessionCardProps> = ({
             className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-300 ${imageLoaded ? 'opacity-100' : 'opacity-0'}`}
             onLoad={() => setImageLoaded(true)}
         />
-    ) : isWebSession && webReplayPreview ? (
-        <div className="pointer-events-none absolute inset-0 bg-white">
-            <WebReplayPlayer
-                events={webReplayPreview.events}
-                currentTime={webReplayPreview.currentTime}
-                isPlaying={false}
-                playbackRate={1}
-                durationSeconds={webReplayPreview.durationSeconds}
-            />
-        </div>
     ) : (
         <div className="absolute inset-0 bg-slate-50 flex items-center justify-center">
             <span className="text-[10px] font-bold text-slate-300 transform -rotate-45">NO PREVIEW</span>

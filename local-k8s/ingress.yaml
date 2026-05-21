@@ -15,7 +15,7 @@ spec:
     contentTypeNosniff: true
     browserXssFilter: true
     referrerPolicy: "strict-origin-when-cross-origin"
-    contentSecurityPolicy: "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://challenges.cloudflare.com https://js.stripe.com https://m.stripe.network https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: https: http: blob:; font-src 'self' data: https://fonts.gstatic.com; connect-src 'self' http://api.localtest.me ws://api.localtest.me http://ingest.localtest.me https://api.rejourney.co https://ingest.rejourney.co https://api.stripe.com https://m.stripe.network https://api.mapbox.com https://events.mapbox.com https://*.tiles.mapbox.com; media-src 'self' http://127.0.0.1:9000 http://localhost:9000 blob: data:; worker-src 'self' blob:; frame-src 'self' https://challenges.cloudflare.com https://js.stripe.com https://hooks.stripe.com; frame-ancestors 'self'; base-uri 'self'; form-action 'self';"
+    contentSecurityPolicy: "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://challenges.cloudflare.com https://js.stripe.com https://m.stripe.network https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: https: http: blob:; font-src 'self' data: https://fonts.gstatic.com; connect-src 'self' http: https: ws://api.localtest.me; media-src 'self' http: https: blob: data:; worker-src 'self' blob:; frame-src 'self' https://challenges.cloudflare.com https://js.stripe.com https://hooks.stripe.com; frame-ancestors 'self'; base-uri 'self'; form-action 'self';"
     customResponseHeaders:
       X-Powered-By: ""
       Server: ""

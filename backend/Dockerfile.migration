@@ -12,6 +12,7 @@ RUN npm install -g drizzle-kit@beta tsx
 # Copy source, config, and bootstrap scripts
 COPY backend/drizzle.config.ts .
 COPY backend/package.json .
+COPY backend/clickhouse ./clickhouse
 COPY backend/drizzle ./drizzle
 COPY backend/src ./src
 COPY backend/scripts ./scripts

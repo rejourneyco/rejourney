@@ -9,6 +9,11 @@ import { shouldExcludeNetworkEventFromProductAnalytics } from '../utils/internal
 import { mergeAnrDeviceMetadata, resolveAnrStackTrace } from './anrStack.js';
 import { extractSessionIdentityChange } from './sessionIdentityEvents.js';
 import {
+    buildClickHouseApiEndpointEventRow,
+    writeApiEndpointEventsToClickHouse,
+    type ClickHouseApiEndpointEventRow,
+} from './clickhouseApiStatsSink.js';
+import {
     coerceTimestampToDate,
     extractBackgroundDurationSeconds,
     extractCumulativeBackgroundSeconds,
@@ -261,6 +266,7 @@ export async function processEventsArtifact(job: any, session: any, metrics: any
     const recentTaps: { x: number; y: number; timestamp: number }[] = [];
     const screenPath: string[] = [];
     const endpointStats: Record<string, { calls: number; errors: number; latencySum: number; statusCodeBreakdown: Record<string, number> }> = {};
+    const clickHouseApiEndpointRows: ClickHouseApiEndpointEventRow[] = [];
 
     // Collect errors for batch insert
     const errorEvents: Array<{
@@ -456,7 +462,8 @@ export async function processEventsArtifact(job: any, session: any, metrics: any
         }
     };
 
-    for (const event of eventsData) {
+    for (let eventIndex = 0; eventIndex < eventsData.length; eventIndex++) {
+        const event = eventsData[eventIndex];
         const eventAt = coerceTimestampToDate(event.timestamp);
         earliestClientEventAt = minDate(earliestClientEventAt, eventAt);
         latestClientEventAt = maxDate(latestClientEventAt, eventAt);
@@ -581,6 +588,20 @@ export async function processEventsArtifact(job: any, session: any, metrics: any
                         (endpointStats[endpoint].statusCodeBreakdown[errorStatusCodeKey] || 0) + 1;
                 }
                 if (event.duration) endpointStats[endpoint].latencySum += event.duration;
+
+                clickHouseApiEndpointRows.push(buildClickHouseApiEndpointEventRow({
+                    projectId,
+                    sessionId: job.sessionId,
+                    artifactId: job.artifactId,
+                    eventIndex,
+                    method,
+                    path: url,
+                    statusCode: hasNumericStatusCode ? parsedStatusCode : 0,
+                    isError,
+                    durationMs: Number(event.duration || 0),
+                    eventAt,
+                    region: 'unknown',
+                }));
             }
         } else if (type === 'error' || type === 'resource_error') {
             errorCount++;
@@ -779,6 +800,11 @@ export async function processEventsArtifact(job: any, session: any, metrics: any
             });
         }
     }
+
+    await writeApiEndpointEventsToClickHouse({
+        artifactId: job.artifactId,
+        rows: clickHouseApiEndpointRows,
+    });
 
     // Batch upsert screen touch heatmap data
     if (Object.keys(screenHeatmapData).length > 0) {

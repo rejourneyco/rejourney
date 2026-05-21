@@ -5,7 +5,6 @@ import { useDemoMode } from '~/shared/providers/DemoModeContext';
 import {
     getHeatmapsOverview,
     getHeatmapScreenOverview,
-    getSessionCore,
     type AlltimeHeatmapScreen,
     type HeatmapIterationScreen,
     type HeatmapIterationSummary,
@@ -13,12 +12,21 @@ import {
 } from '~/shared/api/client';
 import { API_BASE_URL, getCsrfToken } from '~/shared/config/appConfig';
 import { TimeRange } from '~/shared/ui/core/TimeFilter';
-import WebReplayPlayer from '~/shared/ui/core/WebReplayPlayer';
 import { demoReplayFixture as brewCoffeeReplayFixture } from '~/shared/data/demoReplayDataFrankfurt';
 
 const TOUCH_HEATMAP_DEBUG_PREFIX = '[TouchHeatmapDebug]';
+const HEATMAP_DETAIL_FETCH_CONCURRENCY = 4;
 
 function heatmapDebug(message: string, details?: unknown): void {
+    let enabled = false;
+    try {
+        enabled = typeof window !== 'undefined' && window.localStorage.getItem('rejourney:debug:heatmaps') === 'true';
+    } catch {
+        enabled = false;
+    }
+    if (!enabled) {
+        return;
+    }
     if (details !== undefined) {
         console.log(`${TOUCH_HEATMAP_DEBUG_PREFIX} ${message}`, details);
         return;
@@ -42,6 +50,30 @@ function getScreenshotPreviewErrorMessage(error: unknown): string {
         return 'Screenshot unavailable';
     }
     return 'Failed to load screenshot';
+}
+
+async function mapWithConcurrency<T, R>(
+    items: T[],
+    concurrency: number,
+    mapper: (item: T) => Promise<R>,
+): Promise<PromiseSettledResult<R>[]> {
+    const results: PromiseSettledResult<R>[] = new Array(items.length);
+    let nextIndex = 0;
+    const workerCount = Math.max(1, Math.min(concurrency, items.length));
+
+    await Promise.all(Array.from({ length: workerCount }, async () => {
+        while (nextIndex < items.length) {
+            const index = nextIndex;
+            nextIndex += 1;
+            try {
+                results[index] = { status: 'fulfilled', value: await mapper(items[index]) };
+            } catch (reason) {
+                results[index] = { status: 'rejected', reason };
+            }
+        }
+    }));
+
+    return results;
 }
 
 function drawTouchHeatmap(
@@ -195,12 +227,6 @@ interface EnrichedHeatmapScreen extends AlltimeHeatmapScreen {
 
 type VersionHeatmapScreen = HeatmapIterationScreen & {
     touchHotspots?: HeatmapHotspot[];
-};
-
-type WebReplayPreviewState = {
-    events: any[];
-    currentTime: number;
-    durationSeconds: number;
 };
 
 type VersionHeatmapGroup = Omit<HeatmapIterationVersion, 'screens'> & {
@@ -454,29 +480,6 @@ function getDisplayRoute(screenName: string): string {
     return trimmed.startsWith('/') ? trimmed : `/${trimmed}`;
 }
 
-function normalizeRouteForMatch(value: string): string {
-    const displayRoute = getDisplayRoute(value);
-    const normalized = displayRoute.split('#')[0] || '/';
-    const withoutTrailingSlash = normalized.length > 1 ? normalized.replace(/\/+$/, '') : normalized;
-    return withoutTrailingSlash.toLowerCase();
-}
-
-function getRrwebEventRoute(event: any): string | null {
-    const href = event?.data?.href || event?.data?.url || event?.data?.location?.href;
-    if (typeof href !== 'string' || !href.trim()) return null;
-    return normalizeRouteForMatch(href);
-}
-
-function findRrwebRouteTimestamp(events: any[], screenName: string): number | null {
-    const targetRoute = normalizeRouteForMatch(screenName);
-    for (const event of events) {
-        if (!event || typeof event.timestamp !== 'number') continue;
-        const eventRoute = getRrwebEventRoute(event);
-        if (eventRoute && eventRoute === targetRoute) return event.timestamp;
-    }
-    return null;
-}
-
 function compareVersionLabels(a: string, b: string): number {
     const normalize = (value: string) => value.trim().toLowerCase();
     const aNormalized = normalize(a);
@@ -573,9 +576,6 @@ const HeatmapPreview: React.FC<{
     const [imageNaturalSize, setImageNaturalSize] = useState<{ width: number; height: number } | null>(null);
     const [loadError, setLoadError] = useState<string | null>(null);
     const [downloadProgress, setDownloadProgress] = useState(0);
-    const [webReplayPreview, setWebReplayPreview] = useState<WebReplayPreviewState | null>(null);
-    const [webReplayLoading, setWebReplayLoading] = useState(false);
-    const [webReplayError, setWebReplayError] = useState<string | null>(null);
 
     const containerRef = useRef<HTMLDivElement>(null);
     const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -590,8 +590,6 @@ const HeatmapPreview: React.FC<{
             : [],
         [frameDimensions.pageHeight, frameDimensions.viewportHeight, isWebViewer, tile],
     );
-    const replayPreviewSessionId = isWebViewer && !screen.screenshotUrl ? screen.evidenceSessionId || null : null;
-
     const fullCoverUrl = screen.screenshotUrl
         ? screen.screenshotUrl.startsWith('http')
             ? screen.screenshotUrl
@@ -634,8 +632,7 @@ const HeatmapPreview: React.FC<{
         }
 
         const csrfToken = getCsrfToken() || '';
-        const separator = fullCoverUrl.includes('?') ? '&' : '?';
-        const fetchUrl = `${fullCoverUrl}${separator}_cb=${Date.now()}`;
+        const fetchUrl = fullCoverUrl;
 
         const fetchWithProgress = async () => {
             heatmapDebug('Fetching screenshot blob', {
@@ -647,7 +644,6 @@ const HeatmapPreview: React.FC<{
 
             const response = await fetch(fetchUrl, {
                 credentials: 'include',
-                cache: 'no-store',
                 headers: { Accept: 'image/*', 'X-CSRF-Token': csrfToken },
             });
 
@@ -814,70 +810,6 @@ const HeatmapPreview: React.FC<{
     }, [fullCoverUrl]);
 
     useEffect(() => {
-        let cancelled = false;
-        setWebReplayPreview(null);
-        setWebReplayError(null);
-        setWebReplayLoading(false);
-
-        if (!isWebViewer || fullCoverUrl || !replayPreviewSessionId) {
-            return () => undefined;
-        }
-
-        setWebReplayLoading(true);
-        getSessionCore(replayPreviewSessionId, { frameUrlMode: 'none' })
-            .then((session) => {
-                if (cancelled) return;
-                const events = (session.rrwebReplay?.events || [])
-                    .filter((event) => event && typeof event === 'object' && typeof event.timestamp === 'number');
-                if (events.length === 0) {
-                    setWebReplayError('Page replay unavailable');
-                    return;
-                }
-
-                const firstTimestamp = events[0]?.timestamp || session.startTime || 0;
-                const lastTimestamp = events[events.length - 1]?.timestamp || firstTimestamp;
-                const routeTargetTimestamp = findRrwebRouteTimestamp(events, screen.name);
-                const rawTargetTimestamp = typeof screen.screenFirstSeenMs === 'number' && Number.isFinite(screen.screenFirstSeenMs)
-                    ? screen.screenFirstSeenMs
-                    : null;
-                const candidateTimestamp = routeTargetTimestamp ?? (rawTargetTimestamp !== null
-                    && rawTargetTimestamp >= firstTimestamp - 60_000
-                    && rawTargetTimestamp <= lastTimestamp + 60_000
-                    ? rawTargetTimestamp
-                    : null);
-                const targetTimestamp = candidateTimestamp !== null
-                    && candidateTimestamp >= firstTimestamp - 60_000
-                    && candidateTimestamp <= lastTimestamp + 60_000
-                    ? candidateTimestamp
-                    : firstTimestamp;
-                const currentTime = Math.max(0, (targetTimestamp - firstTimestamp) / 1000);
-                const durationSeconds = Math.max(1, (lastTimestamp - firstTimestamp) / 1000, currentTime + 0.5);
-
-                setWebReplayPreview({
-                    events,
-                    currentTime,
-                    durationSeconds,
-                });
-            })
-            .catch((error) => {
-                if (cancelled) return;
-                console.error(`${TOUCH_HEATMAP_DEBUG_PREFIX} Web replay heatmap preview failed`, {
-                    screenName: screen.name,
-                    evidenceSessionId: replayPreviewSessionId,
-                    error,
-                });
-                setWebReplayError('Page replay unavailable');
-            })
-            .finally(() => {
-                if (!cancelled) setWebReplayLoading(false);
-            });
-
-        return () => {
-            cancelled = true;
-        };
-    }, [fullCoverUrl, isWebViewer, replayPreviewSessionId, screen.name, screen.screenFirstSeenMs]);
-
-    useEffect(() => {
         const canvas = canvasRef.current;
         const container = containerRef.current;
         if (!canvas || !container) return;
@@ -887,7 +819,7 @@ const HeatmapPreview: React.FC<{
 
         window.addEventListener('resize', draw);
         return () => window.removeEventListener('resize', draw);
-    }, [screen.touchHotspots, imageLoaded, blobUrl, webReplayPreview?.events.length, webReplayPreview?.currentTime]);
+    }, [screen.touchHotspots, imageLoaded, blobUrl]);
 
     const topDots = useMemo(
         () => [...(screen.touchHotspots || [])].sort((a, b) => b.intensity - a.intensity).slice(0, 10),
@@ -947,20 +879,7 @@ const HeatmapPreview: React.FC<{
                     ))}
                 </div>
             )}
-            {webReplayPreview ? (
-                <div
-                    className={isWebViewer ? 'absolute inset-x-0 top-0 bg-white' : 'absolute inset-0 bg-white'}
-                    style={isWebViewer ? { height: `${frameDimensions.viewportPercent}%` } : undefined}
-                >
-                    <WebReplayPlayer
-                        events={webReplayPreview.events}
-                        currentTime={webReplayPreview.currentTime}
-                        isPlaying={false}
-                        playbackRate={1}
-                        durationSeconds={webReplayPreview.durationSeconds}
-                    />
-                </div>
-            ) : blobUrl ? (
+            {blobUrl ? (
                 <img
                     src={blobUrl}
                     alt={screen.name}
@@ -997,9 +916,7 @@ const HeatmapPreview: React.FC<{
                     {!loadError && downloadProgress > 0 && downloadProgress < 100 && (
                         <p className="mt-2 text-[11px] text-slate-400">Loading screenshot {downloadProgress}%</p>
                     )}
-                    {webReplayLoading && <p className="mt-2 text-[11px] text-slate-400">Loading page replay</p>}
                     {loadError && <p className="mt-2 text-[11px] text-rose-300">{loadError}</p>}
-                    {webReplayError && <p className="mt-2 text-[11px] text-rose-300">{webReplayError}</p>}
                 </div>
             )}
 
@@ -1140,10 +1057,10 @@ export const TouchHeatmapSection: React.FC<TouchHeatmapSectionProps> = ({
 
                 const screensNeedingHotspots = mergedScreens.filter((screen) => (screen.touchHotspots?.length ?? 0) === 0);
                 if (screensNeedingHotspots.length > 0) {
-                    const results = await Promise.allSettled(
-                        screensNeedingHotspots.map((screen) => (
-                            getHeatmapScreenOverview(selectedProject.id, screen.name, range, platform)
-                        )),
+                    const results = await mapWithConcurrency(
+                        screensNeedingHotspots,
+                        HEATMAP_DETAIL_FETCH_CONCURRENCY,
+                        (screen) => getHeatmapScreenOverview(selectedProject.id, screen.name, range, platform),
                     );
                     if (cancelled) return;
 

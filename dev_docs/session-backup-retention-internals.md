@@ -1,6 +1,6 @@
 # Session Backup + Retention Internals
 
-Last updated: 2026-04-17
+Last updated: 2026-05-21
 
 This is the internal/operator doc for how session backup and retention work in the backend and Kubernetes workers.
 
@@ -86,6 +86,7 @@ There are two ways a session gets into backup flow:
 - session has at least one `recording_artifacts` row with `status = 'ready'`
 - session's ready artifacts match one of the supported backup profiles:
   - normal session: ready `events` + `hierarchy` + `screenshots`
+  - web rrweb session: ready `events` + `rrweb`
   - `observe_only` session: ready `events` + `hierarchy`, and zero ready `screenshots`
 - no existing `session_backup_log` row already covers the current ready-artifact count
 
@@ -232,6 +233,7 @@ Important implication:
 - pending / uploaded / failed / abandoned rows are not copied into R2
 - the worker validates artifact shape before copy:
   - normal sessions require ready `events` + `hierarchy` + `screenshots`
+  - web rrweb sessions require ready `events` + `rrweb`
   - `observe_only` sessions require ready `events` + `hierarchy` and must not have ready screenshots
 
 ### Manifest + artifact format
@@ -241,6 +243,7 @@ For each session, the worker builds:
 - `manifest.json`
 - copied `events`
 - copied or repaired `hierarchy`
+- copied `rrweb`
 - screenshot archives in an archive-friendly format on R2
 
 The backup prefix is canonical:
@@ -355,7 +358,7 @@ That path is implemented in [`repairExpiredSessionArtifactsBatch()`](/Users/mora
 - `recording_artifacts` rows
 - screenshot/hierarchy counters in `session_metrics`
 - replay/cache state on the `sessions` row
-- Redis cache entries for frames, hierarchy, timelines, and session-core views
+- Redis cache entries for frames, replay manifests, hierarchy, timelines, and session-core views
 
 It then marks the session row as:
 

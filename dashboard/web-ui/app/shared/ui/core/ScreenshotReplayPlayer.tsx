@@ -45,6 +45,7 @@ import { MarkerTooltip } from './MarkerTooltip';
 export interface ScreenshotFrame {
   timestamp: number;
   url: string;
+  proxyUrl?: string | null;
   index: number;
 }
 

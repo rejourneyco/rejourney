@@ -70,6 +70,19 @@ const envSchema = z.object({
     // to the pgbouncer-ro pool fronting the Postgres standby.
     DATABASE_URL_READ: z.string().optional(),
 
+    // ClickHouse analytics projection. These default off so adding the
+    // dependency/config is safe before the local/prod clusters exist.
+    CLICKHOUSE_ENABLED: z.string().transform(v => v === 'true').default('false'),
+    CLICKHOUSE_DUAL_WRITE_ENABLED: z.string().transform(v => v === 'true').default('false'),
+    CLICKHOUSE_READS_ENABLED: z.string().transform(v => v === 'true').default('false'),
+    CLICKHOUSE_URL: z.string().optional(),
+    CLICKHOUSE_USER: z.string().default('default'),
+    CLICKHOUSE_PASSWORD: z.string().optional(),
+    CLICKHOUSE_DATABASE: z.string().default('rejourney'),
+    CLICKHOUSE_ASYNC_INSERT: z.string().transform(v => v !== 'false').default('true'),
+    CLICKHOUSE_CUTOVER_DATE: z.string().optional(),
+    CLICKHOUSE_REQUEST_TIMEOUT_MS: z.string().transform(Number).default('5000'),
+
     // Redis
     REDIS_URL: z.string().default('redis://localhost:6379/0'),
     // Redis Sentinel (optional — when set, app connects via Sentinel instead of URL)

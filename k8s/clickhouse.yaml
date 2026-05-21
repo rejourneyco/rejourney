@@ -1,0 +1,174 @@
+# Production ClickHouse HA for analytics projections.
+# Applied only when DEPLOY_CLICKHOUSE=true in scripts/k8s/deploy-release.sh.
+
+---
+apiVersion: "clickhouse-keeper.altinity.com/v1"
+kind: "ClickHouseKeeperInstallation"
+metadata:
+  name: clickhouse-keeper
+  namespace: rejourney
+  labels:
+    app.kubernetes.io/component: clickhouse
+spec:
+  configuration:
+    clusters:
+      - name: keeper
+        layout:
+          replicasCount: 3
+    settings:
+      logger/level: "information"
+      logger/console: "true"
+      listen_host: "0.0.0.0"
+      keeper_server/four_letter_word_white_list: "mntr,ruok,stat"
+  defaults:
+    templates:
+      podTemplate: clickhouse-keeper
+      volumeClaimTemplate: clickhouse-keeper-storage
+  templates:
+    podTemplates:
+      - name: clickhouse-keeper
+        metadata:
+          labels:
+            app: clickhouse-keeper
+            app.kubernetes.io/component: clickhouse
+        spec:
+          affinity:
+            podAntiAffinity:
+              requiredDuringSchedulingIgnoredDuringExecution:
+                - labelSelector:
+                    matchLabels:
+                      app: clickhouse-keeper
+                  topologyKey: kubernetes.io/hostname
+          containers:
+            - name: clickhouse-keeper
+              image: altinity/clickhouse-keeper:25.8.16.10002.altinitystable
+              imagePullPolicy: IfNotPresent
+              resources:
+                requests:
+                  cpu: 250m
+                  memory: 512Mi
+                limits:
+                  cpu: "1"
+                  memory: 2Gi
+          securityContext:
+            fsGroup: 101
+    volumeClaimTemplates:
+      - name: clickhouse-keeper-storage
+        reclaimPolicy: Retain
+        spec:
+          storageClassName: rejourney-db-local-retain
+          accessModes:
+            - ReadWriteOnce
+          resources:
+            requests:
+              storage: 10Gi
+
+---
+apiVersion: "clickhouse.altinity.com/v1"
+kind: "ClickHouseInstallation"
+metadata:
+  name: rejourney
+  namespace: rejourney
+  labels:
+    app.kubernetes.io/component: clickhouse
+spec:
+  defaults:
+    replicasUseFQDN: "no"
+    templates:
+      podTemplate: clickhouse
+      dataVolumeClaimTemplate: clickhouse-storage
+  configuration:
+    zookeeper:
+      nodes:
+        - host: keeper-clickhouse-keeper.rejourney.svc.cluster.local
+          port: 2181
+    users:
+      rejourney/networks/ip: "::/0"
+      rejourney/password:
+        valueFrom:
+          secretKeyRef:
+            name: clickhouse-secret
+            key: CLICKHOUSE_PASSWORD
+      rejourney/profile: default
+      rejourney/quota: default
+      rejourney/access_management: "1"
+    clusters:
+      - name: default
+        layout:
+          shardsCount: 1
+          replicasCount: 2
+        templates:
+          podTemplate: clickhouse
+          dataVolumeClaimTemplate: clickhouse-storage
+  templates:
+    podTemplates:
+      - name: clickhouse
+        zone:
+          key: rejourney.co/datacenter
+          values:
+            - hel1
+        distribution: OnePerHost
+        metadata:
+          labels:
+            app: clickhouse
+            app.kubernetes.io/component: clickhouse
+        spec:
+          containers:
+            - name: clickhouse
+              image: altinity/clickhouse-server:25.8.16.10002.altinitystable
+              imagePullPolicy: IfNotPresent
+              ports:
+                - name: http
+                  containerPort: 8123
+                - name: native
+                  containerPort: 9000
+              volumeMounts:
+                - name: clickhouse-storage
+                  mountPath: /var/lib/clickhouse
+              resources:
+                requests:
+                  cpu: "1"
+                  memory: 4Gi
+                limits:
+                  cpu: "4"
+                  memory: 10Gi
+          securityContext:
+            fsGroup: 101
+    volumeClaimTemplates:
+      - name: clickhouse-storage
+        reclaimPolicy: Retain
+        spec:
+          storageClassName: rejourney-db-local-retain
+          accessModes:
+            - ReadWriteOnce
+          resources:
+            requests:
+              storage: 100Gi
+
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: clickhouse-pdb
+  namespace: rejourney
+  labels:
+    app.kubernetes.io/component: clickhouse
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: clickhouse
+
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: clickhouse-keeper-pdb
+  namespace: rejourney
+  labels:
+    app.kubernetes.io/component: clickhouse
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app: clickhouse-keeper

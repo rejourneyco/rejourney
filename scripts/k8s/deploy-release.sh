@@ -8,6 +8,10 @@ NAMESPACE="${NAMESPACE:-rejourney}"
 CNPG_CLUSTER_NAME="${CNPG_CLUSTER_NAME:-postgres-local}"
 ALLOW_LEGACY_POSTGRES_REMOVAL="${ALLOW_LEGACY_POSTGRES_REMOVAL:-false}"
 DB_SETUP_TIMEOUT_SECONDS="${DB_SETUP_TIMEOUT_SECONDS:-900}"
+DEPLOY_CLICKHOUSE="${DEPLOY_CLICKHOUSE:-false}"
+CLICKHOUSE_OPERATOR_NAMESPACE="${CLICKHOUSE_OPERATOR_NAMESPACE:-clickhouse}"
+CLICKHOUSE_OPERATOR_VERSION="${CLICKHOUSE_OPERATOR_VERSION:-0.26.3}"
+CLICKHOUSE_SETUP_TIMEOUT_SECONDS="${CLICKHOUSE_SETUP_TIMEOUT_SECONDS:-900}"
 IMAGE_TAG="${1:?usage: deploy-release.sh <image-tag> [repository]}"
 REPOSITORY="${2:-rejourneyco/rejourney}"
 RENDER_DIR="$(mktemp -d "${TMPDIR:-/tmp}/rejourney-release.XXXXXX")"
@@ -52,6 +56,21 @@ dump_db_setup_diagnostics() {
     echo "[deploy-release] --- Logs from ${pod} (current attempt) ---"
     (kubectl logs "${pod}" -n "${NAMESPACE}" -c setup --tail=200 2>&1 || true) | redact_ci_output
     echo "[deploy-release] --- Logs from ${pod} (previous attempt) ---"
+    (kubectl logs "${pod}" -n "${NAMESPACE}" -c setup --tail=200 --previous 2>&1 || true) | redact_ci_output
+  done
+}
+
+dump_clickhouse_setup_diagnostics() {
+  kubectl describe job clickhouse-setup -n "${NAMESPACE}" || true
+
+  local job_pods
+  job_pods="$(kubectl get pods -n "${NAMESPACE}" -l job-name=clickhouse-setup -o name 2>/dev/null || true)"
+  for pod in ${job_pods}; do
+    echo "[deploy-release] --- Logs from ${pod} (wait-clickhouse) ---"
+    (kubectl logs "${pod}" -n "${NAMESPACE}" -c wait-clickhouse --tail=100 2>&1 || true) | redact_ci_output
+    echo "[deploy-release] --- Logs from ${pod} (setup current attempt) ---"
+    (kubectl logs "${pod}" -n "${NAMESPACE}" -c setup --tail=200 2>&1 || true) | redact_ci_output
+    echo "[deploy-release] --- Logs from ${pod} (setup previous attempt) ---"
     (kubectl logs "${pod}" -n "${NAMESPACE}" -c setup --tail=200 --previous 2>&1 || true) | redact_ci_output
   done
 }
@@ -115,6 +134,156 @@ ensure_cert_manager() {
   kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.16.2/cert-manager.yaml
   log "Waiting for cert-manager to be ready..."
   kubectl wait --for=condition=Available deployment/cert-manager-webhook -n cert-manager --timeout=300s
+}
+
+clickhouse_deploy_enabled() {
+  [ "${DEPLOY_CLICKHOUSE}" = "true" ]
+}
+
+remove_clickhouse_rendered_manifests() {
+  rm -f "${RENDER_DIR}/clickhouse.yaml" "${RENDER_DIR}/clickhouse-setup.yaml"
+}
+
+ensure_clickhouse_operator() {
+  section "Ensuring ClickHouse Operator"
+  require_bin helm
+
+  log "Installing/upgrading Altinity ClickHouse operator ${CLICKHOUSE_OPERATOR_VERSION}..."
+  helm repo add altinity https://helm.altinity.com >/dev/null 2>&1 || true
+  helm repo update altinity >/dev/null
+  helm upgrade --install clickhouse-operator \
+    altinity/altinity-clickhouse-operator \
+    --version "${CLICKHOUSE_OPERATOR_VERSION}" \
+    --namespace "${CLICKHOUSE_OPERATOR_NAMESPACE}" \
+    --create-namespace \
+    --wait \
+    --timeout=5m
+
+  if kubectl get deployment clickhouse-operator-altinity-clickhouse-operator -n "${CLICKHOUSE_OPERATOR_NAMESPACE}" >/dev/null 2>&1; then
+    kubectl rollout status deployment/clickhouse-operator-altinity-clickhouse-operator \
+      -n "${CLICKHOUSE_OPERATOR_NAMESPACE}" --timeout=300s
+  elif kubectl get deployment clickhouse-operator -n "${CLICKHOUSE_OPERATOR_NAMESPACE}" >/dev/null 2>&1; then
+    kubectl rollout status deployment/clickhouse-operator \
+      -n "${CLICKHOUSE_OPERATOR_NAMESPACE}" --timeout=300s
+  else
+    kubectl rollout status deployment -l app.kubernetes.io/instance=clickhouse-operator \
+      -n "${CLICKHOUSE_OPERATOR_NAMESPACE}" --timeout=300s
+  fi
+
+  kubectl wait --for=condition=Established crd/clickhouseinstallations.clickhouse.altinity.com --timeout=120s
+  kubectl wait --for=condition=Established crd/clickhousekeeperinstallations.clickhouse-keeper.altinity.com --timeout=120s
+}
+
+require_clickhouse_secret() {
+  if ! kubectl get secret clickhouse-secret -n "${NAMESPACE}" >/dev/null 2>&1; then
+    echo "[deploy-release] ERROR: clickhouse-secret is required when DEPLOY_CLICKHOUSE=true. Run scripts/k8s/k8s-sync-secrets.sh with DEPLOY_CLICKHOUSE=true and CLICKHOUSE_PASSWORD set." >&2
+    exit 1
+  fi
+
+  local password_present
+  password_present="$(kubectl get secret clickhouse-secret -n "${NAMESPACE}" -o jsonpath='{.data.CLICKHOUSE_PASSWORD}' 2>/dev/null || true)"
+  if [ -z "${password_present}" ]; then
+    echo "[deploy-release] ERROR: clickhouse-secret is missing CLICKHOUSE_PASSWORD." >&2
+    exit 1
+  fi
+}
+
+wait_for_clickhouse_resource() {
+  local kind="$1"
+  local name="$2"
+  local timeout_seconds="${3:-900}"
+  local deadline
+  deadline=$(( $(date +%s) + timeout_seconds ))
+
+  while true; do
+    local status
+    status="$(kubectl get "${kind}" "${name}" -n "${NAMESPACE}" -o jsonpath='{.status.status}' 2>/dev/null || true)"
+    if [ "${status}" = "Completed" ]; then
+      log "${kind}/${name} is Completed"
+      return 0
+    fi
+
+    if [[ "${status}" =~ (Failed|Error) ]]; then
+      kubectl describe "${kind}" "${name}" -n "${NAMESPACE}" || true
+      echo "[deploy-release] ${kind}/${name} failed with status ${status}" >&2
+      exit 1
+    fi
+
+    if [ "$(date +%s)" -ge "${deadline}" ]; then
+      kubectl describe "${kind}" "${name}" -n "${NAMESPACE}" || true
+      echo "[deploy-release] ${kind}/${name} timed out after ${timeout_seconds}s (last status: ${status:-unknown})" >&2
+      exit 1
+    fi
+
+    log "Waiting for ${kind}/${name} (status: ${status:-unknown})..."
+    sleep 10
+  done
+}
+
+apply_clickhouse_manifests() {
+  section "Applying ClickHouse Manifests"
+  local clickhouse_manifest="${RENDER_DIR}/clickhouse.yaml"
+
+  if [ ! -f "${clickhouse_manifest}" ]; then
+    echo "[deploy-release] ERROR: ${clickhouse_manifest} not found" >&2
+    exit 1
+  fi
+
+  require_clickhouse_secret
+  kubectl apply -f "${clickhouse_manifest}"
+  wait_for_clickhouse_resource chk clickhouse-keeper 900
+  wait_for_clickhouse_resource chi rejourney 900
+
+  if ! kubectl wait --for=condition=ready pod -l app=clickhouse -n "${NAMESPACE}" --timeout=300s; then
+    kubectl describe pods -l app=clickhouse -n "${NAMESPACE}" || true
+    echo "[deploy-release] ClickHouse pods did not become ready" >&2
+    exit 1
+  fi
+}
+
+apply_clickhouse_setup_job() {
+  section "Applying clickhouse-setup Job"
+  local clickhouse_setup_manifest="${RENDER_DIR}/clickhouse-setup.yaml"
+
+  if [ ! -f "${clickhouse_setup_manifest}" ]; then
+    echo "[deploy-release] ERROR: ${clickhouse_setup_manifest} not found" >&2
+    exit 1
+  fi
+
+  kubectl apply -f "${clickhouse_setup_manifest}"
+}
+
+wait_for_clickhouse_setup_job() {
+  section "Waiting For clickhouse-setup"
+  local deadline
+  deadline=$(( $(date +%s) + CLICKHOUSE_SETUP_TIMEOUT_SECONDS ))
+
+  while true; do
+    local succeeded failed
+    succeeded="$(kubectl get job clickhouse-setup -n "${NAMESPACE}" -o jsonpath='{.status.succeeded}' 2>/dev/null || true)"
+    failed="$(kubectl get job clickhouse-setup -n "${NAMESPACE}" -o jsonpath='{.status.failed}' 2>/dev/null || true)"
+
+    succeeded="${succeeded:-0}"
+    failed="${failed:-0}"
+
+    if [ "${succeeded}" = "1" ]; then
+      return 0
+    fi
+
+    if [ "${failed}" != "0" ]; then
+      dump_clickhouse_setup_diagnostics
+      echo "[deploy-release] clickhouse-setup failed" >&2
+      exit 1
+    fi
+
+    if [ "$(date +%s)" -ge "${deadline}" ]; then
+      dump_clickhouse_setup_diagnostics
+      echo "[deploy-release] clickhouse-setup timed out after ${CLICKHOUSE_SETUP_TIMEOUT_SECONDS}s" >&2
+      exit 1
+    fi
+
+    sleep 5
+  done
 }
 
 protect_helm_managed_resources() {
@@ -573,7 +742,12 @@ main() {
   section "Rendering Release"
   log "Repository: ${REPOSITORY}"
   log "Image tag: ${IMAGE_TAG}"
+  log "ClickHouse deploy: ${DEPLOY_CLICKHOUSE}"
   render_manifests
+  if ! clickhouse_deploy_enabled; then
+    log "Skipping ClickHouse manifests (DEPLOY_CLICKHOUSE is not true)."
+    remove_clickhouse_rendered_manifests
+  fi
 
   section "Applying Cluster Prerequisites"
   kubectl apply -f "${K8S_DIR}/namespace.yaml"
@@ -581,6 +755,10 @@ main() {
   ensure_cert_manager
   ensure_grafana_secret
   apply_unlabeled_support_manifests
+  if clickhouse_deploy_enabled; then
+    ensure_clickhouse_operator
+    apply_clickhouse_manifests
+  fi
   apply_cnpg_cluster_manifest
 
   # Wait for Postgres to finish its rolling restart (triggered by any parameter
@@ -615,6 +793,17 @@ main() {
   apply_db_setup_job
   wait_for_job
   print_migration_status "after db-setup"
+
+  if clickhouse_deploy_enabled; then
+    section "Resetting clickhouse-setup Job"
+    log "Deleting old clickhouse-setup job..."
+    kubectl delete job clickhouse-setup -n "${NAMESPACE}" --ignore-not-found --wait=true --timeout=120s || true
+    kubectl delete pods -n "${NAMESPACE}" -l job-name=clickhouse-setup --ignore-not-found --wait=true --timeout=60s || true
+
+    apply_clickhouse_setup_job
+    wait_for_clickhouse_setup_job
+    remove_clickhouse_rendered_manifests
+  fi
 
   # ── Grafana dashboards ConfigMap (server-side apply) ────────────────────
   # The grafana-dashboards ConfigMap is ~290KB, which exceeds client-side

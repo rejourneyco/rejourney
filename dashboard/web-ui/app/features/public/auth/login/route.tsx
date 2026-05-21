@@ -701,8 +701,8 @@ export default function LoginPage() {
                     {step === 'email' ? (
                         <form onSubmit={handleSendOtp} className="space-y-6">
                             <div className="text-center mb-6">
-                                <h1 className="text-2xl font-black uppercase mb-2">Welcome Back</h1>
-                                <p className="text-xs font-mono text-gray-500 uppercase">Sign in to continue</p>
+                                <h1 className="text-2xl font-black uppercase mb-2">Login/Sign up</h1>
+                                <p className="text-xs font-mono text-gray-500 uppercase">Login in to continue</p>
                             </div>
 
                             {/* GitHub OAuth Button */}

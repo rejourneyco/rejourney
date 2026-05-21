@@ -1,29 +1,32 @@
 /**
  * Client-side rrweb segment loader.
  *
- * When the backend's /core endpoint returns `rrwebReplay.loadMode === 'segments'`
+ * When the backend returns `rrwebReplay.loadMode === 'segments'`
  * (because the total payload exceeded RJ_REPLAY_CORE_INLINE_LIMIT_BYTES), the
- * `events` array is empty and the browser must download each segment directly
- * from R2 in parallel, then concatenate the events.
+ * `events` array is empty and the browser downloads each segment directly
+ * from object storage/CDN, then concatenates the events.
  *
  * For small sessions (loadMode === 'inline' or unset), `events` is already
  * populated server-side and this hook is a no-op pass-through.
  *
- * The parallel-from-R2 path is faster than the inline path for two reasons:
- *   1. R2 → browser is a direct edge-cached fetch with no API hop.
- *   2. Concurrency is bounded by the browser's per-origin connection cap (~6
- *      for HTTP/1.1, much higher for HTTP/2) — typically 6–10× concurrent.
+ * Large sessions are loaded progressively: the first segment is published as
+ * soon as it arrives, then the rest are prefetched with adaptive concurrency.
+ * This lets the rrweb player become usable without forcing every viewer to
+ * download every segment before first paint.
  */
 
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { API_BASE_URL } from '~/shared/config/appConfig';
 
 export type RrwebReplaySegment = {
+    artifactId?: string;
     index: number;
     startTime: number | null;
     endTime: number | null;
     eventCount: number;
     sizeBytes: number | null;
     url: string | null;
+    proxyUrl?: string | null;
 };
 
 export type RrwebReplayPayload = {
@@ -46,13 +49,46 @@ export type RrwebReplayLoaderState = {
     error: string | null;
 };
 
-// Browsers cap concurrent connections per origin (HTTP/1.1: ~6, HTTP/2: many).
-// R2 serves HTTP/2 so this is closer to a memory / CPU cap than a wire cap.
-// 12 is a sane balance between parallelism and not pegging the main thread.
-const SEGMENT_FETCH_CONCURRENCY = 12;
+const DESKTOP_SEGMENT_FETCH_CONCURRENCY = 6;
+const MOBILE_SEGMENT_FETCH_CONCURRENCY = 4;
+const SLOW_SEGMENT_FETCH_CONCURRENCY = 3;
+const BACKGROUND_PREFETCH_START_DELAY_MS = 120;
 
-async function fetchOneSegment(url: string, signal: AbortSignal): Promise<any[]> {
-    const response = await fetch(url, { signal, credentials: 'omit' });
+function getAdaptiveSegmentFetchConcurrency(): number {
+    if (typeof window === 'undefined' || typeof navigator === 'undefined') {
+        return DESKTOP_SEGMENT_FETCH_CONCURRENCY;
+    }
+
+    const nav = navigator as Navigator & {
+        connection?: { effectiveType?: string; saveData?: boolean };
+        deviceMemory?: number;
+    };
+    const effectiveType = nav.connection?.effectiveType?.toLowerCase();
+    const saveData = Boolean(nav.connection?.saveData);
+    const coarsePointer = Boolean(window.matchMedia?.('(pointer: coarse)').matches);
+    const lowMemory = typeof nav.deviceMemory === 'number' && nav.deviceMemory <= 4;
+    const slowNetwork = saveData || effectiveType === 'slow-2g' || effectiveType === '2g' || effectiveType === '3g';
+
+    if (slowNetwork) return SLOW_SEGMENT_FETCH_CONCURRENCY;
+    if (coarsePointer || lowMemory) return MOBILE_SEGMENT_FETCH_CONCURRENCY;
+    return DESKTOP_SEGMENT_FETCH_CONCURRENCY;
+}
+
+function sleep(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function resolveSegmentUrl(url: string): string {
+    if (/^https?:\/\//i.test(url)) return url;
+    return `${API_BASE_URL}${url.startsWith('/') ? url : `/${url}`}`;
+}
+
+async function fetchSegmentUrl(
+    url: string,
+    signal: AbortSignal,
+    credentials: RequestCredentials,
+): Promise<any[]> {
+    const response = await fetch(resolveSegmentUrl(url), { signal, credentials });
     if (!response.ok) {
         throw new Error(`segment fetch ${response.status}`);
     }
@@ -71,9 +107,8 @@ async function fetchOneSegment(url: string, signal: AbortSignal): Promise<any[]>
     const bytes = new Uint8Array(buffer);
     const isGzipMagic = bytes.length > 2 && bytes[0] === 0x1f && bytes[1] === 0x8b;
 
-    if (isGzipMagic && typeof DecompressionStream !== 'undefined') {
-        const stream = new Response(buffer).body!.pipeThrough(new DecompressionStream('gzip'));
-        const text = await new Response(stream).text();
+    if (isGzipMagic) {
+        const text = await gunzipSegmentText(buffer, bytes);
         const parsed = JSON.parse(text);
         return Array.isArray(parsed) ? parsed : (Array.isArray(parsed?.events) ? parsed.events : []);
     }
@@ -81,6 +116,40 @@ async function fetchOneSegment(url: string, signal: AbortSignal): Promise<any[]>
     const text = new TextDecoder().decode(buffer);
     const parsed = JSON.parse(text);
     return Array.isArray(parsed) ? parsed : (Array.isArray(parsed?.events) ? parsed.events : []);
+}
+
+async function fetchOneSegment(segment: RrwebReplaySegment, signal: AbortSignal): Promise<any[]> {
+    const attempts = [
+        segment.url ? { url: segment.url, credentials: 'omit' as RequestCredentials } : null,
+        segment.proxyUrl ? { url: segment.proxyUrl, credentials: 'include' as RequestCredentials } : null,
+    ].filter((attempt): attempt is { url: string; credentials: RequestCredentials } => Boolean(attempt));
+
+    let lastError: unknown = null;
+    for (const attempt of attempts) {
+        try {
+            return await fetchSegmentUrl(attempt.url, signal, attempt.credentials);
+        } catch (err) {
+            if ((err as { name?: string } | null)?.name === 'AbortError') throw err;
+            lastError = err;
+        }
+    }
+
+    throw lastError instanceof Error ? lastError : new Error('segment fetch failed');
+}
+
+async function gunzipSegmentText(buffer: ArrayBuffer, bytes: Uint8Array): Promise<string> {
+    if (typeof DecompressionStream !== 'undefined') {
+        try {
+            const stream = new Response(buffer).body!.pipeThrough(new DecompressionStream('gzip'));
+            return await new Response(stream).text();
+        } catch {
+            // Fall through to the JS inflater. Some mobile Safari builds expose
+            // DecompressionStream but fail for raw .json.gz object responses.
+        }
+    }
+
+    const { gunzipSync, strFromU8 } = await import('fflate');
+    return strFromU8(gunzipSync(bytes));
 }
 
 async function mapWithConcurrency<T, R>(
@@ -130,10 +199,11 @@ export function useRrwebReplayEvents(rrwebReplay: RrwebReplayPayload | undefined
     // Stable key so we re-fetch when the actual segment set changes (different
     // session navigated to), not on every render.
     const segmentKey = useMemo(
-        () => segments.map((s) => s.url ?? '').join('|'),
+        () => segments.map((s) => `${s.artifactId ?? ''}:${s.url ?? ''}:${s.proxyUrl ?? ''}`).join('|'),
         [segments],
     );
     const lastKeyRef = useRef<string>('');
+    const loadedSegmentsRef = useRef<Map<number, any[]>>(new Map());
 
     useEffect(() => {
         if (loadMode !== 'segments') {
@@ -149,7 +219,12 @@ export function useRrwebReplayEvents(rrwebReplay: RrwebReplayPayload | undefined
         if (lastKeyRef.current === segmentKey) return;
         lastKeyRef.current = segmentKey;
 
-        const fetchable = segments.filter((s): s is RrwebReplaySegment & { url: string } => typeof s.url === 'string' && s.url.length > 0);
+        const fetchable = segments
+            .filter((s) => (
+                (typeof s.url === 'string' && s.url.length > 0) ||
+                (typeof s.proxyUrl === 'string' && s.proxyUrl.length > 0)
+            ))
+            .sort((a, b) => (a.index ?? 0) - (b.index ?? 0));
         if (fetchable.length === 0) {
             setClientEvents([]);
             setIsLoading(false);
@@ -159,40 +234,85 @@ export function useRrwebReplayEvents(rrwebReplay: RrwebReplayPayload | undefined
 
         const abort = new AbortController();
         let cancelled = false;
+        let publishTimer: number | null = null;
+        let loadedCount = 0;
+        let failedCount = 0;
+        const loadedIndexes = new Set<number>();
+        loadedSegmentsRef.current = new Map();
         setIsLoading(true);
         setError(null);
         setProgress({ loaded: 0, total: fetchable.length });
 
-        (async () => {
-            let loadedCount = 0;
-            const results = await mapWithConcurrency(fetchable, SEGMENT_FETCH_CONCURRENCY, async (segment) => {
-                try {
-                    const events = await fetchOneSegment(segment.url, abort.signal);
-                    loadedCount += 1;
-                    if (!cancelled) setProgress({ loaded: loadedCount, total: fetchable.length });
-                    return events;
-                } catch (err) {
-                    if ((err as any)?.name === 'AbortError') return [];
-                    // Swallow individual segment failures — return events from the rest.
-                    return [];
+        const publishLoadedEvents = (immediate = false) => {
+            if (cancelled) return;
+            const run = () => {
+                publishTimer = null;
+                if (cancelled) return;
+                const merged: any[] = [];
+                for (const [, events] of [...loadedSegmentsRef.current.entries()].sort((a, b) => a[0] - b[0])) {
+                    if (events && events.length > 0) merged.push(...events);
                 }
-            });
+                merged.sort((a, b) => (a?.timestamp || 0) - (b?.timestamp || 0));
+                setClientEvents(merged);
+            };
+
+            if (immediate) {
+                if (publishTimer) window.clearTimeout(publishTimer);
+                run();
+                return;
+            }
+
+            if (!publishTimer) {
+                publishTimer = window.setTimeout(run, 100);
+            }
+        };
+
+        const loadSegment = async (segment: RrwebReplaySegment, publishImmediately = false) => {
+            if (loadedIndexes.has(segment.index)) return;
+            loadedIndexes.add(segment.index);
+            try {
+                const events = await fetchOneSegment(segment, abort.signal);
+                if (!cancelled) {
+                    loadedSegmentsRef.current.set(segment.index, events);
+                    publishLoadedEvents(publishImmediately);
+                }
+            } catch (err) {
+                if ((err as any)?.name !== 'AbortError') {
+                    failedCount += 1;
+                }
+            } finally {
+                loadedCount += 1;
+                if (!cancelled) setProgress({ loaded: loadedCount, total: fetchable.length });
+            }
+        };
+
+        (async () => {
+            await loadSegment(fetchable[0], true);
             if (cancelled) return;
 
-            const merged: any[] = [];
-            for (const arr of results) {
-                if (arr && arr.length > 0) merged.push(...arr);
-            }
-            merged.sort((a, b) => (a?.timestamp || 0) - (b?.timestamp || 0));
-            setClientEvents(merged);
+            await sleep(BACKGROUND_PREFETCH_START_DELAY_MS);
+            if (cancelled) return;
+
+            const remaining = fetchable.slice(1);
+            await mapWithConcurrency(
+                remaining,
+                getAdaptiveSegmentFetchConcurrency(),
+                async (segment) => loadSegment(segment, false),
+            );
             setIsLoading(false);
-            if (merged.length === 0 && fetchable.length > 0) {
+            publishLoadedEvents(true);
+
+            const hasAnyEvents = [...loadedSegmentsRef.current.values()].some((events) => events.length > 0);
+            if (!hasAnyEvents && fetchable.length > 0) {
                 setError('Failed to load any replay segments.');
+            } else if (failedCount > 0) {
+                setError('Some replay segments failed to load.');
             }
         })();
 
         return () => {
             cancelled = true;
+            if (publishTimer) window.clearTimeout(publishTimer);
             abort.abort();
         };
     }, [loadMode, segmentKey, segments]);

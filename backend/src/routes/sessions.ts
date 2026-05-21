@@ -5,6 +5,7 @@
  */
 
 import { Buffer } from 'node:buffer';
+import { randomUUID } from 'node:crypto';
 
 import { Router } from 'express';
 import { eq, and, or, inArray, gte, lt, isNull, desc, asc, sql, getTableColumns, type SQL } from 'drizzle-orm';
@@ -16,6 +17,7 @@ import {
     getSignedDownloadUrl,
     getSignedDownloadUrlForProject,
     downloadFromS3ForArtifact,
+    downloadRawFromS3ForArtifact,
     getObjectSizeBytesForArtifact,
 } from '../db/s3.js';
 import {
@@ -64,6 +66,13 @@ import {
     encodeCsvRow,
     SESSION_EXPORT_CSV_HEADERS,
 } from '../services/sessionExportCsv.js';
+
+type ScreenshotFramePayload = {
+    timestamp: number;
+    url: string;
+    proxyUrl?: string | null;
+    index: number;
+};
 
 const router = Router();
 
@@ -513,15 +522,28 @@ const SESSION_CORE_CACHE_TTL_SECONDS = Number(process.env.RJ_SESSION_CORE_CACHE_
 const SESSION_CORE_UNSTABLE_CACHE_TTL_SECONDS = Number(process.env.RJ_SESSION_CORE_UNSTABLE_CACHE_TTL_SECONDS ?? 20);
 const SESSION_DETAIL_CACHE_TTL_SECONDS = Number(process.env.RJ_SESSION_DETAIL_CACHE_TTL_SECONDS ?? 300);
 const SESSION_BOOTSTRAP_CACHE_TTL_SECONDS = Number(process.env.RJ_SESSION_BOOTSTRAP_CACHE_TTL_SECONDS ?? 15);
+const SESSION_REPLAY_MANIFEST_CACHE_TTL_SECONDS = Number(process.env.RJ_SESSION_REPLAY_MANIFEST_CACHE_TTL_SECONDS ?? 900);
+const SESSION_REPLAY_MANIFEST_UNSTABLE_CACHE_TTL_SECONDS = Number(process.env.RJ_SESSION_REPLAY_MANIFEST_UNSTABLE_CACHE_TTL_SECONDS ?? 20);
+const SESSION_REPLAY_MANIFEST_LOCK_TTL_SECONDS = Number(process.env.RJ_SESSION_REPLAY_MANIFEST_LOCK_TTL_SECONDS ?? 10);
+const SESSION_SCREENSHOT_FRAMES_BUILDING_CACHE_TTL_SECONDS = Number(process.env.RJ_SESSION_SCREENSHOT_FRAMES_BUILDING_CACHE_TTL_SECONDS ?? 2);
+const SCREENSHOT_FRAME_DATA_CACHE_TTL_SECONDS = Number(process.env.RJ_SCREENSHOT_FRAME_DATA_CACHE_TTL_SECONDS ?? 600);
+const SCREENSHOT_FRAME_ARCHIVE_LOCK_TTL_SECONDS = Number(process.env.RJ_SCREENSHOT_FRAME_ARCHIVE_LOCK_TTL_SECONDS ?? 20);
+const SCREENSHOT_FRAME_ARCHIVE_LOCK_WAIT_MS = Number(process.env.RJ_SCREENSHOT_FRAME_ARCHIVE_LOCK_WAIT_MS ?? 5000);
+const RRWEB_SEGMENT_DATA_CACHE_TTL_SECONDS = Number(process.env.RJ_RRWEB_SEGMENT_DATA_CACHE_TTL_SECONDS ?? 600);
+const RRWEB_SEGMENT_DATA_CACHE_MAX_BYTES = Number(process.env.RJ_RRWEB_SEGMENT_DATA_CACHE_MAX_BYTES ?? 5_000_000);
 const FRAME_AUTH_CACHE_TTL_SECONDS = Number(process.env.RJ_FRAME_AUTH_CACHE_TTL_SECONDS ?? 60);
 const SESSION_BOOTSTRAP_CACHE_CONTROL = 'private, max-age=15, stale-while-revalidate=45';
-const SESSION_DETAIL_CACHE_VERSION = 'v3';
+const SESSION_DETAIL_CACHE_VERSION = 'v5';
 // Inline-events cap for /core rrweb payload. When the total rrweb segment size
 // exceeds this, the server returns segment URLs (events: []) and the dashboard
 // fetches segments directly from R2 in parallel. This removes the dashboard
 // pod as a bottleneck for large replays (a 50MB session can finish loading in
 // the browser before the server would have even finished concatenating it).
 const REPLAY_CORE_INLINE_LIMIT_BYTES = Number(process.env.RJ_REPLAY_CORE_INLINE_LIMIT_BYTES ?? 2_000_000);
+// rrweb is stored as gzip-compressed JSON, but /core returns expanded JSON when
+// inlining. A 1 MB artifact commonly becomes many MB in the API response, so
+// use an inflate estimate when deciding whether to bypass the dashboard API.
+const REPLAY_CORE_INLINE_INFLATE_FACTOR = Number(process.env.RJ_REPLAY_CORE_INLINE_INFLATE_FACTOR ?? 8);
 
 function isStableForSessionDetailCache(session: any): boolean {
     const status = String(session?.status || '').toLowerCase();
@@ -575,13 +597,24 @@ function resolveFrameUrlMode(raw: unknown): ScreenshotFrameUrlMode {
     return DEFAULT_FRAME_URL_MODE;
 }
 
-function buildSessionDetailCacheKey(kind: 'bootstrap' | 'core' | 'timeline' | 'hierarchy', sessionId: string): string {
+function shouldIncludeReplayFromQuery(raw: unknown): boolean {
+    if (typeof raw !== 'string') return true;
+    const value = raw.toLowerCase();
+    return value !== 'false' && value !== '0' && value !== 'deferred' && value !== 'none';
+}
+
+type SessionDetailCacheKind = 'bootstrap' | 'core' | 'coreLite' | 'timeline' | 'hierarchy' | 'replayManifest' | 'frames';
+
+function buildSessionDetailCacheKey(kind: SessionDetailCacheKind, sessionId: string): string {
     if (kind === 'bootstrap') return `${SESSION_DETAIL_CACHE_VERSION}:session_bootstrap:${sessionId}`;
     if (kind === 'core') return `${SESSION_DETAIL_CACHE_VERSION}:session_core:${sessionId}`;
+    if (kind === 'coreLite') return `${SESSION_DETAIL_CACHE_VERSION}:session_core_lite:${sessionId}`;
+    if (kind === 'replayManifest') return `${SESSION_DETAIL_CACHE_VERSION}:session_replay_manifest:${sessionId}`;
+    if (kind === 'frames') return `${SESSION_DETAIL_CACHE_VERSION}:session_frames:${sessionId}`;
     return `${SESSION_DETAIL_CACHE_VERSION}:session_${kind}:${sessionId}`;
 }
 
-async function readCachedSessionDetail(kind: 'bootstrap' | 'core' | 'timeline' | 'hierarchy', sessionId: string): Promise<string | null> {
+async function readCachedSessionDetail(kind: SessionDetailCacheKind, sessionId: string): Promise<string | null> {
     try {
         return await getRedis().get(buildSessionDetailCacheKey(kind, sessionId));
     } catch (err) {
@@ -591,7 +624,7 @@ async function readCachedSessionDetail(kind: 'bootstrap' | 'core' | 'timeline' |
 }
 
 async function writeCachedSessionDetail(
-    kind: 'bootstrap' | 'core' | 'timeline' | 'hierarchy',
+    kind: SessionDetailCacheKind,
     sessionId: string,
     payload: unknown,
     ttlOverrideSeconds?: number,
@@ -599,13 +632,86 @@ async function writeCachedSessionDetail(
     try {
         const defaultTtl = kind === 'bootstrap'
             ? SESSION_BOOTSTRAP_CACHE_TTL_SECONDS
-            : kind === 'core'
+            : kind === 'core' || kind === 'coreLite'
                 ? SESSION_CORE_CACHE_TTL_SECONDS
+                : kind === 'replayManifest'
+                    ? SESSION_REPLAY_MANIFEST_CACHE_TTL_SECONDS
+                    : kind === 'frames'
+                        ? SESSION_REPLAY_MANIFEST_CACHE_TTL_SECONDS
                 : SESSION_DETAIL_CACHE_TTL_SECONDS;
         const ttl = ttlOverrideSeconds && ttlOverrideSeconds > 0 ? ttlOverrideSeconds : defaultTtl;
         await getRedis().setex(buildSessionDetailCacheKey(kind, sessionId), ttl, JSON.stringify(payload));
     } catch (err) {
         logger.warn({ err, kind, sessionId }, '[sessions] Failed to write session detail cache');
+    }
+}
+
+async function writeCachedSessionDetailJson(
+    kind: SessionDetailCacheKind,
+    sessionId: string,
+    payloadJson: string,
+    ttlSeconds: number,
+): Promise<void> {
+    try {
+        await getRedis().setex(buildSessionDetailCacheKey(kind, sessionId), ttlSeconds, payloadJson);
+    } catch (err) {
+        logger.warn({ err, kind, sessionId }, '[sessions] Failed to write session detail cache');
+    }
+}
+
+async function sleepMs(ms: number): Promise<void> {
+    await new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function getOrBuildCachedSessionDetailJson(
+    kind: SessionDetailCacheKind,
+    sessionId: string,
+    builder: () => Promise<{ payload: unknown; ttlSeconds: number }>,
+): Promise<{ payloadJson: string; cacheStatus: 'hit' | 'miss' | 'lock-hit' | 'wait-hit' | 'bypass' }> {
+    const cached = await readCachedSessionDetail(kind, sessionId);
+    if (cached) return { payloadJson: cached, cacheStatus: 'hit' };
+
+    const redis = getRedis();
+    const cacheKey = buildSessionDetailCacheKey(kind, sessionId);
+    const lockKey = `${cacheKey}:lock`;
+    const lockToken = randomUUID();
+
+    let lockAcquired = false;
+    try {
+        const lockResult = await redis.set(lockKey, lockToken, 'EX', SESSION_REPLAY_MANIFEST_LOCK_TTL_SECONDS, 'NX');
+        lockAcquired = lockResult === 'OK';
+    } catch (err) {
+        logger.warn({ err, kind, sessionId }, '[sessions] Failed to acquire session detail cache lock');
+    }
+
+    if (!lockAcquired) {
+        for (let attempt = 0; attempt < 20; attempt += 1) {
+            await sleepMs(100);
+            const waited = await readCachedSessionDetail(kind, sessionId);
+            if (waited) return { payloadJson: waited, cacheStatus: 'wait-hit' };
+        }
+
+        const { payload, ttlSeconds } = await builder();
+        const payloadJson = JSON.stringify(payload);
+        await writeCachedSessionDetailJson(kind, sessionId, payloadJson, ttlSeconds);
+        return { payloadJson, cacheStatus: 'bypass' };
+    }
+
+    try {
+        const raced = await readCachedSessionDetail(kind, sessionId);
+        if (raced) return { payloadJson: raced, cacheStatus: 'lock-hit' };
+
+        const { payload, ttlSeconds } = await builder();
+        const payloadJson = JSON.stringify(payload);
+        await writeCachedSessionDetailJson(kind, sessionId, payloadJson, ttlSeconds);
+        return { payloadJson, cacheStatus: 'miss' };
+    } finally {
+        try {
+            const currentToken = await redis.get(lockKey);
+            if (currentToken === lockToken) await redis.del(lockKey);
+        } catch (err) {
+            logger.warn({ err, kind, sessionId }, '[sessions] Failed to release session detail cache lock');
+        }
     }
 }
 
@@ -765,12 +871,14 @@ function buildWebContextPayload(session: any) {
 }
 
 type RrwebReplaySegment = {
+    artifactId?: string;
     index: number;
     startTime: number | null;
     endTime: number | null;
     eventCount: number;
     sizeBytes: number | null;
     url: string | null;
+    proxyUrl?: string | null;
 };
 
 type RrwebReplayPayload = {
@@ -810,7 +918,11 @@ function parseArtifactJson(data: Buffer, s3ObjectKey?: string | null) {
     }
 }
 
-async function loadRrwebReplayPayload(session: any, rrwebArtifacts: any[]): Promise<RrwebReplayPayload> {
+async function loadRrwebReplayPayload(
+    session: any,
+    rrwebArtifacts: any[],
+    options: { forceSegments?: boolean } = {},
+): Promise<RrwebReplayPayload> {
     if (rrwebArtifacts.length === 0 || session.isReplayExpired || session.recordingDeleted) {
         return emptyRrwebReplayPayload();
     }
@@ -831,8 +943,17 @@ async function loadRrwebReplayPayload(session: any, rrwebArtifacts: any[]): Prom
         const size = Number(a.sizeBytes ?? a.declaredSizeBytes ?? 0);
         return sum + (Number.isFinite(size) && size > 0 ? size : 0);
     }, 0);
-    const shouldSkipInline = REPLAY_CORE_INLINE_LIMIT_BYTES > 0
-        && totalDeclaredBytes > REPLAY_CORE_INLINE_LIMIT_BYTES;
+    const estimatedInlineBytes = totalDeclaredBytes > 0
+        ? totalDeclaredBytes * Math.max(1, REPLAY_CORE_INLINE_INFLATE_FACTOR)
+        : 0;
+    const shouldSkipInline = options.forceSegments || (
+        REPLAY_CORE_INLINE_LIMIT_BYTES > 0
+        && (
+            totalDeclaredBytes > REPLAY_CORE_INLINE_LIMIT_BYTES
+            || estimatedInlineBytes > REPLAY_CORE_INLINE_LIMIT_BYTES
+            || (totalDeclaredBytes === 0 && sortedArtifacts.length > 1)
+        )
+    );
 
     if (shouldSkipInline) {
         // Build segments with signed URLs only — no S3 downloads, no parsing.
@@ -847,12 +968,14 @@ async function loadRrwebReplayPayload(session: any, rrwebArtifacts: any[]): Prom
                         ? await getSignedDownloadUrl(artifact.endpointId, artifact.s3ObjectKey)
                         : await getSignedDownloadUrlForProject(session.projectId, artifact.s3ObjectKey);
                     return {
+                        artifactId: artifact.id,
                         index,
                         startTime: artifact.startTime ?? null,
                         endTime: artifact.endTime ?? null,
                         eventCount: artifact.frameCount ?? 0,
                         sizeBytes: artifact.sizeBytes ?? artifact.declaredSizeBytes ?? null,
                         url: url ?? null,
+                        proxyUrl: `/api/session/rrweb-segment/${session.id}/${artifact.id}.json.gz`,
                     } satisfies RrwebReplaySegment;
                 } catch (err) {
                     logger.warn(
@@ -870,21 +993,24 @@ async function loadRrwebReplayPayload(session: any, rrwebArtifacts: any[]): Prom
             }
         );
 
-        const validSegments = segments.filter((s): s is RrwebReplaySegment => s !== null);
+        const validSegments = segments.filter((s): s is NonNullable<typeof s> => s !== null);
         logger.info(
             {
                 event: 'sessions.rrweb_segments_only',
                 sessionId: session.id,
                 segmentCount: validSegments.length,
                 totalDeclaredBytes,
+                estimatedInlineBytes,
                 inlineLimitBytes: REPLAY_CORE_INLINE_LIMIT_BYTES,
+                forceSegments: Boolean(options.forceSegments),
             },
             'sessions.rrweb_segments_only',
         );
 
+        const segmentEventCount = validSegments.reduce((sum, s) => sum + (s.eventCount || 0), 0);
         return {
             events: [],
-            eventCount: validSegments.reduce((sum, s) => sum + (s.eventCount || 0), 0),
+            eventCount: segmentEventCount,
             segments: validSegments,
             page: null,
             viewport: null,
@@ -921,12 +1047,14 @@ async function loadRrwebReplayPayload(session: any, rrwebArtifacts: any[]): Prom
                     page: parsed?.page && typeof parsed.page === 'object' ? parsed.page : null,
                     viewport: parsed?.viewport && typeof parsed.viewport === 'object' ? parsed.viewport : null,
                     segment: {
+                        artifactId: artifact.id,
                         index,
                         startTime: artifact.startTime ?? parsed?.chunkStartedAt ?? parsed?.startedAt ?? null,
                         endTime: artifact.endTime ?? parsed?.chunkEndedAt ?? null,
                         eventCount: segmentEvents.length || artifact.frameCount || 0,
                         sizeBytes: artifact.sizeBytes ?? artifact.declaredSizeBytes ?? null,
                         url: url ?? null,
+                        proxyUrl: `/api/session/rrweb-segment/${session.id}/${artifact.id}.json.gz`,
                     } satisfies RrwebReplaySegment,
                 };
             } catch (err) {
@@ -971,7 +1099,7 @@ async function loadRrwebReplayPayload(session: any, rrwebArtifacts: any[]): Prom
 function buildSessionBasePayload(
     session: any,
     metrics: any,
-    screenshotFrames: Array<{ timestamp: number; url: string; index: number }>,
+    screenshotFrames: ScreenshotFramePayload[],
     readyScreenshotArtifacts = false,
     presentationState?: SessionPresentationState,
     latestReplayEndMs: number | null = null
@@ -1068,7 +1196,7 @@ async function loadScreenshotReplayBootstrap(
         return {
             hasRecording: false,
             playbackMode: 'none' as const,
-            screenshotFrames: [] as Array<{ timestamp: number; url: string; index: number }>,
+            screenshotFrames: [] as ScreenshotFramePayload[],
             screenshotFramesStatus: 'none' as const,
             screenshotFrameCount: 0,
             processedSegments: 0,
@@ -1087,7 +1215,7 @@ async function loadScreenshotReplayBootstrap(
         return {
             hasRecording: true,
             playbackMode: 'screenshots' as const,
-            screenshotFrames: [] as Array<{ timestamp: number; url: string; index: number }>,
+            screenshotFrames: [] as ScreenshotFramePayload[],
             screenshotFramesStatus: 'preparing' as const,
             screenshotFrameCount,
             processedSegments: 0,
@@ -1121,7 +1249,7 @@ async function loadVisualReplayBootstrap(
         return {
             hasRecording: false,
             playbackMode: 'none' as const,
-            screenshotFrames: [] as Array<{ timestamp: number; url: string; index: number }>,
+            screenshotFrames: [] as ScreenshotFramePayload[],
             screenshotFramesStatus: 'none' as const,
             screenshotFrameCount: 0,
             processedSegments: 0,
@@ -1131,11 +1259,11 @@ async function loadVisualReplayBootstrap(
     }
 
     const rrwebReplay = await loadRrwebReplayPayload(session, rrwebArtifacts);
-    if (rrwebReplay.eventCount > 0) {
+    if (rrwebReplay.eventCount > 0 || rrwebReplay.segments.length > 0) {
         return {
             hasRecording: true,
             playbackMode: 'rrweb' as const,
-            screenshotFrames: [] as Array<{ timestamp: number; url: string; index: number }>,
+            screenshotFrames: [] as ScreenshotFramePayload[],
             screenshotFramesStatus: 'none' as const,
             screenshotFrameCount: 0,
             processedSegments: rrwebReplay.segments.length,
@@ -1148,6 +1276,148 @@ async function loadVisualReplayBootstrap(
     return {
         ...screenshotReplay,
         rrwebReplay,
+    };
+}
+
+function buildDeferredVisualReplayBootstrap(
+    session: any,
+    screenshotArtifactCount: number,
+    rrwebArtifacts: any[],
+) {
+    const hasRecording = Boolean(session.replayAvailable) && !session.isReplayExpired && !session.recordingDeleted;
+    if (!hasRecording) {
+        return {
+            hasRecording: false,
+            playbackMode: 'none' as const,
+            screenshotFrames: [] as ScreenshotFramePayload[],
+            screenshotFramesStatus: 'none' as const,
+            screenshotFrameCount: 0,
+            processedSegments: 0,
+            totalSegments: 0,
+            rrwebReplay: emptyRrwebReplayPayload(),
+        };
+    }
+
+    if (rrwebArtifacts.length > 0) {
+        return {
+            hasRecording: true,
+            playbackMode: 'rrweb' as const,
+            screenshotFrames: [] as ScreenshotFramePayload[],
+            screenshotFramesStatus: 'none' as const,
+            screenshotFrameCount: 0,
+            processedSegments: 0,
+            totalSegments: rrwebArtifacts.length,
+            rrwebReplay: {
+                ...emptyRrwebReplayPayload(),
+                eventCount: rrwebArtifacts.reduce((sum, artifact) => sum + Number(artifact.frameCount || 0), 0),
+                loadMode: 'segments' as const,
+            },
+        };
+    }
+
+    if (screenshotArtifactCount > 0) {
+        return {
+            hasRecording: true,
+            playbackMode: 'screenshots' as const,
+            screenshotFrames: [] as ScreenshotFramePayload[],
+            screenshotFramesStatus: 'preparing' as const,
+            screenshotFrameCount: 0,
+            processedSegments: 0,
+            totalSegments: screenshotArtifactCount,
+            rrwebReplay: emptyRrwebReplayPayload(),
+        };
+    }
+
+    return {
+        hasRecording: false,
+        playbackMode: 'none' as const,
+        screenshotFrames: [] as ScreenshotFramePayload[],
+        screenshotFramesStatus: 'none' as const,
+        screenshotFrameCount: 0,
+        processedSegments: 0,
+        totalSegments: 0,
+        rrwebReplay: emptyRrwebReplayPayload(),
+    };
+}
+
+function pickReplayManifestCacheTtl(session: any, aggregate?: SessionWorkAggregate | null, screenshotFramesStatus?: string): number {
+    if (screenshotFramesStatus === 'preparing') {
+        return SESSION_REPLAY_MANIFEST_UNSTABLE_CACHE_TTL_SECONDS;
+    }
+    if (shouldWriteSessionDetailCache(session, aggregate)) {
+        return SESSION_REPLAY_MANIFEST_CACHE_TTL_SECONDS;
+    }
+    return SESSION_REPLAY_MANIFEST_UNSTABLE_CACHE_TTL_SECONDS;
+}
+
+async function buildReplayManifestPayload(session: any, frameUrlMode: ScreenshotFrameUrlMode) {
+    const [artifactsList, aggregate] = await Promise.all([
+        getReadyArtifacts(session.id),
+        loadSessionWorkAggregate(session.id),
+    ]);
+    const screenshotArtifacts = artifactsList.filter((artifact) => artifact.kind === 'screenshots');
+    const rrwebArtifacts = artifactsList.filter((artifact) => artifact.kind === 'rrweb');
+    const rrwebReplay = await loadRrwebReplayPayload(session, rrwebArtifacts, { forceSegments: true });
+    const replayBootstrap = (rrwebReplay.eventCount > 0 || rrwebReplay.segments.length > 0)
+        ? {
+            hasRecording: true,
+            playbackMode: 'rrweb' as const,
+            screenshotFrames: [] as ScreenshotFramePayload[],
+            screenshotFramesStatus: 'none' as const,
+            screenshotFrameCount: 0,
+            processedSegments: rrwebReplay.segments.length,
+            totalSegments: rrwebReplay.segments.length,
+            rrwebReplay,
+        }
+        : await loadVisualReplayBootstrap(
+            session,
+            screenshotArtifacts.length,
+            rrwebArtifacts,
+            frameUrlMode,
+        );
+
+    const payload = {
+        hasRecording: replayBootstrap.hasRecording,
+        playbackMode: replayBootstrap.playbackMode,
+        screenshotFrames: replayBootstrap.screenshotFrames,
+        screenshotFramesStatus: replayBootstrap.screenshotFramesStatus,
+        screenshotFrameCount: replayBootstrap.screenshotFrameCount,
+        screenshotFramesProcessedSegments: replayBootstrap.processedSegments,
+        screenshotFramesTotalSegments: replayBootstrap.totalSegments,
+        rrwebReplay: replayBootstrap.rrwebReplay,
+    };
+
+    return {
+        payload,
+        ttlSeconds: pickReplayManifestCacheTtl(session, aggregate, replayBootstrap.screenshotFramesStatus),
+    };
+}
+
+async function buildScreenshotFramesPayload(session: any, frameUrlMode: ScreenshotFrameUrlMode) {
+    const [artifactsList, aggregate] = await Promise.all([
+        getReadyArtifacts(session.id),
+        loadSessionWorkAggregate(session.id),
+    ]);
+    const screenshotArtifacts = artifactsList.filter((artifact) => artifact.kind === 'screenshots');
+    const replayBootstrap = await loadScreenshotReplayBootstrap(
+        session,
+        screenshotArtifacts.length,
+        frameUrlMode,
+    );
+
+    const payload = {
+        screenshotFrames: replayBootstrap.screenshotFrames,
+        screenshotFramesStatus: replayBootstrap.screenshotFramesStatus,
+        screenshotFrameCount: replayBootstrap.screenshotFrameCount,
+        screenshotFramesProcessedSegments: replayBootstrap.processedSegments,
+        screenshotFramesTotalSegments: replayBootstrap.totalSegments,
+    };
+
+    return {
+        payload,
+        ttlSeconds: replayBootstrap.screenshotFramesStatus === 'preparing'
+            ? SESSION_SCREENSHOT_FRAMES_BUILDING_CACHE_TTL_SECONDS
+            : pickReplayManifestCacheTtl(session, aggregate, replayBootstrap.screenshotFramesStatus),
     };
 }
 
@@ -2340,7 +2610,7 @@ router.get(
         }
 
         // Extract screenshot frames for image-based playback (mobile sessions).
-        let screenshotFrames: Array<{ timestamp: number; url: string; index: number }> = [];
+        let screenshotFrames: ScreenshotFramePayload[] = [];
 
         logger.info({
             sessionId: session.id,
@@ -2781,9 +3051,11 @@ router.get(
     dashboardRateLimiter,
     asyncHandler(async (req, res) => {
         const { session, metrics } = await getAuthorizedSession(req.user!.id, req.params.id);
+        const includeReplay = shouldIncludeReplayFromQuery(req.query.includeReplay);
+        const cacheKind: SessionDetailCacheKind = includeReplay ? 'core' : 'coreLite';
         // Always try cache: unstable sessions get a short TTL on write, which
         // absorbs rapid repeat clicks (the common dashboard browsing pattern).
-        const cached = await readCachedSessionDetail('core', session.id);
+        const cached = await readCachedSessionDetail(cacheKind, session.id);
         if (cached) {
             res.setHeader('X-Replay-Core-Cache', 'hit');
             res.type('json').send(cached);
@@ -2806,12 +3078,14 @@ router.get(
         const rrwebArtifacts = artifactsList.filter((a) => a.kind === 'rrweb');
         const frameUrlMode = resolveFrameUrlMode(req.query.frameUrlMode);
         const [replayBootstrap, stats] = await Promise.all([
-            loadVisualReplayBootstrap(
-                session,
-                screenshotArtifacts.length,
-                rrwebArtifacts,
-                frameUrlMode
-            ),
+            includeReplay
+                ? loadVisualReplayBootstrap(
+                    session,
+                    screenshotArtifacts.length,
+                    rrwebArtifacts,
+                    frameUrlMode
+                )
+                : Promise.resolve(buildDeferredVisualReplayBootstrap(session, screenshotArtifacts.length, rrwebArtifacts)),
             computeSessionStats(session, metrics, artifactsList, false),
         ]);
 
@@ -2857,8 +3131,32 @@ router.get(
         // instant without holding onto data that may have changed.
         if (replayBootstrap.screenshotFramesStatus !== 'preparing') {
             const ttl = pickSessionCoreCacheTtl(session, aggregate);
-            await writeCachedSessionDetail('core', session.id, responseBody, ttl);
+            await writeCachedSessionDetail(cacheKind, session.id, responseBody, ttl);
         }
+    })
+);
+
+/**
+ * Get the visual replay manifest only (rrweb segment URLs or screenshot frame URLs).
+ * GET /api/session/:id/replay-manifest
+ */
+router.get(
+    '/:id/replay-manifest',
+    sessionAuth,
+    validate(sessionIdParamSchema, 'params'),
+    dashboardRateLimiter,
+    asyncHandler(async (req, res) => {
+        const { session } = await getAuthorizedSession(req.user!.id, req.params.id);
+        const frameUrlMode = resolveFrameUrlMode(req.query.frameUrlMode);
+        const manifestCacheScope = `${session.id}:${frameUrlMode}`;
+        const { payloadJson, cacheStatus } = await getOrBuildCachedSessionDetailJson(
+            'replayManifest',
+            manifestCacheScope,
+            () => buildReplayManifestPayload(session, frameUrlMode),
+        );
+
+        res.setHeader('X-Replay-Manifest-Cache', cacheStatus);
+        res.type('json').send(payloadJson);
     })
 );
 
@@ -2932,22 +3230,16 @@ router.get(
     dashboardRateLimiter,
     asyncHandler(async (req, res) => {
         const { session } = await getAuthorizedSession(req.user!.id, req.params.id);
-        const artifactsList = await getReadyArtifacts(session.id);
-        const screenshotArtifacts = artifactsList.filter((a) => a.kind === 'screenshots');
         const frameUrlMode = resolveFrameUrlMode(req.query.frameUrlMode);
-        const replayBootstrap = await loadScreenshotReplayBootstrap(
-            session,
-            screenshotArtifacts.length,
-            frameUrlMode
+        const framesCacheScope = `${session.id}:${frameUrlMode}`;
+        const { payloadJson, cacheStatus } = await getOrBuildCachedSessionDetailJson(
+            'frames',
+            framesCacheScope,
+            () => buildScreenshotFramesPayload(session, frameUrlMode),
         );
 
-        res.json({
-            screenshotFrames: replayBootstrap.screenshotFrames,
-            screenshotFramesStatus: replayBootstrap.screenshotFramesStatus,
-            screenshotFrameCount: replayBootstrap.screenshotFrameCount,
-            screenshotFramesProcessedSegments: replayBootstrap.processedSegments,
-            screenshotFramesTotalSegments: replayBootstrap.totalSegments,
-        });
+        res.setHeader('X-Screenshot-Frames-Cache', cacheStatus);
+        res.type('json').send(payloadJson);
     })
 );
 
@@ -3027,6 +3319,108 @@ router.get(
 
 
 /**
+ * Get rrweb segment by artifact id (same-origin fallback for browsers that
+ * cannot fetch signed object-storage URLs directly, usually because of CORS).
+ * GET /api/session/rrweb-segment/:sessionId/:artifactId
+ */
+router.get(
+    '/rrweb-segment/:sessionId/:artifactId',
+    sessionAuth,
+    dashboardRateLimiter,
+    asyncHandler(async (req, res) => {
+        const { sessionId } = req.params;
+        const artifactId = req.params.artifactId
+            .replace(/\.json\.gz$/i, '')
+            .replace(/\.json$/i, '');
+
+        const { session } = await getAuthorizedSessionForFrames(req.user!.id, sessionId);
+        const redis = getRedis();
+        const cacheKey = `rrweb_segment_data:${sessionId}:${artifactId}`;
+
+        const sendSegmentData = (data: Buffer, s3ObjectKey?: string | null) => {
+            const isGzipped = (data.length > 2 && data[0] === 0x1f && data[1] === 0x8b) ||
+                Boolean(s3ObjectKey?.endsWith('.gz'));
+            res.setHeader('Content-Type', 'application/json; charset=utf-8');
+            if (isGzipped) res.setHeader('Content-Encoding', 'gzip');
+            res.setHeader('Cache-Control', 'private, max-age=300');
+            res.setHeader('Content-Length', String(data.length));
+            return res.send(data);
+        };
+
+        const readCachedSegment = async (): Promise<Buffer | null> => {
+            try {
+                return await redis.getBuffer(cacheKey);
+            } catch (err) {
+                logger.warn({ err, sessionId, artifactId }, '[sessions] Failed to read rrweb segment from Redis cache');
+                return null;
+            }
+        };
+
+        const cachedSegment = await readCachedSegment();
+        if (cachedSegment) return sendSegmentData(cachedSegment);
+
+        const [artifact] = await db
+            .select()
+            .from(recordingArtifacts)
+            .where(and(
+                eq(recordingArtifacts.id, artifactId),
+                eq(recordingArtifacts.sessionId, sessionId),
+                eq(recordingArtifacts.kind, 'rrweb'),
+                eq(recordingArtifacts.status, 'ready'),
+            ))
+            .limit(1);
+
+        if (!artifact) throw ApiError.notFound('Replay segment not found');
+
+        const lockKey = `rrweb_segment_data_lock:${sessionId}:${artifactId}`;
+        const lockToken = randomUUID();
+        let lockAcquired = false;
+
+        try {
+            const result = await redis.set(lockKey, lockToken, 'EX', SESSION_REPLAY_MANIFEST_LOCK_TTL_SECONDS, 'NX');
+            lockAcquired = result === 'OK';
+        } catch (err) {
+            logger.warn({ err, sessionId, artifactId }, '[sessions] Failed to acquire rrweb segment cache lock');
+        }
+
+        if (!lockAcquired) {
+            const waitUntil = Date.now() + 5000;
+            while (Date.now() < waitUntil) {
+                await sleepMs(100);
+                const waitedSegment = await readCachedSegment();
+                if (waitedSegment) return sendSegmentData(waitedSegment, artifact.s3ObjectKey);
+            }
+        }
+
+        try {
+            const data = await downloadRawFromS3ForArtifact(session.projectId, artifact.s3ObjectKey, artifact.endpointId);
+            if (!data) throw ApiError.notFound('Replay segment data not found in storage');
+
+            if (data.length <= RRWEB_SEGMENT_DATA_CACHE_MAX_BYTES) {
+                try {
+                    await redis.setex(cacheKey, RRWEB_SEGMENT_DATA_CACHE_TTL_SECONDS, data);
+                } catch (err) {
+                    logger.warn({ err, sessionId, artifactId }, '[sessions] Failed to cache rrweb segment data');
+                }
+            }
+
+            return sendSegmentData(data, artifact.s3ObjectKey);
+        } finally {
+            if (lockAcquired) {
+                try {
+                    const currentToken = await redis.get(lockKey);
+                    if (currentToken === lockToken) {
+                        await redis.del(lockKey);
+                    }
+                } catch (err) {
+                    logger.warn({ err, sessionId, artifactId }, '[sessions] Failed to release rrweb segment cache lock');
+                }
+            }
+        }
+    })
+);
+
+/**
  * Get frame image by timestamp (proxy)
  * GET /api/session/frame/:sessionId/:timestamp
  */
@@ -3041,59 +3435,42 @@ router.get(
         const isTimestamp = /^\d+(\.jpg)?$/.test(rawArtifactId);
         const targetTimestampMs = isTimestamp ? parseInt(rawArtifactId.replace(/\.jpg$/, ''), 10) : NaN;
 
+        const { session } = await getAuthorizedSessionForFrames(req.user!.id, sessionId);
         const redis = getRedis();
         let cacheKey = '';
-        
-        if (isTimestamp && !isNaN(targetTimestampMs)) {
-            cacheKey = `screenshot_frame_data:${sessionId}:${targetTimestampMs}`;
+
+        const sendFrameData = (data: Buffer) => {
+            res.setHeader('Content-Type', 'image/jpeg');
+            res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+            res.setHeader('Content-Length', String(data.length));
+            return res.send(data);
+        };
+
+        const readCachedFrame = async (): Promise<Buffer | null> => {
+            if (!cacheKey) return null;
             try {
-                // ioredis getBuffer is required for binary data
-                const cachedFrame = await redis.getBuffer(cacheKey);
-                if (cachedFrame) {
-                    res.setHeader('Content-Type', 'image/jpeg');
-                    res.setHeader('Cache-Control', 'public, max-age=31536000');
-                    return res.send(cachedFrame);
-                }
+                return await redis.getBuffer(cacheKey);
             } catch (err) {
                 logger.warn({ err, sessionId }, '[sessions] Failed to read frame from Redis cache');
+                return null;
             }
+        };
+
+        if (isTimestamp && !isNaN(targetTimestampMs)) {
+            cacheKey = `screenshot_frame_data:${sessionId}:${targetTimestampMs}`;
+            const cachedFrame = await readCachedFrame();
+            if (cachedFrame) return sendFrameData(cachedFrame);
         }
 
-        // Access check
-        const teamMemberships = await db
-            .select({ teamId: teamMembers.teamId })
-            .from(teamMembers)
-            .where(eq(teamMembers.userId, req.user!.id));
+        const [replayEndRow] = await db
+            .select({ maxEnd: sql<number | null>`max(${recordingArtifacts.endTime})` })
+            .from(recordingArtifacts)
+            .where(and(
+                eq(recordingArtifacts.sessionId, sessionId),
+                inArray(recordingArtifacts.kind, ['screenshots', 'hierarchy', 'rrweb']),
+                eq(recordingArtifacts.status, 'ready'),
+            ));
 
-        const teamIds = teamMemberships.map((tm) => tm.teamId);
-        if (teamIds.length === 0) throw ApiError.notFound('Frame not found');
-
-        const [sessionRows, replayEndRows] = await Promise.all([
-            db
-                .select({
-                    projectId: sessions.projectId,
-                    startedAt: sessions.startedAt,
-                    endedAt: sessions.endedAt,
-                    lastIngestActivityAt: sessions.lastIngestActivityAt,
-                })
-                .from(sessions)
-                .where(and(eq(sessions.id, sessionId), inArray(sessions.projectId,
-                    db.select({ id: projects.id }).from(projects).where(and(inArray(projects.teamId, teamIds), isNull(projects.deletedAt)))
-                )))
-                .limit(1),
-            db
-                .select({ maxEnd: sql<number | null>`max(${recordingArtifacts.endTime})` })
-                .from(recordingArtifacts)
-                .where(and(
-                    eq(recordingArtifacts.sessionId, sessionId),
-                    inArray(recordingArtifacts.kind, ['screenshots', 'hierarchy', 'rrweb']),
-                    eq(recordingArtifacts.status, 'ready'),
-                )),
-        ]);
-
-        const session = sessionRows[0];
-        const replayEndRow = replayEndRows[0];
-        if (!session) throw ApiError.notFound('Frame not found');
         const sessionStartMs = session.startedAt.getTime();
         const replayEndMs = replayEndRow?.maxEnd ?? null;
         const effectiveSessionEnd = session.endedAt
@@ -3117,9 +3494,7 @@ router.get(
             const data = await downloadFromS3ForArtifact(session.projectId, artifact.s3ObjectKey, artifact.endpointId);
             if (!data) throw ApiError.notFound('Frame data not found in storage');
             
-            res.setHeader('Content-Type', 'image/jpeg');
-            res.setHeader('Cache-Control', 'public, max-age=31536000');
-            return res.send(data);
+            return sendFrameData(data);
         }
 
         // On cache miss, fetch the screenshot archive that contains this timestamp
@@ -3157,42 +3532,90 @@ router.get(
             bestArtifact = artifact;
         }
 
-        const archiveData = await downloadFromS3ForArtifact(session.projectId, bestArtifact.s3ObjectKey, bestArtifact.endpointId);
-        if (!archiveData) throw ApiError.notFound('Screenshot archive not found in storage');
+        const archiveLockKey = `screenshot_frame_archive_lock:${sessionId}:${bestArtifact.id}`;
+        const archiveLockToken = randomUUID();
+        let archiveLockAcquired = false;
 
-        // Extract all frames and cache them!
-        const { extractFramesFromArchive } = await import('../services/screenshotFrames.js');
-        const frames = await extractFramesFromArchive(archiveData, sessionStartMs);
-        
-        let targetFrameData: Buffer | null = null;
-        let minDiff = Number.MAX_SAFE_INTEGER;
-
-        // Cache all extracted frames for immediate playback
-        for (const frame of frames) {
-            if (frame.timestamp < lowerBoundMs || frame.timestamp > upperBoundMs) {
-                continue;
-            }
-            const frameCacheKey = `screenshot_frame_data:${sessionId}:${frame.timestamp}`;
+        const tryAcquireArchiveLock = async () => {
             try {
-                // Cache for 10 minutes - typical replay session duration
-                await redis.setex(frameCacheKey, 600, frame.data);
+                const result = await redis.set(
+                    archiveLockKey,
+                    archiveLockToken,
+                    'EX',
+                    SCREENSHOT_FRAME_ARCHIVE_LOCK_TTL_SECONDS,
+                    'NX'
+                );
+                return result === 'OK';
             } catch (err) {
-                logger.warn({ err, sessionId }, '[sessions] Failed to write extracted frame to Redis cache');
+                logger.warn({ err, sessionId, artifactId: bestArtifact.id }, '[sessions] Failed to acquire screenshot archive extraction lock');
+                return false;
+            }
+        };
+
+        const releaseArchiveLock = async () => {
+            if (!archiveLockAcquired) return;
+            try {
+                const currentToken = await redis.get(archiveLockKey);
+                if (currentToken === archiveLockToken) {
+                    await redis.del(archiveLockKey);
+                }
+            } catch (err) {
+                logger.warn({ err, sessionId, artifactId: bestArtifact.id }, '[sessions] Failed to release screenshot archive extraction lock');
+            }
+        };
+
+        const extractArchiveAndCacheFrames = async (): Promise<Buffer | null> => {
+            const archiveData = await downloadFromS3ForArtifact(session.projectId, bestArtifact.s3ObjectKey, bestArtifact.endpointId);
+            if (!archiveData) return null;
+
+            const { extractFramesFromArchive } = await import('../services/screenshotFrames.js');
+            const frames = await extractFramesFromArchive(archiveData, sessionStartMs);
+
+            let targetFrameData: Buffer | null = null;
+            let minDiff = Number.MAX_SAFE_INTEGER;
+
+            for (const frame of frames) {
+                if (frame.timestamp < lowerBoundMs || frame.timestamp > upperBoundMs) {
+                    continue;
+                }
+                const frameCacheKey = `screenshot_frame_data:${sessionId}:${frame.timestamp}`;
+                try {
+                    await redis.setex(frameCacheKey, SCREENSHOT_FRAME_DATA_CACHE_TTL_SECONDS, frame.data);
+                } catch (err) {
+                    logger.warn({ err, sessionId }, '[sessions] Failed to write extracted frame to Redis cache');
+                }
+
+                const diff = Math.abs(frame.timestamp - targetTimestampMs);
+                if (diff < minDiff) {
+                    minDiff = diff;
+                    targetFrameData = frame.data;
+                }
             }
 
-            // Also search for the requested frame
-            const diff = Math.abs(frame.timestamp - targetTimestampMs);
-            if (diff < minDiff) {
-                minDiff = diff;
-                targetFrameData = frame.data;
+            return targetFrameData;
+        };
+
+        archiveLockAcquired = await tryAcquireArchiveLock();
+        if (!archiveLockAcquired) {
+            const waitUntil = Date.now() + SCREENSHOT_FRAME_ARCHIVE_LOCK_WAIT_MS;
+            while (Date.now() < waitUntil) {
+                await sleepMs(100);
+                const cachedFrame = await readCachedFrame();
+                if (cachedFrame) return sendFrameData(cachedFrame);
             }
+            archiveLockAcquired = await tryAcquireArchiveLock();
         }
 
-        if (!targetFrameData) throw ApiError.notFound('Frame data not found inside archive');
+        try {
+            const cachedAfterWait = await readCachedFrame();
+            if (cachedAfterWait) return sendFrameData(cachedAfterWait);
 
-        res.setHeader('Content-Type', 'image/jpeg');
-        res.setHeader('Cache-Control', 'public, max-age=31536000');
-        return res.send(targetFrameData);
+            const targetFrameData = await extractArchiveAndCacheFrames();
+            if (!targetFrameData) throw ApiError.notFound('Frame data not found inside archive');
+            return sendFrameData(targetFrameData);
+        } finally {
+            await releaseArchiveLock();
+        }
     })
 );
 
