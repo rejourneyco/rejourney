@@ -2,6 +2,8 @@ import fs from 'fs';
 import path from 'path';
 import { createHash } from 'crypto';
 import { fileURLToPath } from 'url';
+import { createClient } from '@clickhouse/client';
+import { config } from '../src/config.js';
 import { getClickHouseClient, isClickHouseConfigured } from '../src/db/clickhouse.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -62,12 +64,23 @@ async function ensureMigrationTable(): Promise<void> {
     const migrationEngine = clusterName
         ? "ReplicatedReplacingMergeTree('/clickhouse/tables/{shard}/{database}/schema_migrations', '{replica}', applied_at)"
         : 'ReplacingMergeTree(applied_at)';
-
-    await getClickHouseClient().command({
-        query: `
-            CREATE DATABASE IF NOT EXISTS rejourney${onCluster}
-        `,
+    const bootstrapClient = createClient({
+        url: config.CLICKHOUSE_URL!,
+        username: config.CLICKHOUSE_USER,
+        password: config.CLICKHOUSE_PASSWORD ?? '',
+        database: 'default',
+        request_timeout: config.CLICKHOUSE_REQUEST_TIMEOUT_MS,
     });
+
+    try {
+        await bootstrapClient.command({
+            query: `
+                CREATE DATABASE IF NOT EXISTS rejourney${onCluster}
+            `,
+        });
+    } finally {
+        await bootstrapClient.close();
+    }
 
     await getClickHouseClient().command({
         query: `

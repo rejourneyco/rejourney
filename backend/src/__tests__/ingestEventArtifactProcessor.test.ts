@@ -106,12 +106,13 @@ describe('ClickHouse API endpoint event rows', () => {
             isError: true,
             durationMs: 123.6,
             eventAt: new Date('2026-05-21T14:15:16.789Z'),
+            eventDate: '2026-05-22',
             region: null,
         });
 
         expect(row).toMatchObject({
             project_id: '3f4f7d8a-7660-4a78-b944-442051c62eca',
-            event_date: '2026-05-21',
+            event_date: '2026-05-22',
             event_time: '2026-05-21 14:15:16.789',
             session_id: 'sess_123',
             artifact_id: 'artifact_456',

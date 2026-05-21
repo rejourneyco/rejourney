@@ -35,6 +35,7 @@ export function buildClickHouseApiEndpointEventRow(params: {
     isError: boolean;
     durationMs: number;
     eventAt: Date | null;
+    eventDate?: string;
     region?: string | null;
 }): ClickHouseApiEndpointEventRow {
     const eventAt = params.eventAt && Number.isFinite(params.eventAt.getTime())
@@ -51,7 +52,7 @@ export function buildClickHouseApiEndpointEventRow(params: {
 
     return {
         project_id: params.projectId,
-        event_date: eventAt.toISOString().slice(0, 10),
+        event_date: params.eventDate ?? eventAt.toISOString().slice(0, 10),
         event_time: toClickHouseDateTime(eventAt),
         session_id: params.sessionId,
         artifact_id: params.artifactId,

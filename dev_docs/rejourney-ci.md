@@ -114,7 +114,8 @@ Primary workflow file:
 │                                                                              │
 │ 1. Render manifests with the target image tag                               │
 │ 2. Apply namespace / Traefik / exporters / ingress / storage-class support  │
-│ 3. If DEPLOY_CLICKHOUSE=true, install Altinity operator and ClickHouse CRs  │
+│ 3. If DEPLOY_CLICKHOUSE=true, install Altinity operator, patch watch ns,    │
+│    then apply ClickHouse CRs                                               │
 │ 4. Apply the CNPG postgres-local Cluster manifest                           │
 │ 5. Verify archive.yaml matches session-backup.mjs                           │
 │ 6. Print current drizzle migration status                                   │
@@ -141,6 +142,7 @@ set -euo pipefail is enabled in the remote deploy script
 
 DEPLOY_CLICKHOUSE=false by default
   -> normal CI deploys do not create ClickHouse, install the operator, or require clickhouse-secret
+  -> when true, the operator config is patched to watch the rejourney namespace before CR readiness is expected
   -> when true, clickhouse.yaml and clickhouse-setup.yaml are applied explicitly and removed from the bulk prune path
   -> historical clickhouse-backfill-api-stats is manual and is not run by deploy-release.sh
 ```

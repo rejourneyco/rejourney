@@ -267,6 +267,7 @@ export async function processEventsArtifact(job: any, session: any, metrics: any
     const screenPath: string[] = [];
     const endpointStats: Record<string, { calls: number; errors: number; latencySum: number; statusCodeBreakdown: Record<string, number> }> = {};
     const clickHouseApiEndpointRows: ClickHouseApiEndpointEventRow[] = [];
+    const apiEndpointStatsDate = new Date().toISOString().split('T')[0];
 
     // Collect errors for batch insert
     const errorEvents: Array<{
@@ -600,6 +601,7 @@ export async function processEventsArtifact(job: any, session: any, metrics: any
                     isError,
                     durationMs: Number(event.duration || 0),
                     eventAt,
+                    eventDate: apiEndpointStatsDate,
                     region: 'unknown',
                 }));
             }
@@ -766,11 +768,10 @@ export async function processEventsArtifact(job: any, session: any, metrics: any
 
     // Batch upsert endpoint stats (single transaction)
     if (Object.keys(endpointStats).length > 0) {
-        const today = new Date().toISOString().split('T')[0];
         for (const [endpoint, stats] of Object.entries(endpointStats)) {
             await db.insert(apiEndpointDailyStats).values({
                 projectId,
-                date: today as any,
+                date: apiEndpointStatsDate as any,
                 endpoint,
                 region: 'unknown', // Default region - will be enriched later if geo data available
                 totalCalls: BigInt(stats.calls),

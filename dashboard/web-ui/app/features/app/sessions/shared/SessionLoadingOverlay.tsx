@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import { Loader2, CheckCircle2, Smartphone, Activity, LayoutTemplate, Database, Image as ImageIcon } from 'lucide-react';
+import { CheckCircle2, Loader2 } from 'lucide-react';
 
 export interface SessionLoadingOverlayProps {
     isCoreLoading?: boolean;
@@ -7,133 +7,153 @@ export interface SessionLoadingOverlayProps {
     isHierarchyLoading?: boolean;
     isStatsLoading?: boolean;
     isFramesLoading?: boolean;
+    isReplayManifestLoading?: boolean;
+    isRrwebSegmentsLoading?: boolean;
     framesProcessed?: number;
     framesTotal?: number;
+    rrwebSegmentsLoaded?: number;
+    rrwebSegmentsTotal?: number;
+    replayMode?: 'screenshots' | 'rrweb' | 'none' | null;
 }
 
 export const SessionLoadingOverlay: React.FC<SessionLoadingOverlayProps> = ({
     isCoreLoading = true,
-    isTimelineLoading = true,
-    isHierarchyLoading = true,
-    isStatsLoading = true,
+    isTimelineLoading = false,
+    isHierarchyLoading = false,
+    isStatsLoading = false,
     isFramesLoading = false,
+    isReplayManifestLoading = false,
+    isRrwebSegmentsLoading = false,
     framesProcessed = 0,
     framesTotal = 0,
+    rrwebSegmentsLoaded = 0,
+    rrwebSegmentsTotal = 0,
+    replayMode = null,
 }) => {
-    const progress = useMemo(() => {
-        let totalWeight = 0;
-        let completedWeight = 0;
-
-        const addStep = (isLoading: boolean, weight: number) => {
-            totalWeight += weight;
-            if (!isLoading) completedWeight += weight;
-        };
-
-        addStep(isCoreLoading, 20);
-        addStep(isTimelineLoading, 20);
-        addStep(isHierarchyLoading, 20);
-        addStep(isStatsLoading, 10);
-
-        totalWeight += 30;
-        if (!isFramesLoading) {
-            completedWeight += 30;
-        } else if (framesTotal > 0) {
-            completedWeight += Math.floor((framesProcessed / framesTotal) * 30);
+    const rrwebTotal = Math.max(0, rrwebSegmentsTotal);
+    const rrwebLoaded = Math.min(Math.max(0, rrwebSegmentsLoaded), rrwebTotal || rrwebSegmentsLoaded);
+    const frameTotal = Math.max(0, framesTotal);
+    const frameLoaded = Math.min(Math.max(0, framesProcessed), frameTotal || framesProcessed);
+    const isVisualLoading = isFramesLoading || isRrwebSegmentsLoading;
+    const contextLoadingCount = [isTimelineLoading, isHierarchyLoading, isStatsLoading].filter(Boolean).length;
+    const isContextLoading = contextLoadingCount > 0;
+    const visualRatio = useMemo(() => {
+        if (isRrwebSegmentsLoading) {
+            return rrwebTotal > 0 ? rrwebLoaded / rrwebTotal : 0.25;
         }
+        if (isFramesLoading) {
+            return frameTotal > 0 ? frameLoaded / frameTotal : 0.35;
+        }
+        return 1;
+    }, [frameLoaded, frameTotal, isFramesLoading, isRrwebSegmentsLoading, rrwebLoaded, rrwebTotal]);
 
-        return Math.floor((completedWeight / totalWeight) * 100);
-    }, [isCoreLoading, isTimelineLoading, isHierarchyLoading, isStatsLoading, isFramesLoading, framesProcessed, framesTotal]);
+    const progress = useMemo(() => {
+        const core = isCoreLoading ? 0 : 35;
+        const manifest = isReplayManifestLoading || isCoreLoading ? 0 : 25;
+        const visual = isReplayManifestLoading || isCoreLoading ? 0 : Math.round(40 * visualRatio);
+        const next = core + manifest + visual;
+        const stillLoading = isCoreLoading || isReplayManifestLoading || isVisualLoading || isContextLoading;
+
+        if (!stillLoading) return 100;
+        return Math.min(96, Math.max(8, next));
+    }, [isContextLoading, isCoreLoading, isReplayManifestLoading, isVisualLoading, visualRatio]);
+
+    const phase = useMemo(() => {
+        if (isCoreLoading) {
+            return {
+                title: 'Opening replay',
+                detail: 'Loading the session shell and device context.',
+            };
+        }
+        if (isReplayManifestLoading) {
+            return {
+                title: 'Preparing replay',
+                detail: 'Fetching the lightweight replay manifest.',
+            };
+        }
+        if (isRrwebSegmentsLoading) {
+            return {
+                title: 'Loading browser replay',
+                detail: 'Starting with the first playable segment, then prefetching the rest.',
+            };
+        }
+        if (isFramesLoading) {
+            return {
+                title: 'Preparing visual replay',
+                detail: 'Materializing the first replay frames for playback.',
+            };
+        }
+        return {
+            title: 'Opening replay',
+            detail: contextLoadingCount > 0 ? 'Syncing timeline context in the background.' : 'Almost ready.',
+        };
+    }, [
+        contextLoadingCount,
+        isCoreLoading,
+        isFramesLoading,
+        isReplayManifestLoading,
+        isRrwebSegmentsLoading,
+    ]);
 
     const steps = [
-        { id: 'core', label: 'Session data', isLoading: isCoreLoading, icon: Smartphone },
-        { id: 'timeline', label: 'Event timeline', isLoading: isTimelineLoading, icon: Activity },
-        { id: 'hierarchy', label: 'View hierarchy', isLoading: isHierarchyLoading, icon: LayoutTemplate },
-        { id: 'stats', label: 'Statistics', isLoading: isStatsLoading, icon: Database },
-        { id: 'frames', label: 'Screenshot frames', isLoading: isFramesLoading, icon: ImageIcon },
+        { label: 'Session', done: !isCoreLoading, active: isCoreLoading },
+        { label: 'Manifest', done: !isCoreLoading && !isReplayManifestLoading, active: !isCoreLoading && isReplayManifestLoading },
+        {
+            label: replayMode === 'rrweb' ? 'Segments' : replayMode === 'screenshots' ? 'Frames' : 'Replay',
+            done: !isCoreLoading && !isReplayManifestLoading && !isVisualLoading,
+            active: !isCoreLoading && !isReplayManifestLoading && isVisualLoading,
+        },
     ];
 
     return (
-        <div className="min-h-screen flex items-center justify-center bg-[var(--dashboard-canvas)] p-4">
-            <div className="w-full max-w-sm">
-                {/* Card */}
-                <div className="bg-white rounded-xl border border-[var(--dashboard-card-border)] shadow-sm overflow-hidden">
-                    <div className="px-6 pt-6 pb-4">
-                        <div className="flex items-center gap-3">
-                            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10">
-                                <Loader2 className="h-4 w-4 text-primary animate-spin" />
-                            </div>
-                            <div>
-                                <h2 className="text-base font-semibold text-slate-900">
-                                    Preparing replay
-                                </h2>
-                                <p className="text-sm text-slate-500 mt-0.5">
-                                    Loading session data
-                                </p>
-                            </div>
-                        </div>
+        <div className="flex min-h-screen items-center justify-center bg-[var(--dashboard-canvas)] px-4 py-10" role="status" aria-live="polite">
+            <div className="w-full max-w-xl">
+                <div className="overflow-hidden rounded-lg border border-[var(--dashboard-card-border)] bg-white shadow-sm">
+                    <div className="h-1 w-full bg-slate-100">
+                        <div
+                            className="h-full bg-primary transition-[width] duration-500 ease-out"
+                            style={{ width: `${progress}%` }}
+                        />
                     </div>
 
-                    <div className="px-6 pb-6">
-                        {/* Progress bar */}
-                        <div className="mb-5">
-                            <div className="flex justify-between text-xs text-slate-500 mb-1.5">
-                                <span>Progress</span>
-                                <span className="font-medium text-slate-700">{progress}%</span>
+                    <div className="p-5 sm:p-6">
+                        <div className="flex items-start gap-4">
+                            <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
+                                <Loader2 className="h-4 w-4 animate-spin" />
                             </div>
-                            <div className="h-1.5 w-full rounded-full bg-slate-100 overflow-hidden">
-                                <div
-                                    className="h-full rounded-full bg-primary transition-all duration-300 ease-out"
-                                    style={{ width: `${progress}%` }}
-                                />
-                            </div>
-                        </div>
+                            <div className="min-w-0 flex-1">
+                                <div className="flex items-start justify-between gap-4">
+                                    <div className="min-w-0">
+                                        <h2 className="text-sm font-semibold text-slate-950">{phase.title}</h2>
+                                        <p className="mt-1 text-sm leading-5 text-slate-500">{phase.detail}</p>
+                                    </div>
+                                    <span className="shrink-0 text-xs font-semibold tabular-nums text-slate-500">{progress}%</span>
+                                </div>
 
-                        {/* Steps */}
-                        <div className="space-y-2">
-                            {steps.map((step) => {
-                                const Icon = step.icon;
-                                const isDone = !step.isLoading;
-                                const isFrames = step.id === 'frames';
-                                const showFrameCount = isFrames && isFramesLoading && framesTotal > 0;
-
-                                return (
-                                    <div
-                                        key={step.id}
-                                        className="flex items-center gap-3 py-2 px-3 rounded-lg transition-colors"
-                                    >
-                                        <div
-                                            className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-md transition-colors ${
-                                                isDone
-                                                    ? 'bg-emerald-50 text-emerald-600'
-                                                    : 'bg-slate-100 text-slate-400'
+                                <div className="mt-4 flex flex-wrap items-center gap-2">
+                                    {steps.map((step) => (
+                                        <span
+                                            key={step.label}
+                                            className={`inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-[11px] font-semibold ${
+                                                step.done
+                                                    ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                                                    : step.active
+                                                        ? 'border-primary/30 bg-primary/10 text-primary'
+                                                        : 'border-slate-200 bg-slate-50 text-slate-500'
                                             }`}
                                         >
-                                            {isDone ? (
-                                                <CheckCircle2 className="h-4 w-4" />
+                                            {step.done ? (
+                                                <CheckCircle2 className="h-3.5 w-3.5" />
+                                            ) : step.active ? (
+                                                <span className="h-1.5 w-1.5 rounded-full bg-current" aria-hidden />
                                             ) : (
-                                                <Icon className="h-4 w-4" />
+                                                <span className="h-1.5 w-1.5 rounded-full bg-current opacity-50" aria-hidden />
                                             )}
-                                        </div>
-                                        <div className="flex-1 min-w-0">
-                                            <p
-                                                className={`text-sm font-medium ${
-                                                    isDone ? 'text-slate-700' : 'text-slate-500'
-                                                }`}
-                                            >
-                                                {step.label}
-                                            </p>
-                                            {showFrameCount && (
-                                                <p className="text-xs text-slate-400 mt-0.5">
-                                                    {framesProcessed} of {framesTotal} segments
-                                                </p>
-                                            )}
-                                        </div>
-                                        {!isDone && (
-                                            <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-slate-300" />
-                                        )}
-                                    </div>
-                                );
-                            })}
+                                            {step.label}
+                                        </span>
+                                    ))}
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>

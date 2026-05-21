@@ -144,6 +144,66 @@ remove_clickhouse_rendered_manifests() {
   rm -f "${RENDER_DIR}/clickhouse.yaml" "${RENDER_DIR}/clickhouse-setup.yaml"
 }
 
+clickhouse_operator_deployment_name() {
+  if kubectl get deployment clickhouse-operator-altinity-clickhouse-operator -n "${CLICKHOUSE_OPERATOR_NAMESPACE}" >/dev/null 2>&1; then
+    echo "clickhouse-operator-altinity-clickhouse-operator"
+  elif kubectl get deployment clickhouse-operator -n "${CLICKHOUSE_OPERATOR_NAMESPACE}" >/dev/null 2>&1; then
+    echo "clickhouse-operator"
+  else
+    kubectl get deployment -l app.kubernetes.io/instance=clickhouse-operator \
+      -n "${CLICKHOUSE_OPERATOR_NAMESPACE}" \
+      -o jsonpath='{.items[0].metadata.name}'
+  fi
+}
+
+patch_clickhouse_operator_watch_namespace() {
+  local deployment_name configmap_name config_file patch_file
+  deployment_name="$(clickhouse_operator_deployment_name)"
+
+  for configmap_name in \
+    "${deployment_name}-files" \
+    "clickhouse-operator-altinity-clickhouse-operator-files" \
+    "clickhouse-operator-files"; do
+    if kubectl get configmap "${configmap_name}" -n "${CLICKHOUSE_OPERATOR_NAMESPACE}" >/dev/null 2>&1; then
+      break
+    fi
+  done
+
+  if ! kubectl get configmap "${configmap_name}" -n "${CLICKHOUSE_OPERATOR_NAMESPACE}" >/dev/null 2>&1; then
+    echo "[deploy-release] ERROR: ClickHouse operator configmap not found" >&2
+    exit 1
+  fi
+
+  config_file="$(mktemp)"
+  patch_file="$(mktemp)"
+
+  kubectl get configmap "${configmap_name}" -n "${CLICKHOUSE_OPERATOR_NAMESPACE}" \
+    -o jsonpath='{.data.config\.yaml}' > "${config_file}"
+
+  if grep -Eq "^[[:space:]]*-[[:space:]]*${NAMESPACE}$" "${config_file}"; then
+    log "ClickHouse operator already watches namespace ${NAMESPACE}"
+    rm -f "${config_file}" "${patch_file}"
+    return
+  fi
+
+  perl -0pi -e "s/namespaces: \\[\\]/namespaces:\\n          - ${NAMESPACE}/" "${config_file}"
+  python3 - "${config_file}" "${patch_file}" <<'PY'
+import json
+import pathlib
+import sys
+
+config = pathlib.Path(sys.argv[1]).read_text()
+pathlib.Path(sys.argv[2]).write_text(json.dumps({"data": {"config.yaml": config}}))
+PY
+
+  kubectl patch configmap "${configmap_name}" -n "${CLICKHOUSE_OPERATOR_NAMESPACE}" \
+    --type merge --patch-file "${patch_file}"
+  kubectl rollout restart deployment/"${deployment_name}" -n "${CLICKHOUSE_OPERATOR_NAMESPACE}"
+  kubectl rollout status deployment/"${deployment_name}" -n "${CLICKHOUSE_OPERATOR_NAMESPACE}" --timeout=300s
+
+  rm -f "${config_file}" "${patch_file}"
+}
+
 ensure_clickhouse_operator() {
   section "Ensuring ClickHouse Operator"
   require_bin helm
@@ -159,16 +219,7 @@ ensure_clickhouse_operator() {
     --wait \
     --timeout=5m
 
-  if kubectl get deployment clickhouse-operator-altinity-clickhouse-operator -n "${CLICKHOUSE_OPERATOR_NAMESPACE}" >/dev/null 2>&1; then
-    kubectl rollout status deployment/clickhouse-operator-altinity-clickhouse-operator \
-      -n "${CLICKHOUSE_OPERATOR_NAMESPACE}" --timeout=300s
-  elif kubectl get deployment clickhouse-operator -n "${CLICKHOUSE_OPERATOR_NAMESPACE}" >/dev/null 2>&1; then
-    kubectl rollout status deployment/clickhouse-operator \
-      -n "${CLICKHOUSE_OPERATOR_NAMESPACE}" --timeout=300s
-  else
-    kubectl rollout status deployment -l app.kubernetes.io/instance=clickhouse-operator \
-      -n "${CLICKHOUSE_OPERATOR_NAMESPACE}" --timeout=300s
-  fi
+  patch_clickhouse_operator_watch_namespace
 
   kubectl wait --for=condition=Established crd/clickhouseinstallations.clickhouse.altinity.com --timeout=120s
   kubectl wait --for=condition=Established crd/clickhousekeeperinstallations.clickhouse-keeper.altinity.com --timeout=120s

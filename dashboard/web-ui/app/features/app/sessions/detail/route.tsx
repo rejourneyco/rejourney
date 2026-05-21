@@ -42,7 +42,7 @@ import { api } from '~/shared/api/client';
 import DOMInspector, { HierarchySnapshot } from '~/shared/ui/core/DOMInspector';
 import { TouchOverlay, TouchEvent as OverlayTouchEvent } from '~/shared/ui/core/TouchOverlay';
 import { MarkerTooltip } from '~/shared/ui/core/MarkerTooltip';
-import { SessionLoadingOverlay, SessionLoadingOverlayProps } from '~/features/app/sessions/shared/SessionLoadingOverlay';
+import { SessionLoadingOverlay } from '~/features/app/sessions/shared/SessionLoadingOverlay';
 import WebReplayPlayer from '~/shared/ui/core/WebReplayPlayer';
 import { useRrwebReplayEvents } from '~/shared/lib/rrwebReplayLoader';
 import { formatGeoDisplay } from '~/shared/lib/geoDisplay';
@@ -876,6 +876,7 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
     const [isStatsLoading, setIsStatsLoading] = useState(true);
     const [isFramesLoading, setIsFramesLoading] = useState(false);
     const [isReplayManifestLoading, setIsReplayManifestLoading] = useState(false);
+    const [isReplayLoaderSettling, setIsReplayLoaderSettling] = useState(false);
     const [sessionLoadError, setSessionLoadError] = useState<SessionLoadErrorKind | null>(null);
     const [activityFilter, setActivityFilter] = useState<string>('all');
     const [currentPlaybackTime, setCurrentPlaybackTime] = useState<number>(0);
@@ -1061,6 +1062,7 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
                 if (activeReplayRequestRef.current !== requestId) return;
                 const errorKind = classifySessionLoadError(err);
                 setSessionLoadError(errorKind);
+                setIsCoreLoading(false);
                 setIsHierarchyLoading(false);
                 setIsReplayManifestLoading(false);
                 setIsTimelineLoading(false);
@@ -1642,19 +1644,6 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
         screenshotFrames.length,
         fullSession?.screenshotFrameCount || 0
     );
-    const replayPreparationProgressPercent =
-        fullSession?.screenshotFramesTotalSegments && fullSession.screenshotFramesTotalSegments > 0
-            ? Math.max(
-                0,
-                Math.min(
-                    100,
-                    Math.round(
-                        ((fullSession?.screenshotFramesProcessedSegments || 0) /
-                            fullSession.screenshotFramesTotalSegments) * 100
-                    )
-                )
-            )
-            : null;
     const rrwebReplaySegmentCount = fullSession?.rrwebReplay?.segments?.length ?? 0;
     const rrwebReplayEventCountHint = fullSession?.rrwebReplay?.eventCount ?? 0;
     const rrwebReplayExpectedSegmentCount = fullSession?.playbackMode === 'rrweb'
@@ -1697,14 +1686,14 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
         if (fullSession?.playbackMode === 'rrweb' && rrwebReplayEvents.length > 0) {
             return 'rrweb' as const;
         }
-        if (fullSession?.playbackMode === 'screenshots' && (screenshotFrames.length > 0 || visualReplayPreparing)) {
+        if (fullSession?.playbackMode === 'screenshots' && screenshotFrames.length > 0) {
             return 'screenshots' as const;
         }
         if (screenshotFrames.length > 0) {
             return 'screenshots' as const;
         }
         return 'none' as const;
-    }, [fullSession?.playbackMode, rrwebReplayEvents.length, screenshotFrames, visualReplayPreparing]);
+    }, [fullSession?.playbackMode, rrwebReplayEvents.length, screenshotFrames]);
 
     const playbackDurationSeconds = playbackMode === 'rrweb' ? webReplayDurationSeconds : durationSeconds;
     const replayClockBaseTime = playbackMode === 'rrweb'
@@ -2726,22 +2715,76 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
         }
         return bestUrl || fallback;
     }, [isWebSession, currentPlaybackTime, eventTimestampToPlaybackSeconds, allTimelineEvents, fullSession, session]);
+    const hasCurrentFullSession = Boolean(fullSession && fullSession.id === id);
+    const recordingDeleted = (fullSession as any)?.recordingDeleted || session?.recordingDeleted || false;
+    const hasSuccessfulRecording =
+        (fullSession as any)?.hasSuccessfulRecording
+        ?? (session as any)?.hasSuccessfulRecording
+        ?? false;
+    const isReplayExpired = (fullSession as any)?.isReplayExpired || session?.isReplayExpired || recordingDeleted;
+    const replayUnavailableReason: 'deleted' | 'no_recording_data' | null =
+        recordingDeleted ? 'deleted' :
+            !hasSuccessfulRecording ? 'no_recording_data' :
+                null;
+    const shouldWaitForReplayBootstrap = Boolean(
+        hasCurrentFullSession &&
+        !sessionLoadError &&
+        !isReplayExpired &&
+        !replayUnavailableReason &&
+        !rrwebReplayFailed &&
+        fullSession?.hasRecording !== false &&
+        fullSession?.playbackMode !== 'none' &&
+        (
+            isReplayManifestLoading ||
+            rrwebReplayPreparing ||
+            visualReplayPreparing ||
+            (fullSession?.playbackMode === 'rrweb' && isTimelineLoading)
+        )
+    );
+    const shouldShowInitialReplayLoaderRaw = Boolean(
+        !sessionLoadError &&
+        (!hasCurrentFullSession || isCoreLoading || shouldWaitForReplayBootstrap)
+    );
+
+    useEffect(() => {
+        const isRrwebReplay = fullSession?.playbackMode === 'rrweb' || rrwebReplaySegmentCount > 0 || rrwebReplayEvents.length > 0;
+
+        if (shouldShowInitialReplayLoaderRaw || !isRrwebReplay) {
+            setIsReplayLoaderSettling(false);
+            return;
+        }
+
+        setIsReplayLoaderSettling(true);
+        const settleTimer = window.setTimeout(() => {
+            setIsReplayLoaderSettling(false);
+        }, 140);
+
+        return () => window.clearTimeout(settleTimer);
+    }, [fullSession?.playbackMode, id, rrwebReplayEvents.length, rrwebReplaySegmentCount, shouldShowInitialReplayLoaderRaw]);
+
+    const shouldShowInitialReplayLoader = shouldShowInitialReplayLoaderRaw || isReplayLoaderSettling;
 
     // ========================================================================
     // EARLY RETURNS (after all hooks)
     // ========================================================================
 
-    // Only block the full page while the core session bootstrap is still missing.
-    if (isCoreLoading && !fullSession) {
+    // Block only with the single replay-opening loader. Once it clears, the theater
+    // either has a playable visual replay or a final unavailable/error state.
+    if (shouldShowInitialReplayLoader) {
         return (
             <SessionLoadingOverlay
-                isCoreLoading={isCoreLoading}
+                isCoreLoading={isCoreLoading || !hasCurrentFullSession}
                 isTimelineLoading={isTimelineLoading}
                 isHierarchyLoading={isHierarchyLoading}
                 isStatsLoading={isStatsLoading}
                 isFramesLoading={isFramesLoading || visualReplayPreparing}
+                isReplayManifestLoading={isReplayManifestLoading}
+                isRrwebSegmentsLoading={rrwebSegmentsLoading || (rrwebReplayPreparing && !isReplayManifestLoading)}
                 framesProcessed={(fullSession as FullSession | null)?.screenshotFramesProcessedSegments}
                 framesTotal={(fullSession as FullSession | null)?.screenshotFramesTotalSegments}
+                rrwebSegmentsLoaded={rrwebSegmentProgress.loaded}
+                rrwebSegmentsTotal={rrwebSegmentProgress.total || rrwebReplaySegmentCount}
+                replayMode={fullSession?.playbackMode ?? null}
             />
         );
     }
@@ -2960,18 +3003,6 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
         return `${mins}:${secs.toString().padStart(2, '0')}`;
     };
 
-    // Recording availability checks
-    const recordingDeleted = (fullSession as any)?.recordingDeleted || session?.recordingDeleted || false;
-    const hasSuccessfulRecording =
-        (fullSession as any)?.hasSuccessfulRecording
-        ?? (session as any)?.hasSuccessfulRecording
-        ?? false;
-    const isReplayExpired = (fullSession as any)?.isReplayExpired || session?.isReplayExpired || recordingDeleted;
-    // Determine the reason why replay is unavailable (if it is)
-    const replayUnavailableReason: 'deleted' | 'no_recording_data' | null =
-        recordingDeleted ? 'deleted' :
-            !hasSuccessfulRecording ? 'no_recording_data' :
-                null;
     const playbackDisabled = !hasRecording || visualReplayPreparing || isReplayExpired || Boolean(replayUnavailableReason);
     const sortedSessions = [...sessions].sort((a, b) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime());
     const currentSessionIndex = sortedSessions.findIndex((item) => item.id === id);
@@ -3368,16 +3399,6 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
                                             </p>
                                         )}
 	                                    </div>
-                                ) : rrwebReplayPreparing ? (
-                                    <div className="flex aspect-[16/10] w-full max-w-[920px] flex-col items-center justify-center border-2 border-dashed border-black bg-white p-6 text-center shadow-neo-sm">
-                                        <RefreshCw className="h-8 w-8 animate-spin text-sky-500" />
-                                        <p className="mt-3 text-sm font-bold text-slate-900">Loading browser replay</p>
-                                        {rrwebSegmentProgress.total > 0 ? (
-                                            <p className="mt-2 text-xs font-black uppercase text-slate-500">
-                                                {rrwebSegmentProgress.loaded}/{rrwebSegmentProgress.total} segments
-                                            </p>
-                                        ) : null}
-                                    </div>
                                 ) : rrwebReplayFailed ? (
                                     <div className="flex aspect-[16/10] w-full max-w-[920px] flex-col items-center justify-center border-2 border-dashed border-black bg-white p-6 text-center shadow-neo-sm">
                                         <MonitorSmartphone className="h-10 w-10 text-slate-400" />
@@ -3459,7 +3480,7 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
                                             </div>
                                         </div>
                                     </div>
-                                ) : playbackMode === 'screenshots' || visualReplayPreparing ? (
+                                ) : playbackMode === 'screenshots' ? (
                                     <div className="replay-device-shell relative flex w-full justify-center xl:h-full xl:min-h-0 xl:items-center">
                                         <div className="replay-device-frame relative overflow-hidden rounded-[2rem] border border-slate-950 bg-[#070b14] p-[5px] shadow-[0_18px_45px_rgba(15,23,42,0.18)]">
                                             <div className="rounded-[1.7rem] bg-slate-900 p-[2px]">
@@ -3467,25 +3488,6 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
                                                     className="relative overflow-hidden rounded-[1.55rem] bg-slate-900"
                                                     style={{ aspectRatio: `${deviceWidth} / ${deviceHeight}` }}
                                                 >
-                                                    {visualReplayPreparing && (
-                                                        <div className="absolute inset-0 z-30 flex flex-col items-center justify-center bg-slate-950/80 px-6 text-center text-slate-100">
-                                                            <span className="inline-flex items-center gap-2 border-2 border-black bg-[#86efac] px-3 py-1 text-[11px] font-black uppercase text-black shadow-neo-sm animate-pulse">
-                                                                <span className="h-2 w-2 rounded-full bg-emerald-400 animate-ping" aria-hidden />
-                                                                Live
-                                                            </span>
-                                                            <RefreshCw className="mt-4 h-8 w-8 animate-spin text-emerald-300" />
-                                                            <p className="mt-4 text-sm font-semibold text-white">Preparing visual replay</p>
-                                                            <p className="mt-2 text-xs leading-5 text-slate-300">
-                                                                Timeline, logs, and network are ready. Frames appear here as soon as processing finishes.
-                                                            </p>
-                                                            {replayPreparationProgressPercent !== null ? (
-                                                                <p className="mt-3 text-[11px] font-black uppercase text-[#67e8f9]">
-                                                                    {replayPreparationProgressPercent}% complete
-                                                                </p>
-                                                            ) : null}
-                                                        </div>
-                                                    )}
-
                                                     {platform === 'android' ? (
                                                         <div className="pointer-events-none absolute left-1/2 top-2.5 z-20 h-3.5 w-3.5 -translate-x-1/2 rounded-full bg-slate-900" />
                                                     ) : (

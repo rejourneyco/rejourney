@@ -226,7 +226,7 @@ CREATE TABLE IF NOT EXISTS rejourney.api_endpoint_daily_stats_imported_local
     region LowCardinality(String),
     total_calls UInt64,
     total_errors UInt64,
-    sum_latency_ms UInt64,
+    sum_latency_ms Int64,
     status_code_breakdown_json String,
     p50_latency_ms Nullable(UInt32),
     p90_latency_ms Nullable(UInt32),
@@ -1141,6 +1141,19 @@ Production manifest verification completed on 2026-05-21:
 - `node scripts/check-worker-parity.mjs` passed
 - `scripts/k8s/deploy-release.sh` defaults to `DEPLOY_CLICKHOUSE=false`, so normal CI deploys do not create ClickHouse or require `clickhouse-secret`
 
+Production live verification on 2026-05-21:
+
+- ClickHouse infra was deployed on commit `4965a9acd51fb9e576233f2b2832db5af8b6073b`.
+- The first operator install watched only the operator namespace. The deploy script now patches the operator config so it watches the `rejourney` namespace before applying ClickHouse CRs.
+- The first data placement put both replicas on one HEL1 node. `k8s/clickhouse.yaml` now adds required hostname anti-affinity for data pods.
+- The HEL1 worker already has the Postgres standby with an 8Gi memory request, so the ClickHouse data pod memory request is 256Mi with a 10Gi limit. Actual ClickHouse memory during backfill was about 1Gi per pod.
+- `clickhouse-setup` needed a bootstrap database client against the `default` database before connecting to `rejourney`; the setup script now does that.
+- Historical Postgres data contained 4 rows with negative `sum_latency_ms`, so `api_endpoint_daily_stats_imported.sum_latency_ms` is `Int64`.
+- Backfill for dates `< 2026-05-21` completed in production: 9,325,058 imported rows.
+- Parity for dates `< 2026-05-21` matched exactly using `api_endpoint_daily_stats_imported FINAL`: total diff 0, by-date diff 0, and by-project diff 0. Totals: 180,151,363 calls, 8,322,568 errors, 503,552,981,006 summed latency ms.
+- Reads were not enabled. Same-day Postgres totals for `2026-05-21` were much larger than ClickHouse raw facts because the current image wrote raw facts by client event date while Postgres aggregates use processing date.
+- The temporary raw ClickHouse rows from that test were truncated and dual-write was disabled again. Current live flags after the safe stop: `CLICKHOUSE_ENABLED=true`, `CLICKHOUSE_DUAL_WRITE_ENABLED=false`, `CLICKHOUSE_READS_ENABLED=false`, `CLICKHOUSE_CUTOVER_DATE=2026-05-21`.
+
 Production pre-cutover checks:
 
 - ClickHouse storage growth under expected rate
@@ -1172,6 +1185,10 @@ Production pre-cutover checks:
 10. Do not drop Postgres fallback until ClickHouse reads, backfill, and rollback have been exercised in production.
 
 11. Do not overstate the resource win before Phase 5. Dual-write plus ClickHouse reads improves dashboard read scalability, but Postgres CPU/WAL/autovacuum relief only arrives when the old Postgres aggregate upsert is stopped.
+
+12. Do not let raw ClickHouse facts use client event date if the read path is replacing `api_endpoint_daily_stats`. The existing Postgres aggregate uses artifact processing day. Date semantics must match before dual-write can be considered reliable.
+
+13. Do not assume the Altinity operator watches app namespaces by default. In this production install, it initially watched only `clickhouse`; ClickHouse CRs in `rejourney` did not reconcile until the operator config was patched and restarted.
 
 ## Implementation File Checklist
 

@@ -113,6 +113,13 @@ spec:
             app: clickhouse
             app.kubernetes.io/component: clickhouse
         spec:
+          affinity:
+            podAntiAffinity:
+              requiredDuringSchedulingIgnoredDuringExecution:
+                - labelSelector:
+                    matchLabels:
+                      app: clickhouse
+                  topologyKey: kubernetes.io/hostname
           containers:
             - name: clickhouse
               image: altinity/clickhouse-server:25.8.16.10002.altinitystable
@@ -128,7 +135,7 @@ spec:
               resources:
                 requests:
                   cpu: "1"
-                  memory: 4Gi
+                  memory: 256Mi
                 limits:
                   cpu: "4"
                   memory: 10Gi
@@ -144,31 +151,3 @@ spec:
           resources:
             requests:
               storage: 100Gi
-
----
-apiVersion: policy/v1
-kind: PodDisruptionBudget
-metadata:
-  name: clickhouse-pdb
-  namespace: rejourney
-  labels:
-    app.kubernetes.io/component: clickhouse
-spec:
-  minAvailable: 1
-  selector:
-    matchLabels:
-      app: clickhouse
-
----
-apiVersion: policy/v1
-kind: PodDisruptionBudget
-metadata:
-  name: clickhouse-keeper-pdb
-  namespace: rejourney
-  labels:
-    app.kubernetes.io/component: clickhouse
-spec:
-  minAvailable: 2
-  selector:
-    matchLabels:
-      app: clickhouse-keeper

@@ -310,13 +310,22 @@ Resource impact expected after the full cutover:
 Rollout gates:
 
 1. Enable infrastructure only: `DEPLOY_CLICKHOUSE=true`, app flags still false.
-2. Enable dual-write from artifact processing: `CLICKHOUSE_ENABLED=true`, `CLICKHOUSE_DUAL_WRITE_ENABLED=true`, `CLICKHOUSE_READS_ENABLED=false`.
+2. Enable dual-write from artifact processing only after the deployed image writes `api_endpoint_request_events.event_date` with the same processing-day semantics as `api_endpoint_daily_stats.date`: `CLICKHOUSE_ENABLED=true`, `CLICKHOUSE_DUAL_WRITE_ENABLED=true`, `CLICKHOUSE_READS_ENABLED=false`.
 3. Run `clickhouse-backfill-api-stats` with an exclusive `CLICKHOUSE_CUTOVER_DATE`.
 4. Compare Postgres and ClickHouse totals by date and by project.
 5. Enable reads: `CLICKHOUSE_READS_ENABLED=true`, `CLICKHOUSE_CUTOVER_DATE=<date dual-write became reliable>`.
 6. Only after at least a clean week, remove Postgres writes for this workload. Do not drop `api_endpoint_daily_stats` in the same release that removes writes.
 
 Local verification completed on 2026-05-21: the backfill imported 832 local `api_endpoint_daily_stats` rows; Postgres and ClickHouse `FINAL` totals matched exactly at 27,505 calls, 262 errors, and 11,229,944 summed latency ms. See the migration runbook for commands and details.
+
+Production infrastructure verification on 2026-05-21:
+
+- ClickHouse Keeper is running as 3 voters, one per node.
+- ClickHouse data is running as 1 shard / 2 replicas, one on each HEL1 node.
+- Historical backfill for dates `< 2026-05-21` completed: 9,325,058 rows, 180,151,363 calls, 8,322,568 errors, and 503,552,981,006 summed latency ms.
+- Postgres and ClickHouse `FINAL` totals matched exactly by global total, by date, and by project for dates `< 2026-05-21`.
+- Reads remain disabled: `CLICKHOUSE_READS_ENABLED=false`.
+- Dual-write is currently disabled until the next image with corrected raw fact date semantics is deployed. The brief test raw rows were truncated because they used client event date while Postgres aggregates use processing date.
 
 ### Redis
 
@@ -441,6 +450,8 @@ Local k8s uses the same idea with `http:` allowed for MinIO/local endpoints. Buc
 19. **Do not enable ClickHouse reads before backfill plus cutover date.** `CLICKHOUSE_READS_ENABLED=true` with an empty `CLICKHOUSE_CUTOVER_DATE` reads only raw facts collected since dual-write started. Historical dashboard charts will look empty. Set `CLICKHOUSE_CUTOVER_DATE` to the first reliable dual-write date after the backfill Job succeeds and totals match.
 
 20. **Do not drop `api_endpoint_daily_stats` at read cutover.** First cut over reads, keep Postgres writes and fallback for rollback, soak for at least a week, then remove Postgres writes for this one workload. Archive/drop the old table only in a later release after rollback is no longer needed.
+
+21. **The raw ClickHouse fact date must match the Postgres aggregate date.** `api_endpoint_daily_stats.date` is the artifact processing day, not necessarily the client event day. If `api_endpoint_request_events.event_date` uses the client timestamp, cutover can lose late-arriving events at day boundaries. Keep the raw fact `event_date` aligned with the processing day for compatibility with the existing dashboard aggregates.
 
 ---
 
