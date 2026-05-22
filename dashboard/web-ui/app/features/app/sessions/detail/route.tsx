@@ -3475,6 +3475,7 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
                                             <div className="min-h-[360px] flex-1 xl:min-h-0">
                                                 <WebReplayPlayer
                                                     events={compressedRrwebReplayEvents}
+                                                    replayKey={id}
                                                     currentTime={currentPlaybackTime}
                                                     isPlaying={isPlaying}
                                                     playbackRate={playbackRate}

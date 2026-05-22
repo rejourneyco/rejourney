@@ -66,7 +66,8 @@ describe('apiEndpointStatsClickHouse', () => {
         });
 
         const call = mocks.query.mock.calls[0]?.[0];
-        expect(call.query).toContain('toString(date) AS date');
+        expect(call.query).toContain('toString(rollupDate) AS date');
+        expect(call.query).toContain('date AS rollupDate');
         expect(call.query).toContain('date <= {endDate:Date}');
         expect(call.query).toContain('FROM api_endpoint_daily_rollups');
         expect(call.query_params).toEqual({

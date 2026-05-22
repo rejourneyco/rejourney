@@ -121,13 +121,19 @@ export async function queryDailyApiCallsFromClickHouse(params: {
     const result = await getClickHouseClient().query({
         query: `
             SELECT
-                toString(date) AS date,
-                toUInt64(sum(total_calls)) AS totalCalls
-            FROM api_endpoint_daily_rollups
-            WHERE project_id IN {projectIds:Array(UUID)}
-              ${buildDateCondition('date', params.startDate, params.endDate)}
-              ${buildEndpointProductAnalyticsCondition()}
-            GROUP BY date
+                toString(rollupDate) AS date,
+                totalCalls
+            FROM
+            (
+                SELECT
+                    date AS rollupDate,
+                    toUInt64(sum(total_calls)) AS totalCalls
+                FROM api_endpoint_daily_rollups
+                WHERE project_id IN {projectIds:Array(UUID)}
+                  ${buildDateCondition('date', params.startDate, params.endDate)}
+                  ${buildEndpointProductAnalyticsCondition()}
+                GROUP BY rollupDate
+            )
         `,
         query_params: {
             projectIds: params.projectIds,

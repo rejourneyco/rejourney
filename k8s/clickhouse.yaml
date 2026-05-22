@@ -92,6 +92,8 @@ spec:
       rejourney/profile: default
       rejourney/quota: default
       rejourney/access_management: "1"
+    profiles:
+      default/prefer_column_name_to_alias: "1"
     clusters:
       - name: default
         layout:

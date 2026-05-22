@@ -1,16 +1,42 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import '@rrweb/replay/dist/style.css';
 import { formatBackgroundGapDuration } from '~/shared/lib/replayTimeCompression';
 import type { CompressedBackgroundGap } from '~/shared/lib/replayTimeCompression';
+import type { Replayer as RrwebReplayer } from '@rrweb/replay';
 
 type WebReplayPlayerProps = {
     events: any[];
+    replayKey?: string;
     currentTime: number;
     isPlaying: boolean;
     playbackRate: number;
     durationSeconds: number;
     backgroundGaps?: CompressedBackgroundGap[];
 };
+
+function replayEventSignature(event: any): string {
+    const timestamp = typeof event?.timestamp === 'number' && Number.isFinite(event.timestamp) ? event.timestamp : '';
+    const type = event?.type ?? '';
+    return `${timestamp}:${type}`;
+}
+
+function canAppendReplayEvents(previousEvents: any[], nextEvents: any[]): boolean {
+    if (nextEvents.length < previousEvents.length) return false;
+
+    for (let index = 0; index < previousEvents.length; index += 1) {
+        if (replayEventSignature(previousEvents[index]) !== replayEventSignature(nextEvents[index])) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+function buildReplayKey(events: any[]): string {
+    const first = events[0];
+    const firstHref = typeof first?.data?.href === 'string' ? first.data.href : '';
+    return `${replayEventSignature(first)}:${firstHref}`;
+}
 
 function applyScale(root: HTMLElement): boolean {
     const wrapper = root.querySelector<HTMLElement>('.replayer-wrapper');
@@ -38,6 +64,7 @@ function applyScale(root: HTMLElement): boolean {
 
 export default function WebReplayPlayer({
     events,
+    replayKey,
     currentTime,
     isPlaying,
     playbackRate,
@@ -45,7 +72,11 @@ export default function WebReplayPlayer({
     backgroundGaps = [],
 }: WebReplayPlayerProps) {
     const rootRef = useRef<HTMLDivElement>(null);
-    const replayerRef = useRef<any>(null);
+    const replayerRef = useRef<RrwebReplayer | null>(null);
+    const mountedEventsRef = useRef<any[]>([]);
+    const mountedReplayKeyRef = useRef<string | null>(null);
+    const mountGenerationRef = useRef(0);
+    const playbackStateRef = useRef({ currentTime, durationSeconds, playbackRate });
     const playerIsPlayingRef = useRef(false);
     const [loadError, setLoadError] = useState<string | null>(null);
 
@@ -68,62 +99,110 @@ export default function WebReplayPlayer({
     }, [displayedBackgroundGap, replayEvents]);
 
     useEffect(() => {
-        let cancelled = false;
+        playbackStateRef.current = { currentTime, durationSeconds, playbackRate };
+    }, [currentTime, durationSeconds, playbackRate]);
 
-        async function mountReplayer() {
-            if (!rootRef.current || replayEvents.length === 0) return;
-
-            setLoadError(null);
+    const destroyReplayer = useCallback((clearRoot = true) => {
+        playerIsPlayingRef.current = false;
+        if (replayerRef.current) {
+            try {
+                replayerRef.current.destroy();
+            } catch {
+                // rrweb can throw when tearing down partially mounted iframes.
+            }
+            replayerRef.current = null;
+        }
+        mountedEventsRef.current = [];
+        mountedReplayKeyRef.current = null;
+        if (clearRoot && rootRef.current) {
             rootRef.current.innerHTML = '';
+        }
+    }, []);
+
+    const mountReplayer = useCallback(async (eventsToMount: any[], key: string, clearRoot: boolean) => {
+        if (!rootRef.current || eventsToMount.length === 0) return;
+
+        const generation = mountGenerationRef.current + 1;
+        mountGenerationRef.current = generation;
+        setLoadError(null);
+        destroyReplayer(clearRoot);
+        if (clearRoot && rootRef.current) {
+            rootRef.current.innerHTML = '';
+        }
+
+        try {
+            const { Replayer } = await import('@rrweb/replay');
+            if (mountGenerationRef.current !== generation || !rootRef.current) return;
+
+            const {
+                currentTime: initialCurrentTime,
+                durationSeconds: initialDurationSeconds,
+                playbackRate: initialPlaybackRate,
+            } = playbackStateRef.current;
+            const replayer = new Replayer(eventsToMount, {
+                root: rootRef.current,
+                speed: initialPlaybackRate,
+                showWarning: false,
+                showDebug: false,
+                mouseTail: {
+                    duration: 900,
+                    lineCap: 'round',
+                    lineWidth: 4,
+                    strokeStyle: 'rgba(244, 63, 94, 0.82)',
+                },
+                UNSAFE_replayCanvas: true,
+                triggerFocus: false,
+            });
+            const initialOffsetMs = Math.max(0, Math.min(initialCurrentTime, initialDurationSeconds || initialCurrentTime) * 1000);
+            replayerRef.current = replayer;
+            mountedEventsRef.current = eventsToMount;
+            mountedReplayKeyRef.current = key;
+            playerIsPlayingRef.current = false;
+            replayer.pause(initialOffsetMs);
+        } catch (error) {
+            if (mountGenerationRef.current === generation) {
+                console.error('Failed to initialize rrweb replay:', error);
+                setLoadError('Unable to load browser replay.');
+            }
+        }
+    }, [destroyReplayer]);
+
+    useEffect(() => {
+        const key = replayKey ?? buildReplayKey(replayEvents);
+
+        if (replayEvents.length === 0) {
+            destroyReplayer();
+            return;
+        }
+
+        const replayer = replayerRef.current;
+        if (!replayer || mountedReplayKeyRef.current !== key) {
+            void mountReplayer(replayEvents, key, true);
+            return;
+        }
+
+        if (canAppendReplayEvents(mountedEventsRef.current, replayEvents)) {
+            const mountedEventCount = mountedEventsRef.current.length;
+            if (replayEvents.length === mountedEventCount) return;
 
             try {
-                const { Replayer } = await import('@rrweb/replay');
-                if (cancelled || !rootRef.current) return;
-
-                const replayer = new Replayer(replayEvents, {
-                    root: rootRef.current,
-                    speed: playbackRate,
-                    showWarning: false,
-                    showDebug: false,
-                    mouseTail: {
-                        duration: 900,
-                        lineCap: 'round',
-                        lineWidth: 4,
-                        strokeStyle: 'rgba(244, 63, 94, 0.82)',
-                    },
-                    UNSAFE_replayCanvas: true,
-                    triggerFocus: false,
-                });
-                const initialOffsetMs = Math.max(0, Math.min(currentTime, durationSeconds || currentTime) * 1000);
-                replayerRef.current = replayer;
-                playerIsPlayingRef.current = false;
-                replayer.pause(initialOffsetMs);
-            } catch (error) {
-                if (!cancelled) {
-                    console.error('Failed to initialize rrweb replay:', error);
-                    setLoadError('Unable to load browser replay.');
+                for (let index = mountedEventCount; index < replayEvents.length; index += 1) {
+                    replayer.addEvent(replayEvents[index]);
                 }
+                mountedEventsRef.current = replayEvents;
+                return;
+            } catch (error) {
+                console.warn('Failed to append rrweb replay events; remounting replay.', error);
             }
         }
 
-        void mountReplayer();
+        void mountReplayer(replayEvents, key, true);
+    }, [destroyReplayer, mountReplayer, replayEvents, replayKey]);
 
-        return () => {
-            cancelled = true;
-            playerIsPlayingRef.current = false;
-            if (replayerRef.current) {
-                try {
-                    replayerRef.current.destroy();
-                } catch {
-                    // rrweb can throw when tearing down partially mounted iframes.
-                }
-                replayerRef.current = null;
-            }
-            if (rootRef.current) {
-                rootRef.current.innerHTML = '';
-            }
-        };
-    }, [replayEvents]);
+    useEffect(() => () => {
+        mountGenerationRef.current += 1;
+        destroyReplayer();
+    }, [destroyReplayer]);
 
     // Scale the rrweb iframe to fill the container (rrweb alpha doesn't scale itself).
     useEffect(() => {

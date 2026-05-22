@@ -238,6 +238,7 @@ export function useRrwebReplayEvents(rrwebReplay: RrwebReplayPayload | undefined
         let loadedCount = 0;
         let failedCount = 0;
         const loadedIndexes = new Set<number>();
+        const settledIndexes = new Set<number>();
         loadedSegmentsRef.current = new Map();
         setIsLoading(true);
         setError(null);
@@ -249,8 +250,11 @@ export function useRrwebReplayEvents(rrwebReplay: RrwebReplayPayload | undefined
                 publishTimer = null;
                 if (cancelled) return;
                 const merged: any[] = [];
-                for (const [, events] of [...loadedSegmentsRef.current.entries()].sort((a, b) => a[0] - b[0])) {
-                    if (events && events.length > 0) merged.push(...events);
+                for (const segment of fetchable) {
+                    const hasEvents = loadedSegmentsRef.current.has(segment.index);
+                    if (!hasEvents && !settledIndexes.has(segment.index)) break;
+                    const events = loadedSegmentsRef.current.get(segment.index) ?? [];
+                    if (events.length > 0) merged.push(...events);
                 }
                 merged.sort((a, b) => (a?.timestamp || 0) - (b?.timestamp || 0));
                 setClientEvents(merged);
@@ -281,8 +285,12 @@ export function useRrwebReplayEvents(rrwebReplay: RrwebReplayPayload | undefined
                     failedCount += 1;
                 }
             } finally {
+                settledIndexes.add(segment.index);
                 loadedCount += 1;
-                if (!cancelled) setProgress({ loaded: loadedCount, total: fetchable.length });
+                if (!cancelled) {
+                    setProgress({ loaded: loadedCount, total: fetchable.length });
+                    publishLoadedEvents(false);
+                }
             }
         };
 
