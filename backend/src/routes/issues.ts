@@ -6,12 +6,12 @@
 
 import { Router } from 'express';
 import { eq, and, desc, asc, sql, or, ilike, gte, inArray } from 'drizzle-orm';
-import { db, issues, issueEvents, projects, teamMembers, users, errors, crashes, anrs, sessions, recordingArtifacts, sessionMetrics, apiEndpointDailyStats, screenTouchHeatmaps } from '../db/client.js';
+import { db, issues, issueEvents, projects, teamMembers, users, errors, crashes, anrs, sessions, recordingArtifacts, sessionMetrics, screenTouchHeatmaps } from '../db/client.js';
 import { sessionAuth, asyncHandler, ApiError } from '../middleware/index.js';
 import { writeApiRateLimiter } from '../middleware/rateLimit.js';
-import { excludeInternalToolEndpointTraffic } from '../utils/internalToolEndpointFilter.js';
 import { generateANRFingerprintFromStackTrace, resolveAnrStackTrace } from '../services/anrStack.js';
 import { generateFingerprint } from '../services/issueTracker.js';
+import { querySlowApiEndpointsFromClickHouse } from '../services/apiEndpointStatsClickHouse.js';
 
 const router = Router();
 
@@ -882,25 +882,16 @@ router.post(
 
         // 1. SLOW API ENDPOINTS (Avg Latency > 500ms or error rate > 5%)
         try {
-            const slowApis = await db
-                .select({
-                    endpoint: apiEndpointDailyStats.endpoint,
-                    totalCalls: sql<number>`sum(${apiEndpointDailyStats.totalCalls})`,
-                    totalErrors: sql<number>`sum(${apiEndpointDailyStats.totalErrors})`,
-                    avgLatency: sql<number>`sum(${apiEndpointDailyStats.sumLatencyMs})::float / NULLIF(sum(${apiEndpointDailyStats.totalCalls}), 0)`,
-                })
-                .from(apiEndpointDailyStats)
-                .where(and(
-                    eq(apiEndpointDailyStats.projectId, projectId),
-                    gte(apiEndpointDailyStats.date, recentDate),
-                    excludeInternalToolEndpointTraffic(apiEndpointDailyStats.endpoint),
-                ))
-                .groupBy(apiEndpointDailyStats.endpoint)
-                .having(sql`sum(${apiEndpointDailyStats.sumLatencyMs})::float / NULLIF(sum(${apiEndpointDailyStats.totalCalls}), 0) > 500 OR (sum(${apiEndpointDailyStats.totalErrors})::float / NULLIF(sum(${apiEndpointDailyStats.totalCalls}), 0)) > 0.05`);
+            const slowApis = await querySlowApiEndpointsFromClickHouse({
+                projectId,
+                startDate: recentDate,
+                limit: 50,
+                minCalls: 10,
+            });
 
             for (const api of slowApis) {
                 const fingerprint = `api_latency:${api.endpoint}`;
-                const avgLatency = Math.round(api.avgLatency || 0);
+                const avgLatency = Math.round(Number(api.avgLatency || 0));
                 const errorRate = Number(api.totalCalls) > 0 ? ((Number(api.totalErrors) || 0) / Number(api.totalCalls) * 100).toFixed(1) : '0';
                 const isHighError = Number(errorRate) > 5;
 

@@ -11,7 +11,7 @@ It keeps the same plain-YAML shape as the prod manifests, but targets a local
 - `postgres.yaml`: PostgreSQL with a NodePort for host access
 - `redis.yaml`: Redis with a NodePort for host access
 - `clickhouse.yaml`: single-node local ClickHouse for analytics projection parity
-- `clickhouse-backfill-api-stats.yaml`: manual local Job for historical API endpoint stats import testing
+- `clickhouse-backfill-api-rollups.yaml`: manual local Job for rebuilding API endpoint ClickHouse rollups
 - `minio.yaml`: local S3-compatible storage plus bucket bootstrap job
 - `api.yaml`: API deployment and `db-setup` job for full-cluster parity
 - `web.yaml`: dashboard deployment for full-cluster parity
@@ -153,24 +153,22 @@ which re-enqueues BullMQ jobs for any `uploaded` artifacts that lost their job
 `local-k8s/workers.yaml`.
 
 **ClickHouse local analytics parity:** Local defaults enable ClickHouse so `npm run ci:local`
-exercises the first API endpoint stats migration. Host-side processes talk to
-ClickHouse at `http://127.0.0.1:30123`; in-cluster pods use `http://clickhouse:8123`.
+exercises the API endpoint analytics path. Host-side processes talk to ClickHouse
+at `http://127.0.0.1:30123`; in-cluster pods use `http://clickhouse:8123`.
 The `clickhouse-setup` Job creates `api_endpoint_request_events`,
-`api_endpoint_daily_stats_imported`, and `schema_migrations`. To test historical
-import locally after the stack is running:
+`api_endpoint_daily_stats_imported`, `api_endpoint_daily_rollups`, the rollup
+materialized view, and `schema_migrations`. To rebuild the ClickHouse rollup
+locally after the stack is running:
 
 ```bash
 cd backend
-node --import tsx scripts/backfillClickHouseApiEndpointStats.ts \
-  --until 2026-05-21 \
-  --batch-size 5000
+node --import tsx scripts/backfillClickHouseApiEndpointRollups.ts --replace
 ```
 
-`--until` is exclusive and should match the cutover date you want to test. Keep
-`CLICKHOUSE_CUTOVER_DATE` empty unless you intentionally want the running API to
-serve imported history; with an empty cutover date, ClickHouse reads use raw facts
-only. To test a same-day cutover, also set `CLICKHOUSE_RAW_READS_AFTER` to a UTC
-timestamp after the final local backfill.
+The dashboard API endpoint page reads `api_endpoint_daily_rollups`. The old
+Postgres `api_endpoint_daily_stats` fallback is gone, so an empty rollup table
+means empty API endpoint analytics. A tiny no-op Postgres compatibility shell may
+exist during rolling deploys, but runtime code must not read it.
 
 ## Notes
 

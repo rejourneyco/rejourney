@@ -1,11 +1,12 @@
 import { createHash } from 'crypto';
 import { gunzipSync } from 'zlib';
 import { eq, sql } from 'drizzle-orm';
-import { db, sessions, sessionMetrics, anrs, errors, apiEndpointDailyStats, screenTouchHeatmaps, recordingArtifacts } from '../db/client.js';
+import { db, sessions, sessionMetrics, anrs, errors, screenTouchHeatmaps, recordingArtifacts } from '../db/client.js';
 import { trackANRAsIssue, trackErrorAsIssue } from './issueTracker.js';
 import { normalizeIngestSdkVersion } from './ingestSessionLifecycle.js';
 import { getUniqueScreenCount, mergeScreenPaths, normalizeScreenPath } from '../utils/screenPaths.js';
 import { shouldExcludeNetworkEventFromProductAnalytics } from '../utils/internalToolEndpointFilter.js';
+import { normalizeApiEndpointPath } from '../utils/apiEndpointNormalization.js';
 import { mergeAnrDeviceMetadata, resolveAnrStackTrace } from './anrStack.js';
 import { extractSessionIdentityChange } from './sessionIdentityEvents.js';
 import {
@@ -19,7 +20,6 @@ import {
     extractCumulativeBackgroundSeconds,
 } from './sessionClientEvidence.js';
 const MAX_SCREEN_PATH_LENGTH = 200;
-const UNKNOWN_STATUS_CODE_KEY = 'unknown';
 const WEB_ATTRIBUTION_METADATA_KEYS = [
     'webReferral',
     'webReferrer',
@@ -181,14 +181,6 @@ function buildDeviceMetadataUpdates(deviceInfo: any): Record<string, string | bo
     return updates;
 }
 
-function normalizeErrorStatusCodeKey(statusCode: unknown, isError: boolean): string | null {
-    const parsed = Number(statusCode);
-    if (Number.isFinite(parsed) && parsed >= 400) {
-        return String(Math.trunc(parsed));
-    }
-    return isError ? UNKNOWN_STATUS_CODE_KEY : null;
-}
-
 function maxDate(current: Date | null, candidate: Date | null): Date | null {
     if (!candidate) return current;
     return !current || candidate.getTime() > current.getTime() ? candidate : current;
@@ -265,7 +257,6 @@ export async function processEventsArtifact(job: any, session: any, metrics: any
     let latestClientEventAt: Date | null = null;
     const recentTaps: { x: number; y: number; timestamp: number }[] = [];
     const screenPath: string[] = [];
-    const endpointStats: Record<string, { calls: number; errors: number; latencySum: number; statusCodeBreakdown: Record<string, number> }> = {};
     const clickHouseApiEndpointRows: ClickHouseApiEndpointEventRow[] = [];
     const apiEndpointStatsDate = new Date().toISOString().split('T')[0];
 
@@ -572,23 +563,7 @@ export async function processEventsArtifact(job: any, session: any, metrics: any
             }
 
             if (url) {
-                const endpoint = `${method} ${url}`;
-                if (!endpointStats[endpoint]) {
-                    endpointStats[endpoint] = {
-                        calls: 0,
-                        errors: 0,
-                        latencySum: 0,
-                        statusCodeBreakdown: {},
-                    };
-                }
-                endpointStats[endpoint].calls++;
-                if (isError) endpointStats[endpoint].errors++;
-                const errorStatusCodeKey = normalizeErrorStatusCodeKey(event.statusCode, isError);
-                if (errorStatusCodeKey) {
-                    endpointStats[endpoint].statusCodeBreakdown[errorStatusCodeKey] =
-                        (endpointStats[endpoint].statusCodeBreakdown[errorStatusCodeKey] || 0) + 1;
-                }
-                if (event.duration) endpointStats[endpoint].latencySum += event.duration;
+                const normalizedUrl = normalizeApiEndpointPath(url);
 
                 clickHouseApiEndpointRows.push(buildClickHouseApiEndpointEventRow({
                     projectId,
@@ -596,7 +571,7 @@ export async function processEventsArtifact(job: any, session: any, metrics: any
                     artifactId: job.artifactId,
                     eventIndex,
                     method,
-                    path: url,
+                    path: normalizedUrl,
                     statusCode: hasNumericStatusCode ? parsedStatusCode : 0,
                     isError,
                     durationMs: Number(event.duration || 0),
@@ -765,42 +740,6 @@ export async function processEventsArtifact(job: any, session: any, metrics: any
     updates.eventsSizeBytes = (existingMetrics.eventsSizeBytes || 0) + data.length;
 
     await db.update(sessionMetrics).set(updates).where(eq(sessionMetrics.sessionId, job.sessionId));
-
-    // Batch upsert endpoint stats (single transaction)
-    if (Object.keys(endpointStats).length > 0) {
-        for (const [endpoint, stats] of Object.entries(endpointStats)) {
-            await db.insert(apiEndpointDailyStats).values({
-                projectId,
-                date: apiEndpointStatsDate as any,
-                endpoint,
-                region: 'unknown', // Default region - will be enriched later if geo data available
-                totalCalls: BigInt(stats.calls),
-                totalErrors: BigInt(stats.errors),
-                sumLatencyMs: BigInt(Math.round(stats.latencySum)),
-                statusCodeBreakdown: stats.statusCodeBreakdown,
-            }).onConflictDoUpdate({
-                target: [apiEndpointDailyStats.projectId, apiEndpointDailyStats.date, apiEndpointDailyStats.endpoint, apiEndpointDailyStats.region],
-                set: {
-                    totalCalls: sql`${apiEndpointDailyStats.totalCalls} + ${stats.calls}`,
-                    totalErrors: sql`${apiEndpointDailyStats.totalErrors} + ${stats.errors}`,
-                    sumLatencyMs: sql`${apiEndpointDailyStats.sumLatencyMs} + ${Math.round(stats.latencySum)}`,
-                    statusCodeBreakdown: sql`(
-                        SELECT COALESCE(jsonb_object_agg(key, value), '{}'::jsonb)
-                        FROM (
-                            SELECT key, SUM(value::int) AS value
-                            FROM (
-                                SELECT * FROM jsonb_each_text(COALESCE(${apiEndpointDailyStats.statusCodeBreakdown}, '{}'::jsonb))
-                                UNION ALL
-                                SELECT * FROM jsonb_each_text(${JSON.stringify(stats.statusCodeBreakdown)}::jsonb)
-                            ) AS combined
-                            GROUP BY key
-                        ) AS aggregated
-                    )`,
-                    updatedAt: new Date(),
-                }
-            });
-        }
-    }
 
     await writeApiEndpointEventsToClickHouse({
         artifactId: job.artifactId,

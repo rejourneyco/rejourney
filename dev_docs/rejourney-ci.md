@@ -144,7 +144,7 @@ DEPLOY_CLICKHOUSE=false by default
   -> normal CI deploys do not create ClickHouse, install the operator, or require clickhouse-secret
   -> when true, the operator config is patched to watch the rejourney namespace before CR readiness is expected
   -> when true, clickhouse.yaml and clickhouse-setup.yaml are applied explicitly and removed from the bulk prune path
-  -> historical clickhouse-backfill-api-stats is manual and is not run by deploy-release.sh
+  -> clickhouse-backfill-api-rollups runs only when RUN_CLICKHOUSE_ROLLUP_BACKFILL=true
 ```
 
 Production deploy entrypoint:
@@ -246,8 +246,8 @@ Local parity nuance:
 - `ci:local*` uses `migrate`, not `push`, so it is the production-parity path.
 - If the local DB was created by the old `push` flow and has no migration history, the deploy guard stops early with an explicit error instead of letting `db-setup` hang.
 - The one-time reset path for that old local state is `./scripts/local-k8s/deploy.sh down`.
-- Local ClickHouse is enabled by default in `.env.k8s.local` so `npm run ci:local` exercises the dual-write/read path. `CLICKHOUSE_CUTOVER_DATE` and `CLICKHOUSE_RAW_READS_AFTER` stay empty unless you intentionally want the running local API to include imported historical aggregates or test a same-day cutover bridge.
-- The local historical import check is manual: `cd backend && node --import tsx scripts/backfillClickHouseApiEndpointStats.ts --until <cutover-date> --batch-size 5000`.
+- Local ClickHouse is enabled by default in `.env.k8s.local` so `npm run ci:local` exercises the API endpoint ClickHouse path.
+- The local rollup rebuild check is manual: `cd backend && node --import tsx scripts/backfillClickHouseApiEndpointRollups.ts --replace`.
 
 Relevant files:
 
@@ -271,7 +271,7 @@ Relevant files:
 │ local legacy push-era DBs are blocked by the compatibility guard            │
 │ hot-table replay cleanup migration avoids wedging production traffic         │
 │ ClickHouse deploy is gated by DEPLOY_CLICKHOUSE and app flags default false │
-│ clickhouse-backfill-api-stats is manual, never part of normal deploy        │
+│ clickhouse-backfill-api-rollups is manual, never part of normal deploy      │
 └──────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -296,7 +296,8 @@ npm run ci:local:checks
 npm run ci:local:deploy
 ./scripts/local-k8s/deploy.sh down
 bash scripts/k8s/deploy-release.sh <image-tag> [repository]
-cd backend && node --import tsx scripts/backfillClickHouseApiEndpointStats.ts --until <cutover-date> --batch-size 5000
+DEPLOY_CLICKHOUSE=true RUN_CLICKHOUSE_ROLLUP_BACKFILL=true bash scripts/k8s/deploy-release.sh <image-tag> [repository]
+cd backend && node --import tsx scripts/backfillClickHouseApiEndpointRollups.ts --replace
 ```
 
 Primary files:
@@ -308,7 +309,7 @@ Primary files:
 - [`k8s/api.yaml`](/Users/mora/Desktop/Dev-mac/rejourney/k8s/api.yaml)
 - [`k8s/clickhouse.yaml`](/Users/mora/Desktop/Dev-mac/rejourney/k8s/clickhouse.yaml)
 - [`k8s/clickhouse-setup.yaml`](/Users/mora/Desktop/Dev-mac/rejourney/k8s/clickhouse-setup.yaml)
-- [`k8s/clickhouse-backfill-api-stats.yaml`](/Users/mora/Desktop/Dev-mac/rejourney/k8s/clickhouse-backfill-api-stats.yaml)
+- [`k8s/clickhouse-backfill-api-rollups.yaml`](/Users/mora/Desktop/Dev-mac/rejourney/k8s/clickhouse-backfill-api-rollups.yaml)
 - [`local-k8s/api.yaml`](/Users/mora/Desktop/Dev-mac/rejourney/local-k8s/api.yaml)
 - [`local-k8s/clickhouse.yaml`](/Users/mora/Desktop/Dev-mac/rejourney/local-k8s/clickhouse.yaml)
-- [`backend/scripts/backfillClickHouseApiEndpointStats.ts`](/Users/mora/Desktop/Dev-mac/rejourney/backend/scripts/backfillClickHouseApiEndpointStats.ts)
+- [`backend/scripts/backfillClickHouseApiEndpointRollups.ts`](/Users/mora/Desktop/Dev-mac/rejourney/backend/scripts/backfillClickHouseApiEndpointRollups.ts)

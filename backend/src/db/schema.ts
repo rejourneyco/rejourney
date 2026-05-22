@@ -840,32 +840,6 @@ export const appDailyStats = pgTable(
     ]
 );
 
-// API Endpoint Daily Stats - Per-endpoint performance metrics
-export const apiEndpointDailyStats = pgTable(
-    'api_endpoint_daily_stats',
-    {
-        id: uuid('id').primaryKey().defaultRandom(),
-        projectId: uuid('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
-        date: date('date').notNull(),
-        endpoint: text('endpoint').notNull(),
-        region: varchar('region', { length: 50 }).default('unknown').notNull(),
-        totalCalls: bigint('total_calls', { mode: 'bigint' }).default(sql`0`).notNull(),
-        totalErrors: bigint('total_errors', { mode: 'bigint' }).default(sql`0`).notNull(),
-        sumLatencyMs: bigint('sum_latency_ms', { mode: 'bigint' }).default(sql`0`).notNull(),
-        statusCodeBreakdown: jsonb('status_code_breakdown').$type<Record<string, number>>().default(sql`'{}'::jsonb`).notNull(),
-        p50LatencyMs: integer('p50_latency_ms'),
-        p90LatencyMs: integer('p90_latency_ms'),
-        p99LatencyMs: integer('p99_latency_ms'),
-        createdAt: timestamp('created_at').defaultNow().notNull(),
-        updatedAt: timestamp('updated_at').defaultNow().notNull(),
-    },
-    (table) => [
-        uniqueIndex('api_endpoint_daily_stats_project_date_endpoint_region_unique').on(table.projectId, table.date, table.endpoint, table.region),
-        index('api_endpoint_daily_stats_project_date_idx').on(table.projectId, table.date),
-        index('api_endpoint_daily_stats_region_idx').on(table.projectId, table.region),
-    ]
-);
-
 // Screen Touch Heatmaps - Aggregated touch coordinates per screen for real heatmap visualization
 export const screenTouchHeatmaps = pgTable(
     'screen_touch_heatmaps',

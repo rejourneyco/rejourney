@@ -286,14 +286,25 @@ function parseTarArchive(tarBuffer: Buffer): Array<{ name: string; data: Buffer 
 }
 
 /**
- * Extract timestamp from screenshot filename
+ * Extract timestamp from screenshot filename.
  * Format: {sessionEpoch}_1_{frameTimestamp}.jpeg
+ *
+ * iOS SDKs store frameTimestamp as a relative offset in ms from sessionEpoch.
+ * When sessionEpoch looks like an absolute epoch (>1e12) and frameTimestamp is
+ * smaller than sessionEpoch, treat frameTimestamp as a relative offset and
+ * return sessionEpoch + frameTimestamp as the absolute timestamp.
  */
 function parseFrameTimestamp(filename: string): number | null {
     // Match pattern: digits_digits_digits.jpeg
     const match = filename.match(/(\d+)_\d+_(\d+)\.jpe?g$/i);
     if (match) {
-        return parseInt(match[2], 10);
+        const sessionEpoch = parseInt(match[1], 10);
+        const frameTs = parseInt(match[2], 10);
+        // If sessionEpoch is an absolute epoch ms and frameTs is a relative offset
+        if (sessionEpoch > 1e12 && frameTs < sessionEpoch) {
+            return sessionEpoch + frameTs;
+        }
+        return frameTs;
     }
     // Fallback: just extract any timestamp-like number
     const tsMatch = filename.match(/(\d{13,})\.jpe?g$/i);

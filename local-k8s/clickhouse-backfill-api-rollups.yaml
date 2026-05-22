@@ -1,10 +1,9 @@
 ---
-# Manual local ClickHouse historical import job for api_endpoint_daily_stats.
-# Apply directly when you want to exercise the imported-history read path.
+# Manual local ClickHouse rollup rebuild for API endpoint analytics.
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: clickhouse-backfill-api-stats
+  name: clickhouse-backfill-api-rollups
   namespace: rejourney-local
   labels:
     app.kubernetes.io/component: clickhouse-backfill
@@ -15,24 +14,6 @@ spec:
     spec:
       restartPolicy: OnFailure
       initContainers:
-        - name: wait-postgres
-          image: postgres:18-alpine
-          command:
-            - /bin/sh
-            - -c
-            - |
-              echo "Waiting for PostgreSQL to be ready..."
-              until pg_isready -h pgbouncer -p 5432 -U rejourney; do
-                echo "PostgreSQL not ready, waiting 5s..."
-                sleep 5
-              done
-              echo "PostgreSQL is ready."
-          env:
-            - name: PGPASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: postgres-secret
-                  key: POSTGRES_PASSWORD
         - name: wait-clickhouse
           image: curlimages/curl:8.11.1
           command:
@@ -49,15 +30,12 @@ spec:
         - name: backfill
           image: rejourney-local/migration:dev
           imagePullPolicy: IfNotPresent
-          command: ["node", "--import", "tsx", "scripts/backfillClickHouseApiEndpointStats.ts"]
+          command: ["node", "--import", "tsx", "scripts/backfillClickHouseApiEndpointRollups.ts", "--replace"]
           env:
             - name: NODE_ENV
               value: production
             - name: DATABASE_URL
-              valueFrom:
-                secretKeyRef:
-                  name: postgres-secret
-                  key: PGBOUNCER_URL
+              value: postgresql://unused:unused@localhost:5432/unused
             - name: JWT_SECRET
               valueFrom:
                 secretKeyRef:
@@ -94,16 +72,8 @@ spec:
                 secretKeyRef:
                   name: clickhouse-secret
                   key: CLICKHOUSE_DATABASE
-            - name: CLICKHOUSE_CUTOVER_DATE
-              valueFrom:
-                secretKeyRef:
-                  name: clickhouse-secret
-                  key: CLICKHOUSE_CUTOVER_DATE
-                  optional: true
             - name: CLICKHOUSE_REQUEST_TIMEOUT_MS
-              value: "30000"
-            - name: CLICKHOUSE_BACKFILL_BATCH_SIZE
-              value: "5000"
+              value: "60000"
           resources:
             requests:
               cpu: 100m

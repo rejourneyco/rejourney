@@ -61,6 +61,39 @@ function toAbsoluteHeatmapImageUrl(url: string): string {
     return `${API_BASE_URL}${url.startsWith('/') ? url : `/${url}`}`;
 }
 
+function addUniqueSessionId(target: string[], seen: Set<string>, sessionId: string | null | undefined): void {
+    const normalized = sessionId?.trim();
+    if (!normalized || seen.has(normalized)) return;
+    seen.add(normalized);
+    target.push(normalized);
+}
+
+function getHeatmapEvidenceSessionIds(screen: PreviewHeatmapScreen): string[] {
+    const ids: string[] = [];
+    const seen = new Set<string>();
+
+    addUniqueSessionId(ids, seen, screen.evidenceSessionId);
+    for (const sessionId of screen.sessionIds || []) {
+        addUniqueSessionId(ids, seen, sessionId);
+    }
+
+    const screenshotUrl = screen.screenshotUrl || '';
+    const match = screenshotUrl.match(/\/api\/session\/(?:frame|thumbnail)\/([^/?#]+)/);
+    if (match?.[1]) {
+        try {
+            addUniqueSessionId(ids, seen, decodeURIComponent(match[1]));
+        } catch {
+            addUniqueSessionId(ids, seen, match[1]);
+        }
+    }
+
+    return ids;
+}
+
+function getPreferredHeatmapSessionId(screen: PreviewHeatmapScreen): string | null {
+    return getHeatmapEvidenceSessionIds(screen)[0] ?? null;
+}
+
 function buildHeatmapImageUrlCandidates(screen: PreviewHeatmapScreen, isWebViewer: boolean): string[] {
     const candidates: string[] = [];
     const seen = new Set<string>();
@@ -74,16 +107,20 @@ function buildHeatmapImageUrlCandidates(screen: PreviewHeatmapScreen, isWebViewe
 
     addCandidate(screen.screenshotUrl);
 
-    const evidenceSessionId = screen.evidenceSessionId?.trim();
-    if (!isWebViewer && evidenceSessionId) {
-        const encodedSessionId = encodeURIComponent(evidenceSessionId);
+    const evidenceSessionIds = getHeatmapEvidenceSessionIds(screen);
+    if (!isWebViewer) {
         const timestamp = Number(screen.screenFirstSeenMs);
-        if (Number.isFinite(timestamp) && timestamp > 0) {
-            const roundedTimestamp = Math.round(timestamp);
-            addCandidate(`/api/session/frame/${encodedSessionId}/${roundedTimestamp}.jpg`);
-            addCandidate(`/api/session/thumbnail/${encodedSessionId}?ts=${roundedTimestamp}`);
+        const roundedTimestamp = Number.isFinite(timestamp) && timestamp > 0
+            ? Math.round(timestamp)
+            : null;
+        for (const sessionId of evidenceSessionIds.slice(0, 4)) {
+            const encodedSessionId = encodeURIComponent(sessionId);
+            if (roundedTimestamp) {
+                addCandidate(`/api/session/frame/${encodedSessionId}/${roundedTimestamp}.jpg`);
+                addCandidate(`/api/session/thumbnail/${encodedSessionId}?ts=${roundedTimestamp}`);
+            }
+            addCandidate(`/api/session/thumbnail/${encodedSessionId}`);
         }
-        addCandidate(`/api/session/thumbnail/${encodedSessionId}`);
     }
 
     return candidates;
@@ -234,6 +271,7 @@ type ResolvedHeatmapViewer = Exclude<HeatmapViewerMode, 'auto'>;
 interface PreviewHeatmapScreen {
     name: string;
     screenshotUrl: string | null;
+    sessionIds?: string[];
     screenFirstSeenMs?: number | null;
     touchHotspots?: HeatmapHotspot[];
     evidenceSessionId?: string | null;
@@ -620,9 +658,9 @@ const RrwebHeatmapPreview: React.FC<{
 }> = ({ screen, frameDimensions }) => {
     const [rrwebReplay, setRrwebReplay] = useState<ApiSessionReplayManifest['rrwebReplay'] | null>(null);
     const [failed, setFailed] = useState(false);
+    const sessionId = getPreferredHeatmapSessionId(screen);
 
     useEffect(() => {
-        const sessionId = screen.evidenceSessionId?.trim();
         if (!sessionId) {
             setRrwebReplay(null);
             setFailed(false);
@@ -637,7 +675,16 @@ const RrwebHeatmapPreview: React.FC<{
         getSessionReplayManifest(sessionId, { frameUrlMode: 'signed', signal: abort.signal })
             .then((manifest) => {
                 if (cancelled) return;
-                if (manifest.playbackMode === 'rrweb' && manifest.rrwebReplay) {
+                const rrweb = manifest.rrwebReplay;
+                const hasRrwebEvents = Boolean(
+                    rrweb
+                    && (
+                        (rrweb.eventCount || 0) > 0
+                        || (Array.isArray(rrweb.events) && rrweb.events.length > 0)
+                        || (Array.isArray(rrweb.segments) && rrweb.segments.length > 0)
+                    )
+                );
+                if (manifest.playbackMode === 'rrweb' && hasRrwebEvents) {
                     setRrwebReplay(manifest.rrwebReplay);
                     return;
                 }
@@ -657,7 +704,7 @@ const RrwebHeatmapPreview: React.FC<{
             cancelled = true;
             abort.abort();
         };
-    }, [screen.evidenceSessionId, screen.name]);
+    }, [screen.name, sessionId]);
 
     const { events } = useRrwebReplayEvents(rrwebReplay);
     const replayTiming = useMemo(() => {
@@ -730,12 +777,12 @@ const HeatmapPreview: React.FC<{
     );
     const coverUrlCandidates = useMemo(
         () => buildHeatmapImageUrlCandidates(screen, isWebViewer),
-        [screen.screenshotUrl, screen.evidenceSessionId, screen.screenFirstSeenMs, isWebViewer],
+        [screen.screenshotUrl, screen.evidenceSessionId, screen.sessionIds, screen.screenFirstSeenMs, isWebViewer],
     );
     const coverUrlKey = coverUrlCandidates.join('|');
     const shouldRenderRrwebPreview = isWebViewer
         && !tile
-        && Boolean(screen.evidenceSessionId?.trim())
+        && Boolean(getPreferredHeatmapSessionId(screen))
         && (coverUrlCandidates.length === 0 || (!blobUrl && Boolean(loadError)));
 
     useEffect(() => {

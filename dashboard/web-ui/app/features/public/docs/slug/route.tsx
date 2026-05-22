@@ -89,6 +89,7 @@ export const meta: Route.MetaFunction = ({ params, location }) => {
     const title = `${localizedMetadata.title} - ${copy.docsTitleSuffix}`;
     const description = localizedMetadata.description ?? copy.docDefaultDescription(localizedMetadata.title);
     const keywords = localizedMetadata.keywords?.join(", ");
+    const socialPreviewImageUrl = `${domain}/images/heatmaps.png`;
 
     return [
         { title },
@@ -106,12 +107,17 @@ export const meta: Route.MetaFunction = ({ params, location }) => {
         { property: "og:url", content: canonicalUrl },
         { property: "og:type", content: "article" },
         { property: "og:site_name", content: copy.docsSiteName },
-        { property: "og:image", content: `${domain}/rejourneyIcon-removebg-preview.png` },
+        { property: "og:image", content: socialPreviewImageUrl },
+        { property: "og:image:width", content: "998" },
+        { property: "og:image:height", content: "794" },
+        { property: "og:image:alt", content: "Rejourney heatmaps preview" },
+        { property: "og:image:type", content: "image/png" },
         // Twitter
-        { name: "twitter:card", content: "summary" },
+        { name: "twitter:card", content: "summary_large_image" },
         { name: "twitter:title", content: title },
         { name: "twitter:description", content: description },
-        { name: "twitter:image", content: `${domain}/rejourneyIcon-removebg-preview.png` },
+        { name: "twitter:image", content: socialPreviewImageUrl },
+        { name: "twitter:image:alt", content: "Rejourney heatmaps preview" },
     ];
 };
 

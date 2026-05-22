@@ -22,6 +22,7 @@ export const meta: Route.MetaFunction = ({ location }) => {
     const description = copy.docsIndexDescription;
     const domain = "https://rejourney.co";
     const canonicalUrl = getLocalizedPublicUrl(locale, "/docs");
+    const socialPreviewImageUrl = `${domain}/images/heatmaps.png`;
     const alternateLinks = getLocalizedAlternateLinksForPath("/docs").map((alternate) => ({
         tagName: "link",
         rel: "alternate",
@@ -49,12 +50,17 @@ export const meta: Route.MetaFunction = ({ location }) => {
         { property: "og:description", content: description },
         { property: "og:url", content: canonicalUrl },
         { property: "og:type", content: "website" },
-        { property: "og:image", content: `${domain}/rejourneyIcon-removebg-preview.png` },
+        { property: "og:image", content: socialPreviewImageUrl },
+        { property: "og:image:width", content: "998" },
+        { property: "og:image:height", content: "794" },
+        { property: "og:image:alt", content: "Rejourney heatmaps preview" },
+        { property: "og:image:type", content: "image/png" },
         // Twitter
-        { name: "twitter:card", content: "summary" },
+        { name: "twitter:card", content: "summary_large_image" },
         { name: "twitter:title", content: title },
         { name: "twitter:description", content: description },
-        { name: "twitter:image", content: `${domain}/rejourneyIcon-removebg-preview.png` },
+        { name: "twitter:image", content: socialPreviewImageUrl },
+        { name: "twitter:image:alt", content: "Rejourney heatmaps preview" },
     ];
 };
 

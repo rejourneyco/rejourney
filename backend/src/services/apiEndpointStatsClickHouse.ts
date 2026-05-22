@@ -1,5 +1,4 @@
 import { getClickHouseClient, isClickHouseReadsEnabled } from '../db/clickhouse.js';
-import { config } from '../config.js';
 
 export type ClickHouseEndpointStatusRow = {
     endpoint: string;
@@ -16,56 +15,35 @@ export type ClickHouseRegionStatsRow = {
     sumLatencyMs: string | number;
 };
 
-type RawReadsAfter = {
+export type ClickHouseDailyApiCallsRow = {
     date: string;
-    timestamp: string;
+    totalCalls: string | number;
 };
 
-function buildRawDateCondition(startDate?: string): string {
-    return startDate ? 'AND event_date >= {startDate:Date}' : '';
-}
+export type ClickHouseSlowApiEndpointRow = {
+    endpoint: string;
+    totalCalls: string | number;
+    totalErrors: string | number;
+    avgLatency: string | number;
+};
 
-function buildImportedDateCondition(startDate?: string): string {
-    return startDate ? 'AND date >= {startDate:Date}' : '';
-}
-
-function getClickHouseCutoverDate(): string | undefined {
-    const cutoverDate = config.CLICKHOUSE_CUTOVER_DATE?.trim();
-    if (!cutoverDate) return undefined;
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(cutoverDate)) {
-        throw new Error(`Invalid CLICKHOUSE_CUTOVER_DATE value: ${cutoverDate}`);
-    }
-    return cutoverDate;
-}
-
-function getClickHouseRawReadsAfter(): RawReadsAfter | undefined {
-    const rawReadsAfter = config.CLICKHOUSE_RAW_READS_AFTER?.trim();
-    if (!rawReadsAfter) return undefined;
-
-    const parsed = new Date(rawReadsAfter);
-    if (Number.isNaN(parsed.getTime())) {
-        throw new Error(`Invalid CLICKHOUSE_RAW_READS_AFTER value: ${rawReadsAfter}`);
-    }
-
-    const iso = parsed.toISOString();
-    return {
-        date: iso.slice(0, 10),
-        timestamp: iso.slice(0, 23).replace('T', ' '),
-    };
-}
-
-function buildRawCutoverCondition(rawReadsAfter?: RawReadsAfter): string {
-    if (!rawReadsAfter) return 'AND event_date >= {cutoverDate:Date}';
-
+function buildDateCondition(column: string, startDate?: string, endDate?: string): string {
     return `
-              AND (
-                event_date >= {cutoverDate:Date}
-                OR (
-                  event_date = {rawReadsAfterDate:Date}
-                  AND inserted_at > toDateTime64({rawReadsAfter:String}, 3, 'UTC')
-                )
-              )
-        `;
+        ${startDate ? `AND ${column} >= {startDate:Date}` : ''}
+        ${endDate ? `AND ${column} <= {endDate:Date}` : ''}
+    `;
+}
+
+function buildEndpointProductAnalyticsCondition(column: string = 'endpoint'): string {
+    return `
+        AND lower(${column}) NOT LIKE '%rejourney%'
+        AND lower(${column}) NOT LIKE '%/api/ingest%'
+        AND lower(${column}) NOT LIKE '%/upload/artifacts%'
+        AND NOT match(
+            lower(${column}),
+            '\\\\.(jpg|jpeg|png|gif|webp|avif|svg|ico|css|js|map|woff2?|ttf|otf|mp4|webm|mov|m4v|mp3|wav|pdf)($|[?#])'
+        )
+    `;
 }
 
 export function canReadApiEndpointStatsFromClickHouse(): boolean {
@@ -78,64 +56,27 @@ export async function queryApiEndpointStatusRowsFromClickHouse(params: {
 }): Promise<ClickHouseEndpointStatusRow[]> {
     if (!canReadApiEndpointStatsFromClickHouse() || params.projectIds.length === 0) return [];
 
-    const cutoverDate = getClickHouseCutoverDate();
-    const rawReadsAfter = cutoverDate ? getClickHouseRawReadsAfter() : undefined;
-    const queryParams = {
-        projectIds: params.projectIds,
-        ...(params.startDate ? { startDate: params.startDate } : {}),
-        ...(cutoverDate ? { cutoverDate } : {}),
-        ...(rawReadsAfter ? {
-            rawReadsAfterDate: rawReadsAfter.date,
-            rawReadsAfter: rawReadsAfter.timestamp,
-        } : {}),
-    };
-    const query = cutoverDate
-        ? `
-            SELECT
-                endpoint,
-                toUInt16(0) AS statusCode,
-                toUInt64(sum(total_calls)) AS totalCalls,
-                toUInt64(sum(total_errors)) AS totalErrors,
-                toUInt64(sum(sum_latency_ms)) AS sumLatencyMs,
-                status_code_breakdown_json AS statusCodeBreakdownJson
-            FROM api_endpoint_daily_stats_imported FINAL
-            WHERE project_id IN {projectIds:Array(UUID)}
-              AND date < {cutoverDate:Date}
-              ${buildImportedDateCondition(params.startDate)}
-            GROUP BY endpoint, status_code_breakdown_json
-
-            UNION ALL
-
-            SELECT
-                endpoint,
-                status_code AS statusCode,
-                toUInt64(count()) AS totalCalls,
-                toUInt64(countIf(is_error = 1)) AS totalErrors,
-                toUInt64(sum(duration_ms)) AS sumLatencyMs,
-                '' AS statusCodeBreakdownJson
-            FROM api_endpoint_request_events
-            WHERE project_id IN {projectIds:Array(UUID)}
-              ${buildRawCutoverCondition(rawReadsAfter)}
-              ${buildRawDateCondition(params.startDate)}
-            GROUP BY endpoint, status_code
-        `
-        : `
-            SELECT
-                endpoint,
-                status_code AS statusCode,
-                toUInt64(count()) AS totalCalls,
-                toUInt64(countIf(is_error = 1)) AS totalErrors,
-                toUInt64(sum(duration_ms)) AS sumLatencyMs,
-                '' AS statusCodeBreakdownJson
-            FROM api_endpoint_request_events
-            WHERE project_id IN {projectIds:Array(UUID)}
-              ${buildRawDateCondition(params.startDate)}
-            GROUP BY endpoint, status_code
-        `;
+    const query = `
+        SELECT
+            endpoint,
+            status_code AS statusCode,
+            toUInt64(sum(total_calls)) AS totalCalls,
+            toUInt64(sum(total_errors)) AS totalErrors,
+            toUInt64(sum(sum_latency_ms)) AS sumLatencyMs,
+            '' AS statusCodeBreakdownJson
+        FROM api_endpoint_daily_rollups
+        WHERE project_id IN {projectIds:Array(UUID)}
+          ${buildDateCondition('date', params.startDate)}
+          ${buildEndpointProductAnalyticsCondition()}
+        GROUP BY endpoint, status_code
+    `;
 
     const result = await getClickHouseClient().query({
         query,
-        query_params: queryParams,
+        query_params: {
+            projectIds: params.projectIds,
+            ...(params.startDate ? { startDate: params.startDate } : {}),
+        },
         format: 'JSONEachRow',
     });
 
@@ -148,65 +89,125 @@ export async function queryRegionStatsFromClickHouse(params: {
 }): Promise<ClickHouseRegionStatsRow[]> {
     if (!canReadApiEndpointStatsFromClickHouse()) return [];
 
-    const cutoverDate = getClickHouseCutoverDate();
-    const rawReadsAfter = cutoverDate ? getClickHouseRawReadsAfter() : undefined;
-    const queryParams = {
-        projectId: params.projectId,
-        startDate: params.startDate,
-        ...(cutoverDate ? { cutoverDate } : {}),
-        ...(rawReadsAfter ? {
-            rawReadsAfterDate: rawReadsAfter.date,
-            rawReadsAfter: rawReadsAfter.timestamp,
-        } : {}),
-    };
-    const query = cutoverDate
-        ? `
-            SELECT
-                region,
-                toUInt64(sum(totalCalls)) AS totalCalls,
-                toUInt64(sum(sumLatencyMs)) AS sumLatencyMs
-            FROM
-            (
-                SELECT
-                    region,
-                    toUInt64(sum(total_calls)) AS totalCalls,
-                    toUInt64(sum(sum_latency_ms)) AS sumLatencyMs
-                FROM api_endpoint_daily_stats_imported FINAL
-                WHERE project_id = {projectId:UUID}
-                  AND date < {cutoverDate:Date}
-                  AND date >= {startDate:Date}
-                GROUP BY region
-
-                UNION ALL
-
-                SELECT
-                    region,
-                    toUInt64(count()) AS totalCalls,
-                    toUInt64(sum(duration_ms)) AS sumLatencyMs
-                FROM api_endpoint_request_events
-                WHERE project_id = {projectId:UUID}
-                  ${buildRawCutoverCondition(rawReadsAfter)}
-                  AND event_date >= {startDate:Date}
-                GROUP BY region
-            )
-            GROUP BY region
-        `
-        : `
-            SELECT
-                region,
-                toUInt64(count()) AS totalCalls,
-                toUInt64(sum(duration_ms)) AS sumLatencyMs
-            FROM api_endpoint_request_events
-            WHERE project_id = {projectId:UUID}
-              AND event_date >= {startDate:Date}
-            GROUP BY region
-        `;
-
     const result = await getClickHouseClient().query({
-        query,
-        query_params: queryParams,
+        query: `
+            SELECT
+                region,
+                toUInt64(sum(total_calls)) AS totalCalls,
+                toUInt64(sum(sum_latency_ms)) AS sumLatencyMs
+            FROM api_endpoint_daily_rollups
+            WHERE project_id = {projectId:UUID}
+              ${buildDateCondition('date', params.startDate)}
+              ${buildEndpointProductAnalyticsCondition()}
+            GROUP BY region
+        `,
+        query_params: {
+            projectId: params.projectId,
+            startDate: params.startDate,
+        },
         format: 'JSONEachRow',
     });
 
     return await result.json<ClickHouseRegionStatsRow>();
+}
+
+export async function queryDailyApiCallsFromClickHouse(params: {
+    projectIds: string[];
+    startDate?: string;
+    endDate?: string;
+}): Promise<ClickHouseDailyApiCallsRow[]> {
+    if (!canReadApiEndpointStatsFromClickHouse() || params.projectIds.length === 0) return [];
+
+    const result = await getClickHouseClient().query({
+        query: `
+            SELECT
+                toString(date) AS date,
+                toUInt64(sum(total_calls)) AS totalCalls
+            FROM api_endpoint_daily_rollups
+            WHERE project_id IN {projectIds:Array(UUID)}
+              ${buildDateCondition('date', params.startDate, params.endDate)}
+              ${buildEndpointProductAnalyticsCondition()}
+            GROUP BY date
+        `,
+        query_params: {
+            projectIds: params.projectIds,
+            ...(params.startDate ? { startDate: params.startDate } : {}),
+            ...(params.endDate ? { endDate: params.endDate } : {}),
+        },
+        format: 'JSONEachRow',
+    });
+
+    return await result.json<ClickHouseDailyApiCallsRow>();
+}
+
+export async function querySlowApiEndpointsFromClickHouse(params: {
+    projectId: string;
+    startDate: string;
+    limit?: number;
+    minCalls?: number;
+}): Promise<ClickHouseSlowApiEndpointRow[]> {
+    if (!canReadApiEndpointStatsFromClickHouse()) return [];
+
+    const result = await getClickHouseClient().query({
+        query: `
+            SELECT
+                endpoint,
+                toUInt64(sum(total_calls)) AS totalCalls,
+                toUInt64(sum(total_errors)) AS totalErrors,
+                sum(sum_latency_ms) / nullIf(sum(total_calls), 0) AS avgLatency
+            FROM api_endpoint_daily_rollups
+            WHERE project_id = {projectId:UUID}
+              ${buildDateCondition('date', params.startDate)}
+              ${buildEndpointProductAnalyticsCondition()}
+            GROUP BY endpoint
+            HAVING totalCalls >= {minCalls:UInt32}
+               AND (
+                    avgLatency > 500
+                    OR totalErrors / nullIf(totalCalls, 0) > 0.05
+               )
+            ORDER BY totalErrors DESC, avgLatency DESC
+            LIMIT {limit:UInt32}
+        `,
+        query_params: {
+            projectId: params.projectId,
+            startDate: params.startDate,
+            minCalls: params.minCalls ?? 10,
+            limit: params.limit ?? 50,
+        },
+        format: 'JSONEachRow',
+    });
+
+    return await result.json<ClickHouseSlowApiEndpointRow>();
+}
+
+export async function querySlowestApiEndpointsFromClickHouse(params: {
+    projectId: string;
+    date: string;
+    limit?: number;
+}): Promise<Array<{ endpoint: string; latency: string | number }>> {
+    if (!canReadApiEndpointStatsFromClickHouse()) return [];
+
+    const result = await getClickHouseClient().query({
+        query: `
+            SELECT
+                endpoint,
+                sum(sum_latency_ms) / nullIf(sum(total_calls), 0) AS latency
+            FROM api_endpoint_daily_rollups
+            WHERE project_id = {projectId:UUID}
+              AND date = {date:Date}
+              ${buildEndpointProductAnalyticsCondition()}
+            GROUP BY endpoint
+            HAVING sum(total_calls) > 0
+            ORDER BY latency DESC
+            LIMIT {limit:UInt32}
+        `,
+        query_params: {
+            projectId: params.projectId,
+            date: params.date,
+            limit: params.limit ?? 5,
+        },
+        format: 'JSONEachRow',
+    });
+
+    return await result.json<{ endpoint: string; latency: string | number }>();
 }

@@ -136,9 +136,7 @@ if [ "$CLICKHOUSE_ENABLED" = "true" ] \
         --from-literal=CLICKHOUSE_URL="${CLICKHOUSE_URL:-http://clickhouse-rejourney:8123}" \
         --from-literal=CLICKHOUSE_USER="${CLICKHOUSE_USER:-rejourney}" \
         --from-literal=CLICKHOUSE_PASSWORD="$CLICKHOUSE_PASSWORD" \
-        --from-literal=CLICKHOUSE_DATABASE="${CLICKHOUSE_DATABASE:-rejourney}" \
-        --from-literal=CLICKHOUSE_CUTOVER_DATE="${CLICKHOUSE_CUTOVER_DATE:-}" \
-        --from-literal=CLICKHOUSE_RAW_READS_AFTER="${CLICKHOUSE_RAW_READS_AFTER:-}"
+        --from-literal=CLICKHOUSE_DATABASE="${CLICKHOUSE_DATABASE:-rejourney}"
 else
     info "ClickHouse disabled and CLICKHOUSE_PASSWORD not provided, skipping clickhouse-secret"
 fi

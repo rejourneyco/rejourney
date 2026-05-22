@@ -6,8 +6,7 @@
  */
 
 import { eq, and, gte, sql, desc } from 'drizzle-orm';
-import { db, alertSettings, alertRecipients, alertHistory, emailLogs, projects, users, issues, apiEndpointDailyStats } from '../db/client.js';
-import { excludeInternalToolEndpointTraffic } from '../utils/internalToolEndpointFilter.js';
+import { db, alertSettings, alertRecipients, alertHistory, emailLogs, projects, users, issues } from '../db/client.js';
 import { logger } from '../logger.js';
 import { config } from '../config.js';
 import {
@@ -17,6 +16,7 @@ import {
     sendApiDegradationAlertEmail,
 } from './email.js';
 import { shouldSendForEmailRules } from './emailAlertRules.js';
+import { querySlowestApiEndpointsFromClickHouse } from './apiEndpointStatsClickHouse.js';
 
 // Rate limiting constants
 const SAME_ISSUE_COOLDOWN_MS = 60 * 60 * 1000; // 1 hour
@@ -530,19 +530,11 @@ export async function triggerApiDegradationAlert(
 
         // Fetch slowest endpoints for today
         const today = new Date().toISOString().split('T')[0];
-        const slowestEndpoints = await db
-            .select({
-                endpoint: apiEndpointDailyStats.endpoint,
-                latency: apiEndpointDailyStats.p50LatencyMs
-            })
-            .from(apiEndpointDailyStats)
-            .where(and(
-                eq(apiEndpointDailyStats.projectId, projectId),
-                eq(apiEndpointDailyStats.date, today),
-                excludeInternalToolEndpointTraffic(apiEndpointDailyStats.endpoint),
-            ))
-            .orderBy(desc(apiEndpointDailyStats.p50LatencyMs))
-            .limit(5);
+        const slowestEndpoints = await querySlowestApiEndpointsFromClickHouse({
+            projectId,
+            date: today,
+            limit: 5,
+        });
 
         const projectName = await getProjectName(projectId);
         const baseUrl = config.PUBLIC_DASHBOARD_URL || 'http://localhost:8080';
@@ -558,7 +550,7 @@ export async function triggerApiDegradationAlert(
             slowestEndpoints: slowestEndpoints.map(e => ({
                 method: 'API',
                 path: e.endpoint,
-                latency: e.latency || 0,
+                latency: Number(e.latency || 0),
             })),
             detectedAt: new Date(),
         });

@@ -10,6 +10,16 @@ describe('internalToolEndpointFilter', () => {
         expect(shouldExcludeFromEndpointProductAnalytics('PUT /upload/artifacts/95f8a6f8-5e44-4a03-8074-7b01151cb69d')).toBe(true);
     });
 
+    it('excludes static asset requests from endpoint analytics', () => {
+        expect(shouldExcludeFromEndpointProductAnalytics('GET /v/t39.30808-6/700827799_101_n.jpg')).toBe(true);
+        expect(
+            shouldExcludeNetworkEventFromProductAnalytics({
+                method: 'GET',
+                url: 'https://cdn.example.com/assets/app.js',
+            }),
+        ).toBe(true);
+    });
+
     it('keeps non-internal customer endpoints in product analytics rollups', () => {
         expect(shouldExcludeFromEndpointProductAnalytics('GET /api/v1/orders')).toBe(false);
     });

@@ -80,8 +80,6 @@ const envSchema = z.object({
     CLICKHOUSE_PASSWORD: z.string().optional(),
     CLICKHOUSE_DATABASE: z.string().default('rejourney'),
     CLICKHOUSE_ASYNC_INSERT: z.string().transform(v => v !== 'false').default('true'),
-    CLICKHOUSE_CUTOVER_DATE: z.string().optional(),
-    CLICKHOUSE_RAW_READS_AFTER: z.string().optional(),
     CLICKHOUSE_REQUEST_TIMEOUT_MS: z.string().transform(Number).default('5000'),
 
     // Redis

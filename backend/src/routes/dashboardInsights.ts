@@ -7,15 +7,15 @@
 
 import { Router } from 'express';
 import { eq, gte, lte, and, desc, asc, inArray, sql, type SQL } from 'drizzle-orm';
-import { db, sessions, sessionMetrics, projects, teamMembers, appDailyStats, recordingArtifacts, screenTouchHeatmaps, apiEndpointDailyStats } from '../db/client.js';
+import { db, sessions, sessionMetrics, projects, teamMembers, appDailyStats, recordingArtifacts, screenTouchHeatmaps } from '../db/client.js';
 import { getRedis } from '../db/redis.js';
 import { asyncHandler, ApiError } from '../middleware/index.js';
 import { logger } from '../logger.js';
 import { sessionAuth } from '../middleware/auth.js';
-import { excludeInternalToolEndpointTraffic } from '../utils/internalToolEndpointFilter.js';
 import { boundedTimeRangeToDays } from '../utils/analyticsTimeRange.js';
 import { buildRetentionCohortRows } from '../services/retentionCohorts.js';
 import { buildHeatmapScreenshotUrl } from '../utils/heatmapPreview.js';
+import { queryDailyApiCallsFromClickHouse } from '../services/apiEndpointStatsClickHouse.js';
 
 const router = Router();
 const redis = getRedis();
@@ -1232,23 +1232,11 @@ router.get(
             }
         }
 
-        const apiConditions = [
-            inArray(apiEndpointDailyStats.projectId, projectIds),
-            lte(apiEndpointDailyStats.date, lastRolledUpDate),
-            excludeInternalToolEndpointTraffic(apiEndpointDailyStats.endpoint),
-        ];
-        if (startStr) {
-            apiConditions.push(gte(apiEndpointDailyStats.date, startStr));
-        }
-
-        // Fetch API endpoint stats for total calls
-        const apiStats = await db
-            .select({
-                date: apiEndpointDailyStats.date,
-                totalCalls: apiEndpointDailyStats.totalCalls,
-            })
-            .from(apiEndpointDailyStats)
-            .where(and(...apiConditions));
+        const apiStats = await queryDailyApiCallsFromClickHouse({
+            projectIds,
+            startDate: startStr,
+            endDate: lastRolledUpDate,
+        });
 
         // Merge API stats into dailyMap
         for (const s of apiStats) {

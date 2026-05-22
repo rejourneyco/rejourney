@@ -2,7 +2,6 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router';
 import {
     Check,
-    Compass,
     Copy,
     Filter,
     Play,
@@ -39,8 +38,6 @@ type HappyPathStage = {
     conversionRate: number;
     issueRatePer100: number;
 };
-
-type FlowHealthFilter = 'all' | 'healthy' | 'degraded' | 'problematic';
 
 type TransitionReplayOption = {
     id: string;
@@ -358,10 +355,6 @@ export const Journeys: React.FC = () => {
     const [trends, setTrends] = useState<InsightsTrends | null>(null);
     const [partialError, setPartialError] = useState<string | null>(null);
     const [isLoading, setIsLoading] = useState(true);
-    const [flowHealthFilter, setFlowHealthFilter] = useState<FlowHealthFilter>('all');
-    const [flowSearch, setFlowSearch] = useState('');
-    const [minFlowCount, setMinFlowCount] = useState(0);
-    const [onlyWithEvidence, setOnlyWithEvidence] = useState(false);
     const [selectedTransitionIds, setSelectedTransitionIds] = useState<string[]>([]);
     const [hydratedSelectedTransitionsKey, setHydratedSelectedTransitionsKey] = useState<string | null>(null);
     const [copiedSessionId, setCopiedSessionId] = useState<string | null>(null);
@@ -601,62 +594,9 @@ export const Journeys: React.FC = () => {
         return result;
     }, [data]);
 
-    const maxFlowCount = useMemo(
-        () => data?.flows.reduce((max, flow) => Math.max(max, flow.count), 0) || 0,
-        [data],
-    );
-
-    const flowVolumeOptions = useMemo(() => {
-        const baseOptions = [0, 10, 25, 50, 100, 250, 500, 1000, 2500];
-        const options = baseOptions.filter((value) => value === 0 || value <= maxFlowCount);
-        if (maxFlowCount > 0 && !options.includes(maxFlowCount)) {
-            options.push(maxFlowCount);
-        }
-        return options.sort((a, b) => a - b);
-    }, [maxFlowCount]);
-
-    useEffect(() => {
-        if (minFlowCount > maxFlowCount) {
-            setMinFlowCount(0);
-        }
-    }, [minFlowCount, maxFlowCount]);
-
-    const filteredSankeyFlows = useMemo(() => {
-        if (!data?.flows) return [];
-        const searchTerm = flowSearch.trim().toLowerCase();
-
-        return data.flows.filter((flow) => {
-            if (flowHealthFilter !== 'all' && getFlowHealth(flow) !== flowHealthFilter) {
-                return false;
-            }
-
-            if (flow.count < minFlowCount) {
-                return false;
-            }
-
-            if (searchTerm) {
-                const haystack = `${flow.from} ${flow.to}`.toLowerCase();
-                if (!haystack.includes(searchTerm)) return false;
-            }
-
-            if (onlyWithEvidence) {
-                const transitionKey = `${flow.from}→${flow.to}`;
-                const evidenceCount = (sankeyTransitionEvidence[transitionKey]?.length || 0) + (flow.sampleSessionIds?.length || 0);
-                if (evidenceCount === 0) return false;
-            }
-
-            return true;
-        });
-    }, [data, flowSearch, flowHealthFilter, minFlowCount, onlyWithEvidence, sankeyTransitionEvidence]);
-
-    const filteredFlowEventCount = useMemo(
-        () => filteredSankeyFlows.reduce((sum, flow) => sum + flow.count, 0),
-        [filteredSankeyFlows],
-    );
-
     const journeyFlowPresentation = useMemo(
-        () => buildJourneyFlowPresentation(filteredSankeyFlows, canonicalHappyPath),
-        [filteredSankeyFlows, canonicalHappyPath],
+        () => buildJourneyFlowPresentation(data?.flows || [], canonicalHappyPath),
+        [data?.flows, canonicalHappyPath],
     );
 
     const transitionReplayOptions = useMemo<TransitionReplayOption[]>(() => {
@@ -928,86 +868,13 @@ export const Journeys: React.FC = () => {
                             gridClassName="grid grid-cols-[repeat(auto-fit,minmax(240px,1fr))] gap-4"
                         />
 
-                        <section className="dashboard-surface overflow-hidden">
-                            <div>
-                                <div className="border-b-2 border-black bg-[#f8fafc] px-5 py-4">
-                                    <div className="flex items-center justify-between gap-3">
-                                        <div>
-                                            <h2 className="text-lg font-semibold uppercase tracking-wide text-black">Flow Map</h2>
-                                            <p className="mt-1 text-sm text-slate-500">Screen transitions by volume and health.</p>
-                                        </div>
-                                        <Compass className="h-5 w-5 text-blue-600" />
-                                    </div>
-                                    <div className="journey-filter-grid mt-4 grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-[minmax(160px,0.8fr)_minmax(160px,0.8fr)_minmax(240px,1.35fr)_minmax(220px,1fr)]">
-                                        <label className="space-y-1 text-xs text-slate-600">
-                                            <span className="font-semibold text-slate-700">Health</span>
-                                            <select
-                                                value={flowHealthFilter}
-                                                onChange={(event) => setFlowHealthFilter(event.target.value as FlowHealthFilter)}
-                                                className="w-full border-2 border-black bg-white px-2 py-1.5 text-xs font-semibold text-slate-800 shadow-neo-sm focus:outline-none focus:ring-2 focus:ring-black"
-                                            >
-                                                <option value="all">All paths</option>
-                                                <option value="healthy">Healthy only</option>
-                                                <option value="degraded">Degraded only</option>
-                                                <option value="problematic">Problematic only</option>
-                                            </select>
-                                        </label>
-
-                                        <label className="space-y-1 text-xs text-slate-600">
-                                            <span className="font-semibold text-slate-700">Min volume</span>
-                                            <select
-                                                value={minFlowCount}
-                                                onChange={(event) => setMinFlowCount(Number(event.target.value))}
-                                                className="w-full border-2 border-black bg-white px-2 py-1.5 text-xs font-semibold text-slate-800 shadow-neo-sm focus:outline-none focus:ring-2 focus:ring-black"
-                                            >
-                                                {flowVolumeOptions.map((option) => (
-                                                    <option key={option} value={option}>
-                                                        {option === 0 ? 'No minimum' : `${formatCompact(option)}+ sessions`}
-                                                    </option>
-                                                ))}
-                                            </select>
-                                        </label>
-
-                                        <label className="space-y-1 text-xs text-slate-600">
-                                            <span className="font-semibold text-slate-700">Search</span>
-                                            <input
-                                                type="text"
-                                                value={flowSearch}
-                                                onChange={(event) => setFlowSearch(event.target.value)}
-                                                placeholder="e.g. Checkout or Search"
-                                                className="w-full border-2 border-black bg-white px-2 py-1.5 text-xs font-semibold text-slate-800 shadow-neo-sm placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-black"
-                                            />
-                                        </label>
-
-                                        <label className="journey-evidence-toggle flex items-center gap-2 self-end border-2 border-black bg-white px-3 py-2 text-xs font-semibold text-slate-700 shadow-neo-sm">
-                                            <input
-                                                type="checkbox"
-                                                checked={onlyWithEvidence}
-                                                onChange={(event) => setOnlyWithEvidence(event.target.checked)}
-                                                className="h-3.5 w-3.5 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
-                                            />
-                                            <span className="font-semibold">Evidence only</span>
-                                        </label>
-                                    </div>
-                                    <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-slate-500">
-                                        <span>{journeyFlowPresentation.flows.length.toLocaleString()} lanes</span>
-                                        <span className="text-slate-300">/</span>
-                                        <span>{filteredSankeyFlows.length.toLocaleString()} matching transitions</span>
-                                        <span className="text-slate-300">/</span>
-                                        <span>{formatCompact(filteredFlowEventCount)} events</span>
-                                    </div>
-                                </div>
-                                <div className="p-4">
-                                    <SankeyJourney
-                                        flows={journeyFlowPresentation.flows}
-                                        height={560}
-                                        happyPath={canonicalHappyPath}
-                                        selectedTransitionIds={selectedTransitionIds}
-                                        onFlowToggle={toggleSelectedTransition}
-                                    />
-                                </div>
-                            </div>
-                        </section>
+                        <SankeyJourney
+                            flows={journeyFlowPresentation.flows}
+                            height={700}
+                            happyPath={canonicalHappyPath}
+                            selectedTransitionIds={selectedTransitionIds}
+                            onFlowToggle={toggleSelectedTransition}
+                        />
 
                         <section className="dashboard-surface overflow-hidden">
                             <div className="border-b-2 border-black bg-[#f8fafc] px-5 py-4">

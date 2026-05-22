@@ -12,6 +12,8 @@ DEPLOY_CLICKHOUSE="${DEPLOY_CLICKHOUSE:-false}"
 CLICKHOUSE_OPERATOR_NAMESPACE="${CLICKHOUSE_OPERATOR_NAMESPACE:-clickhouse}"
 CLICKHOUSE_OPERATOR_VERSION="${CLICKHOUSE_OPERATOR_VERSION:-0.26.3}"
 CLICKHOUSE_SETUP_TIMEOUT_SECONDS="${CLICKHOUSE_SETUP_TIMEOUT_SECONDS:-900}"
+RUN_CLICKHOUSE_ROLLUP_BACKFILL="${RUN_CLICKHOUSE_ROLLUP_BACKFILL:-false}"
+CLICKHOUSE_ROLLUP_BACKFILL_TIMEOUT_SECONDS="${CLICKHOUSE_ROLLUP_BACKFILL_TIMEOUT_SECONDS:-1800}"
 IMAGE_TAG="${1:?usage: deploy-release.sh <image-tag> [repository]}"
 REPOSITORY="${2:-rejourneyco/rejourney}"
 RENDER_DIR="$(mktemp -d "${TMPDIR:-/tmp}/rejourney-release.XXXXXX")"
@@ -72,6 +74,21 @@ dump_clickhouse_setup_diagnostics() {
     (kubectl logs "${pod}" -n "${NAMESPACE}" -c setup --tail=200 2>&1 || true) | redact_ci_output
     echo "[deploy-release] --- Logs from ${pod} (setup previous attempt) ---"
     (kubectl logs "${pod}" -n "${NAMESPACE}" -c setup --tail=200 --previous 2>&1 || true) | redact_ci_output
+  done
+}
+
+dump_clickhouse_rollup_backfill_diagnostics() {
+  kubectl describe job clickhouse-backfill-api-rollups -n "${NAMESPACE}" || true
+
+  local job_pods
+  job_pods="$(kubectl get pods -n "${NAMESPACE}" -l job-name=clickhouse-backfill-api-rollups -o name 2>/dev/null || true)"
+  for pod in ${job_pods}; do
+    echo "[deploy-release] --- Logs from ${pod} (wait-clickhouse) ---"
+    (kubectl logs "${pod}" -n "${NAMESPACE}" -c wait-clickhouse --tail=100 2>&1 || true) | redact_ci_output
+    echo "[deploy-release] --- Logs from ${pod} (backfill current attempt) ---"
+    (kubectl logs "${pod}" -n "${NAMESPACE}" -c backfill --tail=200 2>&1 || true) | redact_ci_output
+    echo "[deploy-release] --- Logs from ${pod} (backfill previous attempt) ---"
+    (kubectl logs "${pod}" -n "${NAMESPACE}" -c backfill --tail=200 --previous 2>&1 || true) | redact_ci_output
   done
 }
 
@@ -140,8 +157,12 @@ clickhouse_deploy_enabled() {
   [ "${DEPLOY_CLICKHOUSE}" = "true" ]
 }
 
+clickhouse_rollup_backfill_enabled() {
+  [ "${RUN_CLICKHOUSE_ROLLUP_BACKFILL}" = "true" ]
+}
+
 remove_clickhouse_rendered_manifests() {
-  rm -f "${RENDER_DIR}/clickhouse.yaml" "${RENDER_DIR}/clickhouse-setup.yaml"
+  rm -f "${RENDER_DIR}/clickhouse.yaml" "${RENDER_DIR}/clickhouse-setup.yaml" "${RENDER_DIR}/clickhouse-backfill-api-rollups.yaml"
 }
 
 clickhouse_operator_deployment_name() {
@@ -330,6 +351,51 @@ wait_for_clickhouse_setup_job() {
     if [ "$(date +%s)" -ge "${deadline}" ]; then
       dump_clickhouse_setup_diagnostics
       echo "[deploy-release] clickhouse-setup timed out after ${CLICKHOUSE_SETUP_TIMEOUT_SECONDS}s" >&2
+      exit 1
+    fi
+
+    sleep 5
+  done
+}
+
+apply_clickhouse_rollup_backfill_job() {
+  section "Applying clickhouse-backfill-api-rollups Job"
+  local backfill_manifest="${RENDER_DIR}/clickhouse-backfill-api-rollups.yaml"
+
+  if [ ! -f "${backfill_manifest}" ]; then
+    echo "[deploy-release] ERROR: ${backfill_manifest} not found" >&2
+    exit 1
+  fi
+
+  kubectl apply -f "${backfill_manifest}"
+}
+
+wait_for_clickhouse_rollup_backfill_job() {
+  section "Waiting For clickhouse-backfill-api-rollups"
+  local deadline
+  deadline=$(( $(date +%s) + CLICKHOUSE_ROLLUP_BACKFILL_TIMEOUT_SECONDS ))
+
+  while true; do
+    local succeeded failed
+    succeeded="$(kubectl get job clickhouse-backfill-api-rollups -n "${NAMESPACE}" -o jsonpath='{.status.succeeded}' 2>/dev/null || true)"
+    failed="$(kubectl get job clickhouse-backfill-api-rollups -n "${NAMESPACE}" -o jsonpath='{.status.failed}' 2>/dev/null || true)"
+
+    succeeded="${succeeded:-0}"
+    failed="${failed:-0}"
+
+    if [ "${succeeded}" = "1" ]; then
+      return 0
+    fi
+
+    if [ "${failed}" != "0" ]; then
+      dump_clickhouse_rollup_backfill_diagnostics
+      echo "[deploy-release] clickhouse-backfill-api-rollups failed" >&2
+      exit 1
+    fi
+
+    if [ "$(date +%s)" -ge "${deadline}" ]; then
+      dump_clickhouse_rollup_backfill_diagnostics
+      echo "[deploy-release] clickhouse-backfill-api-rollups timed out after ${CLICKHOUSE_ROLLUP_BACKFILL_TIMEOUT_SECONDS}s" >&2
       exit 1
     fi
 
@@ -794,7 +860,12 @@ main() {
   log "Repository: ${REPOSITORY}"
   log "Image tag: ${IMAGE_TAG}"
   log "ClickHouse deploy: ${DEPLOY_CLICKHOUSE}"
+  log "ClickHouse rollup backfill: ${RUN_CLICKHOUSE_ROLLUP_BACKFILL}"
   render_manifests
+  if clickhouse_rollup_backfill_enabled && ! clickhouse_deploy_enabled; then
+    echo "[deploy-release] ERROR: RUN_CLICKHOUSE_ROLLUP_BACKFILL=true requires DEPLOY_CLICKHOUSE=true" >&2
+    exit 1
+  fi
   if ! clickhouse_deploy_enabled; then
     log "Skipping ClickHouse manifests (DEPLOY_CLICKHOUSE is not true)."
     remove_clickhouse_rendered_manifests
@@ -853,6 +924,19 @@ main() {
 
     apply_clickhouse_setup_job
     wait_for_clickhouse_setup_job
+
+    if clickhouse_rollup_backfill_enabled; then
+      section "Resetting clickhouse-backfill-api-rollups Job"
+      log "Deleting old clickhouse-backfill-api-rollups job..."
+      kubectl delete job clickhouse-backfill-api-rollups -n "${NAMESPACE}" --ignore-not-found --wait=true --timeout=120s || true
+      kubectl delete pods -n "${NAMESPACE}" -l job-name=clickhouse-backfill-api-rollups --ignore-not-found --wait=true --timeout=60s || true
+
+      apply_clickhouse_rollup_backfill_job
+      wait_for_clickhouse_rollup_backfill_job
+    else
+      log "Skipping ClickHouse rollup backfill (RUN_CLICKHOUSE_ROLLUP_BACKFILL is not true)."
+    fi
+
     remove_clickhouse_rendered_manifests
   fi
 

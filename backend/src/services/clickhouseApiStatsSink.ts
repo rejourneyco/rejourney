@@ -1,6 +1,7 @@
 import { getClickHouseClient, isClickHouseDualWriteEnabled } from '../db/clickhouse.js';
 import { config } from '../config.js';
 import { logger } from '../logger.js';
+import { buildNormalizedApiEndpointLabel, normalizeApiEndpointPath } from '../utils/apiEndpointNormalization.js';
 
 export type ClickHouseApiEndpointEventRow = {
     project_id: string;
@@ -42,7 +43,7 @@ export function buildClickHouseApiEndpointEventRow(params: {
         ? params.eventAt
         : new Date();
     const method = params.method.trim().toUpperCase() || 'GET';
-    const path = params.path.trim() || '/';
+    const path = normalizeApiEndpointPath(params.path.trim() || '/');
     const statusCode = Number.isFinite(params.statusCode)
         ? Math.max(0, Math.min(999, Math.trunc(params.statusCode)))
         : 0;
@@ -59,7 +60,7 @@ export function buildClickHouseApiEndpointEventRow(params: {
         event_index: Math.max(0, Math.trunc(params.eventIndex)),
         method,
         path,
-        endpoint: `${method} ${path}`,
+        endpoint: buildNormalizedApiEndpointLabel(method, path),
         region: params.region?.trim() || 'unknown',
         status_code: statusCode,
         is_error: params.isError ? 1 : 0,

@@ -42,6 +42,10 @@ function prepareClusterStatement(statement: string): string {
             `CREATE TABLE IF NOT EXISTS $1${onCluster}\n(`,
         )
         .replace(
+            /^CREATE\s+MATERIALIZED\s+VIEW\s+IF\s+NOT\s+EXISTS\s+([A-Za-z0-9_.]+)\b/i,
+            `CREATE MATERIALIZED VIEW IF NOT EXISTS $1${onCluster}`,
+        )
+        .replace(
             /^ALTER\s+TABLE\s+([A-Za-z0-9_.]+)\b/i,
             `ALTER TABLE $1${onCluster}`,
         );
@@ -57,6 +61,13 @@ function prepareClusterStatement(statement: string): string {
         prepared = prepared.replace(
             /\bENGINE\s*=\s*ReplacingMergeTree\s*\(\s*imported_at\s*\)/i,
             "ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/{shard}/{database}/api_endpoint_daily_stats_imported', '{replica}', imported_at)",
+        );
+    }
+
+    if (/\bapi_endpoint_daily_rollups\b/i.test(prepared)) {
+        prepared = prepared.replace(
+            /\bENGINE\s*=\s*SummingMergeTree\s*\(\s*\(\s*total_calls\s*,\s*total_errors\s*,\s*sum_latency_ms\s*\)\s*\)/i,
+            "ENGINE = ReplicatedSummingMergeTree('/clickhouse/tables/{shard}/{database}/api_endpoint_daily_rollups', '{replica}', (total_calls, total_errors, sum_latency_ms))",
         );
     }
 

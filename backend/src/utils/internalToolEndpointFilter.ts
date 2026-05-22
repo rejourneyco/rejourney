@@ -1,5 +1,6 @@
 import { type SQL, sql } from 'drizzle-orm';
 import type { AnyPgColumn } from 'drizzle-orm/pg-core';
+import { isStaticAssetEndpointPath } from './apiEndpointNormalization.js';
 
 const DEFAULT_REJOURNEY_API_HOSTS = ['api.rejourney.co'];
 const INTERNAL_ENDPOINT_PREFIXES = ['/api/ingest', '/upload/artifacts'];
@@ -47,7 +48,7 @@ export function shouldExcludeFromEndpointProductAnalytics(endpoint: string): boo
     const lowered = endpoint.toLowerCase();
     if (lowered.includes('rejourney')) return true;
     const path = toPathOnly(endpoint);
-    return isInternalRejourneyPath(path);
+    return isInternalRejourneyPath(path) || isStaticAssetEndpointPath(path);
 }
 
 /**
@@ -83,6 +84,7 @@ export function shouldExcludeNetworkEventFromProductAnalytics(event: {
     const pathNorm = path.split('?')[0].toLowerCase();
     const isIngestPath = pathNorm === '/api/ingest' || pathNorm.startsWith('/api/ingest/');
     const isUploadRelayPath = pathNorm === '/upload/artifacts' || pathNorm.startsWith('/upload/artifacts/');
+    if (isStaticAssetEndpointPath(pathNorm)) return true;
     if (isUploadRelayPath) return true;
     if (isIngestPath && (!host || isRejourneyConfiguredApiHost(host))) return true;
 

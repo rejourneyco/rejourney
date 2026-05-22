@@ -256,7 +256,7 @@ logs() {
         clickhouse)
             kubectl logs -f statefulset/clickhouse -n "$NAMESPACE" --tail=100
             ;;
-        db-setup|minio-setup|clickhouse-setup|clickhouse-backfill-api-stats)
+        db-setup|minio-setup|clickhouse-setup|clickhouse-backfill-api-rollups)
             kubectl logs -f job/"$target" -n "$NAMESPACE" --tail=100
             ;;
         *)

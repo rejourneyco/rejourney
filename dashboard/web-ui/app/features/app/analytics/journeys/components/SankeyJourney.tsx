@@ -105,8 +105,16 @@ export const SankeyJourney: React.FC<SankeyJourneyProps> = ({
         return nodes;
     }, [selectedTransitionIds]);
 
-    const { nodes, links, nodeLookup, calculatedWidth } = useMemo(() => {
-        if (flows.length === 0) return { nodes: [], links: [], nodeLookup: new Map<string, SankeyNode>(), calculatedWidth: propWidth || 1200 };
+    const { nodes, links, nodeLookup, calculatedWidth, calculatedHeight } = useMemo(() => {
+        if (flows.length === 0) {
+            return {
+                nodes: [],
+                links: [],
+                nodeLookup: new Map<string, SankeyNode>(),
+                calculatedWidth: propWidth || 1200,
+                calculatedHeight: height,
+            };
+        }
 
         const nodeMap = new Map<string, { in: number; out: number }>();
         const connections = new Map<string, Set<string>>();
@@ -298,7 +306,22 @@ export const SankeyJourney: React.FC<SankeyJourneyProps> = ({
             stackLinks(node.id, 'target');
         }
 
-        return { nodes: sankeyNodes, links: sankeyLinks, nodeLookup, calculatedWidth };
+        const nodeBottom = sankeyNodes.reduce(
+            (bottom, node) => Math.max(bottom, node.barY + node.barHeight, node.cardY + cardHeight),
+            height,
+        );
+        const linkBottom = sankeyLinks.reduce(
+            (bottom, link) => Math.max(
+                bottom,
+                link.ySource + link.thickness / 2,
+                link.yTarget + link.thickness / 2,
+            ),
+            height,
+        );
+        const contentBottom = Math.max(nodeBottom, linkBottom);
+        const calculatedHeight = Math.ceil(contentBottom > height ? contentBottom + 24 : height);
+
+        return { nodes: sankeyNodes, links: sankeyLinks, nodeLookup, calculatedWidth, calculatedHeight };
     }, [flows, propWidth, height]);
 
     if (nodes.length === 0) {
@@ -361,10 +384,15 @@ export const SankeyJourney: React.FC<SankeyJourneyProps> = ({
             </div>
 
             <div
-                className="relative overflow-x-auto bg-white"
+                className="relative overflow-auto overscroll-contain bg-white focus:outline-none focus:ring-2 focus:ring-black focus:ring-inset"
+                style={{ maxHeight: height }}
+                tabIndex={0}
+                role="region"
+                aria-label="Scrollable journey lanes map"
             >
-                <div className="absolute inset-0 pointer-events-none bg-gradient-to-b from-white via-[#f8fafc] to-white" />
-                <svg width={calculatedWidth} height={height} viewBox={`0 0 ${calculatedWidth} ${height}`} className="relative overflow-visible">
+                <div className="relative" style={{ width: calculatedWidth, height: calculatedHeight }}>
+                    <div className="absolute inset-0 pointer-events-none bg-gradient-to-b from-white via-[#f8fafc] to-white" />
+                    <svg width={calculatedWidth} height={calculatedHeight} viewBox={`0 0 ${calculatedWidth} ${calculatedHeight}`} className="relative block overflow-visible">
                     <g>
                         {[...links].sort((a, b) => b.thickness - a.thickness).map((link) => {
                             const sourceNode = nodeLookup.get(link.source);
@@ -492,7 +520,8 @@ export const SankeyJourney: React.FC<SankeyJourneyProps> = ({
                             );
                         })}
                     </g>
-                </svg>
+                    </svg>
+                </div>
 
             </div>
 

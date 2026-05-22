@@ -112,9 +112,9 @@ export const MiniSessionCard: React.FC<MiniSessionCardProps> = ({
             : 'other';
     const displayUrl = session.webLandingRoute || '/';
 
-    // Prefer API-provided cover URL, but fall back to the standard cover endpoint when an id is available.
-    // (404s are expected for sessions without visual artifacts; we treat them as "no preview".)
-    const normalizedCoverPath = (() => {
+    // Web/rrweb sessions have no screenshot artifacts, so the cover endpoint always 404s for them.
+    // Skip the fetch entirely and render the URL-based placeholder instead.
+    const normalizedCoverPath = isWebSession ? null : (() => {
         const raw = session.coverPhotoUrl && session.coverPhotoUrl.trim().length > 0
             ? session.coverPhotoUrl.trim()
             : (session.id ? `/api/sessions/cover/${session.id}` : null);
@@ -173,6 +173,11 @@ export const MiniSessionCard: React.FC<MiniSessionCardProps> = ({
             className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-300 ${imageLoaded ? 'opacity-100' : 'opacity-0'}`}
             onLoad={() => setImageLoaded(true)}
         />
+    ) : isWebSession ? (
+        <div className="absolute inset-0 bg-slate-50 flex flex-col items-center justify-center gap-1 px-2">
+            <Globe className="h-4 w-4 text-slate-300 shrink-0" />
+            <span className="text-[9px] font-semibold text-slate-400 text-center truncate w-full text-center">{displayUrl}</span>
+        </div>
     ) : (
         <div className="absolute inset-0 bg-slate-50 flex items-center justify-center">
             <span className="text-[10px] font-bold text-slate-300 transform -rotate-45">NO PREVIEW</span>

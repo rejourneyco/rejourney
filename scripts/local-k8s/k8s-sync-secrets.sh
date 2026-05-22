@@ -74,9 +74,7 @@ create_or_update_secret clickhouse-secret \
     --from-literal=CLICKHOUSE_URL="${CLICKHOUSE_K8S_URL:-http://clickhouse:8123}" \
     --from-literal=CLICKHOUSE_USER="${CLICKHOUSE_USER:-rejourney}" \
     --from-literal=CLICKHOUSE_PASSWORD="${CLICKHOUSE_PASSWORD:-rejourney}" \
-    --from-literal=CLICKHOUSE_DATABASE="${CLICKHOUSE_DATABASE:-rejourney}" \
-    --from-literal=CLICKHOUSE_CUTOVER_DATE="${CLICKHOUSE_CUTOVER_DATE:-}" \
-    --from-literal=CLICKHOUSE_RAW_READS_AFTER="${CLICKHOUSE_RAW_READS_AFTER:-}"
+    --from-literal=CLICKHOUSE_DATABASE="${CLICKHOUSE_DATABASE:-rejourney}"
 
 create_or_update_secret s3-secret \
     --from-literal=S3_ENDPOINT="http://minio:9000" \

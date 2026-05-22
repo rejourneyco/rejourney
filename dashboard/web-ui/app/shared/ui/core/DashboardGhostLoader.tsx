@@ -4,6 +4,7 @@ import { cn } from '~/shared/lib/cn';
 export type DashboardGhostLoaderVariant =
   | 'general'
   | 'analytics'
+  | 'api'
   | 'list'
   | 'map'
   | 'settings'
@@ -250,6 +251,136 @@ const AnalyticsGhostBody: React.FC<{ kpiCount?: number }> = ({ kpiCount = 4 }) =
   </div>
 );
 
+const ApiEndpointDatabaseGhost: React.FC = () => (
+  <section className="dashboard-surface overflow-hidden p-0">
+    <div className="border-b border-slate-200 px-5 py-4">
+      <div className="flex items-center gap-3">
+        <GhostBlock className="h-10 w-10 shrink-0 rounded-none" />
+        <div className="min-w-0 space-y-2">
+          <GhostBlock className="h-5 w-44 rounded-none" />
+          <GhostBlock className="h-3 w-72 max-w-full rounded-none" />
+        </div>
+      </div>
+    </div>
+
+    <div className="border-b border-slate-200 bg-white px-5 py-4">
+      <div className="grid gap-3 xl:grid-cols-[minmax(300px,1.2fr)_repeat(5,minmax(140px,0.55fr))_auto] xl:items-end">
+        <div className="block min-w-0">
+          <GhostBlock className="mb-1 h-3 w-12 rounded-none" />
+          <GhostBlock className="h-[38px] w-full rounded-none" />
+        </div>
+        {Array.from({ length: 5 }).map((_, index) => (
+          <div key={`api-filter-${index}`} className="block">
+            <GhostBlock className="mb-1 h-3 w-14 rounded-none" />
+            <GhostBlock className="h-[38px] w-full rounded-none" />
+          </div>
+        ))}
+        <GhostBlock className="h-[38px] w-24 rounded-none" />
+      </div>
+
+      <div className="mt-4 grid gap-3 xl:grid-cols-[minmax(0,1fr)_minmax(260px,0.46fr)]">
+        <div className="dashboard-inner-surface p-3">
+          <div className="mb-2 flex min-w-0 flex-wrap items-center gap-2">
+            <GhostBlock className="h-3.5 w-28 rounded-none" />
+            <GhostBlock className="h-3 w-40 rounded-none" />
+          </div>
+          <div className="flex flex-wrap items-center gap-1.5">
+            <div className="mr-1 flex items-center gap-1 border-r border-slate-200 pr-2">
+              <GhostBlock className="h-7 w-10 rounded-none" />
+              <GhostBlock className="h-7 w-10 rounded-none" />
+              <GhostBlock className="h-7 w-16 rounded-none" />
+            </div>
+            {Array.from({ length: 8 }).map((_, index) => (
+              <GhostBlock key={`api-code-${index}`} className="h-7 w-16 rounded-none" />
+            ))}
+          </div>
+        </div>
+
+        <div className="dashboard-inner-surface p-3">
+          <div className="mb-2 flex items-center justify-between gap-2">
+            <GhostBlock className="h-3.5 w-24 rounded-none" />
+            <GhostBlock className="h-3 w-14 rounded-none" />
+          </div>
+          <GhostBlock className="h-[38px] w-full rounded-none" />
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            <GhostBlock className="h-6 w-20 rounded-none" />
+            <GhostBlock className="h-6 w-24 rounded-none" />
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div className="overflow-x-auto">
+      <div className="min-w-[1220px]">
+        <div className="grid grid-cols-[minmax(360px,1.7fr)_120px_120px_120px_120px_180px_100px] border-b border-slate-200 bg-slate-50 px-4 py-3">
+          <GhostBlock className="h-3 w-20 rounded-none" />
+          {Array.from({ length: 6 }).map((_, index) => (
+            <GhostBlock key={`api-table-head-${index}`} className="ml-auto h-3 w-16 rounded-none" />
+          ))}
+        </div>
+
+        <div className="divide-y divide-slate-200">
+          {Array.from({ length: 10 }).map((_, index) => (
+            <div
+              key={`api-row-${index}`}
+              className="grid grid-cols-[minmax(360px,1.7fr)_120px_120px_120px_120px_180px_100px] items-center px-4 py-3"
+            >
+              <div className="flex min-w-0 items-center gap-2">
+                <GhostBlock className="h-7 w-12 shrink-0 rounded-none" />
+                <GhostBlock className="h-4 w-72 max-w-[70%] rounded-none" />
+              </div>
+              <GhostBlock className="ml-auto h-4 w-14 rounded-none" />
+              <GhostBlock className="ml-auto h-4 w-12 rounded-none" />
+              <GhostBlock className="ml-auto h-4 w-14 rounded-none" />
+              <GhostBlock className="ml-auto h-4 w-16 rounded-none" />
+              <div className="ml-auto flex justify-end gap-1.5">
+                <GhostBlock className="h-6 w-14 rounded-none" />
+                <GhostBlock className="h-6 w-14 rounded-none" />
+                {index % 2 === 0 && <GhostBlock className="h-6 w-14 rounded-none" />}
+              </div>
+              <GhostBlock className="ml-auto h-6 w-12 rounded-none" />
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+
+    <div className="flex flex-col gap-3 border-t border-slate-200 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+      <GhostBlock className="h-4 w-44 rounded-none" />
+      <div className="flex flex-wrap items-center gap-3">
+        <GhostBlock className="h-8 w-24 rounded-none" />
+        <div className="flex items-center gap-1">
+          <GhostBlock className="h-9 w-9 rounded-none" />
+          <GhostBlock className="h-4 w-28 rounded-none" />
+          <GhostBlock className="h-9 w-9 rounded-none" />
+        </div>
+      </div>
+    </div>
+  </section>
+);
+
+const ApiGhostBody: React.FC = () => (
+  <div className="mx-auto w-full max-w-[1600px] space-y-6 px-4 py-6 sm:px-6">
+    <section>
+      <div className="grid grid-cols-[repeat(auto-fit,minmax(220px,1fr))] gap-5">
+        {Array.from({ length: 4 }).map((_, index) => (
+          <KpiCardGhost key={`api-kpi-${index}`} accentColor={KPI_ACCENT_COLORS[index % KPI_ACCENT_COLORS.length]} />
+        ))}
+      </div>
+    </section>
+
+    <ApiEndpointDatabaseGhost />
+
+    <section className="dashboard-surface p-5">
+      <div className="mb-4 flex items-center justify-between gap-4">
+        <GhostBlock className="h-5 w-72 max-w-full rounded-none" />
+        <GhostBlock className="h-5 w-5 shrink-0 rounded-none" />
+      </div>
+      <GhostBlock className="h-[300px] w-full rounded-none" />
+    </section>
+  </div>
+);
+
 const ListGhostBody: React.FC = () => (
   <>
     {/* Search/controls row — matches border-b-2 border-black bg-[#f8fafc] row in real list pages */}
@@ -412,6 +543,15 @@ export const DashboardGhostLoader: React.FC<DashboardGhostLoaderProps> = ({ vari
       <div className="min-h-screen bg-white font-sans text-black">
         <SettingsHeaderGhost />
         <SettingsGhostBody />
+      </div>
+    );
+  }
+
+  if (variant === 'api') {
+    return (
+      <div className="rejourney-api-page min-h-screen bg-[#f8fafd] pb-12 font-sans text-black">
+        <PageHeaderGhost withControls />
+        <ApiGhostBody />
       </div>
     );
   }

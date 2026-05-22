@@ -14,10 +14,7 @@ import { asyncHandler, ApiError } from '../middleware/index.js';
 import { sessionAuth } from '../middleware/auth.js';
 import { writeApiRateLimiter } from '../middleware/rateLimit.js';
 import { runDailyRollup, backfillDailyStats } from '../jobs/statsAggregator.js';
-import {
-    shouldExcludeFromEndpointProductAnalytics,
-    excludeInternalToolEndpointTraffic,
-} from '../utils/internalToolEndpointFilter.js';
+import { shouldExcludeFromEndpointProductAnalytics } from '../utils/internalToolEndpointFilter.js';
 import { ANALYTICS_LONG_WINDOW_DAYS, boundedTimeRangeToDays } from '../utils/analyticsTimeRange.js';
 import {
     canReadApiEndpointStatsFromClickHouse,
@@ -2453,7 +2450,7 @@ router.get(
         }
 
         const sortedProjectIds = [...projectIds].sort();
-        const statsSource = canReadApiEndpointStatsFromClickHouse() ? 'clickhouse' : 'postgres';
+        const statsSource = 'clickhouse-rollup';
         const cacheKey = `analytics:api-endpoint-stats:${sortedProjectIds.join(',')}:${timeRange || 'all'}:${statsSource}:v10-status-code-breakdown`;
         const cached = await redis.get(cacheKey);
         if (cached) {
@@ -2479,9 +2476,9 @@ router.get(
             sumLatencyMs: number | bigint;
             statusCodeBreakdown: ErrorCodeBreakdown;
         }>;
-        let shouldFallbackToPostgres = !canReadApiEndpointStatsFromClickHouse();
-
-        if (canReadApiEndpointStatsFromClickHouse()) {
+        if (!canReadApiEndpointStatsFromClickHouse()) {
+            stats = [];
+        } else {
             try {
                 const clickHouseRows = await queryApiEndpointStatusRowsFromClickHouse({
                     projectIds: sortedProjectIds,
@@ -2522,40 +2519,9 @@ router.get(
 
                 stats = [...rowsByEndpoint.values()];
             } catch (err) {
-                logger.warn({ err }, 'ClickHouse API endpoint stats query failed; falling back to Postgres');
+                logger.error({ err }, 'ClickHouse API endpoint stats query failed');
                 stats = [];
-                shouldFallbackToPostgres = true;
             }
-        } else {
-            stats = [];
-        }
-
-        if (shouldFallbackToPostgres) {
-            // Import the new table
-            const { apiEndpointDailyStats } = await import('../db/client.js');
-
-            // Build query conditions
-            const lastRolledUpDate = await getLastRolledUpDate();
-            const conditions = [
-                inArray(apiEndpointDailyStats.projectId, projectIds),
-                lte(apiEndpointDailyStats.date, lastRolledUpDate),
-                excludeInternalToolEndpointTraffic(apiEndpointDailyStats.endpoint),
-            ];
-            if (startDate) {
-                conditions.push(gte(apiEndpointDailyStats.date, startDate));
-            }
-
-            // Query aggregated endpoint stats
-            stats = await db
-                .select({
-                    endpoint: apiEndpointDailyStats.endpoint,
-                    totalCalls: apiEndpointDailyStats.totalCalls,
-                    totalErrors: apiEndpointDailyStats.totalErrors,
-                    sumLatencyMs: apiEndpointDailyStats.sumLatencyMs,
-                    statusCodeBreakdown: apiEndpointDailyStats.statusCodeBreakdown,
-                })
-                .from(apiEndpointDailyStats)
-                .where(and(...conditions));
         }
 
         // Aggregate across dates per endpoint
@@ -2675,7 +2641,7 @@ router.get(
         }
 
         // Cache check - v2 for rollup-based implementation
-        const regionStatsSource = canReadApiEndpointStatsFromClickHouse() ? 'clickhouse' : 'postgres';
+        const regionStatsSource = 'clickhouse-rollup';
         const cacheKey = `analytics:region-performance:${projectId}:${timeRange || '30d'}:${regionStatsSource}:v6-long-window`;
         const cached = await redis.get(cacheKey);
         if (cached) {
@@ -2701,43 +2667,18 @@ router.get(
             totalCalls: number | string;
             sumLatencyMs: number | string;
         }>;
-        let shouldFallbackRegionStatsToPostgres = !canReadApiEndpointStatsFromClickHouse();
-
-        if (canReadApiEndpointStatsFromClickHouse()) {
+        if (!canReadApiEndpointStatsFromClickHouse()) {
+            regionStats = [];
+        } else {
             try {
                 regionStats = await queryRegionStatsFromClickHouse({
                     projectId,
                     startDate: startDateStr,
                 });
             } catch (err) {
-                logger.warn({ err }, 'ClickHouse region stats query failed; falling back to Postgres');
+                logger.error({ err }, 'ClickHouse region stats query failed');
                 regionStats = [];
-                shouldFallbackRegionStatsToPostgres = true;
             }
-        } else {
-            regionStats = [];
-        }
-
-        if (shouldFallbackRegionStatsToPostgres) {
-            // Import apiEndpointDailyStats
-            const { apiEndpointDailyStats } = await import('../db/client.js');
-            const lastRolledUpDate = await getLastRolledUpDate();
-
-            // Query from rollup table grouped by region (SCALABLE)
-            regionStats = await db
-                .select({
-                    region: apiEndpointDailyStats.region,
-                    totalCalls: sql<number>`sum(${apiEndpointDailyStats.totalCalls})::int`,
-                    sumLatencyMs: sql<number>`sum(${apiEndpointDailyStats.sumLatencyMs})::bigint`,
-                })
-                .from(apiEndpointDailyStats)
-                .where(and(
-                    eq(apiEndpointDailyStats.projectId, projectId),
-                    gte(apiEndpointDailyStats.date, startDateStr),
-                    lte(apiEndpointDailyStats.date, lastRolledUpDate),
-                    excludeInternalToolEndpointTraffic(apiEndpointDailyStats.endpoint),
-                ))
-                .groupBy(apiEndpointDailyStats.region);
         }
 
         // Get country names

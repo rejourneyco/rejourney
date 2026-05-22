@@ -1026,7 +1026,7 @@ export const ApiAnalytics: React.FC = () => {
     }, [trends, timeRange, endpointStats, endpointRisks]);
 
     if (isLoading && selectedProject?.id && !endpointStats) {
-        return <DashboardGhostLoader variant="analytics" />;
+        return <DashboardGhostLoader variant="api" />;
     }
 
     return (

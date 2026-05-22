@@ -1,10 +1,36 @@
 # ClickHouse Migration Plan: API Endpoint Daily Stats
 
-Last updated: 2026-05-21
+Last updated: 2026-05-22
 
 This is the implementation runbook for the first Rejourney table/workload to move from Postgres to ClickHouse.
 
-The first target is the workload currently represented by `api_endpoint_daily_stats`, not `sessions` and not `recording_artifacts`.
+The first target is the workload formerly represented by Postgres `api_endpoint_daily_stats`, not `sessions` and not `recording_artifacts`.
+
+## Current Final-State Change Set
+
+The migration has moved past the dual-read/fallback phase. The local change set for the final cutover does this:
+
+- ClickHouse runtime reads use `api_endpoint_daily_rollups`.
+- `api_endpoint_daily_rollups` is filled by a materialized view from `api_endpoint_request_events`.
+- `backend/scripts/backfillClickHouseApiEndpointRollups.ts --replace` rebuilds rollups from ClickHouse imported history plus existing raw request facts.
+- Artifact processing no longer writes Postgres `api_endpoint_daily_stats`.
+- API endpoint analytics, region performance, dashboard insights, issue generation, and API degradation emails no longer read Postgres `api_endpoint_daily_stats`.
+- Drizzle migration `20260522010000_drop_api_endpoint_daily_stats` drops the heavy historical Postgres table, then creates an empty no-op compatibility shell with the same name so old pods do not crash during the rolling deploy window.
+
+After this ships, Postgres is not a rollback source for API endpoint analytics. Rollback means reverting application code and restoring historical data from backup, or keeping ClickHouse reads healthy.
+
+Older sections below still preserve the phase history for auditability. Any instruction that references `backfillClickHouseApiEndpointStats.ts`, `clickhouse-backfill-api-stats`, `CLICKHOUSE_CUTOVER_DATE`, or `CLICKHOUSE_RAW_READS_AFTER` is from the earlier dual-read cutover phase and is superseded by the rollup rebuild path above.
+
+Local verification on 2026-05-22:
+
+- `npm run ci:local` passed end to end.
+- `clickhouse-setup` recorded `004_api_endpoint_daily_rollups.sql`.
+- `api_endpoint_daily_rollups` and `api_endpoint_daily_rollups_mv` existed in local ClickHouse.
+- `npm --prefix backend run clickhouse:backfill:api-rollups -- --replace` completed locally.
+- Local rollup smoke after the backfill returned 558 rollup rows, 13,330 calls, and 113 errors.
+- Local Postgres drop migration was re-run after finalizing the compatibility shell; the shell existed with 0 rows, and a legacy `INSERT ... ON CONFLICT` returned `INSERT 0 0` while the table remained empty.
+
+Production deploy note: for the cutover release, use `DEPLOY_CLICKHOUSE=true RUN_CLICKHOUSE_ROLLUP_BACKFILL=true` so `clickhouse-setup` applies migration `004`, `clickhouse-backfill-api-rollups` rebuilds the rollup, and only then do the new app deployments roll.
 
 ## Decision
 
@@ -12,12 +38,13 @@ Move the API endpoint analytics workload first.
 
 Do not copy the current Postgres shape into ClickHouse 1:1. The Postgres table is a daily mutable aggregate maintained by high-frequency upserts. ClickHouse should receive append-only API request facts and then serve daily aggregates from those facts.
 
-The replacement should be:
+The replacement is:
 
 - new ClickHouse fact table: `api_endpoint_request_events`
 - optional imported historical aggregate table: `api_endpoint_daily_stats_imported`
-- compatibility query/service that returns the same logical shape as the current Postgres `api_endpoint_daily_stats`
-- later optional materialized daily rollup once insert idempotency is proven
+- daily ClickHouse rollup table: `api_endpoint_daily_rollups`
+- materialized view: `api_endpoint_daily_rollups_mv`
+- compatibility query/service that returns the same logical shape the dashboard expected from the old Postgres table
 
 This choice is deliberate:
 

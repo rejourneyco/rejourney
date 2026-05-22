@@ -279,7 +279,7 @@ A backward-compat `api` Service still exists and aliases `api-ingest` so anythin
 
 ### ClickHouse analytics projection (deploy-gated)
 
-ClickHouse is the next analytics scale-out path, starting with the workload behind `api_endpoint_daily_stats`. It is **not** a replacement for Postgres as the source of truth for sessions, recording artifacts, auth, billing, storage configuration, or ingest lifecycle state.
+ClickHouse is the analytics scale-out path for API endpoint telemetry. The old Postgres `api_endpoint_daily_stats` table is no longer the runtime source once the drop migration ships; ClickHouse owns the API endpoint facts, imported history, and daily rollups. It is **not** a replacement for Postgres as the source of truth for sessions, recording artifacts, auth, billing, storage configuration, or ingest lifecycle state.
 
 Production deployment is gated:
 
@@ -294,8 +294,8 @@ Topology when enabled:
 |---|---|---|
 | ClickHouse Keeper | 3 replicas, one voter per node | quorum for replicated ClickHouse tables |
 | ClickHouse data | 1 shard, 2 replicas on HEL1 nodes | analytics facts and imported daily aggregates |
-| `clickhouse-setup` Job | manual/explicit deploy step | creates `api_endpoint_request_events`, `api_endpoint_daily_stats_imported`, and `schema_migrations` |
-| `clickhouse-backfill-api-stats` Job | manual only | imports historical Postgres `api_endpoint_daily_stats` rows before read cutover |
+| `clickhouse-setup` Job | manual/explicit deploy step | creates `api_endpoint_request_events`, `api_endpoint_daily_stats_imported`, `api_endpoint_daily_rollups`, the rollup materialized view, and `schema_migrations` |
+| `clickhouse-backfill-api-rollups` Job | manual or explicit deploy flag | rebuilds `api_endpoint_daily_rollups` from ClickHouse imported history plus raw request facts |
 
 Why HEL1 for the data replicas: the first writer is `ingest-worker`, which already lives in HEL1 and processes artifacts asynchronously; the first reader is `api-dashboard`, which also lives in HEL1. Keeping ClickHouse data on HEL1 avoids loading the FSN1 Postgres primary node with analytical storage and merge work. This topology only makes sense because ClickHouse is outside the synchronous `/api/ingest/*` return path. The earlier FSN1 primary colocation incident showed what happens when ingest makes serial cross-DC calls: ingest latency can jump into seconds. Do not move any synchronous ingest write to a HEL1-only ClickHouse endpoint.
 
@@ -307,17 +307,17 @@ Resource impact expected after the full cutover:
 - not a magic fix for `sessions` or `recording_artifacts` bloat; those remain Postgres source-of-truth tables until a separate lifecycle/archive design exists
 - not a fix for synchronous ingest latency by itself; `api-ingest` must still colocate with the writable Postgres primary
 
-Rollout gates:
+Current rollout model:
 
-1. Enable infrastructure only: `DEPLOY_CLICKHOUSE=true`, app flags still false.
-2. Enable dual-write from artifact processing only after the deployed image writes `api_endpoint_request_events.event_date` with the same processing-day semantics as `api_endpoint_daily_stats.date`: `CLICKHOUSE_ENABLED=true`, `CLICKHOUSE_DUAL_WRITE_ENABLED=true`, `CLICKHOUSE_READS_ENABLED=false`.
-3. Run `clickhouse-backfill-api-stats` with an exclusive `CLICKHOUSE_CUTOVER_DATE`.
-4. Compare Postgres and ClickHouse totals by date and by project.
-5. Enable reads: `CLICKHOUSE_READS_ENABLED=true`, `CLICKHOUSE_CUTOVER_DATE=<date dual-write became reliable>`.
-   For a same-day cutover, set `CLICKHOUSE_CUTOVER_DATE` to tomorrow's UTC date and `CLICKHOUSE_RAW_READS_AFTER` to the timestamp immediately after the final same-day backfill completes. That keeps today's backfilled totals and adds new raw ClickHouse rows after the handoff point.
-6. Only after at least a clean week, remove Postgres writes for this workload. Do not drop `api_endpoint_daily_stats` in the same release that removes writes.
+1. Keep `api-ingest` and artifact processing writing raw API facts to `api_endpoint_request_events`.
+2. Run `clickhouse-setup` so the rollup table and materialized view exist.
+3. Run `clickhouse-backfill-api-rollups --replace` once to rebuild `api_endpoint_daily_rollups` from ClickHouse imported history and raw facts. In production deploys, use `DEPLOY_CLICKHOUSE=true RUN_CLICKHOUSE_ROLLUP_BACKFILL=true` so setup and rollup rebuild finish before the new app pods roll.
+4. Keep `CLICKHOUSE_ENABLED=true`, `CLICKHOUSE_DUAL_WRITE_ENABLED=true`, and `CLICKHOUSE_READS_ENABLED=true`.
+5. Apply the Postgres migration `20260522010000_drop_api_endpoint_daily_stats`; it drops the heavy historical table and leaves only an empty no-op compatibility shell for rolling deploy safety. After this release there is no Postgres read/write fallback for API endpoint analytics.
 
 Local verification completed on 2026-05-21: the backfill imported 832 local `api_endpoint_daily_stats` rows; Postgres and ClickHouse `FINAL` totals matched exactly at 27,505 calls, 262 errors, and 11,229,944 summed latency ms. See the migration runbook for commands and details.
+
+Rollup migration update on 2026-05-22: runtime reads now target `api_endpoint_daily_rollups`; issue generation, dashboard insights, and API degradation emails no longer read `api_endpoint_daily_stats`; artifact processing no longer writes that Postgres table. The one-time rollup backfill job is `clickhouse-backfill-api-rollups`. The remaining Postgres object with that name is only an empty no-op compatibility shell during deployment.
 
 Production infrastructure verification on 2026-05-21:
 
@@ -448,13 +448,13 @@ Local k8s uses the same idea with `http:` allowed for MinIO/local endpoints. Buc
 
 18. **ClickHouse must stay off the synchronous ingest path.** It is safe only because artifact processing writes API request facts asynchronously and catches ClickHouse failures. If any `/api/ingest/*` handler starts waiting on ClickHouse before returning to the SDK, revisit placement first — a HEL1-only ClickHouse write endpoint would reintroduce the cross-DC latency pattern that previously pushed ingest latency into seconds.
 
-19. **Do not enable ClickHouse reads before backfill plus cutover date.** `CLICKHOUSE_READS_ENABLED=true` with an empty `CLICKHOUSE_CUTOVER_DATE` reads only raw facts collected since dual-write started. Historical dashboard charts will look empty. Set `CLICKHOUSE_CUTOVER_DATE` to the first reliable dual-write date after the backfill Job succeeds and totals match.
+19. **API endpoint analytics now require the ClickHouse rollup table.** `CLICKHOUSE_READS_ENABLED=true` is expected in production after the rollup release. If `api_endpoint_daily_rollups` is missing or empty, the API endpoint page will return empty ClickHouse results because the Postgres fallback has been removed.
 
-20. **Do not drop `api_endpoint_daily_stats` at read cutover.** First cut over reads, keep Postgres writes and fallback for rollback, soak for at least a week, then remove Postgres writes for this one workload. Archive/drop the old table only in a later release after rollback is no longer needed.
+20. **Run `clickhouse-backfill-api-rollups --replace` after creating the rollup table.** The materialized view handles new raw facts, but the backfill rebuilds imported history and existing raw facts into the small daily rollup queried by the dashboard.
 
-21. **The raw ClickHouse fact date must match the Postgres aggregate date.** `api_endpoint_daily_stats.date` is the artifact processing day, not necessarily the client event day. If `api_endpoint_request_events.event_date` uses the client timestamp, cutover can lose late-arriving events at day boundaries. Keep the raw fact `event_date` aligned with the processing day for compatibility with the existing dashboard aggregates.
+21. **The raw ClickHouse fact date must stay aligned with artifact processing day.** This keeps rollup history comparable with the old Postgres aggregate and avoids late-arrival surprises around UTC day boundaries.
 
-22. **For same-day ClickHouse read cutover, use `CLICKHOUSE_RAW_READS_AFTER`.** Without it, a mid-day cutover either reads today's imported snapshot only or today's raw facts only. The safe immediate path is: final same-day backfill, record the UTC completion timestamp, set `CLICKHOUSE_RAW_READS_AFTER`, then restart `api-dashboard`.
+22. **Do not reintroduce Postgres fallback for API endpoint analytics.** The old `api_endpoint_daily_stats` data table is dropped by migration, with only an empty no-op compatibility shell left for rolling deploy safety. New API endpoint analytics features should read ClickHouse rollups or raw ClickHouse facts only.
 
 ---
 
@@ -508,4 +508,4 @@ Add the new FSN1 node as a Hetzner LB backend.
 - HEL1 nodes: unchanged — HA standby, bulk worker capacity, and `api-dashboard` home.
 - `api-dashboard`: 2 replicas on HEL1 is plenty for current operator load; scale via its own HPA (2–5) if dashboard traffic grows.
 
-ClickHouse changes the Postgres scaling pressure but not the next compute step: once `api_endpoint_daily_stats` writes are removed, Postgres should see less CPU, WAL, autovacuum, bloat, and cache pressure. The next FSN1 node is still the right compute expansion for synchronous ingest headroom because `api-ingest` must stay colocated with the writable Postgres primary.
+ClickHouse changes the Postgres scaling pressure but not the next compute step: with `api_endpoint_daily_stats` writes removed and the old table scheduled for drop, Postgres should see less CPU, WAL, autovacuum, bloat, and cache pressure. The next FSN1 node is still the right compute expansion for synchronous ingest headroom because `api-ingest` must stay colocated with the writable Postgres primary.
