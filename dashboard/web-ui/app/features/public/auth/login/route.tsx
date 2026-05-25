@@ -807,6 +807,9 @@ export default function LoginPage() {
                                 <div className="inline-block bg-black text-white px-2 py-1 font-mono text-xs">
                                     {email}
                                 </div>
+                                <p className="mt-3 text-[10px] font-mono font-bold uppercase text-gray-500">
+                                    If it is not there after 2 minutes, check your spam folder.
+                                </p>
                             </div>
 
                             <div className="space-y-4">

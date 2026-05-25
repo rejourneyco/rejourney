@@ -7,7 +7,7 @@ import type { MetaFunction, LoaderFunctionArgs } from "react-router";
 import { Header } from "~/shell/components/layout/Header";
 import { Footer } from "~/shell/components/layout/Footer";
 import { ARTICLES, getAbsoluteArticleImage, getArticlePath } from "~/shared/data/engineering";
-import { ArrowLeft, ArrowUpRight } from "lucide-react";
+import { ArrowLeft } from "lucide-react";
 import { Link, redirect, useLocation, useParams } from "react-router";
 import { getContentLocaleCopy, getLocalizedArticleSeo } from "~/shared/lib/contentLocalization";
 import {
@@ -30,22 +30,6 @@ function getArticleUrl(article: (typeof ARTICLES)[number], locale = getMarketing
 function withArticleTitleSuffix(title: string, suffix: string): string {
     const withSuffix = `${title} | ${suffix}`;
     return withSuffix.length <= MAX_TITLE_LENGTH ? withSuffix : title;
-}
-
-function getRelatedArticles(article: (typeof ARTICLES)[number]): (typeof ARTICLES)[number][] {
-    const articleIndex = ARTICLES.findIndex((candidate) => candidate.id === article.id);
-    const adjacentArticles = [
-        articleIndex > 0 ? ARTICLES[articleIndex - 1] : null,
-        articleIndex >= 0 ? ARTICLES[articleIndex + 1] : null,
-    ];
-    const uniqueArticles = new Map<string, (typeof ARTICLES)[number]>();
-
-    for (const candidate of [...adjacentArticles, ...ARTICLES]) {
-        if (!candidate || candidate.id === article.id) continue;
-        uniqueArticles.set(candidate.id, candidate);
-    }
-
-    return Array.from(uniqueArticles.values()).slice(0, 3);
 }
 
 // Loader to validate slug
@@ -207,10 +191,8 @@ export default function EngineeringArticlePage() {
             },
         },
     };
-    const relatedArticles = getRelatedArticles(article);
-
     return (
-        <div className="public-readable-scope min-h-screen w-full bg-white text-slate-900 font-sans selection:bg-yellow-200 flex flex-col" lang={locale.languageTag} dir={locale.dir}>
+        <div className="public-readable-scope engineering-article-page flex min-h-screen w-full flex-col bg-[#fbfbf8] font-sans text-slate-900 selection:bg-sky-100 selection:text-slate-950" lang={locale.languageTag} dir={locale.dir}>
             <script
                 type="application/ld+json"
                 dangerouslySetInnerHTML={{
@@ -221,44 +203,44 @@ export default function EngineeringArticlePage() {
 
             <main className="flex-grow w-full">
                 {/* Progress Bar (Conceptual - sticky top) */}
-                <div className="sticky top-0 left-0 w-full h-1 bg-gray-100 z-50">
-                    <div className="h-full bg-black w-full origin-left scale-x-0 animate-scroll-progress" />
+                <div className="sticky left-0 top-0 z-50 h-1 w-full bg-slate-200/70">
+                    <div className="h-full w-full origin-left scale-x-0 bg-sky-600 animate-scroll-progress" />
                 </div>
 
-                <div className="mx-auto max-w-7xl px-4 py-16 sm:px-6 sm:py-24 lg:px-8">
+                <div className="mx-auto max-w-7xl px-5 py-14 sm:px-6 lg:px-8">
 
-                    <Link to={getLocalizedPublicPath(locale, "/engineering")} className="inline-flex items-center gap-2 text-sm font-bold uppercase tracking-widest text-gray-500 hover:text-black mb-12 transition-colors">
+                    <Link to={getLocalizedPublicPath(locale, "/engineering")} className="mb-10 inline-flex items-center gap-2 text-sm font-semibold text-slate-500 transition-colors hover:text-slate-950">
                         <ArrowLeft size={16} /> {copy.backToEngineering}
                     </Link>
 
-                    <article className="mx-auto max-w-4xl">
-                        <header className="mb-16 border-b-4 border-black pb-12">
-                            <div className="flex flex-wrap items-center gap-4 text-xs font-mono font-black uppercase tracking-widest text-blue-600 mb-6">
+                    <article className="mx-auto max-w-[760px]">
+                        <header className="mb-14 border-b border-slate-200 pb-10">
+                            <div className="mb-6 flex flex-wrap items-center gap-3 text-sm font-semibold text-sky-700">
                                 <span>{article.date}</span>
-                                <span className="w-1 h-1 bg-gray-300 rounded-full" />
+                                <span className="h-1 w-1 rounded-full bg-slate-300" />
                                 <span>{localizedArticle.readTime}</span>
                             </div>
 
-                            <h1 className="text-4xl sm:text-5xl lg:text-7xl font-black uppercase tracking-tighter mb-8 leading-[0.9]">
+                            <h1 className="mb-7 text-pretty font-display text-[2.45rem] font-extrabold leading-[1.06] tracking-normal text-slate-950">
                                 {localizedArticle.title}
                             </h1>
 
-                            <p className="text-xl sm:text-2xl font-medium text-gray-600 max-w-3xl leading-relaxed">
+                            <p className="max-w-[720px] text-[1.15rem] font-normal leading-8 text-slate-600">
                                 {localizedArticle.subtitle}
                             </p>
 
-                            <div className="flex items-center gap-3 mt-8">
-                                <div className="w-10 h-10 bg-gray-200 rounded-full overflow-hidden flex items-center justify-center font-bold text-gray-500">
+                            <div className="mt-8 flex items-center gap-3">
+                                <div className="flex h-10 w-10 items-center justify-center overflow-hidden rounded-full bg-slate-200 text-sm font-bold text-slate-500">
                                     {article.author.name.charAt(0)}
                                 </div>
                                 <div className="text-sm">
-                                    <div className="font-bold text-gray-900">{article.author.name}</div>
+                                    <div className="font-semibold text-slate-900">{article.author.name}</div>
                                     <div className="flex flex-wrap gap-x-3 gap-y-1">
-                                        <a href={article.author.url} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">
+                                        <a href={article.author.url} target="_blank" rel="noopener noreferrer" className="font-medium text-sky-700 hover:underline">
                                             {copy.viewLinkedIn}
                                         </a>
                                         {article.author.github && (
-                                            <a href={article.author.github} target="_blank" rel="noopener noreferrer" className="text-gray-900 hover:underline">
+                                            <a href={article.author.github} target="_blank" rel="noopener noreferrer" className="font-medium text-slate-700 hover:text-slate-950 hover:underline">
                                                 {copy.viewGitHub}
                                             </a>
                                         )}
@@ -269,19 +251,19 @@ export default function EngineeringArticlePage() {
 
                     </article>
 
-                    <div className={article.tableOfContents?.length ? "mx-auto grid max-w-7xl gap-12 lg:grid-cols-[minmax(0,1fr)_16rem]" : "mx-auto max-w-4xl"}>
-                        <div className={article.kind === "markdown" ? "max-w-4xl space-y-8" : "prose prose-xl prose-slate max-w-4xl prose-headings:font-black prose-headings:uppercase prose-headings:tracking-tighter prose-img:rounded-none prose-img:border-2 prose-img:border-black"}>
+                    <div className="relative mx-auto max-w-7xl">
+                        <div className="engineering-article-body mx-auto max-w-[760px] space-y-8">
                             {article.content}
                         </div>
 
                         {article.tableOfContents?.length ? (
-                            <aside className="hidden lg:block">
+                            <aside className="absolute left-[calc(50%+25rem)] top-0 hidden w-56 2xl:block">
                                 <nav className="sticky top-24 border-l border-slate-200 pl-5" aria-label={copy.articleOnThisPage}>
-                                    <p className="mb-4 text-xs font-black uppercase tracking-widest text-slate-500">{copy.articleOnThisPage}</p>
+                                    <p className="mb-4 text-xs font-bold uppercase tracking-wide text-slate-500">{copy.articleOnThisPage}</p>
                                     <ol className="space-y-3">
                                         {article.tableOfContents.map((item) => (
                                             <li key={item.id} className={item.level === 3 ? "pl-4" : undefined}>
-                                                <a href={`#${item.id}`} className="block text-sm font-semibold leading-snug text-slate-600 transition hover:text-slate-950">
+                                                <a href={`#${item.id}`} className="block text-sm font-medium leading-snug text-slate-600 transition hover:text-slate-950">
                                                     {item.title}
                                                 </a>
                                             </li>
@@ -292,57 +274,22 @@ export default function EngineeringArticlePage() {
                         ) : null}
                     </div>
 
-                    <article className="mx-auto max-w-4xl">
-                        {relatedArticles.length > 0 && (
-                            <section className="mt-20 border-t-2 border-gray-100 pt-12" aria-labelledby="related-engineering-articles">
-                                <div className="mb-8">
-                                    <h2 id="related-engineering-articles" className="text-2xl font-black uppercase tracking-tighter">
-                                        {copy.relatedArticlesHeading}
-                                    </h2>
-                                    <p className="mt-2 max-w-2xl text-sm font-semibold leading-relaxed text-gray-500">
-                                        {copy.relatedArticlesIntro}
-                                    </p>
-                                </div>
-                                <div className="grid gap-4 sm:grid-cols-3">
-                                    {relatedArticles.map((relatedArticle) => {
-                                        const relatedSeo = getLocalizedArticleSeo(relatedArticle, locale);
-                                        return (
-                                            <Link
-                                                key={relatedArticle.id}
-                                                to={getLocalizedPublicPath(locale, getArticlePath(relatedArticle))}
-                                                aria-label={copy.readArticleLabel(relatedSeo.title)}
-                                                className="group flex min-h-48 flex-col justify-between border-2 border-black bg-white p-5 shadow-[5px_5px_0_0_rgba(0,0,0,1)] transition-all hover:-translate-x-0.5 hover:-translate-y-0.5 hover:bg-[#fef08a] hover:shadow-[7px_7px_0_0_rgba(0,0,0,1)]"
-                                            >
-                                                <span className="text-xs font-black uppercase tracking-widest text-blue-600">{relatedArticle.date}</span>
-                                                <span className="mt-4 block text-lg font-black uppercase leading-tight text-slate-950">
-                                                    {relatedSeo.title}
-                                                </span>
-                                                <span className="mt-5 inline-flex items-center gap-2 text-xs font-black uppercase tracking-widest text-slate-500 group-hover:text-black">
-                                                    {relatedSeo.readTime}
-                                                    <ArrowUpRight className="h-3.5 w-3.5" strokeWidth={3} />
-                                                </span>
-                                            </Link>
-                                        );
-                                    })}
-                                </div>
-                            </section>
-                        )}
-
-                        <div className="mt-20 pt-12 border-t-2 border-gray-100">
-                            <h3 className="text-2xl font-black uppercase tracking-tighter mb-8">{copy.authorHeading}</h3>
+                    <article className="mx-auto max-w-[760px]">
+                        <div className="mt-20 border-t border-slate-200 pt-10">
+                            <h3 className="mb-8 font-display text-2xl font-bold tracking-normal text-slate-950">{copy.authorHeading}</h3>
                             <div className="flex items-start gap-4">
-                                <div className="w-16 h-16 bg-gray-200 rounded-full overflow-hidden flex items-center justify-center font-bold text-2xl text-gray-500">
+                                <div className="flex h-16 w-16 items-center justify-center overflow-hidden rounded-full bg-slate-200 text-2xl font-bold text-slate-500">
                                     {article.author.name.charAt(0)}
                                 </div>
                                 <div>
-                                    <div className="font-bold text-xl text-gray-900 mb-1">{article.author.name}</div>
-                                    <p className="text-gray-500 text-sm mb-2">{copy.engineeringTeamLabel}</p>
+                                    <div className="mb-1 text-xl font-semibold text-slate-900">{article.author.name}</div>
+                                    <p className="mb-2 text-sm text-slate-500">{copy.engineeringTeamLabel}</p>
                                     <div className="flex gap-4">
-                                        <a href={article.author.url} target="_blank" rel="noopener noreferrer" className="text-blue-600 font-bold hover:underline">
+                                        <a href={article.author.url} target="_blank" rel="noopener noreferrer" className="font-semibold text-sky-700 hover:underline">
                                             {copy.viewLinkedIn}
                                         </a>
                                         {article.author.github && (
-                                            <a href={article.author.github} target="_blank" rel="noopener noreferrer" className="text-gray-900 font-bold hover:underline">
+                                            <a href={article.author.github} target="_blank" rel="noopener noreferrer" className="font-semibold text-slate-700 hover:text-slate-950 hover:underline">
                                                 {copy.viewGitHub}
                                             </a>
                                         )}

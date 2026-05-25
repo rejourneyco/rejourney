@@ -25,4 +25,7 @@ export const ARTICLES: Article[] = [
     rejourney13MillionSessionReplaysArticle,
     mapsPerformanceArticle,
     architectureDeepDiveArticle,
-].sort((a, b) => b.urlDate.localeCompare(a.urlDate));
+].sort((a, b) => (
+    b.urlDate.localeCompare(a.urlDate)
+    || b.id.localeCompare(a.id)
+));

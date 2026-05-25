@@ -42,6 +42,10 @@ const alternativeTldrByPath: Record<string, string> = {
     "Choose Rejourney when you need session evidence and technical context more than guides, surveys, and product adoption messaging.",
   "/alternatives/fullstory":
     "Choose Rejourney when you want one of the leaner Fullstory alternatives with source visibility, self-hosting, and mobile stability context.",
+  "/alternatives/smartlook":
+    "Choose Rejourney when Smartlook's Cisco end-of-life path creates migration risk and your team still needs replay, heatmaps, journeys, mobile evidence, and technical context.",
+  "/alternatives/hotjar":
+    "Choose Rejourney when heatmaps and recordings need replay, journeys, mobile context, and technical evidence in the same workflow.",
 };
 
 type FeatureDisplay = {
@@ -68,23 +72,23 @@ type FeatureDisplay = {
 const defaultFeatureTabs = ["Watch sessions", "Find drop-offs", "Review launches", "Debug stability", "Share evidence"];
 
 const featureDisplayByPath: Record<string, FeatureDisplay> = {
-  "/session-replay-tools": {
-    title: "Session replay software and tools",
-    subtitle: "Find user friction with replay, website session recording, heatmaps, journeys, crashes, and network context.",
-    guideTitle: "From question to fix",
+  "/record-user-sessions": {
+    title: "Record user sessions",
+    subtitle: "Find user friction with replay, real user sessions, heatmaps, journeys, crashes, and network context.",
+    guideTitle: "From recorded session to fix",
     fitTitle: "Best fit",
     tradeoffTitle: "Not the best fit",
     heroBullets: [
-      "Replay real user sessions",
-      "Compare session replay software",
-      "Jump from behavior to metrics",
+      "Record user sessions on web and mobile",
+      "Find rage clicks and friction points",
+      "Jump from user behavior to metrics",
     ],
     available: ["Web apps", "Mobile apps", "Self-hosting"],
     showcaseTabs: defaultFeatureTabs,
-    showcaseTitle: "See the full user story",
-    showcaseCopy: "Start with the website or mobile session recording, then inspect the surrounding journey, heatmap, crash, ANR, and network context.",
-    showcaseBullets: ["Identify user pain points", "Validate design changes", "Give engineering the same evidence"],
-    steps: ["Install the SDK", "Capture sessions automatically", "Review and share the evidence"],
+    showcaseTitle: "See what happened before the complaint",
+    showcaseCopy: "Start with the web or mobile session recording, then inspect the surrounding journey, heatmap, crash, ANR, and network context.",
+    showcaseBullets: ["Identify user pain points", "Validate design changes", "Give product, support, and engineering the same evidence"],
+    steps: ["Install the SDK", "Capture real user sessions", "Review and share the evidence"],
   },
   "/mobile-session-replay": {
     title: "Mobile session replay",
@@ -358,6 +362,77 @@ function featureImages(page: SeoPage) {
   return featureImagesByPath[page.path] ?? defaultFeatureImages;
 }
 
+const alternativeQuickScanImages: Record<string, FeatureImage> = {
+  "/alternatives/posthog-session-replay": {
+    src: "/images/readme-general-demo.png",
+    alt: "Rejourney analytics overview with replay evidence",
+    title: "Analytics overview",
+    copy: "Use a different product view in the TLDR card.",
+  },
+  "/alternatives/sentry-session-replay": {
+    src: "/images/issues-feed.png",
+    alt: "Rejourney issues feed with replay-backed triage",
+    title: "Issues feed",
+    copy: "Show triage context instead of repeating the hero.",
+  },
+  "/alternatives/datadog-session-replay": {
+    src: "/images/engineering/ambiguity-api-error-rate-by-country.png",
+    alt: "Rejourney API error analytics by country",
+    title: "API context",
+    copy: "Show network context beside replay positioning.",
+  },
+  "/alternatives/amplitude-session-replay": {
+    src: "/images/user-journeys.png",
+    alt: "Rejourney user journey map",
+    title: "User journeys",
+    copy: "Pair growth analytics with journey evidence.",
+  },
+  "/alternatives/mixpanel-session-replay": {
+    src: "/images/growth-engines.png",
+    alt: "Rejourney growth analytics dashboard",
+    title: "Growth analytics",
+    copy: "Use product analytics as the supporting visual.",
+  },
+  "/alternatives/pendo-session-replay": {
+    src: "/images/readme-alert-emails.png",
+    alt: "Rejourney alert email preview",
+    title: "Team alerts",
+    copy: "Show workflow context for product teams.",
+  },
+  "/alternatives/fullstory": {
+    src: "/images/session-replay-preview.png",
+    alt: "Rejourney session replay preview with timeline",
+    title: "Replay preview",
+    copy: "Use a separate replay screenshot from the hero workbench.",
+  },
+  "/alternatives/smartlook": {
+    src: "/images/engineering/smartlook-alternatives-heatmaps.png",
+    alt: "Rejourney live demo heatmap dashboard with priority route context",
+    title: "Heatmap context",
+    copy: "Show visual behavior evidence beside migration positioning.",
+  },
+  "/alternatives/hotjar": {
+    src: "/images/engineering/hotjar-alternatives-replay.png",
+    alt: "Rejourney live demo replay workbench with mobile replay and event context",
+    title: "Replay workbench",
+    copy: "Show session evidence beside heatmap positioning.",
+  },
+};
+
+function alternativeQuickScanImage(page: SeoPage): FeatureImage {
+  const configuredImage = alternativeQuickScanImages[page.path];
+  if (configuredImage && configuredImage.src !== page.image) return configuredImage;
+
+  return (
+    defaultFeatureImages.find((image) => image.src !== page.image) ?? {
+      src: "/images/readme-general-demo.png",
+      alt: "Rejourney product analytics and replay dashboard",
+      title: "Product context",
+      copy: "Fallback supporting image.",
+    }
+  );
+}
+
 export function loader({ request }: LoaderFunctionArgs) {
   const page = getSeoPageByPath(new URL(request.url).pathname);
   if (!page) {
@@ -411,14 +486,14 @@ function ValueBadge({ value }: { value: SeoComparisonValue }) {
   const isNo = value === "no";
   const Icon = isYes ? Check : isNo ? X : CircleMinus;
   const className = isYes
-    ? "border-black bg-[#86efac] text-slate-950"
+    ? "border-emerald-700 bg-emerald-100 text-emerald-950"
     : isNo
-      ? "border-red-300 bg-red-50 text-red-700"
-      : "border-yellow-300 bg-[#fef9c3] text-yellow-900";
+      ? "border-rose-300 bg-rose-50 text-rose-800"
+      : "border-amber-400 bg-amber-100 text-amber-950";
 
   return (
-    <span className={`inline-flex min-h-8 items-center gap-1.5 border px-2.5 py-1 text-xs font-black uppercase ${className}`}>
-      <Icon className="h-3.5 w-3.5 shrink-0" strokeWidth={3} aria-hidden />
+    <span className={`inline-flex min-h-10 w-full max-w-[11rem] items-center justify-center gap-2 border-2 px-3 py-2 text-sm font-extrabold leading-none ${className}`}>
+      <Icon className="h-4 w-4 shrink-0" strokeWidth={3} aria-hidden />
       <span>{label}</span>
     </span>
   );
@@ -496,6 +571,7 @@ function HeroVisual({ page }: { page: SeoPage }) {
 
 function AlternativeQuickScan({ page }: { page: SeoPage }) {
   const tldr = alternativeTldrByPath[page.path] ?? page.subtitle;
+  const quickScanImage = alternativeQuickScanImage(page);
 
   return (
     <section className="border-b-2 border-black bg-white px-4 py-10 sm:px-6 lg:px-8">
@@ -509,7 +585,7 @@ function AlternativeQuickScan({ page }: { page: SeoPage }) {
         </div>
 
         <div className="hidden overflow-hidden border-2 border-black bg-[#ecfeff] p-3 shadow-neo-sm lg:block">
-          <img src={page.image} alt="" className="h-full max-h-56 w-full object-contain object-left-top" />
+          <img src={quickScanImage.src} alt={quickScanImage.alt} className="h-full max-h-56 w-full object-contain object-left-top" />
         </div>
       </div>
     </section>
@@ -610,22 +686,33 @@ function ComparisonSection({ page }: { page: SeoPage }) {
       <div className="mx-auto max-w-7xl">
         <SectionHeader eyebrow={isAlternative ? "Core features" : "Comparison"} title={title} copy={copy} />
         <div className="mt-10 overflow-hidden border-2 border-black bg-white shadow-neo-sm">
-          <div className="grid grid-cols-[1.1fr_0.75fr_0.75fr] border-b-2 border-black bg-slate-950 text-white">
-            <div className="p-3 font-mono text-[10px] font-black uppercase sm:p-4">Capability</div>
-            <div className="border-l-2 border-black p-3 font-mono text-[10px] font-black uppercase sm:p-4">Rejourney</div>
-            <div className="border-l-2 border-black p-3 font-mono text-[10px] font-black uppercase sm:p-4">{page.otherColumnTitle}</div>
-          </div>
-          {page.comparisonRows.map((row, index) => (
-            <div key={row.feature} className={`grid grid-cols-[1.1fr_0.75fr_0.75fr] ${index < page.comparisonRows.length - 1 ? "border-b border-slate-200" : ""}`}>
-              <div className="p-3 text-sm font-black uppercase leading-tight text-slate-800 sm:p-4">{row.feature}</div>
-              <div className="border-l border-slate-200 p-3 sm:p-4">
-                <ValueBadge value={row.rejourney} />
+          <div className="overflow-x-auto">
+            <div className="min-w-[680px]">
+              <div className="grid grid-cols-[minmax(260px,1.15fr)_minmax(170px,0.72fr)_minmax(170px,0.72fr)] border-b-2 border-black bg-slate-950 text-white">
+                <div className="px-4 py-4 text-sm font-extrabold uppercase leading-none sm:px-5">Capability</div>
+                <div className="border-l-2 border-black px-4 py-4 text-sm font-extrabold uppercase leading-none sm:px-5">Rejourney</div>
+                <div className="border-l-2 border-black px-4 py-4 text-sm font-extrabold uppercase leading-none sm:px-5">{page.otherColumnTitle}</div>
               </div>
-              <div className="border-l border-slate-200 p-3 sm:p-4">
-                <ValueBadge value={row.other} />
-              </div>
+              {page.comparisonRows.map((row, index) => (
+                <div
+                  key={row.feature}
+                  className={`grid grid-cols-[minmax(260px,1.15fr)_minmax(170px,0.72fr)_minmax(170px,0.72fr)] items-stretch ${
+                    index < page.comparisonRows.length - 1 ? "border-b border-slate-200" : ""
+                  } ${index % 2 === 0 ? "bg-white" : "bg-slate-50"}`}
+                >
+                  <div className="flex items-center px-4 py-4 text-base font-bold leading-6 text-slate-950 sm:px-5">
+                    {row.feature}
+                  </div>
+                  <div className="flex items-center border-l border-slate-200 px-4 py-4 sm:px-5">
+                    <ValueBadge value={row.rejourney} />
+                  </div>
+                  <div className="flex items-center border-l border-slate-200 px-4 py-4 sm:px-5">
+                    <ValueBadge value={row.other} />
+                  </div>
+                </div>
+              ))}
             </div>
-          ))}
+          </div>
         </div>
       </div>
     </section>
@@ -673,30 +760,30 @@ function PricingSection({ page }: { page: SeoPage }) {
             <div className="overflow-hidden border-2 border-black bg-white shadow-neo-sm">
               <div className="grid md:grid-cols-[minmax(0,1fr)_minmax(280px,0.82fr)]">
                 <div className="flex min-h-full flex-col">
-                  <div className="border-b-2 border-black bg-slate-950 px-4 py-3 font-mono text-[10px] font-black uppercase tracking-wide text-white sm:px-5">
+                  <div className="border-b-2 border-black bg-slate-950 px-4 py-4 text-sm font-extrabold uppercase leading-none text-white sm:px-5">
                     Competitor facts
                   </div>
                   <div className="flex-1 divide-y divide-slate-200">
                     {competitorFacts.map((fact, index) => (
-                      <div key={fact} className="flex gap-3 p-4 sm:p-5">
-                        <span className="grid h-7 w-7 shrink-0 place-items-center border-2 border-black bg-[#fef08a] font-mono text-[10px] font-black leading-none text-black">
+                      <div key={fact} className={`flex gap-4 p-4 sm:p-5 ${index % 2 === 0 ? "bg-white" : "bg-slate-50"}`}>
+                        <span className="grid h-8 w-8 shrink-0 place-items-center border-2 border-black bg-[#fef08a] text-sm font-black leading-none text-black">
                           {index + 1}
                         </span>
-                        <p className="text-sm font-semibold leading-6 text-slate-700">{fact}</p>
+                        <p className="text-base font-semibold leading-7 text-slate-900">{fact}</p>
                       </div>
                     ))}
                   </div>
                 </div>
 
                 <div className="flex min-h-full flex-col border-t-2 border-black md:border-l-2 md:border-t-0">
-                  <div className="border-b-2 border-black bg-slate-950 px-4 py-3 font-mono text-[10px] font-black uppercase tracking-wide text-white sm:px-5">
+                  <div className="border-b-2 border-black bg-slate-950 px-4 py-4 text-sm font-extrabold uppercase leading-none text-white sm:px-5">
                     Rejourney model
                   </div>
                   <div className="flex-1 bg-[#fff7df] p-4 sm:p-5">
-                    <ul className="grid gap-3">
+                    <ul className="grid gap-4">
                       {pricingBullets.map((bullet) => (
-                        <li key={bullet} className="flex items-start gap-3 text-sm font-bold leading-6 text-slate-800">
-                          <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-emerald-600" strokeWidth={3} aria-hidden />
+                        <li key={bullet} className="flex items-start gap-3 text-base font-semibold leading-7 text-slate-950">
+                          <CheckCircle2 className="mt-1 h-5 w-5 shrink-0 text-emerald-700" strokeWidth={3} aria-hidden />
                           <span>{bullet}</span>
                         </li>
                       ))}
@@ -776,12 +863,12 @@ function CategoryShowcaseSection({ page }: { page: SeoPage }) {
   return (
     <section className="border-b-2 border-black bg-[#edf4ff] px-4 py-16 sm:px-6 lg:px-8">
       <div className="mx-auto max-w-7xl">
-        <div className="flex gap-3 overflow-x-auto pb-4">
+        <div className="flex gap-x-4 gap-y-2 overflow-x-auto border-b border-slate-300 pb-4 text-xs font-black uppercase sm:flex-wrap sm:overflow-visible">
           {display.showcaseTabs.map((tab, index) => (
             <span
               key={tab}
-              className={`whitespace-nowrap rounded-lg border-2 border-black px-4 py-2 text-sm font-black ${
-                index === 0 ? "bg-[#bfdbfe] text-slate-950" : "bg-white text-slate-700"
+              className={`whitespace-nowrap ${
+                index === 0 ? "text-slate-950" : "border-l border-slate-300 pl-4 text-slate-500"
               }`}
             >
               {tab}
@@ -840,13 +927,13 @@ function CategoryImageGallerySection({ page }: { page: SeoPage }) {
           </p>
         </div>
 
-        <div className="mt-10 grid gap-6 lg:grid-cols-3">
+        <div className="mt-10 grid gap-8 lg:grid-cols-3">
           {supportingImages.map((image) => (
-            <article key={image.src} className="overflow-hidden rounded-lg border-2 border-black bg-[#f8fafc]">
-              <div className="border-b-2 border-black bg-[#dbeafe] p-4">
+            <article key={image.src} className="min-w-0">
+              <div className="border-2 border-black bg-[#dbeafe] p-4">
                 <img src={image.src} alt={image.alt} className="h-56 w-full object-contain" />
               </div>
-              <div className="p-5">
+              <div className="mt-4 border-t-2 border-black pt-4">
                 <h3 className="text-2xl font-black leading-tight text-slate-950">{image.title}</h3>
                 <p className="mt-3 text-sm font-semibold leading-6 text-slate-700">{image.copy}</p>
               </div>
@@ -1127,6 +1214,30 @@ export default function SeoLandingPage() {
         },
         url: canonicalUrl,
       },
+      ...(page.path === "/record-user-sessions"
+        ? [
+            {
+              "@type": "SoftwareApplication",
+              "@id": `${SITE_URL}/#software`,
+              name: "Rejourney",
+              applicationCategory: "BusinessApplication",
+              operatingSystem: "Web, iOS, Android",
+              description: "Record user sessions with web and mobile session replay, heatmaps, user journeys, crash context, API context, product analytics, and privacy masking.",
+              url: `${SITE_URL}/`,
+              offers: {
+                "@type": "Offer",
+                price: "0",
+                priceCurrency: "USD",
+                url: `${SITE_URL}/pricing`,
+              },
+              publisher: {
+                "@type": "Organization",
+                "@id": `${SITE_URL}/#organization`,
+                name: "Rejourney",
+              },
+            },
+          ]
+        : []),
       {
         "@type": "FAQPage",
         "@id": `${canonicalUrl}#faq`,

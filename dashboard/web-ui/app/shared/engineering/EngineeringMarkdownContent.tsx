@@ -6,7 +6,7 @@ import { createMarkdownHeadingIdGenerator } from "~/shared/lib/markdownHeadings"
 
 export function EngineeringMarkdownContent({ content }: { content: string }) {
     const getHeadingId = createMarkdownHeadingIdGenerator();
-    const paragraphClassName = "text-lg leading-8 text-slate-700";
+    const paragraphClassName = "text-[1.0625rem] leading-8 text-slate-700";
     const hasImageChild = (node: any) => (
         Array.isArray(node?.children)
         && node.children.some((child: any) => child?.tagName === "img")
@@ -27,7 +27,7 @@ export function EngineeringMarkdownContent({ content }: { content: string }) {
                     if (isBlock && trimmedCode) {
                         const isTerminal = ["bash", "sh", "zsh", "term"].includes(language);
                         return (
-                            <div className="my-8 overflow-hidden rounded-md border-2 border-slate-950 bg-slate-950 shadow-[5px_5px_0_0_rgba(0,0,0,1)]">
+                            <div className="my-9 overflow-hidden rounded-md border border-slate-800 bg-slate-950 shadow-sm">
                                 {isTerminal && (
                                     <div className="flex items-center gap-1.5 border-b border-slate-800 bg-slate-900 px-4 py-2">
                                         <span className="h-2.5 w-2.5 rounded-full bg-red-500/70" />
@@ -41,7 +41,7 @@ export function EngineeringMarkdownContent({ content }: { content: string }) {
                     }
 
                     return (
-                        <code className="rounded border border-slate-200 bg-slate-100 px-1.5 py-0.5 font-mono text-[0.85em] text-slate-950" {...props}>
+                        <code className="rounded-md border border-slate-200 bg-slate-100 px-1.5 py-0.5 font-mono text-[0.85em] font-semibold text-slate-950" {...props}>
                             {children}
                         </code>
                     );
@@ -49,7 +49,7 @@ export function EngineeringMarkdownContent({ content }: { content: string }) {
                 h2: ({ children }) => {
                     const text = String(children);
                     return (
-                        <h2 id={getHeadingId(text)} className="scroll-mt-28 border-t-4 border-slate-950 pt-8 text-3xl font-black uppercase leading-tight tracking-normal text-slate-950 sm:text-4xl">
+                        <h2 id={getHeadingId(text)} className="scroll-mt-28 border-t border-slate-200 pt-10 font-display text-3xl font-bold leading-tight tracking-normal text-slate-950">
                             {children}
                         </h2>
                     );
@@ -57,13 +57,13 @@ export function EngineeringMarkdownContent({ content }: { content: string }) {
                 h3: ({ children }) => {
                     const text = String(children);
                     return (
-                        <h3 id={getHeadingId(text)} className="scroll-mt-28 text-2xl font-black leading-tight tracking-normal text-slate-950">
+                        <h3 id={getHeadingId(text)} className="scroll-mt-28 font-display text-2xl font-bold leading-tight tracking-normal text-slate-950">
                             {children}
                         </h3>
                     );
                 },
                 h4: ({ children }) => (
-                    <h4 className="text-lg font-black uppercase tracking-wide text-slate-950">
+                    <h4 className="text-lg font-bold tracking-normal text-slate-950">
                         {children}
                     </h4>
                 ),
@@ -73,12 +73,12 @@ export function EngineeringMarkdownContent({ content }: { content: string }) {
                         : <p className={paragraphClassName}>{children}</p>
                 ),
                 ul: ({ children }) => (
-                    <ul className="ml-6 list-outside list-disc space-y-3 text-lg leading-8 text-slate-700">
+                    <ul className="ml-6 list-outside list-disc space-y-3 text-[1.0625rem] leading-8 text-slate-700">
                         {children}
                     </ul>
                 ),
                 ol: ({ children }) => (
-                    <ol className="ml-6 list-outside list-decimal space-y-3 text-lg leading-8 text-slate-700">
+                    <ol className="ml-6 list-outside list-decimal space-y-3 text-[1.0625rem] leading-8 text-slate-700">
                         {children}
                     </ol>
                 ),
@@ -86,7 +86,7 @@ export function EngineeringMarkdownContent({ content }: { content: string }) {
                 a: ({ href, children }) => (
                     <a
                         href={href}
-                        className="font-bold text-slate-950 underline decoration-2 underline-offset-4 transition hover:bg-slate-950 hover:text-white"
+                        className="font-semibold text-sky-700 underline decoration-sky-200 decoration-2 underline-offset-4 transition hover:text-sky-900 hover:decoration-sky-700"
                         target={href?.startsWith("http") ? "_blank" : undefined}
                         rel={href?.startsWith("http") ? "noopener noreferrer" : undefined}
                     >
@@ -94,7 +94,7 @@ export function EngineeringMarkdownContent({ content }: { content: string }) {
                     </a>
                 ),
                 blockquote: ({ children }) => (
-                    <blockquote className="my-8 border-l-4 border-slate-950 bg-slate-50 py-4 pl-5 pr-5 text-slate-700">
+                    <blockquote className="my-9 border-l-4 border-sky-300 bg-slate-50 py-4 pl-5 pr-5 text-slate-700">
                         {children}
                     </blockquote>
                 ),
@@ -102,27 +102,27 @@ export function EngineeringMarkdownContent({ content }: { content: string }) {
                     if (!src) return null;
                     return (
                         <figure className="my-10 overflow-hidden rounded-md border border-slate-200 bg-slate-50 shadow-sm">
-                            <img src={src} alt={alt ?? ""} className="h-auto w-full object-cover" loading="lazy" />
+                            <img src={src} alt={alt ?? ""} className="mx-auto h-auto max-h-[760px] max-w-full object-contain" loading="lazy" />
                             {alt && <figcaption className="border-t border-slate-200 px-4 py-3 text-sm font-medium text-slate-500">{alt}</figcaption>}
                         </figure>
                     );
                 },
                 table: ({ children }) => (
-                    <div className="my-10 overflow-x-auto rounded-md border border-slate-200 shadow-sm">
+                    <div className="my-10 overflow-x-auto rounded-md border border-slate-200 bg-white shadow-sm">
                         <table className="min-w-full border-collapse bg-white text-left text-sm">
                             {children}
                         </table>
                     </div>
                 ),
                 thead: ({ children }) => (
-                    <thead className="border-b border-slate-950 bg-slate-100 text-xs font-black uppercase tracking-wide text-slate-950">
+                    <thead className="border-b border-slate-200 bg-slate-100 text-xs font-bold tracking-normal text-slate-950">
                         {children}
                     </thead>
                 ),
                 th: ({ children }) => <th className="px-4 py-3 align-top">{children}</th>,
                 td: ({ children }) => <td className="border-t border-slate-200 px-4 py-3 align-top text-slate-700">{children}</td>,
-                hr: () => <hr className="my-12 border-t-2 border-slate-950" />,
-                strong: ({ children }) => <strong className="font-black text-slate-950">{children}</strong>,
+                hr: () => <hr className="my-12 border-t border-slate-200" />,
+                strong: ({ children }) => <strong className="font-bold text-slate-950">{children}</strong>,
             }}
         >
             {content}

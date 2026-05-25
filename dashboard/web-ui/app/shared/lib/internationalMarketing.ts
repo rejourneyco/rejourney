@@ -71,10 +71,11 @@ export const MARKETING_LOCALES: Record<MarketingLocaleCode, MarketingLocale> = {
     languageTag: "en-US",
     ogLocale: "en_US",
     dir: "ltr",
-    metaTitle: "Rejourney: Open Source Session Replay & Analytics",
+    metaTitle: "Record User Sessions with Rejourney",
     metaDescription:
-      "Open-source analytics for web, iOS, Android, Expo, and React Native apps with replay, crashes, heatmaps, journeys, and a light SDK.",
+      "Record user sessions on web and mobile with open-source replay, heatmaps, journeys, crashes, privacy controls, and a light SDK.",
     keywords: [
+      "record user sessions",
       "open source web analytics",
       "web session replay",
       "mobile session replay",
@@ -89,8 +90,8 @@ export const MARKETING_LOCALES: Record<MarketingLocaleCode, MarketingLocale> = {
     ],
     mainAriaLabel: "Rejourney - Open Source Web and Mobile Analytics",
     hero: {
-      headlinePrimary: "Replay-First Analytics",
-      headlineSecondary: "Lightweight SDK",
+      headlinePrimary: "Record User Sessions",
+      headlineSecondary: "Replay-First Analytics",
       primaryCta: "Get started free",
       secondaryCta: "Self-host instead",
     },
@@ -1368,7 +1369,7 @@ const englishHomeCopy: MarketingHomeCopy = {
   hero: {
     ariaLabel: "Hero section",
     description:
-      "See your users. Be your users.",
+      "See real user sessions, rage clicks, friction points, and the exact user action that shapes your customer experience.",
   },
   trust: {
     ariaLabel: "Trust and supported platforms",
@@ -1413,14 +1414,14 @@ const englishHomeCopy: MarketingHomeCopy = {
       {
         eyebrow: "Session recordings",
         title: "Watch real users move through your app.",
-        copy: "Replay web and mobile sessions with enough context to answer the question everyone asks first: what actually happened?",
-        bullets: ["Pixel-perfect replay", "Click, tap, and screen changes", "Network, logs, and device context"],
+        copy: "Record user sessions across web and mobile so product managers, developers, and customer support can understand the digital experience in real time.",
+        bullets: ["Pixel-perfect replay", "Click, tap, rage click, and screen changes", "Network, logs, and device context"],
         alt: "Rejourney session replay preview",
       },
       {
         eyebrow: "Heatmaps and journeys",
         title: "See what grabs attention and where people drop.",
-        copy: "Turn scattered taps, swipes, scrolls, and exits into a map of the screens that help or hurt conversion.",
+        copy: "Turn scattered taps, swipes, scrolls, and exits into user journeys that show teams understand user behavior and improve user experience.",
         bullets: ["Tap and rage-tap clusters", "Journey maps across screens", "Drop-off points by flow"],
         alt: "Rejourney touch heatmaps preview",
       },
@@ -1452,7 +1453,7 @@ const englishHomeCopy: MarketingHomeCopy = {
       items: [
         {
           q: "We already have analytics dashboards. Why do we need session replay?",
-          a: "Analytics tell you that something went wrong. Session replay shows you why. A funnel chart can tell you 40% of users abandon checkout, but only replay shows you that your payment form is clearing on validation error, or that a button is obscured on a specific device. Numbers surface the problem; replay surfaces the cause.",
+          a: "Analytics tell you that something went wrong. A session replay tool shows you why. A funnel chart can tell you 40% of users abandon checkout, but only replay shows you that your payment form is clearing on validation error, or that a button is obscured on a specific device. Numbers surface the problem; replay surfaces the cause.",
         },
         {
           q: "How does Rejourney help us find user friction we didn't know existed?",
@@ -1476,7 +1477,7 @@ const englishHomeCopy: MarketingHomeCopy = {
         },
         {
           q: "Is user data kept private? Can I mask sensitive fields?",
-          a: "Yes. By default, all text inputs are masked in recordings. You can optionally switch to \"Secure Only\" mode, which masks only password-type fields and lets plaintext inputs through. No raw keystrokes are ever captured.",
+          a: "Yes. By default, all text inputs are masked in recordings so sensitive data stays out of replay. You can optionally switch to \"Secure Only\" mode, which masks only password-type fields and lets plaintext inputs through. No raw keystrokes are ever captured.",
         },
         {
           q: "Can I self-host Rejourney?",

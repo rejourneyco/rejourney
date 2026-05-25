@@ -61,6 +61,8 @@ type CoreFeatureStatuses = {
   journeyMaps: SeoComparisonValue;
   crashOrErrorContext: SeoComparisonValue;
   networkApiContext: SeoComparisonValue;
+  nativeApiCalls: SeoComparisonValue;
+  consoleLogs: SeoComparisonValue;
   privacyMasking: SeoComparisonValue;
 };
 
@@ -73,6 +75,8 @@ const coreFeatureRows = (other: CoreFeatureStatuses): SeoComparisonRow[] => [
   { feature: "Journey maps", rejourney: "yes", other: other.journeyMaps },
   { feature: "Crash / error context", rejourney: "yes", other: other.crashOrErrorContext },
   { feature: "Network / API context", rejourney: "yes", other: other.networkApiContext },
+  { feature: "Native API calls", rejourney: "yes", other: other.nativeApiCalls },
+  { feature: "Console logs", rejourney: "yes", other: other.consoleLogs },
   { feature: "Privacy masking controls", rejourney: "yes", other: other.privacyMasking },
 ];
 
@@ -97,6 +101,8 @@ const categoryFeatureRows = (otherColumn: SeoComparisonValue): SeoComparisonRow[
   { feature: "Journey maps", rejourney: "yes", other: otherColumn },
   { feature: "Crash / error context", rejourney: "yes", other: otherColumn },
   { feature: "Network / API context", rejourney: "yes", other: otherColumn },
+  { feature: "Native API calls", rejourney: "yes", other: otherColumn },
+  { feature: "Console logs", rejourney: "yes", other: otherColumn },
   { feature: "Privacy masking controls", rejourney: "yes", other: otherColumn },
 ];
 
@@ -230,33 +236,33 @@ const alternativePage = (config: {
       description: "See how Rejourney records browser behavior with product and network context.",
     },
     {
-      label: "Session replay tools",
-      href: "/session-replay-tools",
-      description: "Compare what to look for in a modern replay tool.",
+      label: "Record user sessions",
+      href: "/record-user-sessions",
+      description: "See how to record user sessions with replay, privacy controls, and product context.",
     },
   ],
 });
 
 export const SEO_PAGES: SeoPage[] = [
   categoryPage({
-    path: "/session-replay-tools",
-    badge: "Buyer guide",
-    eyebrow: "Session replay tools",
-    title: "Session replay tools that turn recordings into answers",
+    path: "/record-user-sessions",
+    badge: "Strategy guide",
+    eyebrow: "Record user sessions",
+    title: "Record user sessions without losing the story",
     subtitle:
-      "Compare session replay software, find the right recording, understand the pattern behind it, and give product, support, and engineering the same evidence.",
-    metaTitle: "Best Session Replay Software & Tools | Rejourney",
+      "Capture real user sessions, replay the moment, understand the pattern behind it, and give product, support, and engineering the same evidence.",
+    metaTitle: "Record User Sessions | Rejourney",
     metaDescription:
-      "Compare session replay software and website session recording tools for web and mobile apps, including replay quality, heatmaps, journeys, privacy, and pricing.",
-    keywords: ["session replay software", "session replay tools", "best session replay tools", "website session recording", "user session replay software", "session recording tools"],
+      "Record user sessions on web and mobile with replay, heatmaps, journeys, privacy controls, product analytics, crash context, and lightweight SDKs.",
+    keywords: ["record user sessions", "web session replay", "session replay software", "session replay tools", "website session recording", "real user sessions", "user session replay software"],
     image: "/images/session-replay-preview.png",
-    imageAlt: "Rejourney session replay preview with event context",
+    imageAlt: "Rejourney user session replay preview with event context",
     proofPoints: ["Replay search", "Heatmaps + journeys", "Crash context"],
-    whyTitle: "A good replay tool should shorten the path from question to fix",
+    whyTitle: "Recorded sessions should make the user action obvious",
     whyParagraphs: [
-      "Teams open replay tools when something confusing happened: a funnel dropped, a customer got stuck, a crash appeared, or support needs proof of what the user saw.",
-      "The strongest session replay software makes that investigation fast. Search by behavior, jump into the recording, inspect the event timeline, and move from one strange session to the repeated pattern that deserves attention.",
-      "Rejourney keeps replay close to heatmaps, journeys, crashes, ANRs, and network context so a session does not become another isolated clip in a separate dashboard.",
+      "Teams record user sessions when something important happened but the chart cannot explain it: a funnel dropped, a customer got stuck, a rage click appeared, or support needs proof of what the user saw.",
+      "The strongest session replay software makes that investigation fast. Search by behavior, jump into the real user session, inspect the event timeline, and move from one strange moment to the repeated friction points that deserve attention.",
+      "Rejourney keeps replay close to heatmaps, user journeys, crashes, ANRs, privacy masking, and network context so a session does not become another isolated clip in a separate dashboard.",
     ],
     chooseOtherTitle: "Choose a heavier suite if...",
     chooseOther: [
@@ -264,26 +270,26 @@ export const SEO_PAGES: SeoPage[] = [
       "Your team already has mature analytics engineering around another platform.",
       "You do not need native mobile or app stability context.",
     ],
-    comparisonTitle: "Session replay tool checklist",
+    comparisonTitle: "Record user sessions checklist",
     comparisonIntro:
-      "Use this checklist when comparing replay tools. The right choice should help product, support, and engineering work from the same evidence.",
+      "Use this checklist when comparing a session replay tool. The right choice should help product managers, customer support, and engineering work from the same evidence.",
     otherColumnTitle: "Typical replay tool",
     comparisonOther: "partial",
     faq: [
       {
-        question: "What should I look for in a session replay tool?",
+        question: "How do I record user sessions without guessing?",
         answer:
-          "Look for replay quality, search, event context, privacy controls, performance, mobile support, heatmaps, journeys, crash context, and pricing that does not punish useful instrumentation.",
+          "Use a session replay SDK that captures the visual session, meaningful user action, event context, privacy controls, and performance impact. Rejourney adds heatmaps, journeys, crash context, and pricing that does not punish useful instrumentation.",
       },
       {
-        question: "Can Rejourney help product teams?",
+        question: "Can recorded sessions improve user experience?",
         answer:
-          "Yes. Product teams use Rejourney to see where onboarding, checkout, search, or activation breaks, then pair those sessions with journeys and heatmaps.",
+          "Yes. Product teams use Rejourney to see where onboarding, checkout, search, or activation breaks, then pair those sessions with journeys and heatmaps to improve user experience.",
       },
       {
         question: "Can developers use Rejourney for bugs?",
         answer:
-          "Yes. Developers can inspect replay context alongside crashes, ANRs, device details, API failures, and user events.",
+          "Yes. Developers can inspect replay context alongside crashes, ANRs, device details, API failures, and user events while keeping sensitive data masked.",
       },
     ],
   }),
@@ -662,6 +668,8 @@ export const SEO_PAGES: SeoPage[] = [
       journeyMaps: "yes",
       crashOrErrorContext: "yes",
       networkApiContext: "yes",
+      nativeApiCalls: "yes",
+      consoleLogs: "yes",
       privacyMasking: "yes",
     }, [
       { feature: "Native ANR replay triage", other: "no" },
@@ -747,6 +755,8 @@ export const SEO_PAGES: SeoPage[] = [
       journeyMaps: "no",
       crashOrErrorContext: "yes",
       networkApiContext: "yes",
+      nativeApiCalls: "yes",
+      consoleLogs: "yes",
       privacyMasking: "yes",
     }, [
       { feature: "Product journey maps", other: "no" },
@@ -833,6 +843,8 @@ export const SEO_PAGES: SeoPage[] = [
       journeyMaps: "yes",
       crashOrErrorContext: "yes",
       networkApiContext: "yes",
+      nativeApiCalls: "yes",
+      consoleLogs: "yes",
       privacyMasking: "yes",
     }, [
       { feature: "Open-source or self-host path", other: "no" },
@@ -919,6 +931,8 @@ export const SEO_PAGES: SeoPage[] = [
       journeyMaps: "yes",
       crashOrErrorContext: "partial",
       networkApiContext: "partial",
+      nativeApiCalls: "partial",
+      consoleLogs: "yes",
       privacyMasking: "yes",
     }, [
       { feature: "Native ANR replay triage", other: "no" },
@@ -1005,6 +1019,8 @@ export const SEO_PAGES: SeoPage[] = [
       journeyMaps: "yes",
       crashOrErrorContext: "no",
       networkApiContext: "no",
+      nativeApiCalls: "no",
+      consoleLogs: "yes",
       privacyMasking: "yes",
     }, [
       { feature: "API endpoint analytics dashboard", other: "no" },
@@ -1090,6 +1106,8 @@ export const SEO_PAGES: SeoPage[] = [
       journeyMaps: "yes",
       crashOrErrorContext: "no",
       networkApiContext: "no",
+      nativeApiCalls: "no",
+      consoleLogs: "partial",
       privacyMasking: "yes",
     }, [
       { feature: "API endpoint analytics dashboard", other: "no" },
@@ -1144,6 +1162,186 @@ export const SEO_PAGES: SeoPage[] = [
     ],
   }),
   alternativePage({
+    path: "/alternatives/smartlook",
+    competitor: "Smartlook",
+    badge: "",
+    subtitle:
+      "Smartlook is entering Cisco end-of-sale and end-of-life. Rejourney is the Smartlook alternative for teams that still need replay, heatmaps, journeys, mobile evidence, and technical context in one focused workflow.",
+    metaTitle: "Smartlook Alternatives: Rejourney vs Smartlook",
+    metaDescription:
+      "Compare Rejourney and Smartlook alternatives before Cisco ends Smartlook. Review session replay, heatmaps, funnels, mobile replay, crash context, pricing, and migration risk.",
+    keywords: ["smartlook alternatives", "smartlook alternative", "smartlook replacement", "smartlook end of life", "smartlook pricing", "session replay tools", "mobile session replay", "heatmap analytics"],
+    image: "/images/engineering/smartlook-alternatives-replay-detail.png",
+    imageAlt: "Rejourney replay workbench showing mobile session replay, API calls, timeline events, and session context",
+    proofPoints: ["Cisco EOL timing", "Replay + heatmaps", "Mobile + technical context"],
+    whyParagraphs: [
+      "Cisco's official end-of-sale notice says Smartlook.com reaches end of sale on May 31, 2026, with the last date to renew or add to an existing subscription on August 31, 2026 and last support on August 31, 2027.",
+      "Smartlook historically served teams that needed recordings, heatmaps, events, funnels, crash reports, and web/mobile behavior analytics. The migration question is whether teams still need that product and UX evidence layer, or whether they want to move into Cisco's listed migration product, Splunk Observability Cloud - RUM+DXA.",
+      "Rejourney is built for teams that want the session, heatmap, journey, metric, crash, ANR, API call, and device context in the same investigation path after Smartlook stops being the center of the workflow.",
+    ],
+    chooseOther: [
+      "You are already committed to Cisco or Splunk observability as the replacement path.",
+      "Your organization wants an enterprise observability suite more than a replay-first product workflow.",
+      "You only need to maintain existing Smartlook access through the remaining support window and are not ready to migrate.",
+    ],
+    comparisonRows: comparisonRows({
+      replayFirst: "yes",
+      webSessionReplay: "yes",
+      mobileSessionReplay: "yes",
+      productAnalytics: "yes",
+      heatmaps: "yes",
+      journeyMaps: "partial",
+      crashOrErrorContext: "yes",
+      networkApiContext: "no",
+      nativeApiCalls: "no",
+      consoleLogs: "partial",
+      privacyMasking: "yes",
+    }, [
+      { feature: "Active standalone buying path after May 31, 2026", other: "no" },
+      { feature: "Replacement workflow independent of Cisco/Splunk migration", other: "no" },
+      { feature: "API endpoint analytics dashboard", other: "no" },
+      { feature: "API degradation email rules", other: "no" },
+      { feature: "Native ANR replay triage", other: "partial" },
+      { feature: "Open-source or self-host path", other: "no" },
+    ]),
+    featureDifferences: [
+      {
+        feature: "Product lifecycle",
+        rejourney: "An active replay-first analytics product for teams moving behavior evidence into a new workflow.",
+        other: "Cisco has announced Smartlook end-of-sale and end-of-life dates, with support ending on August 31, 2027.",
+      },
+      {
+        feature: "Migration path",
+        rejourney: "Keeps behavior analytics centered on sessions, heatmaps, journeys, mobile replay, crashes, ANRs, and API context.",
+        other: "Cisco's EOL notice lists Splunk Observability Cloud - RUM+DXA as the migration product for affected Smartlook products.",
+      },
+      {
+        feature: "Team workflow",
+        rejourney: "Designed for product, design, support, and engineering teams to inspect the same replay-backed evidence.",
+        other: "A better fit during the remaining support window if the team is staying inside existing Smartlook or Cisco account paths.",
+      },
+    ],
+    competitorFacts: [
+      "Cisco's Smartlook EOL notice says the end-of-life announcement date is March 31, 2026, the end-of-sale date is May 31, 2026, the last change or renewal date is August 31, 2026, and the last date of support is August 31, 2027.",
+      "Cisco's EOL notice lists Splunk Observability Cloud - RUM+DXA as the migration product description for affected Smartlook SaaS product part numbers.",
+      "Cisco's Smartlook acquisition page says Smartlook added user experience insights, analytics, troubleshooting, session recording and replay, and heatmaps to Cisco's digital experience monitoring strategy.",
+      "Smartlook's own pricing page currently displays an end-of-sale notice and still presents features such as session recordings, heatmaps, events, funnels, crash reports, web analytics, and mobile app analytics.",
+    ],
+    officialSources: [
+      { label: "Cisco Smartlook EOL notice", href: "https://www.cisco.com/c/en/us/products/collateral/software/smartlook-com-eol.html" },
+      { label: "Cisco Smartlook acquisition", href: "https://www.cisco.com/site/us/en/about/corporate-development/acquisitions/smartlook/index.html" },
+      { label: "Smartlook pricing", href: "https://www.smartlook.com/pricing/" },
+    ],
+    pricingIntro:
+      "Smartlook's public pricing page now leads with an end-of-sale notice. Rejourney is positioned for teams that want to migrate behavior analytics into an active replay-first workflow with unlimited events, analytics retention, projects, and team access.",
+    faq: [
+      {
+        question: "Is Smartlook ending?",
+        answer:
+          "Cisco has published end-of-sale and end-of-life dates for Smartlook.com. The notice lists May 31, 2026 as end of sale and August 31, 2027 as the last date of support.",
+      },
+      {
+        question: "Is Rejourney a Smartlook alternative?",
+        answer:
+          "Yes. Rejourney is a Smartlook alternative for teams that want session replay, heatmaps, journeys, product analytics, mobile replay, crashes, ANRs, and API context in one workflow.",
+      },
+      {
+        question: "When should I choose Rejourney over Smartlook?",
+        answer:
+          "Choose Rejourney if your team needs an active replacement before or during the Smartlook transition and wants replay-first product evidence rather than a broader Cisco or Splunk observability migration.",
+      },
+    ],
+  }),
+  alternativePage({
+    path: "/alternatives/hotjar",
+    competitor: "Hotjar",
+    badge: "",
+    subtitle:
+      "Hotjar is known for heatmaps, recordings, surveys, and feedback. Rejourney is the Hotjar alternative for teams that want replay, heatmaps, journeys, mobile evidence, product analytics, and technical context together.",
+    metaTitle: "Hotjar Alternatives: Rejourney vs Hotjar",
+    metaDescription:
+      "Compare Rejourney and Hotjar alternatives for heatmaps, session replay, user journeys, mobile analytics, unlimited events, retention, projects, and teams.",
+    keywords: ["hotjar alternatives", "hotjar competitors", "alternative hotjar", "hotjar alternative", "session replay tools", "behavior analytics tools", "heatmap analytics"],
+    image: "/images/engineering/churn-mobile-heatmap.png",
+    imageAlt: "Mobile app heatmap showing concentrated taps and attention across a coffee app screen",
+    proofPoints: ["Heatmaps + replay", "Journeys + analytics", "Mobile + stability context"],
+    whyParagraphs: [
+      "Hotjar's official pricing page frames Observe around heatmaps and recordings, with additional Ask and Engage products for surveys, feedback, user interviews, and user tests. That is useful when a website team wants classic qualitative UX research tools.",
+      "Rejourney is built for product teams that need the session, the heatmap, the journey, the metric, the crash, and the API context in the same investigation path.",
+      "If your team is comparing Hotjar alternatives because recordings alone are not enough, Rejourney keeps replay close to product analytics, mobile context, and technical evidence.",
+    ],
+    chooseOther: [
+      "You mainly need website heatmaps, recordings, surveys, feedback widgets, and user interviews.",
+      "Your team already uses Hotjar as a lightweight research layer on marketing pages.",
+      "You do not need mobile app replay, crash context, ANRs, API context, or engineering evidence beside sessions.",
+    ],
+    comparisonRows: comparisonRows({
+      replayFirst: "no",
+      webSessionReplay: "yes",
+      mobileSessionReplay: "no",
+      productAnalytics: "partial",
+      heatmaps: "yes",
+      journeyMaps: "partial",
+      crashOrErrorContext: "partial",
+      networkApiContext: "no",
+      nativeApiCalls: "no",
+      consoleLogs: "partial",
+      privacyMasking: "yes",
+    }, [
+      { feature: "Mobile app replay workflow", other: "no" },
+      { feature: "Native crash and ANR triage", other: "no" },
+      { feature: "API endpoint analytics dashboard", other: "no" },
+      { feature: "API degradation email rules", other: "no" },
+      { feature: "Open-source or self-host path", other: "no" },
+      { feature: "Team/project alert topology", other: "no" },
+    ]),
+    featureDifferences: [
+      {
+        feature: "Core job",
+        rejourney: "Replay-first analytics for product, support, design, and engineering teams that need behavior plus technical context.",
+        other: "Hotjar is strongest as a website behavior research product with heatmaps, recordings, surveys, feedback, and user research products.",
+      },
+      {
+        feature: "From symptom to cause",
+        rejourney: "Connects heatmaps to session replay, journeys, product analytics, crashes, ANRs, device context, and API evidence.",
+        other: "Best to evaluate when the main goal is website heatmaps, recordings, and feedback workflows rather than mobile and engineering triage.",
+      },
+      {
+        feature: "Product surface",
+        rejourney: "Designed for web and mobile apps where friction can come from UI, device, app version, crash, network, or backend behavior.",
+        other: "A strong fit for teams that want qualitative website insight and do not need the same depth of mobile app or technical context.",
+      },
+    ],
+    competitorFacts: [
+      "Hotjar's pricing page says teams can mix and match products and always get access to the Basic plan on all products.",
+      "Hotjar lists Observe as Heatmaps & Recordings, with Basic at $0 and Plus shown at $39 when billed annually at review time.",
+      "Hotjar's Observe feature table lists items such as funnels, trends, JavaScript error filtering, Google Analytics filtering, Jira, Slack, Microsoft Teams, Webhooks, and Hotjar API in its plan comparison, so teams should verify which plan gates the exact workflow they need.",
+    ],
+    officialSources: [
+      { label: "Hotjar pricing", href: "https://www.hotjar.com/pricing/" },
+      { label: "Hotjar plans docs", href: "https://help.hotjar.com/hc/en-us/articles/360001389973-Hotjar-Plans" },
+    ],
+    pricingIntro:
+      "Hotjar publishes product and plan packaging for Observe, Ask, and Engage. Rejourney is positioned for teams that want heatmaps and replay connected to product analytics, mobile evidence, crashes, API context, unlimited events, analytics retention, projects, and team access.",
+    faq: [
+      {
+        question: "Is Rejourney a Hotjar alternative?",
+        answer:
+          "Yes. Rejourney is a Hotjar alternative for teams that want heatmaps and session replay plus journeys, product analytics, mobile replay, crash context, and API evidence.",
+      },
+      {
+        question: "When is Hotjar a better fit?",
+        answer:
+          "Hotjar can be a better fit when the team mainly needs website heatmaps, recordings, surveys, feedback widgets, and user interviews.",
+      },
+      {
+        question: "Why choose Rejourney over Hotjar?",
+        answer:
+          "Choose Rejourney when the team needs to connect visual behavior to replay, journeys, retention, mobile app context, errors, crashes, ANRs, and backend or API issues.",
+      },
+    ],
+  }),
+  alternativePage({
     path: "/alternatives/fullstory",
     competitor: "Fullstory",
     badge: "",
@@ -1175,6 +1373,8 @@ export const SEO_PAGES: SeoPage[] = [
       journeyMaps: "partial",
       crashOrErrorContext: "partial",
       networkApiContext: "yes",
+      nativeApiCalls: "partial",
+      consoleLogs: "yes",
       privacyMasking: "yes",
     }, [
       { feature: "Open-source or self-host path", other: "no" },

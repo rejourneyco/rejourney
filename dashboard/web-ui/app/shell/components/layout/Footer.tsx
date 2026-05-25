@@ -22,9 +22,11 @@ export const Footer: React.FC = () => {
     { label: "vs Mixpanel", href: "/alternatives/mixpanel-session-replay" },
     { label: "vs Pendo", href: "/alternatives/pendo-session-replay" },
     { label: "vs Fullstory", href: "/alternatives/fullstory" },
+    { label: "vs Smartlook", href: "/alternatives/smartlook" },
+    { label: "vs Hotjar", href: "/alternatives/hotjar" },
   ];
   const featureLinks = [
-    { label: "Session Replay Software", href: "/session-replay-tools" },
+    { label: "Record User Sessions", href: "/record-user-sessions" },
     { label: "Website Session Recording", href: "/web-session-replay" },
     { label: "Mobile Session Replay", href: "/mobile-session-replay" },
     { label: "Web Session Replay", href: "/web-session-replay" },

@@ -51,6 +51,9 @@ local.properties
 *.log
 *.tmp
 
+# Local SEO exports
+/seo_reports/
+
 # Editor
 .idea/
 .vscode/

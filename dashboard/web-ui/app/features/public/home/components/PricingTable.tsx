@@ -87,8 +87,8 @@ const rejourneyPlan = (sessions: number): { price: number; plan: string; isCusto
 };
 
 const PlanCheck: React.FC<{ children: React.ReactNode }> = ({ children }) => (
-    <li className="flex gap-3 text-[15px] leading-6 text-slate-700">
-        <span className="mt-1 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-slate-900 text-white">
+    <li className="flex gap-3 text-base font-semibold leading-7 text-slate-800">
+        <span className="mt-1 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-emerald-700 text-white">
             <Check className="h-3.5 w-3.5 stroke-[3px]" aria-hidden />
         </span>
         <span>{children}</span>
@@ -284,17 +284,17 @@ export const PricingTable: React.FC = () => {
                         className="flex w-full items-center justify-between gap-5 border-2 border-black bg-white px-5 py-4 text-left shadow-neo-sm transition-all hover:-translate-x-0.5 hover:-translate-y-0.5 hover:bg-[#ecfeff] hover:shadow-neo"
                     >
                         <span>
-                            <span className="block text-base font-black uppercase text-slate-950">{copy.comparisonTitle}</span>
-                            <span className="mt-1 block text-sm font-semibold text-slate-500">{copy.comparisonSubtitle}</span>
+                            <span className="block text-lg font-black uppercase leading-tight text-slate-950">{copy.comparisonTitle}</span>
+                            <span className="mt-1 block text-base font-semibold leading-6 text-slate-700">{copy.comparisonSubtitle}</span>
                         </span>
-                        <ChevronDown className={`h-5 w-5 shrink-0 text-slate-500 transition ${calculatorOpen ? 'rotate-180' : ''}`} aria-hidden />
+                        <ChevronDown className={`h-5 w-5 shrink-0 text-slate-800 transition ${calculatorOpen ? 'rotate-180' : ''}`} aria-hidden />
                     </button>
 
                     {calculatorOpen && (
-                        <div className="grid gap-8 border-x-2 border-b-2 border-black bg-white px-5 py-6 lg:grid-cols-[0.85fr_1.35fr]">
+                        <div className="grid gap-8 border-x-2 border-b-2 border-black bg-[#f8fafc] px-5 py-6 lg:grid-cols-[0.85fr_1.35fr]">
                             <div>
                                 <div className="mb-3 flex items-end justify-between gap-4">
-                                    <span className="font-mono text-[10px] font-black uppercase text-slate-500">{copy.sessionsPerMonthLabel}</span>
+                                    <span className="text-sm font-black uppercase leading-tight text-slate-700">{copy.sessionsPerMonthLabel}</span>
                                     <span className="text-3xl font-black text-slate-950">{formatInteger(calculatorSessions, locale.languageTag)}</span>
                                 </div>
                                 <input
@@ -329,21 +329,21 @@ export const PricingTable: React.FC = () => {
                                 </div>
                             </div>
 
-                            <div className="grid overflow-hidden border-2 border-black sm:grid-cols-3">
-                                <div className="border-b-2 border-black bg-[#f8fafc] p-5 sm:border-b-0 sm:border-r-2">
-                                    <p className="font-mono text-[10px] font-black uppercase text-slate-500">Rejourney</p>
-                                    <p className="mt-3 text-3xl font-black text-slate-950">${rejourneyMonthlyPlan.price}</p>
-                                    <p className="mt-2 text-sm font-semibold text-slate-500">{copy.rejourneyPlanLabel(rejourneyMonthlyPlan.plan, rejourneyMonthlyPlan.isCustom)}</p>
+                            <div className="grid overflow-hidden border-2 border-black bg-white sm:grid-cols-3">
+                                <div className="border-b-2 border-black bg-[#ecfeff] p-5 sm:border-b-0 sm:border-r-2 sm:p-6">
+                                    <p className="text-sm font-black uppercase leading-none text-slate-950">Rejourney</p>
+                                    <p className="mt-4 text-4xl font-black leading-none text-slate-950">${rejourneyMonthlyPlan.price}</p>
+                                    <p className="mt-3 text-base font-semibold leading-6 text-slate-800">{copy.rejourneyPlanLabel(rejourneyMonthlyPlan.plan, rejourneyMonthlyPlan.isCustom)}</p>
                                 </div>
-                                <div className="border-b-2 border-black p-5 sm:border-b-0 sm:border-r-2">
-                                    <p className="font-mono text-[10px] font-black uppercase text-slate-500">PostHog</p>
-                                    <p className="mt-3 text-3xl font-black text-slate-950">{formatApproxCurrency(posthogMonthlyCost)}</p>
-                                    <p className="mt-2 text-sm font-semibold text-slate-500">{copy.posthogEstimate}</p>
+                                <div className="border-b-2 border-black p-5 sm:border-b-0 sm:border-r-2 sm:p-6">
+                                    <p className="text-sm font-black uppercase leading-none text-slate-950">PostHog</p>
+                                    <p className="mt-4 text-4xl font-black leading-none text-slate-950">{formatApproxCurrency(posthogMonthlyCost)}</p>
+                                    <p className="mt-3 text-base font-semibold leading-6 text-slate-800">{copy.posthogEstimate}</p>
                                 </div>
-                                <div className="bg-[#ecfeff] p-5">
-                                    <p className="font-mono text-[10px] font-black uppercase text-slate-500">Sentry</p>
-                                    <p className="mt-3 text-3xl font-black text-slate-950">{formatApproxCurrency(sentryMonthlyCost)}</p>
-                                    <p className="mt-2 text-sm font-semibold text-slate-500">{copy.sentryEstimate}</p>
+                                <div className="bg-white p-5 sm:p-6">
+                                    <p className="text-sm font-black uppercase leading-none text-slate-950">Sentry</p>
+                                    <p className="mt-4 text-4xl font-black leading-none text-slate-950">{formatApproxCurrency(sentryMonthlyCost)}</p>
+                                    <p className="mt-3 text-base font-semibold leading-6 text-slate-800">{copy.sentryEstimate}</p>
                                 </div>
                             </div>
                         </div>

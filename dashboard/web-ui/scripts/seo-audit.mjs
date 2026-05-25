@@ -48,7 +48,6 @@ function checkStructuredData() {
   const forbidden = [
     "availableLanguage",
     "codeRepository",
-    '"@type": "SoftwareApplication"',
     '"@type": "Product"',
   ];
 
@@ -63,6 +62,11 @@ function checkStructuredData() {
     "app/features/public/docs/slug/route.tsx",
     '"category": localizedMetadata.category',
     "Docs Article JSON-LD must use articleSection instead of the unsupported category field."
+  );
+  assertIncludes(
+    "app/features/public/home/route.tsx",
+    '"@type": "SoftwareApplication"',
+    "Home page should expose SoftwareApplication JSON-LD for product rich-result eligibility."
   );
 }
 

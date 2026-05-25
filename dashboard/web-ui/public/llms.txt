@@ -7,7 +7,7 @@
 - [Home](https://rejourney.co/): Product overview for open-source mobile analytics, session replay, heatmaps, crash reporting, journeys, and self-hosting.
 - [About](https://rejourney.co/about): Company page for Rejourney's UT Austin origin, Austin location, and founders Mohammad Rashid and Fowwaz Moeen.
 - [Pricing](https://rejourney.co/pricing): Fixed-price mobile analytics and session replay plans.
-- [Session Replay Tools](https://rejourney.co/session-replay-tools): Buying-guide page for comparing replay tools, pricing limits, mobile support, and debugging context.
+- [Record User Sessions](https://rejourney.co/record-user-sessions): Guide for recording real user sessions with replay quality, privacy controls, mobile support, and debugging context.
 - [Mobile Session Replay](https://rejourney.co/mobile-session-replay): Mobile replay for iOS, Expo, and React Native teams.
 - [Web Session Replay](https://rejourney.co/web-session-replay): Browser replay for web apps, checkout, onboarding, account flows, and product dashboards.
 - [Replay-First Mentality](https://rejourney.co/replay-first-mentality): Product thinking guide for grounding analytics, support, and bug triage in real sessions.

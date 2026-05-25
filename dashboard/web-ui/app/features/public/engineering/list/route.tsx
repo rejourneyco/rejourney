@@ -31,6 +31,62 @@ const ARTICLE_IMAGES: Record<string, string> = {
     "architecture-deep-dive": "/images/engineering/session-lifecycle.svg",
 };
 
+type EngineeringArticle = (typeof ARTICLES)[number];
+type EngineeringSectionId = "latest" | "ux-research" | "team-tips" | "sdk-technicals" | "backend-technicals";
+
+const ENGINEERING_SECTIONS: Array<{
+    id: EngineeringSectionId;
+    label: string;
+    description: string;
+    badgeClassName: string;
+}> = [
+    {
+        id: "latest",
+        label: "Latest",
+        description: "Newest engineering notes from the Rejourney team.",
+        badgeClassName: "bg-[#fef08a]",
+    },
+    {
+        id: "ux-research",
+        label: "UX Research",
+        description: "Original Rejourney research backed by session evidence, cohorts, and product behavior data.",
+        badgeClassName: "bg-[#bbf7d0]",
+    },
+    {
+        id: "team-tips",
+        label: "Tips from the Team",
+        description: "Practical playbooks from the Rejourney team for reading analytics, replay, heatmaps, and friction signals.",
+        badgeClassName: "bg-[#ddd6fe]",
+    },
+    {
+        id: "sdk-technicals",
+        label: "SDK Technicals",
+        description: "Native SDK capture, mobile replay internals, maps, and runtime architecture.",
+        badgeClassName: "bg-[#bfdbfe]",
+    },
+    {
+        id: "backend-technicals",
+        label: "Backend Technicals",
+        description: "Infrastructure, replay storage, cost controls, ingest pipelines, and scaling notes.",
+        badgeClassName: "bg-[#fbcfe8]",
+    },
+];
+
+const ARTICLE_SECTIONS: Record<string, Exclude<EngineeringSectionId, "latest">> = {
+    "fullstory-alternatives-small-teams": "team-tips",
+    "smartlook-alternatives-cisco-eol": "team-tips",
+    "hotjar-alternatives-replay-heatmaps": "team-tips",
+    "product-analytics-tools-show-the-event": "team-tips",
+    "churn-story-of-friction": "team-tips",
+    "conversion-funnel-analytics-friction": "team-tips",
+    "swift-package-open-beta": "sdk-technicals",
+    "maps-performance": "sdk-technicals",
+    "architecture-deep-dive": "sdk-technicals",
+    "ambiguity-kills-app-growth": "ux-research",
+    "mobile-session-replay-cost": "backend-technicals",
+    "rejourney-1-3-million-session-replays": "backend-technicals",
+};
+
 function getArticleImage(article: (typeof ARTICLES)[number]): string {
     return ARTICLE_IMAGES[article.id] ?? article.image;
 }
@@ -38,6 +94,86 @@ function getArticleImage(article: (typeof ARTICLES)[number]): string {
 function getArticleImageUrl(article: (typeof ARTICLES)[number]): string {
     const image = getArticleImage(article);
     return image.startsWith("/") ? `${SITE_URL}${image}` : image;
+}
+
+function getEngineeringSectionFromSearch(search: string) {
+    const requestedSection = new URLSearchParams(search).get("section");
+    return ENGINEERING_SECTIONS.find((section) => section.id === requestedSection) ?? ENGINEERING_SECTIONS[0];
+}
+
+function getEngineeringSectionById(sectionId: EngineeringSectionId) {
+    return ENGINEERING_SECTIONS.find((section) => section.id === sectionId) ?? ENGINEERING_SECTIONS[0];
+}
+
+function getEngineeringArticlesForSection(sectionId: EngineeringSectionId): EngineeringArticle[] {
+    if (sectionId === "latest") return ARTICLES;
+    return ARTICLES.filter((article) => ARTICLE_SECTIONS[article.id] === sectionId);
+}
+
+function getSectionArticleCount(sectionId: EngineeringSectionId): number {
+    return getEngineeringArticlesForSection(sectionId).length;
+}
+
+function getArticleSection(article: EngineeringArticle) {
+    return getEngineeringSectionById(ARTICLE_SECTIONS[article.id] ?? "latest");
+}
+
+function getArticleImageCropClass(article: EngineeringArticle): string {
+    return article.id === "ambiguity-kills-app-growth"
+        ? "origin-top-left object-left-top"
+        : "object-center";
+}
+
+function ArticleGrid({
+    articles,
+    copy,
+    engineeringPath,
+    locale,
+}: {
+    articles: EngineeringArticle[];
+    copy: ReturnType<typeof getContentLocaleCopy>;
+    engineeringPath: string;
+    locale: ReturnType<typeof getMarketingLocaleFromPathname>;
+}) {
+    return (
+        <div className="grid gap-x-14 gap-y-20 lg:grid-cols-2">
+            {articles.map((article, index) => {
+                const localizedArticle = getLocalizedArticleSeo(article, locale);
+                const articleSection = getArticleSection(article);
+                return (
+                    <Link
+                        to={`${engineeringPath}/${article.urlDate}/${article.id}`}
+                        key={article.id}
+                        aria-label={copy.readArticleLabel(localizedArticle.title)}
+                        className="group block"
+                    >
+                        <div className="aspect-[1.95/1] overflow-hidden rounded-md border-2 border-black bg-slate-50 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] transition duration-200 group-hover:shadow-[6px_6px_0px_0px_rgba(0,0,0,1)]">
+                            <img
+                                src={getArticleImage(article)}
+                                alt={article.imageAlt ?? localizedArticle.title}
+                                className={`h-full w-full object-cover ${getArticleImageCropClass(article)} brightness-[0.96] saturate-[0.95] transition duration-300 group-hover:scale-[1.015] group-hover:brightness-100 group-hover:saturate-100`}
+                                loading={index < 2 ? "eager" : "lazy"}
+                            />
+                        </div>
+                        <div className="mt-7 flex flex-wrap items-center gap-3">
+                            <span className={`rounded-md border-2 border-black px-3 py-1 text-xs font-black uppercase text-slate-950 ${articleSection.badgeClassName}`}>
+                                {articleSection.label}
+                            </span>
+                            <p className="text-base font-semibold text-slate-500">
+                                {article.date} <span className="px-1.5 text-slate-300">·</span> {localizedArticle.readTime}
+                            </p>
+                        </div>
+                        <h2 className="mt-5 text-3xl font-black leading-tight tracking-normal text-slate-950 transition group-hover:text-sky-700">
+                            {localizedArticle.title}
+                        </h2>
+                        <p className="mt-5 text-xl leading-relaxed text-slate-600">
+                            {localizedArticle.subtitle}
+                        </p>
+                    </Link>
+                );
+            })}
+        </div>
+    );
 }
 
 export function loader({ request }: LoaderFunctionArgs) {
@@ -103,6 +239,8 @@ export default function EngineeringIndexPage() {
     const locale = getMarketingLocaleFromPathname(location.pathname);
     const copy = getContentLocaleCopy(locale);
     const engineeringPath = getLocalizedPublicPath(locale, "/engineering");
+    const selectedSection = getEngineeringSectionFromSearch(location.search);
+    const selectedArticles = getEngineeringArticlesForSection(selectedSection.id);
 
     return (
         <div className="public-readable-scope min-h-screen w-full bg-white text-slate-950 font-sans selection:bg-sky-100 selection:text-slate-950 flex flex-col" lang={locale.languageTag} dir={locale.dir}>
@@ -151,47 +289,57 @@ export default function EngineeringIndexPage() {
             <Header />
 
             <main className="w-full flex-grow">
-                <section className="mx-auto max-w-7xl px-5 pb-16 pt-12 sm:px-8 sm:pt-16 lg:px-10 lg:pb-24">
-                    <div className="mb-12 sm:mb-14">
-                        <p className="text-base font-semibold text-slate-500">{copy.engineeringFromTeam}</p>
-                        <h1 className="mt-6 max-w-4xl text-4xl font-semibold leading-none tracking-normal text-slate-950 sm:text-5xl lg:text-6xl">
+                <section className="mx-auto max-w-[1500px] px-5 pb-16 pt-12 sm:px-8 sm:pt-16 lg:px-10 lg:pb-24">
+                    <div className="border-b-2 border-black pb-12">
+                        <p className="font-mono text-xs font-black uppercase text-slate-500">{copy.engineeringFromTeam}</p>
+                        <h1 className="mt-6 max-w-5xl text-4xl font-black leading-none tracking-normal text-slate-950 sm:text-5xl lg:text-6xl">
                             {copy.engineeringHeading}
                         </h1>
-                        <p className="mt-6 max-w-2xl text-lg leading-relaxed text-slate-600 sm:text-xl">
-                            {copy.engineeringIntro}
-                        </p>
                     </div>
 
-                    <div className="grid gap-x-10 gap-y-16 md:grid-cols-2 xl:grid-cols-3">
-                        {ARTICLES.map((article, index) => {
-                            const localizedArticle = getLocalizedArticleSeo(article, locale);
+                    <nav aria-label="Engineering sections" className="flex gap-8 overflow-x-auto border-b border-slate-200 pt-8">
+                        {ENGINEERING_SECTIONS.map((section) => {
+                            const isActive = section.id === selectedSection.id;
+                            const href = section.id === "latest" ? engineeringPath : `${engineeringPath}?section=${section.id}`;
+
                             return (
                                 <Link
-                                    to={`${engineeringPath}/${article.urlDate}/${article.id}`}
-                                    key={article.id}
-                                    aria-label={copy.readArticleLabel(localizedArticle.title)}
-                                    className={index < 2 ? "group block md:col-span-1" : "group block"}
+                                    key={section.id}
+                                    to={href}
+                                    aria-current={isActive ? "page" : undefined}
+                                    className={`shrink-0 border-b-4 px-1 pb-5 text-lg font-black transition ${
+                                        isActive
+                                            ? "border-black text-slate-950"
+                                            : "border-transparent text-slate-500 hover:text-slate-950"
+                                    }`}
                                 >
-                                    <div className="aspect-[1.9/1] overflow-hidden rounded-md border border-slate-200 bg-slate-50 shadow-sm">
-                                        <img
-                                            src={getArticleImage(article)}
-                                            alt={article.imageAlt ?? localizedArticle.title}
-                                            className="h-full w-full object-cover brightness-[0.96] saturate-[0.95] transition duration-300 group-hover:scale-[1.015] group-hover:brightness-100 group-hover:saturate-100"
-                                            loading={index < 2 ? "eager" : "lazy"}
-                                        />
-                                    </div>
-                                    <p className="mt-5 text-base font-semibold text-slate-500">
-                                        {article.date} <span className="px-1.5 text-slate-300">·</span> {localizedArticle.readTime}
-                                    </p>
-                                    <h2 className="mt-3 text-2xl font-semibold leading-tight tracking-normal text-slate-950 transition group-hover:text-sky-700 sm:text-3xl">
-                                        {localizedArticle.title}
-                                    </h2>
-                                    <p className="mt-3 text-lg leading-relaxed text-slate-600">
-                                        {localizedArticle.subtitle}
-                                    </p>
+                                    {section.label}
                                 </Link>
                             );
                         })}
+                    </nav>
+
+                    <div className="mt-14">
+                        <div className="mb-10 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+                            <div>
+                                <p className="font-mono text-xs font-black uppercase text-slate-500">
+                                    {selectedSection.id === "latest" ? "Newest first" : "Selected track"}
+                                </p>
+                                <p className="mt-2 max-w-2xl text-lg font-semibold leading-7 text-slate-600">
+                                    {selectedSection.description}
+                                </p>
+                            </div>
+                            <p className="w-fit rounded-md border-2 border-black bg-white px-4 py-2 text-sm font-black uppercase text-slate-950">
+                                {selectedArticles.length} articles
+                            </p>
+                        </div>
+
+                        <ArticleGrid
+                            articles={selectedArticles}
+                            copy={copy}
+                            engineeringPath={engineeringPath}
+                            locale={locale}
+                        />
                     </div>
                 </section>
             </main>

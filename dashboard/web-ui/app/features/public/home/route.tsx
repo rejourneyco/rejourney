@@ -134,6 +134,26 @@ export default function LandingPage() {
                                     ...locale.keywords,
                                 ],
                             },
+                            {
+                                "@type": "SoftwareApplication",
+                                "@id": "https://rejourney.co/#software",
+                                name: "Rejourney",
+                                applicationCategory: "BusinessApplication",
+                                operatingSystem: "Web, iOS, Android",
+                                description: "Record user sessions with web and mobile session replay, heatmaps, user journeys, crash context, API context, product analytics, and privacy masking.",
+                                url: "https://rejourney.co/",
+                                offers: {
+                                    "@type": "Offer",
+                                    price: "0",
+                                    priceCurrency: "USD",
+                                    url: "https://rejourney.co/pricing",
+                                },
+                                publisher: {
+                                    "@type": "Organization",
+                                    "@id": "https://rejourney.co/#organization",
+                                    name: "Rejourney",
+                                },
+                            },
                         ],
                     }),
                 }}
