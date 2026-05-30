@@ -33,7 +33,7 @@ function Chip({
       <select
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className={`appearance-none border-2 border-black bg-white pl-3 pr-7 py-1.5 text-xs font-black text-black shadow-neo-sm cursor-pointer outline-none transition-colors hover:bg-[#ecfeff] focus:ring-2 focus:ring-black ${className}`}
+        className={`appearance-none rounded-[6px] border border-slate-300 bg-white py-1.5 pl-3 pr-7 text-xs font-medium text-slate-800 shadow-sm outline-none transition cursor-pointer hover:border-blue-300 hover:bg-slate-50 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 ${className}`}
       >
         {placeholder && <option value="">{placeholder}</option>}
         {options.map((o) => (
@@ -56,7 +56,7 @@ function NumInput({
       type="number" min={min} value={value}
       onChange={(e) => onChange(e.target.value)}
       placeholder={placeholder}
-      className={`${width} border-2 border-black bg-white px-2 py-1.5 text-center text-xs font-black text-black outline-none transition-colors hover:bg-[#ecfeff] focus:ring-2 focus:ring-black`}
+      className={`${width} rounded-[6px] border border-slate-300 bg-white px-2 py-1.5 text-center text-xs font-medium text-slate-800 shadow-sm outline-none transition hover:border-blue-300 hover:bg-slate-50 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20`}
     />
   );
 }
@@ -73,17 +73,17 @@ const COUNT_OPS = [
 // ── Row shell ─────────────────────────────────────────────────────────────────
 
 const TYPE_COLORS: Record<string, { icon: React.ReactNode; bg: string; text: string; border: string }> = {
-  issue:      { icon: <AlertOctagon className="w-4 h-4" />, bg: 'bg-black', text: 'text-white', border: 'border-black' },
-  date:       { icon: <Calendar className="w-4 h-4" />,     bg: 'bg-[#67e8f9]',   text: 'text-black', border: 'border-black' },
-  screen:     { icon: <LayoutGrid className="w-4 h-4" />,   bg: 'bg-[#c4b5fd]',text: 'text-black', border: 'border-black' },
-  event:      { icon: <Zap className="w-4 h-4" />,          bg: 'bg-[#dbeafe]',text: 'text-black', border: 'border-black' },
-  metadata:   { icon: <Tag className="w-4 h-4" />,          bg: 'bg-[#86efac]',text: 'text-black', border: 'border-black' },
-  referral:   { icon: <Globe2 className="w-4 h-4" />,       bg: 'bg-[#67e8f9]',text: 'text-black', border: 'border-black' },
-  utm:        { icon: <Megaphone className="w-4 h-4" />,    bg: 'bg-[#fde68a]',text: 'text-black', border: 'border-black' },
-  lifecycle:  { icon: <Users className="w-4 h-4" />,        bg: 'bg-[#f9a8d4]', text: 'text-black', border: 'border-black' },
-  platform:   { icon: <Smartphone className="w-4 h-4" />,   bg: 'bg-[#67e8f9]',  text: 'text-black', border: 'border-black' },
-  journey:    { icon: <Route className="w-4 h-4" />,        bg: 'bg-[#86efac]',  text: 'text-black', border: 'border-black' },
-  conversion: { icon: <Tag className="w-4 h-4" />,          bg: 'bg-[#f9a8d4]',  text: 'text-black', border: 'border-black' },
+  issue:      { icon: <AlertOctagon className="w-4 h-4" />, bg: 'bg-rose-50',    text: 'text-rose-600',    border: 'border-rose-100' },
+  date:       { icon: <Calendar className="w-4 h-4" />,     bg: 'bg-sky-50',     text: 'text-sky-600',     border: 'border-sky-100' },
+  screen:     { icon: <LayoutGrid className="w-4 h-4" />,   bg: 'bg-violet-50',  text: 'text-violet-600',  border: 'border-violet-100' },
+  event:      { icon: <Zap className="w-4 h-4" />,          bg: 'bg-blue-50',    text: 'text-blue-600',    border: 'border-blue-100' },
+  metadata:   { icon: <Tag className="w-4 h-4" />,          bg: 'bg-emerald-50', text: 'text-emerald-600', border: 'border-emerald-100' },
+  referral:   { icon: <Globe2 className="w-4 h-4" />,       bg: 'bg-cyan-50',    text: 'text-cyan-600',    border: 'border-cyan-100' },
+  utm:        { icon: <Megaphone className="w-4 h-4" />,    bg: 'bg-amber-50',   text: 'text-amber-600',   border: 'border-amber-100' },
+  lifecycle:  { icon: <Users className="w-4 h-4" />,        bg: 'bg-pink-50',    text: 'text-pink-600',    border: 'border-pink-100' },
+  platform:   { icon: <Smartphone className="w-4 h-4" />,   bg: 'bg-indigo-50',  text: 'text-indigo-600',  border: 'border-indigo-100' },
+  journey:    { icon: <Route className="w-4 h-4" />,        bg: 'bg-teal-50',    text: 'text-teal-600',    border: 'border-teal-100' },
+  conversion: { icon: <Tag className="w-4 h-4" />,          bg: 'bg-pink-50',    text: 'text-pink-600',    border: 'border-pink-100' },
 };
 
 function uniqueValues(values: Array<string | undefined>): string[] {
@@ -106,24 +106,27 @@ export function ConditionRowShell({
 }) {
   const c = TYPE_COLORS[type] ?? TYPE_COLORS.issue;
   const meta = CONDITION_TYPE_META[type as keyof typeof CONDITION_TYPE_META];
+  const renderRemoveButton = () => (
+    <button
+      onClick={onRemove}
+      className="shrink-0 rounded-[6px] border border-transparent p-1.5 text-slate-400 transition hover:border-rose-200 hover:bg-rose-50 hover:text-rose-600"
+      title="Remove rule"
+    >
+      <X className="w-4 h-4" />
+    </button>
+  );
+
   return (
-    <div className="flex flex-col gap-2 border-2 border-black bg-white px-3 py-2.5 shadow-neo-sm">
-      {/* Row 1: type label + remove */}
-      <div className="flex items-center justify-between gap-2">
+    <div className="flex flex-col gap-2 rounded-[8px] border border-slate-200 bg-white px-3 py-2 shadow-sm sm:flex-row sm:items-center">
+      <div className="flex items-center justify-between gap-2 sm:w-36 sm:justify-start">
         <div className="flex items-center gap-2 shrink-0">
-          <div className={`${c.bg} ${c.text} shrink-0 border border-black p-1.5`}>{c.icon}</div>
-          <span className="text-[10px] font-black text-slate-600 uppercase">{meta?.label ?? type}</span>
+          <div className={`${c.bg} ${c.text} ${c.border} shrink-0 rounded-[6px] border p-1.5`}>{c.icon}</div>
+          <span className="text-xs font-semibold text-slate-700">{meta?.label ?? type}</span>
         </div>
-        <button
-          onClick={onRemove}
-          className="shrink-0 border border-transparent p-1.5 text-slate-500 transition-colors hover:border-black hover:bg-[#fecaca] hover:text-black"
-          title="Remove rule"
-        >
-          <X className="w-4 h-4" />
-        </button>
+        <div className="sm:hidden">{renderRemoveButton()}</div>
       </div>
-      {/* Row 2: controls */}
-      <div className="flex items-center gap-2 flex-wrap pl-1">{children}</div>
+      <div className="flex min-w-0 flex-1 items-center gap-2 flex-wrap">{children}</div>
+      <div className="hidden sm:block">{renderRemoveButton()}</div>
     </div>
   );
 }
@@ -137,13 +140,13 @@ export function IssueRow({ cond, onChange, onRemove }: { cond: IssueCondition; o
         value={cond.issueFilter}
         onChange={(v) => onChange({ ...cond, issueFilter: v as IssueCondition['issueFilter'] })}
         options={[
-          { value: 'crashes', label: '💥 Crashes' },
-          { value: 'anrs', label: '🔴 ANRs' },
-          { value: 'errors', label: '⚠️ Errors' },
-          { value: 'rage', label: '😤 Rage taps' },
-          { value: 'dead_taps', label: '💀 Dead taps' },
-          { value: 'slow_start', label: '🐢 Slow start' },
-          { value: 'slow_api', label: '📡 Slow API' },
+          { value: 'crashes', label: 'Crashes' },
+          { value: 'anrs', label: 'ANRs' },
+          { value: 'errors', label: 'Errors' },
+          { value: 'rage', label: 'Rage taps' },
+          { value: 'dead_taps', label: 'Dead taps' },
+          { value: 'slow_start', label: 'Slow start' },
+          { value: 'slow_api', label: 'Slow API' },
         ]}
       />
     </ConditionRowShell>
@@ -159,10 +162,10 @@ const TIME_OPTS = [
 export function DateRow({ cond, onChange, onRemove }: { cond: DateCondition; onChange: (c: DateCondition) => void; onRemove: () => void }) {
   return (
     <ConditionRowShell type="date" onRemove={onRemove}>
-      <div className="flex overflow-hidden border-2 border-black text-xs font-black shadow-neo-sm">
+      <div className="flex overflow-hidden rounded-[8px] border border-slate-200 bg-white text-xs font-semibold shadow-sm">
         {(['range', 'exact'] as const).map((m) => (
           <button key={m} onClick={() => onChange({ ...cond, mode: m })}
-            className={`px-3 py-1.5 transition-colors ${cond.mode === m ? 'bg-[#67e8f9] text-black' : 'bg-white text-slate-700 hover:bg-[#ecfeff]'}`}>
+            className={`px-3 py-1.5 transition ${cond.mode === m ? 'bg-slate-950 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'}`}>
             {m === 'range' ? 'Range' : 'Exact date'}
           </button>
         ))}
@@ -172,7 +175,7 @@ export function DateRow({ cond, onChange, onRemove }: { cond: DateCondition; onC
       )}
       {cond.mode === 'exact' && (
         <input type="date" value={cond.date ?? ''} onChange={(e) => onChange({ ...cond, date: e.target.value })}
-          className="border-2 border-black bg-white px-3 py-1.5 text-xs font-black text-black outline-none" />
+          className="rounded-[6px] border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-800 shadow-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20" />
       )}
     </ConditionRowShell>
   );
@@ -232,7 +235,7 @@ export function EventRow({ cond, onChange, onRemove, filters, loading }: {
           )}
           {cond.eventPropKey && (
             <input type="text" value={cond.eventPropValue ?? ''} onChange={(e) => onChange({ ...cond, eventPropValue: e.target.value || undefined })}
-              placeholder="value" className="w-24 border-2 border-black bg-white px-3 py-1.5 text-xs font-black text-black outline-none" />
+              placeholder="value" className="w-24 rounded-[6px] border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-800 shadow-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20" />
           )}
         </>
       )}
@@ -258,7 +261,7 @@ export function MetadataRow({ cond, onChange, onRemove, filters, loading }: {
             <Chip value={cond.metaValue ?? ''} onChange={(v) => onChange({ ...cond, metaValue: v || undefined })} options={[{ value: '', label: 'any value' }, ...valOpts]} />
           ) : (
             <input type="text" value={cond.metaValue ?? ''} onChange={(e) => onChange({ ...cond, metaValue: e.target.value || undefined })}
-              placeholder="value" className="w-28 border-2 border-black bg-white px-3 py-1.5 text-xs font-black text-black outline-none" />
+              placeholder="value" className="w-28 rounded-[6px] border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-800 shadow-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20" />
           )}
         </>
       )}
@@ -274,7 +277,7 @@ export function ReferralRow({ cond, onChange, onRemove, filters, loading }: {
   const valOpts = optionsWithCurrent(referralValues, cond.referralValue);
   return (
     <ConditionRowShell type="referral" onRemove={onRemove}>
-      <span className="border-2 border-black bg-[#ecfeff] px-3 py-1.5 text-xs font-black uppercase text-black">Web only</span>
+      <span className="rounded-full border border-cyan-200 bg-cyan-50 px-3 py-1.5 text-xs font-semibold text-cyan-800">Web only</span>
       {loading ? <span className="text-xs text-slate-400">Loading…</span> : (
         <>
           <span className="text-xs text-slate-400">from</span>
@@ -282,7 +285,7 @@ export function ReferralRow({ cond, onChange, onRemove, filters, loading }: {
             <Chip value={cond.referralValue ?? ''} onChange={(v) => onChange({ ...cond, referralValue: v || undefined })} options={valOpts} />
           ) : (
             <input type="text" value={cond.referralValue ?? ''} onChange={(e) => onChange({ ...cond, referralValue: e.target.value || undefined })}
-              placeholder="domain or source" className="w-36 border-2 border-black bg-white px-3 py-1.5 text-xs font-black text-black outline-none" />
+              placeholder="domain or source" className="w-36 rounded-[6px] border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-800 shadow-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20" />
           )}
         </>
       )}
@@ -312,7 +315,7 @@ export function UtmRow({ cond, onChange, onRemove, filters, loading }: {
   const valOpts = optionsWithCurrent(values, cond.value);
   return (
     <ConditionRowShell type="utm" onRemove={onRemove}>
-      <span className="border-2 border-black bg-[#ecfeff] px-3 py-1.5 text-xs font-black uppercase text-black">Web only</span>
+      <span className="rounded-full border border-cyan-200 bg-cyan-50 px-3 py-1.5 text-xs font-semibold text-cyan-800">Web only</span>
       <Chip
         value={cond.field}
         onChange={(v) => onChange({ ...cond, field: v as UtmField, value: undefined })}
@@ -321,9 +324,9 @@ export function UtmRow({ cond, onChange, onRemove, filters, loading }: {
       <span className="text-xs text-slate-400">=</span>
       {loading ? <span className="text-xs text-slate-400">Loading…</span> : values.length > 0 ? (
         <Chip value={cond.value ?? ''} onChange={(v) => onChange({ ...cond, value: v || undefined })} options={valOpts} />
-      ) : (
-        <input type="text" value={cond.value ?? ''} onChange={(e) => onChange({ ...cond, value: e.target.value || undefined })}
-          placeholder="value" className="w-32 border-2 border-black bg-white px-3 py-1.5 text-xs font-black text-black outline-none" />
+    ) : (
+      <input type="text" value={cond.value ?? ''} onChange={(e) => onChange({ ...cond, value: e.target.value || undefined })}
+          placeholder="value" className="w-32 rounded-[6px] border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-800 shadow-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20" />
       )}
     </ConditionRowShell>
   );
@@ -332,11 +335,11 @@ export function UtmRow({ cond, onChange, onRemove, filters, loading }: {
 export function LifecycleRow({ cond, onChange, onRemove }: { cond: LifecycleCondition; onChange: (c: LifecycleCondition) => void; onRemove: () => void }) {
   return (
     <ConditionRowShell type="lifecycle" onRemove={onRemove}>
-      <div className="flex overflow-hidden border-2 border-black text-xs font-black shadow-neo-sm">
+      <div className="flex overflow-hidden rounded-[8px] border border-slate-200 bg-white text-xs font-semibold shadow-sm">
         {(['early_user', 'returning_user'] as const).map((p) => (
           <button key={p} onClick={() => onChange({ ...cond, preset: p, returnedCountOp: undefined, returnedCountValue: undefined })}
-            className={`px-3 py-1.5 transition-colors ${cond.preset === p ? 'bg-[#67e8f9] text-black' : 'bg-white text-slate-700 hover:bg-[#ecfeff]/60'}`}>
-            {p === 'early_user' ? '🌱 Early user' : '🔄 Returning'}
+            className={`px-3 py-1.5 transition ${cond.preset === p ? 'bg-slate-950 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'}`}>
+            {p === 'early_user' ? 'Early user' : 'Returning'}
           </button>
         ))}
       </div>
@@ -364,10 +367,10 @@ export function LifecycleRow({ cond, onChange, onRemove }: { cond: LifecycleCond
 export function PlatformRow({ cond, onChange, onRemove }: { cond: PlatformCondition; onChange: (c: PlatformCondition) => void; onRemove: () => void }) {
   return (
     <ConditionRowShell type="platform" onRemove={onRemove}>
-      <div className="flex overflow-hidden border-2 border-black text-xs font-black shadow-neo-sm">
+      <div className="flex overflow-hidden rounded-[8px] border border-slate-200 bg-white text-xs font-semibold shadow-sm">
         {(['ios', 'android', 'web'] as const).map((p) => (
           <button key={p} onClick={() => onChange({ ...cond, platform: p })}
-            className={`inline-flex items-center gap-1.5 px-3 py-1.5 transition-colors uppercase ${cond.platform === p ? 'bg-[#67e8f9] text-black' : 'bg-white text-slate-700 hover:bg-[#67e8f9]/50'}`}>
+            className={`inline-flex items-center gap-1.5 px-3 py-1.5 transition ${cond.platform === p ? 'bg-slate-950 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'}`}>
             {p === 'web' ? <MonitorSmartphone className="h-3.5 w-3.5" /> : <Smartphone className="h-3.5 w-3.5" />}
             {p === 'ios' ? 'iOS' : p === 'android' ? 'Android' : 'Web'}
           </button>
@@ -392,11 +395,11 @@ export function JourneyRow({ cond, onChange, onRemove, filters, loading }: {
             <React.Fragment key={idx}>
               <div className="flex items-center gap-1">
                 <select value={step} onChange={(e) => updateStep(idx, e.target.value)}
-                  className="appearance-none border-2 border-black bg-white px-3 py-1.5 text-xs font-black text-black outline-none cursor-pointer hover:bg-[#ecfeff] transition-colors">
+                  className="appearance-none rounded-[6px] border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-800 shadow-sm outline-none transition cursor-pointer hover:border-blue-300 hover:bg-slate-50 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20">
                   <option value="">Pick screen…</option>
                   {screenOpts.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
                 </select>
-                <button onClick={() => removeStep(idx)} className="border border-transparent p-1 text-slate-500 transition-colors hover:border-black hover:bg-[#fecaca] hover:text-black" title="Remove step">
+                <button onClick={() => removeStep(idx)} className="rounded-[6px] border border-transparent p-1 text-slate-400 transition hover:border-rose-200 hover:bg-rose-50 hover:text-rose-600" title="Remove step">
                   <X className="w-3 h-3" />
                 </button>
               </div>
@@ -404,7 +407,7 @@ export function JourneyRow({ cond, onChange, onRemove, filters, loading }: {
             </React.Fragment>
           ))}
           <button onClick={() => onChange({ ...cond, steps: [...cond.steps, ''] })}
-            className="flex items-center gap-1 border-2 border-dashed border-black bg-white px-2.5 py-1.5 text-xs font-black text-black transition-colors hover:bg-[#ecfeff]">
+            className="flex items-center gap-1 rounded-[6px] border border-dashed border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 transition hover:border-blue-300 hover:bg-blue-50">
             <Plus className="w-3 h-3" /> Add step
           </button>
         </div>
@@ -416,15 +419,15 @@ export function JourneyRow({ cond, onChange, onRemove, filters, loading }: {
 export function ConversionRow({ cond, onChange, onRemove }: { cond: ConversionCondition; onChange: (c: ConversionCondition) => void; onRemove: () => void }) {
   return (
     <ConditionRowShell type="conversion" onRemove={onRemove}>
-      <div className="flex overflow-hidden border-2 border-black text-xs font-black shadow-neo-sm">
+      <div className="flex overflow-hidden rounded-[8px] border border-slate-200 bg-white text-xs font-semibold shadow-sm">
         {(['checkout_bounced', 'checkout_success'] as const).map((p) => (
           <button key={p} onClick={() => onChange({ ...cond, preset: p })}
-            className={`px-3 py-1.5 transition-colors ${cond.preset === p ? 'bg-[#f9a8d4] text-black' : 'bg-white text-slate-700 hover:bg-[#f9a8d4]/50'}`}>
-            {p === 'checkout_bounced' ? '↩ Dropped off' : '✓ Completed'}
+            className={`px-3 py-1.5 transition ${cond.preset === p ? 'bg-slate-950 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'}`}>
+            {p === 'checkout_bounced' ? 'Dropped off' : 'Completed'}
           </button>
         ))}
       </div>
-      <span title={`⚠️ Heuristic only — works if your app uses these screen/event names:\n• Screens: checkout, cart, payment, confirmation, success, receipt, order\n• Events: checkout_started, purchase_completed, add_to_cart, order_placed\n\nFor custom funnels, use Screen Journey instead.`}
+      <span title={`Heuristic only - works if your app uses these screen/event names:\n- Screens: checkout, cart, payment, confirmation, success, receipt, order\n- Events: checkout_started, purchase_completed, add_to_cart, order_placed\n\nFor custom funnels, use Screen Journey instead.`}
         className="cursor-help text-pink-300 hover:text-pink-500 transition-colors">
         <Info className="w-4 h-4" />
       </span>

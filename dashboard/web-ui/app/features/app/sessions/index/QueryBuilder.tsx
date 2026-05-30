@@ -54,7 +54,7 @@ const UTM_ADD_FIELD_ORDER: UtmField[] = ['source', 'medium', 'campaign', 'term',
 
 const BG: Record<ConditionType, string> = {
   screen: 'bg-violet-50 text-violet-700', journey: 'bg-teal-50 text-teal-700',
-  issue: 'bg-[#f4f4f5] text-black', event: 'bg-[#dbeafe] text-black',
+  issue: 'bg-rose-50 text-rose-700', event: 'bg-blue-50 text-blue-700',
   lifecycle: 'bg-pink-50 text-pink-700', date: 'bg-sky-50 text-sky-700',
   referral: 'bg-cyan-50 text-cyan-700', utm: 'bg-amber-50 text-amber-700',
   metadata: 'bg-emerald-50 text-emerald-700', platform: 'bg-cyan-50 text-cyan-700',
@@ -81,12 +81,12 @@ function AddRuleMenu({
   return (
     <div ref={ref} className="relative">
       <button onClick={() => setOpen((o) => !o)}
-        className="flex items-center gap-1.5 border-2 border-dashed border-black bg-white px-3 py-1.5 text-xs font-black text-black shadow-neo-sm transition-all hover:-translate-y-0.5 hover:bg-[#ecfeff] hover:shadow-neo">
+        className="inline-flex h-9 items-center gap-2 rounded-[8px] border border-dashed border-slate-300 bg-white px-3 text-xs font-semibold text-slate-700 shadow-sm transition hover:border-blue-300 hover:bg-blue-50 hover:text-slate-950 focus:outline-none focus:ring-2 focus:ring-blue-500/20">
         <Plus className="w-3.5 h-3.5" /> Add rule <ChevronDown className="w-3 h-3" />
       </button>
       {open && (
-        <div className="absolute left-0 top-full mt-1.5 z-50 w-72 overflow-hidden border-2 border-black bg-white shadow-neo">
-          <div className="p-1.5">
+        <div className="absolute left-0 top-full z-50 mt-2 w-80 overflow-hidden rounded-[8px] border border-slate-200 bg-white shadow-xl shadow-slate-900/10">
+          <div className="p-2">
             {ADD_MENU.map((item) => {
               const firstAvailableUtmField = UTM_ADD_FIELD_ORDER.find((field) => !presentUtmFields.has(field)) ?? 'source';
               const used = item.type === 'utm'
@@ -100,11 +100,11 @@ function AddRuleMenu({
                       setOpen(false);
                     }
                   }}
-                  className={`w-full flex items-center gap-3 px-3 py-2.5 text-left transition-colors ${used ? 'opacity-30 cursor-not-allowed' : 'hover:bg-[#ecfeff] cursor-pointer'}`}>
-                  <div className={`border border-black p-2 ${BG[item.type]}`}>{item.icon}</div>
+                  className={`flex w-full items-center gap-3 rounded-[6px] px-3 py-2.5 text-left transition ${used ? 'cursor-not-allowed opacity-35' : 'cursor-pointer hover:bg-slate-50'}`}>
+                  <div className={`rounded-[6px] border border-slate-200 p-2 ${BG[item.type]}`}>{item.icon}</div>
                   <div>
-                    <div className="text-sm font-semibold text-slate-800">{item.label}</div>
-                    <div className="text-[11px] text-slate-400">{item.desc}</div>
+                    <div className="text-sm font-semibold text-slate-900">{item.label}</div>
+                    <div className="mt-0.5 text-[11px] leading-4 text-slate-500">{item.desc}</div>
                   </div>
                 </button>
               );
@@ -185,36 +185,36 @@ function GroupCard({ group, groupIndex, totalGroups, onChange, onRemove, filters
   }
 
   return (
-    <div className="border-2 border-black bg-[#f8fafc] shadow-neo-sm">
+    <div className="rounded-[8px] border border-slate-200 bg-white shadow-sm">
       {/* Group header */}
-      <div className="flex items-center justify-between border-b-2 border-black bg-white px-4 py-2.5">
+      <div className="flex items-center justify-between border-b border-slate-100 bg-slate-50/80 px-3 py-2">
         <div className="flex items-center gap-2">
-          <GitMerge className="w-3.5 h-3.5 text-slate-400" />
-          <span className="text-[11px] font-black text-slate-600 uppercase">
+          <GitMerge className="w-3.5 h-3.5 text-slate-500" />
+          <span className="text-xs font-semibold text-slate-700">
             {totalGroups > 1 ? `Group ${groupIndex + 1}` : 'Rules'}
           </span>
           {totalGroups > 1 && (
-            <span className="border border-black bg-[#c4b5fd] px-1.5 py-0.5 text-[10px] font-black text-black">
+            <span className="rounded-full border border-violet-200 bg-violet-50 px-2 py-0.5 text-[10px] font-semibold text-violet-700">
               AND within group
             </span>
           )}
         </div>
         {totalGroups > 1 && (
-          <button onClick={onRemove} className="border border-transparent p-1 text-slate-500 transition-colors hover:border-black hover:bg-[#fecaca] hover:text-black" title="Remove group">
+          <button onClick={onRemove} className="rounded-[6px] border border-transparent p-1.5 text-slate-400 transition hover:border-rose-200 hover:bg-rose-50 hover:text-rose-600" title="Remove group">
             <Trash2 className="w-3.5 h-3.5" />
           </button>
         )}
       </div>
 
       {/* Conditions */}
-      <div className="p-3 space-y-2">
+      <div className="space-y-2 p-2.5">
         {group.conditions.length === 0 && !loading && (
-          <div className="text-center py-4 text-sm text-slate-400">
+          <div className="rounded-[8px] border border-dashed border-slate-200 bg-slate-50 py-3 text-center text-sm text-slate-500">
             Add a rule below to filter sessions
           </div>
         )}
         {loading && group.conditions.length === 0 && (
-          <div className="flex items-center gap-2 py-4 justify-center text-sm text-slate-400">
+          <div className="flex items-center justify-center gap-2 rounded-[8px] border border-dashed border-slate-200 bg-slate-50 py-3 text-sm text-slate-500">
             <Loader className="w-4 h-4 animate-spin" /> Loading filter options…
           </div>
         )}
@@ -223,9 +223,9 @@ function GroupCard({ group, groupIndex, totalGroups, onChange, onRemove, filters
             <ConditionRow cond={cond} onChange={(u) => updateCond(cond.id, u)} onRemove={() => removeCond(cond.id)} filters={filters} loading={loading} />
             {idx < group.conditions.length - 1 && (
               <div className="flex items-center gap-2 px-4">
-                <div className="h-0.5 flex-1 bg-black/20" />
-                <span className="border border-black bg-white px-2 py-0.5 text-[10px] font-black text-black">AND</span>
-                <div className="h-0.5 flex-1 bg-black/20" />
+                <div className="h-px flex-1 bg-slate-200" />
+                <span className="rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[10px] font-semibold text-slate-500">AND</span>
+                <div className="h-px flex-1 bg-slate-200" />
               </div>
             )}
           </React.Fragment>
@@ -260,6 +260,9 @@ export function QueryBuilder({ groups, onGroupsChange, onClearQueries, available
     onGroupsChange([...groups, { id: generateGroupId(), conditions: [] }]);
   }
   function clearQueries() {
+    if (totalConditions > 0 && typeof window !== 'undefined' && !window.confirm('Clear all query rules?')) {
+      return;
+    }
     setPrompt('');
     setBuilderError(null);
     setBuilderExplanation(null);
@@ -288,84 +291,77 @@ export function QueryBuilder({ groups, onGroupsChange, onClearQueries, available
   }
 
   return (
-    <div className="soft-border-scope space-y-4">
-      <div className="border-2 border-black bg-white p-2.5 shadow-neo-sm sm:p-3">
-        <div className="flex flex-col gap-2">
-          <div className="min-w-0 flex-1 space-y-2">
-            <div className="flex flex-col gap-2 xl:flex-row xl:items-center xl:justify-between">
-              <div>
-                <div className="flex items-center gap-2 text-xs font-black uppercase text-slate-600">
-                  <Search className="h-3.5 w-3.5" />
-                  AI query builder
-                </div>
-                <div className="mt-0.5 max-w-3xl text-[11px] font-medium text-slate-500">
-                  This is an AI query builder that uses this project’s screens, pages, events, metadata, and setup.
-                </div>
-              </div>
-              <div className="flex flex-wrap gap-1.5 text-[10px] font-black uppercase text-slate-600">
+    <div className="space-y-3">
+      <div className="rounded-[8px] border border-slate-200 bg-white p-2.5 shadow-sm">
+        <div className="flex flex-col gap-2 xl:flex-row xl:items-center">
+          <div className="flex min-w-0 items-center gap-2 xl:w-56">
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[8px] bg-slate-950 text-white">
+              <Search className="h-4 w-4" />
+            </div>
+            <div className="min-w-0">
+              <div className="text-sm font-semibold text-slate-950">AI query builder</div>
+              <div className="flex flex-wrap gap-1 text-[10px] font-semibold text-slate-500">
                 {isLoadingFilters ? (
-                  <span className="border border-black bg-[#f8fafc] px-2 py-1">Loading project context</span>
+                  <span>Loading context</span>
                 ) : (
-                  <>
-                    <span className="border border-black bg-[#f8fafc] px-2 py-1">{availableFilters.screens.length} screens/pages</span>
-                    <span className="border border-black bg-[#f8fafc] px-2 py-1">{availableFilters.events.length} events</span>
-                    <span className="border border-black bg-[#f8fafc] px-2 py-1">{Object.keys(availableFilters.metadata).length} metadata keys</span>
-                  </>
+                  <span>{availableFilters.screens.length} screens · {availableFilters.events.length} events · {Object.keys(availableFilters.metadata).length} keys</span>
                 )}
               </div>
             </div>
-            <div className="flex flex-col gap-2 sm:flex-row">
-              <textarea
-                value={prompt}
-                onChange={(event) => {
-                  setPrompt(event.target.value);
-                  setBuilderError(null);
-                }}
-                onKeyDown={(event) => {
-                  if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
-                    event.preventDefault();
-                    void handleBuildQuery();
-                  }
-                }}
-                maxLength={500}
-                rows={1}
-                placeholder="Example: web sessions referred by www.google.com in the last 7 days"
-                className="min-h-[44px] flex-1 resize-none border-2 border-black bg-white px-3 py-2 text-sm font-semibold text-slate-900 outline-none transition focus:ring-2 focus:ring-black placeholder:text-slate-500"
-              />
-              <button
-                onClick={() => void handleBuildQuery()}
-                disabled={!projectId || !trimmedPrompt || isBuilding}
-                className="inline-flex items-center justify-center gap-2 border-2 border-black bg-black px-4 py-2 text-xs font-black uppercase text-white shadow-neo-sm transition-all hover:-translate-y-0.5 hover:shadow-neo disabled:cursor-not-allowed disabled:bg-slate-300 sm:w-40"
-              >
-                {isBuilding ? <Loader className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
-                Generate
-              </button>
-            </div>
-            {totalConditions > 0 && (
-              <div className="flex justify-end">
-                <button
-                  onClick={clearQueries}
-                  className="inline-flex items-center gap-1.5 border-2 border-black bg-white px-2.5 py-1.5 text-[10px] font-black uppercase text-black shadow-neo-sm transition-all hover:-translate-y-0.5 hover:bg-[#fecaca] hover:shadow-neo"
-                >
-                  <Trash2 className="h-3.5 w-3.5" />
-                  Clear query
-                </button>
-              </div>
-            )}
-            {builderError && (
-              <div className="flex items-start gap-2 border-2 border-black bg-[#fecaca] px-3 py-2 text-xs font-bold text-black">
-                <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-                <span>{builderError}</span>
-              </div>
-            )}
-            {builderExplanation && !builderError && (
-              <div className="flex items-start gap-2 border-2 border-black bg-[#86efac] px-3 py-2 text-xs font-bold text-black">
-                <CheckCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-                <span>{builderExplanation}</span>
-              </div>
-            )}
           </div>
+          <div className="flex min-w-0 flex-1 flex-col gap-2 sm:flex-row">
+            <textarea
+              value={prompt}
+              onChange={(event) => {
+                setPrompt(event.target.value);
+                setBuilderError(null);
+              }}
+              onKeyDown={(event) => {
+                if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
+                  event.preventDefault();
+                  void handleBuildQuery();
+                }
+              }}
+              maxLength={500}
+              rows={1}
+              placeholder="web sessions referred by www.google.com in the last 7 days"
+              className="min-h-10 flex-1 resize-none rounded-[8px] border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-900 shadow-sm outline-none transition placeholder:text-slate-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
+            />
+            <button
+              onClick={() => void handleBuildQuery()}
+              disabled={!projectId || !trimmedPrompt || isBuilding}
+              className="inline-flex h-10 items-center justify-center gap-2 rounded-[8px] border border-slate-950 bg-slate-950 px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:border-slate-300 disabled:bg-slate-300 sm:w-36"
+            >
+              {isBuilding ? <Loader className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
+              Generate
+            </button>
+          </div>
+          {totalConditions > 0 && (
+            <button
+              onClick={clearQueries}
+              className="inline-flex h-10 items-center justify-center gap-1.5 rounded-[8px] border border-rose-200 bg-rose-50 px-3 text-xs font-semibold text-rose-700 transition hover:bg-rose-100 xl:ml-1"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+              Clear
+            </button>
+          )}
         </div>
+        {(builderError || (builderExplanation && !builderError)) && (
+          <div className="mt-2">
+          {builderError && (
+            <div className="flex items-start gap-2 rounded-[8px] border border-rose-200 bg-rose-50 px-3 py-2 text-sm font-medium text-rose-800">
+              <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+              <span>{builderError}</span>
+            </div>
+          )}
+          {builderExplanation && !builderError && (
+            <div className="flex items-start gap-2 rounded-[8px] border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-800">
+              <CheckCircle className="mt-0.5 h-4 w-4 shrink-0" />
+              <span>{builderExplanation}</span>
+            </div>
+          )}
+          </div>
+        )}
       </div>
 
       {/* Groups */}
@@ -380,11 +376,11 @@ export function QueryBuilder({ groups, onGroupsChange, onClearQueries, available
             />
             {idx < groups.length - 1 && (
               <div className="flex items-center gap-3">
-                <div className="h-0.5 flex-1 bg-black/20" />
-                <div className="flex items-center gap-1.5 border-2 border-black bg-[#c4b5fd] px-3 py-1 shadow-neo-sm">
-                  <span className="text-[11px] font-black text-black uppercase">OR</span>
+                <div className="h-px flex-1 bg-slate-200" />
+                <div className="flex items-center gap-1.5 rounded-full border border-violet-200 bg-violet-50 px-3 py-1">
+                  <span className="text-[11px] font-semibold text-violet-700">OR</span>
                 </div>
-                <div className="h-0.5 flex-1 bg-black/20" />
+                <div className="h-px flex-1 bg-slate-200" />
               </div>
             )}
           </React.Fragment>
@@ -393,18 +389,17 @@ export function QueryBuilder({ groups, onGroupsChange, onClearQueries, available
 
       {/* Add OR group */}
       <button onClick={addGroup}
-        className="w-full flex items-center justify-center gap-2 border-2 border-dashed border-black bg-white px-3 py-3 text-xs font-black text-black shadow-neo-sm transition-all hover:-translate-y-0.5 hover:bg-[#ecfeff] hover:shadow-neo sm:w-auto sm:py-2">
+        className="flex w-full items-center justify-center gap-2 rounded-[8px] border border-dashed border-slate-300 bg-white px-3 py-3 text-xs font-semibold text-slate-700 shadow-sm transition hover:border-blue-300 hover:bg-blue-50 sm:w-auto sm:py-2">
         <Plus className="w-4 h-4" /> Add OR group
-        <span className="text-[10px] font-semibold text-violet-400 ml-1">(match ANY group)</span>
       </button>
 
       {/* Summary */}
       {totalConditions > 0 && (
-        <div className="flex items-start gap-2 border-2 border-black bg-[#f8fafc] px-4 py-2.5 text-xs font-semibold text-slate-700 shadow-neo-sm">
-          <CheckCircle className="w-3.5 h-3.5 text-slate-400 shrink-0 mt-0.5" />
+        <div className="flex items-start gap-2 rounded-[8px] border border-slate-200 bg-slate-50 px-4 py-3 text-xs font-medium text-slate-700 shadow-sm">
+          <CheckCircle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-emerald-500" />
           <span className="font-medium">{summary}</span>
           {groups.length > 1 && (
-            <span className="ml-auto shrink-0 border border-black bg-[#f9a8d4] px-1.5 py-0.5 text-[10px] font-black text-black">
+            <span className="ml-auto shrink-0 rounded-full border border-pink-200 bg-pink-50 px-2 py-0.5 text-[10px] font-semibold text-pink-700">
               multi-group approx.
             </span>
           )}

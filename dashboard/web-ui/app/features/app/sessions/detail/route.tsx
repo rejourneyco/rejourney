@@ -13,7 +13,8 @@ import {
     MousePointer2,
     Globe,
     AlertCircle,
-    Navigation,
+    CircleX,
+    Route as RouteIcon,
     Hand,
     AlertTriangle,
     Play,
@@ -345,7 +346,7 @@ const EVENT_COLORS = {
     pinch: '#3b82f6',
     pan: '#3b82f6',
     rotation: '#ec4899',
-    appBackground: '#f9a8d4',
+    appBackground: '#db2777',
     appForeground: '#047857',
     sessionStart: '#06b6d4',
     navigation: '#8b5cf6',
@@ -355,12 +356,78 @@ const EVENT_COLORS = {
     default: '#6b7280',
 } as const;
 
-const getEventColor = (event: SessionEvent): string => {
-    const type = event.type?.toLowerCase() || '';
-    const gestureType = (event.gestureType || event.properties?.gestureType || '').toLowerCase();
+const normalizeEventType = (value: unknown): string =>
+    typeof value === 'string' ? value.trim().toLowerCase().replace(/[\s-]+/g, '_') : '';
 
-    if (event.frustrationKind === 'dead_tap' || type === 'dead_tap') return EVENT_COLORS.deadTap;
-    if (event.frustrationKind || type === 'rage_tap') return EVENT_COLORS.rageTap;
+const titleCaseToken = (value: string): string =>
+    value ? value.charAt(0).toUpperCase() + value.slice(1) : value;
+
+const getEventGestureKind = (event: SessionEvent): string => {
+    const type = normalizeEventType(event.type);
+    const gestureType = normalizeEventType(event.gestureType || event.properties?.gestureType || event.payload?.gestureType);
+    const frustrationKind = normalizeEventType(event.frustrationKind || event.properties?.frustrationKind || event.payload?.frustrationKind);
+
+    if (type === 'dead_tap' || gestureType === 'dead_tap' || frustrationKind === 'dead_tap') return 'dead_tap';
+    if (type === 'rage_tap' || gestureType === 'rage_tap' || frustrationKind === 'rage_tap' || Boolean(frustrationKind)) return 'rage_tap';
+    if (gestureType) return gestureType;
+    if (type === 'tap' || type === 'touch') return 'tap';
+    if (type === 'scroll') return 'scroll';
+    if (type === 'gesture') return 'touch';
+    return '';
+};
+
+const getGestureDisplayLabel = (event: SessionEvent): string | null => {
+    const kind = getEventGestureKind(event);
+    if (!kind) return null;
+
+    if (kind === 'rage_tap') return 'Rage Tap';
+    if (kind === 'dead_tap') return 'Dead Tap';
+    if (kind.includes('double_tap')) return 'Double Tap';
+    if (kind.includes('long_press')) return 'Long Press';
+    if (kind.includes('tap')) return 'Tap';
+
+    const direction = ['up', 'down', 'left', 'right'].find((part) => kind.endsWith(`_${part}`));
+    const directionSuffix = direction ? ` ${titleCaseToken(direction)}` : '';
+
+    if (kind.includes('scroll')) return `Scroll${directionSuffix}`;
+    if (kind.includes('swipe')) return `Swipe${directionSuffix}`;
+    if (kind.includes('pinch') || kind.includes('zoom')) return 'Pinch Zoom';
+    if (kind.includes('rotat')) return 'Rotate';
+    if (kind.includes('pan') || kind.includes('drag')) return `Pan${directionSuffix}`;
+    if (kind === 'touch') return 'Touch';
+
+    return kind.split('_').filter(Boolean).map(titleCaseToken).join(' ');
+};
+
+const isGestureEvent = (event: SessionEvent): boolean => {
+    const type = normalizeEventType(event.type);
+    return Boolean(getEventGestureKind(event)) || type === 'gesture' || type === 'touch';
+};
+
+const isFrustrationEvent = (event: SessionEvent): boolean => {
+    const kind = getEventGestureKind(event);
+    return kind === 'rage_tap' || kind === 'dead_tap';
+};
+
+const isAppBackgroundEvent = (event: SessionEvent): boolean =>
+    normalizeEventType(event.type) === 'app_background';
+
+const isAppForegroundEvent = (event: SessionEvent): boolean => {
+    const type = normalizeEventType(event.type);
+    return type === 'app_foreground' || type === 'session_start';
+};
+
+const isRouteNavigationEvent = (event: SessionEvent): boolean => {
+    const type = normalizeEventType(event.type);
+    return type === 'navigation' || type === 'screen_view';
+};
+
+const getEventColor = (event: SessionEvent): string => {
+    const type = normalizeEventType(event.type);
+    const gestureType = getEventGestureKind(event);
+
+    if (gestureType === 'dead_tap') return EVENT_COLORS.deadTap;
+    if (gestureType === 'rage_tap') return EVENT_COLORS.rageTap;
     if (type === 'crash') return EVENT_COLORS.crash;
     if (type === 'anr') return EVENT_COLORS.anr;
     if (type === 'error') return EVENT_COLORS.error;
@@ -387,18 +454,18 @@ const getEventColor = (event: SessionEvent): string => {
 };
 
 const getEventIcon = (event: SessionEvent) => {
-    const type = event.type?.toLowerCase() || '';
-    const gestureType = (event.gestureType || event.properties?.gestureType || '').toLowerCase();
+    const type = normalizeEventType(event.type);
+    const gestureType = getEventGestureKind(event);
 
     if (type === 'crash' || type === 'error' || type === 'anr') return AlertCircle;
     if (type === 'network_request') return Globe;
     if (isLogEvent(event)) return FileText;
-    if (type === 'navigation' || type === 'screen_view') return Navigation;
-    if (type === 'app_foreground' || type === 'app_background') return Play;
+    if (isRouteNavigationEvent(event)) return RouteIcon;
+    if (isAppForegroundEvent(event) || type === 'app_background') return Play;
     if (type === 'device_info') return Smartphone;
     if (type === 'custom') return Star;
-    if (type === 'dead_tap' || event.frustrationKind === 'dead_tap') return MousePointer2;
-    if (type === 'rage_tap' || event.frustrationKind) return Zap;
+    if (gestureType === 'dead_tap') return CircleX;
+    if (gestureType === 'rage_tap') return Zap;
     if (gestureType.includes('pinch') || gestureType.includes('zoom')) return Maximize2;
     if (gestureType.includes('rotat')) return RefreshCw;
     if (gestureType.includes('swipe')) return Move;
@@ -411,13 +478,12 @@ const getEventIcon = (event: SessionEvent) => {
 };
 
 const getTimelineMarkerPriority = (event: SessionEvent): number => {
-    const type = (event.type || '').toLowerCase();
-    const gestureType = (event.gestureType || event.properties?.gestureType || '').toLowerCase();
+    const type = normalizeEventType(event.type);
     if (type === 'crash' || type === 'anr') return 5;
-    if (type === 'error' || event.frustrationKind || type === 'rage_tap' || type === 'dead_tap') return 4;
+    if (type === 'error' || isFrustrationEvent(event)) return 4;
     if (type === 'network_request' && !(event.properties?.success ?? true)) return 3;
     if (type === 'navigation' || type === 'screen_view') return 2;
-    if (gestureType.includes('tap') || type === 'tap' || type === 'touch' || type === 'gesture') return 1;
+    if (isGestureEvent(event)) return 1;
     return 0;
 };
 
@@ -683,34 +749,250 @@ const formatConsoleMessage = (event: SessionEvent): string => {
     );
 };
 
+const getActivityEventTitle = (event: SessionEvent): string => {
+    const type = normalizeEventType(event.type);
+    const marker = getFaultMarker(event);
+    const gestureLabel = getGestureDisplayLabel(event);
+    if (gestureLabel) return gestureLabel;
+
+    if (type === 'network_request') {
+        return `${event.name || event.properties?.method || 'API Request'}`;
+    }
+    if (marker) return `Fault ${marker}`;
+    if (isLogEvent(event)) return `Console ${getLogLevel(event)}`;
+    if (type === 'custom') return event.name || 'Custom Event';
+    if (type === 'navigation' || type === 'screen_view') return 'Navigation';
+    if (type === 'app_foreground') return 'App Foreground';
+    if (type === 'app_background') return 'App Background';
+
+    return (event.type || 'event').replace(/_/g, ' ');
+};
+
+const toDisplayString = (value: unknown): string | null => {
+    if (typeof value === 'string') {
+        const trimmed = value.trim();
+        return trimmed && trimmed !== '{}' ? trimmed : null;
+    }
+    if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+    return null;
+};
+
+const getNavigationRouteName = (event: SessionEvent): string => {
+    const properties = event.properties || {};
+    const payload = event.payload || {};
+    const candidates = [
+        event.screenName,
+        event.screen,
+        event.name,
+        properties.screenName,
+        properties.screen,
+        properties.toScreen,
+        properties.routeName,
+        properties.route_screen,
+        properties.path,
+        properties.pathname,
+        properties.urlPath,
+        payload.screenName,
+        payload.screen,
+        payload.toScreen,
+        payload.routeName,
+        payload.path,
+        payload.pathname,
+        payload.urlPath,
+        event.urlPath,
+        event.path,
+        event.targetLabel,
+    ];
+
+    for (const candidate of candidates) {
+        const value = toDisplayString(candidate);
+        if (value && normalizeEventType(value) !== 'navigation') return value;
+    }
+
+    return getReplayUrlFromEvent(event) || 'Unknown route';
+};
+
+const getEventTargetSummary = (event: SessionEvent): string | null => {
+    const properties = event.properties || {};
+    const genericNames = new Set(['gesture', 'tap', 'touch', 'rage_tap', 'dead_tap']);
+    const name = toDisplayString(event.name);
+    const candidates = [
+        event.targetLabel,
+        properties.targetLabel,
+        properties.target,
+        properties.accessibilityLabel,
+        properties.elementLabel,
+        properties.buttonText,
+        properties.text,
+        properties.title,
+        properties.viewName,
+        name && !genericNames.has(normalizeEventType(name)) ? name : null,
+    ];
+
+    for (const candidate of candidates) {
+        const value = toDisplayString(candidate);
+        if (value) return value;
+    }
+    return null;
+};
+
+const getEventTouchSummary = (event: SessionEvent): string | null => {
+    const rawTouches = event.touches || event.properties?.touches || event.payload?.touches || [];
+    const touches = Array.isArray(rawTouches) ? rawTouches : [];
+    const firstTouch = touches[0];
+    if (!firstTouch) return null;
+
+    const x = Number(firstTouch.x);
+    const y = Number(firstTouch.y);
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+
+    const point = `x ${Math.round(x)}, y ${Math.round(y)}`;
+    return touches.length > 1 ? `${touches.length} touches at ${point}` : `Touch at ${point}`;
+};
+
+const getEventScreenSummary = (event: SessionEvent): string | null => {
+    const properties = event.properties || {};
+    const candidates = [
+        event.screenName,
+        event.screen,
+        properties.screenName,
+        properties.screen,
+        properties.toScreen,
+        properties.routeName,
+        properties.viewController,
+        properties.urlPath,
+    ];
+
+    for (const candidate of candidates) {
+        const value = toDisplayString(candidate);
+        if (value) return value;
+    }
+    return null;
+};
+
+const getReadablePropertiesSummary = (properties: Record<string, any> | undefined): string | null => {
+    if (!properties || typeof properties !== 'object') return null;
+    const ignoredKeys = new Set(['touches', 'targetLabel', 'gestureType', 'frustrationKind']);
+    const parts = Object.entries(properties)
+        .filter(([key, value]) => {
+            if (ignoredKeys.has(key)) return false;
+            if (value == null || value === '') return false;
+            if (Array.isArray(value) && value.length === 0) return false;
+            if (typeof value === 'object' && !Array.isArray(value) && Object.keys(value).length === 0) return false;
+            return true;
+        })
+        .slice(0, 3)
+        .map(([key, value]) => {
+            const label = key.replace(/([A-Z])/g, ' $1').replace(/[_-]+/g, ' ').trim().toLowerCase();
+            const display = toDisplayString(value) || (typeof value === 'object' ? JSON.stringify(value) : String(value));
+            return `${label}: ${display}`;
+        });
+
+    return parts.length > 0 ? parts.join(' · ') : null;
+};
+
+const getActivityEventDetail = (event: SessionEvent): string | null => {
+    const type = normalizeEventType(event.type);
+    const marker = getFaultMarker(event);
+    if (marker) return getFaultConsoleSummary(event);
+    if (isLogEvent(event)) return event.message || event.properties?.message || event.name || 'Console message';
+
+    if (type === 'network_request') {
+        return event.properties?.urlPath || event.properties?.url || null;
+    }
+
+    const target = getEventTargetSummary(event);
+    if (target) return target;
+
+    if (isGestureEvent(event)) {
+        const kind = getEventGestureKind(event);
+        const touch = getEventTouchSummary(event);
+        const screen = getEventScreenSummary(event);
+        const context = [touch, screen ? `on ${screen}` : null].filter(Boolean).join(' · ');
+
+        if (kind === 'rage_tap') {
+            return context ? `Repeated taps in the same area · ${context}` : 'Repeated taps in the same area';
+        }
+        if (kind === 'dead_tap') {
+            return context ? `Tap with no detected response · ${context}` : 'Tap with no detected response';
+        }
+        return context || null;
+    }
+
+    return getEventScreenSummary(event) || getReadablePropertiesSummary(event.properties);
+};
+
+const getTimelineMarkerType = (event: SessionEvent): string => {
+    const gestureLabel = getGestureDisplayLabel(event);
+    if (gestureLabel) return gestureLabel.toLowerCase().replace(/\s+/g, '_');
+    return normalizeEventType(event.type) || 'event';
+};
+
+const createTimelineMarkerCounts = (): TimelineMarkerCounts => ({
+    friction: 0,
+    rageTap: 0,
+    deadTap: 0,
+    fault: 0,
+    gesture: 0,
+    api: 0,
+    background: 0,
+    navigation: 0,
+    log: 0,
+    other: 0,
+});
+
+const getTimelineMarkerCategory = (event: SessionEvent): TimelineMarkerCategory => {
+    const type = normalizeEventType(event.type);
+    const gestureKind = getEventGestureKind(event);
+    if (gestureKind === 'rage_tap') return 'rageTap';
+    if (gestureKind === 'dead_tap') return 'deadTap';
+    if (isFaultEvent(event)) return 'fault';
+    if (isGestureEvent(event)) return 'gesture';
+    if (type === 'network_request') return 'api';
+    if (isAppBackgroundEvent(event)) return 'background';
+    if (type === 'navigation' || type === 'screen_view' || type === 'app_foreground' || type === 'app_background') return 'navigation';
+    if (isLogEvent(event)) return 'log';
+    return 'other';
+};
+
+const TIMELINE_MARKER_COUNT_LABELS: Array<[TimelineMarkerCategory, string, string]> = [
+    ['rageTap', 'rage tap', 'rage taps'],
+    ['deadTap', 'dead tap', 'dead taps'],
+    ['fault', 'fault', 'faults'],
+    ['gesture', 'gesture', 'gestures'],
+    ['api', 'API', 'API'],
+    ['background', 'background', 'background'],
+    ['navigation', 'navigation', 'navigation'],
+    ['log', 'log', 'logs'],
+    ['other', 'event', 'events'],
+];
+
+const getTimelineMarkerCountSummary = (marker: TimelineMarkerView): string => {
+    const parts = TIMELINE_MARKER_COUNT_LABELS
+        .map(([category, singular, plural]) => {
+            const count = marker.counts[category];
+            if (!count) return null;
+            const label = count === 1 ? singular : plural;
+            return `${formatCountCompact(count)} ${label}`;
+        })
+        .filter(Boolean);
+    return parts.join(' · ');
+};
+
 /** One-line summary for timeline export (all event types). */
 const formatTimelineEventForExport = (event: SessionEvent): string => {
     const isoTime = new Date(event.timestamp).toISOString();
     const marker = getFaultMarker(event);
     const isLog = isLogEvent(event);
     const isNetwork = (event.type || '').toLowerCase() === 'network_request';
-    const level = marker || (isLog ? getLogLevel(event).toUpperCase() : '');
-    const typeLabel = isNetwork
-        ? (event.name || event.properties?.method || 'REQUEST')
-        : marker
-            ? `Fault ${marker}`
-            : isLog
-                ? `Console ${level}`
-                : event.type === 'custom'
-                    ? event.name || 'Custom'
-                    : (event.type || 'event').replace(/_/g, ' ');
+    const typeLabel = getActivityEventTitle(event);
     const summary = marker
         ? getFaultConsoleSummary(event)
         : isLog || isNetwork
             ? formatConsoleMessage(event)
-            : event.targetLabel ||
-              event.properties?.targetLabel ||
-              event.properties?.urlPath ||
-              event.name ||
-              event.screen ||
-              JSON.stringify(event.properties || {});
+            : getActivityEventDetail(event);
     const stack = getEventStackTrace(event);
-    const message = stack ? `${summary}\n${stack}` : summary;
+    const message = stack ? `${summary || typeLabel}\n${stack}` : (summary || typeLabel);
     return `[${isoTime}] [${typeLabel}] ${message}`;
 };
 
@@ -755,8 +1037,32 @@ const INSIGHT_LEVEL_STYLES: Record<InsightLevel, { badge: string; value: string;
 };
 
 const PLAYBACK_STATE_COMMIT_INTERVAL_MS = 250;
-const MAX_TIMELINE_MARKERS = 900;
+const MAX_TIMELINE_MARKERS = 36;
+const TIMELINE_MARKER_DEFAULT_TRACK_WIDTH_PX = 900;
+const TIMELINE_MARKER_BASE_SPACING_PX = 64;
+const TIMELINE_MARKER_DENSE_SPACING_PX = 88;
+const TIMELINE_MARKER_EXTREME_DENSE_SPACING_PX = 112;
+const TIMELINE_MARKER_HOVER_RADIUS_PX = 14;
+const TIMELINE_MARKER_STICKY_RADIUS_PX = 32;
+const TIMELINE_MARKER_SWITCH_DISTANCE_DELTA_PX = 10;
+const NAVIGATION_CLUSTER_THRESHOLD = 4;
 const MAX_ACTIVITY_ROWS = 900;
+
+type TimelineMarkerCategory = 'friction' | 'rageTap' | 'deadTap' | 'fault' | 'gesture' | 'api' | 'background' | 'navigation' | 'log' | 'other';
+type TimelineMarkerCounts = Record<TimelineMarkerCategory, number>;
+
+interface TimelineMarkerView {
+    markerKey: string;
+    event: SessionEvent;
+    sourceIndex: number;
+    priority: number;
+    clusteredCount: number;
+    counts: TimelineMarkerCounts;
+    time: number;
+    percent: number;
+}
+
+type TimelineHoveredMarker = TimelineMarkerView & { x: number };
 
 type SessionLoadErrorKind = 'forbidden' | 'not_found' | 'unavailable' | 'unknown';
 type ScreenshotPreloadProfile = {
@@ -887,7 +1193,8 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
     const [touchEvents, setTouchEvents] = useState<OverlayTouchEvent[]>([]);
     const [activitySearch, setActivitySearch] = useState<string>('');
     const [isDragging, setIsDragging] = useState(false);
-    const [hoveredMarker, setHoveredMarker] = useState<any>(null);
+    const [hoveredMarker, setHoveredMarker] = useState<TimelineHoveredMarker | null>(null);
+    const [progressTrackWidth, setProgressTrackWidth] = useState(0);
     const [terminalCopied, setTerminalCopied] = useState(false);
     const [timelineCopied, setTimelineCopied] = useState(false);
     const [domCopied, setDomCopied] = useState(false);
@@ -1258,9 +1565,10 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
     // This detects 3+ taps in same area within 1.5s as rage taps
     const detectedRageTaps = useMemo(() => {
         const sessionEvents = fullSession?.events || [];
-        const taps = sessionEvents.filter(e =>
-            e.type === 'gesture' && (e.gestureType === 'tap' || e.gestureType === 'double_tap')
-        );
+        const taps = sessionEvents.filter(e => {
+            const gestureKind = getEventGestureKind(e);
+            return e.type === 'gesture' && (gestureKind === 'tap' || gestureKind === 'double_tap');
+        });
         const rageTaps: SessionEvent[] = [];
 
         for (let i = 0; i < taps.length; i++) {
@@ -1692,6 +2000,29 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
         return 'none' as const;
     }, [fullSession?.playbackMode, rrwebReplayEvents.length, screenshotFrames]);
 
+    useEffect(() => {
+        const track = progressRef.current;
+        if (!track || typeof window === 'undefined') return;
+
+        const updateWidth = () => {
+            const width = Math.round(track.getBoundingClientRect().width);
+            setProgressTrackWidth((currentWidth) => (
+                Math.abs(currentWidth - width) > 4 ? width : currentWidth
+            ));
+        };
+
+        updateWidth();
+
+        if (typeof ResizeObserver === 'undefined') {
+            window.addEventListener('resize', updateWidth);
+            return () => window.removeEventListener('resize', updateWidth);
+        }
+
+        const observer = new ResizeObserver(updateWidth);
+        observer.observe(track);
+        return () => observer.disconnect();
+    }, [playbackMode]);
+
     const playbackDurationSeconds = playbackMode === 'rrweb' ? webReplayDurationSeconds : durationSeconds;
     const replayClockBaseTime = playbackMode === 'rrweb'
         ? Number(compressedRrwebReplayEvents[0]?.timestamp) || replayBaseTime
@@ -1707,47 +2038,6 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
         const playbackTime = eventTimestampToPlaybackSeconds(event.timestamp);
         return Number.isFinite(playbackTime) && playbackTime >= 0 && playbackTime <= playbackDurationSeconds + 0.05;
     }, [eventTimestampToPlaybackSeconds, playbackDurationSeconds]);
-
-    const densityData = useMemo(() => {
-        if (playbackDurationSeconds <= 0) return { touchDensity: [], apiDensity: [] };
-
-        const bucketCount = 40;
-        const bucketSize = playbackDurationSeconds / bucketCount;
-        const touchBuckets = Array(bucketCount).fill(0);
-        const apiBuckets = Array(bucketCount).fill(0);
-
-        allTimelineEvents.forEach((event) => {
-            const elapsedSeconds = eventTimestampToPlaybackSeconds(event.timestamp);
-            if (!Number.isFinite(elapsedSeconds) || elapsedSeconds < 0 || elapsedSeconds > playbackDurationSeconds) return;
-            const idx = Math.min(Math.floor(elapsedSeconds / bucketSize), bucketCount - 1);
-            if (idx < 0) return;
-
-            const type = event.type?.toLowerCase() || '';
-            const gestureType = (event.gestureType || event.properties?.gestureType || '').toLowerCase();
-
-            if (type === 'network_request') {
-                apiBuckets[idx]++;
-            } else if (
-                type === 'gesture' ||
-                type === 'tap' ||
-                type === 'touch' ||
-                type === 'scroll' ||
-                type === 'input' ||
-                gestureType.includes('tap') ||
-                gestureType.includes('scroll')
-            ) {
-                touchBuckets[idx]++;
-            }
-        });
-
-        const maxTouch = Math.max(...touchBuckets, 1);
-        const maxApi = Math.max(...apiBuckets, 1);
-
-        return {
-            touchDensity: touchBuckets.map((value) => value / maxTouch),
-            apiDensity: apiBuckets.map((value) => value / maxApi),
-        };
-    }, [allTimelineEvents, eventTimestampToPlaybackSeconds, playbackDurationSeconds]);
 
     // Has any visual recording?
     const hasRecording = playbackMode !== 'none' || visualReplayPreparing || rrwebReplayPreparing || rrwebReplayFailed || hasRrwebReplayReference;
@@ -1959,12 +2249,17 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
 
     const handleProgressMouseDown = useCallback(
         (e: React.MouseEvent<HTMLDivElement>) => {
+            e.preventDefault();
+            setHoveredMarker((current) => (current ? null : current));
             setIsDragging(true);
+            const previousBodyUserSelect = document.body.style.userSelect;
+            document.body.style.userSelect = 'none';
             handleProgressInteraction(e);
 
             const handleMouseMove = (ev: MouseEvent) => handleProgressInteraction(ev);
             const handleMouseUp = () => {
                 setIsDragging(false);
+                document.body.style.userSelect = previousBodyUserSelect;
                 document.removeEventListener('mousemove', handleMouseMove);
                 document.removeEventListener('mouseup', handleMouseUp);
             };
@@ -1978,7 +2273,10 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
     const handleProgressTouchStart = useCallback(
         (e: React.TouchEvent<HTMLDivElement>) => {
             e.preventDefault();
+            setHoveredMarker((current) => (current ? null : current));
             setIsDragging(true);
+            const previousBodyUserSelect = document.body.style.userSelect;
+            document.body.style.userSelect = 'none';
             if (e.touches[0] && progressRef.current) {
                 const rect = progressRef.current.getBoundingClientRect();
                 const touch = e.touches[0];
@@ -1997,11 +2295,14 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
             };
             const handleTouchEnd = () => {
                 setIsDragging(false);
+                document.body.style.userSelect = previousBodyUserSelect;
                 document.removeEventListener('touchmove', handleTouchMove);
                 document.removeEventListener('touchend', handleTouchEnd);
+                document.removeEventListener('touchcancel', handleTouchEnd);
             };
             document.addEventListener('touchmove', handleTouchMove, { passive: false });
             document.addEventListener('touchend', handleTouchEnd);
+            document.addEventListener('touchcancel', handleTouchEnd);
         },
         [handleProgressInteraction]
     );
@@ -2285,6 +2586,12 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
         lastPlaybackUiUpdateRef.current = lastFrameTimeRef.current;
         syncPlaybackChrome(currentPlaybackTimeRef.current);
         warmScreenshotFramesAround(currentFrameIndexRef.current, 'low');
+        if (durationSeconds <= 0) {
+            setIsPlaying(false);
+            currentPlaybackTimeRef.current = 0;
+            syncPlaybackChrome(0);
+            return;
+        }
 
         const tick = (now: number) => {
             const deltaSec = ((now - lastFrameTimeRef.current) / 1000) * playbackRate;
@@ -2316,14 +2623,17 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
                 warmScreenshotFramesAround(targetIdx, 'low');
             }
 
-            // Check if reached absolute end of session
+            // Loop back to the start when playback reaches the end.
             if (nextPlaybackTime >= durationSeconds) {
-                setIsPlaying(false);
-                setCurrentPlaybackTime(durationSeconds);
-                setCurrentFrameIndex(currentFrameIndexRef.current);
-                currentPlaybackTimeRef.current = durationSeconds;
+                currentPlaybackTimeRef.current = 0;
+                currentFrameIndexRef.current = 0;
+                setCurrentPlaybackTime(0);
+                setCurrentFrameIndex(0);
                 lastPlaybackUiUpdateRef.current = now;
-                syncPlaybackChrome(durationSeconds);
+                syncPlaybackChrome(0);
+                drawScreenshotFrame(0);
+                warmScreenshotFramesAround(0, 'high');
+                screenshotAnimationRef.current = requestAnimationFrame(tick);
                 return;
             }
 
@@ -2371,6 +2681,12 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
         lastFrameTimeRef.current = performance.now();
         lastPlaybackUiUpdateRef.current = lastFrameTimeRef.current;
         syncPlaybackChrome(currentPlaybackTimeRef.current);
+        if (playbackDurationSeconds <= 0) {
+            setIsPlaying(false);
+            currentPlaybackTimeRef.current = 0;
+            syncPlaybackChrome(0);
+            return;
+        }
 
         const tick = (now: number) => {
             const deltaSec = ((now - lastFrameTimeRef.current) / 1000) * playbackRate;
@@ -2381,11 +2697,11 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
             syncPlaybackChrome(nextPlaybackTime);
 
             if (nextPlaybackTime >= playbackDurationSeconds) {
-                setIsPlaying(false);
-                setCurrentPlaybackTime(playbackDurationSeconds);
-                currentPlaybackTimeRef.current = playbackDurationSeconds;
+                currentPlaybackTimeRef.current = 0;
+                setCurrentPlaybackTime(0);
                 lastPlaybackUiUpdateRef.current = now;
-                syncPlaybackChrome(playbackDurationSeconds);
+                syncPlaybackChrome(0);
+                webReplayAnimationRef.current = requestAnimationFrame(tick);
                 return;
             }
 
@@ -2469,13 +2785,12 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
         };
 
         for (const event of allTimelineEvents) {
-            const type = (event.type || '').toLowerCase();
+            const type = normalizeEventType(event.type);
             if (!isFeedbackType(type)) counts.all++;
-            const gestureType = (event.gestureType || event.properties?.gestureType || '').toLowerCase();
             if (type === 'navigation' || type === 'screen_view' || type === 'app_foreground' || type === 'app_background') {
                 counts.navigation++;
             }
-            if (type === 'tap' || type === 'touch' || type === 'gesture' || gestureType.includes('tap')) {
+            if (isGestureEvent(event)) {
                 counts.touches++;
             }
             if (type === 'network_request') {
@@ -2485,10 +2800,7 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
                 type === 'crash' ||
                 type === 'error' ||
                 type === 'anr' ||
-                type === 'rage_tap' ||
-                type === 'dead_tap' ||
-                gestureType === 'rage_tap' ||
-                gestureType === 'dead_tap'
+                isFrustrationEvent(event)
             ) {
                 counts.issues++;
             }
@@ -2509,7 +2821,7 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
         const normalizedSearch = activitySearch.trim().toLowerCase();
 
         return allTimelineEvents.filter((e) => {
-            const type = e.type?.toLowerCase() || '';
+            const type = normalizeEventType(e.type);
 
             if (isFeedbackType(type)) return false;
 
@@ -2523,19 +2835,27 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
                 if (!hasUrl) return false;
             }
 
-            const gestureType = (e.gestureType || e.properties?.gestureType || '').toLowerCase();
+            const gestureType = getEventGestureKind(e);
+            const gestureLabel = (getGestureDisplayLabel(e) || '').toLowerCase();
+            const eventTitle = getActivityEventTitle(e).toLowerCase();
+            const gestureSearchText = [
+                gestureType,
+                gestureType.replace(/_/g, ' '),
+                gestureLabel,
+                gestureLabel ? `${gestureLabel}s` : '',
+            ].filter(Boolean).join(' ');
             let matchesFilter = true;
 
             if (activityFilter === 'navigation') {
                 matchesFilter = type === 'navigation' || type === 'screen_view' || type === 'app_foreground' || type === 'app_background';
             } else if (activityFilter === 'touches') {
-                matchesFilter = type === 'tap' || type === 'touch' || type === 'gesture' || gestureType.includes('tap');
+                matchesFilter = isGestureEvent(e);
             } else if (activityFilter === 'network') {
                 matchesFilter = type === 'network_request';
             } else if (activityFilter === 'logs') {
                 matchesFilter = isLogEvent(e);
             } else if (activityFilter === 'issues') {
-                matchesFilter = type === 'crash' || type === 'error' || type === 'anr' || type === 'rage_tap' || type === 'dead_tap' || gestureType === 'rage_tap' || gestureType === 'dead_tap';
+                matchesFilter = type === 'crash' || type === 'error' || type === 'anr' || isFrustrationEvent(e);
             }
 
             if (!matchesFilter) return false;
@@ -2549,6 +2869,8 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
 
             return (
                 type.includes(normalizedSearch) ||
+                eventTitle.includes(normalizedSearch) ||
+                gestureSearchText.includes(normalizedSearch) ||
                 name.includes(normalizedSearch) ||
                 target.includes(normalizedSearch) ||
                 url.includes(normalizedSearch) ||
@@ -2604,36 +2926,195 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
     }, [activeActivityIndex, filteredActivity]);
 
     const timelineMarkers = useMemo(() => {
-        const markerActivity = filteredActivity.filter(eventFitsPlaybackWindow);
+        const markerActivity = filteredActivity.filter((event) => (
+            !isAppForegroundEvent(event) && eventFitsPlaybackWindow(event)
+        ));
 
-        if (markerActivity.length <= MAX_TIMELINE_MARKERS || playbackDurationSeconds <= 0) {
-            return markerActivity.map((event, index) => ({ event, sourceIndex: index, clusteredCount: 1 }));
+        if (playbackDurationSeconds <= 0) return [];
+
+        const toMarkerView = (
+            event: SessionEvent,
+            sourceIndex: number,
+            clusteredCount: number,
+            counts: TimelineMarkerCounts,
+            markerKey: string
+        ): TimelineMarkerView => {
+            const time = eventTimestampToPlaybackSeconds(event.timestamp);
+            const percent = Math.min(100, Math.max(0, (time / playbackDurationSeconds) * 100));
+            return {
+                markerKey,
+                event,
+                sourceIndex,
+                priority: getTimelineMarkerPriority(event),
+                clusteredCount,
+                counts,
+                time,
+                percent,
+            };
+        };
+
+        const trackWidth = progressTrackWidth || TIMELINE_MARKER_DEFAULT_TRACK_WIDTH_PX;
+        const comfortableMarkerCount = Math.max(6, Math.floor(trackWidth / TIMELINE_MARKER_BASE_SPACING_PX));
+        const densitySpacingPx = markerActivity.length > comfortableMarkerCount * 6
+            ? TIMELINE_MARKER_EXTREME_DENSE_SPACING_PX
+            : markerActivity.length > comfortableMarkerCount * 3
+                ? TIMELINE_MARKER_DENSE_SPACING_PX
+                : TIMELINE_MARKER_BASE_SPACING_PX;
+        const targetMarkerCount = Math.max(
+            6,
+            Math.min(MAX_TIMELINE_MARKERS, Math.floor(trackWidth / densitySpacingPx))
+        );
+
+        if (markerActivity.length <= targetMarkerCount) {
+            return markerActivity.map((event, index) => {
+                const counts = createTimelineMarkerCounts();
+                counts[getTimelineMarkerCategory(event)] = 1;
+                return toMarkerView(event, index, 1, counts, `marker-${index}-${event.timestamp}`);
+            });
         }
 
-        const buckets = new Map<number, { event: SessionEvent; sourceIndex: number; priority: number; clusteredCount: number }>();
+        const getTimelineBucket = (time: number) => Math.max(
+            0,
+            Math.min(targetMarkerCount - 1, Math.floor((time / playbackDurationSeconds) * targetMarkerCount))
+        );
+        const navigationBucketCounts = new Map<number, number>();
+        for (const event of markerActivity) {
+            if (!isRouteNavigationEvent(event)) continue;
+            const time = eventTimestampToPlaybackSeconds(event.timestamp);
+            if (time < 0 || time > playbackDurationSeconds + 0.05) continue;
+            const bucket = getTimelineBucket(time);
+            navigationBucketCounts.set(bucket, (navigationBucketCounts.get(bucket) ?? 0) + 1);
+        }
+
+        const buckets = new Map<number, {
+            event: SessionEvent;
+            sourceIndex: number;
+            priority: number;
+            clusteredCount: number;
+            counts: TimelineMarkerCounts;
+            bucket: number;
+        }>();
+        const standaloneMarkers: TimelineMarkerView[] = [];
         markerActivity.forEach((event, index) => {
             const time = eventTimestampToPlaybackSeconds(event.timestamp);
             if (time < 0 || time > playbackDurationSeconds + 0.05) return;
-            const bucket = Math.max(
-                0,
-                Math.min(MAX_TIMELINE_MARKERS - 1, Math.floor((time / playbackDurationSeconds) * MAX_TIMELINE_MARKERS))
-            );
+            const category = getTimelineMarkerCategory(event);
+            if (category === 'api') {
+                const counts = createTimelineMarkerCounts();
+                counts.api = 1;
+                standaloneMarkers.push(toMarkerView(event, index, 1, counts, `marker-api-${index}-${event.timestamp}`));
+                return;
+            }
+            const bucket = getTimelineBucket(time);
+            if (isRouteNavigationEvent(event) && (navigationBucketCounts.get(bucket) ?? 0) < NAVIGATION_CLUSTER_THRESHOLD) {
+                const counts = createTimelineMarkerCounts();
+                counts.navigation = 1;
+                standaloneMarkers.push(toMarkerView(event, index, 1, counts, `marker-navigation-${index}-${event.timestamp}`));
+                return;
+            }
+
             const priority = getTimelineMarkerPriority(event);
             const existing = buckets.get(bucket);
-            if (!existing || priority > existing.priority) {
+            if (!existing) {
+                const counts = createTimelineMarkerCounts();
+                counts[category] = 1;
                 buckets.set(bucket, {
                     event,
                     sourceIndex: index,
                     priority,
-                    clusteredCount: (existing?.clusteredCount || 0) + 1,
+                    clusteredCount: 1,
+                    counts,
+                    bucket,
                 });
+            } else if (priority > existing.priority) {
+                existing.counts[category] += 1;
+                existing.clusteredCount += 1;
+                existing.event = event;
+                existing.sourceIndex = index;
+                existing.priority = priority;
             } else {
+                existing.counts[category] += 1;
                 existing.clusteredCount += 1;
             }
         });
 
-        return Array.from(buckets.values()).sort((a, b) => a.sourceIndex - b.sourceIndex);
-    }, [eventFitsPlaybackWindow, eventTimestampToPlaybackSeconds, filteredActivity, playbackDurationSeconds]);
+        const clusteredMarkers = Array.from(buckets.values())
+            .sort((a, b) => a.bucket - b.bucket)
+            .map((bucket) => toMarkerView(
+                bucket.event,
+                bucket.sourceIndex,
+                bucket.clusteredCount,
+                bucket.counts,
+                `cluster-${bucket.bucket}-${bucket.sourceIndex}-${bucket.event.timestamp}`
+            ));
+
+        return [...clusteredMarkers, ...standaloneMarkers].sort((a, b) => (
+            a.percent - b.percent || a.sourceIndex - b.sourceIndex
+        ));
+    }, [eventFitsPlaybackWindow, eventTimestampToPlaybackSeconds, filteredActivity, playbackDurationSeconds, progressTrackWidth]);
+
+    const handleTimelineMouseMove = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
+        if (isDragging || timelineMarkers.length === 0) {
+            setHoveredMarker((current) => (current ? null : current));
+            return;
+        }
+
+        const track = progressRef.current;
+        if (!track) return;
+
+        const rect = track.getBoundingClientRect();
+        if (rect.width <= 0) return;
+
+        const pointerX = event.clientX - rect.left;
+        if (pointerX < 0 || pointerX > rect.width) {
+            setHoveredMarker((current) => (current ? null : current));
+            return;
+        }
+
+        let nearestMarker: TimelineMarkerView | null = null;
+        let nearestDistance = Number.POSITIVE_INFINITY;
+
+        for (const marker of timelineMarkers) {
+            const markerX = (marker.percent / 100) * rect.width;
+            const distance = Math.abs(markerX - pointerX);
+            if (distance < nearestDistance) {
+                nearestDistance = distance;
+                nearestMarker = marker;
+            }
+        }
+
+        setHoveredMarker((current) => {
+            const currentMarker = current
+                ? timelineMarkers.find((marker) => marker.markerKey === current.markerKey) || null
+                : null;
+            const currentDistance = currentMarker
+                ? Math.abs((currentMarker.percent / 100) * rect.width - pointerX)
+                : Number.POSITIVE_INFINITY;
+
+            if (!nearestMarker || nearestDistance > TIMELINE_MARKER_HOVER_RADIUS_PX) {
+                return currentMarker && currentDistance <= TIMELINE_MARKER_STICKY_RADIUS_PX
+                    ? current
+                    : null;
+            }
+
+            if (
+                currentMarker &&
+                currentDistance <= TIMELINE_MARKER_STICKY_RADIUS_PX &&
+                nearestMarker.markerKey !== currentMarker.markerKey &&
+                nearestDistance + TIMELINE_MARKER_SWITCH_DISTANCE_DELTA_PX >= currentDistance
+            ) {
+                return current;
+            }
+
+            return current?.markerKey === nearestMarker.markerKey
+                ? current
+                : { ...nearestMarker, x: nearestMarker.percent };
+        });
+    }, [isDragging, timelineMarkers]);
+
+    const clearTimelineHover = useCallback(() => {
+        setHoveredMarker((current) => (current ? null : current));
+    }, []);
 
     // Keep the activity stream synced with playback. Only scroll the inner
     // timeline pane so the main replay layout stays stable.
@@ -2878,19 +3359,8 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
         (metrics.scrollCount ?? fullSession?.scrollCount ?? session?.scrollCount ?? 0) +
         (metrics.gestureCount ?? fullSession?.gestureCount ?? session?.gestureCount ?? 0);
     const inferredInteractionCount = events.filter((event) => {
-        const type = (event.type || '').toLowerCase();
-        const gestureType = (event.gestureType || event.properties?.gestureType || '').toLowerCase();
-        return (
-            type === 'tap' ||
-            type === 'touch' ||
-            type === 'gesture' ||
-            type === 'scroll' ||
-            type === 'input' ||
-            gestureType.includes('tap') ||
-            gestureType.includes('scroll') ||
-            gestureType.includes('swipe') ||
-            gestureType.includes('pan')
-        );
+        const type = normalizeEventType(event.type);
+        return isGestureEvent(event) || type === 'input';
     }).length;
     const interactionCount = metricsDerivedInteractionCount > 0 ? metricsDerivedInteractionCount : inferredInteractionCount;
 
@@ -2911,19 +3381,8 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
 
     const firstInteractionTimestamp = allTimelineEvents
         .filter((event) => {
-            const type = (event.type || '').toLowerCase();
-            const gestureType = (event.gestureType || event.properties?.gestureType || '').toLowerCase();
-            return (
-                type === 'tap' ||
-                type === 'touch' ||
-                type === 'gesture' ||
-                type === 'scroll' ||
-                type === 'input' ||
-                gestureType.includes('tap') ||
-                gestureType.includes('scroll') ||
-                gestureType.includes('swipe') ||
-                gestureType.includes('pan')
-            );
+            const type = normalizeEventType(event.type);
+            return isGestureEvent(event) || type === 'input';
         })
         .map((event) => event.timestamp)
         .filter((timestamp) => Number.isFinite(timestamp) && timestamp >= replayBaseTime)
@@ -3627,12 +4086,14 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
                                                 <button
                                                     onClick={() => setShowTouchOverlay(!showTouchOverlay)}
                                                     onMouseDown={(event) => event.preventDefault()}
+                                                    aria-pressed={showTouchOverlay}
+                                                    title={showTouchOverlay ? 'Hide touch overlay' : 'Show touch overlay'}
                                                     className={`flex h-7 items-center gap-1 border-2 px-2 text-xs font-bold uppercase transition ${showTouchOverlay
-                                                        ? 'border-black bg-[#67e8f9] text-black shadow-neo-sm'
+                                                        ? 'border-[#2563eb] bg-white text-[#2563eb] shadow-[2px_2px_0px_0px_rgba(37,99,235,1)]'
                                                         : 'border-black bg-white text-black shadow-neo-sm hover:-translate-y-0.5 hover:bg-[#ecfeff] hover:shadow-neo'
                                                         }`}
                                                 >
-                                                    <Hand className="h-3 w-3" />
+                                                    <Hand className={`h-3 w-3 ${showTouchOverlay ? 'text-[#2563eb]' : 'text-black'}`} />
                                                     <span className="hidden xs:inline">Touches</span>
                                                 </button>
                                             ) : null}
@@ -3674,93 +4135,27 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
                                     </div>
                                 </div>
 
-                                <div className="bg-[#f8fafc] px-3 py-2 xl:shrink-0 xl:px-4 xl:py-1.5">
+                                <div className="select-none bg-[#f8fafc] px-3 py-2 xl:shrink-0 xl:px-4">
                                     <div className="mb-1 flex flex-wrap items-center justify-between gap-1">
-                                        <div className="flex items-center gap-3 text-[9px] font-black uppercase text-black">
-                                            <span className="flex items-center gap-1"><span className="h-2 w-2 border border-slate-500 bg-[#3b82f6]" />Touch Density</span>
-                                            <span className="flex items-center gap-1"><span className="h-2 w-2 border border-slate-500 bg-[#10b981]" />API Density</span>
-                                            <span className="flex items-center gap-1"><span className="h-2 w-2 border border-black bg-[#fb7185]" />Issues</span>
+                                        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[8px] font-black uppercase text-black">
+                                            <span className="flex items-center gap-0.5"><RouteIcon className="h-2.5 w-2.5 text-[#8b5cf6]" />Nav</span>
+                                            <span className="flex items-center gap-0.5"><Hand className="h-2.5 w-2.5 text-[#3b82f6]" />Gestures</span>
+                                            <span className="flex items-center gap-0.5"><Zap className="h-2.5 w-2.5 text-[#f43f5e]" />Rage</span>
+                                            <span className="flex items-center gap-0.5"><CircleX className="h-2.5 w-2.5 text-[#64748b]" />Dead</span>
+                                            <span className="flex items-center gap-0.5"><span className="h-3 w-1 rounded-full bg-[#15803d]" />API</span>
+                                            <span className="flex items-center gap-0.5"><span className="font-mono text-[8px] font-black leading-none text-[#db2777]">Zzz</span>Background</span>
                                         </div>
                                         <span className="text-[9px] font-bold uppercase text-slate-600">
-                                            Drag timeline or click markers to seek
+                                            Click icons to seek
                                         </span>
                                     </div>
 
-                                    <svg viewBox="0 0 1000 50" preserveAspectRatio="none" className="h-7 w-full xl:h-5">
-                                        <defs>
-                                            <linearGradient id="touchGradNew" x1="0%" y1="0%" x2="0%" y2="100%">
-                                                <stop offset="0%" stopColor="#3b82f6" stopOpacity="0.35" />
-                                                <stop offset="100%" stopColor="#3b82f6" stopOpacity="0.08" />
-                                            </linearGradient>
-                                            <linearGradient id="apiGradNew" x1="0%" y1="0%" x2="0%" y2="100%">
-                                                <stop offset="0%" stopColor="#10b981" stopOpacity="0.35" />
-                                                <stop offset="100%" stopColor="#10b981" stopOpacity="0.08" />
-                                            </linearGradient>
-                                        </defs>
-
-                                        {densityData.touchDensity.length > 0 && (
-                                            <>
-                                                <path
-                                                    fill="url(#touchGradNew)"
-                                                    d={`M0,48 ${densityData.touchDensity
-                                                        .map((value, index) => {
-                                                            const x = (index / (densityData.touchDensity.length - 1)) * 1000;
-                                                            const y = 45 - value * 38;
-                                                            return `L${x},${y}`;
-                                                        })
-                                                        .join(' ')} L1000,48 Z`}
-                                                />
-                                                <polyline
-                                                    fill="none"
-                                                    stroke="#3b82f6"
-                                                    strokeWidth="2"
-                                                    strokeLinecap="round"
-                                                    strokeLinejoin="round"
-                                                    points={densityData.touchDensity
-                                                        .map((value, index) => {
-                                                            const x = (index / (densityData.touchDensity.length - 1)) * 1000;
-                                                            const y = 45 - value * 38;
-                                                            return `${x},${y}`;
-                                                        })
-                                                        .join(' ')}
-                                                />
-                                            </>
-                                        )}
-
-                                        {densityData.apiDensity.length > 0 && (
-                                            <>
-                                                <path
-                                                    fill="url(#apiGradNew)"
-                                                    d={`M0,48 ${densityData.apiDensity
-                                                        .map((value, index) => {
-                                                            const x = (index / (densityData.apiDensity.length - 1)) * 1000;
-                                                            const y = 45 - value * 38;
-                                                            return `L${x},${y}`;
-                                                        })
-                                                        .join(' ')} L1000,48 Z`}
-                                                />
-                                                <polyline
-                                                    fill="none"
-                                                    stroke="#10b981"
-                                                    strokeWidth="2"
-                                                    strokeLinecap="round"
-                                                    strokeLinejoin="round"
-                                                    points={densityData.apiDensity
-                                                        .map((value, index) => {
-                                                            const x = (index / (densityData.apiDensity.length - 1)) * 1000;
-                                                            const y = 45 - value * 38;
-                                                            return `${x},${y}`;
-                                                        })
-                                                        .join(' ')}
-                                                />
-                                            </>
-                                        )}
-                                    </svg>
-
                                     <div
                                         ref={progressRef}
-                                        className="group relative mt-1 h-6 cursor-pointer touch-none xl:h-5"
+                                        className="group relative mt-1 h-9 cursor-pointer touch-none select-none xl:h-8"
                                         onMouseDown={handleProgressMouseDown}
+                                        onMouseMove={handleTimelineMouseMove}
+                                        onMouseLeave={clearTimelineHover}
                                         onTouchStart={handleProgressTouchStart}
                                     >
                                         <div className="absolute left-0 right-0 top-1/2 h-2 -translate-y-1/2 rounded-full border border-slate-400 bg-slate-200" />
@@ -3772,40 +4167,86 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
                                             />
                                         </div>
 
-                                        {timelineMarkers.map(({ event, sourceIndex, clusteredCount }) => {
-                                            const time = eventTimestampToPlaybackSeconds(event.timestamp);
-                                            if (time < 0 || playbackDurationSeconds <= 0) return null;
-                                            const percent = Math.min(100, Math.max(0, (time / playbackDurationSeconds) * 100));
-                                            const markerKey = `marker-${sourceIndex}-${event.timestamp}`;
+                                        {timelineMarkers.map((marker) => {
+                                            const { event, clusteredCount, markerKey, percent } = marker;
                                             const color = getEventColor(event);
-                                            const isFrustration =
-                                                event.frustrationKind || event.type === 'rage_tap' || event.gestureType === 'dead_tap';
+                                            const isFrustration = isFrustrationEvent(event);
+                                            const isGestureMarker = isGestureEvent(event);
+                                            const isFaultMarker = isFaultEvent(event);
+                                            const isAppBackgroundMarker = isAppBackgroundEvent(event);
+                                            const isRouteNavigationMarker = isRouteNavigationEvent(event);
                                             const isClustered = clusteredCount > 1;
+                                            const hasFrictionInCluster = marker.counts.friction > 0;
+                                            const hasRageTapInCluster = marker.counts.rageTap > 0;
+                                            const hasDeadTapInCluster = marker.counts.deadTap > 0;
+                                            const hasAnyFrictionInCluster = hasFrictionInCluster || hasRageTapInCluster || hasDeadTapInCluster;
+                                            const hasFaultInCluster = marker.counts.fault > 0;
+                                            const hasGestureInCluster = marker.counts.gesture > 0;
+                                            const hasNavigationInCluster = marker.counts.navigation > 0;
+                                            const shouldUseNavigationIcon = !isFrustration && !isFaultMarker && !hasAnyFrictionInCluster && !hasFaultInCluster && (isRouteNavigationMarker || hasNavigationInCluster);
+                                            const shouldUseGestureIcon = !isFrustration && !isFaultMarker && !hasAnyFrictionInCluster && !hasFaultInCluster && !shouldUseNavigationIcon && (isGestureMarker || hasGestureInCluster);
+                                            const isPriorityCluster = isClustered && (hasAnyFrictionInCluster || hasFaultInCluster || isFrustration || isFaultMarker);
+                                            const Icon = shouldUseNavigationIcon ? RouteIcon : shouldUseGestureIcon ? Hand : getEventIcon(event);
+                                            const isHovered = hoveredMarker?.markerKey === markerKey;
+                                            const showIcon = isFrustration || isFaultMarker || isPriorityCluster || shouldUseGestureIcon || shouldUseNavigationIcon || isAppBackgroundMarker;
+                                            const showCountBadge = isClustered && showIcon;
+                                            const markerShellSize = showIcon
+                                                ? 'h-6 w-6'
+                                                : isClustered
+                                                    ? 'h-5 min-w-5'
+                                                    : isGestureMarker
+                                                        ? 'h-4 w-4'
+                                                        : 'h-4 w-2.5';
+                                            const markerVisualSize = showIcon
+                                                ? 'h-5 w-5 border-2'
+                                                : isClustered
+                                                    ? 'h-4 min-w-4 border px-1'
+                                                    : isGestureMarker
+                                                        ? 'h-2.5 w-2.5 border'
+                                                        : 'h-3 w-1 border';
 
                                             return (
-                                                <div
+                                                <span
                                                     key={markerKey}
-                                                    role="button"
-                                                    tabIndex={0}
-                                                    className={`absolute top-1/2 -translate-y-1/2 cursor-pointer rounded-full transition ${isFrustration ? 'z-20 h-2.5 w-2.5' : isClustered ? 'z-10 h-2.5 w-2.5' : 'z-10 h-2 w-2'
-                                                        } ${hoveredMarker?.markerKey === markerKey
-                                                            ? 'scale-150 shadow-[0_0_0_4px_rgba(15,23,42,0.15)]'
-                                                            : 'hover:scale-125'
+                                                    aria-hidden="true"
+                                                    className={`replay-timeline-marker pointer-events-none absolute top-1/2 flex -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full ${markerShellSize} ${isFrustration || hasAnyFrictionInCluster
+                                                        ? 'z-30'
+                                                        : isFaultMarker || hasFaultInCluster
+                                                            ? 'z-[25]'
+                                                            : isAppBackgroundMarker || isRouteNavigationMarker || isGestureMarker || isClustered
+                                                            ? 'z-20'
+                                                            : 'z-10'
                                                         }`}
-                                                    style={{ left: `${percent}%`, backgroundColor: color, opacity: isClustered ? 0.88 : 1 }}
-                                                    onClick={(eventClick) => {
-                                                        eventClick.currentTarget.blur();
-                                                        handleSeekToTime(Math.max(0, time));
-                                                    }}
-                                                    onMouseEnter={() => setHoveredMarker({ markerKey, clusteredCount, ...event, x: percent })}
-                                                    onMouseLeave={() => setHoveredMarker(null)}
-                                                    onKeyDown={(eventKey) => {
-                                                        if (eventKey.key === 'Enter' || eventKey.key === ' ') {
-                                                            eventKey.preventDefault();
-                                                            handleSeekToTime(Math.max(0, time));
-                                                        }
-                                                    }}
-                                                />
+                                                    style={{ left: `${percent}%` }}
+                                                >
+                                                    <span
+                                                        className={`flex items-center justify-center rounded-full border-black text-[8px] font-black leading-none text-white transition-[box-shadow,background-color,opacity] duration-150 ease-out ${markerVisualSize} ${isFrustration || hasAnyFrictionInCluster
+                                                            ? 'shadow-[0_0_0_3px_rgba(244,63,94,0.18)]'
+                                                            : isFaultMarker || hasFaultInCluster || isAppBackgroundMarker
+                                                                ? 'shadow-sm'
+                                                                : isClustered
+                                                                    ? 'opacity-95'
+                                                                    : 'opacity-80'
+                                                            } ${isHovered
+                                                                ? 'shadow-[0_0_0_4px_rgba(15,23,42,0.16)]'
+                                                                : ''
+                                                            }`}
+                                                        style={{ backgroundColor: color }}
+                                                    >
+                                                        {isAppBackgroundMarker ? (
+                                                            <span className="font-mono text-[7px] font-black leading-none tracking-normal text-white">Zzz</span>
+                                                        ) : showIcon ? (
+                                                            <Icon className="h-3 w-3 text-white" strokeWidth={3} />
+                                                        ) : isClustered ? (
+                                                            <span className="px-0.5 font-mono">{formatCountCompact(clusteredCount)}</span>
+                                                        ) : null}
+                                                    </span>
+                                                    {showCountBadge ? (
+                                                        <span className="pointer-events-none absolute right-0 top-0 flex h-3 min-w-[0.75rem] items-center justify-center rounded-full border border-black bg-white px-0.5 text-[8px] font-black leading-none text-black">
+                                                            {formatCountCompact(clusteredCount)}
+                                                        </span>
+                                                    ) : null}
+                                                </span>
                                             );
                                         })}
 
@@ -3813,19 +4254,27 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
                                             <MarkerTooltip
                                                 visible={true}
                                                 x={hoveredMarker.x}
-                                                type={hoveredMarker.type || 'gesture'}
-                                                name={hoveredMarker.name}
-                                                target={hoveredMarker.targetLabel || hoveredMarker.properties?.targetLabel}
-                                                timestamp={formatEventTime(hoveredMarker.timestamp)}
-                                                statusCode={hoveredMarker.properties?.statusCode}
-                                                success={hoveredMarker.properties?.success}
-                                                duration={hoveredMarker.properties?.duration}
+                                                type={hoveredMarker.clusteredCount > 1 ? 'cluster' : getTimelineMarkerType(hoveredMarker.event)}
+                                                name={hoveredMarker.clusteredCount > 1
+                                                    ? `${formatCountCompact(hoveredMarker.clusteredCount)} events`
+                                                    : isRouteNavigationEvent(hoveredMarker.event)
+                                                        ? getNavigationRouteName(hoveredMarker.event)
+                                                        : getActivityEventTitle(hoveredMarker.event)}
+                                                target={hoveredMarker.clusteredCount > 1
+                                                    ? getTimelineMarkerCountSummary(hoveredMarker)
+                                                    : isRouteNavigationEvent(hoveredMarker.event)
+                                                        ? undefined
+                                                    : hoveredMarker.event.targetLabel || hoveredMarker.event.properties?.targetLabel}
+                                                timestamp={formatEventTime(hoveredMarker.event.timestamp)}
+                                                statusCode={hoveredMarker.event.properties?.statusCode}
+                                                success={hoveredMarker.event.properties?.success}
+                                                duration={hoveredMarker.event.properties?.duration}
                                             />
                                         )}
 
                                         <div
                                             ref={progressThumbRef}
-                                            className={`absolute top-1/2 h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-sm border-2 border-white bg-slate-950 shadow transition-transform ${isDragging ? 'scale-110' : 'group-hover:scale-105'
+                                            className={`absolute top-1/2 z-40 h-3.5 w-3.5 -translate-x-1/2 -translate-y-1/2 rounded-sm border-2 border-white bg-slate-950 shadow transition-transform ${isDragging ? 'scale-110' : 'group-hover:scale-105'
                                                 }`}
                                             style={{ left: `${progressPercent}%`, willChange: 'left' }}
                                         />
@@ -3973,25 +4422,8 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
                                                 const timeStr = formatEventTime(event.timestamp);
                                                 const seekTime = eventTimestampToPlaybackSeconds(event.timestamp);
                                                 const isHighlighted = index === activeActivityIndex;
-                                                const title = isNetwork
-                                                    ? `${event.name || event.properties?.method || 'API Request'}`
-                                                    : faultMarker
-                                                        ? `Fault ${faultMarker}`
-                                                        : isLog
-                                                            ? `Console ${logLevel}`
-                                                            : event.type === 'custom'
-                                                                ? event.name || 'Custom Event'
-                                                                : event.type.replace(/_/g, ' ');
-                                                const detail = faultMarker
-                                                    ? getFaultConsoleSummary(event)
-                                                    : isLog
-                                                        ? event.message || event.properties?.message || event.name || 'Console message'
-                                                        : event.targetLabel ||
-                                                        event.properties?.targetLabel ||
-                                                        event.properties?.urlPath ||
-                                                        event.name ||
-                                                        event.screen ||
-                                                        JSON.stringify(event.properties || {});
+                                                const title = getActivityEventTitle(event);
+                                                const detail = getActivityEventDetail(event);
 
                                                 return (
                                                     <button
@@ -4036,9 +4468,11 @@ export const RecordingDetail: React.FC<{ sessionId?: string }> = ({ sessionId })
                                                                         {timeStr}
                                                                     </span>
                                                                 </div>
-                                                                <p className="mt-0.5 line-clamp-2 break-words text-xs font-medium text-slate-600">
-                                                                    <HighlightedText text={String(detail)} search={activitySearch} />
-                                                                </p>
+                                                                {detail ? (
+                                                                    <p className="mt-0.5 line-clamp-2 break-words text-xs font-medium text-slate-600">
+                                                                        <HighlightedText text={detail} search={activitySearch} />
+                                                                    </p>
+                                                                ) : null}
                                                                 {typeof event.properties?.duration === 'number' && event.properties.duration > 0 && (
                                                                     <span
                                                                         className={`mt-1 inline-flex border border-black px-1.5 py-0.5 font-mono text-[10px] font-bold ${event.properties.duration > 1000

@@ -29,7 +29,7 @@ export const MarkerTooltip: React.FC<MarkerTooltipProps> = ({
 
     const isNetwork = type === 'network_request';
     const isError = type === 'error' || type === 'crash' || type === 'anr';
-    const isRage = type === 'rage_tap';
+    const isFrustration = type === 'rage_tap' || type === 'dead_tap';
 
     // Near left/right edges, anchor the tooltip to that edge so a wide card does not spill into the
     // adjacent column (e.g. workbench sidebar) on narrow or split layouts.
@@ -53,7 +53,7 @@ export const MarkerTooltip: React.FC<MarkerTooltipProps> = ({
             <div className="bg-slate-900 border-2 border-black rounded-lg shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] p-2.5 min-w-0 w-max max-w-full flex flex-col gap-1.5 backdrop-blur-md">
                 {/* Header */}
                 <div className="flex items-center justify-between gap-3">
-                    <span className={`text-[10px] font-black uppercase tracking-widest ${isError ? 'text-red-400' : isNetwork ? 'text-blue-400' : isRage ? 'text-pink-400' : 'text-slate-400'
+                    <span className={`text-[10px] font-black uppercase tracking-widest ${isError ? 'text-red-400' : isNetwork ? 'text-blue-400' : isFrustration ? 'text-pink-400' : 'text-slate-400'
                         }`}>
                         {type.replace(/_/g, ' ')}
                     </span>

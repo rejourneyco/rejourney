@@ -6,6 +6,7 @@ import { Buffer } from 'node:buffer';
 import { and, eq, gt, ilike, lt, or, sql, type SQL } from 'drizzle-orm';
 
 import { sessionMetrics, sessions } from '../db/client.js';
+import { ANONYMOUS_NAME_ADJECTIVES, ANONYMOUS_NAME_ANIMALS } from '../utils/anonymousName.js';
 
 export const ARCHIVE_LIST_SORT_KEYS = [
     'date',
@@ -47,18 +48,67 @@ export function escapeIlikePattern(input: string): string {
     return input.replace(/\\/g, '\\\\').replace(/%/g, '\\%').replace(/_/g, '\\_');
 }
 
+function sqlTextArray(values: readonly string[]): SQL {
+    return sql`ARRAY[${sql.join(values.map((value) => sql`${value}`), sql`, `)}]::text[]`;
+}
+
+function archiveAnonymousNameHashSql(): SQL<string> {
+    return sql<string>`encode(sha256(convert_to(${sessions.deviceId}, 'UTF8')), 'hex')`;
+}
+
+/** Mirrors generateAnonymousName so archive search can match the friendly name shown in the UI. */
+export function archiveAnonymousDisplayNameSql(): SQL<string | null> {
+    const hashSql = archiveAnonymousNameHashSql();
+    const adjectiveSql = sql<string>`(${sqlTextArray(ANONYMOUS_NAME_ADJECTIVES)})[
+        ((('x' || substring(${hashSql} from 1 for 4))::bit(16)::int % ${ANONYMOUS_NAME_ADJECTIVES.length}) + 1)
+    ]`;
+    const animalSql = sql<string>`(${sqlTextArray(ANONYMOUS_NAME_ANIMALS)})[
+        ((('x' || substring(${hashSql} from 5 for 4))::bit(16)::int % ${ANONYMOUS_NAME_ANIMALS.length}) + 1)
+    ]`;
+
+    return sql<string | null>`case
+        when nullif(trim(${sessions.deviceId}), '') is not null
+          and nullif(trim(${sessions.userDisplayId}), '') is null
+        then ${adjectiveSql} || ${animalSql} || upper(substring(${hashSql} from 9 for 6))
+        else null
+    end`;
+}
+
+function normalizeAnonymousDisplayNameQuery(query: string): string {
+    return query.trim().replace(/[\s_-]+/g, '').toLowerCase();
+}
+
+export function shouldSearchAnonymousDisplayName(trimmedQuery: string): boolean {
+    const q = normalizeAnonymousDisplayNameQuery(trimmedQuery);
+    if (q.length < 2) return false;
+    if (/^[a-f0-9]{2,6}$/i.test(q)) return true;
+
+    const matchesGeneratedNamePart = (part: string) => {
+        const normalizedPart = part.toLowerCase();
+        return normalizedPart.includes(q) || q.includes(normalizedPart);
+    };
+
+    return ANONYMOUS_NAME_ADJECTIVES.some(matchesGeneratedNamePart)
+        || ANONYMOUS_NAME_ANIMALS.some(matchesGeneratedNamePart);
+}
+
 export function buildArchiveTextSearchCondition(trimmedQuery: string): SQL | null {
     const q = trimmedQuery.trim();
     if (!q) return null;
     const pattern = `%${escapeIlikePattern(q)}%`;
-    return or(
+    const conditions: SQL[] = [
         ilike(sessions.id, pattern),
         ilike(sessions.userDisplayId, pattern),
         ilike(sessions.deviceId, pattern),
         ilike(sessions.deviceModel, pattern),
         ilike(sessions.anonymousHash, pattern),
-        ilike(sessions.anonymousDisplayId, pattern)
-    )!;
+        ilike(sessions.anonymousDisplayId, pattern),
+    ];
+    if (shouldSearchAnonymousDisplayName(q)) {
+        const anonymousNamePattern = `%${escapeIlikePattern(normalizeAnonymousDisplayNameQuery(q))}%`;
+        conditions.push(sql`${archiveAnonymousDisplayNameSql()} ilike ${anonymousNamePattern}`);
+    }
+    return or(...conditions)!;
 }
 
 /**

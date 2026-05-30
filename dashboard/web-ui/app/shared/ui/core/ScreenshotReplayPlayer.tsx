@@ -753,6 +753,7 @@ export const ScreenshotReplayPlayer = forwardRef<
               className="w-full h-full object-contain bg-gray-900"
               muted
               playsInline
+              loop
               onTimeUpdate={handleVideoTimeUpdate}
               onPlay={() => setIsPlaying(true)}
               onPause={() => setIsPlaying(false)}

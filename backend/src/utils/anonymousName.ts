@@ -11,24 +11,24 @@
 import { createHash } from 'crypto';
 
 // Cute adjectives for fun, memorable names
-const ADJECTIVES = [
+export const ANONYMOUS_NAME_ADJECTIVES = [
     'Fluffy', 'Sparkly', 'Cozy', 'Snuggly', 'Bouncy',
     'Fuzzy', 'Jolly', 'Peppy', 'Wiggly', 'Cuddly',
     'Bubbly', 'Chirpy', 'Dreamy', 'Giggly', 'Happy',
     'Merry', 'Perky', 'Silly', 'Sunny', 'Zippy',
     'Cheery', 'Dainty', 'Gentle', 'Peachy', 'Sassy',
     'Sprightly', 'Twinkly', 'Whimsy', 'Zesty', 'Breezy'
-];
+] as const;
 
 // Friendly, recognizable animals
-const ANIMALS = [
+export const ANONYMOUS_NAME_ANIMALS = [
     'Panda', 'Otter', 'Koala', 'Penguin', 'Bunny',
     'Dolphin', 'Owl', 'Fox', 'Bear', 'Deer',
     'Hedgehog', 'Hamster', 'Kitten', 'Puppy', 'Squirrel',
     'Raccoon', 'Sloth', 'Seal', 'Duckling', 'Fawn',
     'Lemur', 'Alpaca', 'Capybara', 'Quokka', 'Meerkat',
     'Chinchilla', 'Ferret', 'Beaver', 'Badger', 'Wombat'
-];
+] as const;
 
 /**
  * Generate a deterministic anonymous display name from a deviceId.
@@ -45,9 +45,9 @@ export function generateAnonymousName(deviceId: string): string {
     const hash = createHash('sha256').update(deviceId).digest('hex');
 
     // Use different parts of the hash for adjective, animal, and suffix
-    const adjIndex = parseInt(hash.slice(0, 4), 16) % ADJECTIVES.length;
-    const animalIndex = parseInt(hash.slice(4, 8), 16) % ANIMALS.length;
+    const adjIndex = parseInt(hash.slice(0, 4), 16) % ANONYMOUS_NAME_ADJECTIVES.length;
+    const animalIndex = parseInt(hash.slice(4, 8), 16) % ANONYMOUS_NAME_ANIMALS.length;
     const suffix = hash.slice(8, 14).toUpperCase();
 
-    return `${ADJECTIVES[adjIndex]}${ANIMALS[animalIndex]}${suffix}`;
+    return `${ANONYMOUS_NAME_ADJECTIVES[adjIndex]}${ANONYMOUS_NAME_ANIMALS[animalIndex]}${suffix}`;
 }
